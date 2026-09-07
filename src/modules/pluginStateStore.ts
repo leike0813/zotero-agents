@@ -171,6 +171,78 @@ export type PluginMutationAuthorityEntry = {
   lastAccessedAt: string;
 };
 
+/**
+ * Private durable records for the Dashboard-local literature artifact
+ * migration. These records intentionally contain only bounded refs, facts,
+ * and receipts; the converted artifact payload remains in the host-owned
+ * migration plan and is never copied into plugin state.
+ */
+export type LiteratureArtifactMigrationRunState =
+  | "preview"
+  | "applying"
+  | "completed"
+  | "completed_with_attention"
+  | "failed";
+
+export type LiteratureArtifactMigrationRunEntry = {
+  runId: string;
+  operationId: string;
+  migrationId: string;
+  definitionVersion: number;
+  libraryId: string;
+  state: LiteratureArtifactMigrationRunState;
+  reason: string;
+  processedCount: number;
+  remainingCount: number;
+  setCount: number;
+  createdAt: string;
+  updatedAt: string;
+  terminalAt: string;
+  diagnostics: string[];
+};
+
+export type LiteratureArtifactMigrationSetOutcome =
+  | "preview"
+  | "applied"
+  | "skipped"
+  | "changed_since_scan"
+  | "repair_required"
+  | "blocked"
+  | "failed";
+
+export type LiteratureArtifactMigrationSetEntry = {
+  runId: string;
+  candidateId: string;
+  operationId: string;
+  ordinal: number;
+  parentRef: string;
+  refs: string[];
+  basisHash: string;
+  classification: "ready" | "review_required" | "blocked";
+  outcome: LiteratureArtifactMigrationSetOutcome;
+  reasonCodes: string[];
+  verifiedCount: number;
+  unresolvedCount: number;
+  recoveredCount: number;
+  droppedCount: number;
+  createdAt: string;
+  updatedAt: string;
+  diagnostics: string[];
+};
+
+export type LiteratureArtifactMigrationRunListOptions = {
+  libraryId?: string | number;
+  states?: LiteratureArtifactMigrationRunState[];
+  limit?: number;
+  cursor?: string;
+};
+
+export type LiteratureArtifactMigrationSetListOptions = {
+  runId: string;
+  limit?: number;
+  cursor?: string;
+};
+
 const SQLITE_MIGRATION_META_KEY = "migration_task_state_v1";
 
 let adapter: SqlAdapter | null = null;
@@ -488,6 +560,47 @@ type MemoryTables = {
       last_accessed_at: string;
     }
   >;
+  literatureMigrationRuns: Map<
+    string,
+    {
+      run_id: string;
+      operation_id: string;
+      migration_id: string;
+      definition_version: number;
+      library_id: string;
+      state: LiteratureArtifactMigrationRunState;
+      reason: string;
+      processed_count: number;
+      remaining_count: number;
+      set_count: number;
+      created_at: string;
+      updated_at: string;
+      terminal_at: string;
+      diagnostics_json: string;
+    }
+  >;
+  literatureMigrationSets: Map<
+    string,
+    {
+      run_id: string;
+      candidate_id: string;
+      operation_id: string;
+      ordinal: number;
+      parent_ref_json: string;
+      refs_json: string;
+      basis_hash: string;
+      classification: "ready" | "review_required" | "blocked";
+      outcome: LiteratureArtifactMigrationSetOutcome;
+      reason_codes_json: string;
+      verified_count: number;
+      unresolved_count: number;
+      recovered_count: number;
+      dropped_count: number;
+      created_at: string;
+      updated_at: string;
+      diagnostics_json: string;
+    }
+  >;
 };
 
 const memoryTables: MemoryTables = {
@@ -501,6 +614,8 @@ const memoryTables: MemoryTables = {
   skillRunnerRunEvents: new Map(),
   workflowSequenceRuns: new Map(),
   mutationAuthorities: new Map(),
+  literatureMigrationRuns: new Map(),
+  literatureMigrationSets: new Map(),
 };
 
 function requestKey(domain: string, requestId: string) {
@@ -517,6 +632,10 @@ function rowKey(domain: string, scope: string, taskId: string) {
 
 function mutationAuthorityKey(scope: string, operationId: string) {
   return `${scope}::${operationId}`;
+}
+
+function literatureMigrationSetKey(runId: string, candidateId: string) {
+  return `${runId}::${candidateId}`;
 }
 
 function memoryRunTablesFromSql(normalizedSql: string) {
@@ -577,6 +696,113 @@ function buildMemoryAdapter(): SqlAdapter {
           return;
         }
         memoryTables.meta.clear();
+        return;
+      }
+      if (
+        normalizedSql.startsWith(
+          "insert or replace into plugin_literature_artifact_migration_runs",
+        )
+      ) {
+        const runId = normalizeString(params.run_id);
+        if (!runId) {
+          return;
+        }
+        memoryTables.literatureMigrationRuns.set(runId, {
+          run_id: runId,
+          operation_id: normalizeString(params.operation_id),
+          migration_id: normalizeString(params.migration_id),
+          definition_version: Number(params.definition_version || 0),
+          library_id: normalizeString(params.library_id),
+          state: normalizeString(
+            params.state,
+          ) as LiteratureArtifactMigrationRunState,
+          reason: normalizeString(params.reason),
+          processed_count: Number(params.processed_count || 0),
+          remaining_count: Number(params.remaining_count || 0),
+          set_count: Number(params.set_count || 0),
+          created_at: normalizeString(params.created_at),
+          updated_at: normalizeString(params.updated_at),
+          terminal_at: normalizeString(params.terminal_at),
+          diagnostics_json: normalizeString(params.diagnostics_json) || "[]",
+        });
+        return;
+      }
+      if (
+        normalizedSql.startsWith(
+          "insert or replace into plugin_literature_artifact_migration_sets",
+        )
+      ) {
+        const runId = normalizeString(params.run_id);
+        const candidateId = normalizeString(params.candidate_id);
+        if (!runId || !candidateId) {
+          return;
+        }
+        memoryTables.literatureMigrationSets.set(
+          literatureMigrationSetKey(runId, candidateId),
+          {
+            run_id: runId,
+            candidate_id: candidateId,
+            operation_id: normalizeString(params.operation_id),
+            ordinal: Number(params.ordinal || 0),
+            parent_ref_json: normalizeString(params.parent_ref_json) || "{}",
+            refs_json: normalizeString(params.refs_json) || "[]",
+            basis_hash: normalizeString(params.basis_hash),
+            classification: normalizeString(params.classification) as
+              | "ready"
+              | "review_required"
+              | "blocked",
+            outcome: normalizeString(
+              params.outcome,
+            ) as LiteratureArtifactMigrationSetOutcome,
+            reason_codes_json:
+              normalizeString(params.reason_codes_json) || "[]",
+            verified_count: Number(params.verified_count || 0),
+            unresolved_count: Number(params.unresolved_count || 0),
+            recovered_count: Number(params.recovered_count || 0),
+            dropped_count: Number(params.dropped_count || 0),
+            created_at: normalizeString(params.created_at),
+            updated_at: normalizeString(params.updated_at),
+            diagnostics_json: normalizeString(params.diagnostics_json) || "[]",
+          },
+        );
+        return;
+      }
+      if (
+        normalizedSql.startsWith(
+          "delete from plugin_literature_artifact_migration_sets",
+        )
+      ) {
+        const runId = normalizeString(params.run_id);
+        const candidateId = normalizeString(params.candidate_id);
+        for (const [
+          key,
+          row,
+        ] of memoryTables.literatureMigrationSets.entries()) {
+          if (runId && row.run_id !== runId) continue;
+          if (candidateId && row.candidate_id !== candidateId) continue;
+          memoryTables.literatureMigrationSets.delete(key);
+        }
+        return;
+      }
+      if (
+        normalizedSql.startsWith(
+          "delete from plugin_literature_artifact_migration_runs",
+        )
+      ) {
+        const runId = normalizeString(params.run_id);
+        if (!runId) {
+          memoryTables.literatureMigrationRuns.clear();
+          memoryTables.literatureMigrationSets.clear();
+          return;
+        }
+        memoryTables.literatureMigrationRuns.delete(runId);
+        for (const [
+          key,
+          row,
+        ] of memoryTables.literatureMigrationSets.entries()) {
+          if (row.run_id === runId)
+            memoryTables.literatureMigrationSets.delete(key);
+        }
         return;
       }
       if (
@@ -898,6 +1124,85 @@ function buildMemoryAdapter(): SqlAdapter {
       const normalizedSql = sql.replace(/\s+/g, " ").trim().toLowerCase();
       if (normalizedSql === "select changes() as value") {
         return [{ value: lastChanges }];
+      }
+      if (
+        normalizedSql.startsWith("select count(*) as value") &&
+        normalizedSql.includes("from plugin_literature_artifact_migration_sets")
+      ) {
+        const runId = normalizeString(params.run_id);
+        return [
+          {
+            value: Array.from(
+              memoryTables.literatureMigrationSets.values(),
+            ).filter((row) => !runId || row.run_id === runId).length,
+          },
+        ];
+      }
+      if (
+        normalizedSql.startsWith("select count(*) as value") &&
+        normalizedSql.includes("from plugin_literature_artifact_migration_runs")
+      ) {
+        return [{ value: memoryTables.literatureMigrationRuns.size }];
+      }
+      if (
+        normalizedSql.includes("from plugin_literature_artifact_migration_sets")
+      ) {
+        const runId = normalizeString(params.run_id);
+        const candidateId = normalizeString(params.candidate_id);
+        const limit =
+          typeof params.limit === "number" && Number.isFinite(params.limit)
+            ? Math.max(0, Math.floor(params.limit))
+            : 0;
+        const rows = Array.from(memoryTables.literatureMigrationSets.values())
+          .filter((row) => {
+            if (runId && row.run_id !== runId) return false;
+            if (candidateId && row.candidate_id !== candidateId) return false;
+            const cursorOrdinal = Number(params.cursor_ordinal || 0);
+            if (cursorOrdinal && row.ordinal <= cursorOrdinal) return false;
+            return true;
+          })
+          .sort((left, right) => left.ordinal - right.ordinal);
+        return (limit ? rows.slice(0, limit) : rows).map((row) => ({ ...row }));
+      }
+      if (
+        normalizedSql.includes("from plugin_literature_artifact_migration_runs")
+      ) {
+        const runId = normalizeString(params.run_id);
+        const libraryId = normalizeString(params.library_id);
+        const stateSet = new Set(
+          Object.entries(params)
+            .filter(([key]) => /^state_\d+$/.test(key))
+            .map(([, value]) => normalizeString(value))
+            .filter(Boolean),
+        );
+        const limit =
+          typeof params.limit === "number" && Number.isFinite(params.limit)
+            ? Math.max(0, Math.floor(params.limit))
+            : 0;
+        const rows = Array.from(memoryTables.literatureMigrationRuns.values())
+          .filter((row) => {
+            if (runId && row.run_id !== runId) return false;
+            if (libraryId && row.library_id !== libraryId) return false;
+            if (stateSet.size > 0 && !stateSet.has(row.state)) return false;
+            const cursorUpdated = normalizeString(params.cursor_updated_at);
+            const cursorRunId = normalizeString(params.cursor_run_id);
+            if (cursorUpdated) {
+              if (row.updated_at > cursorUpdated) return false;
+              if (
+                row.updated_at === cursorUpdated &&
+                cursorRunId &&
+                row.run_id >= cursorRunId
+              ) {
+                return false;
+              }
+            }
+            return true;
+          })
+          .sort((left, right) => {
+            const byTime = right.updated_at.localeCompare(left.updated_at);
+            return byTime || right.run_id.localeCompare(left.run_id);
+          });
+        return (limit ? rows.slice(0, limit) : rows).map((row) => ({ ...row }));
       }
       if (normalizedSql.includes("from plugin_mutation_authority")) {
         const scope = normalizeString(params.scope);
@@ -1566,6 +1871,46 @@ function ensureSchema(db: SqlAdapter) {
     );
   `);
   db.run(`
+    CREATE TABLE IF NOT EXISTS plugin_literature_artifact_migration_runs (
+      run_id TEXT PRIMARY KEY,
+      operation_id TEXT NOT NULL,
+      migration_id TEXT NOT NULL,
+      definition_version TEXT NOT NULL,
+      library_id TEXT NOT NULL,
+      state TEXT NOT NULL,
+      reason TEXT NOT NULL DEFAULT '',
+      processed_count INTEGER NOT NULL DEFAULT 0,
+      remaining_count INTEGER NOT NULL DEFAULT 0,
+      set_count INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      terminal_at TEXT NOT NULL DEFAULT '',
+      diagnostics_json TEXT NOT NULL DEFAULT '[]'
+    );
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS plugin_literature_artifact_migration_sets (
+      run_id TEXT NOT NULL,
+      candidate_id TEXT NOT NULL,
+      operation_id TEXT NOT NULL DEFAULT '',
+      ordinal INTEGER NOT NULL,
+      parent_ref_json TEXT NOT NULL,
+      refs_json TEXT NOT NULL DEFAULT '[]',
+      basis_hash TEXT NOT NULL DEFAULT '',
+      classification TEXT NOT NULL,
+      outcome TEXT NOT NULL,
+      reason_codes_json TEXT NOT NULL DEFAULT '[]',
+      verified_count INTEGER NOT NULL DEFAULT 0,
+      unresolved_count INTEGER NOT NULL DEFAULT 0,
+      recovered_count INTEGER NOT NULL DEFAULT 0,
+      dropped_count INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      diagnostics_json TEXT NOT NULL DEFAULT '[]',
+      PRIMARY KEY (run_id, candidate_id)
+    );
+  `);
+  db.run(`
     CREATE INDEX IF NOT EXISTS idx_plugin_task_requests_backend_request
       ON plugin_task_requests(domain, backend_id, request_id);
   `);
@@ -1612,6 +1957,14 @@ function ensureSchema(db: SqlAdapter) {
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_plugin_mutation_authority_state_terminal
       ON plugin_mutation_authority(state, terminal_at);
+  `);
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_plugin_literature_migration_runs_updated
+      ON plugin_literature_artifact_migration_runs(updated_at DESC, run_id DESC);
+  `);
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_plugin_literature_migration_sets_run_ordinal
+      ON plugin_literature_artifact_migration_sets(run_id, ordinal ASC);
   `);
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_plugin_skillrunner_run_events_run_created
@@ -3498,6 +3851,303 @@ export function settlePluginMutationAuthorityEntry(args: {
   }
 }
 
+function parseStringArrayJson(value: unknown): string[] {
+  try {
+    const parsed = JSON.parse(normalizeString(value) || "[]") as unknown;
+    return Array.isArray(parsed)
+      ? parsed.map((entry) => normalizeString(entry)).filter(Boolean)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function jsonStringArray(values: unknown): string {
+  return JSON.stringify(
+    Array.isArray(values)
+      ? values.map((entry) => normalizeString(entry)).filter(Boolean)
+      : [],
+  );
+}
+
+function normalizeLiteratureArtifactMigrationRunRow(
+  row: Record<string, unknown>,
+): LiteratureArtifactMigrationRunEntry {
+  return {
+    runId: normalizeString(row.run_id),
+    operationId: normalizeString(row.operation_id),
+    migrationId: normalizeString(row.migration_id),
+    definitionVersion: Number(row.definition_version || 0),
+    libraryId: normalizeString(row.library_id),
+    state: normalizeString(row.state) as LiteratureArtifactMigrationRunState,
+    reason: normalizeString(row.reason),
+    processedCount: Number(row.processed_count || 0),
+    remainingCount: Number(row.remaining_count || 0),
+    setCount: Number(row.set_count || 0),
+    createdAt: normalizeString(row.created_at),
+    updatedAt: normalizeString(row.updated_at),
+    terminalAt: normalizeString(row.terminal_at),
+    diagnostics: parseStringArrayJson(row.diagnostics_json),
+  };
+}
+
+function normalizeLiteratureArtifactMigrationSetRow(
+  row: Record<string, unknown>,
+): LiteratureArtifactMigrationSetEntry {
+  return {
+    runId: normalizeString(row.run_id),
+    candidateId: normalizeString(row.candidate_id),
+    operationId: normalizeString(row.operation_id),
+    ordinal: Number(row.ordinal || 0),
+    parentRef: normalizeString(row.parent_ref_json),
+    refs: parseStringArrayJson(row.refs_json),
+    basisHash: normalizeString(row.basis_hash),
+    classification: normalizeString(row.classification) as
+      | "ready"
+      | "review_required"
+      | "blocked",
+    outcome: normalizeString(
+      row.outcome,
+    ) as LiteratureArtifactMigrationSetOutcome,
+    reasonCodes: parseStringArrayJson(row.reason_codes_json),
+    verifiedCount: Number(row.verified_count || 0),
+    unresolvedCount: Number(row.unresolved_count || 0),
+    recoveredCount: Number(row.recovered_count || 0),
+    droppedCount: Number(row.dropped_count || 0),
+    createdAt: normalizeString(row.created_at),
+    updatedAt: normalizeString(row.updated_at),
+    diagnostics: parseStringArrayJson(row.diagnostics_json),
+  };
+}
+
+function decodeMigrationCursor(raw: unknown): {
+  updatedAt?: string;
+  runId?: string;
+  ordinal?: number;
+} {
+  const value = normalizeString(raw);
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(decodeURIComponent(value)) as Record<
+      string,
+      unknown
+    >;
+    return {
+      updatedAt: normalizeString(parsed.updatedAt) || undefined,
+      runId: normalizeString(parsed.runId) || undefined,
+      ordinal:
+        Number.isFinite(Number(parsed.ordinal)) && Number(parsed.ordinal) > 0
+          ? Number(parsed.ordinal)
+          : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
+export function upsertLiteratureArtifactMigrationRun(
+  entry: LiteratureArtifactMigrationRunEntry,
+) {
+  const runId = normalizeString(entry.runId);
+  if (!runId) return;
+  const db = getAdapter();
+  db.run(
+    `
+      INSERT OR REPLACE INTO plugin_literature_artifact_migration_runs
+      (run_id, operation_id, migration_id, definition_version, library_id,
+       state, reason, processed_count, remaining_count, set_count, created_at,
+       updated_at, terminal_at, diagnostics_json)
+      VALUES (@run_id, @operation_id, @migration_id, @definition_version,
+       @library_id, @state, @reason, @processed_count, @remaining_count,
+       @set_count, @created_at, @updated_at, @terminal_at, @diagnostics_json)
+    `,
+    {
+      run_id: runId,
+      operation_id: normalizeString(entry.operationId),
+      migration_id: normalizeString(entry.migrationId),
+      definition_version: Number(entry.definitionVersion || 0),
+      library_id: normalizeString(entry.libraryId),
+      state: normalizeString(entry.state),
+      reason: normalizeString(entry.reason),
+      processed_count: Math.max(
+        0,
+        Math.floor(Number(entry.processedCount) || 0),
+      ),
+      remaining_count: Math.max(
+        0,
+        Math.floor(Number(entry.remainingCount) || 0),
+      ),
+      set_count: Math.max(0, Math.floor(Number(entry.setCount) || 0)),
+      created_at: normalizeString(entry.createdAt) || nowIso(),
+      updated_at: normalizeString(entry.updatedAt) || nowIso(),
+      terminal_at: normalizeString(entry.terminalAt),
+      diagnostics_json: jsonStringArray(entry.diagnostics),
+    },
+  );
+}
+
+export function getLiteratureArtifactMigrationRun(runIdRaw: string) {
+  const runId = normalizeString(runIdRaw);
+  if (!runId) return null;
+  const row = getAdapter().get(
+    `
+      SELECT run_id, operation_id, migration_id, definition_version,
+        library_id, state, reason, processed_count, remaining_count, set_count,
+        created_at, updated_at, terminal_at, diagnostics_json
+      FROM plugin_literature_artifact_migration_runs
+      WHERE run_id=@run_id
+      LIMIT 1
+    `,
+    { run_id: runId },
+  );
+  return row ? normalizeLiteratureArtifactMigrationRunRow(row) : null;
+}
+
+export function listLiteratureArtifactMigrationRuns(
+  options: LiteratureArtifactMigrationRunListOptions = {},
+) {
+  const where: string[] = [];
+  const params: SqlParams = {};
+  const libraryId = normalizeString(options.libraryId);
+  if (libraryId) {
+    where.push("library_id=@library_id");
+    params.library_id = libraryId;
+  }
+  const states = Array.from(
+    new Set((options.states || []).map((state) => normalizeString(state))),
+  ).filter(Boolean);
+  if (states.length) {
+    states.forEach((state, index) => {
+      params[`state_${index}`] = state;
+    });
+    where.push(
+      `state IN (${states.map((_, index) => `@state_${index}`).join(", ")})`,
+    );
+  }
+  const cursor = decodeMigrationCursor(options.cursor);
+  if (cursor.updatedAt) {
+    params.cursor_updated_at = cursor.updatedAt;
+    params.cursor_run_id = cursor.runId || "";
+    where.push(
+      "(updated_at < @cursor_updated_at OR (updated_at = @cursor_updated_at AND run_id < @cursor_run_id))",
+    );
+  }
+  const limit = Math.min(100, normalizeTaskRowLimit(options.limit) || 50);
+  params.limit = limit;
+  const rows = getAdapter().all(
+    `
+      SELECT run_id, operation_id, migration_id, definition_version,
+        library_id, state, reason, processed_count, remaining_count, set_count,
+        created_at, updated_at, terminal_at, diagnostics_json
+      FROM plugin_literature_artifact_migration_runs
+      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+      ORDER BY updated_at DESC, run_id DESC
+      LIMIT @limit
+    `,
+    params,
+  );
+  return rows.map(normalizeLiteratureArtifactMigrationRunRow);
+}
+
+export function upsertLiteratureArtifactMigrationSet(
+  entry: LiteratureArtifactMigrationSetEntry,
+) {
+  const runId = normalizeString(entry.runId);
+  const candidateId = normalizeString(entry.candidateId);
+  if (!runId || !candidateId) return;
+  const db = getAdapter();
+  db.run(
+    `
+      INSERT OR REPLACE INTO plugin_literature_artifact_migration_sets
+      (run_id, candidate_id, operation_id, ordinal, parent_ref_json, refs_json,
+       basis_hash, classification, outcome, reason_codes_json, verified_count,
+       unresolved_count, recovered_count, dropped_count, created_at, updated_at,
+       diagnostics_json)
+      VALUES (@run_id, @candidate_id, @operation_id, @ordinal, @parent_ref_json, @refs_json,
+       @basis_hash, @classification, @outcome, @reason_codes_json,
+       @verified_count, @unresolved_count, @recovered_count, @dropped_count,
+       @created_at, @updated_at, @diagnostics_json)
+    `,
+    {
+      run_id: runId,
+      candidate_id: candidateId,
+      operation_id: normalizeString(entry.operationId),
+      ordinal: Math.max(0, Math.floor(Number(entry.ordinal) || 0)),
+      parent_ref_json: normalizeString(entry.parentRef) || "{}",
+      refs_json: jsonStringArray(entry.refs),
+      basis_hash: normalizeString(entry.basisHash),
+      classification: normalizeString(entry.classification),
+      outcome: normalizeString(entry.outcome),
+      reason_codes_json: jsonStringArray(entry.reasonCodes),
+      verified_count: Math.max(0, Math.floor(Number(entry.verifiedCount) || 0)),
+      unresolved_count: Math.max(
+        0,
+        Math.floor(Number(entry.unresolvedCount) || 0),
+      ),
+      recovered_count: Math.max(
+        0,
+        Math.floor(Number(entry.recoveredCount) || 0),
+      ),
+      dropped_count: Math.max(0, Math.floor(Number(entry.droppedCount) || 0)),
+      created_at: normalizeString(entry.createdAt) || nowIso(),
+      updated_at: normalizeString(entry.updatedAt) || nowIso(),
+      diagnostics_json: jsonStringArray(entry.diagnostics),
+    },
+  );
+}
+
+export function getLiteratureArtifactMigrationSet(
+  runIdRaw: string,
+  candidateIdRaw: string,
+) {
+  const runId = normalizeString(runIdRaw);
+  const candidateId = normalizeString(candidateIdRaw);
+  if (!runId || !candidateId) return null;
+  const row = getAdapter().get(
+    `
+      SELECT run_id, candidate_id, operation_id, ordinal, parent_ref_json, refs_json,
+        basis_hash, classification, outcome, reason_codes_json, verified_count,
+        unresolved_count, recovered_count, dropped_count, created_at, updated_at,
+        diagnostics_json
+      FROM plugin_literature_artifact_migration_sets
+      WHERE run_id=@run_id AND candidate_id=@candidate_id
+      LIMIT 1
+    `,
+    { run_id: runId, candidate_id: candidateId },
+  );
+  return row ? normalizeLiteratureArtifactMigrationSetRow(row) : null;
+}
+
+export function listLiteratureArtifactMigrationSets(
+  options: LiteratureArtifactMigrationSetListOptions,
+) {
+  const runId = normalizeString(options.runId);
+  if (!runId) return [];
+  const cursor = decodeMigrationCursor(options.cursor);
+  const where = ["run_id=@run_id"];
+  const params: SqlParams = { run_id: runId };
+  if (cursor.ordinal) {
+    where.push("ordinal > @cursor_ordinal");
+    params.cursor_ordinal = cursor.ordinal;
+  }
+  const limit = Math.min(100, normalizeTaskRowLimit(options.limit) || 50);
+  params.limit = limit;
+  const rows = getAdapter().all(
+    `
+      SELECT run_id, candidate_id, operation_id, ordinal, parent_ref_json, refs_json,
+        basis_hash, classification, outcome, reason_codes_json, verified_count,
+        unresolved_count, recovered_count, dropped_count, created_at, updated_at,
+        diagnostics_json
+      FROM plugin_literature_artifact_migration_sets
+      WHERE ${where.join(" AND ")}
+      ORDER BY ordinal ASC
+      LIMIT @limit
+    `,
+    params,
+  );
+  return rows.map(normalizeLiteratureArtifactMigrationSetRow);
+}
+
 export function expirePluginMutationAuthorityEntryEvidence(args: {
   scope: string;
   operationId: string;
@@ -3546,6 +4196,8 @@ export function resetPluginStateStoreForTests() {
     db.run("DELETE FROM plugin_skillrunner_runs");
     db.run("DELETE FROM plugin_workflow_sequence_runs");
     db.run("DELETE FROM plugin_mutation_authority");
+    db.run("DELETE FROM plugin_literature_artifact_migration_sets");
+    db.run("DELETE FROM plugin_literature_artifact_migration_runs");
     db.run("DELETE FROM plugin_meta");
   }
   memoryTables.requests.clear();
@@ -3557,6 +4209,8 @@ export function resetPluginStateStoreForTests() {
   memoryTables.skillRunnerRuns.clear();
   memoryTables.workflowSequenceRuns.clear();
   memoryTables.mutationAuthorities.clear();
+  memoryTables.literatureMigrationRuns.clear();
+  memoryTables.literatureMigrationSets.clear();
   memoryTables.meta.clear();
   mutationAuthorityStorageFaultForTests = undefined;
   adapter = null;
@@ -3622,6 +4276,16 @@ export function inspectPluginStateStoreCounts() {
     db.get("SELECT COUNT(*) AS value FROM plugin_workflow_sequence_runs")
       ?.value || 0,
   );
+  const literatureMigrationRunCount = Number(
+    db.get(
+      "SELECT COUNT(*) AS value FROM plugin_literature_artifact_migration_runs",
+    )?.value || 0,
+  );
+  const literatureMigrationSetCount = Number(
+    db.get(
+      "SELECT COUNT(*) AS value FROM plugin_literature_artifact_migration_sets",
+    )?.value || 0,
+  );
   return {
     requestCount: Number.isFinite(requestCount) ? requestCount : 0,
     contextCount: Number.isFinite(contextCount) ? contextCount : 0,
@@ -3632,6 +4296,12 @@ export function inspectPluginStateStoreCounts() {
       : 0,
     workflowSequenceRunCount: Number.isFinite(workflowSequenceRunCount)
       ? workflowSequenceRunCount
+      : 0,
+    literatureMigrationRunCount: Number.isFinite(literatureMigrationRunCount)
+      ? literatureMigrationRunCount
+      : 0,
+    literatureMigrationSetCount: Number.isFinite(literatureMigrationSetCount)
+      ? literatureMigrationSetCount
       : 0,
   };
 }
@@ -3717,6 +4387,25 @@ export function exportPluginStateStoreRowsForTests() {
         SELECT sequence_run_id, workflow_run_id, workflow_id, backend_id, backend_type, state, updated_at, payload_json
         FROM plugin_workflow_sequence_runs
         ORDER BY sequence_run_id
+      `,
+    ),
+    literatureMigrationRuns: db.all(
+      `
+        SELECT run_id, operation_id, migration_id, definition_version,
+          library_id, state, reason, processed_count, remaining_count,
+          set_count, created_at, updated_at, terminal_at, diagnostics_json
+        FROM plugin_literature_artifact_migration_runs
+        ORDER BY run_id
+      `,
+    ),
+    literatureMigrationSets: db.all(
+      `
+        SELECT run_id, candidate_id, operation_id, ordinal, parent_ref_json, refs_json,
+          basis_hash, classification, outcome, reason_codes_json,
+          verified_count, unresolved_count, recovered_count, dropped_count,
+          created_at, updated_at, diagnostics_json
+        FROM plugin_literature_artifact_migration_sets
+        ORDER BY run_id, ordinal
       `,
     ),
   };

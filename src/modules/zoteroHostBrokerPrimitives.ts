@@ -7,14 +7,46 @@ type Creator = {
   creatorType?: string;
 };
 
-async function save(item: Zotero.Item) {
+export type ZoteroHostNativeTransactionOptions = Readonly<{
+  /** The caller already owns Zotero.DB.executeTransaction. */
+  inNativeTransaction?: boolean;
+}>;
+
+async function save(
+  item: Zotero.Item,
+  options: ZoteroHostNativeTransactionOptions = {},
+) {
+  if (options.inNativeTransaction) {
+    const save = (item as Zotero.Item & { save?: () => Promise<unknown> }).save;
+    if (typeof save !== "function") {
+      throw new Error(
+        "Zotero item save is unavailable inside a native transaction",
+      );
+    }
+    await save.call(item);
+    return;
+  }
   if (typeof item.saveTx !== "function") {
     throw new Error("Zotero item saveTx is unavailable");
   }
   await item.saveTx();
 }
 
-async function erase(item: Zotero.Item) {
+async function erase(
+  item: Zotero.Item,
+  options: ZoteroHostNativeTransactionOptions = {},
+) {
+  if (options.inNativeTransaction) {
+    const erase = (item as Zotero.Item & { erase?: () => Promise<unknown> })
+      .erase;
+    if (typeof erase !== "function") {
+      throw new Error(
+        "Zotero item erase is unavailable inside a native transaction",
+      );
+    }
+    await erase.call(item);
+    return;
+  }
   if (typeof item.eraseTx !== "function") {
     throw new Error("Zotero item eraseTx is unavailable");
   }
@@ -62,6 +94,7 @@ async function createNote(args: {
   libraryID?: number;
   tags?: readonly string[];
   collections?: readonly Zotero.Collection[];
+  transaction?: ZoteroHostNativeTransactionOptions;
 }) {
   const note = new Zotero.Item("note");
   if (args.parent) {
@@ -75,13 +108,17 @@ async function createNote(args: {
   for (const tag of args.tags || []) note.addTag(tag);
   for (const collection of args.collections || [])
     note.addToCollection(collection.id);
-  await save(note);
+  await save(note, args.transaction);
   return note;
 }
 
-async function updateFields(item: Zotero.Item, fields: FieldPatch) {
+async function updateFields(
+  item: Zotero.Item,
+  fields: FieldPatch,
+  transaction?: ZoteroHostNativeTransactionOptions,
+) {
   applyFields(item, fields);
-  await save(item);
+  await save(item, transaction);
   return item;
 }
 
@@ -92,6 +129,7 @@ async function updateMetadata(
     fields?: FieldPatch | null;
     creators?: readonly Creator[] | null;
   },
+  transaction?: ZoteroHostNativeTransactionOptions,
 ) {
   if (args.itemType && args.itemType !== item.itemType) {
     const typeId = Zotero.ItemTypes?.getID?.(args.itemType);
@@ -101,69 +139,93 @@ async function updateMetadata(
   applyFields(item, args.fields || undefined);
   if (args.creators) applyCreators(item, args.creators);
   if (args.itemType || Object.keys(args.fields || {}).length || args.creators) {
-    await save(item);
+    await save(item, transaction);
   }
   return item;
 }
 
-async function updateNote(item: Zotero.Item, content: string) {
+async function updateNote(
+  item: Zotero.Item,
+  content: string,
+  transaction?: ZoteroHostNativeTransactionOptions,
+) {
   item.setNote(content);
-  await save(item);
+  await save(item, transaction);
   return item;
 }
 
-async function addRelated(item: Zotero.Item, related: readonly Zotero.Item[]) {
+async function addRelated(
+  item: Zotero.Item,
+  related: readonly Zotero.Item[],
+  transaction?: ZoteroHostNativeTransactionOptions,
+) {
   for (const target of related) item.addRelatedItem(target);
-  await save(item);
+  await save(item, transaction);
 }
 
 async function removeRelated(
   item: Zotero.Item,
   related: readonly Zotero.Item[],
+  transaction?: ZoteroHostNativeTransactionOptions,
 ) {
   for (const target of related) await item.removeRelatedItem(target);
-  await save(item);
+  await save(item, transaction);
 }
 
-async function addTags(item: Zotero.Item, tags: readonly string[]) {
+async function addTags(
+  item: Zotero.Item,
+  tags: readonly string[],
+  transaction?: ZoteroHostNativeTransactionOptions,
+) {
   for (const tag of tags) item.addTag(tag);
-  await save(item);
+  await save(item, transaction);
 }
 
-async function removeTags(item: Zotero.Item, tags: readonly string[]) {
+async function removeTags(
+  item: Zotero.Item,
+  tags: readonly string[],
+  transaction?: ZoteroHostNativeTransactionOptions,
+) {
   for (const tag of tags) item.removeTag(tag);
-  await save(item);
+  await save(item, transaction);
 }
 
-async function replaceTags(item: Zotero.Item, tags: readonly string[]) {
+async function replaceTags(
+  item: Zotero.Item,
+  tags: readonly string[],
+  transaction?: ZoteroHostNativeTransactionOptions,
+) {
   for (const current of item.getTags()) item.removeTag(current.tag);
   for (const tag of tags) item.addTag(tag);
-  await save(item);
+  await save(item, transaction);
 }
 
 async function addToCollection(
   item: Zotero.Item,
   collection: Zotero.Collection,
+  transaction?: ZoteroHostNativeTransactionOptions,
 ) {
   item.addToCollection(collection.id);
-  await save(item);
+  await save(item, transaction);
 }
 
 async function removeFromCollection(
   item: Zotero.Item,
   collection: Zotero.Collection,
+  transaction?: ZoteroHostNativeTransactionOptions,
 ) {
   item.removeFromCollection(collection.id);
-  await save(item);
+  await save(item, transaction);
 }
 
 async function replaceCollections(
   item: Zotero.Item,
   collections: readonly Zotero.Collection[],
+  transaction?: ZoteroHostNativeTransactionOptions,
 ) {
   for (const id of item.getCollections()) item.removeFromCollection(id);
   for (const collection of collections) item.addToCollection(collection.id);
-  await save(item);
+  await save(item, transaction);
 }
 
 async function createCollection(args: { name: string; libraryID: number }) {
@@ -216,9 +278,13 @@ async function createLinkedAttachment(args: {
   });
 }
 
-async function updateAttachment(item: Zotero.Item, fields: FieldPatch) {
+async function updateAttachment(
+  item: Zotero.Item,
+  fields: FieldPatch,
+  transaction?: ZoteroHostNativeTransactionOptions,
+) {
   applyFields(item, fields);
-  await save(item);
+  await save(item, transaction);
   return item;
 }
 

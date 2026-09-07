@@ -13,6 +13,12 @@ import {
   ZoteroHostCapabilityError,
   type ZoteroHostLibrarySyncSnapshotRequest,
 } from "../modules/zoteroHostCapabilityBroker";
+import {
+  getZoteroManagedNoteLocalControl,
+  classifyManagedNoteTransfer,
+  type ManagedParentSetSemanticInput,
+} from "../modules/zoteroManagedNotes";
+import { parseEmbeddedNotePayloadBlock } from "../modules/notePayloadCodec";
 import { createWorkflowNotificationOwner } from "../modules/workflowExecution/feedbackSeam";
 import {
   copyRuntimeFile,
@@ -246,12 +252,14 @@ export function createStoredAttachmentCompleteSemanticInput<
 
 export function lookupWorkflowStoredAttachmentMutation<
   K extends "attachments.create" | "attachments.replaceFile",
->(args: Readonly<{
-  scope: ZoteroHostMutationCallerScope;
-  input: Omit<MutationRequestByOperation[K], "source">;
-  source: WorkflowStoredAttachmentPreparationRequest;
-  completeSemanticInput?: JsonObject;
-}>) {
+>(
+  args: Readonly<{
+    scope: ZoteroHostMutationCallerScope;
+    input: Omit<MutationRequestByOperation[K], "source">;
+    source: WorkflowStoredAttachmentPreparationRequest;
+    completeSemanticInput?: JsonObject;
+  }>,
+) {
   return lookupTrustedStoredAttachmentMutation<MutationResultByOperation[K]>({
     scope: args.scope,
     operationId: args.input.operationId,
@@ -511,12 +519,18 @@ function requireConfirmedMutationResult<
   if ("result" in result) {
     return result.result;
   }
-  const error = new Error(
-    result.attempt.error.message ||
-      `Workflow Host mutation ${result.outcome}: ${result.attempt.error.code}`,
+  const { attempt } = result;
+  throw new MutationAuthorityExecutionError(
+    attempt.status,
+    attempt.error.code,
+    attempt.error.phase,
+    attempt.error.recovery,
+    attempt.error.details,
+    attempt.error.message ||
+      `Workflow Host mutation ${result.outcome}: ${attempt.error.code}`,
+    attempt.affectedRefs,
+    attempt.residualRefs,
   );
-  Object.assign(error, { attempt: result.attempt });
-  throw error;
 }
 
 async function researchImportEffectOperationId(
@@ -575,10 +589,7 @@ export function createWorkflowResearchBundleImportApi(args: {
     preparedImages: args.preparedImages,
   };
   const executePreparedAttachmentCreate = async (
-    input: Omit<
-      MutationRequestByOperation["attachments.create"],
-      "source"
-    >,
+    input: Omit<MutationRequestByOperation["attachments.create"], "source">,
     source: Parameters<
       ReturnType<
         typeof createWorkflowPreparedStoredFiles
@@ -588,11 +599,12 @@ export function createWorkflowResearchBundleImportApi(args: {
   ): Promise<
     MutationExecutionResult<MutationResultByOperation["attachments.create"]>
   > => {
-    const existing = await lookupWorkflowStoredAttachmentMutation<"attachments.create">({
-      scope: callerScope,
-      input,
-      source,
-    });
+    const existing =
+      await lookupWorkflowStoredAttachmentMutation<"attachments.create">({
+        scope: callerScope,
+        input,
+        source,
+      });
     if (existing.state !== "missing") return existing.result;
     const files = createWorkflowPreparedStoredFiles(args.resources);
     try {
@@ -605,15 +617,16 @@ export function createWorkflowResearchBundleImportApi(args: {
         ...input,
         source: canonicalSource,
       };
-      const replay = await lookupWorkflowStoredAttachmentMutation<"attachments.create">({
-        scope: callerScope,
-        input,
-        source,
-        completeSemanticInput: createStoredAttachmentCompleteSemanticInput(
+      const replay =
+        await lookupWorkflowStoredAttachmentMutation<"attachments.create">({
+          scope: callerScope,
           input,
-          canonicalSource,
-        ),
-      });
+          source,
+          completeSemanticInput: createStoredAttachmentCompleteSemanticInput(
+            input,
+            canonicalSource,
+          ),
+        });
       if (replay.state !== "missing") return replay.result;
       const prepared = await trusted.prepare<"attachments.create">({
         input: canonicalInput,
@@ -756,93 +769,188 @@ export function createWorkflowResearchBundleImportApi(args: {
           control,
         );
       },
-      async createNote({
+      async createNotes({
         operationId,
         consistencyGroupId,
         graphId,
         parentRef,
-        note,
-        embeddedImages,
+        notes,
         control,
       }) {
-        const content =
-          note.content.format === "html"
-            ? note.content.value
-            : `<p>${escapeResearchImportHtml(note.content.value)}</p>`;
-        let noteResult: ReturnType<typeof requireMutationItemRef> | undefined;
-        try {
-          const imageBindings = await Promise.all(
-            embeddedImages.map(async (image) => ({
-              slot: image.slot,
-              preparedImage: (
-                await args.images.prepareForNoteEmbedding(
-                  {
-                    source: { kind: "file", path: image.resource.path },
-                    ...(image.preserveSourceBytes
-                      ? { options: { preserveSourceBytes: true } }
-                      : {}),
-                  },
-                  control,
-                )
-              ).ref,
-              ...(image.altText ? { altText: image.altText } : {}),
-            })),
-          );
-          noteResult = requireMutationItemRef(
-            requireConfirmedMutationResult(
-              await broker.notes.create(
-                {
-                  operationId: await researchImportEffectOperationId(
-                    operationId,
-                    consistencyGroupId,
-                    "notes.create",
-                    `${graphId}:${note.noteId}`,
-                  ),
-                  placement: { kind: "child", parentRef },
-                  content: {
-                    format: "html",
-                    value: content,
-                    ...(imageBindings.length
-                      ? { embeddedImages: imageBindings }
-                      : {}),
-                  },
-                  ...(note.tags.length ? { initialTags: note.tags } : {}),
-                },
-                callerScope,
-                control,
+        const prepared = await Promise.all(
+          notes.map(async ({ note, embeddedImages }) => {
+            const content =
+              note.content.format === "html"
+                ? note.content.value
+                : `<p>${escapeResearchImportHtml(note.content.value)}</p>`;
+            const transferImages = await Promise.all(
+              embeddedImages.map(async (image) => ({
+                image,
+                payload: parseEmbeddedNotePayloadBlock(
+                  await readRuntimeBytes(image.resource.path),
+                ),
+              })),
+            );
+            const inspection = classifyManagedNoteTransfer({
+              html: content,
+              title: "",
+              payloads: note.payloads,
+              embeddedPayloads: transferImages.flatMap((entry) =>
+                entry.payload ? [entry.payload] : [],
               ),
-            ).note,
-          );
-
-          for (const payload of note.payloads) {
-            requireConfirmedMutationResult(
-              await broker.notes.upsertPayload(
+            });
+            const imageBindings = await Promise.all(
+              transferImages
+                .filter(
+                  (entry) => inspection.kind === "ordinary" || !entry.payload,
+                )
+                .map(async ({ image }) => ({
+                  slot: image.slot,
+                  preparedImage: (
+                    await args.images.prepareForNoteEmbedding(
+                      {
+                        source: { kind: "file", path: image.resource.path },
+                        ...(image.preserveSourceBytes
+                          ? { options: { preserveSourceBytes: true } }
+                          : {}),
+                      },
+                      control,
+                    )
+                  ).ref,
+                  ...(image.altText ? { altText: image.altText } : {}),
+                })),
+            );
+            const payloadImageSlots = transferImages.flatMap((entry) =>
+              entry.payload
+                ? [
+                    {
+                      slot: entry.image.slot,
+                      payloadType: entry.payload.payloadType,
+                    },
+                  ]
+                : [],
+            );
+            return {
+              note,
+              content,
+              inspection,
+              imageBindings,
+              payloadImageSlots,
+            };
+          }),
+        );
+        const managedEntries: NonNullable<
+          ManagedParentSetSemanticInput["entries"]
+        > = [];
+        const managedIds: string[] = [];
+        for (const entry of prepared) {
+          if (entry.inspection.kind !== "managed") continue;
+          managedIds.push(entry.note.noteId);
+          managedEntries.push({
+            sourceNoteId: entry.note.noteId,
+            noteKind: entry.inspection.noteKind,
+            title: entry.inspection.title,
+            payload: entry.inspection.payload,
+            visibleHtml: entry.content,
+            tags: entry.note.tags,
+            embeddedImages: entry.imageBindings,
+            auxiliaryPayloads: entry.inspection.payloads,
+            payloadImageSlots: entry.payloadImageSlots,
+          });
+        }
+        const created: Array<{
+          noteId: string;
+          value: ReturnType<typeof requireMutationItemRef>;
+        }> = [];
+        try {
+          if (managedEntries.length) {
+            const result = requireConfirmedMutationResult(
+              await getZoteroManagedNoteLocalControl(broker).applyParentSet(
                 {
                   operationId: await researchImportEffectOperationId(
                     operationId,
                     consistencyGroupId,
-                    "notes.upsertPayload",
-                    `${graphId}:${note.noteId}:${payload.summary.payloadType}`,
+                    "managed.parentSet",
+                    graphId,
                   ),
-                  noteRef: noteResult.ref,
-                  payload: {
-                    payloadType: payload.summary.payloadType,
-                    noteKind: payload.summary.noteKind,
-                    schemaVersion: payload.summary.version,
-                    format: payload.summary.format,
-                    value: payload.value,
-                  },
+                  parentRef,
+                  entries: managedEntries,
                 },
                 callerScope,
                 control,
               ),
             );
+            result.notes.forEach((note, index) =>
+              created.push({
+                noteId: managedIds[index],
+                value: { ref: note.ref, revision: note.revision },
+              }),
+            );
+            if (result.notes.length !== managedIds.length)
+              throw new Error(
+                "Managed parent set returned incomplete note identities",
+              );
           }
-          return noteResult;
+          for (const entry of prepared) {
+            if (entry.inspection.kind === "managed") continue;
+            const result = requireMutationItemRef(
+              requireConfirmedMutationResult(
+                await broker.notes.create(
+                  {
+                    operationId: await researchImportEffectOperationId(
+                      operationId,
+                      consistencyGroupId,
+                      "notes.create",
+                      `${graphId}:${entry.note.noteId}`,
+                    ),
+                    placement: { kind: "child", parentRef },
+                    content: {
+                      format: "html",
+                      value: entry.content,
+                      ...(entry.imageBindings.length
+                        ? { embeddedImages: entry.imageBindings }
+                        : {}),
+                    },
+                    initialTags: entry.note.tags,
+                  },
+                  callerScope,
+                  control,
+                ),
+              ).note,
+            );
+            created.push({ noteId: entry.note.noteId, value: result });
+            for (const payload of entry.note.payloads) {
+              requireConfirmedMutationResult(
+                await broker.notes.upsertPayload(
+                  {
+                    operationId: await researchImportEffectOperationId(
+                      operationId,
+                      consistencyGroupId,
+                      "notes.upsertPayload",
+                      `${graphId}:${entry.note.noteId}:${payload.summary.payloadType}`,
+                    ),
+                    noteRef: result.ref,
+                    payload: {
+                      payloadType: payload.summary.payloadType,
+                      noteKind: payload.summary.noteKind,
+                      schemaVersion: payload.summary.version,
+                      format: payload.summary.format,
+                      value: payload.value,
+                    },
+                  },
+                  callerScope,
+                  control,
+                ),
+              );
+            }
+          }
+          return created;
         } catch (error) {
-          const affectedRefs = noteResult ? [noteResult.ref] : [];
-          const residualRefs: Array<{ libraryId: number; key: string }> = [];
-          for (const itemRef of [...affectedRefs].reverse()) {
+          const residualRefs =
+            error instanceof MutationAuthorityExecutionError
+              ? [...error.residualRefs]
+              : [];
+          for (const entry of [...created].reverse()) {
             try {
               await mutationResult(
                 {
@@ -851,17 +959,26 @@ export function createWorkflowResearchBundleImportApi(args: {
                     operationId,
                     consistencyGroupId,
                     "trash.setItemsState",
-                    `${itemRef.libraryId}:${itemRef.key}`,
+                    `${entry.value.ref.libraryId}:${entry.value.ref.key}`,
                   ),
-                  itemRefs: [itemRef],
+                  itemRefs: [entry.value.ref],
                   state: "trashed",
                 },
                 control,
               );
             } catch {
-              residualRefs.push(itemRef);
+              residualRefs.push({ kind: "item", ref: entry.value.ref });
             }
           }
+          const affectedRefs = [
+            ...created.map((entry) => ({
+              kind: "item" as const,
+              ref: entry.value.ref,
+            })),
+            ...(error instanceof MutationAuthorityExecutionError
+              ? error.affectedRefs
+              : []),
+          ];
           throw new MutationAuthorityExecutionError(
             residualRefs.length ? "repair_required" : "failed",
             "execution_failed",
@@ -878,8 +995,8 @@ export function createWorkflowResearchBundleImportApi(args: {
             error instanceof Error
               ? error.message
               : "Research note import failed",
-            affectedRefs.map((ref) => ({ kind: "item" as const, ref })),
-            residualRefs.map((ref) => ({ kind: "item" as const, ref })),
+            affectedRefs,
+            residualRefs,
           );
         }
       },
@@ -1066,27 +1183,16 @@ export function createWorkflowResearchBundleMaterializeApi(args: {
     );
     const notes = await Promise.all(
       noteSummaries.map(async (summary) => {
-        const note = await broker.library.getNoteDetail(
+        const {
+          detail: note,
+          html,
+          payloads,
+          tags,
+        } = await getZoteroManagedNoteLocalControl(broker).readForTransfer(
           summary.ref,
-          { format: "html" },
           control,
         );
-        const payloadSummaries = await readAllLibraryPages(
-          (page) => broker.library.listNotePayloads(summary.ref, page, control),
-          (page) => page.payloads,
-        );
-        const payloads = await Promise.all(
-          payloadSummaries
-            .filter((payload) => payload.state === "available")
-            .map((payload) =>
-              broker.library.getNotePayload(
-                summary.ref,
-                { payloadType: payload.payloadType },
-                control,
-              ),
-            ),
-        );
-        let content = note.content;
+        let content = html;
         const embeddedImages: MaterializedNoteDto["content"]["embeddedImages"] =
           [];
         const imageAttachments = (
@@ -1105,7 +1211,7 @@ export function createWorkflowResearchBundleMaterializeApi(args: {
             new RegExp(
               `\\bdata-attachment-key\\s*=\\s*(?:["']${attachment.ref.key}["']|${attachment.ref.key}(?=\\s|>))`,
               "i",
-            ).test(note.content),
+            ).test(html),
         );
         for (const attachment of imageAttachments) {
           if (
@@ -1141,14 +1247,23 @@ export function createWorkflowResearchBundleMaterializeApi(args: {
           });
         }
         return {
-          source: { ref: summary.ref, revision: summary.revision },
+          source: { ref: note.ref, revision: note.revision },
           content: {
             format: "html" as const,
             value: content,
             embeddedImages,
           },
-          tags: [],
+          tags,
           payloads,
+          ...(note.kind === "managed"
+            ? {
+                managedArtifact: {
+                  noteKind: note.noteKind,
+                  payload: note.payload,
+                  ...(note.provenance ? { provenance: note.provenance } : {}),
+                },
+              }
+            : {}),
         };
       }),
     );

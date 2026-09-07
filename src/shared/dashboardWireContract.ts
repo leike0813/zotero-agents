@@ -99,7 +99,15 @@ export type DashboardHostActionName =
   | "runtime-logs-copy-selected"
   | "runtime-logs-copy-diagnostic-bundle"
   | "runtime-logs-copy-issue-summary"
-  | "runtime-logs-copy-entry";
+  | "runtime-logs-copy-entry"
+  | "literature-migration-scan"
+  | "literature-migration-apply"
+  | "literature-migration-stop"
+  | "literature-migration-continue"
+  | "literature-migration-preview"
+  | "literature-migration-list-receipts"
+  | "literature-migration-list-history"
+  | "literature-migration-select-run";
 
 /** Actions handled by the Dashboard controller without a host round-trip. */
 export type DashboardLocalActionName =
@@ -261,6 +269,39 @@ export type DashboardActionPayloadMap = {
   "runtime-logs-copy-entry": DashboardActionPayloadShape<{
     entryId: string;
     format: "pretty-json" | "ndjson";
+  }>;
+  "literature-migration-scan": DashboardActionPayloadShape<{
+    libraryId: number;
+  }>;
+  "literature-migration-apply": DashboardActionPayloadShape<{
+    scanOperationId: string;
+    candidateIds: string[];
+    reviewAcceptedCandidateIds?: string[];
+    migrationId?: string;
+    definitionVersion?: number;
+  }>;
+  "literature-migration-stop": DashboardActionPayloadShape<{
+    runId: string;
+  }>;
+  "literature-migration-continue": DashboardActionPayloadShape<{
+    runId: string;
+    candidateIds?: string[];
+  }>;
+  "literature-migration-preview": DashboardActionPayloadShape<{
+    runId: string;
+    candidateId: string;
+  }>;
+  "literature-migration-list-receipts": DashboardActionPayloadShape<{
+    runId: string;
+    limit?: number;
+    cursor?: string;
+  }>;
+  "literature-migration-list-history": DashboardActionPayloadShape<{
+    limit?: number;
+    cursor?: string;
+  }>;
+  "literature-migration-select-run": DashboardActionPayloadShape<{
+    runId: string;
   }>;
   "synthesis-sidecar-select-trace": DashboardActionPayloadShape<{
     traceId: string;
@@ -1038,6 +1079,60 @@ export type DashboardAcpReplayProfilerView = {
 // Snapshot
 // ---------------------------------------------------------------------------
 
+export type DashboardLiteratureArtifactMigrationCandidate = {
+  candidateId: string;
+  ordinal: number;
+  classification: "ready" | "review_required" | "blocked";
+  outcome:
+    | "preview"
+    | "applied"
+    | "skipped"
+    | "changed_since_scan"
+    | "repair_required"
+    | "blocked"
+    | "failed";
+  reasonCodes: string[];
+  verifiedCount: number;
+  unresolvedCount: number;
+  recoveredCount: number;
+  droppedCount: number;
+};
+
+export type DashboardLiteratureArtifactMigrationRun = {
+  runId: string;
+  operationId: string;
+  migrationId: string;
+  definitionVersion: number;
+  libraryId: number;
+  state:
+    | "preview"
+    | "applying"
+    | "completed"
+    | "completed_with_attention"
+    | "failed";
+  reason: string;
+  processedCount: number;
+  remainingCount: number;
+  setCount: number;
+  createdAt: string;
+  updatedAt: string;
+  terminalAt: string;
+  diagnostics: string[];
+};
+
+export type DashboardLiteratureArtifactMigrationView = {
+  migrationId: string;
+  definitionVersion: number;
+  availability: "available" | "unavailable" | "busy";
+  availabilityReason: string;
+  libraryId: number;
+  activeRun: DashboardLiteratureArtifactMigrationRun | null;
+  activeOperationId: string;
+  candidates: DashboardLiteratureArtifactMigrationCandidate[];
+  receipts: DashboardLiteratureArtifactMigrationCandidate[];
+  history: DashboardLiteratureArtifactMigrationRun[];
+};
+
 export type DashboardSnapshot = {
   generatedAt: string;
   title: string;
@@ -1062,5 +1157,6 @@ export type DashboardSnapshot = {
   };
   acpTraceRecorderView?: DashboardAcpTraceRecorderView;
   acpReplayProfilerView?: DashboardAcpReplayProfilerView;
+  literatureArtifactMigrationView?: DashboardLiteratureArtifactMigrationView;
   surfaceSignatures?: DashboardSurfaceSignatures;
 };

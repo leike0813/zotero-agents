@@ -292,6 +292,202 @@ Required: `true`.
         }
       ]
     },
+    "literatureScoreArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "confidence_adjusted_score": {
+          "maximum": 100,
+          "minimum": 0,
+          "type": "number"
+        },
+        "dimensions": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "applicable_max_score": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "confidence": {
+                "maximum": 1,
+                "minimum": 0,
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "configured_weight": {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              },
+              "criteria": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "criterion_key": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "evidence": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "line_end": {
+                            "minimum": 1,
+                            "type": "integer"
+                          },
+                          "line_start": {
+                            "minimum": 1,
+                            "type": "integer"
+                          },
+                          "quote": {
+                            "maxLength": 500,
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "line_start",
+                          "line_end",
+                          "quote"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "max_score": {
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "name": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "reason": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "score": {
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "status": {
+                      "enum": [
+                        "scored",
+                        "not_applicable"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "criterion_key",
+                    "name",
+                    "status",
+                    "score",
+                    "max_score",
+                    "reason",
+                    "evidence"
+                  ],
+                  "type": "object"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              "dimension_key": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "effective_weight": {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              },
+              "name": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "raw_score": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "score": {
+                "maximum": 100,
+                "minimum": 0,
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "summary": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "dimension_key",
+              "name",
+              "configured_weight",
+              "effective_weight",
+              "raw_score",
+              "applicable_max_score",
+              "score",
+              "confidence",
+              "summary",
+              "criteria"
+            ],
+            "type": "object"
+          },
+          "maxItems": 6,
+          "minItems": 6,
+          "type": "array"
+        },
+        "overall_score": {
+          "maximum": 100,
+          "minimum": 0,
+          "type": "number"
+        },
+        "paper_type": {
+          "enum": [
+            "empirical",
+            "review",
+            "theoretical",
+            "qualitative",
+            "mixed_methods",
+            "other"
+          ]
+        },
+        "paper_type_reason": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "rubric_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "schema": {
+          "const": "literature_score.v1"
+        }
+      },
+      "required": [
+        "schema",
+        "rubric_id",
+        "paper_type",
+        "paper_type_reason",
+        "overall_score",
+        "confidence",
+        "confidence_adjusted_score",
+        "dimensions"
+      ],
+      "type": "object"
+    },
     "noteContent": {
       "additionalProperties": false,
       "properties": {
@@ -1220,6 +1416,253 @@ Required: `true`.
         "paper"
       ],
       "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "additionalProperties": false,
+          "properties": {
+            "markdown": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "title": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "title",
+            "markdown"
+          ],
+          "type": "object"
+        },
+        "operation": {
+          "const": "managed_note.write_custom"
+        },
+        "operationId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "target": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "create"
+                },
+                "parentRef": {
+                  "$ref": "#/$defs/itemRef"
+                }
+              },
+              "required": [
+                "kind",
+                "parentRef"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "update"
+                },
+                "noteRef": {
+                  "$ref": "#/$defs/itemRef"
+                }
+              },
+              "required": [
+                "kind",
+                "noteRef"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "operation",
+        "target",
+        "content"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "additionalProperties": false,
+          "properties": {
+            "markdown": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "title": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "title",
+            "markdown"
+          ],
+          "type": "object"
+        },
+        "operation": {
+          "const": "managed_note.write_conversation"
+        },
+        "operationId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "target": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "create"
+                },
+                "parentRef": {
+                  "$ref": "#/$defs/itemRef"
+                }
+              },
+              "required": [
+                "kind",
+                "parentRef"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "update"
+                },
+                "noteRef": {
+                  "$ref": "#/$defs/itemRef"
+                }
+              },
+              "required": [
+                "kind",
+                "noteRef"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "operation",
+        "target",
+        "content"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "markdown": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "operation": {
+          "const": "literature_artifact.upsert_digest"
+        },
+        "operationId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "parentRef": {
+          "$ref": "#/$defs/itemRef"
+        }
+      },
+      "required": [
+        "operation",
+        "parentRef",
+        "markdown"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "literature_artifact.upsert_references"
+        },
+        "operationId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "parentRef": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "references": {
+          "$ref": "#/$defs/jsonValue"
+        }
+      },
+      "required": [
+        "operation",
+        "parentRef",
+        "references"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "citationAnalysis": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "operation": {
+          "const": "literature_artifact.upsert_citation_analysis"
+        },
+        "operationId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "parentRef": {
+          "$ref": "#/$defs/itemRef"
+        }
+      },
+      "required": [
+        "operation",
+        "parentRef",
+        "citationAnalysis"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "literature_artifact.upsert_score"
+        },
+        "operationId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "parentRef": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "score": {
+          "$ref": "#/$defs/literatureScoreArtifact"
+        }
+      },
+      "required": [
+        "operation",
+        "parentRef",
+        "score"
+      ],
+      "type": "object"
     }
   ],
   "type": "object",
@@ -1403,6 +1846,202 @@ Required: `true`.
           "type": "object"
         }
       ]
+    },
+    "literatureScoreArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "confidence_adjusted_score": {
+          "maximum": 100,
+          "minimum": 0,
+          "type": "number"
+        },
+        "dimensions": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "applicable_max_score": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "confidence": {
+                "maximum": 1,
+                "minimum": 0,
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "configured_weight": {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              },
+              "criteria": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "criterion_key": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "evidence": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "line_end": {
+                            "minimum": 1,
+                            "type": "integer"
+                          },
+                          "line_start": {
+                            "minimum": 1,
+                            "type": "integer"
+                          },
+                          "quote": {
+                            "maxLength": 500,
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "line_start",
+                          "line_end",
+                          "quote"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "max_score": {
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "name": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "reason": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "score": {
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "status": {
+                      "enum": [
+                        "scored",
+                        "not_applicable"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "criterion_key",
+                    "name",
+                    "status",
+                    "score",
+                    "max_score",
+                    "reason",
+                    "evidence"
+                  ],
+                  "type": "object"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              "dimension_key": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "effective_weight": {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              },
+              "name": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "raw_score": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "score": {
+                "maximum": 100,
+                "minimum": 0,
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "summary": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "dimension_key",
+              "name",
+              "configured_weight",
+              "effective_weight",
+              "raw_score",
+              "applicable_max_score",
+              "score",
+              "confidence",
+              "summary",
+              "criteria"
+            ],
+            "type": "object"
+          },
+          "maxItems": 6,
+          "minItems": 6,
+          "type": "array"
+        },
+        "overall_score": {
+          "maximum": 100,
+          "minimum": 0,
+          "type": "number"
+        },
+        "paper_type": {
+          "enum": [
+            "empirical",
+            "review",
+            "theoretical",
+            "qualitative",
+            "mixed_methods",
+            "other"
+          ]
+        },
+        "paper_type_reason": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "rubric_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "schema": {
+          "const": "literature_score.v1"
+        }
+      },
+      "required": [
+        "schema",
+        "rubric_id",
+        "paper_type",
+        "paper_type_reason",
+        "overall_score",
+        "confidence",
+        "confidence_adjusted_score",
+        "dimensions"
+      ],
+      "type": "object"
     },
     "noteContent": {
       "additionalProperties": false,
@@ -2296,6 +2935,253 @@ Required: `true`.
         "paper"
       ],
       "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "additionalProperties": false,
+          "properties": {
+            "markdown": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "title": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "title",
+            "markdown"
+          ],
+          "type": "object"
+        },
+        "operation": {
+          "const": "managed_note.write_custom"
+        },
+        "operationId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "target": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "create"
+                },
+                "parentRef": {
+                  "$ref": "#/$defs/itemRef"
+                }
+              },
+              "required": [
+                "kind",
+                "parentRef"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "update"
+                },
+                "noteRef": {
+                  "$ref": "#/$defs/itemRef"
+                }
+              },
+              "required": [
+                "kind",
+                "noteRef"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "operation",
+        "target",
+        "content"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "additionalProperties": false,
+          "properties": {
+            "markdown": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "title": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "title",
+            "markdown"
+          ],
+          "type": "object"
+        },
+        "operation": {
+          "const": "managed_note.write_conversation"
+        },
+        "operationId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "target": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "create"
+                },
+                "parentRef": {
+                  "$ref": "#/$defs/itemRef"
+                }
+              },
+              "required": [
+                "kind",
+                "parentRef"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "update"
+                },
+                "noteRef": {
+                  "$ref": "#/$defs/itemRef"
+                }
+              },
+              "required": [
+                "kind",
+                "noteRef"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "operation",
+        "target",
+        "content"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "markdown": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "operation": {
+          "const": "literature_artifact.upsert_digest"
+        },
+        "operationId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "parentRef": {
+          "$ref": "#/$defs/itemRef"
+        }
+      },
+      "required": [
+        "operation",
+        "parentRef",
+        "markdown"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "literature_artifact.upsert_references"
+        },
+        "operationId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "parentRef": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "references": {
+          "$ref": "#/$defs/jsonValue"
+        }
+      },
+      "required": [
+        "operation",
+        "parentRef",
+        "references"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "citationAnalysis": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "operation": {
+          "const": "literature_artifact.upsert_citation_analysis"
+        },
+        "operationId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "parentRef": {
+          "$ref": "#/$defs/itemRef"
+        }
+      },
+      "required": [
+        "operation",
+        "parentRef",
+        "citationAnalysis"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "literature_artifact.upsert_score"
+        },
+        "operationId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "parentRef": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "score": {
+          "$ref": "#/$defs/literatureScoreArtifact"
+        }
+      },
+      "required": [
+        "operation",
+        "parentRef",
+        "score"
+      ],
+      "type": "object"
     }
   ],
   "type": "object",
@@ -2357,7 +3243,13 @@ This command has no separate field-mapping program. Its binding mode is executab
             "attachments.remove",
             "statusTags.transition",
             "trash.setItemsState",
-            "literature.ingest"
+            "literature.ingest",
+            "managed_note.write_custom",
+            "managed_note.write_conversation",
+            "literature_artifact.upsert_digest",
+            "literature_artifact.upsert_references",
+            "literature_artifact.upsert_citation_analysis",
+            "literature_artifact.upsert_score"
           ]
         },
         "outcome": {
@@ -2734,6 +3626,202 @@ This closed descriptor is the machine-readable command contract returned by `sur
                 "type": "object"
               }
             ]
+          },
+          "literatureScoreArtifact": {
+            "additionalProperties": false,
+            "properties": {
+              "confidence": {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              },
+              "confidence_adjusted_score": {
+                "maximum": 100,
+                "minimum": 0,
+                "type": "number"
+              },
+              "dimensions": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "applicable_max_score": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "confidence": {
+                      "maximum": 1,
+                      "minimum": 0,
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "configured_weight": {
+                      "maximum": 1,
+                      "minimum": 0,
+                      "type": "number"
+                    },
+                    "criteria": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "criterion_key": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "evidence": {
+                            "items": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "line_end": {
+                                  "minimum": 1,
+                                  "type": "integer"
+                                },
+                                "line_start": {
+                                  "minimum": 1,
+                                  "type": "integer"
+                                },
+                                "quote": {
+                                  "maxLength": 500,
+                                  "minLength": 1,
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "line_start",
+                                "line_end",
+                                "quote"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "max_score": {
+                            "minimum": 1,
+                            "type": "integer"
+                          },
+                          "name": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "reason": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "score": {
+                            "minimum": 0,
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "status": {
+                            "enum": [
+                              "scored",
+                              "not_applicable"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "criterion_key",
+                          "name",
+                          "status",
+                          "score",
+                          "max_score",
+                          "reason",
+                          "evidence"
+                        ],
+                        "type": "object"
+                      },
+                      "minItems": 1,
+                      "type": "array"
+                    },
+                    "dimension_key": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "effective_weight": {
+                      "maximum": 1,
+                      "minimum": 0,
+                      "type": "number"
+                    },
+                    "name": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "raw_score": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "score": {
+                      "maximum": 100,
+                      "minimum": 0,
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "summary": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "dimension_key",
+                    "name",
+                    "configured_weight",
+                    "effective_weight",
+                    "raw_score",
+                    "applicable_max_score",
+                    "score",
+                    "confidence",
+                    "summary",
+                    "criteria"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 6,
+                "minItems": 6,
+                "type": "array"
+              },
+              "overall_score": {
+                "maximum": 100,
+                "minimum": 0,
+                "type": "number"
+              },
+              "paper_type": {
+                "enum": [
+                  "empirical",
+                  "review",
+                  "theoretical",
+                  "qualitative",
+                  "mixed_methods",
+                  "other"
+                ]
+              },
+              "paper_type_reason": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "rubric_id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "schema": {
+                "const": "literature_score.v1"
+              }
+            },
+            "required": [
+              "schema",
+              "rubric_id",
+              "paper_type",
+              "paper_type_reason",
+              "overall_score",
+              "confidence",
+              "confidence_adjusted_score",
+              "dimensions"
+            ],
+            "type": "object"
           },
           "noteContent": {
             "additionalProperties": false,
@@ -3663,6 +4751,253 @@ This closed descriptor is the machine-readable command contract returned by `sur
               "paper"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "content": {
+                "additionalProperties": false,
+                "properties": {
+                  "markdown": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "title": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "title",
+                  "markdown"
+                ],
+                "type": "object"
+              },
+              "operation": {
+                "const": "managed_note.write_custom"
+              },
+              "operationId": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "target": {
+                "oneOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "const": "create"
+                      },
+                      "parentRef": {
+                        "$ref": "#/$defs/itemRef"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "parentRef"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "const": "update"
+                      },
+                      "noteRef": {
+                        "$ref": "#/$defs/itemRef"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "noteRef"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "operation",
+              "target",
+              "content"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "content": {
+                "additionalProperties": false,
+                "properties": {
+                  "markdown": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "title": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "title",
+                  "markdown"
+                ],
+                "type": "object"
+              },
+              "operation": {
+                "const": "managed_note.write_conversation"
+              },
+              "operationId": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "target": {
+                "oneOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "const": "create"
+                      },
+                      "parentRef": {
+                        "$ref": "#/$defs/itemRef"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "parentRef"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "const": "update"
+                      },
+                      "noteRef": {
+                        "$ref": "#/$defs/itemRef"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "noteRef"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "operation",
+              "target",
+              "content"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "markdown": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "operation": {
+                "const": "literature_artifact.upsert_digest"
+              },
+              "operationId": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "parentRef": {
+                "$ref": "#/$defs/itemRef"
+              }
+            },
+            "required": [
+              "operation",
+              "parentRef",
+              "markdown"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "literature_artifact.upsert_references"
+              },
+              "operationId": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "parentRef": {
+                "$ref": "#/$defs/itemRef"
+              },
+              "references": {
+                "$ref": "#/$defs/jsonValue"
+              }
+            },
+            "required": [
+              "operation",
+              "parentRef",
+              "references"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "citationAnalysis": {
+                "$ref": "#/$defs/jsonValue"
+              },
+              "operation": {
+                "const": "literature_artifact.upsert_citation_analysis"
+              },
+              "operationId": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "parentRef": {
+                "$ref": "#/$defs/itemRef"
+              }
+            },
+            "required": [
+              "operation",
+              "parentRef",
+              "citationAnalysis"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "literature_artifact.upsert_score"
+              },
+              "operationId": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "parentRef": {
+                "$ref": "#/$defs/itemRef"
+              },
+              "score": {
+                "$ref": "#/$defs/literatureScoreArtifact"
+              }
+            },
+            "required": [
+              "operation",
+              "parentRef",
+              "score"
+            ],
+            "type": "object"
           }
         ],
         "type": "object",
@@ -3869,6 +5204,202 @@ This closed descriptor is the machine-readable command contract returned by `sur
             "type": "object"
           }
         ]
+      },
+      "literatureScoreArtifact": {
+        "additionalProperties": false,
+        "properties": {
+          "confidence": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "confidence_adjusted_score": {
+            "maximum": 100,
+            "minimum": 0,
+            "type": "number"
+          },
+          "dimensions": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "applicable_max_score": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "confidence": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "configured_weight": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "criteria": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "criterion_key": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "evidence": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "line_end": {
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "line_start": {
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "quote": {
+                              "maxLength": 500,
+                              "minLength": 1,
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "line_start",
+                            "line_end",
+                            "quote"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "max_score": {
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      "name": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "reason": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "score": {
+                        "minimum": 0,
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      },
+                      "status": {
+                        "enum": [
+                          "scored",
+                          "not_applicable"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "criterion_key",
+                      "name",
+                      "status",
+                      "score",
+                      "max_score",
+                      "reason",
+                      "evidence"
+                    ],
+                    "type": "object"
+                  },
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "dimension_key": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "effective_weight": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "name": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "raw_score": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "score": {
+                  "maximum": 100,
+                  "minimum": 0,
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "summary": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "dimension_key",
+                "name",
+                "configured_weight",
+                "effective_weight",
+                "raw_score",
+                "applicable_max_score",
+                "score",
+                "confidence",
+                "summary",
+                "criteria"
+              ],
+              "type": "object"
+            },
+            "maxItems": 6,
+            "minItems": 6,
+            "type": "array"
+          },
+          "overall_score": {
+            "maximum": 100,
+            "minimum": 0,
+            "type": "number"
+          },
+          "paper_type": {
+            "enum": [
+              "empirical",
+              "review",
+              "theoretical",
+              "qualitative",
+              "mixed_methods",
+              "other"
+            ]
+          },
+          "paper_type_reason": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "rubric_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "schema": {
+            "const": "literature_score.v1"
+          }
+        },
+        "required": [
+          "schema",
+          "rubric_id",
+          "paper_type",
+          "paper_type_reason",
+          "overall_score",
+          "confidence",
+          "confidence_adjusted_score",
+          "dimensions"
+        ],
+        "type": "object"
       },
       "noteContent": {
         "additionalProperties": false,
@@ -4762,6 +6293,253 @@ This closed descriptor is the machine-readable command contract returned by `sur
           "paper"
         ],
         "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "additionalProperties": false,
+            "properties": {
+              "markdown": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "title": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "title",
+              "markdown"
+            ],
+            "type": "object"
+          },
+          "operation": {
+            "const": "managed_note.write_custom"
+          },
+          "operationId": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "target": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "create"
+                  },
+                  "parentRef": {
+                    "$ref": "#/$defs/itemRef"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "parentRef"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "update"
+                  },
+                  "noteRef": {
+                    "$ref": "#/$defs/itemRef"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "noteRef"
+                ],
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "required": [
+          "operation",
+          "target",
+          "content"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "additionalProperties": false,
+            "properties": {
+              "markdown": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "title": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "title",
+              "markdown"
+            ],
+            "type": "object"
+          },
+          "operation": {
+            "const": "managed_note.write_conversation"
+          },
+          "operationId": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "target": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "create"
+                  },
+                  "parentRef": {
+                    "$ref": "#/$defs/itemRef"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "parentRef"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "update"
+                  },
+                  "noteRef": {
+                    "$ref": "#/$defs/itemRef"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "noteRef"
+                ],
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "required": [
+          "operation",
+          "target",
+          "content"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "properties": {
+          "markdown": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "operation": {
+            "const": "literature_artifact.upsert_digest"
+          },
+          "operationId": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "parentRef": {
+            "$ref": "#/$defs/itemRef"
+          }
+        },
+        "required": [
+          "operation",
+          "parentRef",
+          "markdown"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "properties": {
+          "operation": {
+            "const": "literature_artifact.upsert_references"
+          },
+          "operationId": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "parentRef": {
+            "$ref": "#/$defs/itemRef"
+          },
+          "references": {
+            "$ref": "#/$defs/jsonValue"
+          }
+        },
+        "required": [
+          "operation",
+          "parentRef",
+          "references"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "properties": {
+          "citationAnalysis": {
+            "$ref": "#/$defs/jsonValue"
+          },
+          "operation": {
+            "const": "literature_artifact.upsert_citation_analysis"
+          },
+          "operationId": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "parentRef": {
+            "$ref": "#/$defs/itemRef"
+          }
+        },
+        "required": [
+          "operation",
+          "parentRef",
+          "citationAnalysis"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "properties": {
+          "operation": {
+            "const": "literature_artifact.upsert_score"
+          },
+          "operationId": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "parentRef": {
+            "$ref": "#/$defs/itemRef"
+          },
+          "score": {
+            "$ref": "#/$defs/literatureScoreArtifact"
+          }
+        },
+        "required": [
+          "operation",
+          "parentRef",
+          "score"
+        ],
+        "type": "object"
       }
     ],
     "type": "object",
@@ -4821,7 +6599,13 @@ This closed descriptor is the machine-readable command contract returned by `sur
               "attachments.remove",
               "statusTags.transition",
               "trash.setItemsState",
-              "literature.ingest"
+              "literature.ingest",
+              "managed_note.write_custom",
+              "managed_note.write_conversation",
+              "literature_artifact.upsert_digest",
+              "literature_artifact.upsert_references",
+              "literature_artifact.upsert_citation_analysis",
+              "literature_artifact.upsert_score"
             ]
           },
           "outcome": {

@@ -1,4 +1,7 @@
-import { listNotePayloadBlocks } from "../notePayloadCodec";
+import {
+  validateSourceReferenceArtifact,
+  validateCitationAnalysisArtifact,
+} from "../../../packages/synthesis-contracts/src/sourceReferenceArtifact";
 import { getRuntimePersistencePaths } from "../runtimePersistence";
 import {
   parseLiteratureScore,
@@ -9,6 +12,11 @@ import {
   SYNTHESIS_PAPER_ARTIFACT_TYPES,
   type SynthesisPaperArtifactType,
 } from "../../../packages/synthesis-contracts/src/literatureArtifacts";
+import type {
+  JsonValue,
+  ManagedNoteKind,
+  PortableItemRef,
+} from "../../workflows/types";
 import { hashCanonicalJson, hashMarkdown } from "./foundation";
 
 export const PAPER_ARTIFACT_TYPES = SYNTHESIS_PAPER_ARTIFACT_TYPES;
@@ -76,9 +84,19 @@ export type ReferenceSidecarMetadataFingerprintPayload = {
 export type ReferenceSidecarInputNote = {
   key: string;
   title?: string;
-  html: string;
   updatedAt?: string;
-  payloadBlocks?: ReturnType<typeof listNotePayloadBlocks>;
+  /** Semantic managed-note facts supplied by the Broker detail reader. */
+  noteKind: ManagedNoteKind | null;
+  payload: JsonValue | null;
+  issue?: string | null;
+  /**
+   * Runtime-only facts attached by the Broker detail reader.  These facts
+   * describe the managed note and never become part of its public payload.
+   */
+  provenance?: {
+    sourceRef?: PortableItemRef;
+    referencesBasis?: string;
+  };
 };
 
 export type ReferenceSidecarInput = {
@@ -246,17 +264,6 @@ function decodeFailedDiagnostic(
   };
 }
 
-function unsupportedVersionDiagnostic(
-  type: PaperArtifactType,
-  version: string,
-): ReferenceSidecarDiagnostic {
-  return {
-    code: "unsupported_payload_version",
-    artifact_type: type,
-    message: `${artifactLabel(type)} payload version is unsupported: ${version}`,
-  };
-}
-
 function duplicateDiagnostic(
   type: PaperArtifactType,
   count: number,
@@ -264,18 +271,8 @@ function duplicateDiagnostic(
   return {
     code: "duplicate_payload_candidates",
     artifact_type: type,
-    message: `${count} valid candidates found for ${type}`,
+    message: `${count} candidates found for ${type}`,
   };
-}
-
-function hashPayload(block: ReturnType<typeof listNotePayloadBlocks>[number]) {
-  if (block.format === "markdown") {
-    return hashMarkdown(block.markdown || block.decodedText || "");
-  }
-  if (block.format === "json") {
-    return hashCanonicalJson(block.payload);
-  }
-  return hashMarkdown(block.decodedText || "");
 }
 
 function buildMissingArtifact(
@@ -295,90 +292,56 @@ function discoverArtifact(
   notes: ReferenceSidecarInputNote[],
 ): ReferenceSidecarArtifact {
   const payloadType = PAPER_ARTIFACT_PAYLOAD_TYPES[type];
-  const sortedNotes = [...notes].sort((left, right) =>
-    normalizeString(left.key).localeCompare(normalizeString(right.key)),
+  const candidates = notes.filter(
+    (note) => note.noteKind === type.replaceAll("_", "-"),
   );
-  const validCandidates: Array<{
-    note: ReferenceSidecarInputNote;
-    block: ReturnType<typeof listNotePayloadBlocks>[number];
-  }> = [];
-  let invalidCandidate:
-    | {
-        note: ReferenceSidecarInputNote;
-        block: ReturnType<typeof listNotePayloadBlocks>[number];
-      }
-    | undefined;
-  const diagnostics: ReferenceSidecarDiagnostic[] = [];
-  let sawCandidate = false;
-
-  for (const note of sortedNotes) {
-    const blocks = (
-      note.payloadBlocks || listNotePayloadBlocks(note.html)
-    ).filter(
-      (entry) =>
-        entry.payloadType === payloadType &&
-        entry.source === "embedded-image-attachment",
-    );
-    for (const block of blocks) {
-      sawCandidate = true;
-      invalidCandidate ||= { note, block };
-      if (block.version !== "1") {
-        diagnostics.push(unsupportedVersionDiagnostic(type, block.version));
-        continue;
-      }
-      if (block.errors?.length) {
-        diagnostics.push(decodeFailedDiagnostic(type, block.errors.join("; ")));
-        continue;
-      }
-      if (type === "literature_score" && !parseLiteratureScore(block.payload)) {
-        diagnostics.push(
-          decodeFailedDiagnostic(
-            type,
-            "literature score payload failed literature_score.v1 validation",
-          ),
-        );
-        continue;
-      }
-      validCandidates.push({ note, block });
-    }
-  }
-
-  if (validCandidates.length === 0) {
-    if (sawCandidate) {
-      return {
-        type,
-        payload_type: payloadType,
-        status: "error",
-        note_key: normalizeString(invalidCandidate?.note.key),
-        note_title: normalizeString(invalidCandidate?.note.title),
-        hash: invalidCandidate
-          ? hashPayload(invalidCandidate.block)
-          : undefined,
-        updated_at: normalizeString(invalidCandidate?.note.updatedAt),
-        diagnostics,
-      };
-    }
-    const missing = buildMissingArtifact(type);
+  if (!candidates.length) return buildMissingArtifact(type);
+  if (candidates.length > 1) {
     return {
-      ...missing,
-      diagnostics: [...diagnostics, ...missing.diagnostics],
+      type,
+      payload_type: payloadType,
+      status: "error",
+      diagnostics: [duplicateDiagnostic(type, candidates.length)],
     };
   }
-
-  if (validCandidates.length > 1) {
-    diagnostics.push(duplicateDiagnostic(type, validCandidates.length));
-  }
-
-  const selected = validCandidates[0];
+  const note = candidates[0];
+  const payload = note.payload;
+  const markdown =
+    payload && typeof payload === "object" && !Array.isArray(payload)
+      ? payload.markdown
+      : undefined;
+  const valid =
+    !note.issue &&
+    (type === "digest"
+      ? typeof markdown === "string" && !!markdown.trim()
+      : type === "references"
+        ? validateSourceReferenceArtifact(payload).ok
+        : type === "citation_analysis"
+          ? validateCitationAnalysisArtifact(payload).ok
+          : !!parseLiteratureScore(payload));
   return {
     type,
     payload_type: payloadType,
-    status: "available",
-    note_key: normalizeString(selected.note.key),
-    note_title: normalizeString(selected.note.title),
-    hash: hashPayload(selected.block),
-    updated_at: normalizeString(selected.note.updatedAt),
-    diagnostics,
+    status: valid ? "available" : "error",
+    note_key: note.key,
+    note_title: normalizeString(note.title),
+    ...(valid
+      ? {
+          hash:
+            type === "digest"
+              ? hashMarkdown(markdown as string)
+              : hashCanonicalJson(payload),
+        }
+      : {}),
+    updated_at: normalizeString(note.updatedAt),
+    diagnostics: valid
+      ? []
+      : [
+          decodeFailedDiagnostic(
+            type,
+            note.issue || "Canonical artifact validation failed",
+          ),
+        ],
   };
 }
 

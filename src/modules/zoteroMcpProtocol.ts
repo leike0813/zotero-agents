@@ -902,7 +902,7 @@ function normalizePermissionDecision(
 }
 
 const ZOTERO_MCP_ADMISSION_NOTICE =
-  " MCP tools mirror Host Bridge capability names and return { capability, approval, data }. Up to nine ordinary tool requests may be in flight; initialize, tools/list, notifications, and diagnostic.get_status bypass this admission. An additional ordinary request receives zotero_mcp_inflight_limit. Host-native critical sections remain serialized by the Host capability broker. For library scans use library.list_items, and for large notes use library.get_note_detail chunks. After write tools, verify state before retrying. If you receive zotero_mcp_inflight_limit, zotero_mcp_tool_timeout, or zotero_mcp_tool_circuit_open, wait and retry later or call diagnostic.get_status.";
+  " MCP tools mirror Host Bridge capability names and return { capability, approval, data }. Up to nine ordinary tool requests may be in flight; initialize, tools/list, notifications, and diagnostic.get_status bypass this admission. An additional ordinary request receives zotero_mcp_inflight_limit. Host-native critical sections remain serialized by the Host capability broker. For library scans use library.list_items. library.get_note_detail chunks ordinary note content; managed notes return their complete semantic payload and serialized byte facts, or a typed resource limit failure. After write tools, verify state before retrying. If you receive zotero_mcp_inflight_limit, zotero_mcp_tool_timeout, or zotero_mcp_tool_circuit_open, wait and retry later or call diagnostic.get_status.";
 
 function mcpInputSchemaForCapability(
   inputSchema: Record<string, unknown>,

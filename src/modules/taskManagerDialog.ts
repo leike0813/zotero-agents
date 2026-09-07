@@ -121,17 +121,25 @@ import {
   type DashboardActionEnvelope,
   type DashboardHostMessage,
   type DashboardLogRow,
+  type DashboardLiteratureArtifactMigrationView,
   type DashboardMessageType,
   type DashboardRow,
   type DashboardRuntimeLogFilters,
   type DashboardSnapshot,
   type DashboardWorkflowProductPreview,
 } from "../shared/dashboardWireContract";
+import {
+  configureLiteratureArtifactMigrationHost,
+  createLiteratureArtifactMigrationHostFromZoteroBroker,
+  getLiteratureArtifactMigrationService,
+} from "./literatureArtifactMigration";
+import { resolveZoteroHostCapabilityBroker } from "./zoteroHostCapabilityBroker";
 
 type DashboardState = {
   backends: BackendInstance[];
   backendLoadError?: string;
   selectedTabKey: string;
+  selectedLiteratureMigrationRunId: string;
   selectedBackendSubviewById: Map<string, "runs" | "management">;
   selectedLogTaskByBackendId: Map<string, string>;
   selectedLogEntryByBackendId: Map<string, string>;
@@ -238,6 +246,12 @@ function dashboardSelectedSurfaceSignatureInput(snapshot: DashboardSnapshot) {
     return {
       surfaceKey,
       runtimeLogsView: snapshot.runtimeLogsView,
+    };
+  }
+  if (surfaceKey === "migrations") {
+    return {
+      surfaceKey,
+      literatureArtifactMigrationView: snapshot.literatureArtifactMigrationView,
     };
   }
   if (surfaceKey === "synthesis-sidecar") {
@@ -1227,6 +1241,152 @@ async function buildHomeWorkflowDocView(args: {
   };
 }
 
+function migrationRunToDashboardView(entry: {
+  runId: string;
+  operationId: string;
+  migrationId: string;
+  definitionVersion: number;
+  libraryId: string;
+  state:
+    | "preview"
+    | "applying"
+    | "completed"
+    | "completed_with_attention"
+    | "failed";
+  reason: string;
+  processedCount: number;
+  remainingCount: number;
+  setCount: number;
+  createdAt: string;
+  updatedAt: string;
+  terminalAt: string;
+  diagnostics: string[];
+}) {
+  return {
+    runId: entry.runId,
+    operationId: entry.operationId,
+    migrationId: entry.migrationId,
+    definitionVersion: entry.definitionVersion,
+    libraryId: Number(entry.libraryId) || 0,
+    state: entry.state,
+    reason: entry.reason,
+    processedCount: entry.processedCount,
+    remainingCount: entry.remainingCount,
+    setCount: entry.setCount,
+    createdAt: entry.createdAt,
+    updatedAt: entry.updatedAt,
+    terminalAt: entry.terminalAt,
+    diagnostics: entry.diagnostics,
+  };
+}
+
+function resolveDashboardLiteratureMigrationService() {
+  const configured = getLiteratureArtifactMigrationService();
+  if (configured) return configured;
+  try {
+    const broker = resolveZoteroHostCapabilityBroker();
+    configureLiteratureArtifactMigrationHost(
+      createLiteratureArtifactMigrationHostFromZoteroBroker(broker),
+    );
+  } catch {
+    return null;
+  }
+  return getLiteratureArtifactMigrationService();
+}
+
+function buildLiteratureArtifactMigrationView(
+  state?: DashboardState,
+): DashboardLiteratureArtifactMigrationView {
+  const service = resolveDashboardLiteratureMigrationService();
+  if (!service) {
+    return {
+      migrationId: "literature-artifacts",
+      definitionVersion: 1,
+      availability: "unavailable",
+      availabilityReason: localize(
+        "task-dashboard-literature-migration-unavailable",
+        "Literature artifact migration is unavailable in this runtime.",
+      ),
+      libraryId: 0,
+      activeRun: null,
+      activeOperationId: "",
+      candidates: [],
+      receipts: [],
+      history: [],
+    };
+  }
+  const activeSnapshot = service.getActiveSnapshot();
+  const activeEntry = activeSnapshot
+    ? service.getRun(activeSnapshot.runId)
+    : null;
+  const selectedEntry = state?.selectedLiteratureMigrationRunId
+    ? service.getRun(state.selectedLiteratureMigrationRunId)
+    : null;
+  const displayedEntry = selectedEntry || activeEntry;
+  const previewEntry =
+    displayedEntry?.state === "preview" ? displayedEntry : null;
+  const activePreview = activeSnapshot
+    ? service.getPreviewForRun(activeSnapshot.runId)
+    : previewEntry
+      ? service.getPreview(previewEntry.operationId)
+      : null;
+  const history = service
+    .listHistory({ limit: 50 })
+    .map(migrationRunToDashboardView);
+  const receipts = displayedEntry
+    ? service.listReceipts({ runId: displayedEntry.runId, limit: 100 })
+    : [];
+  const outcomeByCandidate = new Map(
+    receipts.map((receipt) => [receipt.candidateId, receipt.outcome]),
+  );
+  return {
+    migrationId: "literature-artifacts",
+    definitionVersion: 1,
+    availability: activeSnapshot ? "busy" : "available",
+    availabilityReason: activeSnapshot
+      ? localize(
+          "task-dashboard-literature-migration-busy",
+          "A literature migration is already active.",
+        )
+      : "",
+    libraryId:
+      activePreview?.libraryId || Number(displayedEntry?.libraryId || 0),
+    activeRun:
+      activeSnapshot && activeEntry
+        ? migrationRunToDashboardView(activeEntry)
+        : displayedEntry
+          ? migrationRunToDashboardView(displayedEntry)
+          : null,
+    activeOperationId:
+      activeSnapshot?.operationId || activePreview?.operationId || "",
+    candidates:
+      activePreview?.candidates.map((candidate) => ({
+        candidateId: candidate.candidateId,
+        ordinal: candidate.ordinal,
+        classification: candidate.classification,
+        outcome:
+          outcomeByCandidate.get(candidate.candidateId) || candidate.outcome,
+        reasonCodes: candidate.reasonCodes,
+        verifiedCount: candidate.verifiedCount,
+        unresolvedCount: candidate.unresolvedCount,
+        recoveredCount: candidate.recoveredCount,
+        droppedCount: candidate.droppedCount,
+      })) || [],
+    receipts: receipts.map((receipt) => ({
+      candidateId: receipt.candidateId,
+      ordinal: receipt.ordinal,
+      classification: receipt.classification,
+      outcome: receipt.outcome,
+      reasonCodes: receipt.reasonCodes,
+      verifiedCount: receipt.verifiedCount,
+      unresolvedCount: receipt.unresolvedCount,
+      recoveredCount: receipt.recoveredCount,
+      droppedCount: receipt.droppedCount,
+    })),
+    history,
+  };
+}
+
 async function buildDashboardSnapshot(args: {
   state: DashboardState;
   backends: BackendInstance[];
@@ -1248,8 +1408,9 @@ async function buildDashboardSnapshot(args: {
     debugModeEnabled && isAcpRuntimeSemanticTraceRecorderAvailable();
   const acpReplayProfilerEnabled =
     debugModeEnabled && isAcpRuntimeReplayProfilerAvailable();
+  const requestedTabKey = args.state.selectedTabKey;
   let selectedTabKey = normalizeDashboardTabKey({
-    requestedTabKey: args.state.selectedTabKey,
+    requestedTabKey,
     backends: args.backends,
     debugModeEnabled,
     synthesisSidecarDiagnosticsEnabled,
@@ -1257,6 +1418,9 @@ async function buildDashboardSnapshot(args: {
     acpTraceRecorderEnabled,
     acpReplayProfilerEnabled,
   });
+  if (requestedTabKey === "migrations") {
+    selectedTabKey = "migrations";
+  }
   args.state.selectedTabKey = selectedTabKey;
 
   const backendMetaById = new Map<
@@ -1333,6 +1497,67 @@ async function buildDashboardSnapshot(args: {
       "Workflow Options",
     ),
     tabProducts: localize("task-dashboard-tab-products", "Products"),
+    tabMigrations: localize("task-dashboard-tab-migrations", "Migrations"),
+    literatureMigrationPageTitle: localize(
+      "task-dashboard-literature-migration-page-title",
+      "Literature Artifact Migration",
+    ),
+    literatureMigrationUnavailable: localize(
+      "task-dashboard-literature-migration-unavailable",
+      "Literature artifact migration is unavailable in this runtime.",
+    ),
+    literatureMigrationScan: localize(
+      "task-dashboard-literature-migration-scan",
+      "Scan library",
+    ),
+    literatureMigrationApply: localize(
+      "task-dashboard-literature-migration-apply",
+      "Apply selected sets",
+    ),
+    literatureMigrationStop: localize(
+      "task-dashboard-literature-migration-stop",
+      "Stop after current set",
+    ),
+    literatureMigrationContinue: localize(
+      "task-dashboard-literature-migration-continue",
+      "Continue",
+    ),
+    literatureMigrationReview: localize(
+      "task-dashboard-literature-migration-review",
+      "Review required",
+    ),
+    literatureMigrationReady: localize(
+      "task-dashboard-literature-migration-ready",
+      "Ready",
+    ),
+    literatureMigrationBlocked: localize(
+      "task-dashboard-literature-migration-blocked",
+      "Blocked",
+    ),
+    literatureMigrationEmpty: localize(
+      "task-dashboard-literature-migration-empty",
+      "No migration preview is active.",
+    ),
+    literatureMigrationHistory: localize(
+      "task-dashboard-literature-migration-history",
+      "Migration history",
+    ),
+    literatureMigrationHistoryEmpty: localize(
+      "task-dashboard-literature-migration-history-empty",
+      "No migration receipts yet.",
+    ),
+    literatureMigrationCandidate: localize(
+      "task-dashboard-literature-migration-candidate",
+      "Set",
+    ),
+    literatureMigrationProgress: localize(
+      "task-dashboard-literature-migration-progress",
+      "Progress",
+    ),
+    literatureMigrationAttention: localize(
+      "task-dashboard-literature-migration-attention",
+      "Attention required",
+    ),
     tabBackends: localize("task-dashboard-tab-backends", "Backends"),
     acpTraceReplayTabTitle: localize(
       "task-dashboard-acp-trace-replay-tab-title",
@@ -2055,6 +2280,11 @@ async function buildDashboardSnapshot(args: {
       label: labels.runtimeLogsTabTitle,
       group: "system" as const,
     },
+    {
+      key: "migrations",
+      label: labels.tabMigrations,
+      group: "system" as const,
+    },
     ...(synthesisSidecarDiagnosticsEnabled
       ? [
           {
@@ -2133,6 +2363,9 @@ async function buildDashboardSnapshot(args: {
     homeWorkflows,
     homeWorkflowDocView,
     backendLoadError: args.state.backendLoadError,
+    literatureArtifactMigrationView: buildLiteratureArtifactMigrationView(
+      args.state,
+    ),
   };
 
   if (
@@ -2611,6 +2844,7 @@ export async function openTaskManagerDialog(args?: {
   const state: DashboardState = {
     backends: [],
     selectedTabKey: String(args?.initialTabKey || "home").trim() || "home",
+    selectedLiteratureMigrationRunId: "",
     selectedBackendSubviewById: new Map(),
     selectedLogTaskByBackendId: new Map(),
     selectedLogEntryByBackendId: new Map(),
@@ -2938,8 +3172,9 @@ export async function openTaskManagerDialog(args?: {
       debugModeEnabled && isAcpRuntimeSemanticTraceRecorderAvailable();
     const acpReplayProfilerEnabled =
       debugModeEnabled && isAcpRuntimeReplayProfilerAvailable();
+    const requestedTabKey = state.selectedTabKey;
     state.selectedTabKey = normalizeDashboardTabKey({
-      requestedTabKey: state.selectedTabKey,
+      requestedTabKey,
       backends: state.backends,
       debugModeEnabled,
       synthesisSidecarDiagnosticsEnabled,
@@ -2947,6 +3182,9 @@ export async function openTaskManagerDialog(args?: {
       acpTraceRecorderEnabled,
       acpReplayProfilerEnabled,
     });
+    if (requestedTabKey === "migrations") {
+      state.selectedTabKey = "migrations";
+    }
     const selectedBackendId = fromBackendTabKey(state.selectedTabKey);
     const taskReadScope = selectedBackendId
       ? { backendId: selectedBackendId }
@@ -3055,6 +3293,7 @@ export async function openTaskManagerDialog(args?: {
     return (
       state.selectedTabKey === "workflow-options" ||
       state.selectedTabKey === "products" ||
+      state.selectedTabKey === "migrations" ||
       state.selectedTabKey === "synthesis-sidecar" ||
       state.selectedTabKey === "skillrunner-connection-audit" ||
       state.selectedTabKey === "acp-trace-replay"
@@ -3176,6 +3415,77 @@ export async function openTaskManagerDialog(args?: {
         state.homeWorkflowDocWorkflowId = "";
       }
       refresh("user-action");
+      return;
+    }
+    if (action.startsWith("literature-migration-")) {
+      const service = resolveDashboardLiteratureMigrationService();
+      if (!service) {
+        alertRuntimeWindow(
+          localize(
+            "task-dashboard-literature-migration-unavailable",
+            "Literature artifact migration is unavailable in this runtime.",
+          ),
+        );
+        return;
+      }
+      try {
+        if (action === "literature-migration-scan") {
+          const libraryId = Number(payload.libraryId);
+          if (!Number.isSafeInteger(libraryId) || libraryId <= 0) {
+            alertRuntimeWindow("A valid library is required for migration.");
+            return;
+          }
+          const result = await service.scan({ libraryId });
+          if (!result.ok) {
+            alertRuntimeWindow(result.message);
+          } else {
+            state.selectedLiteratureMigrationRunId = result.runId;
+          }
+        } else if (action === "literature-migration-apply") {
+          const result = await service.apply({
+            scanOperationId: String(payload.scanOperationId || ""),
+            candidateIds: Array.isArray(payload.candidateIds)
+              ? payload.candidateIds
+                  .map((value) => String(value || ""))
+                  .filter(Boolean)
+              : [],
+            reviewAcceptedCandidateIds: Array.isArray(
+              payload.reviewAcceptedCandidateIds,
+            )
+              ? payload.reviewAcceptedCandidateIds
+                  .map((value) => String(value || ""))
+                  .filter(Boolean)
+              : [],
+            migrationId: String(payload.migrationId || "") || undefined,
+            definitionVersion:
+              typeof payload.definitionVersion === "number"
+                ? payload.definitionVersion
+                : undefined,
+          });
+          if (!result.ok) alertRuntimeWindow(result.message);
+        } else if (action === "literature-migration-stop") {
+          const result = service.stop({ runId: String(payload.runId || "") });
+          if (!result.ok) alertRuntimeWindow(result.message);
+        } else if (action === "literature-migration-continue") {
+          const result = await service.continue({
+            runId: String(payload.runId || ""),
+            candidateIds: Array.isArray(payload.candidateIds)
+              ? payload.candidateIds
+                  .map((value) => String(value || ""))
+                  .filter(Boolean)
+              : undefined,
+          });
+          if (!result.ok) alertRuntimeWindow(result.message);
+          else state.selectedLiteratureMigrationRunId = result.runId;
+        } else if (action === "literature-migration-select-run") {
+          state.selectedLiteratureMigrationRunId = String(payload.runId || "");
+        }
+        refresh("user-action");
+      } catch (error) {
+        alertRuntimeWindow(
+          `Literature migration action failed: ${compactError(error)}`,
+        );
+      }
       return;
     }
     if (

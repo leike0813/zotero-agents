@@ -132,6 +132,7 @@ type ZoteroMock = {
       blob: Blob;
       parentItemID?: number | null;
     }) => Promise<MockItem>;
+    createDirectoryForItem?: (item: MockItem) => Promise<string>;
     importFromURL?: (opts: {
       url: string;
       parentItemID?: number | null;
@@ -444,6 +445,8 @@ class MockItem {
   private filePath: string | null = null;
   attachmentFilename = "";
   attachmentContentType = "";
+  attachmentLinkMode = 0;
+  attachmentPath = "";
   private creators: MockCreator[] = [];
   private deletedFlag = false;
 
@@ -552,7 +555,11 @@ class MockItem {
   }
 
   getAttachmentLinkMode() {
-    return 0;
+    return this.attachmentLinkMode;
+  }
+
+  isEmbeddedImageAttachment() {
+    return this.isAttachment() && this.attachmentLinkMode === 4;
   }
 
   getAnnotations() {
@@ -632,10 +639,18 @@ class MockItem {
   }
 
   async getFilePathAsync() {
-    return this.filePath;
+    return this.getFilePath() || null;
   }
 
   getFilePath() {
+    if (this.attachmentPath.startsWith("storage:")) {
+      return path.join(
+        mockZoteroDataDir,
+        "storage",
+        this.key,
+        this.attachmentPath.slice(8),
+      );
+    }
     return this.filePath || false;
   }
 
@@ -739,10 +754,18 @@ class MockItem {
     return data;
   }
 
+  async save() {
+    return this.saveTx();
+  }
+
+  async erase() {
+    return this.eraseTx();
+  }
+
   async saveTx() {
     if (!this.id) {
       this.id = nextItemId++;
-      this.key = generateKey(this.id);
+      this.key ||= generateKey(this.id);
       this.itemTypeID = itemTypeIdByName.get(this.itemType) ?? this.itemTypeID;
     }
     itemsById.set(this.id, this);
@@ -2861,8 +2884,8 @@ function createZoteroMock(): ZoteroMock {
         attachment.parentItemID = parentItemID ?? null;
         attachment.setField("contentType", contentType);
         const storageDir = path.join(
-          os.tmpdir(),
-          "zotero-embedded-images",
+          mockZoteroDataDir,
+          "storage",
           generateKey(nextItemId),
         );
         await fs.mkdir(storageDir, { recursive: true });
@@ -2875,6 +2898,11 @@ function createZoteroMock(): ZoteroMock {
         (attachment as any).isEmbeddedImageAttachment = () => true;
         await attachment.saveTx();
         return attachment;
+      },
+      createDirectoryForItem: async (item: MockItem) => {
+        const storageDir = path.join(mockZoteroDataDir, "storage", item.key);
+        await fs.mkdir(storageDir, { recursive: true });
+        return storageDir;
       },
       importFromURL: async ({
         url,
@@ -2940,7 +2968,7 @@ function createZoteroMock(): ZoteroMock {
         return dataPath.replace(/^attachments:/, "");
       },
       getStorageDirectoryByLibraryAndKey: (_libraryID: number, key: string) => {
-        return new MockFile(path.join(os.tmpdir(), "zotero-storage", key));
+        return new MockFile(path.join(mockZoteroDataDir, "storage", key));
       },
     },
     Collection: MockCollection,

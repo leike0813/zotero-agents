@@ -1,8 +1,5 @@
 import { assert } from "chai";
-import {
-  listNotePayloadBlocks,
-  renderPayloadBlock,
-} from "../../src/modules/notePayloadCodec";
+import type { JsonValue, ManagedNoteKind } from "../../src/workflows/types";
 import {
   buildReferenceSidecarIndexRow,
   buildSynthesisLayerDbPath,
@@ -17,56 +14,105 @@ function note(args: {
   payloadFormat?: "json" | "text";
   visible?: string;
 }) {
-  const html = [
-    `<div><h1>${args.visible || args.key}</h1>`,
-    renderPayloadBlock({
-      payloadType: args.payloadType,
-      payload: args.payload,
-      payloadFormat: args.payloadFormat,
-    }),
-    "</div>",
-  ].join("\n");
+  const noteKind = (
+    {
+      "digest-markdown": "digest",
+      "references-json": "references",
+      "citation-analysis-json": "citation-analysis",
+      "literature-score-json": "literature-score",
+    } as const
+  )[args.payloadType];
   return {
     key: args.key,
-    title: args.key,
+    title: args.visible || args.key,
     updatedAt: "2026-05-10T12:00:00.000Z",
-    html,
-    payloadBlocks: listNotePayloadBlocks(html).map((block) => ({
-      ...block,
-      source: "embedded-image-attachment" as const,
-      sourceStorage: "embedded-image-attachment-v2" as const,
-      payloadStorageVersion: 2,
-      anchorStatus: "present" as const,
-      attachmentKey: `${args.key}-ATTACHMENT`,
-    })),
+    noteKind: noteKind as ManagedNoteKind,
+    payload: (noteKind === "digest"
+      ? { markdown: args.payload }
+      : args.payload) as JsonValue,
+    issue: null,
+  };
+}
+
+function referencesArtifact(title = "Ref") {
+  return {
+    schema: "source_reference_artifact.v1",
+    references: [
+      {
+        sourceReferenceId: "source-ref-one",
+        extraction: null,
+        bibliography: { title, authors: [], year: null },
+        matching: {},
+      },
+    ],
+  };
+}
+
+function citationArtifact() {
+  return {
+    schema: "citation_analysis_artifact.v1",
+    meta: {
+      language: "en",
+      scope: { section_title: null, line_start: null, line_end: null },
+      scope_source: null,
+      scope_decision: {
+        selection_reason: null,
+        covered_sections: [],
+        fallback_from: null,
+        fallback_reason: null,
+      },
+      mapping_reliability: "normal",
+      reference_extraction: { status: "completed" },
+    },
+    summary: "",
+    timeline: {
+      early: { summary: "", sourceReferenceIds: [] },
+      mid: { summary: "", sourceReferenceIds: [] },
+      recent: { summary: "", sourceReferenceIds: [] },
+    },
+    items: [],
+    unresolved: [],
   };
 }
 
 function literatureScore(overallScore = 80, confidence = 0.75) {
   return {
-    literature_score: {
-      schema: "literature_score.v1",
-      rubric_id: "literature-analysis-rubric.v1",
-      paper_type: "empirical",
-      paper_type_reason: "The paper reports an empirical study.",
-      overall_score: overallScore,
+    schema: "literature_score.v1",
+    rubric_id: "literature-analysis-rubric.v1",
+    paper_type: "empirical",
+    paper_type_reason: "The paper reports an empirical study.",
+    overall_score: overallScore,
+    confidence,
+    confidence_adjusted_score: 72,
+    dimensions: [
+      "methodological_rigor",
+      "evidence_completeness",
+      "reproducibility",
+      "innovation_signals",
+      "research_impact_potential",
+      "writing_quality",
+    ].map((dimensionKey) => ({
+      dimension_key: dimensionKey,
+      name: dimensionKey,
+      configured_weight: 1 / 6,
+      effective_weight: 1 / 6,
+      raw_score: 8,
+      applicable_max_score: 10,
+      score: overallScore,
       confidence,
-      confidence_adjusted_score: 72,
-      dimensions: [
-        "methodological_rigor",
-        "evidence_completeness",
-        "reproducibility",
-        "innovation_signals",
-        "research_impact_potential",
-        "writing_quality",
-      ].map((dimensionKey) => ({
-        dimension_key: dimensionKey,
-        name: dimensionKey,
-        score: overallScore,
-        confidence,
-        summary: `${dimensionKey} assessment`,
-      })),
-    },
+      summary: `${dimensionKey} assessment`,
+      criteria: [
+        {
+          criterion_key: `${dimensionKey}.criterion`,
+          name: "Criterion",
+          status: "scored",
+          score: 8,
+          max_score: 10,
+          reason: "Supported",
+          evidence: [],
+        },
+      ],
+    })),
   };
 }
 
@@ -90,12 +136,12 @@ describe("Synthesis Reference Sidecar Index", function () {
         note({
           key: "R1",
           payloadType: "references-json",
-          payload: { references: [{ title: "Ref" }] },
+          payload: referencesArtifact(),
         }),
         note({
           key: "C1",
           payloadType: "citation-analysis-json",
-          payload: { citations: [{ role: "background" }] },
+          payload: citationArtifact(),
         }),
         note({
           key: "S1",
@@ -122,7 +168,7 @@ describe("Synthesis Reference Sidecar Index", function () {
     assert.deepEqual(row.collections, ["COLL1"]);
   });
 
-  it("hashes decoded payload content and ignores visible note HTML", function () {
+  it("hashes semantic payload independently of the note title", function () {
     const first = buildReferenceSidecarIndexRow({
       libraryId: 1,
       itemKey: "ABCD1234",
@@ -182,7 +228,7 @@ describe("Synthesis Reference Sidecar Index", function () {
     assert.equal(read.artifacts[0]?.note_key, "DLEGACY");
   });
 
-  it("records duplicate payload diagnostics while selecting deterministic candidates", function () {
+  it("reports duplicate candidates without selecting a note", function () {
     const row = buildReferenceSidecarIndexRow({
       libraryId: 1,
       itemKey: "ABCD1234",
@@ -203,14 +249,13 @@ describe("Synthesis Reference Sidecar Index", function () {
       ],
     });
 
-    assert.equal(row.artifacts.digest.note_key, "D1");
-    assert.includeDeepMembers(row.diagnostics, [
-      {
-        code: "duplicate_payload_candidates",
-        artifact_type: "digest",
-        message: "2 valid candidates found for digest",
-      },
-    ]);
+    assert.equal(row.artifacts.digest.status, "error");
+    assert.notProperty(row.artifacts.digest, "note_key");
+    assert.isTrue(
+      row.diagnostics.some(
+        (entry) => entry.code === "duplicate_payload_candidates",
+      ),
+    );
   });
 
   it("marks rows partial when required artifacts are missing", function () {
@@ -244,12 +289,12 @@ describe("Synthesis Reference Sidecar Index", function () {
       note({
         key: "R1",
         payloadType: "references-json",
-        payload: { references: [] },
+        payload: referencesArtifact(),
       }),
       note({
         key: "C1",
         payloadType: "citation-analysis-json",
-        payload: { citation_analysis: { report_md: "## Report" } },
+        payload: citationArtifact(),
       }),
     ];
     const missing = buildReferenceSidecarIndexRow({
@@ -335,6 +380,33 @@ describe("Synthesis Reference Sidecar Index", function () {
       ["literature_score"],
     );
     assert.equal(scoreOnly.artifacts[0]?.status, "available");
+  });
+
+  it("carries Citation basis as runtime provenance beside the public payload", function () {
+    const citation = citationArtifact();
+    const read = readArtifactsFromRegistryInputs(
+      [
+        {
+          libraryId: 1,
+          itemKey: "ABCD1234",
+          title: "Paper",
+          notes: [
+            {
+              key: "C1",
+              noteKind: "citation-analysis",
+              payload: citation,
+              provenance: { referencesBasis: `sha256:${"a".repeat(64)}` },
+            },
+          ],
+        },
+      ],
+      { paper_ref: "1:ABCD1234", artifact_types: ["citation_analysis"] },
+    );
+    assert.equal(
+      read.artifacts[0]?.referencesBasis,
+      `sha256:${"a".repeat(64)}`,
+    );
+    assert.notProperty(read.artifacts[0]?.payload as object, "referencesBasis");
   });
 
   it("plans a dedicated local SQLite database path", function () {

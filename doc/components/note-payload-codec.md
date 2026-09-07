@@ -9,18 +9,36 @@ storage strategies: inline HTML attributes and custom PNG image chunks.
 Payloads include digests, reference lists, citation analyses, conversation
 notes, and custom workflow artifacts.
 
+Managed-note semantics belong to `src/modules/zoteroManagedNotes.ts`, reached
+through `ZoteroHostCapabilityBroker`. This codec owns storage bytes and HTML
+construction; decoding a storage block does not establish that its semantic
+artifact is valid. Production consumers read the Broker's discriminated note
+detail and use its six managed semantic writers. Legacy storage interpretation
+is confined to the explicit migration converter; it is not a read fallback.
+
+Managed detail carries the complete canonical payload, `payloadBytes`, and
+`detailBytes`, with a 1 MiB serialized UTF-8 ceiling. Ordinary detail carries
+HTML or text. Bundle transfer alone uses the private owner capture of visible
+HTML, embedded images, and auxiliary payloads; the public detail API has no
+managed raw-HTML option.
+
 ---
 
 ## Core Types
 
 ```typescript
 type ZoteroNotePayloadKind =
-  | "custom" | "conversation-note" | "digest"
-  | "references" | "citation-analysis" | string;
+  | "custom"
+  | "conversation-note"
+  | "digest"
+  | "references"
+  | "citation-analysis"
+  | string;
 
 type ZoteroNotePayloadBlock = {
   source?: "html-payload-block" | "embedded-image-attachment";
-  sourceStorage?: "html-payload-block"
+  sourceStorage?:
+    | "html-payload-block"
     | "embedded-image-attachment-v1"
     | "embedded-image-attachment-v2";
   payloadStorageVersion?: number;
@@ -60,10 +78,12 @@ type ZoteroNotePayloadDetail = ZoteroNotePayloadBlock & {
 Payloads are stored in `<span>` elements with custom `data-zs-*` attributes:
 
 ```html
-<span data-zs-payload="digest"
-      data-zs-version="1"
-      data-zs-encoding="base64"
-      data-zs-value="eyJ0ZXh0IjogImVuY29kZWQifQ==">
+<span
+  data-zs-payload="digest"
+  data-zs-version="1"
+  data-zs-encoding="base64"
+  data-zs-value="eyJ0ZXh0IjogImVuY29kZWQifQ=="
+>
 </span>
 ```
 
@@ -79,7 +99,7 @@ For larger payloads, the codec embeds data inside PNG images using a custom
 function buildWorkbenchPayloadPngBytes(
   imageBytesInput: unknown,
   envelope: unknown,
-): Uint8Array
+): Uint8Array;
 ```
 
 1. Validates the input is a valid PNG (checks 8-byte PNG signature + `IEND`
@@ -89,6 +109,7 @@ function buildWorkbenchPayloadPngBytes(
 4. Inserts the chunk just before the `IEND` chunk.
 
 Constants:
+
 - `PNG_IEND = "IEND"` — marker used to locate the insertion point.
 - `WORKBENCH_EMBEDDED_PAYLOAD_MARKER = "ZS_WORKBENCH_NOTE_PAYLOAD_V1:"` — V1
   fallback marker string.
@@ -107,7 +128,7 @@ then falls back to V1 (base64-encoded tail marker found after `IEND`).
 
 ```typescript
 {
-  schemaVersion: 1;            // Envelope schema
+  schemaVersion: 1; // Envelope schema
   payloadStorageVersion: 2;
   kind: "zotero-skills-workbench-note-payload";
   createdAt: string;
@@ -137,7 +158,7 @@ canonical JSON representation of those five logical fields.
 function getNotePayloadDetail(
   noteHtml: unknown,
   args?: { payloadType?: string; offset?: number; maxChars?: number },
-): ZoteroNotePayloadDetail
+): ZoteroNotePayloadDetail;
 ```
 
 - `offset` — character offset to start reading from (default 0).
@@ -146,6 +167,7 @@ function getNotePayloadDetail(
   `truncated` flags for client-side pagination.
 
 Chunk size constants:
+
 - `DEFAULT_PAYLOAD_CHUNK = 8000`
 - `MAX_PAYLOAD_CHUNK = 16000`
 
@@ -162,7 +184,7 @@ function buildStructuredNoteContent(args: {
   payloadType: string;
   payload: unknown;
   payloadFormat?: "json" | "text";
-}): string
+}): string;
 ```
 
 Assembles a complete note HTML string with a `data-zs-note-kind` div, title
@@ -174,10 +196,11 @@ function buildMarkdownBackedNoteContent(args: {
   markdown: string;
   noteKind?: "custom" | "conversation-note" | string;
   noteEntry?: string;
-}): string
+}): string;
 ```
 
 Builds note content from markdown:
+
 - `"custom"` — uses `custom-markdown` payload type, renders markdown to HTML.
 - `"conversation-note"` — wraps markdown in a versioned envelope with `path`
   field.
@@ -189,13 +212,13 @@ Builds note content from markdown:
 `parseNoteKind(noteHtml)` heuristically determines the note kind by scanning
 for `data-zs-payload` attribute values, or falls back to `data-zs-note-kind`:
 
-| data attribute value | Note kind |
-|---------------------|-----------|
-| `"digest"` | `digest` |
-| `"references"` | `references` |
+| data attribute value  | Note kind           |
+| --------------------- | ------------------- |
+| `"digest"`            | `digest`            |
+| `"references"`        | `references`        |
 | `"citation-analysis"` | `citation-analysis` |
 | `"conversation-note"` | `conversation-note` |
-| (fallback) | `custom` |
+| (fallback)            | `custom`            |
 
 ---
 

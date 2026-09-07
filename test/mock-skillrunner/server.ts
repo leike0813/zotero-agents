@@ -603,6 +603,6 @@ export function literatureDigestBundlePath(projectRoot: string) {
     "test",
     "fixtures",
     "literature-analysis",
-    "run_bundle.zip",
+    "run_bundle_canonical.zip",
   );
 }

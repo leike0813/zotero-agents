@@ -1,4 +1,7 @@
 use crate::PromotionCheckpoint;
+use crate::canonical_literature_artifacts::{
+    SourceReferenceArtifact, parse_citation_analysis_artifact, parse_source_reference_artifact,
+};
 use crate::ports::ReferenceRefreshRepositoryPort;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -153,6 +156,9 @@ pub struct ReferenceRefreshPayload {
     pub status: String,
     pub payload_hash: String,
     pub content: Value,
+    /// Runtime-only Citation provenance; never part of the canonical payload.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub references_basis: Option<String>,
     #[serde(default)]
     pub diagnostics: Vec<Value>,
 }
@@ -884,33 +890,37 @@ impl ReferenceRefreshApplication {
             .filter(|read| read.artifact_type == ReferenceArtifactType::References)
         {
             let payload = payload_by_locator[read.locator.as_str()];
-            let references = payload
-                .content
-                .get("references")
-                .and_then(Value::as_array)
-                .ok_or_else(|| "payload_stale".to_owned())?;
-            for (index, reference) in references.iter().enumerate() {
-                let title = reference
-                    .get("title")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .trim()
-                    .to_owned();
+            let references: SourceReferenceArtifact =
+                parse_source_reference_artifact(&payload.content).map_err(|_| "payload_stale")?;
+            if let Some(citation_read) = preparation.reads.iter().find(|candidate| {
+                candidate.paper_ref == read.paper_ref
+                    && candidate.artifact_type == ReferenceArtifactType::CitationAnalysis
+            }) && let Some(citation_payload) =
+                payload_by_locator.get(citation_read.locator.as_str())
+                && let Some(references_basis) = citation_payload.references_basis.as_deref()
+            {
+                let expected_basis =
+                    canonical_json_hash(&payload.content).map_err(|_| "payload_stale")?;
+                if references_basis != expected_basis {
+                    return Err("payload_stale".into());
+                }
+            }
+            for (index, reference) in references.references.iter().enumerate() {
+                let title = reference.bibliography.title.trim().to_owned();
                 let normalized_title = normalize_title(&title);
                 let year = reference
-                    .get("year")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_owned();
-                let authors = reference
-                    .get("authors")
-                    .cloned()
-                    .unwrap_or_else(|| Value::Array(Vec::new()));
+                    .bibliography
+                    .year
+                    .map(|value| value.to_string())
+                    .unwrap_or_default();
+                let authors = json!(&reference.bibliography.authors);
                 let authors_json = serde_json::to_string(&authors).unwrap_or_else(|_| "[]".into());
                 let citekey = reference
-                    .get("citekey")
-                    .and_then(Value::as_str)
+                    .matching
+                    .citekey
+                    .as_deref()
                     .unwrap_or_default()
+                    .trim()
                     .to_lowercase();
                 let metadata_hash = canonical_json_hash(&json!({
                     "citekey": citekey,
@@ -921,21 +931,14 @@ impl ReferenceRefreshApplication {
                 .map_err(|_| "payload_stale")?;
                 let canonical_id = format!("cref:{}", &metadata_hash[7..31]);
                 let raw_reference = reference
-                    .get("raw")
-                    .or_else(|| reference.get("raw_reference"))
-                    .and_then(Value::as_str)
+                    .extraction
+                    .as_ref()
+                    .map(|extraction| extraction.raw.as_str())
                     .unwrap_or_default()
                     .trim()
                     .to_owned();
                 let raw_hash = if raw_reference.is_empty() {
-                    canonical_json_hash(&json!({
-                        "title": title,
-                        "normalizedTitle": normalized_title,
-                        "year": year,
-                        "authors": authors,
-                        "citekey": citekey,
-                    }))
-                    .map_err(|_| "payload_stale")?
+                    metadata_hash.clone()
                 } else {
                     use sha2::{Digest, Sha256};
                     format!("sha256:{:x}", Sha256::digest(raw_reference.as_bytes()))
@@ -977,16 +980,50 @@ impl ReferenceRefreshApplication {
                         updated_at: now.clone(),
                     });
                 }
+                let mut identifiers = serde_json::Map::new();
+                if let Some(value) = reference
+                    .matching
+                    .doi
+                    .as_deref()
+                    .filter(|value| !value.is_empty())
+                {
+                    identifiers.insert("DOI".into(), json!(value));
+                }
+                if let Some(value) = reference
+                    .matching
+                    .url
+                    .as_deref()
+                    .filter(|value| !value.is_empty())
+                {
+                    identifiers.insert("url".into(), json!(value));
+                }
+                if let Some(value) = reference
+                    .matching
+                    .isbn
+                    .as_deref()
+                    .filter(|value| !value.is_empty())
+                {
+                    identifiers.insert("ISBN".into(), json!(value));
+                }
+                if let Some(value) = reference
+                    .matching
+                    .issn
+                    .as_deref()
+                    .filter(|value| !value.is_empty())
+                {
+                    identifiers.insert("ISSN".into(), json!(value));
+                }
+                if !citekey.is_empty() {
+                    identifiers.insert("citekey".into(), json!(citekey));
+                }
                 canonicals.push(CanonicalReferenceRecord {
                     canonical_reference_id: canonical_id.clone(),
                     title: title.clone(),
                     normalized_title: normalized_title.clone(),
                     year: year.clone(),
                     authors_json: authors_json.clone(),
-                    identifiers_json: serde_json::to_string(&json!({
-                        "citekey": citekey
-                    }))
-                    .unwrap_or_else(|_| "{}".into()),
+                    identifiers_json: serde_json::to_string(&Value::Object(identifiers))
+                        .unwrap_or_else(|_| "{}".into()),
                     metadata_hash,
                     status: "active".into(),
                     created_at: now.clone(),
@@ -994,6 +1031,7 @@ impl ReferenceRefreshApplication {
                 });
                 raw_references.push(RawReferenceRecord {
                     raw_reference_id: raw_id,
+                    source_reference_id: reference.source_reference_id.clone(),
                     source_ref: read.paper_ref.clone(),
                     references_artifact_hash: read.expected_hash.clone(),
                     reference_index: index as i64,
@@ -1018,7 +1056,7 @@ impl ReferenceRefreshApplication {
                         &preparation.reads,
                         &payload_by_locator,
                         &read.paper_ref,
-                        index,
+                        &reference.source_reference_id,
                     ),
                     diagnostics_json: "[]".into(),
                     created_at: now.clone(),
@@ -1897,34 +1935,28 @@ fn roles_for_reference(
     reads: &[ReferenceRefreshRead],
     payload_by_locator: &HashMap<&str, &ReferenceRefreshPayload>,
     paper_ref: &str,
-    reference_index: usize,
+    source_reference_id: &str,
 ) -> String {
     #[derive(Serialize)]
     struct RoleCount {
         role: String,
         count: usize,
     }
-    let roles = reads
+    let citation = reads
         .iter()
         .find(|read| {
             read.paper_ref == paper_ref
                 && read.artifact_type == ReferenceArtifactType::CitationAnalysis
         })
         .and_then(|read| payload_by_locator.get(read.locator.as_str()))
-        .and_then(|payload| payload.content.get("citations"))
-        .and_then(Value::as_array)
+        .and_then(|payload| parse_citation_analysis_artifact(&payload.content).ok());
+    let roles = citation
         .into_iter()
-        .flatten()
-        .filter(|entry| {
-            entry
-                .get("reference_index")
-                .or_else(|| entry.get("ref_index"))
-                .and_then(Value::as_u64)
-                == Some(reference_index as u64)
-        })
-        .filter_map(|entry| entry.get("role").and_then(Value::as_str))
+        .flat_map(|citation| citation.items)
+        .filter(|item| item.source_reference_id == source_reference_id)
+        .filter_map(|item| item.function.map(|function| function.as_str().to_owned()))
         .fold(BTreeMap::<String, usize>::new(), |mut roles, role| {
-            *roles.entry(role.to_lowercase()).or_default() += 1;
+            *roles.entry(role).or_default() += 1;
             roles
         })
         .into_iter()
@@ -2105,6 +2137,43 @@ mod tests {
     }
 
     fn payloads(prepared: &ReferenceRefreshPrepareResult) -> Vec<ReferenceRefreshPayload> {
+        fn citation_payload(function: &str, role_in_context: &str) -> Value {
+            json!({
+                "schema": "citation_analysis_artifact.v1",
+                "meta": {
+                    "language": "en",
+                    "scope": {"section_title": null, "line_start": null, "line_end": null},
+                    "scope_source": null,
+                    "scope_decision": {
+                        "selection_reason": null,
+                        "covered_sections": [],
+                        "fallback_from": null,
+                        "fallback_reason": null
+                    },
+                    "mapping_reliability": "normal",
+                    "reference_extraction": {"status": "completed"}
+                },
+                "summary": "",
+                "timeline": {
+                    "early": {"summary": "", "sourceReferenceIds": []},
+                    "mid": {"summary": "", "sourceReferenceIds": []},
+                    "recent": {"summary": "", "sourceReferenceIds": []}
+                },
+                "items": [{
+                    "sourceReferenceId": "source-reference-1",
+                    "function": function,
+                    "role_in_context": role_in_context,
+                    "topic": null,
+                    "usage": null,
+                    "keywords": [],
+                    "summary": null,
+                    "key_reference_reason": null,
+                    "confidence": null,
+                    "mentions": []
+                }],
+                "unresolved": []
+            })
+        }
         prepared
             .reads
             .iter()
@@ -2115,18 +2184,60 @@ mod tests {
                 payload_hash: read.expected_hash.clone(),
                 content: match read.artifact_type {
                     ReferenceArtifactType::References => {
-                        json!({"references":[{"title":"Target","year":"2020","authors":["A"]}]})
+                        json!({
+                            "schema": "source_reference_artifact.v1",
+                            "references": [{
+                                "sourceReferenceId": "source-reference-1",
+                                "extraction": {"raw": "", "confidence": null},
+                                "bibliography": {
+                                    "title": "Target",
+                                    "authors": ["A"],
+                                    "year": 2020
+                                },
+                                "matching": {}
+                            }]
+                        })
                     }
                     ReferenceArtifactType::CitationAnalysis => {
-                        json!({"citations":[{"reference_index":0,"role":"background"}]})
+                        citation_payload("background", "background")
                     }
                     ReferenceArtifactType::Digest | ReferenceArtifactType::LiteratureScore => {
                         json!({})
                     }
                 },
+                references_basis: None,
                 diagnostics: Vec::new(),
             })
             .collect()
+    }
+
+    #[test]
+    fn rejects_citation_payload_with_stale_references_basis() {
+        let (_root, application) = application();
+        let prepared = application.prepare_refresh(request(None));
+        let mut payloads = payloads(&prepared);
+        let references = payloads
+            .iter()
+            .find(|payload| payload.locator.contains("references-json"))
+            .expect("references payload")
+            .content
+            .clone();
+        let citation = payloads
+            .iter_mut()
+            .find(|payload| payload.locator.contains("citation-analysis-json"))
+            .expect("citation payload");
+        citation.references_basis = Some("sha256:stale".into());
+
+        assert_eq!(
+            application
+                .apply_refresh(ReferenceRefreshApplyRequest {
+                    preparation_id: prepared.preparation_id.expect("preparation"),
+                    payloads,
+                })
+                .status,
+            ReferenceRefreshStatus::PayloadStale
+        );
+        assert!(canonical_json_hash(&references).is_ok());
     }
 
     fn source_request(
@@ -2450,7 +2561,41 @@ mod tests {
             .iter_mut()
             .find(|payload| payload.locator.contains("citation-analysis-json"))
             .expect("citation payload")
-            .content = json!({"citations":[{"reference_index":0,"role":"method"}]});
+            .content = json!({
+            "schema": "citation_analysis_artifact.v1",
+            "meta": {
+                "language": "en",
+                "scope": {"section_title": null, "line_start": null, "line_end": null},
+                "scope_source": null,
+                "scope_decision": {
+                    "selection_reason": null,
+                    "covered_sections": [],
+                    "fallback_from": null,
+                    "fallback_reason": null
+                },
+                "mapping_reliability": "normal",
+                "reference_extraction": {"status": "completed"}
+            },
+            "summary": "",
+            "timeline": {
+                "early": {"summary": "", "sourceReferenceIds": []},
+                "mid": {"summary": "", "sourceReferenceIds": []},
+                "recent": {"summary": "", "sourceReferenceIds": []}
+            },
+            "items": [{
+                "sourceReferenceId": "source-reference-1",
+                "function": "component",
+                "role_in_context": "method",
+                "topic": null,
+                "usage": null,
+                "keywords": [],
+                "summary": null,
+                "key_reference_reason": null,
+                "confidence": null,
+                "mentions": []
+            }],
+            "unresolved": []
+        });
         assert_eq!(
             application
                 .apply_refresh(ReferenceRefreshApplyRequest {
@@ -2576,6 +2721,7 @@ mod tests {
                         "title":"x".repeat(MAX_PREPARATION_BYTES + 1),
                     }],
                 }),
+                references_basis: None,
                 diagnostics: Vec::new(),
             }],
         };

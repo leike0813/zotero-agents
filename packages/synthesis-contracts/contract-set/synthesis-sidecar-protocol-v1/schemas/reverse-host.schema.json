@@ -524,6 +524,7 @@
         "status": { "enum": ["available", "missing", "decode_error", "stale"] },
         "payloadHash": { "type": "string", "maxLength": 128 },
         "currentHash": { "type": "string", "maxLength": 128 },
+        "referencesBasis": { "$ref": "common.schema.json#/$defs/sha256" },
         "content": { "$ref": "#/$defs/ArtifactContent" },
         "diagnostics": { "$ref": "#/$defs/TextDiagnostics" }
       }

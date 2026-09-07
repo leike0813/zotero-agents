@@ -480,6 +480,7 @@ fn main() -> Result<(), String> {
                 ReferenceArtifactType::Digest | ReferenceArtifactType::LiteratureScore => json!({}),
             },
             diagnostics: Vec::new(),
+            references_basis: None,
         })
         .collect();
     let promoted_refresh = refresh.apply_refresh(ReferenceRefreshApplyRequest {

@@ -183,6 +183,9 @@ pub struct ReferenceHostArtifactRead {
     pub current_hash: String,
     #[serde(default)]
     pub content: Option<Value>,
+    /// Runtime-only Citation provenance; excluded from canonical Citation JSON.
+    #[serde(default)]
+    pub references_basis: Option<String>,
     #[serde(default)]
     pub diagnostics: Vec<String>,
 }

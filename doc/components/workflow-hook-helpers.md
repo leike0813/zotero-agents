@@ -38,27 +38,27 @@ opaque run-scoped prepared-image reference.
 
 Hook receives `runtime` with these fields:
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `hostApi` | `WorkflowHostApiV12` | Exact 23-top-level/21-module/88-callable host projection |
-| `hostApiVersion` | `12` | Exact API version |
-| `invocationMode` | `"interactive" \| "non-interactive"` | Current invocation mode |
-| `debugMode` | `boolean \| undefined` | Debug mode flag |
-| `workflowId` | `string \| undefined` | Current workflow ID |
-| `packageId` | `string \| undefined` | Package ID (workflow packages only) |
-| `workflowRootDir` | `string \| undefined` | Workflow root directory path |
-| `packageRootDir` | `string \| undefined` | Package root directory path (workflow packages only) |
-| `workflowSourceKind` | `”builtin” \| “user” \| “”` | Source location type |
-| `hookName` | `"preflight" \| "buildRequest" \| "applyResult" \| ""` | Current hook name |
-| `locale` | `string \| undefined` | Resolved display locale |
-| `signal` | `CancellationSignal \| undefined` | Read-only per-hook-run signal for cooperative Workflow Host cancellation; aborts when the run ends or an upstream caller signal fires |
-| `fetch` | `typeof fetch \| null` | Fetch API (if available) |
-| `Buffer` | `typeof Buffer \| null` | Node Buffer (if available) |
-| `btoa` | `typeof btoa \| null` | Base64 encode (if available) |
-| `atob` | `typeof atob \| null` | Base64 decode (if available) |
-| `TextEncoder` | `typeof TextEncoder \| null` | Text encoder (if available) |
-| `TextDecoder` | `typeof TextDecoder \| null` | Text decoder (if available) |
-| `FileReader` | `typeof globalThis.FileReader \| null` | FileReader API (if available) |
+| Field                | Type                                                   | Description                                                                                                                           |
+| -------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `hostApi`            | `WorkflowHostApiV12`                                   | Exact 25-top-level/23-module/96-callable host projection                                                                              |
+| `hostApiVersion`     | `12`                                                   | Exact API version                                                                                                                     |
+| `invocationMode`     | `"interactive" \| "non-interactive"`                   | Current invocation mode                                                                                                               |
+| `debugMode`          | `boolean \| undefined`                                 | Debug mode flag                                                                                                                       |
+| `workflowId`         | `string \| undefined`                                  | Current workflow ID                                                                                                                   |
+| `packageId`          | `string \| undefined`                                  | Package ID (workflow packages only)                                                                                                   |
+| `workflowRootDir`    | `string \| undefined`                                  | Workflow root directory path                                                                                                          |
+| `packageRootDir`     | `string \| undefined`                                  | Package root directory path (workflow packages only)                                                                                  |
+| `workflowSourceKind` | `”builtin” \| “user” \| “”`                            | Source location type                                                                                                                  |
+| `hookName`           | `"preflight" \| "buildRequest" \| "applyResult" \| ""` | Current hook name                                                                                                                     |
+| `locale`             | `string \| undefined`                                  | Resolved display locale                                                                                                               |
+| `signal`             | `CancellationSignal \| undefined`                      | Read-only per-hook-run signal for cooperative Workflow Host cancellation; aborts when the run ends or an upstream caller signal fires |
+| `fetch`              | `typeof fetch \| null`                                 | Fetch API (if available)                                                                                                              |
+| `Buffer`             | `typeof Buffer \| null`                                | Node Buffer (if available)                                                                                                            |
+| `btoa`               | `typeof btoa \| null`                                  | Base64 encode (if available)                                                                                                          |
+| `atob`               | `typeof atob \| null`                                  | Base64 decode (if available)                                                                                                          |
+| `TextEncoder`        | `typeof TextEncoder \| null`                           | Text encoder (if available)                                                                                                           |
+| `TextDecoder`        | `typeof TextDecoder \| null`                           | Text decoder (if available)                                                                                                           |
+| `FileReader`         | `typeof globalThis.FileReader \| null`                 | FileReader API (if available)                                                                                                         |
 
 `runtime.signal` is a runtime-owned, host-independent `CancellationSignal`.
 It exposes only `aborted`, `addEventListener("abort", ...)`, and
@@ -72,5 +72,5 @@ where an upstream or `WorkflowCallControl` signal is accepted.
 
 - If `WorkflowRuntimeContext` or `WorkflowHostApiV12` changes in
   `src/workflows/types.ts`, update this document in the same change.
-- If the code-native manifest changes, keep the 23/21/88 metrics and group list
+- If the code-native manifest changes, keep the 25/23/96 metrics and group list
   synchronized here and in `doc/components/workflows.md`.

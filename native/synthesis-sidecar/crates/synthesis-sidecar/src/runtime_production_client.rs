@@ -1348,20 +1348,55 @@ mod dispatch_integration_tests {
                 "content":"# Digest\n".to_owned() + &"x".repeat(128 * 1024),
             },
             "references":{
-                "noteKey":"REFS1",
-                "payloadHash":"sha256:references-1",
+                "schema":"source_reference_artifact.v1",
                 "references":[{
-                    "title":"Matched paper",
-                    "year":"2024",
-                    "authors":["Matched Author"],
-                    "citekey":"matched2024",
-                    "raw":"Matched Author (2024). Matched paper."
+                    "sourceReferenceId":"fixture-source-reference-1",
+                    "extraction":{
+                        "raw":"Matched Author (2024). Matched paper.",
+                        "confidence":null
+                    },
+                    "bibliography":{
+                        "title":"Matched paper",
+                        "authors":["Matched Author"],
+                        "year":2024
+                    },
+                    "matching":{"citekey":"matched2024"}
                 }]
             },
             "citationAnalysis":{
-                "noteKey":"CITATION1",
-                "payloadHash":"sha256:citation-1",
-                "citations":[{"reference_index":0,"role":"background"}]
+                "schema":"citation_analysis_artifact.v1",
+                "meta":{
+                    "language":"en",
+                    "scope":{"section_title":null,"line_start":null,"line_end":null},
+                    "scope_source":null,
+                    "scope_decision":{
+                        "selection_reason":null,
+                        "covered_sections":[],
+                        "fallback_from":null,
+                        "fallback_reason":null
+                    },
+                    "mapping_reliability":"normal",
+                    "reference_extraction":{"status":"completed"}
+                },
+                "summary":"",
+                "timeline":{
+                    "early":{"summary":"","sourceReferenceIds":[]},
+                    "mid":{"summary":"","sourceReferenceIds":[]},
+                    "recent":{"summary":"","sourceReferenceIds":[]}
+                },
+                "items":[{
+                    "sourceReferenceId":"fixture-source-reference-1",
+                    "function":"background",
+                    "role_in_context":"background",
+                    "topic":null,
+                    "usage":null,
+                    "keywords":[],
+                    "summary":null,
+                    "key_reference_reason":null,
+                    "confidence":null,
+                    "mentions":[]
+                }],
+                "unresolved":[]
             },
             "literatureMatchingMetadata":{
                 "key_terms":["  Knowledge Graph  ","knowledge graph","Rust"],
@@ -1830,14 +1865,13 @@ mod dispatch_integration_tests {
         drop(repository);
 
         let mut citation_only = request.clone();
-        citation_only["citationAnalysis"]["payloadHash"] = json!("sha256:citation-2");
-        citation_only["citationAnalysis"]["citations"][0]["role"] = json!("method");
+        citation_only["citationAnalysis"]["items"][0]["function"] = json!("tooling");
         apply_literature_digest(&apps, citation_only).expect("citation-only apply");
         let repository = owner.lock().expect("repository");
         assert!(
             repository.list_raw_references().expect("references")[0]
                 .roles_json
-                .contains("method")
+                .contains("tooling")
         );
         assert_eq!(
             repository
@@ -1866,7 +1900,6 @@ mod dispatch_integration_tests {
         drop(repository);
 
         let mut invalid = request.clone();
-        invalid["references"]["payloadHash"] = json!("sha256:references-invalid");
         invalid["references"]["references"] = json!("not-an-array");
         assert!(apply_literature_digest(&apps, invalid).is_err());
         assert_eq!(

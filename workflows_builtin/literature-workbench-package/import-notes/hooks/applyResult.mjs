@@ -1,7 +1,7 @@
 import {
-  loadImportSchemas,
-  normalizeImportedCitationPayload,
-  normalizeImportedReferencesPayload,
+  parseImportedCitationArtifact,
+  parseImportedReferencesArtifact,
+  parseImportedScoreArtifact,
   validateImportedCitationPayload,
   validateImportedReferencesPayload,
 } from "../../lib/importSchemas.mjs";
@@ -11,9 +11,7 @@ import {
   upsertLiteratureDigestGeneratedNotes,
 } from "../../lib/literatureDigestNotes.mjs";
 import { applyLiteratureDigestSidecar } from "../../lib/literatureDigestSidecar.mjs";
-import { parseGeneratedNoteKind } from "../../lib/referencesNote.mjs";
 import { resolveRepresentativeImageMarkdownImportCandidate } from "../../lib/representativeImage.mjs";
-import { buildLiteratureScorePayload } from "../../lib/literatureScoreNote.mjs";
 import {
   portableItemRef,
   readHostPages,
@@ -46,8 +44,10 @@ export function getSelectedImportCandidateForKind(state, kind) {
 }
 
 function clearSelectedImportCandidateForKind(draft, kind) {
+  draft.legacyPreviews = draft.legacyPreviews || {};
   if (kind === "citation-analysis") {
     draft.citationAnalysis = null;
+    draft.legacyPreviews["citation-analysis"] = null;
     draft.errors["citation-analysis"] = "";
     return;
   }
@@ -58,6 +58,7 @@ function clearSelectedImportCandidateForKind(draft, kind) {
   }
   if (kind === "references") {
     draft.references = null;
+    draft.legacyPreviews.references = null;
     draft.errors.references = "";
     return;
   }
@@ -139,6 +140,248 @@ function formatValidationError(errors) {
   return String(first || "validation failed").trim();
 }
 
+function objectRecord(value) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value
+    : null;
+}
+
+function isRecognizedLegacyPayload(kind, value) {
+  const row = objectRecord(value);
+  if (!row || typeof row.schema === "string") {
+    return Array.isArray(value) && kind === "references";
+  }
+  if (kind === "references") {
+    return (
+      Array.isArray(value) ||
+      Array.isArray(row.items) ||
+      Array.isArray(row.references) ||
+      Array.isArray(row.reference_entries) ||
+      Array.isArray(row.records)
+    );
+  }
+  if (kind === "citation-analysis") {
+    return Boolean(
+      row.citation_analysis ||
+        row.citationAnalysis ||
+        Array.isArray(row.items) ||
+        Array.isArray(row.mentions) ||
+        Array.isArray(row.unmapped_mentions) ||
+        Array.isArray(row.snapshots) ||
+        Array.isArray(row.reference_snapshots),
+    );
+  }
+  return false;
+}
+
+function legacyPreviewLabel(preview) {
+  const classification = String(preview?.classification || "blocked").trim();
+  const counts = [
+    `references=${Number(preview?.verifiedCount || 0)}`,
+    `unresolved=${Number(preview?.unresolvedCount || 0)}`,
+    `recovered=${Number(preview?.recoveredCount || 0)}`,
+    `dropped=${Number(preview?.droppedCount || 0)}`,
+  ].join(", ");
+  return `Legacy conversion preview: ${classification} (${counts})`;
+}
+
+function legacyPreviewError(preview) {
+  const reasons = Array.isArray(preview?.reasonCodes)
+    ? preview.reasonCodes.map((entry) => String(entry || "").trim()).filter(Boolean)
+    : [];
+  return reasons.length
+    ? `Legacy conversion blocked: ${reasons.join(", ")}`
+    : "Legacy conversion is blocked";
+}
+
+function canonicalReferencesFromState(state, context, legacyPayloads) {
+  const selected = state?.references?.payload?.references;
+  const pending = legacyPayloads?.get("references")?.payload?.references;
+  const existing = context?.existingReferences;
+  const references = [
+    ...(Array.isArray(existing) ? existing : []),
+    ...(Array.isArray(selected) ? selected : []),
+    ...(Array.isArray(pending) ? pending : []),
+  ];
+  const seen = new Set();
+  return references.filter((reference) => {
+    const id = String(reference?.sourceReferenceId || "").trim();
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+
+function requireLegacyImportParentRef(parentRef) {
+  if (
+    !parentRef ||
+    !Number.isSafeInteger(parentRef.libraryId) ||
+    parentRef.libraryId <= 0 ||
+    !String(parentRef.key || "").trim()
+  ) {
+    throw new Error("legacy import requires a valid parent ref");
+  }
+  return {
+    libraryId: parentRef.libraryId,
+    key: String(parentRef.key).trim(),
+  };
+}
+
+/**
+ * Private editor-owner seam shared by offline file and bundle import. The
+ * summary is safe to render; the canonical payload stays on the returned
+ * private object until the caller explicitly confirms conversion.
+ */
+export function previewLegacyArtifactSetForImport(args = {}) {
+  const converter = args.host?.convertLegacyArtifactSet;
+  if (typeof converter !== "function") {
+    const error = new Error("legacy import converter is unavailable");
+    error.code = "legacy_artifact_requires_migration";
+    throw error;
+  }
+  const parentRef = requireLegacyImportParentRef(
+    args.parentRef || args.context?.parentRef,
+  );
+  const input = {
+    libraryId: parentRef.libraryId,
+    parentRef,
+    ...(args.references !== undefined
+      ? { references: args.references }
+      : {}),
+    ...(args.citation !== undefined ? { citation: args.citation } : {}),
+    ...(args.legacyPayload !== undefined
+      ? { legacyPayload: args.legacyPayload }
+      : {}),
+    ...(typeof args.noteContent === "string"
+      ? { noteContent: args.noteContent }
+      : {}),
+    ...(Array.isArray(args.noteContents)
+      ? { noteContents: args.noteContents }
+      : {}),
+    ...(Array.isArray(args.legacyNoteRefs)
+      ? { legacyNoteRefs: args.legacyNoteRefs }
+      : {}),
+    ...(args.filePayload !== undefined
+      ? { filePayload: args.filePayload }
+      : {}),
+    ...(Array.isArray(args.filePayloads)
+      ? { filePayloads: args.filePayloads }
+      : {}),
+    ...(Array.isArray(args.existingReferences)
+      ? { existingReferences: args.existingReferences }
+      : {}),
+    ...(Array.isArray(args.readErrors) ? { readErrors: args.readErrors } : {}),
+  };
+  const options = {
+    ...(args.allowCitationOnlyWithExistingReferences === true
+      ? { allowCitationOnlyWithExistingReferences: true }
+      : {}),
+    ...(typeof args.idFactory === "function"
+      ? { idFactory: args.idFactory }
+      : {}),
+    ...(typeof args.mentionIdFactory === "function"
+      ? { mentionIdFactory: args.mentionIdFactory }
+      : {}),
+  };
+  const conversion = converter(input, Object.keys(options).length ? options : undefined);
+  return {
+    ...(args.sourcePath ? { sourcePath: args.sourcePath } : {}),
+    classification: conversion.classification,
+    reasonCodes: conversion.reasonCodes,
+    diagnostics: conversion.diagnostics,
+    verifiedCount: conversion.verifiedCount,
+    unresolvedCount: conversion.unresolvedCount,
+    recoveredCount: conversion.recoveredCount,
+    droppedCount: conversion.droppedCount,
+    payload: {
+      references: conversion.references,
+      citation: conversion.citation,
+    },
+  };
+}
+
+/**
+ * Private bundle/import-owner helper. Legacy managed payload wrappers are
+ * storage markers; the canonical payload is carried separately after the
+ * user confirms the preview, so the visible note body must not retain them.
+ */
+export function stripLegacyArtifactMarkupForImport(value) {
+  const payloadTypes = [
+    "references-json",
+    "citation-analysis-json",
+    "digest-markdown",
+    "literature-score-json",
+    "conversation-note-markdown",
+    "custom-markdown",
+  ]
+    .map((entry) => entry.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|");
+  let html = String(value || "");
+  html = html.replace(
+    new RegExp(
+      `<p\\b[^>]*data-zs-payload-anchor-container\\s*=\\s*(?:["']?1["']?)[^>]*>[\\s\\S]*?<\\/p>`,
+      "giu",
+    ),
+    (block) =>
+      new RegExp(
+        `data-zs-payload-anchor\\s*=\\s*(?:["']?(?:${payloadTypes})["']?)`,
+        "iu",
+      ).test(block)
+        ? ""
+        : block,
+  );
+  html = html.replace(
+    new RegExp(
+      `<span\\b[^>]*data-zs-payload\\s*=\\s*(?:["']?(?:${payloadTypes})["']?)[^>]*>[\\s\\S]*?<\\/span>`,
+      "giu",
+    ),
+    "",
+  );
+  return html.replace(
+    new RegExp(
+      `<img\\b[^>]*data-zs-payload-anchor\\s*=\\s*(?:["']?(?:${payloadTypes})["']?)[^>]*>`,
+      "giu",
+    ),
+    "",
+  );
+}
+
+function createLegacyPreview(args) {
+  const payloadType =
+    args.kind === "references"
+      ? "references-json"
+      : "citation-analysis-json";
+  const preview = previewLegacyArtifactSetForImport({
+    host: args.host,
+    parentRef: args.context?.parentRef,
+    sourcePath: args.sourcePath,
+    filePayload: { payloadType, value: args.parsed },
+    ...(args.kind === "citation-analysis"
+      ? {
+          existingReferences: canonicalReferencesFromState(
+            args.state,
+            { existingReferences: args.existingReferences },
+            args.legacyPayloads,
+          ),
+          allowCitationOnlyWithExistingReferences: true,
+        }
+      : {}),
+  });
+  return {
+    ...preview,
+    payload:
+      args.kind === "references"
+        ? preview.payload.references
+        : preview.payload.citation,
+  };
+}
+
+function legacyPreviewSummary(preview) {
+  const summary = { ...preview };
+  delete summary.payload;
+  return summary;
+}
+
 async function buildNonInteractiveSelection({ host, runtime }) {
   const resources = host.resources;
   const selected = {
@@ -162,44 +405,40 @@ async function buildNonInteractiveSelection({ host, runtime }) {
       representativeImage: resolved.representativeImage,
     };
   }
-  const schemas = await loadImportSchemas(runtime);
   const references = resources?.getInput("references");
   if (references) {
-    const payload = normalizeImportedReferencesPayload(
+    const payload = parseImportedReferencesArtifact(
       JSON.parse(await host.file.readText(references.path)),
     );
     const validation = validateImportedReferencesPayload(
       payload,
-      schemas.referencesSchema,
     );
     if (!validation.valid) throw new Error(formatValidationError(validation.errors));
     selected.references = {
       sourcePath: references.path,
-      payload: { ...payload, entry: payload.entry || references.path },
+      payload,
     };
   }
   const citation = resources?.getInput("citation-analysis");
   if (citation) {
-    const payload = normalizeImportedCitationPayload(
+    const payload = parseImportedCitationArtifact(
       JSON.parse(await host.file.readText(citation.path)),
     );
     const validation = validateImportedCitationPayload(
       payload,
-      schemas.citationSchema,
     );
     if (!validation.valid) throw new Error(formatValidationError(validation.errors));
     selected.citationAnalysis = {
       sourcePath: citation.path,
-      payload: { ...payload, entry: payload.entry || citation.path },
+      payload,
     };
   }
   const literatureScore = resources?.getInput("literature-score");
   if (literatureScore) {
     selected.literatureScore = {
       sourcePath: literatureScore.path,
-      payload: buildLiteratureScorePayload(
+      payload: parseImportedScoreArtifact(
         JSON.parse(await host.file.readText(literatureScore.path)),
-        literatureScore.path,
       ),
     };
   }
@@ -222,6 +461,7 @@ function conflictPolicyError(conflictedKinds) {
 }
 
 function createImportRenderer(args) {
+  const legacyPayloads = args.legacyPayloads || new Map();
   return {
     render({ doc, root, state, context, host }) {
       clearChildren(root);
@@ -260,15 +500,52 @@ function createImportRenderer(args) {
         status.style.fontSize = "12px";
         const existing = state.existing?.[kind] === true;
         const candidate = getSelectedImportCandidateForKind(state, kind);
+        const legacyPreview = state.legacyPreviews?.[kind] || null;
         const errorMessage = String(state.errors?.[kind] || "").trim();
         status.textContent = [
           existing ? "Existing: yes" : "Existing: no",
           candidate?.sourcePath
             ? `Selected: ${getBaseName(candidate.sourcePath)}`
             : "Selected: none",
+          legacyPreview ? legacyPreviewLabel(legacyPreview) : "",
           errorMessage ? `Error: ${errorMessage}` : "Status: ready",
-        ].join(" | ");
+        ]
+          .filter(Boolean)
+          .join(" | ");
         row.appendChild(status);
+
+        if (legacyPreview) {
+          const confirmButton = createHtmlElement(doc, "button");
+          confirmButton.type = "button";
+          confirmButton.textContent = "Confirm conversion";
+          confirmButton.disabled =
+            legacyPreview.classification === "blocked" ||
+            !legacyPayloads.get(kind)?.payload;
+          confirmButton.addEventListener("click", () => {
+            const privatePreview = legacyPayloads.get(kind);
+            if (
+              legacyPreview.classification === "blocked" ||
+              !privatePreview?.payload
+            ) {
+              return;
+            }
+            host.patchState((draft) => {
+              const selected = {
+                sourcePath: privatePreview.sourcePath,
+                legacyConversionConfirmed: true,
+              };
+              if (kind === "references") {
+                draft.references = selected;
+              } else if (kind === "citation-analysis") {
+                draft.citationAnalysis = selected;
+              }
+              draft.legacyPreviews = draft.legacyPreviews || {};
+              draft.legacyPreviews[kind] = null;
+              draft.errors[kind] = "";
+            });
+          });
+          row.appendChild(confirmButton);
+        }
 
         const chooseButton = createHtmlElement(doc, "button");
         chooseButton.type = "button";
@@ -283,7 +560,6 @@ function createImportRenderer(args) {
           }
           try {
             const content = await args.host.file.readText(selectedPath);
-            const schemas = await loadImportSchemas(args.runtime);
             host.patchState((draft) => {
               draft.errors = draft.errors || {};
             });
@@ -306,28 +582,57 @@ function createImportRenderer(args) {
             }
             const parsed = JSON.parse(content);
             if (kind === "references") {
-              const validation = validateImportedReferencesPayload(
-                parsed,
-                schemas.referencesSchema,
-              );
+              const validation = validateImportedReferencesPayload(parsed);
               if (!validation.valid) {
+                if (isRecognizedLegacyPayload(kind, parsed)) {
+                  const preview = createLegacyPreview({
+                    host,
+                    context,
+                    existingReferences: args.existingReferences,
+                    legacyPayloads,
+                    state,
+                    kind,
+                    parsed,
+                    sourcePath: selectedPath,
+                  });
+                  legacyPayloads.set("references", preview);
+                  host.patchState((draft) => {
+                    draft.references = null;
+                    draft.legacyPreviews = draft.legacyPreviews || {};
+                    draft.legacyPreviews.references =
+                      legacyPreviewSummary(preview);
+                    draft.errors.references =
+                      preview.classification === "blocked"
+                        ? legacyPreviewError(preview)
+                        : "Review the conversion preview and confirm it to continue";
+                  });
+                  return;
+                }
                 host.patchState((draft) => {
                   draft.references = null;
+                  draft.legacyPreviews = draft.legacyPreviews || {};
+                  draft.legacyPreviews.references = {
+                    sourcePath: selectedPath,
+                    classification: "blocked",
+                    reasonCodes: ["unsupported_input"],
+                    diagnostics: ["input is not a recognized legacy References artifact"],
+                  };
                   draft.errors.references = formatValidationError(
                     validation.errors,
                   );
                 });
+                legacyPayloads.delete("references");
                 return;
               }
-              const normalized = normalizeImportedReferencesPayload(parsed);
-              if (!normalized.entry) {
-                normalized.entry = selectedPath;
-              }
+              const normalized = parseImportedReferencesArtifact(parsed);
+              legacyPayloads.delete("references");
               host.patchState((draft) => {
                 draft.references = {
                   sourcePath: selectedPath,
                   payload: normalized,
                 };
+                draft.legacyPreviews = draft.legacyPreviews || {};
+                draft.legacyPreviews.references = null;
                 draft.errors.references = "";
               });
               return;
@@ -337,35 +642,64 @@ function createImportRenderer(args) {
               host.patchState((draft) => {
                 draft.literatureScore = {
                   sourcePath: selectedPath,
-                  payload: buildLiteratureScorePayload(parsed, selectedPath),
+                  payload: parseImportedScoreArtifact(parsed),
                 };
                 draft.errors["literature-score"] = "";
               });
               return;
             }
 
-            const validation = validateImportedCitationPayload(
-              parsed,
-              schemas.citationSchema,
-            );
+            const validation = validateImportedCitationPayload(parsed);
             if (!validation.valid) {
+              if (isRecognizedLegacyPayload(kind, parsed)) {
+                const preview = createLegacyPreview({
+                  host,
+                  context,
+                  existingReferences: args.existingReferences,
+                  legacyPayloads,
+                  state,
+                  kind,
+                  parsed,
+                  sourcePath: selectedPath,
+                });
+                legacyPayloads.set("citation-analysis", preview);
+                host.patchState((draft) => {
+                  draft.citationAnalysis = null;
+                  draft.legacyPreviews = draft.legacyPreviews || {};
+                  draft.legacyPreviews["citation-analysis"] =
+                    legacyPreviewSummary(preview);
+                  draft.errors["citation-analysis"] =
+                    preview.classification === "blocked"
+                      ? legacyPreviewError(preview)
+                      : "Review the conversion preview and confirm it to continue";
+                });
+                return;
+              }
               host.patchState((draft) => {
                 draft.citationAnalysis = null;
+                draft.legacyPreviews = draft.legacyPreviews || {};
+                draft.legacyPreviews["citation-analysis"] = {
+                  sourcePath: selectedPath,
+                  classification: "blocked",
+                  reasonCodes: ["unsupported_input"],
+                  diagnostics: ["input is not a recognized legacy Citation artifact"],
+                };
                 draft.errors["citation-analysis"] = formatValidationError(
                   validation.errors,
                 );
               });
+              legacyPayloads.delete("citation-analysis");
               return;
             }
-            const normalized = normalizeImportedCitationPayload(parsed);
-            if (!normalized.entry) {
-              normalized.entry = selectedPath;
-            }
+            const normalized = parseImportedCitationArtifact(parsed);
+            legacyPayloads.delete("citation-analysis");
             host.patchState((draft) => {
               draft.citationAnalysis = {
                 sourcePath: selectedPath,
                 payload: normalized,
               };
+              draft.legacyPreviews = draft.legacyPreviews || {};
+              draft.legacyPreviews["citation-analysis"] = null;
               draft.errors["citation-analysis"] = "";
             });
           } catch (error) {
@@ -375,6 +709,7 @@ function createImportRenderer(args) {
                 error?.message || error || "import failed",
               );
             });
+            legacyPayloads.delete(kind);
           }
         });
         row.appendChild(chooseButton);
@@ -383,10 +718,11 @@ function createImportRenderer(args) {
         clearButton.type = "button";
         clearButton.textContent = "Clear";
         clearButton.addEventListener("click", () => {
-          host.patchState((draft) => {
-            clearSelectedImportCandidateForKind(draft, kind);
+            host.patchState((draft) => {
+              clearSelectedImportCandidateForKind(draft, kind);
+            });
+            legacyPayloads.delete(kind);
           });
-        });
         row.appendChild(clearButton);
 
         panel.appendChild(row);
@@ -584,13 +920,14 @@ function createImportRenderer(args) {
 
       root.appendChild(panel);
     },
-    serialize({ state }) {
+      serialize({ state }) {
       return cloneSerializable({
         digest: state.digest || null,
         references: state.references || null,
         citationAnalysis: state.citationAnalysis || null,
         literatureScore: state.literatureScore || null,
         customNotes: state.customNotes || [],
+        legacyPreviews: state.legacyPreviews || {},
       });
     },
   };
@@ -628,16 +965,21 @@ function createConflictRenderer() {
 
 async function openImportEditor(args) {
   const editor = requireHostEditor(args.runtime);
+  const existingFlags = { ...args.existing };
+  delete existingFlags.canonicalReferences;
   return editor.openSession({
     title: "Import Notes",
     initialState: cloneSerializable(args.initialState),
     renderer: createImportRenderer({
       runtime: args.runtime,
       host: requireHostApi(args.runtime),
+      existingReferences: args.existing.canonicalReferences || [],
+      legacyPayloads: args.legacyPayloads,
     }),
     context: {
       parentTitle: args.parentTitle,
-      existing: args.existing,
+      existing: existingFlags,
+      parentRef: portableItemRef(args.parentItem),
     },
     labels: {
       save: "Import",
@@ -696,6 +1038,7 @@ async function resolveExistingGeneratedKinds(parentItem, runtime) {
     references: false,
     "citation-analysis": false,
     "literature-score": false,
+    canonicalReferences: [],
   };
   const host = requireHostApi(runtime);
   for (const note of await readHostPages({
@@ -705,12 +1048,19 @@ async function resolveExistingGeneratedKinds(parentItem, runtime) {
     operation: "import-notes note read",
   })) {
     const noteItem = await host.library.getNoteDetail(note.ref, { format: "html" });
-    const kind = parseGeneratedNoteKind(noteItem.content);
+    const kind = noteItem.kind === "managed" ? noteItem.noteKind : null;
     if (kind === "digest") {
       existing.digest = true;
     }
     if (kind === "references") {
       existing.references = true;
+      if (
+        noteItem.kind === "managed" &&
+        noteItem.payload?.schema === "source_reference_artifact.v1" &&
+        Array.isArray(noteItem.payload.references)
+      ) {
+        existing.canonicalReferences = noteItem.payload.references;
+      }
     }
     if (kind === "citation-analysis") {
       existing["citation-analysis"] = true;
@@ -735,6 +1085,28 @@ function countCustomNotes(selection) {
   return Array.isArray(selection?.customNotes)
     ? selection.customNotes.length
     : 0;
+}
+
+function restorePrivateLegacyPayloads(selection, legacyPayloads) {
+  const fields = {
+    references: "references",
+    "citation-analysis": "citationAnalysis",
+  };
+  for (const [kind, preview] of legacyPayloads || []) {
+    const field = fields[kind];
+    if (
+      field &&
+      selection?.[field]?.legacyConversionConfirmed === true &&
+      preview?.payload
+    ) {
+      selection[field].payload = preview.payload;
+    }
+  }
+  return selection;
+}
+
+function hasPendingLegacyPreview(selection) {
+  return Object.values(selection?.legacyPreviews || {}).some(Boolean);
 }
 
 function buildImportedRepresentativeImageRequest(digest) {
@@ -800,7 +1172,7 @@ function buildImportedRepresentativeImageRequest(digest) {
 async function findAppliedGeneratedNote(host, notes, kind) {
   for (const note of notes || []) {
     const detail = await host.library.getNoteDetail(note.ref, { format: "html" });
-    if (parseGeneratedNoteKind(detail.content) === kind) return detail;
+    if (detail.kind === "managed" && detail.noteKind === kind) return detail;
   }
   return null;
 }
@@ -864,9 +1236,6 @@ async function applySelectedImportBatch(args) {
       digest: args.selected.digest
         ? {
             payload: {
-              version: 1,
-              entry: String(args.selected.digest.sourcePath || "").trim(),
-              format: "markdown",
               content: String(args.selected.digest.markdown || ""),
             },
             representativeImage: buildImportedRepresentativeImageRequest(
@@ -1005,6 +1374,7 @@ async function applyResultImpl({ parent, runtime, executionOptions }) {
     citationAnalysis: null,
     literatureScore: null,
     customNotes: [],
+    legacyPreviews: {},
     errors: {
       digest: "",
       references: "",
@@ -1014,12 +1384,15 @@ async function applyResultImpl({ parent, runtime, executionOptions }) {
     },
     existing,
   };
+  const legacyPayloads = new Map();
 
   while (true) {
     const editorResult = await openImportEditor({
       runtime,
       parentTitle,
+      parentItem,
       existing,
+      legacyPayloads,
       initialState: selectionState,
     });
     if (!editorResult || editorResult.saved !== true) {
@@ -1027,9 +1400,19 @@ async function applyResultImpl({ parent, runtime, executionOptions }) {
         `import-notes canceled by user: ${String(editorResult?.reason || "canceled").trim()}`,
       );
     }
-    const selected = cloneSerializable(editorResult.result || {});
+    const selected = restorePrivateLegacyPayloads(
+      cloneSerializable(editorResult.result || {}),
+      legacyPayloads,
+    );
     const standardCount = countSelectedCandidates(selected);
     const customCount = countCustomNotes(selected);
+    if (hasPendingLegacyPreview(selected)) {
+      const error = new Error(
+        "recognized legacy input requires explicit conversion confirmation",
+      );
+      error.code = "legacy_artifact_requires_migration";
+      throw error;
+    }
     if (standardCount === 0 && customCount === 0) {
       return {
         imported: 0,
@@ -1079,6 +1462,7 @@ async function applyResultImpl({ parent, runtime, executionOptions }) {
       citationAnalysis: selected.citationAnalysis || null,
       literatureScore: selected.literatureScore || null,
       customNotes: selected.customNotes || [],
+      legacyPreviews: selected.legacyPreviews || {},
     };
   }
 }

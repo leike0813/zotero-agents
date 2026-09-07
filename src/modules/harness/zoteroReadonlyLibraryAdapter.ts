@@ -1,7 +1,14 @@
 import { listNotePayloadBlocks } from "../notePayloadCodec";
+import {
+  classifyManagedNoteContent,
+  ManagedNoteOwnerError,
+} from "../zoteroManagedNotes";
 import { readArtifactsFromRegistryInputs } from "../synthesis/libraryAdapter";
 import { buildReferenceSidecarMetadataFingerprintPayload } from "../synthesis/registry";
-import type { ReferenceSidecarInput } from "../synthesis/registry";
+import type {
+  ReferenceSidecarInput,
+  ReferenceSidecarInputNote,
+} from "../synthesis/registry";
 import { hashCanonicalJson } from "../synthesis/foundation";
 import { buildLiteratureQualitySnapshot } from "../../shared/literatureScore";
 import {
@@ -226,16 +233,37 @@ async function loadRegistryInputs(
       url: fields.get("url") || "",
       citekey: fields.get("citationKey") || citekeyFromExtra(extra),
       dateAdded: cleanString(row.dateAdded),
-      notes: (notes.get(itemKey) || []).map((note) => {
-        const html = cleanString(note.html);
-        return {
-          key: cleanString(note.noteKey),
-          title: cleanString(note.title),
-          html,
-          updatedAt: cleanString(note.updatedAt),
-          payloadBlocks: listNotePayloadBlocks(html),
-        };
-      }),
+      notes: (notes.get(itemKey) || []).map(
+        (note): ReferenceSidecarInputNote => {
+          const html = cleanString(note.html);
+          const facts = {
+            key: cleanString(note.noteKey),
+            title: cleanString(note.title),
+            updatedAt: cleanString(note.updatedAt),
+          };
+          try {
+            const detail = classifyManagedNoteContent(
+              html,
+              listNotePayloadBlocks(html),
+              facts.title,
+            );
+            return {
+              ...facts,
+              noteKind: detail.kind === "managed" ? detail.noteKind : null,
+              payload: detail.kind === "managed" ? detail.payload : null,
+              issue: null,
+            };
+          } catch (error) {
+            if (!(error instanceof ManagedNoteOwnerError)) throw error;
+            return {
+              ...facts,
+              noteKind: null,
+              payload: null,
+              issue: error.code,
+            };
+          }
+        },
+      ),
     };
   });
 }

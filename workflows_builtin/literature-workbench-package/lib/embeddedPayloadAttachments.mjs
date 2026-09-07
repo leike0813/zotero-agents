@@ -5,6 +5,7 @@ export const WORKBENCH_EMBEDDED_PAYLOAD_MARKER =
 export const WORKBENCH_EMBEDDED_PAYLOAD_CHUNK = "zsPL";
 
 const WORKBENCH_PAYLOAD_ARTIFACT_NAMES = new Map([
+  ["custom-markdown", "custom"],
   ["digest-markdown", "digest"],
   ["references-json", "references"],
   ["citation-analysis-json", "citation-analysis"],
@@ -23,7 +24,9 @@ export function workbenchPayloadText(block) {
   if (block?.format === "json") {
     return `${JSON.stringify(block.payload, null, 2)}\n`;
   }
-  return String(block?.decodedText || block?.payload?.content || "");
+  return typeof block?.payload === "string"
+    ? block.payload
+    : String(block?.decodedText || block?.payload?.content || "");
 }
 
 const PAYLOAD_IMAGE_BASE64 =
@@ -650,49 +653,4 @@ export async function resolveWorkbenchEmbeddedPayloadBlock(args) {
     return blocks[0] || null;
   }
   return blocks.find((entry) => entry.payloadType === payloadType) || null;
-}
-
-export async function attachWorkbenchPayloadToNote(args) {
-  const runtime = args?.runtime;
-  const host = requireHostApi(runtime);
-  const note = args?.note;
-  const payloadType = normalizeText(args?.payloadType);
-  const noteKind = normalizeText(args?.noteKind);
-  if (!note) {
-    throw new Error("workbench payload note is missing");
-  }
-  if (!payloadType) {
-    throw new Error("workbench payload type is missing");
-  }
-  const noteRef = portableNoteRef(note);
-  const mutation = await host.notes.upsertPayload({
-    operationId: `note-payload:${noteRef.libraryId}:${noteRef.key}:${payloadType}:${Date.now().toString(36)}`,
-    noteRef,
-    payload: {
-      payloadType,
-      noteKind,
-      schemaVersion: normalizeText(
-        args?.schemaVersion ||
-          args?.payload?.schemaVersion ||
-          args?.payload?.schema ||
-          args?.payload?.version ||
-          `${payloadType}.v1`,
-      ),
-      format: args?.payloadFormat === "text" ? "text" : "json",
-      value: args?.payload,
-    },
-  });
-  if (mutation.outcome !== "committed" && mutation.outcome !== "unchanged") {
-    throw new Error(
-      mutation.attempt?.error?.message || "workbench payload upsert failed",
-    );
-  }
-  return {
-    status: "attached",
-    payloadType,
-    noteKind,
-    payloadStorageVersion: 2,
-    anchorStatus: "present",
-    bytes: 0,
-  };
 }

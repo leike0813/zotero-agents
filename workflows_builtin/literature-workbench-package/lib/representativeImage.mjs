@@ -181,11 +181,11 @@ export function extractRepresentativeImageExportDescriptor(noteContent) {
   if (!attachmentKey) {
     return null;
   }
-  const captionMatch = block.match(
-    /<figcaption\b[^>]*>([\s\S]*?)<\/figcaption>/i,
-  ) || source.slice(imgTagMatch.index || 0).match(
-    /<\/p>\s*<p\b[^>]*>([\s\S]*?)<\/p>/i,
-  );
+  const captionMatch =
+    block.match(/<figcaption\b[^>]*>([\s\S]*?)<\/figcaption>/i) ||
+    source
+      .slice(imgTagMatch.index || 0)
+      .match(/<\/p>\s*<p\b[^>]*>([\s\S]*?)<\/p>/i);
   const alt =
     stripHtmlTags(readTagAttribute(imgTagMatch?.[0] || "", "alt")) ||
     stripHtmlTags(captionMatch?.[1] || "") ||
@@ -549,7 +549,9 @@ function renderRepresentativeImageBlock(args) {
   return [
     `<p><img ${imageAttrs.join(" ")}></p>`,
     caption ? `<p>${escapeHtml(caption)}</p>` : "",
-  ].filter(Boolean).join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function renderRepresentativeImageDiagnosticSpan(result) {
@@ -683,13 +685,6 @@ export async function prepareRepresentativeImageForDigestNote(args) {
       locator: locator || null,
     };
   }
-  const digestNote = args.digestNote;
-  if (!digestNote) {
-    return withRepresentativeImageDiagnostic(
-      skipped("digest_note_missing", locator),
-    );
-  }
-
   try {
     const resolved = await resolveRepresentativeImage({
       runtime: args.runtime,
@@ -702,7 +697,6 @@ export async function prepareRepresentativeImageForDigestNote(args) {
 
     return prepareResolvedRepresentativeImageForDigestNote({
       runtime: args.runtime,
-      digestNote,
       locator,
       imagePath: resolved.imagePath,
       sourcePath: resolved.sourcePath,
@@ -726,13 +720,6 @@ export async function prepareResolvedRepresentativeImageForDigestNote(args) {
     source_kind: "imported_digest_markdown",
     label: "Representative image",
   };
-  const digestNote = args.digestNote;
-  if (!digestNote) {
-    return withRepresentativeImageDiagnostic(
-      skipped("digest_note_missing", locator),
-    );
-  }
-
   try {
     const imagePath = normalizeText(args.imagePath);
     if (!imagePath) {
@@ -741,9 +728,7 @@ export async function prepareResolvedRepresentativeImageForDigestNote(args) {
       );
     }
     const hostApi = requireHostApi(args.runtime);
-    if (
-      typeof hostApi.images?.prepareForNoteEmbedding !== "function"
-    ) {
+    if (typeof hostApi.images?.prepareForNoteEmbedding !== "function") {
       return withRepresentativeImageDiagnostic(
         skipped("host_image_api_unavailable", locator),
       );
@@ -777,11 +762,13 @@ export async function prepareResolvedRepresentativeImageForDigestNote(args) {
       height: prepared.height,
       compressedBytes: prepared.bytes,
       htmlBlock,
-      embeddedImages: [{
-        slot: "representative",
-        preparedImage: prepared.ref,
-        altText: locator.label || "Representative image",
-      }],
+      embeddedImages: [
+        {
+          slot: "representative",
+          preparedImage: prepared.ref,
+          altText: locator.label || "Representative image",
+        },
+      ],
       previousAttachmentKeys: previousKeys,
     };
   } catch (error) {

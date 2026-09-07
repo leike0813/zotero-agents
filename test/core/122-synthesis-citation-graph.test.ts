@@ -4,7 +4,25 @@ import {
   provisionalReferenceKey,
 } from "../../src/modules/synthesis/citationGraph";
 import { buildCitationGraphInputsFromRegistryInputs } from "../../src/modules/synthesis/libraryAdapter";
-import { renderPayloadBlock } from "../../src/modules/notePayloadCodec";
+
+const targetReferenceArtifact = {
+  schema: "source_reference_artifact.v1",
+  references: [
+    {
+      sourceReferenceId: "source-reference-target-2020",
+      extraction: {
+        raw: "Target (2020) Target Paper",
+        confidence: 1,
+      },
+      bibliography: {
+        title: "Target Paper",
+        authors: ["Target"],
+        year: 2020,
+      },
+      matching: { citekey: "target2020" },
+    },
+  ],
+} as const;
 
 describe("Synthesis Citation Graph", function () {
   it("generates provisional reference keys by deterministic priority", function () {
@@ -222,7 +240,7 @@ describe("Synthesis Citation Graph", function () {
     assert.equal(graph.diagnostics.reference_stats.dropped_empty, 1);
   });
 
-  it("extracts singular author and citekey fields from existing references payloads", function () {
+  it("projects canonical bibliography authors and citekey into graph input", function () {
     const papers = buildCitationGraphInputsFromRegistryInputs([
       {
         libraryId: 1,
@@ -233,18 +251,9 @@ describe("Synthesis Citation Graph", function () {
           {
             key: "N1",
             title: "References",
-            html: renderPayloadBlock({
-              payloadType: "references-json",
-              payload: [
-                {
-                  title: "Target Paper",
-                  year: "2020",
-                  author: "Target",
-                  citekey: "target2020",
-                  rawText: "Target (2020) Target Paper",
-                },
-              ],
-            }),
+            noteKind: "references",
+            payload: targetReferenceArtifact,
+            issue: null,
           },
         ],
       },

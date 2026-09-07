@@ -10,17 +10,19 @@ import type {
   SynthesisJsonValue,
 } from "./common";
 import type {
-  SynthesisCitationAnalysisArtifact,
   SynthesisDigestArtifact,
   SynthesisLiteratureMatchingMetadata,
-  SynthesisLiteratureScore,
   SynthesisMatchedReference,
-  SynthesisReferencesArtifact,
   SynthesisTopicMetadata,
   SynthesisTopicResultBundle,
   SynthesisWorkflowSource,
 } from "./topicDomain";
 import type {
+  CitationAnalysisArtifact,
+  SourceReferenceArtifact,
+} from "./sourceReferenceArtifact.js";
+import type {
+  LiteratureScoreArtifact,
   LiteratureQualitySnapshot,
   SynthesisPaperArtifactType,
 } from "./literatureArtifacts.js";
@@ -57,9 +59,9 @@ export type SynthesisWorkflowItemSnapshot = {
 export type SynthesisLiteratureDigestApplyRequest =
   SynthesisWorkflowItemSnapshot & {
     digest?: SynthesisDigestArtifact;
-    references?: SynthesisReferencesArtifact;
-    citationAnalysis?: SynthesisCitationAnalysisArtifact;
-    literatureScore?: SynthesisLiteratureScore;
+    references?: SourceReferenceArtifact;
+    citationAnalysis?: CitationAnalysisArtifact;
+    literatureScore?: LiteratureScoreArtifact;
     literatureMatchingMetadata?: SynthesisLiteratureMatchingMetadata;
     matchedReferences?: SynthesisMatchedReference[];
     source?: SynthesisWorkflowSource;

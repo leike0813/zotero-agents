@@ -325,63 +325,18 @@ async function collectSelectedLiteratureSources(
     .filter((entry): entry is AttachmentLike => !!entry);
 }
 
-function parseGeneratedNoteKind(noteContent: unknown) {
-  const text = String(noteContent || "");
-  const kindMatch = text.match(
-    /data-zs-note-kind\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/i,
-  );
-  const kind = kindMatch
-    ? String(kindMatch[1] || kindMatch[2] || kindMatch[3] || "")
-    : "";
-  if (kind === "citation_analysis") {
-    return "citation-analysis";
-  }
-  if (
-    kind === "digest" ||
-    kind === "references" ||
-    kind === "citation-analysis" ||
-    kind === "literature-score" ||
-    kind === "conversation-note" ||
-    kind === "custom"
-  ) {
-    return kind;
-  }
-  if (kind === "literature-digest" || kind === "literature-analysis") {
-    return "digest";
-  }
-  if (
-    /<h1[^>]*>\s*(?:Literature\s+)?Digest\s*<\/h1>/i.test(text) ||
-    /(^|\n)\s*#\s*(?:Literature\s+)?Digest\s*($|\n)/i.test(text)
-  ) {
-    return "digest";
-  }
-  if (
-    /<h1[^>]*>\s*References(?:\s+JSON)?\s*<\/h1>/i.test(text) ||
-    /(^|\n)\s*#\s*References(?:\s+JSON)?\s*($|\n)/i.test(text)
-  ) {
-    return "references";
-  }
-  if (
-    /<h1[^>]*>\s*Citation Analysis\s*<\/h1>/i.test(text) ||
-    /(^|\n)\s*#\s*Citation Analysis\s*($|\n)/i.test(text)
-  ) {
-    return "citation-analysis";
-  }
-  return "";
-}
-
 async function readNotes(
   parentRef: PortableItemRef,
   runtime: RuntimeLike,
 ): Promise<GeneratedNoteCandidate[]> {
-  return (await readGeneratedNoteFacts(parentRef, runtime)).map((note) => ({
-    ref: { libraryId: parentRef.libraryId, key: note.key },
-    parentRef,
-    noteKind:
-      parseGeneratedNoteKind(note.html) ||
-      note.payloadBlocks.find((block) => !block.errors?.length)?.noteKind ||
-      "custom",
-  }));
+  return (await readGeneratedNoteFacts(parentRef, runtime)).map((note) => {
+    if (note.issue) throw Object.assign(new Error("Managed note is unavailable"), { code: note.issue });
+    return {
+      ref: { libraryId: parentRef.libraryId, key: note.key },
+      parentRef,
+      noteKind: note.noteKind || "ordinary",
+    };
+  });
 }
 async function parentHasAllGeneratedNotes(
   parentRef: PortableItemRef,
@@ -404,47 +359,31 @@ async function readGeneratedNoteFacts(
       ...(cursor ? { cursor } : {}),
     });
     for (const note of page.notes) {
-      const detail = await runtime.hostApi.library.getNoteDetail(note.ref, {
-        format: "html",
-      });
-      const payloadBlocks: LibraryArtifactGeneratedNoteFacts["payloadBlocks"] =
-        [];
-      let payloadCursor: string | undefined;
-      do {
-        const payloadPage = await runtime.hostApi.library.listNotePayloads(
-          note.ref,
-          { limit: 100, ...(payloadCursor ? { cursor: payloadCursor } : {}) },
-        );
-        for (const summary of payloadPage.payloads) {
-          const value = summary.issues.length
-            ? undefined
-            : await runtime.hostApi.library.getNotePayload(note.ref, {
-                payloadType: summary.payloadType,
-              });
-          payloadBlocks.push({
-            payloadType: summary.payloadType,
-            noteKind: summary.noteKind,
-            version: summary.version,
-            encoding: summary.encoding,
-            encodedValue: "",
-            estimatedSize: summary.estimatedBytes,
-            format: summary.format,
-            payload: value?.value,
-            errors: summary.issues.map((issue) => issue.code),
-          });
-        }
-        if (!payloadPage.hasMore) break;
-        if (!payloadPage.nextCursor || payloadCursor === payloadPage.nextCursor)
-          throw new Error("Invalid payload continuation");
-        payloadCursor = payloadPage.nextCursor;
-      } while (payloadCursor);
-      facts.push({
-        key: note.ref.key,
-        title: detail.title,
-        html: detail.content,
-        updatedAt: detail.revision,
-        payloadBlocks,
-      });
+      try {
+        const detail = await runtime.hostApi.library.getNoteDetail(note.ref, { format: "html" });
+        facts.push({
+          key: note.ref.key,
+          title: detail.title,
+          updatedAt: detail.revision,
+          noteKind: detail.kind === "managed" ? detail.noteKind : null,
+          payload: detail.kind === "managed" ? detail.payload : null,
+          ...(detail.kind === "managed" && detail.provenance?.referencesBasis
+            ? { referencesBasis: detail.provenance.referencesBasis }
+            : {}),
+          issue: null,
+        });
+      } catch (error) {
+        const code = error && typeof error === "object" && "code" in error ? error.code : null;
+        if (code !== "invalid_artifact" && code !== "legacy_artifact_requires_migration") throw error;
+        facts.push({
+          key: note.ref.key,
+          title: note.title,
+          updatedAt: "",
+          noteKind: null,
+          payload: null,
+          issue: code,
+        });
+      }
     }
     if (!page.hasMore) return facts;
     if (!page.nextCursor || cursor === page.nextCursor)
@@ -618,7 +557,7 @@ async function selectGeneratedNoteCandidates(
       notes.set(itemRefIdentity(item.ref), {
         ref: item.ref,
         ...(item.parentRef ? { parentRef: item.parentRef } : {}),
-        noteKind: parseGeneratedNoteKind(detail.content) || "custom",
+        noteKind: detail.kind === "managed" ? detail.noteKind : "ordinary",
       });
     }
   }
@@ -640,7 +579,7 @@ async function selectDigestRepresentativeImage(
   const detail = await runtime.hostApi.library.getNoteDetail(item.ref, {
     format: "html",
   });
-  return parseGeneratedNoteKind(detail.content) === "digest"
+  return detail.kind === "managed" && detail.noteKind === "digest"
     ? { ref: item.ref, parentRef: item.parentRef, noteKind: "digest" }
     : null;
 }

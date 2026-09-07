@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { installNodeZoteroTransactionStub } from "../helpers/nodeZoteroTransactionStub";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import {
   joinPath,
@@ -6,6 +7,7 @@ import {
   readBytes,
   workflowsPath,
   writeUtf8,
+  isZoteroRuntime,
 } from "../zotero/workflow-test-utils";
 import { nativeFixtureMutations as handlers } from "../helpers/nativeFixtureMutations";
 import { lockSelection } from "../../src/modules/selectionContext";
@@ -35,13 +37,14 @@ import {
 } from "../../workflows_builtin/literature-workbench-package/lib/literatureBundle.mjs";
 import { applyResult as applyLiteratureBundleImport } from "../../workflows_builtin/literature-workbench-package/import-literature-bundle/hooks/applyResult.mjs";
 import {
-  attachWorkbenchPayloadToNote,
   parseWorkbenchEmbeddedPayloadBytes,
+  WORKBENCH_EMBEDDED_PAYLOAD_MARKER,
 } from "../../workflows_builtin/literature-workbench-package/lib/embeddedPayloadAttachments.mjs";
 import {
   resetZoteroLibrarySourcePageQueryAdapterForTests,
   setZoteroLibrarySourcePageQueryAdapterForTests,
 } from "../../src/modules/zoteroLibraryPageQuery";
+import { convertLegacyArtifactSet } from "../../src/modules/literatureArtifactMigration";
 
 import { createMockZoteroLibrarySourcePageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
 
@@ -194,38 +197,142 @@ function parentSelection(ref: { libraryId: number; key: string }) {
   ]);
 }
 
+function legacyBundlePayloadTag(payloadType: string, payload: unknown) {
+  const encoded = Buffer.from(JSON.stringify(payload), "utf8").toString(
+    "base64",
+  );
+  return `<span data-zs-block="payload" data-zs-payload="${payloadType}" data-zs-version="1" data-zs-encoding="base64" data-zs-value="${encoded}"></span>`;
+}
+
+function legacyBundleImportFixture() {
+  const references = {
+    items: [
+      {
+        title: "Legacy bundle reference",
+        authors: ["Legacy Author"],
+        year: 2024,
+        rawCitation: "Legacy Author. Legacy bundle reference. 2024.",
+      },
+    ],
+  };
+  const citation = {
+    summary: "Legacy citation analysis",
+    timeline: {
+      early: { summary: "", sourceReferenceIds: [] },
+      mid: { summary: "", sourceReferenceIds: [] },
+      recent: { summary: "", sourceReferenceIds: [] },
+    },
+    items: [],
+    unresolved: [],
+  };
+  const referencesPath = "items/legacy/notes/references/note.html";
+  const referencesImagePath = "items/legacy/notes/references/payload.png";
+  const citationPath = "items/legacy/notes/citation/note.html";
+  const legacyEnvelope = {
+    schemaVersion: 1,
+    payloadStorageVersion: 1,
+    kind: "zotero-skills-workbench-note-payload",
+    payloadType: "references-json",
+    payload: references,
+  };
+  const legacyImageBytes = Buffer.from(
+    `${WORKBENCH_EMBEDDED_PAYLOAD_MARKER}${Buffer.from(
+      JSON.stringify(legacyEnvelope),
+      "utf8",
+    ).toString("base64")}\n`,
+    "utf8",
+  );
+  return {
+    manifest: {
+      warnings: [],
+      items: [
+        {
+          id: "legacy",
+          itemJson: {
+            itemType: "journalArticle",
+            title: "Legacy bundle parent",
+          },
+          relatedItemIds: [],
+          attachments: [],
+          notes: [
+            {
+              id: "references",
+              htmlPath: referencesPath,
+              tags: [],
+              images: [
+                {
+                  id: "legacy-payload",
+                  path: referencesImagePath,
+                  metadata: { contentType: "image/png" },
+                  preserveSourceBytes: true,
+                },
+              ],
+            },
+            {
+              id: "citation",
+              htmlPath: citationPath,
+              tags: [],
+              images: [],
+            },
+          ],
+        },
+      ],
+    },
+    files: {
+      [referencesPath]: `<div><p>Visible references</p>${legacyBundlePayloadTag("references-json", references)}<p data-zs-payload-anchor-container="1"><img data-attachment-key="legacy-payload" data-zs-payload-anchor="references-json"></p></div>`,
+      [citationPath]: `<div><p>Visible citation</p>${legacyBundlePayloadTag("citation-analysis-json", citation)}</div>`,
+    },
+    bytes: { [referencesImagePath]: legacyImageBytes },
+  };
+}
+
 const portableLiteratureScore = {
-  version: 1,
-  entry: "artifacts/literature_score.json",
-  format: "json",
-  literature_score: {
-    schema: "literature_score.v1",
-    rubric_id: "default.v1",
-    paper_type: "empirical",
-    paper_type_reason: "Empirical evaluation.",
-    overall_score: 60,
+  schema: "literature_score.v1",
+  rubric_id: "default.v1",
+  paper_type: "empirical",
+  paper_type_reason: "Empirical evaluation.",
+  overall_score: 60,
+  confidence: 0.8,
+  confidence_adjusted_score: 58,
+  dimensions: [
+    "methodological_rigor",
+    "evidence_completeness",
+    "reproducibility",
+    "innovation_signals",
+    "research_impact_potential",
+    "writing_quality",
+  ].map((dimension_key) => ({
+    dimension_key,
+    name: dimension_key.replaceAll("_", " "),
+    score: 60,
     confidence: 0.8,
-    confidence_adjusted_score: 58,
-    dimensions: [
-      "methodological_rigor",
-      "evidence_completeness",
-      "reproducibility",
-      "innovation_signals",
-      "research_impact_potential",
-      "writing_quality",
-    ].map((dimension_key) => ({
-      dimension_key,
-      name: dimension_key.replaceAll("_", " "),
-      score: 60,
-      confidence: 0.8,
-      summary: `${dimension_key} summary`,
-    })),
-  },
+    summary: `${dimension_key} summary`,
+    configured_weight: 1 / 6,
+    effective_weight: 1 / 6,
+    raw_score: 6,
+    applicable_max_score: 10,
+    criteria: [
+      {
+        criterion_key: `${dimension_key}.evidence`,
+        name: "Evidence",
+        status: "scored",
+        score: 6,
+        max_score: 10,
+        reason: "Source evidence",
+        evidence: [],
+      },
+    ],
+  })),
 };
 
 describe("literature portable bundle workflows", function () {
+  let restoreTransaction: () => void;
+  beforeEach(() => {
+    restoreTransaction = installNodeZoteroTransactionStub();
+  });
   afterEach(() => {
     resetZoteroLibrarySourcePageQueryAdapterForTests();
+    restoreTransaction();
   });
   it("loads export and import as non-core pass-through workflows", async function () {
     const loaded = await loadWorkflowManifests(workflowsPath());
@@ -731,6 +838,13 @@ describe("literature portable bundle workflows", function () {
       () => validateLiteratureProductManifest(badPayload, entries),
       /payload source/i,
     );
+    const orphanPayload = JSON.parse(JSON.stringify(base));
+    orphanPayload.papers[0].payloads[0].source_note_id = "missing";
+    orphanPayload.papers[0].payloads[0].source_image_id = null;
+    assert.throws(
+      () => validateLiteratureProductManifest(orphanPayload, entries),
+      /payload source/i,
+    );
     const badOwner = JSON.parse(JSON.stringify(base));
     badOwner.papers[0].attachments[0].path =
       "papers/paper-001/payloads/digest-001.md";
@@ -740,6 +854,120 @@ describe("literature portable bundle workflows", function () {
       () => validateLiteratureProductManifest(badOwner, entries),
       /attachment ownership/i,
     );
+  });
+
+  it("rejects managed projections without HTML or embedded-image source evidence", async function () {
+    const payloadCases = [
+      {
+        payload_type: "custom-markdown",
+        format: "markdown",
+        content: "# Custom",
+      },
+      {
+        payload_type: "conversation-note-markdown",
+        format: "markdown",
+        content: "# Conversation",
+      },
+      {
+        payload_type: "digest-markdown",
+        format: "markdown",
+        content: "# Digest",
+      },
+      {
+        payload_type: "literature-score-json",
+        format: "json",
+        content: JSON.stringify(portableLiteratureScore),
+      },
+    ];
+    let importCalls = 0;
+    const node = () => ({
+      style: {},
+      appendChild() {},
+      removeChild() {},
+      firstChild: null,
+    });
+    const host: any = {
+      resources: {
+        async materializeFile() {
+          return { ref: { kind: "workflow_resource", id: "unused" } };
+        },
+      },
+      editor: {
+        async openSession(args: any) {
+          args.renderer.render({
+            doc: {
+              createElement: node,
+              createElementNS: (_namespace: string, _tag: string) => node(),
+            },
+            root: node(),
+            state: {},
+            context: args.context,
+            host: { convertLegacyArtifactSet },
+          });
+          return { saved: true, result: { confirmed: true } };
+        },
+      },
+      researchBundles: {
+        async importPapers() {
+          importCalls += 1;
+          throw new Error("managed projection without source was imported");
+        },
+      },
+    };
+    for (const payloadCase of payloadCases) {
+      let error: any = null;
+      try {
+        await importLiteratureProductArchive({
+          host,
+          archive: {
+            readText: async (path: string) => {
+              if (path.endsWith("metadata.json")) {
+                return JSON.stringify({
+                  itemType: "journalArticle",
+                  title: "Projection without source",
+                });
+              }
+              if (path.endsWith("note.html")) return "<div>Visible note</div>";
+              return payloadCase.content;
+            },
+          },
+          manifest: {
+            warnings: [],
+            papers: [
+              {
+                logical_id: "paper-001",
+                metadata_path: "papers/paper-001/metadata.json",
+                attachments: [],
+                notes: [
+                  {
+                    id: "n1",
+                    htmlPath: "papers/paper-001/notes/n1/note.html",
+                    images: [],
+                  },
+                ],
+                payloads: [
+                  {
+                    id: "p1",
+                    payload_type: payloadCase.payload_type,
+                    format: payloadCase.format,
+                    path: `papers/paper-001/payloads/${payloadCase.payload_type}.data`,
+                    source_note_id: "n1",
+                    source_image_id: null,
+                    anchor_status: "present",
+                  },
+                ],
+                related_paper_ids: [],
+              },
+            ],
+          },
+          target: { view: {}, libraryID: 1 },
+        });
+      } catch (caught) {
+        error = caught;
+      }
+      assert.equal(error?.code, "legacy_artifact_requires_migration");
+    }
+    assert.equal(importCalls, 0);
   });
 
   it("rejects unsupported versions, duplicate ids, and unresolved relations", function () {
@@ -1462,10 +1690,6 @@ describe("literature portable bundle workflows", function () {
       title: "Original PDF",
       mimeType: "application/pdf",
     });
-    const note = await handlers.parent.addNote(parent, {
-      content:
-        '<div data-zs-note-kind="conversation-note"><p>Conversation</p></div>',
-    });
     const boundImportHost = await bindLiteratureImportHost(
       createWorkflowHostApi(),
     );
@@ -1473,88 +1697,78 @@ describe("literature portable bundle workflows", function () {
     host.bibliography = bibliographyFixture(
       "@article{portable, title={Portable Round Trip}}\n",
     );
+    const parentRef = {
+      libraryId: parent.libraryID,
+      key: parent.key,
+    };
+    const conversationWrite = await host.managedNotes.writeConversation({
+      operationId: `fixture-conversation:${parent.key}`,
+      target: { kind: "create", parentRef },
+      content: { title: "Conversation", markdown: "# Portable conversation" },
+    });
+    assert.equal(conversationWrite.outcome, "committed");
+    const noteRef = conversationWrite.result?.note.ref;
+    assert.isOk(noteRef);
+    const note = Zotero.Items.getByLibraryAndKey(
+      noteRef.libraryId,
+      noteRef.key,
+    );
+    assert.isOk(note);
     const embedded = await Zotero.Attachments.importEmbeddedImage({
       blob: new Blob([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], {
         type: "image/png",
       }),
       parentItemID: note.id,
     });
-    const noteRef = { libraryId: note.libraryID, key: note.key };
-    await attachWorkbenchPayloadToNote({
-      runtime: {
-        hostApi: host,
-        hostApiVersion: 12,
-        TextEncoder,
-        TextDecoder,
-        Buffer,
-      },
-      note: { ref: noteRef },
-      noteKind: "conversation-note",
-      payloadType: "conversation-note-markdown",
-      payload: {
-        version: 1,
-        path: "/source/conversation.md",
-        format: "markdown",
-        content: "# Portable conversation",
-      },
-    });
-    const noteDetail = await host.library.getNoteDetail(noteRef, {
-      format: "html",
-    });
-    const noteUpdate = await host.notes.updateContent({
-      operationId: `literature-bundle-test:seed-note-image:${Date.now()}:${Math.random()}`,
-      noteRef,
-      content: {
-        format: "html",
-        value: noteDetail.content.replace(
+    await handlers.note.update(note, {
+      content: note
+        .getNote()
+        .replace(
           /<\/div>\s*$/i,
           `<img data-attachment-key="${embedded.key}" alt="fixture"></div>`,
         ),
+    });
+    const analysisResult = await host.literatureArtifacts.applyAnalysis({
+      operationId: `fixture-analysis:${parent.key}`,
+      parentRef,
+      digest: { markdown: "## Digest\n\nPortable digest content." },
+      references: { schema: "source_reference_artifact.v1", references: [] },
+      citationAnalysis: {
+        schema: "citation_analysis_artifact.v1",
+        meta: {
+          language: "en",
+          scope: { section_title: null, line_start: null, line_end: null },
+          scope_source: null,
+          scope_decision: {
+            selection_reason: null,
+            covered_sections: [],
+            fallback_from: null,
+            fallback_reason: null,
+          },
+          mapping_reliability: "normal",
+          reference_extraction: { status: "completed" },
+        },
+        summary: "Citation analysis",
+        timeline: {
+          early: { summary: "", sourceReferenceIds: [] },
+          mid: { summary: "", sourceReferenceIds: [] },
+          recent: { summary: "", sourceReferenceIds: [] },
+        },
+        items: [],
+        unresolved: [],
       },
     });
-    assert.equal(noteUpdate.outcome, "committed");
-    for (const fixture of [
-      {
-        noteKind: "digest",
-        payloadType: "digest-markdown",
-        payload: { format: "markdown", content: "# Digest" },
-      },
-      {
-        noteKind: "references",
-        payloadType: "references-json",
-        payload: { format: "json", references: [{ title: "Reference" }] },
-      },
-      {
-        noteKind: "citation-analysis",
-        payloadType: "citation-analysis-json",
-        payload: { format: "json", report_md: "# Citation analysis" },
-      },
-      {
-        noteKind: "literature-score",
-        payloadType: "literature-score-json",
-        payload: portableLiteratureScore,
-      },
-    ]) {
-      const generatedNote = await handlers.parent.addNote(parent, {
-        content: `<div data-zs-note-kind="${fixture.noteKind}"><p>${fixture.noteKind}</p></div>`,
-      });
-      await attachWorkbenchPayloadToNote({
-        runtime: {
-          hostApi: host,
-          hostApiVersion: 12,
-          TextEncoder,
-          TextDecoder,
-          Buffer,
-        },
-        note: {
-          ref: {
-            libraryId: generatedNote.libraryID,
-            key: generatedNote.key,
-          },
-        },
-        ...fixture,
-      });
-    }
+    assert.equal(
+      analysisResult.outcome,
+      "committed",
+      JSON.stringify(analysisResult),
+    );
+    const scoreResult = await host.literatureArtifacts.upsertScore({
+      operationId: `fixture-score:${parent.key}`,
+      parentRef,
+      score: portableLiteratureScore,
+    });
+    assert.equal(scoreResult.outcome, "committed", JSON.stringify(scoreResult));
     await handlers.parent.addNote(parent, {
       content: "<div><p>Ordinary note title and content</p></div>",
     });
@@ -1565,10 +1779,6 @@ describe("literature portable bundle workflows", function () {
     await handlers.parent.addRelated(parent, relatedParent);
     await handlers.parent.addRelated(relatedParent, parent);
 
-    const parentRef = {
-      libraryId: parent.libraryID,
-      key: parent.key,
-    };
     const relatedParentRef = {
       libraryId: relatedParent.libraryID,
       key: relatedParent.key,
@@ -1746,6 +1956,278 @@ describe("literature portable bundle workflows", function () {
       },
     );
     await boundImportHost.cleanup();
+  });
+
+  it("converts recognized legacy bundle HTML through explicit paired confirmation", async function () {
+    const fixture = legacyBundleImportFixture();
+    const referencesNote = fixture.manifest.items[0].notes[0];
+    const citationNote = fixture.manifest.items[0].notes[1];
+    const references = {
+      items: [
+        {
+          title: "Legacy bundle reference",
+          authors: ["Legacy Author"],
+          year: 2024,
+          rawCitation: "Legacy Author. Legacy bundle reference. 2024.",
+        },
+      ],
+    };
+    const citation = {
+      summary: "Legacy citation analysis",
+      timeline: {
+        early: { summary: "", sourceReferenceIds: [] },
+        mid: { summary: "", sourceReferenceIds: [] },
+        recent: { summary: "", sourceReferenceIds: [] },
+      },
+      items: [],
+      unresolved: [],
+    };
+    // Both legacy payloads deliberately share one source note. The importer
+    // must retain that note's visible content once and use an empty companion
+    // note for the second canonical payload.
+    fixture.manifest.items[0].notes = [referencesNote];
+    const auxiliaryImagePath = "items/legacy/notes/references/auxiliary.png";
+    referencesNote.images.push({
+      id: "legacy-auxiliary",
+      path: auxiliaryImagePath,
+      metadata: { contentType: "image/png" },
+    });
+    fixture.bytes[auxiliaryImagePath] = new Uint8Array([9, 8, 7]);
+    fixture.files[referencesNote.htmlPath] =
+      `<div><p>Visible shared note</p><img data-attachment-key="legacy-auxiliary">${legacyBundlePayloadTag("references-json", references)}${legacyBundlePayloadTag("citation-analysis-json", citation)}<p data-zs-payload-anchor-container="1"><img data-attachment-key="legacy-payload" data-zs-payload-anchor="references-json"></p></div>`;
+    delete fixture.files[citationNote.htmlPath];
+    let editorOpened = 0;
+    let importRequest: any = null;
+    const host = {
+      resources: {
+        async materializeFile(args: any) {
+          assert.equal(args.sourcePath, auxiliaryImagePath);
+          return {
+            ref: { kind: "workflow_resource", id: "auxiliary-image" },
+          };
+        },
+      },
+      editor: {
+        async openSession(args: any) {
+          editorOpened += 1;
+          const node = () => ({
+            style: {},
+            appendChild() {},
+            removeChild() {},
+            firstChild: null,
+          });
+          args.renderer.render({
+            doc: {
+              createElement: node,
+              createElementNS: (_namespace: string, _tag: string) => node(),
+            },
+            root: node(),
+            state: {},
+            context: args.context,
+            host: { convertLegacyArtifactSet },
+          });
+          return { saved: true, result: { confirmed: true } };
+        },
+      },
+      researchBundles: {
+        async importPapers(request: any) {
+          importRequest = request;
+          return {
+            outcome: "complete",
+            papers: [
+              {
+                graphId: "legacy",
+                outcome: "committed",
+                itemRef: { libraryId: 1, key: "IMPORTED1" },
+                revision: "revision:1",
+                noteRefs: [],
+                attachmentRefs: [],
+                receiptId: "receipt:1",
+              },
+            ],
+            receipts: [],
+            attempts: [],
+            counts: {
+              requested: 1,
+              reused: 0,
+              committed: 1,
+              failed: 0,
+              rolledBack: 0,
+              repairRequired: 0,
+              notStarted: 0,
+            },
+          };
+        },
+      },
+    };
+    const result = await importLiteratureBundleArchive({
+      host,
+      archive: {
+        resolvePath: (path: string) => path,
+        async readText(path: string) {
+          return fixture.files[path as keyof typeof fixture.files];
+        },
+        async readBytes(path: string) {
+          return fixture.bytes[path as keyof typeof fixture.bytes];
+        },
+      },
+      target: { view: { libraryId: 1 }, libraryID: 1 },
+      manifest: fixture.manifest,
+    });
+
+    assert.equal(editorOpened, 1);
+    assert.equal(result.status, "completed");
+    assert.deepEqual(result.importedItems, [
+      { bundleItemId: "legacy", itemRef: { libraryId: 1, key: "IMPORTED1" } },
+    ]);
+    assert.isOk(importRequest);
+    const importedNotes = importRequest.papers[0].notes;
+    assert.lengthOf(importedNotes, 2);
+    assert.sameMembers(
+      importedNotes.flatMap((note: any) =>
+        note.payloads.map((payload: any) => payload.summary.payloadType),
+      ),
+      ["references-json", "citation-analysis-json"],
+    );
+    assert.isTrue(
+      importedNotes.every(
+        (note: any) => !note.content.value.includes("data-zs-payload"),
+      ),
+    );
+    assert.lengthOf(importedNotes[0].content.embeddedImages, 1);
+    assert.equal(
+      importedNotes[0].content.embeddedImages[0].slot,
+      "legacy-auxiliary",
+    );
+    assert.equal(
+      importedNotes[0].content.embeddedImages[0].resourceRef.id,
+      "auxiliary-image",
+    );
+    assert.lengthOf(
+      importedNotes.filter((note: any) =>
+        note.content.value.includes("Visible shared note"),
+      ),
+      1,
+    );
+    const citationNoteImport = importedNotes.find((note: any) =>
+      note.payloads.some(
+        (payload: any) =>
+          payload.summary.payloadType === "citation-analysis-json",
+      ),
+    );
+    assert.isOk(citationNoteImport);
+    assert.equal(citationNoteImport.content.value, "");
+    assert.deepEqual(citationNoteImport.content.embeddedImages, []);
+  });
+
+  it("fails closed before import when a legacy bundle conversion is canceled", async function () {
+    const fixture = legacyBundleImportFixture();
+    let imported = false;
+    const host = {
+      resources: {
+        async materializeFile() {
+          throw new Error("unexpected");
+        },
+      },
+      editor: {
+        async openSession() {
+          return { saved: false, reason: "canceled" };
+        },
+      },
+      researchBundles: {
+        async importPapers() {
+          imported = true;
+          throw new Error("import must not run after cancellation");
+        },
+      },
+    };
+    let thrown: any = null;
+    try {
+      await importLiteratureBundleArchive({
+        host,
+        archive: {
+          resolvePath: (path: string) => path,
+          async readText(path: string) {
+            return fixture.files[path as keyof typeof fixture.files];
+          },
+          async readBytes(path: string) {
+            return fixture.bytes[path as keyof typeof fixture.bytes];
+          },
+        },
+        target: { view: { libraryId: 1 }, libraryID: 1 },
+        manifest: fixture.manifest,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+    assert.equal(thrown?.code, "legacy_artifact_requires_migration");
+    assert.isFalse(imported);
+  });
+
+  it("fails closed before import when a recognized legacy PNG is damaged", async function () {
+    const fixture = legacyBundleImportFixture();
+    const referencesNote = fixture.manifest.items[0].notes[0];
+    const referencesPath = referencesNote.htmlPath;
+    const imagePath = referencesNote.images[0].path;
+    fixture.files[referencesPath] =
+      '<div><p>Visible references</p><p data-zs-payload-anchor-container="1"><img data-attachment-key="legacy-payload" data-zs-payload-anchor="references-json"></p></div>';
+    fixture.bytes[imagePath] = new Uint8Array([1, 2, 3]);
+    let imported = false;
+    const host = {
+      resources: {
+        async materializeFile() {
+          throw new Error("unexpected");
+        },
+      },
+      editor: {
+        async openSession(args: any) {
+          const node = () => ({
+            style: {},
+            appendChild() {},
+            removeChild() {},
+            firstChild: null,
+          });
+          args.renderer.render({
+            doc: {
+              createElement: node,
+              createElementNS: (_namespace: string, _tag: string) => node(),
+            },
+            root: node(),
+            state: {},
+            context: args.context,
+            host: { convertLegacyArtifactSet },
+          });
+          return { saved: true, result: { confirmed: true } };
+        },
+      },
+      researchBundles: {
+        async importPapers() {
+          imported = true;
+          throw new Error("import must not run for damaged payload");
+        },
+      },
+    };
+    let thrown: any = null;
+    try {
+      await importLiteratureBundleArchive({
+        host,
+        archive: {
+          resolvePath: (path: string) => path,
+          async readText(path: string) {
+            return fixture.files[path as keyof typeof fixture.files];
+          },
+          async readBytes(path: string) {
+            return fixture.bytes[path as keyof typeof fixture.bytes];
+          },
+        },
+        target: { view: { libraryId: 1 }, libraryID: 1 },
+        manifest: fixture.manifest,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+    assert.equal(thrown?.code, "legacy_artifact_requires_migration");
+    assert.isFalse(imported);
   });
 
   it("maps a failed consistency group while preserving an independent commit", async function () {

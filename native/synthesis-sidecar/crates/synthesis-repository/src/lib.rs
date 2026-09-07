@@ -27,7 +27,8 @@ pub use tag_audit::*;
 const FOUNDATION_SCHEMA_V1: &str = "synthesis-repository-foundation.v1";
 const FOUNDATION_SCHEMA_V2: &str = "synthesis-repository-foundation.v2";
 const FOUNDATION_SCHEMA_V3: &str = "synthesis-repository-foundation.v3";
-pub const SCHEMA_VERSION: &str = "synthesis-repository-foundation.v4";
+const FOUNDATION_SCHEMA_V4: &str = "synthesis-repository-foundation.v4";
+pub const SCHEMA_VERSION: &str = "synthesis-repository-foundation.v5";
 pub const BUSY_TIMEOUT_MILLIS: u64 = 250;
 pub const JS_SAFE_INTEGER_MAX: i64 = 9_007_199_254_740_991;
 const IDENTITY_SCHEMA: &str = "synthesis-rust-shadow-repository.v1";
@@ -197,8 +198,13 @@ const REGISTERED_PRODUCTION_SCHEMA_MIGRATIONS: &[RegisteredProductionSchemaMigra
     },
     RegisteredProductionSchemaMigration {
         from: FOUNDATION_SCHEMA_V3,
-        to: SCHEMA_VERSION,
+        to: FOUNDATION_SCHEMA_V4,
         migrate: migrate_repository_foundation_v3_to_v4,
+    },
+    RegisteredProductionSchemaMigration {
+        from: FOUNDATION_SCHEMA_V4,
+        to: SCHEMA_VERSION,
+        migrate: migrate_repository_foundation_v4_to_v5,
     },
 ];
 
@@ -637,6 +643,33 @@ fn migrate_repository_foundation_v3_to_v4(connection: &Connection) -> Result<(),
             [invalidated.to_string()],
         )
         .map_err(map_sqlite_error)?;
+    connection
+        .execute(
+            "UPDATE synt_schema_meta SET value=?1
+             WHERE key='repository_foundation_schema_version'",
+            [FOUNDATION_SCHEMA_V4],
+        )
+        .map_err(map_sqlite_error)?;
+    Ok(())
+}
+
+fn migrate_repository_foundation_v4_to_v5(connection: &Connection) -> Result<(), String> {
+    let columns = connection
+        .prepare("SELECT name FROM pragma_table_info(?1) ORDER BY cid ASC")
+        .map_err(map_sqlite_error)?
+        .query_map(["synt_reference_raw"], |row| row.get::<_, String>(0))
+        .map_err(map_sqlite_error)?
+        .collect::<Result<BTreeSet<_>, _>>()
+        .map_err(map_sqlite_error)?;
+    if !columns.contains("source_reference_id") {
+        connection
+            .execute(
+                "ALTER TABLE synt_reference_raw
+                 ADD COLUMN source_reference_id TEXT NOT NULL DEFAULT ''",
+                [],
+            )
+            .map_err(map_sqlite_error)?;
+    }
     connection
         .execute(
             "UPDATE synt_schema_meta SET value=?1
@@ -1174,7 +1207,9 @@ impl Repository {
             .map_err(|_| "repository_identity_invalid".to_owned())?;
             let mut legacy = marker.clone();
             legacy.schema_version = FOUNDATION_SCHEMA_V3.into();
-            if current == legacy {
+            let mut legacy_v4 = marker.clone();
+            legacy_v4.schema_version = FOUNDATION_SCHEMA_V4.into();
+            if current == legacy || current == legacy_v4 {
                 if !database_path.exists() {
                     return Err("repository_identity_mismatch".into());
                 }
@@ -3289,6 +3324,70 @@ mod tests {
             "1"
         );
         assert!(migrated.get_tag_audit_snapshot(1).unwrap().is_none());
+        migrated.close().expect("close");
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn registered_v4_migration_adds_source_reference_id_without_losing_raw_rows() {
+        let root = root("production-schema-v5");
+        let database_path = root.join("state/synthesis.db");
+        Repository::initialize_production(&database_path, identity())
+            .expect("initialize")
+            .close()
+            .expect("close");
+        let connection = Connection::open(&database_path).expect("fixture");
+        connection
+            .execute(
+                "INSERT INTO synt_reference_raw(
+                   raw_reference_id,source_reference_id,source_ref,references_artifact_hash,
+                   reference_index,raw_hash,parsed_title,normalized_title,year,authors_json,
+                   raw_reference,canonical_reference_id,status,roles_json,diagnostics_json,
+                   created_at,updated_at
+                 ) VALUES('raw:kept','source:kept','1:SOURCE','sha256:references',0,
+                   'sha256:raw','Title','title','2024','[]','Raw','canonical:kept',
+                   'active','[]','[]','','')",
+                [],
+            )
+            .expect("insert raw fixture");
+        connection
+            .execute(
+                "ALTER TABLE synt_reference_raw DROP COLUMN source_reference_id",
+                [],
+            )
+            .expect("downgrade raw schema");
+        connection
+            .execute(
+                "UPDATE synt_schema_meta SET value=?1
+                 WHERE key='repository_foundation_schema_version'",
+                [FOUNDATION_SCHEMA_V4],
+            )
+            .expect("mark v4");
+        drop(connection);
+
+        let backup_root = root.join("state/synthesis-migration-backups");
+        prepare_production_schema(&database_path, &backup_root).expect("migrate v5");
+        let migrated =
+            Repository::open_production(&database_path, identity(), "2026-09-07T00:00:00.000Z")
+                .expect("reopen");
+        let raw = migrated
+            .list_raw_references()
+            .expect("raw references")
+            .into_iter()
+            .next()
+            .expect("raw row");
+        assert_eq!(raw.raw_reference_id, "raw:kept");
+        assert_eq!(raw.source_reference_id, "");
+        assert_eq!(
+            migrated
+                .query(
+                    "SELECT value FROM synt_schema_meta
+                     WHERE key='repository_foundation_schema_version'",
+                    &[],
+                )
+                .expect("schema marker")[0]["value"],
+            SCHEMA_VERSION,
+        );
         migrated.close().expect("close");
         fs::remove_dir_all(root).expect("cleanup");
     }

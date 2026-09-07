@@ -279,6 +279,8 @@ pub struct LiteratureMatchingMetadataRecord {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RawReferenceRecord {
     pub raw_reference_id: String,
+    #[serde(default)]
+    pub source_reference_id: String,
     pub source_ref: String,
     pub references_artifact_hash: String,
     pub reference_index: i64,
@@ -3161,6 +3163,7 @@ fn literature_matching_metadata_record(
 fn raw_reference_record(row: Value) -> Result<RawReferenceRecord, String> {
     Ok(RawReferenceRecord {
         raw_reference_id: row_text(&row, "raw_reference_id")?,
+        source_reference_id: row_text(&row, "source_reference_id")?,
         source_ref: row_text(&row, "source_ref")?,
         references_artifact_hash: row_text(&row, "references_artifact_hash")?,
         reference_index: row_integer(&row, "reference_index")?,
@@ -3835,12 +3838,13 @@ fn upsert_literature_matching_metadata(
 fn upsert_raw_reference(repository: &Repository, row: &RawReferenceRecord) -> Result<(), String> {
     repository.execute(
         "INSERT OR REPLACE INTO synt_reference_raw(
-         raw_reference_id,source_ref,references_artifact_hash,reference_index,raw_hash,
+         raw_reference_id,source_reference_id,source_ref,references_artifact_hash,reference_index,raw_hash,
          parsed_title,normalized_title,year,authors_json,raw_reference,
          canonical_reference_id,status,roles_json,diagnostics_json,created_at,updated_at
-         ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
+         ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
         &[
             json!(row.raw_reference_id),
+            json!(row.source_reference_id),
             json!(row.source_ref),
             json!(row.references_artifact_hash),
             json!(row.reference_index),
@@ -4010,9 +4014,70 @@ fn delete_not_in(
 mod tests {
     use super::*;
     use crate::{CacheBasisRecord, OperationRecord, RepositoryIdentity};
+    use std::collections::BTreeSet;
 
     fn root() -> synthesis_test_support::TestRoot {
         synthesis_test_support::TestRoot::new("synthesis-citation-reference-repository")
+    }
+
+    #[test]
+    fn reference_projection_round_trips_each_source_id_for_one_canonical_reference() {
+        let root = root();
+        let mut repository = Repository::open(
+            &root,
+            RepositoryIdentity {
+                profile_id: "profile-source-id".into(),
+                data_root_id: "data-source-id".into(),
+            },
+        )
+        .expect("open repository");
+        let source_reference_id = "550e8400-e29b-41d4-a716-446655440000";
+        let second_source_reference_id = "550e8400-e29b-41d4-a716-446655440001";
+        assert!(
+            repository
+                .replace_reference_projection(&ReferenceProjectionReplacement {
+                    reference_hash: "sha256:references".into(),
+                    input_hash: "sha256:input".into(),
+                    scope: ReferenceProjectionScope::Full,
+                    source_refs: vec!["1:SOURCE".into(), "1:SECOND-SOURCE".into()],
+                    raw_references: vec![
+                        RawReferenceRecord {
+                            raw_reference_id: "raw:source-id".into(),
+                            source_reference_id: source_reference_id.into(),
+                            source_ref: "1:SOURCE".into(),
+                            reference_index: 0,
+                            canonical_reference_id: "canonical:source-id".into(),
+                            status: "active".into(),
+                            ..RawReferenceRecord::default()
+                        },
+                        RawReferenceRecord {
+                            raw_reference_id: "raw:second-source-id".into(),
+                            source_reference_id: second_source_reference_id.into(),
+                            source_ref: "1:SECOND-SOURCE".into(),
+                            reference_index: 0,
+                            canonical_reference_id: "canonical:source-id".into(),
+                            status: "active".into(),
+                            ..RawReferenceRecord::default()
+                        },
+                    ],
+                    now: "2026-09-07T00:00:00.000Z".into(),
+                    ..ReferenceProjectionReplacement::default()
+                })
+                .expect("replace projection")
+        );
+        let rows = repository.list_raw_references().expect("raw references");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(
+            rows[0].canonical_reference_id,
+            rows[1].canonical_reference_id
+        );
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.source_reference_id.as_str())
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from([source_reference_id, second_source_reference_id]),
+        );
+        drop(repository);
     }
 
     fn graph(graph_hash: &str, node_id: &str) -> CitationGraphReplacement {

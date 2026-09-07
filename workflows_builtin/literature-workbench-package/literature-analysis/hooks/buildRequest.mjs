@@ -15,17 +15,11 @@ import {
   buildParentSnapshot,
   selectIdentifier,
 } from "../../lib/metadataCurator.mjs";
-import { parseWorkbenchNoteKind } from "../../lib/noteCodecs.mjs";
-import { parseGeneratedNoteKind } from "../../lib/referencesNote.mjs";
-import { normalizeLiteratureScoreArtifact } from "../../lib/literatureScoreNote.mjs";
-
-const generatedPayloadTypesByNoteKind = {
-  digest: ["digest-markdown"],
-  references: ["references-json"],
-  "citation-analysis": ["citation-analysis-json", "citation-analysis-markdown"],
-  "literature-score": ["literature-score-json"],
-};
-
+import {
+  parseImportedCitationArtifact,
+  parseImportedReferencesArtifact,
+  parseImportedScoreArtifact,
+} from "../../lib/importSchemas.mjs";
 function normalizeString(value) {
   return String(value || "").trim();
 }
@@ -80,35 +74,74 @@ function resolveReadinessSpec(manifest) {
   return spec;
 }
 
-function resolveSchemaGeneratedNoteKind(noteContent) {
-  const text = String(noteContent || "");
-  if (!/<(?:div|section)\b[^>]*data-schema-version\s*=/i.test(text)) {
-    return "";
-  }
-  return (
-    parseGeneratedNoteKind(text) ||
-    (/<h1[^>]*>\s*Literature Score\s*<\/h1>/i.test(text)
-      ? "literature-score"
-      : "")
-  );
-}
-
-async function resolveReadinessNoteKind(host, note) {
-  const detail = await host.library.getNoteDetail(note.ref, { format: "html" });
-  const markerKind = parseWorkbenchNoteKind(detail.content);
-  if (markerKind) {
-    return markerKind;
-  }
-  const schemaKind = resolveSchemaGeneratedNoteKind(detail.content);
-  for (const payloadType of generatedPayloadTypesByNoteKind[schemaKind] || []) {
-    try {
-      await host.library.getNotePayload(note.ref, { payloadType });
-      return schemaKind;
-    } catch {
-      // Try the next payload representation for this generated note kind.
+async function readManagedNote(host, note) {
+  try {
+    const detail = await host.library.getNoteDetail(note.ref, { format: "html" });
+    return detail.kind === "managed" ? detail : null;
+  } catch (error) {
+    if (["invalid_artifact", "legacy_artifact_requires_migration"].includes(error?.code)) {
+      // Citation detail enrichment scans the parent set to compute basis
+      // health. An unrelated malformed score must not hide otherwise
+      // readable readiness facts, so fall back to the payload owner for the
+      // one note being inspected. References/Citation remain canonical
+      // validated here; score validation remains the readiness rule below so
+      // an invalid score stays an invalid score candidate.
+      const candidates = [
+        {
+          noteKind: "digest",
+          payloadType: "digest-markdown",
+          parse: (value) => value,
+        },
+        {
+          noteKind: "references",
+          payloadType: "references-json",
+          parse: parseImportedReferencesArtifact,
+        },
+        {
+          noteKind: "citation-analysis",
+          payloadType: "citation-analysis-json",
+          parse: (value) => {
+            const canonical =
+              value && typeof value === "object" && !Array.isArray(value)
+                ? (() => {
+                    const { referencesBasis: _referencesBasis, ...rest } = value;
+                    return rest;
+                  })()
+                : value;
+            return parseImportedCitationArtifact(canonical);
+          },
+        },
+        {
+          noteKind: "literature-score",
+          payloadType: "literature-score-json",
+          parse: (value) => value,
+        },
+      ];
+      for (const candidate of candidates) {
+        try {
+          const payload = await host.library.getNotePayload(note.ref, {
+            payloadType: candidate.payloadType,
+          });
+          if (payload?.summary?.noteKind !== candidate.noteKind) continue;
+          const value = candidate.parse(payload.value);
+          return {
+            kind: "managed",
+            noteKind: candidate.noteKind,
+            title: note.title || candidate.noteKind,
+            payload: value,
+            payloadBytes: 0,
+            detailBytes: 0,
+            revision: note.revision || "",
+          };
+        } catch {
+          // Try the next declared payload type. The owner remains the
+          // authority for decoding and canonical validation.
+        }
+      }
+      return null;
     }
+    throw error;
   }
-  return "";
 }
 
 async function inspectReadiness(parentItem, manifest, runtime) {
@@ -122,7 +155,8 @@ async function inspectReadiness(parentItem, manifest, runtime) {
   });
   const notes = await Promise.all(
     noteSummaries.map(async (note) => {
-      return { note, kind: await resolveReadinessNoteKind(host, note) };
+      const detail = await readManagedNote(host, note);
+      return { note, detail, kind: detail?.noteKind || "" };
     }),
   );
   const artifacts = {};
@@ -130,18 +164,14 @@ async function inspectReadiness(parentItem, manifest, runtime) {
     const candidates = notes.filter((entry) =>
       artifactSpec.noteKinds.includes(entry.kind),
     );
-    let status = candidates.length ? "available" : "missing";
-    if (candidates.length && artifactSpec.payload) {
+    let status = candidates.length === 1 ? "available" : candidates.length ? "invalid" : "missing";
+    if (candidates.length === 1 && artifactSpec.payload) {
       status = "invalid";
       for (const candidate of candidates) {
-        try {
-          const payload = (
-            await host.library.getNotePayload(candidate.note.ref, {
-              payloadType: artifactSpec.payload.type,
-            })
-          ).value;
-          if (artifactSpec.payload.type === "literature-score-json") {
-            normalizeLiteratureScoreArtifact(payload);
+      try {
+          const payload = candidate.detail.payload;
+          if (artifactSpec.id === "score") {
+            parseImportedScoreArtifact(payload);
           }
           if (
             (artifactSpec.payload.requirements || []).every((rule) => {

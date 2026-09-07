@@ -1,4 +1,9 @@
 import type { CancellationSignal } from "../utils/wait";
+import type {
+  CitationAnalysisArtifact,
+  SourceReferenceArtifact,
+} from "../../packages/synthesis-contracts/src/sourceReferenceArtifact";
+import type { LiteratureScoreArtifact } from "../../packages/synthesis-contracts/src/literatureArtifacts";
 
 export type { CancellationSignal } from "../utils/wait";
 
@@ -273,6 +278,7 @@ export type NoteSummaryDto = {
 };
 
 export type NoteDetailDto = {
+  kind: "ordinary";
   ref: PortableItemRef;
   parentRef: PortableItemRef | null;
   title: string;
@@ -280,6 +286,43 @@ export type NoteDetailDto = {
   content: string;
   revision: string;
 };
+
+export type ManagedNoteKind =
+  | "custom"
+  | "conversation-note"
+  | "digest"
+  | "references"
+  | "citation-analysis"
+  | "literature-score";
+
+export type ManagedNoteDetailDto = {
+  kind: "managed";
+  noteKind: ManagedNoteKind;
+  ref: PortableItemRef;
+  parentRef: PortableItemRef | null;
+  title: string;
+  payload: JsonValue;
+  payloadBytes: number;
+  detailBytes: number;
+  revision: string;
+  provenance?: {
+    sourceRef?: PortableItemRef;
+    referencesBasis?: string;
+  };
+  health?: {
+    state: "current" | "stale";
+    currentReferencesBasis?: string;
+  };
+  derived?: {
+    markdown?: string;
+    representativeImage?: {
+      attachmentRef: PortableItemRef;
+      alt: string;
+    };
+  };
+};
+
+export type NoteDetailResultDto = NoteDetailDto | ManagedNoteDetailDto;
 
 export type NoteDetailOptionsDto = {
   format: "html" | "text";
@@ -464,6 +507,7 @@ export type MaterializedAttachmentDto = {
 };
 
 export type MaterializedNoteDto = {
+  managedArtifact?: Pick<ManagedNoteDetailDto, "noteKind" | "payload" | "provenance">;
   source: { ref: PortableItemRef; revision: string };
   content: {
     format: "html" | "text";
@@ -854,6 +898,14 @@ export type WorkflowHostMutationReceiptOperation =
   | "statusTags.transition"
   | "trash.setItemsState"
   | "literature.ingest"
+  | "managed_note.write_custom"
+  | "managed_note.write_conversation"
+  | "literature_artifact.upsert_digest"
+  | "literature_artifact.upsert_references"
+  | "literature_artifact.upsert_citation_analysis"
+  | "literature_artifact.upsert_score"
+  /** Internal authority identity for a trusted multi-note parent-set commit. */
+  | "managed_note.apply_parent_set"
   | "researchBundles.importPapers";
 
 export type MutationOperation =
@@ -879,7 +931,13 @@ export type MutationOperation =
   | "attachments.remove"
   | "statusTags.transition"
   | "trash.setItemsState"
-  | "literature.ingest";
+  | "literature.ingest"
+  | "managed_note.write_custom"
+  | "managed_note.write_conversation"
+  | "literature_artifact.upsert_digest"
+  | "literature_artifact.upsert_references"
+  | "literature_artifact.upsert_citation_analysis"
+  | "literature_artifact.upsert_score";
 
 export type MutationPreviewOperation = MutationOperation;
 
@@ -1152,7 +1210,23 @@ export type MutationExecuteRequest =
   | (AttachmentRemoveRequestDto & { operation: "attachments.remove" })
   | (StatusTagTransitionRequestDto & { operation: "statusTags.transition" })
   | TrashSetItemsStateRequest
-  | LiteratureIngestRequestDto;
+  | LiteratureIngestRequestDto
+  | (ManagedNoteWriteRequestDto & { operation: "managed_note.write_custom" })
+  | (ManagedNoteWriteRequestDto & {
+      operation: "managed_note.write_conversation";
+    })
+  | (LiteratureDigestUpsertRequestDto & {
+      operation: "literature_artifact.upsert_digest";
+    })
+  | (LiteratureReferencesUpsertRequestDto & {
+      operation: "literature_artifact.upsert_references";
+    })
+  | (LiteratureCitationAnalysisUpsertRequestDto & {
+      operation: "literature_artifact.upsert_citation_analysis";
+    })
+  | (LiteratureScoreUpsertRequestDto & {
+      operation: "literature_artifact.upsert_score";
+    });
 
 export type MutationRequestByOperation = {
   "item.create": ItemCreateRequest;
@@ -1194,6 +1268,24 @@ export type MutationRequestByOperation = {
   };
   "trash.setItemsState": TrashSetItemsStateRequest;
   "literature.ingest": LiteratureIngestRequestDto;
+  "managed_note.write_custom": ManagedNoteWriteRequestDto & {
+    operation: "managed_note.write_custom";
+  };
+  "managed_note.write_conversation": ManagedNoteWriteRequestDto & {
+    operation: "managed_note.write_conversation";
+  };
+  "literature_artifact.upsert_digest": LiteratureDigestUpsertRequestDto & {
+    operation: "literature_artifact.upsert_digest";
+  };
+  "literature_artifact.upsert_references": LiteratureReferencesUpsertRequestDto & {
+    operation: "literature_artifact.upsert_references";
+  };
+  "literature_artifact.upsert_citation_analysis": LiteratureCitationAnalysisUpsertRequestDto & {
+    operation: "literature_artifact.upsert_citation_analysis";
+  };
+  "literature_artifact.upsert_score": LiteratureScoreUpsertRequestDto & {
+    operation: "literature_artifact.upsert_score";
+  };
 };
 
 export type MutationResultByOperation = {
@@ -1220,6 +1312,12 @@ export type MutationResultByOperation = {
   "statusTags.transition": StatusTagTransitionResultDto;
   "trash.setItemsState": TrashSetItemsStateResultDto;
   "literature.ingest": LiteratureIngestResultDto;
+  "managed_note.write_custom": ManagedNoteWriteResultDto;
+  "managed_note.write_conversation": ManagedNoteWriteResultDto;
+  "literature_artifact.upsert_digest": LiteratureArtifactUpsertResultDto;
+  "literature_artifact.upsert_references": LiteratureArtifactUpsertResultDto;
+  "literature_artifact.upsert_citation_analysis": LiteratureArtifactUpsertResultDto;
+  "literature_artifact.upsert_score": LiteratureArtifactUpsertResultDto;
 };
 
 export type ItemChangeTypeDataEntryDto =
@@ -1375,6 +1473,74 @@ export type NotePayloadUpsertRequestDto = {
   noteRef: PortableItemRef;
   payload: LogicalNotePayloadDto;
 };
+
+export type ManagedNoteWriteTargetDto =
+  | { kind: "create"; parentRef: PortableItemRef }
+  | { kind: "update"; noteRef: PortableItemRef };
+
+export type ManagedNoteWriteRequestDto = {
+  operationId: string;
+  target: ManagedNoteWriteTargetDto;
+  content: { title: string; markdown: string };
+};
+
+export type LiteratureDigestUpsertRequestDto = {
+  operationId: string;
+  parentRef: PortableItemRef;
+  markdown: string;
+};
+
+export type LiteratureReferencesUpsertRequestDto = {
+  operationId: string;
+  parentRef: PortableItemRef;
+  references: SourceReferenceArtifact;
+};
+
+export type LiteratureCitationAnalysisUpsertRequestDto = {
+  operationId: string;
+  parentRef: PortableItemRef;
+  citationAnalysis: CitationAnalysisArtifact;
+};
+
+export type LiteratureScoreUpsertRequestDto = {
+  operationId: string;
+  parentRef: PortableItemRef;
+  score: LiteratureScoreArtifact;
+};
+
+export type LiteratureArtifactApplyAnalysisRequestDto = {
+  operationId: string;
+  parentRef: PortableItemRef;
+  digest?: {
+    markdown: string;
+    sourceRef?: PortableItemRef;
+    representativeImage?: {
+      preparedImage: PreparedNoteImageRef;
+      altText?: string;
+    };
+  };
+  references?: SourceReferenceArtifact;
+  citationAnalysis?: CitationAnalysisArtifact;
+  score?: LiteratureScoreArtifact;
+  matchingMetadata?: JsonObject;
+};
+
+export type ManagedNoteWriteResultDto = {
+  note: ManagedNoteDetailDto;
+};
+
+export type LiteratureArtifactUpsertResultDto = {
+  note: ManagedNoteDetailDto;
+  dependentStale?: boolean;
+  referencesBasis?: string;
+};
+
+export type LiteratureArtifactApplyAnalysisResultDto = {
+  notes: ManagedNoteDetailDto[];
+  dependentStale?: boolean;
+  referencesBasis?: string;
+};
+
 export type NoteRemovalResultDto = JsonObject & {
   noteRef: PortableItemRef;
   outcome: RemovalOutcome;
@@ -2181,7 +2347,7 @@ export type WorkflowHostApiV12 = Readonly<{
       noteRef: PortableItemRef,
       options: NoteDetailOptionsDto,
       control?: WorkflowCallControl,
-    ): Promise<NoteDetailDto>;
+    ): Promise<NoteDetailResultDto>;
     listNotePayloads(
       noteRef: PortableItemRef,
       page?: LibraryPageRequestDto,
@@ -2226,6 +2392,39 @@ export type WorkflowHostApiV12 = Readonly<{
       input: MutationRequestByOperation[K],
       control?: WorkflowCallControl,
     ): Promise<MutationExecutionResult<MutationResultByOperation[K]>>;
+  }>;
+  managedNotes: Readonly<{
+    writeCustom(
+      input: ManagedNoteWriteRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<ManagedNoteWriteResultDto>>;
+    writeConversation(
+      input: ManagedNoteWriteRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<ManagedNoteWriteResultDto>>;
+  }>;
+  literatureArtifacts: Readonly<{
+    upsertDigest(
+      input: LiteratureDigestUpsertRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<LiteratureArtifactUpsertResultDto>>;
+    upsertReferences(
+      input: LiteratureReferencesUpsertRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<LiteratureArtifactUpsertResultDto>>;
+    upsertCitationAnalysis(
+      input: LiteratureCitationAnalysisUpsertRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<LiteratureArtifactUpsertResultDto>>;
+    upsertScore(
+      input: LiteratureScoreUpsertRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<LiteratureArtifactUpsertResultDto>>;
+    /** Workflow-local atomic composition; it is not a public mutation wire operation. */
+    applyAnalysis(
+      input: LiteratureArtifactApplyAnalysisRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<LiteratureArtifactApplyAnalysisResultDto>>;
   }>;
   notes: Readonly<{
     create(
@@ -2501,20 +2700,6 @@ export type HookHelpers = {
     fallback: string,
   ) => string;
   toHtmlNote: (title: string, body: string) => string;
-  normalizeReferenceAuthors: (value: unknown) => string[];
-  normalizeReferenceEntry: (
-    entry: unknown,
-    index: number,
-  ) => Record<string, unknown>;
-  normalizeReferencesArray: (value: unknown) => Record<string, unknown>[];
-  normalizeReferencesPayload: (payload: unknown) => Record<string, unknown>[];
-  replacePayloadReferences: (
-    payload: unknown,
-    references: Record<string, unknown>[],
-  ) => unknown;
-  resolveReferenceSource: (entry: unknown) => string;
-  renderReferenceLocator: (entry: unknown) => string;
-  renderReferencesTable: (references: unknown) => string;
   inspectGeneratedNoteReadiness: (
     parentRef: Zotero.Item | number | string,
     spec: WorkflowGeneratedNoteReadinessFilter,

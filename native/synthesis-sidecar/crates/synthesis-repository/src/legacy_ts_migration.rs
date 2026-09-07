@@ -370,7 +370,16 @@ fn copy_direct_tables(connection: &Connection) -> Result<(), String> {
         ),
         ("synt_raw_reference", "synt_reference_raw"),
     ] {
-        let columns = table_columns(connection, target)?;
+        let source_columns = table_columns_in(connection, "legacy", source)?;
+        let source_columns = source_columns.split(',').collect::<BTreeSet<_>>();
+        let columns = table_columns(connection, target)?
+            .split(',')
+            .filter(|column| source_columns.contains(column))
+            .collect::<Vec<_>>()
+            .join(",");
+        if columns.is_empty() {
+            continue;
+        }
         connection
             .execute(
                 &format!(

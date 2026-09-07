@@ -1,6 +1,11 @@
 import { getBaseName, joinPath, normalizeNativeLocalPath } from "../utils/path";
 import { sha256PrefixedHex } from "../utils/sha256";
 import {
+  parseSourceReferenceArtifact,
+  exportCanonicalCitationAnalysisArtifact,
+} from "../../packages/synthesis-contracts/src/sourceReferenceArtifact";
+import { renderCitationAnalysisMarkdown } from "../../packages/synthesis-application/src/referenceProjection";
+import {
   copyRuntimeFile,
   ensureRuntimeDirectory,
   getRuntimePersistencePaths,
@@ -145,6 +150,7 @@ export type ResearchArtifactPresentation = {
   contentType: string;
   text: string;
   diagnostics: string[];
+  canonicalFile?: { filename: string; text: string };
   removedTrailingSectionHeading?: string;
 };
 
@@ -358,75 +364,6 @@ async function probeNativeLocalPath(path: string | undefined) {
   }
 }
 
-function demoteMarkdownHeadings(markdown: string, levels: number) {
-  return markdown
-    .split(/\r?\n/)
-    .map((line) => {
-      const match = line.match(/^(\s*)(#{1,6})(\s+.*)$/);
-      if (!match) return line;
-      return `${match[1]}${"#".repeat(Math.min(6, match[2].length + levels))}${match[3]}`;
-    })
-    .join("\n");
-}
-
-function filterDigestMarkdown(markdown: string) {
-  const lines = markdown.split(/\r?\n/);
-  const kept: string[] = [];
-  let sections = 0;
-  for (const line of lines) {
-    if (/^##\s+/.test(line)) {
-      sections += 1;
-      if (sections > 4) break;
-    }
-    kept.push(line);
-  }
-  return `${demoteMarkdownHeadings(kept.join("\n").trim(), 2).trim()}\n`;
-}
-
-function removeCitationWrapperAndTrailingSection(report: string) {
-  const lines = report.split(/\r?\n/);
-  const firstSection = lines.findIndex((line) => /^###\s+/.test(line));
-  let body = firstSection >= 0 ? lines.slice(firstSection) : lines;
-  const headings = body
-    .map((line, index) => (/^###\s+/.test(line) ? index : -1))
-    .filter((index) => index >= 0);
-  let removedTrailingSectionHeading = "";
-  if (headings.length > 1) {
-    const removeFrom = headings[headings.length - 1];
-    removedTrailingSectionHeading =
-      body[removeFrom]?.replace(/^#+\s*/, "").trim() || "";
-    body = body.slice(0, removeFrom);
-  }
-  return {
-    markdown: `${demoteMarkdownHeadings(body.join("\n").trim(), 1).trim()}\n`,
-    removedTrailingSectionHeading,
-  };
-}
-
-function compactAuthors(value: unknown) {
-  const authors = Array.isArray(value)
-    ? value.map(cleanString).filter(Boolean)
-    : cleanString(value)
-      ? [cleanString(value)]
-      : [];
-  return authors.length > 2
-    ? `${authors.slice(0, 2).join("; ")}; et al.`
-    : authors.join("; ");
-}
-
-function compactReferenceRows(payload: unknown) {
-  const refs =
-    isRecord(payload) && Array.isArray(payload.references)
-      ? payload.references
-      : [];
-  return refs.filter(isRecord).map((reference) => ({
-    id: cleanString(reference.id || reference.ref_id || reference.key),
-    year: cleanString(reference.year),
-    authors: compactAuthors(reference.author || reference.authors),
-    title: cleanString(reference.title),
-  }));
-}
-
 function artifactMarkdown(artifact: Record<string, unknown>) {
   if (cleanString(artifact.status || "available") !== "available") return "";
   if (typeof artifact.markdown === "string") return artifact.markdown;
@@ -437,19 +374,30 @@ function artifactMarkdown(artifact: Record<string, unknown>) {
   return "";
 }
 
-function citationReportMarkdown(artifact: Record<string, unknown>) {
+function citationReportMarkdown(
+  artifact: Record<string, unknown>,
+  referencesPayload: unknown,
+) {
   if (cleanString(artifact.status || "available") !== "available") return "";
-  const payload = artifact.payload;
-  if (!isRecord(payload)) return "";
-  const citation = payload.citation_analysis;
-  if (isRecord(citation) && typeof citation.report_md === "string") {
-    return citation.report_md;
+  if (referencesPayload == null) {
+    throw new DirectResearchBundleError(
+      "citation_references_required",
+      "Canonical Citation export requires the complete References artifact",
+    );
   }
-  return typeof payload.report_md === "string" ? payload.report_md : "";
+  return renderCitationAnalysisMarkdown({
+    citation: artifact.payload,
+    references: referencesPayload,
+  });
 }
+
+type ResearchBundleArtifactPresentationOptions = {
+  referencesPayload?: unknown;
+};
 
 export function formatResearchBundleArtifact(
   artifact: Record<string, unknown>,
+  options: ResearchBundleArtifactPresentationOptions = {},
 ): ResearchArtifactPresentation | null {
   const artifactType = cleanString(
     artifact.artifact_type || artifact.artifactType,
@@ -459,7 +407,7 @@ export function formatResearchBundleArtifact(
       artifactType,
       filename: "digest.md",
       contentType: "text/markdown",
-      text: filterDigestMarkdown(artifactMarkdown(artifact)),
+      text: artifactMarkdown(artifact),
       diagnostics: [],
     };
   }
@@ -468,29 +416,25 @@ export function formatResearchBundleArtifact(
       artifactType,
       filename: "references.json",
       contentType: "application/json",
-      text: `${JSON.stringify({ references: compactReferenceRows(artifact.payload) }, null, 2)}\n`,
+      text: `${JSON.stringify(parseSourceReferenceArtifact(artifact.payload), null, 2)}\n`,
       diagnostics: [],
     };
   }
   if (artifactType === "citation_analysis") {
-    const result = removeCitationWrapperAndTrailingSection(
-      citationReportMarkdown(artifact),
+    const markdown = citationReportMarkdown(
+      artifact,
+      options.referencesPayload,
     );
     return {
       artifactType,
       filename: "citation-analysis.md",
       contentType: "text/markdown",
-      text: result.markdown,
-      diagnostics: result.removedTrailingSectionHeading
-        ? [
-            `removed_trailing_section_heading:${result.removedTrailingSectionHeading}`,
-          ]
-        : [],
-      ...(result.removedTrailingSectionHeading
-        ? {
-            removedTrailingSectionHeading: result.removedTrailingSectionHeading,
-          }
-        : {}),
+      text: markdown,
+      diagnostics: [],
+      canonicalFile: {
+        filename: "citation-analysis.json",
+        text: `${JSON.stringify(exportCanonicalCitationAnalysisArtifact(artifact.payload), null, 2)}\n`,
+      },
     };
   }
   if (artifactType === "literature_score") {
@@ -527,7 +471,9 @@ export async function materializeResearchBundlePapers(args: {
     : null;
   const result = await args.readArtifacts({
     paperRefs: args.papers.map((paper) => paper.paperRef),
-    artifactTypes: requestedTypes,
+    artifactTypes: requestedTypes.includes("citation_analysis")
+      ? [...new Set([...requestedTypes, "references" as const])]
+      : requestedTypes,
   });
   const artifacts =
     isRecord(result) && Array.isArray(result.artifacts)
@@ -606,6 +552,12 @@ export async function materializeResearchBundlePapers(args: {
     }
 
     const artifactRecords: Record<string, unknown>[] = [];
+    const referencesArtifact = artifacts.find(
+      (entry) =>
+        cleanString(entry.paper_ref) === paper.paperRef &&
+        cleanString(entry.artifact_type) === "references" &&
+        cleanString(entry.status) === "available",
+    );
     for (const artifactType of requestedTypes) {
       const artifact = artifacts.find(
         (entry) =>
@@ -618,7 +570,9 @@ export async function materializeResearchBundlePapers(args: {
         status: status || "missing",
       };
       if (artifact && status === "available") {
-        const presentation = formatResearchBundleArtifact(artifact);
+        const presentation = formatResearchBundleArtifact(artifact, {
+          referencesPayload: referencesArtifact?.payload,
+        });
         if (presentation) {
           const contentPath = `${paperDir}/${presentation.filename}`;
           entries.push({
@@ -628,6 +582,15 @@ export async function materializeResearchBundlePapers(args: {
           });
           artifactRecord.path = contentPath;
           artifactRecord.diagnostics = presentation.diagnostics;
+          if (presentation.canonicalFile) {
+            const canonicalPath = `${paperDir}/${presentation.canonicalFile.filename}`;
+            entries.push({
+              path: canonicalPath,
+              contentType: "application/json",
+              text: presentation.canonicalFile.text,
+            });
+            artifactRecord.canonical_path = canonicalPath;
+          }
         }
       } else {
         warnings.push({
@@ -1552,20 +1515,22 @@ export type ResearchBundleImportHostEffects = {
     collectionRef: CreateImportPaper["collectionRefs"][number];
     control?: WorkflowCallControl;
   }): Promise<void>;
-  createNote(args: {
+  createNotes(args: {
     operationId: string;
     consistencyGroupId: string;
     graphId: string;
     parentRef: PortableItemRef;
-    note: ImportNoteDto;
-    embeddedImages: Array<{
-      slot: string;
-      resource: ResearchBundleResolvedResource;
-      altText?: string;
-      preserveSourceBytes?: boolean;
+    notes: Array<{
+      note: ImportNoteDto;
+      embeddedImages: Array<{
+        slot: string;
+        resource: ResearchBundleResolvedResource;
+        altText?: string;
+        preserveSourceBytes?: boolean;
+      }>;
     }>;
     control?: WorkflowCallControl;
-  }): Promise<ResearchBundleCreatedValue>;
+  }): Promise<Array<{ noteId: string; value: ResearchBundleCreatedValue }>>;
   createAttachment(args: {
     operationId: string;
     consistencyGroupId: string;
@@ -1715,6 +1680,7 @@ export function createResearchBundleImportEffects(
             });
           }
           const noteRefs: Array<{ noteId: string; ref: PortableItemRef }> = [];
+          const preparedNotes = [];
           for (const note of paper.notes) {
             throwIfResearchImportCanceled(args.control);
             const embeddedImages = await Promise.all(
@@ -1730,15 +1696,19 @@ export function createResearchBundleImportEffects(
                   : {}),
               })),
             );
-            const createdNote = await host.createNote({
-              operationId: args.operationId,
-              consistencyGroupId: args.consistencyGroupId,
-              graphId: paper.graphId,
-              parentRef,
-              note,
-              embeddedImages,
-              control: args.control,
-            });
+            preparedNotes.push({ note, embeddedImages });
+          }
+          const createdNotes = preparedNotes.length
+            ? await host.createNotes({
+                operationId: args.operationId,
+                consistencyGroupId: args.consistencyGroupId,
+                graphId: paper.graphId,
+                parentRef,
+                notes: preparedNotes,
+                control: args.control,
+              })
+            : [];
+          for (const { noteId, value: createdNote } of createdNotes) {
             const ref = createdRef(createdNote);
             validatePortableRef(ref, "created.noteRef", args.libraryId);
             created.push(ref);
@@ -1750,8 +1720,17 @@ export function createResearchBundleImportEffects(
               );
               created.push(ownedRef);
             }
-            noteRefs.push({ noteId: note.noteId, ref });
+            noteRefs.push({ noteId, ref });
           }
+          const expectedNotes = new Set(paper.notes.map((note) => note.noteId));
+          for (const note of noteRefs) {
+            if (!expectedNotes.delete(note.noteId))
+              throw new Error(
+                "Research import returned an unexpected note identity",
+              );
+          }
+          if (expectedNotes.size)
+            throw new Error("Research import did not return every note");
           noteRefsByGraphId.set(paper.graphId, noteRefs);
           const attachmentRefs: Array<{
             attachmentId: string;

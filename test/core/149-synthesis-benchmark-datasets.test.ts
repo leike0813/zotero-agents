@@ -36,20 +36,17 @@ describe("Synthesis benchmark datasets", function () {
       referenceFanout: 3,
     });
     const rows = buildReferenceSidecarIndexRows(registryInputs);
-    const firstPayloads = registryInputs[0].notes?.[0].payloadBlocks || [];
+    const firstNotes = registryInputs[0].notes || [];
+    const firstReferences = firstNotes.find(
+      (note) => note.noteKind === "references",
+    )?.payload as { references?: unknown[] };
 
     assert.lengthOf(rows, 1000);
-    assert.equal(rows[0].artifactCoverage, "missing");
-    assert.lengthOf(
-      (
-        firstPayloads.find((block) => block.payloadType === "references-json")
-          ?.payload as { references?: unknown[] }
-      ).references || [],
-      3,
-    );
+    assert.equal(rows[0].artifactCoverage, "partial");
+    assert.lengthOf(firstReferences.references || [], 3);
     assert.includeMembers(
-      firstPayloads.map((block) => block.payloadType),
-      ["digest-markdown", "references-json", "citation-analysis-json"],
+      firstNotes.map((note) => note.noteKind),
+      ["digest", "references", "citation-analysis"],
     );
   });
 

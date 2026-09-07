@@ -1,9 +1,6 @@
 import {
-  resolveDigestMarkdownPayloadForNote,
   updateDigestNoteRepresentativeImage,
 } from "../../lib/literatureDigestNotes.mjs";
-import { getBaseName } from "../../lib/path.mjs";
-import { parseGeneratedNoteKind } from "../../lib/referencesNote.mjs";
 import {
   portableItemRef,
   readHostPages,
@@ -21,13 +18,11 @@ function isMarkdownPath(value) {
 }
 
 function isDigestNote(noteItem) {
-  return parseGeneratedNoteKind(noteItem?.content) === "digest";
+  return noteItem?.kind === "managed" && noteItem.noteKind === "digest";
 }
 
 async function resolveSourceAttachmentByKey(host, noteItem, payload) {
-  const key =
-    normalizeText(payload?.source_markdown_item_key) ||
-    normalizeText(payload?.source_attachment_item_key);
+  const key = normalizeText(noteItem.provenance?.sourceRef?.key);
   if (!key) {
     return null;
   }
@@ -101,21 +96,6 @@ async function resolveSourcePath(args) {
     host,
     parentItem,
   );
-  const entryBase = getBaseName(normalizeText(payload.entry));
-  if (entryBase) {
-    const matches = markdownAttachments.filter(
-      (entry) =>
-        getBaseName(entry.path) === entryBase ||
-        getBaseName(entry.title) === entryBase,
-    );
-    if (matches.length === 1) {
-      return {
-        sourcePath: matches[0].path,
-        sourceAttachmentItemKey: normalizeText(matches[0].attachment.ref.key),
-        strategy: "payload-entry-basename",
-      };
-    }
-  }
   if (markdownAttachments.length === 1) {
     return {
       sourcePath: markdownAttachments[0].path,
@@ -180,10 +160,7 @@ async function applyResultImpl({ request, runtime }) {
   }
 
   const { noteItem, parentItem } = await resolveTarget({ host, request });
-  const payload = await resolveDigestMarkdownPayloadForNote({
-    runtime,
-    noteItem,
-  });
+  const payload = noteItem.payload;
   const source = await resolveSourcePath({
     host,
     noteItem,

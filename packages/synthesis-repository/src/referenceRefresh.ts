@@ -1,6 +1,8 @@
 import type { SqlAdapter, SqlParams, SqlRow } from "./index.js";
 
 export const SYNTHESIS_REFERENCE_REFRESH_REPOSITORY_SCHEMA_VERSION =
+  "synthesis-reference-refresh-repository.v2" as const;
+const SYNTHESIS_REFERENCE_REFRESH_REPOSITORY_PREVIOUS_SCHEMA_VERSION =
   "synthesis-reference-refresh-repository.v1" as const;
 export const SYNTHESIS_REFERENCE_REFRESH_REPOSITORY_SCHEMA_META_KEY =
   "reference_refresh_application_schema_version" as const;
@@ -66,6 +68,8 @@ export type SynthesisReferenceArtifactRecord = {
 };
 
 export type SynthesisRawReferenceRecord = {
+  /** Opaque source-artifact identity retained alongside the derived Synthesis row. */
+  sourceReferenceId?: string;
   rawReferenceId: string;
   sourceRef: string;
   referencesArtifactHash: string;
@@ -237,6 +241,7 @@ export function rebuildSynthesisRawReferenceRow(
   row: SqlRow,
 ): SynthesisRawReferenceRecord {
   return {
+    sourceReferenceId: cleanString(row.source_reference_id) || undefined,
     rawReferenceId: required(row.raw_reference_id, "raw_reference_id_invalid"),
     sourceRef: required(row.source_ref, "raw_reference_source_invalid"),
     referencesArtifactHash: cleanString(row.references_artifact_hash),
@@ -309,6 +314,18 @@ export function rebuildSynthesisReferenceBindingRow(
 export function ensureSynthesisReferenceRefreshRepositorySchema(
   db: SqlAdapter,
 ) {
+  const current = cleanString(
+    db.get("SELECT value FROM synt_schema_meta WHERE key=@meta_key LIMIT 1", {
+      meta_key: SYNTHESIS_REFERENCE_REFRESH_REPOSITORY_SCHEMA_META_KEY,
+    })?.value,
+  );
+  if (
+    current &&
+    current !== SYNTHESIS_REFERENCE_REFRESH_REPOSITORY_SCHEMA_VERSION &&
+    current !== SYNTHESIS_REFERENCE_REFRESH_REPOSITORY_PREVIOUS_SCHEMA_VERSION
+  ) {
+    throw new Error("reference_refresh_repository_schema_unsupported");
+  }
   db.run(`CREATE TABLE IF NOT EXISTS synt_reference_application_state (
     singleton_id INTEGER PRIMARY KEY CHECK (singleton_id=1),
     reference_hash TEXT NOT NULL, input_hash TEXT NOT NULL,
@@ -329,7 +346,7 @@ export function ensureSynthesisReferenceRefreshRepositorySchema(
     PRIMARY KEY (paper_ref, artifact_type)
   )`);
   db.run(`CREATE TABLE IF NOT EXISTS synt_reference_raw (
-    raw_reference_id TEXT PRIMARY KEY, source_ref TEXT NOT NULL,
+    raw_reference_id TEXT PRIMARY KEY, source_reference_id TEXT NOT NULL DEFAULT '', source_ref TEXT NOT NULL,
     references_artifact_hash TEXT NOT NULL, reference_index INTEGER NOT NULL,
     raw_hash TEXT NOT NULL, parsed_title TEXT NOT NULL, normalized_title TEXT NOT NULL,
     year TEXT NOT NULL, authors_json TEXT NOT NULL, raw_reference TEXT NOT NULL,
@@ -337,6 +354,16 @@ export function ensureSynthesisReferenceRefreshRepositorySchema(
     roles_json TEXT NOT NULL, diagnostics_json TEXT NOT NULL,
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
   )`);
+  const rawColumns = new Set(
+    db
+      .all("PRAGMA table_info(synt_reference_raw)")
+      .map((row) => cleanString(row.name)),
+  );
+  if (!rawColumns.has("source_reference_id")) {
+    db.run(
+      "ALTER TABLE synt_reference_raw ADD COLUMN source_reference_id TEXT NOT NULL DEFAULT ''",
+    );
+  }
   db.run(`CREATE TABLE IF NOT EXISTS synt_reference_canonical (
     canonical_reference_id TEXT PRIMARY KEY, title TEXT NOT NULL,
     normalized_title TEXT NOT NULL, year TEXT NOT NULL, authors_json TEXT NOT NULL,
@@ -380,14 +407,26 @@ export function ensureSynthesisReferenceRefreshRepositorySchema(
     ON synt_reference_revision_review(status, updated_at)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_synt_literature_matching_metadata_updated
     ON synt_literature_matching_metadata(updated_at DESC)`);
-  db.run(
-    `INSERT OR IGNORE INTO synt_schema_meta (key, value)
-     VALUES (@meta_key, @meta_value)`,
-    {
-      meta_key: SYNTHESIS_REFERENCE_REFRESH_REPOSITORY_SCHEMA_META_KEY,
-      meta_value: SYNTHESIS_REFERENCE_REFRESH_REPOSITORY_SCHEMA_VERSION,
-    },
-  );
+  if (
+    current === SYNTHESIS_REFERENCE_REFRESH_REPOSITORY_PREVIOUS_SCHEMA_VERSION
+  ) {
+    db.run(
+      `UPDATE synt_schema_meta SET value=@meta_value WHERE key=@meta_key`,
+      {
+        meta_key: SYNTHESIS_REFERENCE_REFRESH_REPOSITORY_SCHEMA_META_KEY,
+        meta_value: SYNTHESIS_REFERENCE_REFRESH_REPOSITORY_SCHEMA_VERSION,
+      },
+    );
+  } else {
+    db.run(
+      `INSERT OR IGNORE INTO synt_schema_meta (key, value)
+       VALUES (@meta_key, @meta_value)`,
+      {
+        meta_key: SYNTHESIS_REFERENCE_REFRESH_REPOSITORY_SCHEMA_META_KEY,
+        meta_value: SYNTHESIS_REFERENCE_REFRESH_REPOSITORY_SCHEMA_VERSION,
+      },
+    );
+  }
   const row = db.get(`SELECT value FROM synt_schema_meta WHERE key=@meta_key`, {
     meta_key: SYNTHESIS_REFERENCE_REFRESH_REPOSITORY_SCHEMA_META_KEY,
   });
@@ -588,17 +627,20 @@ export function replaceSynthesisReferenceProjection(
       db.run(
         `INSERT INTO synt_reference_raw (
           raw_reference_id, source_ref, references_artifact_hash,
+          source_reference_id,
           reference_index, raw_hash, parsed_title, normalized_title, year,
           authors_json, raw_reference, canonical_reference_id, status,
           roles_json, diagnostics_json, created_at, updated_at
         ) VALUES (
           @raw_reference_id, @source_ref, @references_artifact_hash,
+          @source_reference_id,
           @reference_index, @raw_hash, @parsed_title, @normalized_title, @year,
           @authors_json, @raw_reference, @canonical_reference_id, @status,
           @roles_json, @diagnostics_json, @created_at, @updated_at
         )`,
         {
           raw_reference_id: row.rawReferenceId,
+          source_reference_id: row.sourceReferenceId ?? "",
           source_ref: row.sourceRef,
           references_artifact_hash: row.referencesArtifactHash,
           reference_index: row.referenceIndex,

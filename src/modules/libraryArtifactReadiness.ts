@@ -1,10 +1,11 @@
-import { parseNoteKind } from "./notePayloadCodec";
 import {
-  listNotePayloadBlocksForItemPage,
-  selectPreferredNotePayloadBlock,
-} from "./zoteroNotePayloadResolver";
+  inspectManagedNote,
+  deriveCitationHealth,
+  ManagedNoteOwnerError,
+  MANAGED_NOTE_PAYLOAD_TYPES,
+} from "./zoteroManagedNotes";
+import type { JsonValue, ManagedNoteKind } from "../workflows/types";
 import {
-  LITERATURE_SCORE_PAYLOAD_TYPE,
   parseLiteratureScore,
   type LiteratureScoreSummary,
 } from "../shared/literatureScore";
@@ -99,21 +100,6 @@ const MARKDOWN_EXTENSIONS = new Set(["md", "markdown"]);
 const REQUIRED_ANALYSIS_ARTIFACTS: Array<
   "digest" | "references" | "citation-analysis"
 > = ["digest", "references", "citation-analysis"];
-const NOTE_PAYLOAD_KIND_BY_TYPE = new Map<string, LibraryArtifactKind>([
-  ["digest-markdown", "digest"],
-  ["references-json", "references"],
-  ["citation-analysis-json", "citation-analysis"],
-  ["citation-analysis-markdown", "citation-analysis"],
-]);
-const PAYLOAD_TYPES_BY_NOTE_KIND: Record<
-  "digest" | "references" | "citation-analysis",
-  string[]
-> = {
-  digest: ["digest-markdown"],
-  references: ["references-json"],
-  "citation-analysis": ["citation-analysis-json", "citation-analysis-markdown"],
-};
-
 export type LibraryArtifactReadOptions = {
   runNativeSlice?: <T>(run: () => Promise<T> | T) => Promise<T>;
   checkCanceled?: () => void;
@@ -121,23 +107,20 @@ export type LibraryArtifactReadOptions = {
 
 const ARTIFACT_READ_PAGE_LIMIT = 100;
 
-export type LibraryArtifactPayloadBlock = Awaited<
-  ReturnType<typeof listNotePayloadBlocksForItemPage>
->["blocks"][number];
-
-export type LibraryArtifactNoteFacts = {
-  id: number;
+export type LibraryArtifactGeneratedNoteFacts = {
+  id?: number;
   key: string;
   title: string;
-  html: string;
   updatedAt: string;
-  payloadBlocks: LibraryArtifactPayloadBlock[];
+  noteKind: ManagedNoteKind | null;
+  payload: JsonValue | null;
+  referencesBasis?: string;
+  issue: string | null;
 };
 
-export type LibraryArtifactGeneratedNoteFacts = Omit<
-  LibraryArtifactNoteFacts,
-  "id"
-> & { id?: number };
+export type LibraryArtifactNoteFacts = LibraryArtifactGeneratedNoteFacts & {
+  id: number;
+};
 
 type LibraryArtifactAttachmentFacts = {
   id: number;
@@ -212,15 +195,46 @@ async function detachArtifactNote(
   const detached = await runArtifactNative(options, () => ({
     id: Number(note.id),
     key: String(note.key || ""),
-    title: String(note.getField?.("title") || note.getDisplayTitle?.() || ""),
-    html: String(note.getNote?.() || ""),
     updatedAt: String(note.dateModified || note.dateAdded || ""),
   }));
-  const payloadBlocks = await listLibraryArtifactPayloadBlocks(note, options);
-  return {
-    ...detached,
-    payloadBlocks,
-  };
+  try {
+    const detail = await inspectManagedNote(note, options);
+    return {
+      ...detached,
+      title: detail.title,
+      noteKind: detail.kind === "managed" ? detail.noteKind : null,
+      payload: detail.kind === "managed" ? detail.payload : null,
+      ...(detail.kind === "managed" &&
+      detail.noteKind === "citation-analysis" &&
+      detail.payload &&
+      typeof detail.payload === "object" &&
+      !Array.isArray(detail.payload) &&
+      typeof detail.payload.referencesBasis === "string"
+        ? { referencesBasis: detail.payload.referencesBasis }
+        : {}),
+      issue: null,
+    };
+  } catch (error) {
+    if (
+      !(error instanceof ManagedNoteOwnerError) ||
+      !["invalid_artifact", "legacy_artifact_requires_migration"].includes(
+        error.code,
+      )
+    )
+      throw error;
+    const kind = error.details.noteKind ?? error.details.managedType;
+    return {
+      ...detached,
+      title: "",
+      noteKind:
+        typeof kind === "string" &&
+        Object.hasOwn(MANAGED_NOTE_PAYLOAD_TYPES, kind)
+          ? (kind as ManagedNoteKind)
+          : null,
+      payload: null,
+      issue: error.code,
+    };
+  }
 }
 
 async function detachArtifactAttachment(
@@ -287,40 +301,6 @@ async function resolveArtifactChildren(
     ),
   ]);
   return { notes, attachments };
-}
-
-export async function listLibraryArtifactPayloadBlocks(
-  note: LibraryArtifactItem,
-  options: LibraryArtifactReadOptions = {},
-) {
-  const blocks: Awaited<
-    ReturnType<typeof listNotePayloadBlocksForItemPage>
-  >["blocks"] = [];
-  let cursor: string | undefined;
-  for (;;) {
-    checkArtifactRead(options);
-    const page = await listNotePayloadBlocksForItemPage(
-      note,
-      {
-        limit: ARTIFACT_READ_PAGE_LIMIT,
-        ...(cursor ? { cursor } : {}),
-      },
-      {
-        ...(options.runNativeSlice
-          ? { runNativeSlice: options.runNativeSlice }
-          : {}),
-        ...(options.checkCanceled
-          ? { checkCanceled: options.checkCanceled }
-          : {}),
-      },
-    );
-    checkArtifactRead(options);
-    blocks.push(...page.blocks);
-    if (!page.hasMore) {
-      return blocks;
-    }
-    cursor = requireArtifactNextCursor(cursor, page.nextCursor, "payload");
-  }
 }
 
 export async function resolveLibraryArtifactReadiness(
@@ -505,7 +485,7 @@ export async function evaluateGeneratedNoteFactsReadiness(
     item: LibraryArtifactGeneratedNoteFacts;
     kind: string;
   }> = [];
-  for (const note of childNotes) {
+  for (const note of withCitationHealth(childNotes)) {
     notes.push({
       item: note,
       kind: await resolveGeneratedNoteKind(note, options),
@@ -562,38 +542,37 @@ async function evaluateGeneratedNoteArtifact(
   if (!candidates.length) {
     return { status: "missing", noteIds, diagnostics: [] };
   }
+  if (candidates.length > 1 || candidates[0].item.issue) {
+    return {
+      status: "invalid",
+      noteIds,
+      diagnostics: [
+        candidates.length > 1 ? "ambiguous_state" : candidates[0].item.issue!,
+      ],
+    };
+  }
   if (!spec.payload) {
     return { status: "available", noteIds, diagnostics: [] };
   }
   const diagnostics: string[] = [];
   for (const candidate of candidates) {
     try {
-      const block = selectPreferredNotePayloadBlock(
-        candidate.item.payloadBlocks,
-        spec.payload.type,
-      );
-      if (!block || block.errors?.length) {
-        diagnostics.push(...(block?.errors || ["payload missing"]));
+      if (candidate.item.issue || candidate.item.payload === null) {
+        diagnostics.push(candidate.item.issue || "invalid_artifact");
         continue;
       }
+      const payload = candidate.item.payload;
       const failed = (spec.payload.requirements || []).find(
-        (requirement) => !matchesPayloadRequirement(block.payload, requirement),
+        (requirement) => !matchesPayloadRequirement(payload, requirement),
       );
       if (failed) {
         diagnostics.push(`payload requirement failed: ${failed.pointer}`);
         continue;
       }
-      if (
-        spec.payload.type === LITERATURE_SCORE_PAYLOAD_TYPE &&
-        !parseLiteratureScore(block.payload)
-      ) {
-        diagnostics.push("literature score payload is invalid");
-        continue;
-      }
       return {
         status: "available",
         noteIds,
-        payload: block.payload,
+        payload,
         diagnostics: [],
       };
     } catch (error) {
@@ -694,9 +673,18 @@ async function resolveGeneratedNoteArtifacts(
   const artifacts = new Set<LibraryArtifactKind>();
   let score: LiteratureScoreSummary | null = null;
   let scoreStatus: "available" | "missing" | "invalid" = "missing";
+  const counts = new Map<string, number>();
   for (const note of notes) {
+    if (note.noteKind)
+      counts.set(note.noteKind, (counts.get(note.noteKind) || 0) + 1);
+  }
+  for (const note of withCitationHealth(notes)) {
     checkArtifactRead(options);
     const noteKind = await resolveGeneratedNoteKind(note, options);
+    if (note.issue || (noteKind && counts.get(noteKind) !== 1)) {
+      if (note.noteKind === "literature-score") scoreStatus = "invalid";
+      continue;
+    }
     if (noteKind === "digest") {
       artifacts.add("digest");
     } else if (noteKind === "references") {
@@ -717,19 +705,31 @@ async function resolveGeneratedNoteArtifacts(
   return { artifacts, score, scoreStatus };
 }
 
+function withCitationHealth<T extends LibraryArtifactGeneratedNoteFacts>(
+  notes: ReadonlyArray<T>,
+): T[] {
+  const references = notes.filter((note) => note.noteKind === "references");
+  const payload =
+    references.length === 1 && !references[0].issue
+      ? references[0].payload
+      : null;
+  return notes.map((note) =>
+    note.noteKind === "citation-analysis" &&
+    !note.issue &&
+    deriveCitationHealth(note.referencesBasis, payload).state === "stale"
+      ? { ...note, issue: "references_basis_mismatch" }
+      : note,
+  );
+}
+
 export async function summarizeLibraryGeneratedArtifacts(
   notes: ReadonlyArray<LibraryArtifactGeneratedNoteFacts>,
   options: LibraryArtifactReadOptions = {},
 ) {
-  const normalized = notes.map((note, index) => ({
-    id: Number(note.id) || index + 1,
-    key: String(note.key || ""),
-    title: String(note.title || ""),
-    html: String(note.html || ""),
-    updatedAt: String(note.updatedAt || ""),
-    payloadBlocks: note.payloadBlocks,
-  }));
-  return resolveGeneratedNoteArtifacts(normalized, options);
+  return resolveGeneratedNoteArtifacts(
+    notes.map((note) => ({ ...note, id: note.id ?? 0 })),
+    options,
+  );
 }
 
 async function resolveLiteratureScoreForNote(
@@ -737,14 +737,7 @@ async function resolveLiteratureScoreForNote(
   options: LibraryArtifactReadOptions = {},
 ) {
   checkArtifactRead(options);
-  const block = selectPreferredNotePayloadBlock(
-    note.payloadBlocks,
-    LITERATURE_SCORE_PAYLOAD_TYPE,
-  );
-  if (!block || block.errors?.length) {
-    return null;
-  }
-  return parseLiteratureScore(block.payload);
+  return note.issue ? null : parseLiteratureScore(note.payload);
 }
 
 async function resolveGeneratedNoteKind(
@@ -752,121 +745,7 @@ async function resolveGeneratedNoteKind(
   options: LibraryArtifactReadOptions = {},
 ) {
   checkArtifactRead(options);
-  const noteHtml = note.html;
-  const markerKind = normalizeGeneratedNoteKindFromMarkers(noteHtml);
-  if (markerKind) {
-    return markerKind;
-  }
-  const headingKind = resolveGeneratedSchemaHeadingKind(noteHtml);
-  if (!headingKind) {
-    return "";
-  }
-  if (headingKind === "literature-score") {
-    return (await resolveLiteratureScoreForNote(note, options))
-      ? "literature-score"
-      : "";
-  }
-  return resolveGeneratedNoteKindFromEmbeddedPayload(
-    note,
-    headingKind,
-    options,
-  );
-}
-
-function normalizeGeneratedNoteKindFromMarkers(noteHtml: unknown) {
-  const html = String(noteHtml || "");
-  const parsed = normalizeKnownGeneratedNoteKind(parseNoteKind(html));
-  if (parsed) {
-    return parsed;
-  }
-  const payloadType =
-    readHtmlDataAttribute(html, "data-zs-payload") ||
-    readHtmlDataAttribute(html, "data-zs-payload-anchor");
-  if (payloadType === LITERATURE_SCORE_PAYLOAD_TYPE) {
-    return "literature-score";
-  }
-  return NOTE_PAYLOAD_KIND_BY_TYPE.get(payloadType) || "";
-}
-
-function resolveGeneratedSchemaHeadingKind(noteHtml: unknown) {
-  const html = String(noteHtml || "");
-  if (!/<(?:div|section)\b[^>]*data-schema-version\s*=/i.test(html)) {
-    return "";
-  }
-  const heading = cleanHtmlText(
-    html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1] || "",
-  );
-  if (/^digest$/i.test(heading)) {
-    return "digest";
-  }
-  if (/^references$/i.test(heading)) {
-    return "references";
-  }
-  if (/^citation analysis$/i.test(heading)) {
-    return "citation-analysis";
-  }
-  if (/^(?:literature )?(?:score|rating)$/i.test(heading)) {
-    return "literature-score";
-  }
-  return "";
-}
-
-function normalizeKnownGeneratedNoteKind(value: unknown) {
-  const normalized = String(value || "")
-    .trim()
-    .toLowerCase();
-  if (normalized === "digest" || normalized === "references") {
-    return normalized;
-  }
-  if (
-    normalized === "citation-analysis" ||
-    normalized === "citation_analysis"
-  ) {
-    return "citation-analysis";
-  }
-  if (normalized === "literature-score" || normalized === "literature_score") {
-    return "literature-score";
-  }
-  return "";
-}
-
-function readHtmlDataAttribute(html: string, name: string) {
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = html.match(
-    new RegExp(`${escaped}\\s*=\\s*(?:"([^"]+)"|'([^']+)'|([^\\s>]+))`, "i"),
-  );
-  return String(match?.[1] || match?.[2] || match?.[3] || "").trim();
-}
-
-async function resolveGeneratedNoteKindFromEmbeddedPayload(
-  note: LibraryArtifactGeneratedNoteFacts,
-  expectedKind: "digest" | "references" | "citation-analysis",
-  options: LibraryArtifactReadOptions = {},
-) {
-  checkArtifactRead(options);
-  for (const payloadType of PAYLOAD_TYPES_BY_NOTE_KIND[expectedKind]) {
-    const block = selectPreferredNotePayloadBlock(
-      note.payloadBlocks,
-      payloadType,
-    );
-    if (block && !block.errors?.length) {
-      return expectedKind;
-    }
-  }
-  return "";
-}
-
-function cleanHtmlText(value: unknown) {
-  return String(value || "")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/\s+/g, " ")
-    .trim();
+  return note.noteKind || "";
 }
 
 function isPdfAttachment(item: LibraryArtifactItem) {

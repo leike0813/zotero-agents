@@ -2539,6 +2539,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
       { format: object.format === "html" ? "html" : "text" },
       context.control,
     );
+    if (detail.kind === "managed") return detail;
     const { text, ...window } = chunkHostBridgeText(detail.content, object);
     return { ...detail, content: text, ...window };
   }),

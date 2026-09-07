@@ -16,6 +16,22 @@ import {
 } from "../../src/modules/zoteroLibraryPageQuery";
 import { createMockZoteroLibraryPageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
 
+function referencesArtifact(title: string) {
+  return {
+    schema: "source_reference_artifact.v1",
+    references: [
+      {
+        sourceReferenceId: `source-reference-${title
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")}`,
+        extraction: { raw: title, confidence: 1 },
+        bibliography: { title, authors: [], year: null },
+        matching: {},
+      },
+    ],
+  };
+}
+
 function createMockZoteroSourcePageQueryAdapter(
   calls: Array<{ domain: string; kind: string }> = [],
 ): ZoteroLibrarySourcePageQueryAdapter {
@@ -187,9 +203,12 @@ describe("Synthesis Host read capability ports", function () {
   it("scans payload-free descriptors and reads one hash-guarded locator", async function () {
     const libraryId = Zotero.Libraries.userLibraryID;
     const paper = await createPaper("HOSTARTA", "Host Artifact A");
-    const note = await addPayloadNote(paper, "references-json", {
-      references: [{ title: "Stable Reference" }],
-    });
+    const stableReferences = referencesArtifact("Stable Reference");
+    const note = await addPayloadNote(
+      paper,
+      "references-json",
+      stableReferences,
+    );
     const port = createZoteroSynthesisHostReadPort({ libraryId });
 
     const scan = await port.artifacts.scanPage({
@@ -223,7 +242,7 @@ describe("Synthesis Host read capability ports", function () {
     note.setNote(
       renderPayloadBlock({
         payloadType: "references-json",
-        payload: { references: [{ title: "Changed Reference" }] },
+        payload: referencesArtifact("Changed Reference"),
         payloadFormat: "json",
       }),
     );
@@ -240,6 +259,7 @@ describe("Synthesis Host read capability ports", function () {
   it("follows canonical note and payload pages before selecting an artifact", async function () {
     const libraryId = Zotero.Libraries.userLibraryID;
     const paper = await createPaper("HOSTPAGE", "Host Page Reads");
+    const laterReferences = referencesArtifact("Later page reference");
     const sourceCalls: Array<{ domain: string; kind: string }> = [];
     setZoteroLibrarySourcePageQueryAdapterForTests(
       createMockZoteroSourcePageQueryAdapter(sourceCalls),
@@ -259,7 +279,7 @@ describe("Synthesis Host read capability ports", function () {
                   : `host-page-${payloadIndex}-json`,
               payload:
                 payloadIndex === 100
-                  ? { references: [{ title: "Later page reference" }] }
+                  ? laterReferences
                   : { index: payloadIndex },
               payloadFormat: "json",
             }),
@@ -289,9 +309,7 @@ describe("Synthesis Host read capability ports", function () {
     });
     assert.equal(read.status, "available");
     if (read.status === "available" && read.content?.kind === "json") {
-      assert.deepEqual(read.content.value, {
-        references: [{ title: "Later page reference" }],
-      });
+      assert.deepEqual(read.content.value, laterReferences);
     } else {
       assert.fail("the later payload page was not readable");
     }

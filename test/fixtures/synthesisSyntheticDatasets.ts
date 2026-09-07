@@ -8,6 +8,11 @@ import type {
 } from "../../packages/synthesis-repository/src/index";
 import type { SynthesisTagSuggestionStageRequest } from "../../packages/synthesis-contracts/src/tags";
 import type { SynthesisTopicApplyRequest } from "../../packages/synthesis-contracts/src/workflow";
+import type {
+  CitationAnalysisArtifact,
+  CitationFunction,
+  SourceReferenceArtifact,
+} from "../../packages/synthesis-contracts/src/sourceReferenceArtifact";
 
 export type SyntheticSynthesisBenchmarkDatasetName = "2k" | "10k" | "25k";
 
@@ -120,6 +125,12 @@ const TOPIC_TAGS = [
 ];
 
 const ROLES = ["background", "method", "result", "dataset"];
+const CITATION_FUNCTION_BY_ROLE: Record<string, CitationFunction> = {
+  background: "background",
+  method: "tooling",
+  result: "contrast",
+  dataset: "dataset",
+};
 
 function padded(value: number, width: number) {
   return String(value).padStart(width, "0");
@@ -188,46 +199,84 @@ function referencePayload(args: {
   });
 }
 
-function notePayloadBlocks(args: {
+function canonicalReferenceArtifact(args: {
   index: number;
   count: number;
   fanout: number;
-}) {
+}): { rawReferences: ReturnType<typeof referencePayload>; artifact: SourceReferenceArtifact } {
   const references = referencePayload({
     sourceIndex: args.index,
     count: args.count,
     fanout: args.fanout,
   });
-  return [
-    {
-      payloadType: "digest-markdown",
-      version: "1",
-      format: "text",
-      payload: [
-        `# ${paperTitle(args.index)}`,
-        "",
-        `Synthetic digest body for benchmark paper ${args.index + 1}.`,
-      ].join("\n"),
-    },
-    {
-      payloadType: "references-json",
-      version: "1",
-      format: "json",
-      payload: { references },
-    },
-    {
-      payloadType: "citation-analysis-json",
-      version: "1",
-      format: "json",
-      payload: {
-        citations: references.map((reference, referenceIndex) => ({
-          reference_index: referenceIndex,
+  return {
+    rawReferences: references,
+    artifact: {
+      schema: "source_reference_artifact.v1",
+      references: references.map((reference, offset) => ({
+        sourceReferenceId: `synthetic-source-reference:${args.index}:${offset}`,
+        extraction: {
+          raw: `${reference.title} (${reference.year}) ${reference.authors[0]}`,
+          confidence: 1,
+        },
+        bibliography: {
           title: reference.title,
-          role: reference.roles[0],
-        })),
+          authors: reference.authors,
+          year: Number(reference.year),
+          itemType: "journalArticle",
+        },
+        matching: { DOI: reference.doi },
+      })),
+    },
+  };
+}
+
+function canonicalCitationArtifact(args: {
+  references: ReturnType<typeof referencePayload>;
+  referenceArtifact: SourceReferenceArtifact;
+}): CitationAnalysisArtifact {
+  return {
+    schema: "citation_analysis_artifact.v1",
+    meta: {
+      language: "en",
+      scope: { section_title: null, line_start: null, line_end: null },
+      scope_source: null,
+      scope_decision: {
+        selection_reason: null,
+        covered_sections: [],
+        fallback_from: null,
+        fallback_reason: null,
+      },
+      mapping_reliability: "normal",
+      reference_extraction: { status: "completed" },
+    },
+    summary: "",
+    timeline: {
+      early: { summary: "", sourceReferenceIds: [] },
+      mid: { summary: "", sourceReferenceIds: [] },
+      recent: {
+        summary: "",
+        sourceReferenceIds: args.referenceArtifact.references.map(
+          ({ sourceReferenceId }) => sourceReferenceId,
+        ),
       },
     },
-  ];
+    items: args.referenceArtifact.references.map((reference, offset) => ({
+      sourceReferenceId: reference.sourceReferenceId,
+      function: CITATION_FUNCTION_BY_ROLE[
+        args.references[offset]?.roles[0] || "background"
+      ],
+      role_in_context: args.references[offset]?.roles[0] || null,
+      topic: null,
+      usage: null,
+      keywords: [],
+      summary: null,
+      key_reference_reason: null,
+      confidence: 1,
+      mentions: [],
+    })),
+    unresolved: [],
+  };
 }
 
 export function createSyntheticSynthesisBenchmarkRegistryInputs(args: {
@@ -239,6 +288,15 @@ export function createSyntheticSynthesisBenchmarkRegistryInputs(args: {
   const fanout = Math.max(0, Math.floor(Number(args.referenceFanout) || 3));
   const libraryId = Math.max(1, Math.floor(Number(args.libraryId) || 1));
   return Array.from({ length: paperCount }, (_, index) => {
+    const canonical = canonicalReferenceArtifact({
+      index,
+      count: paperCount,
+      fanout,
+    });
+    const citation = canonicalCitationArtifact({
+      references: canonical.rawReferences,
+      referenceArtifact: canonical.artifact,
+    });
     return {
       libraryId,
       itemKey: itemKey(index),
@@ -258,13 +316,32 @@ export function createSyntheticSynthesisBenchmarkRegistryInputs(args: {
         {
           key: `SYN-NOTE-${padded(index + 1, 7)}`,
           title: "Synthetic synthesis payloads",
-          html: "",
           updatedAt: "2026-05-27T00:00:00.000Z",
-          payloadBlocks: notePayloadBlocks({
-            index,
-            count: paperCount,
-            fanout,
-          }),
+          noteKind: "digest",
+          payload: {
+            markdown: [
+              `# ${paperTitle(index)}`,
+              "",
+              `Synthetic digest body for benchmark paper ${index + 1}.`,
+            ].join("\n"),
+          },
+          issue: null,
+        },
+        {
+          key: `SYN-REFERENCES-${padded(index + 1, 7)}`,
+          title: "References",
+          updatedAt: "2026-05-27T00:00:00.000Z",
+          noteKind: "references",
+          payload: canonical.artifact,
+          issue: null,
+        },
+        {
+          key: `SYN-CITATIONS-${padded(index + 1, 7)}`,
+          title: "Citation Analysis",
+          updatedAt: "2026-05-27T00:00:00.000Z",
+          noteKind: "citation-analysis",
+          payload: citation,
+          issue: null,
         },
       ],
     };
@@ -787,20 +864,19 @@ export function createSyntheticSynthesisProductionRouteDataset(
       const locator = String(request.locator || "");
       const item = items.find((candidate) => locator.includes(candidate.itemKey));
       if (!item) return { status: "missing", diagnostics: [] };
+      const index = items.indexOf(item);
+      const canonical = canonicalReferenceArtifact({
+        index,
+        count: paperCount,
+        fanout: referenceFanout,
+      });
       if (locator.endsWith(":references")) {
-        const index = items.indexOf(item);
         return {
           status: "available",
           payloadHash: request.expectedHash,
           content: {
             kind: "json",
-            value: {
-              references: referencePayload({
-                sourceIndex: index,
-                count: paperCount,
-                fanout: referenceFanout,
-              }),
-            },
+            value: canonical.artifact,
           },
           diagnostics: [],
         };
@@ -808,7 +884,13 @@ export function createSyntheticSynthesisProductionRouteDataset(
       return {
         status: "available",
         payloadHash: request.expectedHash,
-        content: { kind: "json", value: { citations: [] } },
+        content: {
+          kind: "json",
+          value: canonicalCitationArtifact({
+            references: canonical.rawReferences,
+            referenceArtifact: canonical.artifact,
+          }),
+        },
         diagnostics: [],
       };
     },

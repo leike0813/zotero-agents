@@ -55,15 +55,14 @@ import {
   consumeTagAuditTraversalCompletionEvidence,
   createZoteroHostCapabilityBroker,
   getZoteroHostCanonicalMutationControl,
+  getZoteroManagedNoteLocalControl,
   verifyLibraryTraversalCompletionEvidence,
   resetZoteroHostSliceGateForTests,
   resetZoteroHostMutationRuntimeForTests,
   resetZoteroHostSnapshotRuntimeForTests,
   ZoteroHostCapabilityError,
 } from "../../src/modules/zoteroHostCapabilityBroker";
-import {
-  executeHostBridgeCanonicalMutation,
-} from "../../src/modules/hostBridgeMutationAdapter";
+import { executeHostBridgeCanonicalMutation } from "../../src/modules/hostBridgeMutationAdapter";
 import { pinVerifiedMutationReceipt } from "../../src/modules/zoteroHostMutationAuthority";
 import { MutationAuthorityExecutionError } from "../../src/modules/zoteroHostMutationAuthority";
 import {
@@ -88,6 +87,11 @@ import {
   createMemoryWorkflowClipboardAdapter,
   createWorkflowClipboardOwner,
 } from "../../src/workflows/clipboard";
+import type {
+  CitationAnalysisArtifact,
+  SourceReferenceArtifact,
+} from "../../packages/synthesis-contracts/src/sourceReferenceArtifact";
+import type { LiteratureScoreArtifact } from "../../packages/synthesis-contracts/src/literatureArtifacts";
 
 const HOST_BRIDGE_CONTEXT_GET_CURRENT_VIEW = "context.get_current_view";
 
@@ -111,6 +115,121 @@ async function createParentItem(title: string) {
   }
   await item.saveTx();
   return item;
+}
+
+function sourceReferences(title = "Canonical source"): SourceReferenceArtifact {
+  return {
+    schema: "source_reference_artifact.v1",
+    references: [
+      {
+        sourceReferenceId: "ref-1",
+        extraction: null,
+        bibliography: { title, authors: [], year: null },
+        matching: {},
+      },
+    ],
+  };
+}
+
+function citationAnalysis(
+  sourceReferenceId = "ref-1",
+): CitationAnalysisArtifact {
+  const emptyScope = {
+    section_title: null,
+    line_start: null,
+    line_end: null,
+  };
+  const mention = {
+    mention_id: "mention-1",
+    marker: null,
+    style: null,
+    line_start: null,
+    line_end: null,
+    snippet: null,
+    ref_number_hint: null,
+    year_hint: null,
+    surname_hint: null,
+    citation_label_hint: null,
+    citekey_hint: null,
+  };
+  return {
+    schema: "citation_analysis_artifact.v1",
+    meta: {
+      language: "en",
+      scope: emptyScope,
+      scope_source: null,
+      scope_decision: {
+        selection_reason: null,
+        covered_sections: [],
+        fallback_from: null,
+        fallback_reason: null,
+      },
+      mapping_reliability: "normal",
+      reference_extraction: { status: "completed" },
+    },
+    summary: "",
+    timeline: {
+      early: { summary: "", sourceReferenceIds: [] },
+      mid: { summary: "", sourceReferenceIds: [] },
+      recent: { summary: "", sourceReferenceIds: [] },
+    },
+    items: [
+      {
+        sourceReferenceId,
+        function: null,
+        role_in_context: null,
+        topic: null,
+        usage: null,
+        keywords: [],
+        summary: null,
+        key_reference_reason: null,
+        confidence: null,
+        mentions: [mention],
+      },
+    ],
+    unresolved: [],
+  };
+}
+
+function literatureScore(): LiteratureScoreArtifact {
+  return {
+    schema: "literature_score.v1",
+    rubric_id: "default-v1",
+    paper_type: "empirical",
+    paper_type_reason: "Measured evidence",
+    overall_score: 80,
+    confidence: 1,
+    confidence_adjusted_score: 80,
+    dimensions: [
+      "methodological_rigor",
+      "evidence_completeness",
+      "reproducibility",
+      "innovation_signals",
+      "research_impact_potential",
+      "writing_quality",
+    ].map((dimension_key) => ({
+      dimension_key,
+      name: dimension_key,
+      configured_weight: 1 / 6,
+      effective_weight: 1 / 6,
+      raw_score: 8,
+      applicable_max_score: 10,
+      score: 80,
+      confidence: 1,
+      summary: "Supported",
+      criteria: [
+        {
+          criterion_key: dimension_key,
+          name: "Evidence",
+          status: "scored",
+          score: 8,
+          max_score: 10,
+          reason: "Supported",
+          evidence: [],
+        },
+      ],
+    })),
+  };
 }
 
 async function createCollection(name: string) {
@@ -1007,6 +1126,448 @@ describe("zotero host broker capability api", function () {
     } finally {
       Zotero.Item.prototype.saveTx = originalSave;
     }
+  });
+
+  it("keeps ordinary note writes away from reserved managed markers", async function () {
+    const parent = await createParentItem("Ordinary Managed Marker Guard");
+    const broker = createZoteroHostCapabilityBroker();
+    const error = await expectBrokerError(
+      broker.notes.create(
+        {
+          operationId: "ordinary-managed-marker-guard",
+          placement: {
+            kind: "child",
+            parentRef: { libraryId: parent.libraryID, key: parent.key },
+          },
+          content: {
+            format: "html",
+            value: '<div data-zs-note-kind="digest"><p>reserved</p></div>',
+          },
+        },
+        { ownerId: "ordinary-managed-marker-guard" },
+      ),
+      "invalid_request",
+    );
+    assert.strictEqual(error.details.reason, "unsupported_value");
+    assert.lengthOf(parent.getNotes(), 0);
+    const ordinary = new Zotero.Item("note");
+    ordinary.parentID = parent.id;
+    ordinary.setNote("<p>User content</p>");
+    await ordinary.saveTx();
+    for (const [noteKind, payloadType] of Object.entries({
+      custom: "custom-markdown",
+      "conversation-note": "conversation-note-markdown",
+      digest: "digest-markdown",
+      references: "references-json",
+      "citation-analysis": "citation-analysis-json",
+      "literature-score": "literature-score-json",
+    })) {
+      await expectBrokerError(
+        broker.notes.upsertPayload(
+          {
+            operationId: `ordinary-primary-${noteKind}`,
+            noteRef: { libraryId: ordinary.libraryID, key: ordinary.key },
+            payload: {
+              payloadType,
+              noteKind,
+              schemaVersion: "test.v1",
+              format: "json",
+              value: {},
+            },
+          },
+          { ownerId: "ordinary-managed-marker-guard" },
+        ),
+        "conflict",
+      );
+    }
+    assert.equal(ordinary.getNote(), "<p>User content</p>");
+    assert.lengthOf(ordinary.getAttachments(), 0);
+  });
+
+  it("uses semantic artifact writers and reports stale citation basis", async function () {
+    const parent = await createParentItem("Semantic Artifact Writer Parent");
+    const broker = createZoteroHostCapabilityBroker();
+    const scope = { ownerId: "semantic-artifact-writer-test" };
+    const parentRef = { libraryId: parent.libraryID, key: parent.key };
+
+    const custom = await broker.managedNotes.writeCustom(
+      {
+        operationId: "semantic-custom-note",
+        target: { kind: "create", parentRef },
+        content: { title: "Custom", markdown: "Custom markdown" },
+      },
+      scope,
+    );
+    assert.strictEqual(custom.outcome, "committed");
+
+    const conversation = await broker.managedNotes.writeConversation(
+      {
+        operationId: "semantic-conversation-note",
+        target: { kind: "create", parentRef },
+        content: { title: "Conversation", markdown: "Conversation markdown" },
+      },
+      scope,
+    );
+    assert.strictEqual(conversation.outcome, "committed");
+
+    const references = await broker.literatureArtifacts.upsertReferences(
+      {
+        operationId: "semantic-references-one",
+        parentRef,
+        references: sourceReferences(),
+      },
+      scope,
+    );
+    assert.strictEqual(references.outcome, "committed");
+
+    const invalidCitation = await expectBrokerError(
+      broker.literatureArtifacts.upsertCitationAnalysis(
+        {
+          operationId: "semantic-citation-invalid",
+          parentRef,
+          citationAnalysis: citationAnalysis("unknown-reference"),
+        },
+        scope,
+      ),
+      "conflict",
+    );
+    assert.strictEqual(invalidCitation.details.reason, "basis_mismatch");
+    const validCitation =
+      await broker.literatureArtifacts.upsertCitationAnalysis(
+        {
+          operationId: "semantic-citation-one",
+          parentRef,
+          citationAnalysis: citationAnalysis(),
+        },
+        scope,
+      );
+    assert.strictEqual(validCitation.outcome, "committed");
+    const digest = await broker.literatureArtifacts.upsertDigest(
+      {
+        operationId: "semantic-digest-one",
+        parentRef,
+        markdown: "# Digest\r\n\r\nBody",
+      },
+      scope,
+    );
+    const score = await broker.literatureArtifacts.upsertScore(
+      {
+        operationId: "semantic-score-one",
+        parentRef,
+        score: literatureScore(),
+      },
+      scope,
+    );
+    for (const execution of [
+      custom,
+      conversation,
+      references,
+      validCitation,
+      digest,
+      score,
+    ]) {
+      assert.strictEqual(execution.outcome, "committed");
+      if (execution.outcome !== "committed")
+        throw new Error("Expected committed note");
+      const detail = await broker.library.getNoteDetail(
+        execution.result.note.ref,
+        { format: "html" },
+      );
+      assert.strictEqual(detail.kind, "managed");
+      if (detail.kind !== "managed") throw new Error("Expected managed detail");
+      assert.strictEqual(
+        detail.payloadBytes,
+        new TextEncoder().encode(JSON.stringify(detail.payload)).byteLength,
+      );
+      assert.strictEqual(
+        detail.detailBytes,
+        new TextEncoder().encode(JSON.stringify(detail)).byteLength,
+      );
+      assert.notProperty(detail, "content");
+    }
+    const noteCountBeforeRefresh = parent.getNotes().length;
+
+    const refreshed = await broker.literatureArtifacts.upsertReferences(
+      {
+        operationId: "semantic-references-two",
+        parentRef,
+        references: sourceReferences("Changed source"),
+      },
+      scope,
+    );
+    assert.strictEqual(refreshed.outcome, "committed");
+    assert.isTrue(Boolean(refreshed.result.dependentStale));
+    assert.strictEqual(parent.getNotes().length, noteCountBeforeRefresh);
+    if (validCitation.outcome !== "committed")
+      throw new Error("Expected Citation commit");
+    const stale = await broker.library.getNoteDetail(
+      validCitation.result.note.ref,
+      { format: "html" },
+    );
+    assert.strictEqual(stale.kind, "managed");
+    if (stale.kind !== "managed") throw new Error("Expected managed Citation");
+    assert.strictEqual(stale.health?.state, "stale");
+    assert.deepEqual(stale.payload, citationAnalysis());
+    await expectBrokerError(
+      broker.notes.updateContent(
+        {
+          operationId: "ordinary-update-managed-denied",
+          noteRef: stale.ref,
+          content: { format: "text", value: "replace" },
+        },
+        scope,
+      ),
+      "conflict",
+    );
+    assert.strictEqual(parent.getNotes().length, noteCountBeforeRefresh);
+  });
+
+  it("keeps valid Citation payload readable when its References dependency is ambiguous or damaged", async function () {
+    const parent = await createParentItem("Citation dependency diagnostics");
+    const broker = createZoteroHostCapabilityBroker();
+    const scope = { ownerId: "citation-dependency" };
+    const parentRef = { libraryId: parent.libraryID, key: parent.key };
+    await broker.literatureArtifacts.upsertReferences(
+      {
+        operationId: "citation-dependency-references",
+        parentRef,
+        references: sourceReferences(),
+      },
+      scope,
+    );
+    const result = await broker.literatureArtifacts.upsertCitationAnalysis(
+      {
+        operationId: "citation-dependency-citation",
+        parentRef,
+        citationAnalysis: citationAnalysis(),
+      },
+      scope,
+    );
+    if (result.outcome !== "committed") assert.fail("Expected canonical pair");
+    const citation = result.result.note;
+    const duplicate = new Zotero.Item("note");
+    duplicate.parentID = parent.id;
+    for (const payload of [sourceReferences(), { damaged: true }]) {
+      duplicate.setNote(
+        `<div data-zs-note-kind="references">${renderPayloadBlock({ payloadType: "references-json", payload })}</div>`,
+      );
+      await duplicate.saveTx();
+      const detail = await broker.library.getNoteDetail(citation.ref, {
+        format: "html",
+      });
+      if (detail.kind !== "managed") assert.fail("Expected managed Citation");
+      assert.deepEqual(detail.payload, citationAnalysis());
+      assert.equal(detail.health?.state, "stale");
+      assert.equal(
+        detail.detailBytes,
+        new TextEncoder().encode(JSON.stringify(detail)).byteLength,
+      );
+    }
+  });
+
+  it("keeps managed details above the downstream budget complete and enforces the UTF-8 Broker limit", async function () {
+    const parent = await createParentItem("Managed UTF-8 budget");
+    const broker = createZoteroHostCapabilityBroker();
+    const scope = { ownerId: "managed-byte-budget" };
+    const target = {
+      kind: "create" as const,
+      parentRef: { libraryId: parent.libraryID, key: parent.key },
+    };
+    const markdown = "文".repeat(18000);
+    const result = await broker.managedNotes.writeCustom(
+      {
+        operationId: "managed-byte-complete",
+        target,
+        content: { title: "Large", markdown },
+      },
+      scope,
+    );
+    assert.strictEqual(result.outcome, "committed");
+    if (result.outcome !== "committed")
+      throw new Error("Expected managed commit");
+    const detail = await broker.library.getNoteDetail(result.result.note.ref, {
+      format: "text",
+    });
+    assert.strictEqual(detail.kind, "managed");
+    if (detail.kind !== "managed") throw new Error("Expected managed detail");
+    assert.deepEqual(detail.payload, { title: "Large", markdown });
+    assert.isAbove(detail.payloadBytes, 50 * 1024);
+    assert.strictEqual(
+      detail.detailBytes,
+      new TextEncoder().encode(JSON.stringify(detail)).byteLength,
+    );
+    let rejected: unknown;
+    let oversized;
+    try {
+      oversized = await broker.managedNotes.writeCustom(
+        {
+          operationId: "managed-byte-over-limit",
+          target,
+          content: { title: "Too large", markdown: "文".repeat(350000) },
+        },
+        scope,
+      );
+    } catch (error) {
+      rejected = error;
+    }
+    assert.lengthOf(parent.getNotes(), 1);
+    assert.instanceOf(
+      rejected,
+      ZoteroHostCapabilityError,
+      JSON.stringify(
+        oversized && {
+          outcome: oversized.outcome,
+          ...(oversized.outcome === "failed"
+            ? { attempt: oversized.attempt }
+            : {}),
+        },
+      ),
+    );
+    assert.strictEqual(
+      (rejected as ZoteroHostCapabilityError).code,
+      "resource_limited",
+    );
+  });
+
+  it("updates each literature singleton and rejects duplicates without removing either candidate", async function () {
+    for (const kind of [
+      "digest",
+      "references",
+      "citation-analysis",
+      "literature-score",
+    ] as const) {
+      const parent = await createParentItem(`Singleton ${kind}`);
+      const parentRef = { libraryId: parent.libraryID, key: parent.key };
+      const broker = createZoteroHostCapabilityBroker();
+      const scope = { ownerId: `singleton-${kind}` };
+      if (kind === "citation-analysis") {
+        await broker.literatureArtifacts.upsertReferences(
+          {
+            operationId: "references",
+            parentRef,
+            references: sourceReferences(),
+          },
+          scope,
+        );
+      }
+      const write = (operationId: string) => {
+        switch (kind) {
+          case "digest":
+            return broker.literatureArtifacts.upsertDigest(
+              { operationId, parentRef, markdown: "Body" },
+              scope,
+            );
+          case "references":
+            return broker.literatureArtifacts.upsertReferences(
+              { operationId, parentRef, references: sourceReferences() },
+              scope,
+            );
+          case "citation-analysis":
+            return broker.literatureArtifacts.upsertCitationAnalysis(
+              { operationId, parentRef, citationAnalysis: citationAnalysis() },
+              scope,
+            );
+          case "literature-score":
+            return broker.literatureArtifacts.upsertScore(
+              { operationId, parentRef, score: literatureScore() },
+              scope,
+            );
+        }
+      };
+      const first = await write("create");
+      const second = await write("update");
+      if (
+        first.outcome !== "committed" ||
+        (second.outcome !== "committed" && second.outcome !== "unchanged")
+      ) {
+        throw new Error(
+          `Singleton ${kind}: ${JSON.stringify([first, second].map((result) => ({ outcome: result.outcome, ...(result.outcome === "failed" ? { attempt: result.attempt } : {}) })))}`,
+        );
+      }
+      assert.deepEqual(second.result.note.ref, first.result.note.ref);
+      const payloadType = {
+        digest: "digest-markdown",
+        references: "references-json",
+        "citation-analysis": "citation-analysis-json",
+        "literature-score": "literature-score-json",
+      }[kind];
+      const value =
+        kind === "digest" ? { content: "Body" } : first.result.note.payload;
+      const duplicate = new Zotero.Item("note");
+      duplicate.parentID = parent.id;
+      duplicate.setNote(
+        `<div data-zs-note-kind="${kind}">${renderPayloadBlock({ payloadType, payload: value })}</div>`,
+      );
+      await duplicate.saveTx();
+      const before = parent.getNotes();
+      const error = await expectBrokerError(
+        write("duplicate-conflict"),
+        "conflict",
+      );
+      assert.strictEqual(error.details.reason, "ambiguous_state");
+      assert.deepEqual(parent.getNotes(), before);
+      assert.isFalse(Boolean(duplicate.deleted));
+    }
+  });
+
+  it("replays a managed receipt before preparing a now-damaged target", async function () {
+    const parent = await createParentItem("Managed replay");
+    const broker = createZoteroHostCapabilityBroker();
+    const scope = { ownerId: "managed-replay" };
+    const request = {
+      operationId: "managed-replay",
+      target: {
+        kind: "create" as const,
+        parentRef: { libraryId: parent.libraryID, key: parent.key },
+      },
+      content: { title: "Original", markdown: "Original content" },
+    };
+    const committed = await broker.managedNotes.writeCustom(request, scope);
+    if (committed.outcome !== "committed")
+      throw new Error("Expected managed commit");
+    const native = Zotero.Items.getByLibraryAndKey(
+      parent.libraryID,
+      committed.result.note.ref.key,
+    )!;
+    native.setNote('<div data-zs-note-kind="custom">damaged payload</div>');
+    await native.saveTx();
+    const replay = await broker.managedNotes.writeCustom(request, scope);
+    assert.deepEqual(replay, committed);
+    assert.lengthOf(parent.getNotes(), 1);
+    await expectBrokerError(
+      broker.managedNotes.writeCustom(
+        {
+          ...request,
+          content: { title: "Changed", markdown: "Different intent" },
+        },
+        scope,
+      ),
+      "conflict",
+    );
+  });
+
+  it("rejects unknown analysis fields before the Workflow projection can discard them", async function () {
+    const parent = await createParentItem("Closed analysis input");
+    const host = createWorkflowHostApi();
+    const parentRef = { libraryId: parent.libraryID, key: parent.key };
+    for (const [index, extra] of [
+      { references: sourceReferences(), referencesBasis: "caller-authority" },
+      { digest: { markdown: "Body", path: "/caller/path" } },
+      { digest: { markdown: "Body", expectedRevision: "caller-revision" } },
+    ].entries()) {
+      let rejected: unknown;
+      try {
+        await host.literatureArtifacts.applyAnalysis({
+          operationId: `closed-analysis-${index}`,
+          parentRef,
+          ...extra,
+        } as never);
+      } catch (error) {
+        rejected = error;
+      }
+      assert.propertyVal(rejected, "code", "invalid_request");
+    }
+    assert.lengthOf(parent.getNotes(), 0);
   });
 
   it("consumes prepared-image slots inside one replay-safe note mutation", async function () {
@@ -2329,11 +2890,10 @@ describe("zotero host broker capability api", function () {
       },
     };
     try {
-      const preparedFile =
-        await files.preparedFiles.prepareStoredAttachment({
-          path: sourcePath,
-          targetFilename: "source.pdf",
-        });
+      const preparedFile = await files.preparedFiles.prepareStoredAttachment({
+        path: sourcePath,
+        targetFilename: "source.pdf",
+      });
       let actual: unknown;
       try {
         await executeHostBridgeCanonicalMutation({

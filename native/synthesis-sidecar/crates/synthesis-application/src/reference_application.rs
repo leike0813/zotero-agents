@@ -1,4 +1,8 @@
 use crate::PromotionCheckpoint;
+use crate::canonical_literature_artifacts::{
+    parse_citation_analysis_artifact, parse_literature_score_artifact,
+    parse_source_reference_artifact, validate_citation_against_references,
+};
 use crate::ports::RepositoryPort;
 use crate::reference_matching::{
     ReferenceHostCandidate, ReferenceMatchingApplication, ReferenceMatchingPrepareRequest,
@@ -649,6 +653,7 @@ impl ReferenceApplication {
                     status: "available".into(),
                     payload_hash: read.expected_hash.clone(),
                     content,
+                    references_basis: None,
                     diagnostics: Vec::new(),
                 })
             })
@@ -2965,6 +2970,26 @@ fn validate_literature_digest_request(
     {
         return Err("invalid_request".into());
     }
+    let references = request
+        .references
+        .as_ref()
+        .map(|value| parse_source_reference_artifact(&Value::Object(value.clone())))
+        .transpose()
+        .map_err(|_| "invalid_request")?;
+    let citation = request
+        .citation_analysis
+        .as_ref()
+        .map(|value| parse_citation_analysis_artifact(&Value::Object(value.clone())))
+        .transpose()
+        .map_err(|_| "invalid_request")?;
+    if let (Some(citation), Some(references)) = (citation.as_ref(), references.as_ref()) {
+        validate_citation_against_references(citation, references)
+            .map_err(|_| "invalid_request")?;
+    }
+    if let Some(score) = request.literature_score.as_ref() {
+        parse_literature_score_artifact(&Value::Object(score.clone()))
+            .map_err(|_| "invalid_request")?;
+    }
     Ok(())
 }
 
@@ -3649,6 +3674,7 @@ fn refresh_payload(
         status: "available".into(),
         payload_hash: payload.payload_hash,
         content,
+        references_basis: payload.references_basis,
         diagnostics: payload.diagnostics.into_iter().map(Value::String).collect(),
     })
 }
@@ -4366,6 +4392,11 @@ mod tests {
                 "reference:b" => "External B",
                 _ => return Err("reverse_host_result_invalid".into()),
             };
+            let source_reference_id = match locator {
+                "reference:a" => "fixture-source-reference-a",
+                "reference:b" => "fixture-source-reference-b",
+                _ => return Err("reverse_host_result_invalid".into()),
+            };
             Ok(ReferenceHostArtifactRead {
                 status: "available".into(),
                 payload_hash: expected_hash.into(),
@@ -4373,13 +4404,20 @@ mod tests {
                 content: Some(json!({
                     "kind":"json",
                     "value":{
+                        "schema":"source_reference_artifact.v1",
                         "references":[{
-                            "title":title,
-                            "year":"2020",
-                            "authors":["External Author"],
-                        }],
+                            "sourceReferenceId":source_reference_id,
+                            "extraction":null,
+                            "bibliography":{
+                                "title":title,
+                                "authors":["External Author"],
+                                "year":2020
+                            },
+                            "matching":{}
+                        }]
                     },
                 })),
+                references_basis: None,
                 diagnostics: Vec::new(),
             })
         }

@@ -72,6 +72,7 @@ import type {
   NavigationSelectionInputDto,
   NavigationResultDto,
   NoteDetailDto,
+  NoteDetailResultDto,
   NoteDetailOptionsDto,
   NoteItemSummaryDto,
   NotePayloadOptionsDto,
@@ -112,15 +113,57 @@ import type {
   NotePayloadUpsertRequestDto,
   NoteRemoveRequestDto,
   NoteUpdateContentRequestDto,
+  ManagedNoteWriteRequestDto,
+  ManagedNoteWriteResultDto,
+  ManagedNoteDetailDto,
+  ManagedNoteKind,
+  LiteratureDigestUpsertRequestDto,
+  LiteratureReferencesUpsertRequestDto,
+  LiteratureCitationAnalysisUpsertRequestDto,
+  LiteratureScoreUpsertRequestDto,
+  LiteratureArtifactApplyAnalysisResultDto,
+  LiteratureArtifactUpsertResultDto,
   PreparedNoteImageRef,
   StatusTagTransitionRequestDto,
   StatusTagTransitionResultDto,
   TrashSetItemsStateRequest,
   TrashSetItemsStateResultDto,
   WorkflowCallControl,
+  WorkflowHostMutationReceiptOperation,
   WorkflowBibliographyOwner,
   WorkflowHostCreatorDto as ZoteroHostMetadataCreatorDto,
 } from "../workflows/types";
+import {
+  attachReferencesBasis,
+  validateCitationAgainstReferences,
+  validateCitationAnalysisArtifact,
+  validateSourceReferenceArtifact,
+  type CitationAnalysisArtifact,
+  type SourceReferenceArtifact,
+} from "../../packages/synthesis-contracts/src/sourceReferenceArtifact";
+import { renderCitationAnalysisMarkdown } from "../../packages/synthesis-application/src/referenceProjection";
+import {
+  validateLiteratureScoreArtifact,
+  type LiteratureScoreArtifact,
+} from "../../packages/synthesis-contracts/src/literatureArtifacts";
+import {
+  registerZoteroManagedNoteLocalControl,
+  inspectManagedNote,
+  managedArtifactContent,
+  managedArtifactTitle,
+  managedMarkdownPayload,
+  MANAGED_NOTE_PAYLOAD_TYPES,
+  MANAGED_NOTE_RESULT_LIMIT,
+  readManagedNoteDetail,
+  finalizeManagedNoteDetail,
+  transferPayloadValueFromBlock,
+  deriveCitationHealth,
+  readLegacyManagedNoteForMigration,
+  managedNotePayloadSemanticHash,
+  type LegacyMigrationCleanupPlan,
+  ManagedNoteOwnerError,
+  type ManagedParentSetSemanticInput,
+} from "./zoteroManagedNotes";
 import {
   getBuiltinStatusPolicy,
   getBuiltinStatusTag,
@@ -175,6 +218,8 @@ import {
   readRuntimeBytes,
   removeRuntimePath,
   statRuntimePathStrict,
+  runtimePathExists,
+  writeRuntimeBytes,
 } from "./runtimePersistence";
 import {
   createWorkflowStoredAttachmentStager,
@@ -460,6 +505,31 @@ export class ZoteroHostCapabilityError extends Error {
   }
 }
 
+type ManagedArtifactDiagnosticCode =
+  | "invalid_artifact"
+  | "legacy_artifact_requires_migration";
+
+/**
+ * Managed-artifact diagnostics are semantic reader outcomes. They are kept
+ * separate from the eleven-code Workflow Host transport taxonomy so callers
+ * can classify a legacy/corrupt note without exposing a native exception or
+ * pretending that it is an ordinary read failure.
+ */
+class ZoteroManagedArtifactDiagnostic extends Error {
+  readonly retryable: boolean;
+
+  constructor(
+    readonly code: ManagedArtifactDiagnosticCode,
+    message: string,
+    readonly details: JsonObject = {},
+    retryable = false,
+  ) {
+    super(message);
+    this.name = "ZoteroManagedArtifactDiagnostic";
+    this.retryable = retryable;
+  }
+}
+
 export type ZoteroHostAnnotationExportDto = {
   format: string;
   annotations: ZoteroHostAnnotationDto[];
@@ -547,7 +617,7 @@ export interface ZoteroHostCapabilityBroker {
       ref: ZoteroHostItemRefInput,
       options: NoteDetailOptionsDto,
       control?: WorkflowCallControl,
-    ): Promise<NoteDetailDto>;
+    ): Promise<NoteDetailResultDto>;
     listNotePayloads(
       ref: ZoteroHostItemRefInput,
       page?: LibraryPageRequestDto,
@@ -631,6 +701,40 @@ export interface ZoteroHostCapabilityBroker {
       scope: ZoteroHostMutationCallerScope,
       control?: WorkflowCallControl,
     ): Promise<MutationExecutionResult<JsonObject>>;
+  };
+  readonly managedNotes: {
+    writeCustom(
+      request: ManagedNoteWriteRequestDto,
+      scope: ZoteroHostMutationCallerScope,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<ManagedNoteWriteResultDto>>;
+    writeConversation(
+      request: ManagedNoteWriteRequestDto,
+      scope: ZoteroHostMutationCallerScope,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<ManagedNoteWriteResultDto>>;
+  };
+  readonly literatureArtifacts: {
+    upsertDigest(
+      request: LiteratureDigestUpsertRequestDto,
+      scope: ZoteroHostMutationCallerScope,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<LiteratureArtifactUpsertResultDto>>;
+    upsertReferences(
+      request: LiteratureReferencesUpsertRequestDto,
+      scope: ZoteroHostMutationCallerScope,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<LiteratureArtifactUpsertResultDto>>;
+    upsertCitationAnalysis(
+      request: LiteratureCitationAnalysisUpsertRequestDto,
+      scope: ZoteroHostMutationCallerScope,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<LiteratureArtifactUpsertResultDto>>;
+    upsertScore(
+      request: LiteratureScoreUpsertRequestDto,
+      scope: ZoteroHostMutationCallerScope,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<LiteratureArtifactUpsertResultDto>>;
   };
   readonly attachments: {
     create(
@@ -3127,7 +3231,10 @@ function normalizeContent(value: unknown) {
 
 const NOTE_IMAGE_SLOT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
-function normalizeNoteContentInput(input: NoteContentInput) {
+function normalizeNoteContentInput(
+  input: NoteContentInput,
+  options: { allowManagedMarkers?: boolean } = {},
+) {
   if (!input || typeof input !== "object") {
     throw capabilityError("invalid_request", "note content is required", {
       reason: "invalid_type",
@@ -3148,6 +3255,16 @@ function normalizeNoteContentInput(input: NoteContentInput) {
       reason: "invalid_value",
       field: "content.value",
     });
+  }
+  if (
+    !options.allowManagedMarkers &&
+    /data-zs-(?:payload|note-kind|payload-anchor)\s*=/iu.test(value)
+  ) {
+    throw capabilityError(
+      "invalid_request",
+      "ordinary note content uses a reserved managed marker",
+      { reason: "unsupported_value", field: "content.value" },
+    );
   }
   const embeddedImages = Array.isArray(input.embeddedImages)
     ? input.embeddedImages
@@ -3581,6 +3698,42 @@ function buildWorkbenchPayloadImageBytes(envelope: Record<string, unknown>) {
   return bytes;
 }
 
+function assertManagedPayloadImageBudget(args: {
+  payload: LogicalNotePayloadDto;
+  noteId?: unknown;
+  noteKey?: unknown;
+  parentId?: unknown;
+}) {
+  const envelope = buildWorkbenchPayloadEnvelope({
+    noteId: args.noteId || null,
+    noteKey: args.noteKey || "",
+    parentId: args.parentId || null,
+    noteKind: args.payload.noteKind,
+    payloadType: args.payload.payloadType,
+    schemaVersion: args.payload.schemaVersion,
+    format: args.payload.format,
+    value: args.payload.value,
+  });
+  try {
+    buildWorkbenchPayloadImageBytes(envelope);
+  } catch (error) {
+    if (
+      error instanceof ZoteroNotePayloadResourceLimitError ||
+      /exceed(?:s|ed)/iu.test(error instanceof Error ? error.message : "")
+    ) {
+      throw capabilityError(
+        "resource_limited",
+        "managed note payload exceeds the Broker limit",
+        {
+          resource: "bytes",
+          limit: NOTE_PAYLOAD_MAX_BYTES,
+        },
+      );
+    }
+    throw error;
+  }
+}
+
 function stripPayloadAnchorForType(noteContent: unknown, payloadType: string) {
   const escaped = payloadType.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return String(noteContent || "").replace(
@@ -3590,6 +3743,65 @@ function stripPayloadAnchorForType(noteContent: unknown, payloadType: string) {
     ),
     "",
   );
+}
+
+function stripPayloadImageSlots(
+  noteContent: unknown,
+  payloadTypes: ReadonlySet<string>,
+  declaredSlots: ReadonlySet<string>,
+) {
+  return String(noteContent || "").replace(/<img\b[^>]*>/giu, (tag) => {
+    const payloadType = tag.match(
+      /\bdata-zs-payload-anchor\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/iu,
+    );
+    const slot = tag.match(
+      /\bdata-zotero-agents-image-slot\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/iu,
+    );
+    const type = String(
+      payloadType?.[1] || payloadType?.[2] || payloadType?.[3] || "",
+    ).trim();
+    const imageSlot = String(slot?.[1] || slot?.[2] || slot?.[3] || "").trim();
+    if (
+      !type ||
+      !imageSlot ||
+      !payloadTypes.has(type) ||
+      (declaredSlots.size > 0 && !declaredSlots.has(`${type}\n${imageSlot}`))
+    ) {
+      return tag;
+    }
+    return tag.replace(
+      /\sdata-zotero-agents-image-slot\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/iu,
+      "",
+    );
+  });
+}
+
+function payloadImageSlotKeys(
+  noteContent: unknown,
+  payloadTypes: ReadonlySet<string>,
+) {
+  const keys = new Set<string>();
+  for (const tag of String(noteContent || "").match(/<img\b[^>]*>/giu) || []) {
+    const payloadTypeMatch = tag.match(
+      /\bdata-zs-payload-anchor\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/iu,
+    );
+    const slotMatch = tag.match(
+      /\bdata-zotero-agents-image-slot\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/iu,
+    );
+    const payloadType = String(
+      payloadTypeMatch?.[1] ||
+        payloadTypeMatch?.[2] ||
+        payloadTypeMatch?.[3] ||
+        "",
+    ).trim();
+    const slot = String(
+      slotMatch?.[1] || slotMatch?.[2] || slotMatch?.[3] || "",
+    ).trim();
+    if (payloadTypes.has(payloadType) && slot) {
+      keys.add(`${payloadType}\n${slot}`);
+    }
+  }
+  return keys;
 }
 
 function appendPayloadAnchor(
@@ -3606,14 +3818,28 @@ function appendPayloadAnchor(
   return `${stripped}\n${block}`;
 }
 
-async function updateNoteContentDirect(note: Zotero.Item, content: string) {
+async function updateNoteContentDirect(
+  note: Zotero.Item,
+  content: string,
+  options: {
+    inNativeTransaction?: boolean;
+    stagedPath?: string;
+  } = {},
+) {
   const target = note as unknown as {
     setNote?: (value: string) => void;
-    saveTx?: () => Promise<unknown>;
     save?: () => Promise<unknown>;
+    saveTx?: () => Promise<unknown>;
   };
   target.setNote?.(content);
-  if (typeof target.saveTx === "function") {
+  if (options.inNativeTransaction) {
+    if (typeof target.save !== "function") {
+      throw new Error(
+        "Zotero item save is unavailable inside a native transaction",
+      );
+    }
+    await target.save();
+  } else if (typeof target.saveTx === "function") {
     await target.saveTx();
   } else {
     await target.save?.();
@@ -3981,35 +4207,32 @@ async function importDownloadedStoredUrlAttachment(args: {
     }
     if (cleanupError !== undefined) throw cleanupError;
   };
-  return withPreparedFileCleanup(
-    cleanupAll,
-    async () => {
-      const prepared = await files.prepareStoredAttachment({
-        path: downloaded.path,
-        targetFilename: args.fallbackFilename,
-      });
-      await cleanupDownloaded();
-      const resolved = await files.resolveStoredAttachment(prepared);
-      return nativeMutations.attachments.importStoredAttachment({
-        prepared: resolved,
-        parent: args.parent,
-        libraryId: args.libraryId,
-        metadata: {
-          ...args.metadata,
-          originalUrl: args.metadata?.originalUrl || args.url,
-        },
-        admit: (work, phase = "effect") =>
-          withZoteroHostSlice(args.control, async () => {
-            await args.beforeEffect?.(phase);
-            return work();
-          }),
-        afterImport: () =>
-          args.beforeEffect?.markWritten(args.writtenEntities || []),
-        afterMetadataSave: () =>
-          args.beforeEffect?.markWritten(args.writtenEntities || []),
-      });
-    },
-  );
+  return withPreparedFileCleanup(cleanupAll, async () => {
+    const prepared = await files.prepareStoredAttachment({
+      path: downloaded.path,
+      targetFilename: args.fallbackFilename,
+    });
+    await cleanupDownloaded();
+    const resolved = await files.resolveStoredAttachment(prepared);
+    return nativeMutations.attachments.importStoredAttachment({
+      prepared: resolved,
+      parent: args.parent,
+      libraryId: args.libraryId,
+      metadata: {
+        ...args.metadata,
+        originalUrl: args.metadata?.originalUrl || args.url,
+      },
+      admit: (work, phase = "effect") =>
+        withZoteroHostSlice(args.control, async () => {
+          await args.beforeEffect?.(phase);
+          return work();
+        }),
+      afterImport: () =>
+        args.beforeEffect?.markWritten(args.writtenEntities || []),
+      afterMetadataSave: () =>
+        args.beforeEffect?.markWritten(args.writtenEntities || []),
+    });
+  });
 }
 
 async function attachPdfBestEffort(
@@ -4571,6 +4794,55 @@ function logicalPayloadHashFromBlock(block: ZoteroNotePayloadBlock) {
   });
 }
 
+function migrationPayloadSourceFacts(
+  blocks: ReadonlyArray<ZoteroNotePayloadBlock>,
+) {
+  return hashSynthesisContractCanonicalJson({
+    blocks: blocks
+      .map((block) => ({
+        payloadType: block.payloadType,
+        noteKind: block.noteKind,
+        source: block.source,
+        sourceStorage: block.sourceStorage,
+        payloadStorageVersion: block.payloadStorageVersion,
+        payloadHash: block.payloadHash,
+        logicalPayloadHash: logicalPayloadHashFromBlock(block),
+        attachmentKey: block.attachmentKey,
+        attachmentId: block.attachmentId,
+        encodedValueHash: hashSynthesisContractCanonicalJson(
+          block.encodedValue,
+        ),
+        errors: block.errors,
+      }))
+      .sort((left, right) =>
+        JSON.stringify(left).localeCompare(JSON.stringify(right)),
+      ),
+  });
+}
+
+function semanticPayloadHashFromBlock(block: ZoteroNotePayloadBlock) {
+  return (
+    managedNotePayloadSemanticHash(block.noteKind as ManagedNoteKind, block) ||
+    ""
+  );
+}
+
+function semanticPayloadHashFromPayload(payload: LogicalNotePayloadDto) {
+  return (
+    managedNotePayloadSemanticHash(payload.noteKind as ManagedNoteKind, {
+      payloadType: payload.payloadType,
+      noteKind: payload.noteKind,
+      version: payload.schemaVersion,
+      logicalSchemaVersion: payload.schemaVersion,
+      encoding: "embedded-image-attachment",
+      encodedValue: "",
+      estimatedSize: 0,
+      format: payload.format,
+      payload: payload.value,
+    }) || ""
+  );
+}
+
 function stripInlinePayloadForType(noteContent: unknown, payloadType: string) {
   const escaped = payloadType.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return String(noteContent || "").replace(
@@ -4588,28 +4860,68 @@ async function upsertNotePayloadAttachment(
   previous: ZoteroNotePayloadBlock[],
   control?: WorkflowCallControl,
   beforeEffect?: CanonicalMutationEffectGuard,
+  options: {
+    inNativeTransaction?: boolean;
+    stagedFile?: PreparedNativeAttachmentFile;
+    /** Migration keeps legacy attachments until post-verification Trash. */
+    deferLegacyAttachmentCleanup?: boolean;
+  } = {},
 ) {
+  const native = <T>(run: () => Promise<T> | T) =>
+    options.inNativeTransaction
+      ? Promise.resolve().then(run)
+      : withZoteroHostSlice(control, run);
+  let previousBlock = previous[0];
   if (previous.length > 1) {
-    throw new MutationAuthorityExecutionError(
-      "failed",
-      "conflict",
-      "validation",
-      "refresh_and_retry_new_operation",
-      { reason: "ambiguous_state", kind: "note" },
-      "note payload is ambiguous",
+    const embedded = previous.filter(
+      (block) =>
+        block.source === "embedded-image-attachment" &&
+        block.payloadStorageVersion === 2,
     );
+    const inline = previous.filter(
+      (block) => block.source === "html-payload-block",
+    );
+    const embeddedKeys = new Set(
+      embedded.map((block) => trimText(block.attachmentKey)).filter(Boolean),
+    );
+    const requestedSemanticHash = semanticPayloadHashFromPayload(payload);
+    const inlineMatchesRequested = inline.some(
+      (block) =>
+        semanticPayloadHashFromBlock(block) === requestedSemanticHash &&
+        requestedSemanticHash !== "",
+    );
+    // A content update writes the new inline payload before the old v2
+    // attachment is replaced. Treat that pair as a pending replacement when
+    // the inline view is exactly the requested semantic value. Two embedded
+    // attachments, or an unrelated inline value, remain a conflict.
+    if (
+      embeddedKeys.size > 1 ||
+      inline.length > 1 ||
+      (!inlineMatchesRequested && embedded.length > 0)
+    ) {
+      throw new MutationAuthorityExecutionError(
+        "failed",
+        "conflict",
+        "validation",
+        "refresh_and_retry_new_operation",
+        { reason: "ambiguous_state", kind: "note" },
+        "note payload is ambiguous",
+      );
+    }
+    previousBlock = embedded[0] || inline[0] || previous[0];
   }
   const requestedHash = canonicalLogicalNotePayloadHash(payload);
   if (
-    previous.length === 1 &&
-    logicalPayloadHashFromBlock(previous[0]) === requestedHash
+    previousBlock &&
+    logicalPayloadHashFromBlock(previousBlock) === requestedHash
   ) {
     return {
       note,
-      payload: canonicalPayloadSummary(previous[0], note),
+      payload: canonicalPayloadSummary(previousBlock, note),
       outcome: "unchanged" as const,
       createdAttachment: null,
       removedAttachment: null,
+      attachmentStoragePath: null,
     };
   }
   const payloadType = payload.payloadType;
@@ -4627,9 +4939,15 @@ async function upsertNotePayloadAttachment(
     format: payload.format,
     value: payload.value,
   });
-  const bytes = buildWorkbenchPayloadImageBytes(envelope);
+  const bytes = options.stagedFile
+    ? null
+    : buildWorkbenchPayloadImageBytes(envelope);
   const zotero = resolveZotero();
-  if (typeof zotero.Attachments?.importEmbeddedImage !== "function") {
+  if (
+    (!options.inNativeTransaction &&
+      typeof zotero.Attachments?.importEmbeddedImage !== "function") ||
+    (options.inNativeTransaction && !options.stagedFile)
+  ) {
     throw new MutationAuthorityExecutionError(
       "failed",
       "unavailable",
@@ -4640,13 +4958,22 @@ async function upsertNotePayloadAttachment(
     );
   }
   let attachment: Zotero.Item;
+  let attachmentStoragePath = "";
   try {
-    attachment = await withZoteroHostSlice(control, async () => {
+    attachment = await native(async () => {
       await beforeEffect?.("effect");
-      const imported = await zotero.Attachments.importEmbeddedImage({
-        blob: blobFromBytes(bytes, "image/png"),
-        parentItemID: note.id,
-      });
+      const imported = options.inNativeTransaction
+        ? await importPreparedNoteImageInNativeTransaction(note, {
+            preparedFile: options.stagedFile!,
+          })
+        : {
+            attachment: await zotero.Attachments.importEmbeddedImage({
+              blob: blobFromBytes(bytes!, "image/png"),
+              parentItemID: note.id,
+            }),
+            storagePath: "",
+          };
+      attachmentStoragePath = imported.storagePath;
       beforeEffect?.markWritten([
         {
           kind: "item",
@@ -4656,7 +4983,7 @@ async function upsertNotePayloadAttachment(
           },
         },
       ]);
-      return imported;
+      return imported.attachment;
     });
   } catch (error) {
     throw new MutationAuthorityExecutionError(
@@ -4677,15 +5004,11 @@ async function upsertNotePayloadAttachment(
       ],
     );
   }
-  const attachmentKey = await withZoteroHostSlice(control, () =>
-    trimText(attachment?.key),
-  );
-  const originalContent = await withZoteroHostSlice(control, () =>
-    String(note.getNote?.() || ""),
-  );
+  const attachmentKey = await native(() => trimText(attachment?.key));
+  const originalContent = await native(() => String(note.getNote?.() || ""));
   try {
     if (!attachmentKey) throw new Error("payload attachment has no key");
-    await withZoteroHostSlice(control, async () => {
+    await native(async () => {
       await beforeEffect?.("effect");
       await updateNoteContentDirect(
         note,
@@ -4694,6 +5017,7 @@ async function upsertNotePayloadAttachment(
           payloadType,
           attachmentKey,
         ),
+        { inNativeTransaction: options.inNativeTransaction },
       );
       beforeEffect?.markWritten([
         {
@@ -4706,8 +5030,23 @@ async function upsertNotePayloadAttachment(
       ]);
     });
   } catch (error) {
-    await withZoteroHostSlice(control, () => note.setNote?.(originalContent));
-    const attachmentRef = await withZoteroHostSlice(control, () => ({
+    if (attachmentStoragePath) {
+      try {
+        await removeRuntimePath(attachmentStoragePath);
+      } catch {
+        // The attachment compensation below remains the primary cleanup path.
+      }
+    }
+    try {
+      await native(() =>
+        updateNoteContentDirect(note, originalContent, {
+          inNativeTransaction: options.inNativeTransaction,
+        }),
+      );
+    } catch {
+      // Preserve the payload commit failure and continue attachment cleanup.
+    }
+    const attachmentRef = await native(() => ({
       kind: "item" as const,
       ref: {
         libraryId: normalizeLibraryId(attachment.libraryID),
@@ -4716,8 +5055,10 @@ async function upsertNotePayloadAttachment(
     }));
     let residualRefs: (typeof attachmentRef)[] = [];
     try {
-      await withZoteroHostSlice(control, () =>
-        brokerMutationPrimitives.attachment.remove(attachment),
+      await native(() =>
+        brokerMutationPrimitives.attachment.remove(attachment, {
+          inNativeTransaction: options.inNativeTransaction,
+        }),
       );
     } catch {
       residualRefs = [attachmentRef];
@@ -4741,10 +5082,9 @@ async function upsertNotePayloadAttachment(
     );
   }
   let removedAttachment: Zotero.Item | null = null;
-  const old = previous[0];
+  const old = previousBlock;
   if (old?.attachmentKey && old.attachmentKey !== attachmentKey) {
-    const oldAttachment = await withZoteroHostSlice(
-      control,
+    const oldAttachment = await native(
       () =>
         zotero.Items.getByLibraryAndKey?.(
           normalizeLibraryId(
@@ -4754,8 +5094,7 @@ async function upsertNotePayloadAttachment(
         ) || null,
     );
     if (oldAttachment) {
-      const parentId = await withZoteroHostSlice(
-        control,
+      const parentId = await native(
         () =>
           (
             oldAttachment as unknown as {
@@ -4766,46 +5105,55 @@ async function upsertNotePayloadAttachment(
           (oldAttachment as unknown as { parentItemID?: unknown }).parentItemID,
       );
       if (Number(parentId) === Number(note.id)) {
-        try {
-          await withZoteroHostSlice(control, async () => {
-            await beforeEffect?.("effect");
-            return brokerMutationPrimitives.attachment.remove(oldAttachment!);
-          });
+        if (options.deferLegacyAttachmentCleanup) {
           removedAttachment = oldAttachment;
-        } catch (error) {
-          const residualRef = {
-            kind: "item" as const,
-            ref: {
-              libraryId: normalizeLibraryId(oldAttachment.libraryID),
-              key: trimText(oldAttachment.key),
-            },
-          };
-          throw new MutationAuthorityExecutionError(
-            "repair_required",
-            "execution_failed",
-            "compensation",
-            "manual_repair",
-            {
-              phase: "cleanup",
-              recovery: "manual_repair",
-              affectedCount: 2,
-              residualCount: 1,
-            },
-            error instanceof Error
-              ? error.message
-              : "old payload cleanup failed",
-            [
-              {
-                kind: "item",
-                ref: {
-                  libraryId: normalizeLibraryId(note.libraryID),
-                  key: trimText(note.key),
+        } else {
+          try {
+            await native(async () => {
+              await beforeEffect?.("effect");
+              return brokerMutationPrimitives.attachment.remove(
+                oldAttachment!,
+                {
+                  inNativeTransaction: options.inNativeTransaction,
                 },
+              );
+            });
+            removedAttachment = oldAttachment;
+          } catch (error) {
+            const residualRef = {
+              kind: "item" as const,
+              ref: {
+                libraryId: normalizeLibraryId(oldAttachment.libraryID),
+                key: trimText(oldAttachment.key),
               },
-              residualRef,
-            ],
-            [residualRef],
-          );
+            };
+            throw new MutationAuthorityExecutionError(
+              "repair_required",
+              "execution_failed",
+              "compensation",
+              "manual_repair",
+              {
+                phase: "cleanup",
+                recovery: "manual_repair",
+                affectedCount: 2,
+                residualCount: 1,
+              },
+              error instanceof Error
+                ? error.message
+                : "old payload cleanup failed",
+              [
+                {
+                  kind: "item",
+                  ref: {
+                    libraryId: normalizeLibraryId(note.libraryID),
+                    key: trimText(note.key),
+                  },
+                },
+                residualRef,
+              ],
+              [residualRef],
+            );
+          }
         }
       }
     }
@@ -4844,6 +5192,7 @@ async function upsertNotePayloadAttachment(
       previous.length === 0 ? ("created" as const) : ("replaced" as const),
     createdAttachment: attachment,
     removedAttachment,
+    attachmentStoragePath: attachmentStoragePath || null,
   };
 }
 function canonicalItemVersion(item: Zotero.Item) {
@@ -6749,6 +7098,12 @@ const CANONICAL_MUTATION_OPERATIONS: ReadonlySet<string> = new Set([
   "statusTags.transition",
   "trash.setItemsState",
   "literature.ingest",
+  "managed_note.write_custom",
+  "managed_note.write_conversation",
+  "literature_artifact.upsert_digest",
+  "literature_artifact.upsert_references",
+  "literature_artifact.upsert_citation_analysis",
+  "literature_artifact.upsert_score",
 ]);
 
 type CanonicalMutationEffectOptions = Readonly<{
@@ -6765,6 +7120,516 @@ type CanonicalMutationEffectGuard = ((
   markWritten(entities: readonly MutationEntityRef[]): void;
   markRemoved(entities: readonly MutationEntityRef[]): void;
 };
+
+type ManagedSemanticOperation =
+  | "managed_note.write_custom"
+  | "managed_note.write_conversation"
+  | "literature_artifact.upsert_digest"
+  | "literature_artifact.upsert_references"
+  | "literature_artifact.upsert_citation_analysis"
+  | "literature_artifact.upsert_score";
+
+type ManagedSemanticRequest = Extract<
+  MutationExecuteRequest,
+  { operation: ManagedSemanticOperation }
+>;
+
+type ManagedSemanticPrepared = Readonly<{
+  operation: ManagedSemanticOperation;
+  kind: ManagedNoteKind;
+  parentRef?: ZoteroHostItemRefInput;
+  target?: ManagedNoteWriteRequestDto["target"];
+  title: string;
+  content: string;
+  payload: LogicalNotePayloadDto;
+  publicPayload: JsonValue;
+  referencesBasis?: string;
+  dependentStale?: boolean;
+}>;
+
+function isManagedSemanticOperation(
+  operation: unknown,
+): operation is ManagedSemanticOperation {
+  return (
+    operation === "managed_note.write_custom" ||
+    operation === "managed_note.write_conversation" ||
+    operation === "literature_artifact.upsert_digest" ||
+    operation === "literature_artifact.upsert_references" ||
+    operation === "literature_artifact.upsert_citation_analysis" ||
+    operation === "literature_artifact.upsert_score"
+  );
+}
+
+function managedKindForOperation(
+  operation: ManagedSemanticOperation,
+): ManagedNoteKind {
+  switch (operation) {
+    case "managed_note.write_custom":
+      return "custom";
+    case "managed_note.write_conversation":
+      return "conversation-note";
+    case "literature_artifact.upsert_digest":
+      return "digest";
+    case "literature_artifact.upsert_references":
+      return "references";
+    case "literature_artifact.upsert_citation_analysis":
+      return "citation-analysis";
+    case "literature_artifact.upsert_score":
+      return "literature-score";
+  }
+}
+
+function managedErrorDetails(error: ManagedNoteOwnerError) {
+  const raw = error.details;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return {
+      phase: "read",
+      recovery: error.retryable
+        ? "retry_same_operation"
+        : "refresh_and_retry_new_operation",
+    } as WorkflowHostErrorDetailsByCode["execution_failed"];
+  }
+  const value = raw as Record<string, unknown>;
+  const phases = new Set([
+    "validation",
+    "read",
+    "staging",
+    "write",
+    "commit",
+    "verification",
+    "cleanup",
+    "adapter",
+  ]);
+  const recoveries = new Set([
+    "none",
+    "retry_same_operation",
+    "refresh_and_retry_new_operation",
+    "reconcile",
+    "manual_repair",
+  ]);
+  const phase = phases.has(String(value.phase)) ? String(value.phase) : "read";
+  const recovery = recoveries.has(String(value.recovery))
+    ? String(value.recovery)
+    : error.retryable
+      ? "retry_same_operation"
+      : "refresh_and_retry_new_operation";
+  const details: WorkflowHostErrorDetailsByCode["execution_failed"] = {
+    phase: phase as WorkflowHostErrorDetailsByCode["execution_failed"]["phase"],
+    recovery:
+      recovery as WorkflowHostErrorDetailsByCode["execution_failed"]["recovery"],
+  };
+  if (
+    Number.isSafeInteger(value.affectedCount) &&
+    Number(value.affectedCount) >= 0
+  ) {
+    details.affectedCount = Number(value.affectedCount);
+  }
+  if (
+    Number.isSafeInteger(value.residualCount) &&
+    Number(value.residualCount) >= 0
+  ) {
+    details.residualCount = Number(value.residualCount);
+  }
+  return details;
+}
+
+function mapManagedOwnerError(error: unknown): never {
+  if (!(error instanceof ManagedNoteOwnerError)) throw error;
+  if (error.code === "invalid_request") {
+    throw capabilityError(
+      "invalid_request",
+      error.message,
+      (error.details || {
+        reason: "invalid_value",
+      }) as WorkflowHostErrorDetailsByCode["invalid_request"],
+      error.retryable,
+    );
+  }
+  if (error.code === "invalid_ref") {
+    throw capabilityError(
+      "invalid_ref",
+      error.message,
+      (error.details || {
+        kind: "note",
+        reason: "invalid_shape",
+      }) as WorkflowHostErrorDetailsByCode["invalid_ref"],
+      error.retryable,
+    );
+  }
+  if (error.code === "not_found") {
+    throw capabilityError(
+      "not_found",
+      error.message,
+      (error.details || {
+        kind: "note",
+      }) as WorkflowHostErrorDetailsByCode["not_found"],
+      error.retryable,
+    );
+  }
+  if (error.code === "resource_limited") {
+    throw capabilityError(
+      "resource_limited",
+      error.message,
+      (error.details || {
+        resource: "bytes",
+        limit: NOTE_PAYLOAD_MAX_BYTES,
+      }) as WorkflowHostErrorDetailsByCode["resource_limited"],
+      error.retryable,
+    );
+  }
+  if (error.code === "conflict") {
+    throw capabilityError(
+      "conflict",
+      error.message,
+      (error.details || {
+        reason: "ambiguous_state",
+        kind: "note",
+      }) as WorkflowHostErrorDetailsByCode["conflict"],
+      error.retryable,
+    );
+  }
+  throw capabilityError(
+    "execution_failed",
+    error.message,
+    managedErrorDetails(error),
+    error.retryable,
+  );
+}
+
+function normalizeLiteratureScore(value: unknown): LiteratureScoreArtifact {
+  assertWorkflowHostStrictJsonValue(value as JsonValue);
+  const validated = validateLiteratureScoreArtifact(value);
+  if (!validated.ok) {
+    throw capabilityError("invalid_request", "literature score is invalid", {
+      reason: "invalid_schema",
+      field: "score",
+    });
+  }
+  return validated.value;
+}
+
+function normalizeManagedSemanticRequest(
+  request: ManagedSemanticRequest,
+): ManagedSemanticPrepared {
+  const operation = request.operation;
+  const kind = managedKindForOperation(operation);
+  if (
+    operation === "managed_note.write_custom" ||
+    operation === "managed_note.write_conversation"
+  ) {
+    const content = managedMarkdownPayload(
+      kind as "custom" | "conversation-note",
+      request.content.title,
+      request.content.markdown,
+    );
+    const parentRef =
+      request.target.kind === "create"
+        ? canonicalItemRef(request.target.parentRef)
+        : undefined;
+    return {
+      operation,
+      kind,
+      ...(parentRef ? { parentRef } : {}),
+      target: request.target,
+      title: content.title,
+      content: content.content,
+      payload: content.payload,
+      publicPayload: { title: content.title, markdown: content.markdown },
+    };
+  }
+  const parentRef = canonicalItemRef(request.parentRef);
+  if (operation === "literature_artifact.upsert_digest") {
+    const markdown = String(request.markdown || "");
+    if (!markdown.trim()) {
+      throw capabilityError("invalid_request", "digest markdown is empty", {
+        reason: "invalid_value",
+        field: "markdown",
+        operation,
+      });
+    }
+    const publicPayload = { markdown } as JsonValue;
+    const artifactKind = kind as Exclude<
+      ManagedNoteKind,
+      "custom" | "conversation-note"
+    >;
+    const content = managedArtifactContent(
+      artifactKind,
+      managedArtifactTitle(artifactKind),
+      publicPayload,
+    );
+    return {
+      operation,
+      kind,
+      parentRef,
+      title: managedArtifactTitle(artifactKind),
+      content: content.content,
+      payload: content.payload,
+      publicPayload,
+    };
+  }
+  if (operation === "literature_artifact.upsert_references") {
+    const validated = validateSourceReferenceArtifact(request.references);
+    if (!validated.ok) {
+      throw capabilityError(
+        "invalid_request",
+        "references artifact is invalid",
+        {
+          reason: "invalid_value",
+          field: "references",
+          operation,
+        },
+      );
+    }
+    const publicPayload = validated.value as unknown as JsonValue;
+    const artifactKind = kind as Exclude<
+      ManagedNoteKind,
+      "custom" | "conversation-note"
+    >;
+    const content = managedArtifactContent(
+      artifactKind,
+      managedArtifactTitle(artifactKind),
+      publicPayload,
+    );
+    return {
+      operation,
+      kind,
+      parentRef,
+      title: managedArtifactTitle(artifactKind),
+      content: content.content,
+      payload: content.payload,
+      publicPayload,
+    };
+  }
+  if (operation === "literature_artifact.upsert_citation_analysis") {
+    const validated = validateCitationAnalysisArtifact(
+      request.citationAnalysis,
+    );
+    if (!validated.ok) {
+      throw capabilityError(
+        "invalid_request",
+        "citation analysis artifact is invalid",
+        {
+          reason: "invalid_value",
+          field: "citationAnalysis",
+          operation,
+        },
+      );
+    }
+    const publicPayload = validated.value as unknown as JsonValue;
+    const artifactKind = kind as Exclude<
+      ManagedNoteKind,
+      "custom" | "conversation-note"
+    >;
+    const content = managedArtifactContent(
+      artifactKind,
+      managedArtifactTitle(artifactKind),
+      publicPayload,
+    );
+    return {
+      operation,
+      kind,
+      parentRef,
+      title: managedArtifactTitle(artifactKind),
+      content: content.content,
+      payload: content.payload,
+      publicPayload,
+    };
+  }
+  const score = normalizeLiteratureScore(request.score);
+  const publicPayload = score as unknown as JsonValue;
+  const artifactKind = kind as Exclude<
+    ManagedNoteKind,
+    "custom" | "conversation-note"
+  >;
+  const content = managedArtifactContent(
+    artifactKind,
+    managedArtifactTitle(artifactKind),
+    publicPayload,
+  );
+  return {
+    operation,
+    kind,
+    parentRef,
+    title: managedArtifactTitle(artifactKind),
+    content: content.content,
+    payload: content.payload,
+    publicPayload,
+  };
+}
+
+async function managedChildNotes(
+  parent: Zotero.Item,
+  control?: WorkflowCallControl,
+) {
+  const ids = await withZoteroHostSlice(control, () =>
+    getChildItemIds(parent, "getNotes"),
+  );
+  if (ids.length > 100) {
+    throw capabilityError(
+      "resource_limited",
+      "managed note scan is too large",
+      {
+        resource: "items",
+        limit: 100,
+        observed: ids.length,
+      },
+    );
+  }
+  const notes: Array<{
+    note: Zotero.Item;
+    inspection: Awaited<ReturnType<typeof inspectManagedNote>>;
+  }> = [];
+  for (const id of ids) {
+    const note = await withZoteroHostSlice(control, () =>
+      resolveZotero().Items.get(id),
+    );
+    if (!note?.isNote?.()) continue;
+    const inspection = await inspectManagedNote(note, {
+      runNativeSlice: (run) => withZoteroHostSlice(control, run),
+      checkCanceled: () => throwIfWorkflowCallCanceled(control),
+    });
+    notes.push({ note, inspection });
+  }
+  return notes;
+}
+
+async function managedSingleton(
+  parentRef: ZoteroHostItemRefInput,
+  kind: ManagedNoteKind,
+  control?: WorkflowCallControl,
+) {
+  const parent = await withZoteroHostSlice(control, () =>
+    requireItem(parentRef, "artifact parent"),
+  );
+  if (parent.isNote?.() || parent.isAttachment?.() || parent.isAnnotation?.()) {
+    throw invalidRefError(
+      "item",
+      "wrong_kind",
+      "artifact parent must be a regular item",
+    );
+  }
+  const matches = (await managedChildNotes(parent, control)).filter(
+    ({ inspection }) =>
+      inspection.kind === "managed" && inspection.noteKind === kind,
+  );
+  if (matches.length > 1) {
+    throw capabilityError("conflict", "managed artifact is ambiguous", {
+      reason: "ambiguous_state",
+      kind: "note",
+    });
+  }
+  return {
+    parent,
+    note: matches[0]?.note || null,
+    inspection: matches[0]?.inspection || null,
+  };
+}
+
+async function preflightManagedSemanticRequest(
+  request: ManagedSemanticRequest,
+  prepared: ManagedSemanticPrepared,
+  control?: WorkflowCallControl,
+) {
+  if (prepared.target?.kind === "create") {
+    const parent = await withZoteroHostSlice(control, () => {
+      const parent = requireItem(prepared.parentRef, "note parent");
+      if (
+        parent.isNote?.() ||
+        parent.isAttachment?.() ||
+        parent.isAnnotation?.()
+      ) {
+        throw invalidRefError(
+          "item",
+          "wrong_kind",
+          "note parent must be a regular item",
+        );
+      }
+      return parent;
+    });
+    assertManagedPayloadImageBudget({
+      payload: prepared.payload,
+      parentId: parent.id,
+    });
+    return;
+  }
+  const target = prepared.target;
+  if (target?.kind === "update") {
+    const note = await withZoteroHostSlice(control, () =>
+      requireNote(target.noteRef),
+    );
+    assertManagedPayloadImageBudget({
+      payload: prepared.payload,
+      noteId: note.id,
+      noteKey: note.key,
+      parentId:
+        (note as unknown as { parentID?: unknown; parentItemID?: unknown })
+          .parentID ||
+        (note as unknown as { parentItemID?: unknown }).parentItemID ||
+        null,
+    });
+    const inspection = await inspectManagedNote(note, {
+      runNativeSlice: (run) => withZoteroHostSlice(control, run),
+      checkCanceled: () => throwIfWorkflowCallCanceled(control),
+    });
+    if (
+      inspection.kind !== "managed" ||
+      inspection.noteKind !== prepared.kind
+    ) {
+      throw capabilityError(
+        "conflict",
+        "managed note kind does not match the writer",
+        {
+          reason: "ambiguous_state",
+          kind: "note",
+        },
+      );
+    }
+    return;
+  }
+  const singleton = await managedSingleton(
+    prepared.parentRef!,
+    prepared.kind,
+    control,
+  );
+  assertManagedPayloadImageBudget({
+    payload: prepared.payload,
+    noteId: singleton.note?.id,
+    noteKey: singleton.note?.key,
+    parentId: singleton.parent.id,
+  });
+  if (prepared.kind === "citation-analysis") {
+    const references = await managedSingleton(
+      prepared.parentRef!,
+      "references",
+      control,
+    );
+    if (!references.inspection || references.inspection.kind !== "managed") {
+      throw capabilityError(
+        "conflict",
+        "citation analysis requires references",
+        {
+          reason: "basis_mismatch",
+          kind: "note",
+        },
+      );
+    }
+    const validated = validateCitationAgainstReferences(
+      prepared.publicPayload as unknown as CitationAnalysisArtifact,
+      references.inspection.payload as unknown as SourceReferenceArtifact,
+    );
+    if (!validated.ok) {
+      throw capabilityError(
+        "conflict",
+        "citation analysis references are stale",
+        {
+          reason: "basis_mismatch",
+          kind: "note",
+        },
+      );
+    }
+  }
+  void singleton;
+}
 
 async function executeCanonicalMutationEffects(
   request: MutationExecuteRequest,
@@ -6790,6 +7655,15 @@ async function executeCanonicalMutationEffects(
       control,
       options.beforeEffect,
       options.semanticInput,
+    );
+  }
+  if (isManagedSemanticOperation(request?.operation)) {
+    return executeManagedSemanticMutationEffects(
+      request as ManagedSemanticRequest,
+      scope,
+      control,
+      options.semanticInput,
+      options.beforeEffect,
     );
   }
   if (
@@ -7043,6 +7917,338 @@ async function executeCanonicalMutationEffects(
     if (error instanceof MutationAuthorityAdmissionError) {
       throw mutationAdmissionError(error);
     }
+    throw error;
+  }
+}
+
+async function executeManagedSemanticMutationEffects(
+  request: ManagedSemanticRequest,
+  scope: ZoteroHostMutationCallerScope,
+  control?: WorkflowCallControl,
+  semanticInput?: JsonValue,
+  beforeEffect?: CanonicalMutationEffectGuard,
+): Promise<MutationExecutionResult<JsonObject>> {
+  let prepared: ManagedSemanticPrepared;
+  try {
+    prepared = normalizeManagedSemanticRequest(request);
+  } catch (error) {
+    mapManagedOwnerError(error);
+  }
+
+  const normalized = prepared!;
+  const operationId = trimText(request.operationId, 129);
+  if (!operationId || operationId.length > 128) {
+    throw capabilityError("invalid_request", "operationId is invalid", {
+      reason: "invalid_value",
+      field: "operationId",
+      operation: request.operation,
+    });
+  }
+  assertWorkflowHostStrictJsonValue(
+    (semanticInput || (request as unknown as JsonValue)) as JsonValue,
+  );
+
+  try {
+    return await executeReservedMutation<JsonObject>({
+      scope,
+      operationId,
+      operation: request.operation,
+      semanticInput: semanticInput || (request as unknown as JsonValue),
+      control,
+      preflight: async () => {
+        try {
+          await preflightManagedSemanticRequest(request, normalized, control);
+        } catch (error) {
+          mapManagedOwnerError(error);
+        }
+      },
+      execute: async () => {
+        let target = normalized.target;
+        let parent: Zotero.Item | null = null;
+        let note: Zotero.Item | null = null;
+        let before: ReturnType<typeof canonicalNoteVersion> | null = null;
+        let dependentStale = false;
+        let referencesBasis: string | undefined;
+
+        if (normalized.parentRef) {
+          const singleton = await managedSingleton(
+            normalized.parentRef,
+            normalized.kind,
+            control,
+          );
+          parent = singleton.parent;
+          note = singleton.note;
+          if (!note) {
+            target = { kind: "create", parentRef: normalized.parentRef };
+          } else {
+            target = {
+              kind: "update",
+              noteRef: canonicalItemRef(note),
+            };
+          }
+          if (normalized.kind === "citation-analysis") {
+            const references = await managedSingleton(
+              normalized.parentRef,
+              "references",
+              control,
+            );
+            if (
+              !references.inspection ||
+              references.inspection.kind !== "managed"
+            ) {
+              throw capabilityError(
+                "conflict",
+                "citation analysis requires references",
+                {
+                  reason: "basis_mismatch",
+                  kind: "note",
+                },
+              );
+            }
+            const sourceReferences = references.inspection
+              .payload as unknown as SourceReferenceArtifact;
+            const citation =
+              normalized.publicPayload as unknown as CitationAnalysisArtifact;
+            const validated = validateCitationAgainstReferences(
+              citation,
+              sourceReferences,
+            );
+            if (!validated.ok) {
+              throw capabilityError(
+                "conflict",
+                "citation analysis references are stale",
+                {
+                  reason: "basis_mismatch",
+                  kind: "note",
+                },
+              );
+            }
+            referencesBasis =
+              hashSynthesisContractCanonicalJson(sourceReferences);
+            const stored = attachReferencesBasis(citation, referencesBasis);
+            const content = managedArtifactContent(
+              normalized.kind,
+              normalized.title,
+              stored as unknown as JsonValue,
+            );
+            prepared = {
+              ...normalized,
+              content: content.content,
+              payload: content.payload,
+              referencesBasis,
+              publicPayload: stored as unknown as JsonValue,
+            };
+          } else if (normalized.kind === "references") {
+            referencesBasis = hashSynthesisContractCanonicalJson(
+              normalized.publicPayload,
+            );
+            const citation = await managedSingleton(
+              normalized.parentRef,
+              "citation-analysis",
+              control,
+            );
+            if (citation.inspection?.kind === "managed") {
+              const citationPayload = citation.inspection.payload as Record<
+                string,
+                unknown
+              >;
+              dependentStale =
+                citationPayload.referencesBasis !== referencesBasis;
+            }
+          }
+        } else {
+          const directTarget = target;
+          if (directTarget?.kind === "update") {
+            note = await withZoteroHostSlice(control, () =>
+              requireNote(directTarget.noteRef),
+            );
+          } else {
+            parent = await withZoteroHostSlice(control, () =>
+              requireItem(normalized.parentRef!, "note parent"),
+            );
+          }
+        }
+
+        const finalTarget = target;
+        if (finalTarget?.kind === "update") {
+          if (!note)
+            note = await withZoteroHostSlice(control, () =>
+              requireNote(finalTarget.noteRef),
+            );
+          before = await withZoteroHostSlice(control, async () => {
+            await beforeEffect?.("read");
+            return canonicalNoteVersion(note!);
+          });
+          const inspection = await inspectManagedNote(note!, {
+            runNativeSlice: (run) => withZoteroHostSlice(control, run),
+            checkCanceled: () => throwIfWorkflowCallCanceled(control),
+          });
+          if (
+            inspection.kind !== "managed" ||
+            inspection.noteKind !== normalized.kind
+          ) {
+            throw capabilityError(
+              "conflict",
+              "managed note kind does not match the writer",
+              {
+                reason: "ambiguous_state",
+                kind: "note",
+              },
+            );
+          }
+        } else {
+          if (!parent) throw notFoundError("item", normalized.parentRef);
+          note = await withZoteroHostSlice(control, async () => {
+            await beforeEffect?.("effect");
+            const created = await brokerMutationPrimitives.note.create({
+              content: normalized.content,
+              parent,
+              libraryID: normalizeLibraryId(parent!.libraryID),
+              tags: [],
+              collections: [],
+            });
+            beforeEffect?.markWritten([]);
+            return created;
+          });
+        }
+
+        const currentHtml = await withZoteroHostSlice(control, () =>
+          String(note!.getNote?.() || ""),
+        );
+        if (currentHtml !== normalized.content) {
+          await withZoteroHostSlice(control, async () => {
+            await beforeEffect?.("effect");
+            await brokerMutationPrimitives.note.update(
+              note!,
+              normalized.content,
+            );
+            beforeEffect?.markWritten([]);
+          });
+        }
+
+        let payloadResult: Awaited<
+          ReturnType<typeof upsertNotePayloadAttachment>
+        >;
+        try {
+          const matches = (
+            await listMutationPayloadBlocks(note!, control)
+          ).filter(
+            (block) => block.payloadType === normalized.payload.payloadType,
+          );
+          payloadResult = await upsertNotePayloadAttachment(
+            note!,
+            normalized.payload,
+            matches,
+            control,
+            beforeEffect,
+          );
+        } catch (error) {
+          if (error instanceof MutationAuthorityExecutionError) throw error;
+          throw new MutationAuthorityExecutionError(
+            "failed",
+            "execution_failed",
+            "commit",
+            "retry_same_operation",
+            { phase: "commit", recovery: "retry_same_operation" },
+            error instanceof Error
+              ? error.message
+              : "managed note payload upsert failed",
+            note ? [{ kind: "item", ref: canonicalItemRef(note) }] : [],
+          );
+        }
+
+        const committed = await withZoteroHostSlice(control, () => {
+          const committedNote = requireNote(canonicalItemRef(note!));
+          return {
+            ref: canonicalItemRef(committedNote),
+            after: canonicalNoteVersion(committedNote),
+            note: committedNote,
+          };
+        });
+        let detail: NoteDetailResultDto;
+        try {
+          detail = await readManagedNoteDetail(
+            committed.note,
+            { format: "html" },
+            {
+              runNativeSlice: (run) => withZoteroHostSlice(control, run),
+              checkCanceled: () => throwIfWorkflowCallCanceled(control),
+              readRevision: () => canonicalNoteVersion(committed.note).revision,
+            },
+          );
+        } catch (error) {
+          mapManagedOwnerError(error);
+        }
+        detail = await enrichManagedNoteDetail(detail!, control || {});
+        if (detail!.kind !== "managed") {
+          throw new MutationAuthorityExecutionError(
+            "unknown",
+            "execution_failed",
+            "verification",
+            "reconcile",
+            { phase: "verification", recovery: "reconcile" },
+            "managed note final state could not be confirmed",
+            [{ kind: "item", ref: committed.ref }],
+          );
+        }
+        const created = !before;
+        const attachmentChanges: MutationChangeDto[] = [];
+        if (payloadResult.createdAttachment) {
+          attachmentChanges.push({
+            entity: {
+              kind: "item",
+              ref: canonicalItemRef(payloadResult.createdAttachment),
+            },
+            effect: "created",
+            before: null,
+            after: canonicalItemVersion(payloadResult.createdAttachment),
+          });
+        }
+        if (payloadResult.removedAttachment) {
+          const removedRef = canonicalItemRef(payloadResult.removedAttachment);
+          attachmentChanges.push({
+            entity: { kind: "item", ref: removedRef },
+            effect: "deleted",
+            before: canonicalItemVersion(payloadResult.removedAttachment),
+            after: {
+              revision: hashSynthesisContractCanonicalJson({
+                ref: removedRef,
+                state: "deleted",
+                operationId,
+              }),
+              state: "deleted",
+            },
+          });
+        }
+        return {
+          outcome:
+            created || payloadResult.outcome !== "unchanged"
+              ? "committed"
+              : "unchanged",
+          changes: [
+            {
+              entity: { kind: "item", ref: committed.ref },
+              effect: created
+                ? "created"
+                : payloadResult.outcome !== "unchanged"
+                  ? "updated"
+                  : "unchanged",
+              before,
+              after: committed.after,
+            },
+            ...attachmentChanges,
+          ],
+          result: strictJsonObject({
+            note: detail,
+            ...(referencesBasis ? { referencesBasis } : {}),
+            ...(dependentStale ? { dependentStale: true } : {}),
+          }),
+        };
+      },
+    });
+  } catch (error) {
+    if (error instanceof MutationAuthorityAdmissionError)
+      throw mutationAdmissionError(error);
     throw error;
   }
 }
@@ -7305,6 +8511,26 @@ function collectCanonicalMutationObservations(
     case "literature.ingest":
       addCollection(input.collectionRef);
       break;
+    case "managed_note.write_custom":
+    case "managed_note.write_conversation": {
+      if (input.target.kind === "create") addItem(input.target.parentRef);
+      else addItem(input.target.noteRef);
+      break;
+    }
+    case "literature_artifact.upsert_digest":
+    case "literature_artifact.upsert_references":
+    case "literature_artifact.upsert_citation_analysis":
+    case "literature_artifact.upsert_score": {
+      addItem(input.parentRef);
+      const parent = resolveItem(canonicalItemRef(input.parentRef));
+      if (parent) {
+        for (const id of getChildItemIds(parent, "getNotes")) {
+          const child = resolveZotero().Items.get(id);
+          if (child?.isNote?.()) addItem(canonicalItemRef(child));
+        }
+      }
+      break;
+    }
   }
   const observations: MutationEntityObservationDto[] = [];
   for (const ref of items.values()) {
@@ -7577,6 +8803,17 @@ async function preflightCanonicalMutationDomain(
     );
     return;
   }
+  if (isManagedSemanticOperation(input.operation)) {
+    const managedRequest = input as ManagedSemanticRequest;
+    let prepared: ManagedSemanticPrepared;
+    try {
+      prepared = normalizeManagedSemanticRequest(managedRequest);
+      await preflightManagedSemanticRequest(managedRequest, prepared, control);
+    } catch (error) {
+      mapManagedOwnerError(error);
+    }
+    return;
+  }
   if (
     input.operation === "notes.create" ||
     input.operation === "notes.updateContent" ||
@@ -7617,7 +8854,43 @@ async function preflightCanonicalMutationDomain(
       ).noteRef,
     );
     const note = await withZoteroHostSlice(control, () => requireNote(noteRef));
+    if (operation === "notes.updateContent") {
+      const detail = await readManagedNoteDetail(
+        note,
+        { format: "text" },
+        {
+          readRevision: () => canonicalNoteVersion(note).revision,
+        },
+      );
+      if (detail.kind === "managed") {
+        throw capabilityError(
+          "conflict",
+          "ordinary note content cannot update a managed note",
+          { reason: "ambiguous_state", kind: "note" },
+        );
+      }
+    }
     if (logicalPayload) {
+      let inspection: Awaited<ReturnType<typeof inspectManagedNote>>;
+      try {
+        inspection = await inspectManagedNote(note, {
+          runNativeSlice: (run) => withZoteroHostSlice(control, run),
+          checkCanceled: () => throwIfWorkflowCallCanceled(control),
+        });
+      } catch (error) {
+        mapManagedOwnerError(error);
+      }
+      if (
+        Object.values(MANAGED_NOTE_PAYLOAD_TYPES).some(
+          (payloadType) => payloadType === logicalPayload.payloadType,
+        )
+      ) {
+        throw capabilityError(
+          "conflict",
+          "reserved managed payload requires its semantic owner",
+          { reason: "ambiguous_state", kind: "note" },
+        );
+      }
       const matches = (await listMutationPayloadBlocks(note, control)).filter(
         (block) => block.payloadType === logicalPayload.payloadType,
       );
@@ -8156,7 +9429,10 @@ function createCanonicalMutationControl(): ZoteroHostCanonicalMutationControl {
             MutationResultByOperation[typeof args.input.operation]
           >;
         } catch (error) {
-          if (record.preparedStoredAttachment && !preparedFileCleanupAttempted) {
+          if (
+            record.preparedStoredAttachment &&
+            !preparedFileCleanupAttempted
+          ) {
             preparedFileCleanupAttempted = true;
             await record.preparedFiles?.dispose();
           }
@@ -8219,6 +9495,2021 @@ async function executeCanonicalMutationLifecycle(
       });
     }
     throw error;
+  }
+}
+
+async function executeManagedSemanticMutation(
+  broker: ZoteroHostCapabilityBroker,
+  request:
+    | ManagedNoteWriteRequestDto
+    | LiteratureDigestUpsertRequestDto
+    | LiteratureReferencesUpsertRequestDto
+    | LiteratureCitationAnalysisUpsertRequestDto
+    | LiteratureScoreUpsertRequestDto,
+  kind: ManagedNoteKind,
+  scope: ZoteroHostMutationCallerScope,
+  control?: WorkflowCallControl,
+): Promise<MutationExecutionResult<JsonObject>> {
+  const operation: ManagedSemanticOperation =
+    kind === "custom"
+      ? "managed_note.write_custom"
+      : kind === "conversation-note"
+        ? "managed_note.write_conversation"
+        : kind === "digest"
+          ? "literature_artifact.upsert_digest"
+          : kind === "references"
+            ? "literature_artifact.upsert_references"
+            : kind === "citation-analysis"
+              ? "literature_artifact.upsert_citation_analysis"
+              : "literature_artifact.upsert_score";
+  return executeCanonicalMutationLifecycle(
+    broker,
+    { ...request, operation } as MutationExecuteRequest,
+    scope,
+    control,
+  );
+}
+
+function logicalPayloadFromTransferValue(
+  value: NotePayloadValueDto,
+): LogicalNotePayloadDto {
+  if (value.summary.state !== "available") {
+    throw capabilityError(
+      "execution_failed",
+      "managed note auxiliary payload could not be transferred",
+      { phase: "read", recovery: "retry_same_operation" },
+    );
+  }
+  assertWorkflowHostStrictJsonValue(value.value);
+  return {
+    payloadType: value.summary.payloadType,
+    noteKind: value.summary.noteKind,
+    schemaVersion: value.summary.version,
+    format: value.summary.format,
+    value: value.value,
+  };
+}
+
+type PreparedLegacyMigrationCleanup = {
+  notes: Array<{
+    ref: ZoteroHostItemRefInput;
+    note: Zotero.Item;
+    before: ReturnType<typeof canonicalNoteVersion>;
+    cleanHtml: string;
+  }>;
+  payloadRefs: ZoteroHostItemRefInput[];
+  preparedTrash: PreparedHostTrashMutation[];
+};
+
+type LegacyMigrationCleanupExecution = {
+  changes: MutationChangeDto[];
+  cleanedNoteRefs: ZoteroHostItemRefInput[];
+  trashedPayloadRefs: ZoteroHostItemRefInput[];
+};
+
+function normalizeLegacyMigrationCleanupPlan(
+  input: LegacyMigrationCleanupPlan,
+): LegacyMigrationCleanupPlan {
+  if (
+    !input ||
+    !Array.isArray(input.notes) ||
+    !Array.isArray(input.payloadRefs)
+  ) {
+    throw capabilityError(
+      "invalid_request",
+      "migration cleanup plan is invalid",
+      { reason: "invalid_schema", field: "migrationCleanup" },
+    );
+  }
+  const noteRefs = new Set<string>();
+  const notes = input.notes.map((entry, index) => {
+    if (!entry || typeof entry !== "object") {
+      throw capabilityError(
+        "invalid_request",
+        "migration cleanup note is invalid",
+        { reason: "invalid_schema", field: `migrationCleanup.notes.${index}` },
+      );
+    }
+    const ref = canonicalItemRef(entry.ref);
+    const identity = `${ref.libraryId}:${ref.key}`;
+    if (noteRefs.has(identity)) {
+      throw capabilityError(
+        "conflict",
+        "migration cleanup note is duplicated",
+        { reason: "ambiguous_state", kind: "note" },
+      );
+    }
+    noteRefs.add(identity);
+    const expectedRevision = trimText(entry.expectedRevision, 256);
+    if (!expectedRevision || typeof entry.cleanHtml !== "string") {
+      throw capabilityError(
+        "invalid_request",
+        "migration cleanup note facts are invalid",
+        { reason: "invalid_schema", field: `migrationCleanup.notes.${index}` },
+      );
+    }
+    const bytes = new TextEncoder().encode(entry.cleanHtml).byteLength;
+    if (bytes > MANAGED_NOTE_RESULT_LIMIT) {
+      throw capabilityError(
+        "resource_limited",
+        "legacy note HTML is too large",
+        {
+          resource: "characters",
+          limit: MANAGED_NOTE_RESULT_LIMIT,
+          observed: bytes,
+        },
+      );
+    }
+    return { ref, expectedRevision, cleanHtml: entry.cleanHtml };
+  });
+  const payloadRefs = [
+    ...new Map(
+      input.payloadRefs.map((entry) => {
+        const ref = canonicalItemRef(entry);
+        return [`${ref.libraryId}:${ref.key}`, ref] as const;
+      }),
+    ).values(),
+  ];
+  const identities = new Set([
+    ...notes.map((entry) => `${entry.ref.libraryId}:${entry.ref.key}`),
+    ...payloadRefs.map((entry) => `${entry.libraryId}:${entry.key}`),
+  ]);
+  const libraries = new Set([
+    ...notes.map((entry) => entry.ref.libraryId),
+    ...payloadRefs.map((entry) => entry.libraryId),
+  ]);
+  if (libraries.size > 1) {
+    throw capabilityError(
+      "invalid_request",
+      "migration cleanup scope spans multiple libraries",
+      { reason: "invalid_combination", field: "migrationCleanup" },
+    );
+  }
+  if (identities.size > 100) {
+    throw capabilityError(
+      "resource_limited",
+      "migration cleanup scope exceeds its bounded native slice",
+      { resource: "items", limit: 100, observed: identities.size },
+    );
+  }
+  return { notes, payloadRefs };
+}
+
+async function prepareLegacyMigrationCleanup(
+  input: LegacyMigrationCleanupPlan,
+  operationId: string,
+  control?: WorkflowCallControl,
+): Promise<PreparedLegacyMigrationCleanup> {
+  const sliceSize = 25;
+  const notes: PreparedLegacyMigrationCleanup["notes"] = [];
+  for (let offset = 0; offset < input.notes.length; offset += sliceSize) {
+    const page = input.notes.slice(offset, offset + sliceSize);
+    const preparedPage = await withZoteroHostSlice(control, () =>
+      page.map((entry) => {
+        const note = requireNote(entry.ref);
+        const before = canonicalNoteVersion(note);
+        if (before.revision !== entry.expectedRevision) {
+          throw new MutationAuthorityExecutionError(
+            "failed",
+            "conflict",
+            "read",
+            "refresh_and_retry_new_operation",
+            { reason: "revision_mismatch", kind: "note" },
+            "legacy note changed before migration cleanup",
+            [{ kind: "item", ref: canonicalItemRef(note) }],
+          );
+        }
+        return {
+          ref: canonicalItemRef(note),
+          note,
+          before,
+          cleanHtml: entry.cleanHtml,
+        };
+      }),
+    );
+    notes.push(...preparedPage);
+  }
+  const preparedTrash: PreparedHostTrashMutation[] = [];
+  for (let offset = 0; offset < input.payloadRefs.length; offset += sliceSize) {
+    const itemRefs = input.payloadRefs.slice(offset, offset + sliceSize);
+    preparedTrash.push(
+      await withZoteroHostSlice(control, () =>
+        prepareCanonicalTrashMutation({
+          operation: "trash.setItemsState",
+          // This is an internal request inside the parent-set authority. It
+          // deliberately reuses the parent-set identity; no receipt is made.
+          operationId,
+          itemRefs,
+          state: "trashed",
+        }),
+      ),
+    );
+  }
+  return {
+    notes,
+    payloadRefs: input.payloadRefs,
+    preparedTrash,
+  };
+}
+
+async function executeLegacyMigrationCleanupDirect(
+  prepared: PreparedLegacyMigrationCleanup,
+  control?: WorkflowCallControl,
+): Promise<LegacyMigrationCleanupExecution> {
+  const changes: MutationChangeDto[] = [];
+  // Each note is one bounded Host slice. The outer authority identity remains
+  // the same even though the local native work yields between notes.
+  for (const plan of prepared.notes) {
+    const change = await withZoteroHostSlice(control, async () => {
+      const note = requireNote(plan.ref);
+      const current = canonicalNoteVersion(note);
+      if (current.revision !== plan.before.revision) {
+        throw new MutationAuthorityExecutionError(
+          "failed",
+          "conflict",
+          "read",
+          "refresh_and_retry_new_operation",
+          { reason: "revision_mismatch", kind: "note" },
+          "legacy note changed before migration cleanup",
+          [{ kind: "item", ref: plan.ref }],
+        );
+      }
+      if (String(note.getNote?.() || "") !== plan.cleanHtml) {
+        await updateNoteContentDirect(note, plan.cleanHtml);
+      }
+      const after = canonicalNoteVersion(note);
+      return {
+        entity: { kind: "item" as const, ref: plan.ref },
+        effect:
+          after.revision === plan.before.revision
+            ? ("unchanged" as const)
+            : ("updated" as const),
+        before: plan.before,
+        after,
+      } satisfies MutationChangeDto;
+    });
+    changes.push(change);
+  }
+  for (const preparedTrash of prepared.preparedTrash) {
+    const trash = await withZoteroHostSlice(control, () =>
+      executeHostTrashMutation(preparedTrash, {
+        resolve: resolveItem,
+        version: canonicalItemVersion,
+      }),
+    );
+    changes.push(...trash.changes);
+  }
+  return {
+    changes,
+    cleanedNoteRefs: prepared.notes.map((entry) => entry.ref),
+    trashedPayloadRefs: prepared.payloadRefs,
+  };
+}
+
+function migrationCleanupRepairError(
+  error: unknown,
+  plans: ReadonlyArray<{ note: Zotero.Item | null }>,
+  cleanup: LegacyMigrationCleanupPlan,
+): MutationAuthorityExecutionError {
+  const affectedRefs: MutationEntityRef[] = [
+    ...plans.flatMap((plan) =>
+      plan.note
+        ? [{ kind: "item" as const, ref: canonicalItemRef(plan.note) }]
+        : [],
+    ),
+    ...cleanup.notes.map((entry) => ({
+      kind: "item" as const,
+      ref: entry.ref,
+    })),
+    ...cleanup.payloadRefs.map((ref) => ({ kind: "item" as const, ref })),
+  ];
+  const residualRefs =
+    error instanceof MutationAuthorityExecutionError ? error.residualRefs : [];
+  return new MutationAuthorityExecutionError(
+    "repair_required",
+    "execution_failed",
+    "cleanup",
+    "manual_repair",
+    {
+      phase: "cleanup",
+      recovery: "manual_repair",
+      affectedCount: affectedRefs.length,
+      ...(residualRefs.length ? { residualCount: residualRefs.length } : {}),
+    },
+    error instanceof Error
+      ? error.message
+      : "legacy migration cleanup requires repair",
+    affectedRefs,
+    residualRefs,
+  );
+}
+
+/**
+ * Trusted local composition seam used by bundle/migration owners. It keeps a
+ * single authority identity while applying the supplied semantic note set.
+ * Public Workflow/Bridge projections never expose this route.
+ */
+async function executeManagedParentSetMutation(
+  _broker: ZoteroHostCapabilityBroker,
+  input: ManagedParentSetSemanticInput & { operationId: string },
+  scope: ZoteroHostMutationCallerScope,
+  control?: WorkflowCallControl,
+): Promise<MutationExecutionResult<LiteratureArtifactApplyAnalysisResultDto>> {
+  // This is a private composition seam.  Its durable authority identity must
+  // describe the whole parent-set commit, rather than whichever public
+  // operation happens to be present in the set.  The operation is deliberately
+  // absent from MutationOperation/preview/request projections, so workflows
+  // cannot expose it as a seventh wire mutation.
+  const operation: WorkflowHostMutationReceiptOperation =
+    "managed_note.apply_parent_set";
+  const migrationCleanup = input.migrationCleanup
+    ? normalizeLegacyMigrationCleanupPlan(input.migrationCleanup)
+    : undefined;
+  const semanticInput = strictJsonObject({
+    parentRef: input.parentRef,
+    ...(input.entries ? { entries: input.entries } : {}),
+    ...(input.references ? { references: input.references } : {}),
+    ...(input.citationAnalysis
+      ? { citationAnalysis: input.citationAnalysis }
+      : {}),
+    ...(input.matchingMetadata
+      ? { matchingMetadata: input.matchingMetadata }
+      : {}),
+    ...(input.sourceRef ? { sourceRef: input.sourceRef } : {}),
+    ...(input.preparedImage ? { preparedImage: input.preparedImage } : {}),
+    ...(input.imageAltText ? { imageAltText: input.imageAltText } : {}),
+    ...(migrationCleanup
+      ? {
+          migrationCleanup: {
+            notes: migrationCleanup.notes.map((note) => ({
+              ref: note.ref,
+              expectedRevision: note.expectedRevision,
+              cleanHtml: note.cleanHtml,
+            })),
+            payloadRefs: migrationCleanup.payloadRefs,
+          },
+        }
+      : {}),
+  });
+  assertWorkflowHostStrictJsonValue(semanticInput);
+  try {
+    return await executeReservedMutation<LiteratureArtifactApplyAnalysisResultDto>(
+      {
+        scope,
+        operationId: trimText(input.operationId, 129),
+        operation,
+        semanticInput,
+        control,
+        preflight: async () => {
+          await withZoteroHostSlice(control, () => {
+            const parent = requireItem(input.parentRef, "artifact parent");
+            if (
+              parent.isNote?.() ||
+              parent.isAttachment?.() ||
+              parent.isAnnotation?.()
+            ) {
+              throw invalidRefError(
+                "item",
+                "wrong_kind",
+                "artifact parent must be a regular item",
+              );
+            }
+            const db = (
+              resolveZotero() as unknown as {
+                DB?: { executeTransaction?: unknown };
+              }
+            ).DB;
+            if (typeof db?.executeTransaction !== "function") {
+              throw capabilityError(
+                "unavailable",
+                "Zotero transaction support is unavailable",
+                {
+                  reason: "capability",
+                  kind: "note",
+                },
+              );
+            }
+            if (input.sourceRef) {
+              const parentRef = canonicalItemRef(input.parentRef);
+              const sourceRef = canonicalItemRef(input.sourceRef);
+              if (sourceRef.libraryId !== parentRef.libraryId) {
+                throw capabilityError(
+                  "invalid_request",
+                  "digest source reference must use the parent library",
+                  { reason: "invalid_combination", field: "sourceRef" },
+                );
+              }
+            }
+            if (
+              input.imageAltText !== undefined &&
+              (typeof input.imageAltText !== "string" ||
+                !input.imageAltText.trim() ||
+                input.imageAltText.length > 4096)
+            ) {
+              throw capabilityError(
+                "invalid_request",
+                "representative image alt text is invalid",
+                { reason: "invalid_value", field: "imageAltText" },
+              );
+            }
+          });
+          if (input.references) {
+            const validated = validateSourceReferenceArtifact(input.references);
+            if (!validated.ok) {
+              throw capabilityError(
+                "invalid_request",
+                "references artifact is invalid",
+                {
+                  reason: "invalid_value",
+                  field: "references",
+                },
+              );
+            }
+          }
+          if (input.citationAnalysis) {
+            const validated = validateCitationAnalysisArtifact(
+              input.citationAnalysis,
+            );
+            if (!validated.ok) {
+              throw capabilityError(
+                "invalid_request",
+                "citation analysis artifact is invalid",
+                {
+                  reason: "invalid_value",
+                  field: "citationAnalysis",
+                },
+              );
+            }
+          }
+          if (input.references && input.citationAnalysis) {
+            const valid = validateCitationAgainstReferences(
+              input.citationAnalysis,
+              input.references,
+            );
+            if (!valid.ok) {
+              throw capabilityError(
+                "conflict",
+                "citation analysis references are stale",
+                {
+                  reason: "basis_mismatch",
+                  kind: "note",
+                },
+              );
+            }
+          }
+          if (input.citationAnalysis && !input.references) {
+            const refs = await managedSingleton(
+              input.parentRef,
+              "references",
+              control,
+            );
+            if (!refs.inspection || refs.inspection.kind !== "managed") {
+              throw capabilityError(
+                "conflict",
+                "citation analysis requires references",
+                {
+                  reason: "basis_mismatch",
+                  kind: "note",
+                },
+              );
+            }
+            const valid = validateCitationAgainstReferences(
+              input.citationAnalysis,
+              refs.inspection.payload as unknown as SourceReferenceArtifact,
+            );
+            if (!valid.ok) {
+              throw capabilityError(
+                "conflict",
+                "citation analysis references are stale",
+                {
+                  reason: "basis_mismatch",
+                  kind: "note",
+                },
+              );
+            }
+          }
+        },
+        execute: async () => {
+          try {
+            const entries = [...(input.entries || [])];
+            if (input.references) {
+              entries.push({
+                noteKind: "references",
+                title: "References",
+                payload: input.references as unknown as JsonValue,
+              });
+            }
+            if (input.citationAnalysis) {
+              let citationPayload: JsonValue =
+                input.citationAnalysis as unknown as JsonValue;
+              if (input.references) {
+                citationPayload = attachReferencesBasis(
+                  input.citationAnalysis,
+                  hashSynthesisContractCanonicalJson(input.references),
+                ) as unknown as JsonValue;
+              } else {
+                const refs = await managedSingleton(
+                  input.parentRef,
+                  "references",
+                  control,
+                );
+                if (refs.inspection?.kind === "managed") {
+                  citationPayload = attachReferencesBasis(
+                    input.citationAnalysis,
+                    hashSynthesisContractCanonicalJson(refs.inspection.payload),
+                  ) as unknown as JsonValue;
+                }
+              }
+              entries.push({
+                noteKind: "citation-analysis",
+                title: "Citation Analysis",
+                payload: citationPayload,
+              });
+            }
+            if (entries.length === 0) {
+              throw capabilityError(
+                "invalid_request",
+                "parent set has no semantic entries",
+                {
+                  reason: "missing_field",
+                  field: "entries",
+                },
+              );
+            }
+
+            type ParentSetEntry = NonNullable<
+              ManagedParentSetSemanticInput["entries"]
+            >[number];
+            type PreparedParentSetEntry = {
+              entry: ParentSetEntry;
+              content: string;
+              payload: LogicalNotePayloadDto;
+              parent: Zotero.Item;
+              note: Zotero.Item | null;
+              before: ReturnType<typeof canonicalNoteVersion> | null;
+              beforeHtml: string;
+              beforeTags: string[];
+              payloadBlocks: ZoteroNotePayloadBlock[];
+              legacyPayloadBlocks: ZoteroNotePayloadBlock[];
+              auxiliaryPayloads: Array<{
+                payload: LogicalNotePayloadDto;
+                blocks: ZoteroNotePayloadBlock[];
+              }>;
+              imageContent?: string;
+              imageBindings?: ResolvedNoteImageBinding[];
+              stagedImageFiles?: ReadonlyMap<
+                string,
+                PreparedNativeAttachmentFile
+              >;
+              stagedPayloadFiles?: ReadonlyMap<
+                string,
+                PreparedNativeAttachmentFile
+              >;
+            };
+
+            const singletonKinds = new Set<ManagedNoteKind>([
+              "digest",
+              "references",
+              "citation-analysis",
+              "literature-score",
+            ]);
+            const seenKinds = new Set<ManagedNoteKind>();
+            const plans: PreparedParentSetEntry[] = [];
+            let referencesBasis: string | undefined;
+            let dependentStale = false;
+            const referenceEntry = entries.find(
+              (entry) => entry.noteKind === "references",
+            );
+            const citationEntryIndex = entries.findIndex(
+              (entry) => entry.noteKind === "citation-analysis",
+            );
+            let referencePayload: SourceReferenceArtifact | undefined;
+            if (referenceEntry) {
+              const validated = validateSourceReferenceArtifact(
+                referenceEntry.payload,
+              );
+              if (!validated.ok) {
+                throw capabilityError(
+                  "invalid_request",
+                  "references artifact is invalid",
+                  {
+                    reason: "invalid_schema",
+                    field: "entries.payload",
+                  },
+                );
+              }
+              referencePayload = validated.value;
+              referencesBasis =
+                hashSynthesisContractCanonicalJson(referencePayload);
+              if (citationEntryIndex < 0) {
+                const existingCitation = await managedSingleton(
+                  input.parentRef,
+                  "citation-analysis",
+                  control,
+                );
+                if (existingCitation.inspection?.kind === "managed") {
+                  const existingPayload = existingCitation.inspection
+                    .payload as Record<string, unknown>;
+                  dependentStale =
+                    existingPayload.referencesBasis !== referencesBasis;
+                }
+              }
+            }
+            if (citationEntryIndex >= 0) {
+              const citationEntry = entries[citationEntryIndex];
+              const raw = citationEntry.payload as Record<string, unknown>;
+              const { referencesBasis: _storedBasis, ...canonical } =
+                raw && typeof raw === "object" && !Array.isArray(raw)
+                  ? raw
+                  : { value: raw };
+              const validated = validateCitationAnalysisArtifact(canonical);
+              if (!validated.ok) {
+                throw capabilityError(
+                  "invalid_request",
+                  "citation analysis artifact is invalid",
+                  { reason: "invalid_schema", field: "entries.payload" },
+                );
+              }
+              let refsForCitation = referencePayload;
+              if (!refsForCitation) {
+                const existingReferences = await managedSingleton(
+                  input.parentRef,
+                  "references",
+                  control,
+                );
+                if (existingReferences.inspection?.kind !== "managed") {
+                  throw capabilityError(
+                    "conflict",
+                    "citation analysis requires references",
+                    {
+                      reason: "basis_mismatch",
+                      kind: "note",
+                    },
+                  );
+                }
+                const validatedReferences = validateSourceReferenceArtifact(
+                  existingReferences.inspection.payload,
+                );
+                if (!validatedReferences.ok) {
+                  throw capabilityError(
+                    "invalid_request",
+                    "stored references artifact is invalid",
+                    { reason: "invalid_schema", field: "references" },
+                  );
+                }
+                refsForCitation = validatedReferences.value;
+              }
+              const valid = validateCitationAgainstReferences(
+                validated.value,
+                refsForCitation,
+              );
+              if (!valid.ok) {
+                throw capabilityError(
+                  "conflict",
+                  "citation analysis references are stale",
+                  {
+                    reason: "basis_mismatch",
+                    kind: "note",
+                  },
+                );
+              }
+              referencesBasis =
+                hashSynthesisContractCanonicalJson(refsForCitation);
+              entries[citationEntryIndex] = {
+                ...citationEntry,
+                payload: attachReferencesBasis(
+                  validated.value,
+                  referencesBasis,
+                ) as unknown as JsonValue,
+              };
+            }
+            for (const entry of entries) {
+              const artifactKind = entry.noteKind;
+              if (!MANAGED_NOTE_PAYLOAD_TYPES[artifactKind]) {
+                throw capabilityError(
+                  "invalid_request",
+                  "managed note kind is invalid",
+                  {
+                    reason: "invalid_value",
+                    field: "entries.noteKind",
+                  },
+                );
+              }
+              if (
+                singletonKinds.has(artifactKind) &&
+                seenKinds.has(artifactKind)
+              ) {
+                throw capabilityError(
+                  "conflict",
+                  "managed parent set contains duplicate note kinds",
+                  {
+                    reason: "ambiguous_state",
+                    kind: "note",
+                  },
+                );
+              }
+              if (singletonKinds.has(artifactKind)) seenKinds.add(artifactKind);
+              if (typeof entry.title !== "string" || !entry.title.trim()) {
+                throw capabilityError(
+                  "invalid_request",
+                  "managed note title is invalid",
+                  {
+                    reason: "invalid_value",
+                    field: "entries.title",
+                  },
+                );
+              }
+              assertWorkflowHostStrictJsonValue(entry.payload);
+              if (artifactKind === "references") {
+                const validated = validateSourceReferenceArtifact(
+                  entry.payload,
+                );
+                if (!validated.ok) {
+                  throw capabilityError(
+                    "invalid_request",
+                    "references artifact is invalid",
+                    {
+                      reason: "invalid_schema",
+                      field: "entries.payload",
+                    },
+                  );
+                }
+              } else if (artifactKind === "citation-analysis") {
+                const raw = entry.payload as Record<string, unknown>;
+                const { referencesBasis: _referencesBasis, ...canonical } =
+                  raw && typeof raw === "object" && !Array.isArray(raw)
+                    ? raw
+                    : { value: raw };
+                const validated = validateCitationAnalysisArtifact(canonical);
+                if (!validated.ok) {
+                  throw capabilityError(
+                    "invalid_request",
+                    "citation analysis artifact is invalid",
+                    {
+                      reason: "invalid_schema",
+                      field: "entries.payload",
+                    },
+                  );
+                }
+              } else if (artifactKind === "literature-score") {
+                const validated = validateLiteratureScoreArtifact(
+                  entry.payload,
+                );
+                if (!validated.ok) {
+                  throw capabilityError(
+                    "invalid_request",
+                    "literature score artifact is invalid",
+                    {
+                      reason: "invalid_schema",
+                      field: "entries.payload",
+                    },
+                  );
+                }
+              }
+              let built: { content: string; payload: LogicalNotePayloadDto };
+              if (
+                artifactKind === "custom" ||
+                artifactKind === "conversation-note"
+              ) {
+                const semantic = entry.payload as {
+                  title?: unknown;
+                  markdown?: unknown;
+                };
+                built = managedMarkdownPayload(
+                  artifactKind,
+                  entry.title || String(semantic.title || "Note"),
+                  String(semantic.markdown || ""),
+                );
+              } else {
+                built = managedArtifactContent(
+                  artifactKind as Exclude<
+                    ManagedNoteKind,
+                    "custom" | "conversation-note"
+                  >,
+                  entry.title,
+                  entry.payload,
+                );
+              }
+              const migrationTarget = entry.migrationSourceRef
+                ? await withZoteroHostSlice(control, () => {
+                    const parent = requireItem(input.parentRef, "note parent");
+                    const target = requireNote(entry.migrationSourceRef);
+                    const targetParentId = Number(
+                      (
+                        target as unknown as {
+                          parentID?: unknown;
+                          parentItemID?: unknown;
+                        }
+                      ).parentID ||
+                        (target as unknown as { parentItemID?: unknown })
+                          .parentItemID ||
+                        0,
+                    );
+                    if (!targetParentId) {
+                      throw capabilityError(
+                        "invalid_request",
+                        "migration target note has no parent",
+                        {
+                          reason: "invalid_value",
+                          field: "entries.migrationSourceRef",
+                        },
+                      );
+                    }
+                    if (targetParentId !== Number(parent.id)) {
+                      throw capabilityError(
+                        "conflict",
+                        "migration target note belongs to a different parent",
+                        { reason: "basis_mismatch", kind: "note" },
+                      );
+                    }
+                    return { parent, note: target, inspection: null };
+                  })
+                : null;
+              const singleton =
+                migrationTarget ||
+                (artifactKind === "custom" ||
+                artifactKind === "conversation-note"
+                  ? {
+                      parent: await withZoteroHostSlice(control, () =>
+                        requireItem(input.parentRef, "note parent"),
+                      ),
+                      note: null,
+                      inspection: null,
+                    }
+                  : await managedSingleton(
+                      input.parentRef,
+                      artifactKind,
+                      control,
+                    ));
+              const note = singleton.note;
+              const before = note
+                ? await withZoteroHostSlice(control, () =>
+                    canonicalNoteVersion(note),
+                  )
+                : null;
+              const beforeHtml = note
+                ? await withZoteroHostSlice(control, () =>
+                    String(note.getNote?.() || ""),
+                  )
+                : "";
+              const beforeTags = note
+                ? await withZoteroHostSlice(control, () => getTags(note))
+                : [];
+              if (
+                entry.tags !== undefined &&
+                (!Array.isArray(entry.tags) ||
+                  entry.tags.some((tag) => typeof tag !== "string"))
+              ) {
+                throw capabilityError(
+                  "invalid_request",
+                  "managed note tags are invalid",
+                  {
+                    reason: "invalid_type",
+                    field: "entries.tags",
+                  },
+                );
+              }
+              if (
+                entry.visibleHtml !== undefined &&
+                typeof entry.visibleHtml !== "string"
+              ) {
+                throw capabilityError(
+                  "invalid_request",
+                  "managed note visibleHtml is invalid",
+                  {
+                    reason: "invalid_type",
+                    field: "entries.visibleHtml",
+                  },
+                );
+              }
+              if (entry.embeddedImages !== undefined) {
+                assertWorkflowHostStrictJsonValue(
+                  entry.embeddedImages as unknown as JsonValue,
+                );
+                if (
+                  !Array.isArray(entry.embeddedImages) ||
+                  entry.embeddedImages.some(
+                    (image) =>
+                      !image ||
+                      typeof image.slot !== "string" ||
+                      !image.slot.trim() ||
+                      !image.preparedImage ||
+                      image.preparedImage.kind !== "prepared_note_image" ||
+                      typeof image.preparedImage.id !== "string" ||
+                      !image.preparedImage.id.trim(),
+                  )
+                ) {
+                  throw capabilityError(
+                    "invalid_request",
+                    "embedded images are invalid",
+                    {
+                      reason: "invalid_schema",
+                      field: "entries.embeddedImages",
+                    },
+                  );
+                }
+              }
+              const auxiliaryPayloads = (entry.auxiliaryPayloads || [])
+                .map(logicalPayloadFromTransferValue)
+                .filter(
+                  (payload) =>
+                    payload.payloadType !== built.payload.payloadType,
+                );
+              const auxiliaryPayloadTypes = new Set<string>();
+              for (const payload of auxiliaryPayloads) {
+                if (auxiliaryPayloadTypes.has(payload.payloadType)) {
+                  throw capabilityError(
+                    "conflict",
+                    "auxiliary payload type is duplicated",
+                    { reason: "ambiguous_state", kind: "note" },
+                  );
+                }
+                auxiliaryPayloadTypes.add(payload.payloadType);
+              }
+              const payloadTypes = new Set<string>([
+                built.payload.payloadType,
+                ...auxiliaryPayloadTypes,
+                ...(input.matchingMetadata && artifactKind === "digest"
+                  ? ["literature-matching-metadata-json"]
+                  : []),
+              ]);
+              const declaredPayloadSlots = new Set<string>();
+              if (entry.payloadImageSlots !== undefined) {
+                if (!Array.isArray(entry.payloadImageSlots)) {
+                  throw capabilityError(
+                    "invalid_request",
+                    "payload image slots are invalid",
+                    {
+                      reason: "invalid_type",
+                      field: "entries.payloadImageSlots",
+                    },
+                  );
+                }
+                for (const [
+                  index,
+                  payloadSlot,
+                ] of entry.payloadImageSlots.entries()) {
+                  if (
+                    !payloadSlot ||
+                    typeof payloadSlot.slot !== "string" ||
+                    !NOTE_IMAGE_SLOT_PATTERN.test(payloadSlot.slot.trim()) ||
+                    typeof payloadSlot.payloadType !== "string" ||
+                    !payloadTypes.has(payloadSlot.payloadType.trim())
+                  ) {
+                    throw capabilityError(
+                      "invalid_request",
+                      "payload image slot is invalid",
+                      {
+                        reason: "invalid_schema",
+                        field: `entries.payloadImageSlots.${index}`,
+                      },
+                    );
+                  }
+                  const key = `${payloadSlot.payloadType.trim()}\n${payloadSlot.slot.trim()}`;
+                  if (declaredPayloadSlots.has(key)) {
+                    throw capabilityError(
+                      "conflict",
+                      "payload image slot is duplicated",
+                      { reason: "ambiguous_state", kind: "note" },
+                    );
+                  }
+                  declaredPayloadSlots.add(key);
+                }
+              }
+              let plannedContent =
+                entry.visibleHtml !== undefined
+                  ? entry.visibleHtml
+                  : built.content;
+              if (
+                input.preparedImage &&
+                artifactKind === "digest" &&
+                !/data-zs-block\s*=\s*["']representative-image["']/iu.test(
+                  plannedContent,
+                )
+              ) {
+                const marker = `<div data-zs-block="representative-image" data-zs-version="1" data-zs-representative_image_status="pending"><figure data-zs-block="representative-image-figure"><img data-zotero-agents-image-slot="representative" alt="${escapeAttribute(input.imageAltText || "Representative image")}"></figure></div>`;
+                plannedContent = /<\/div>\s*$/iu.test(plannedContent)
+                  ? plannedContent.replace(/<\/div>\s*$/iu, `${marker}</div>`)
+                  : `${plannedContent}${marker}`;
+              }
+              if (input.sourceRef && artifactKind === "digest") {
+                const marker = `<span data-zs-block="meta" data-zs-meta="source-attachment" data-zs-source_attachment_item_key="${escapeAttribute(input.sourceRef.key)}" data-zs-source_attachment_library_id="${input.sourceRef.libraryId}"></span>`;
+                plannedContent =
+                  /<[^>]*data-zs-meta\s*=\s*["']source-attachment["'][^>]*>/iu.test(
+                    plannedContent,
+                  )
+                    ? plannedContent.replace(
+                        /<[^>]*data-zs-meta\s*=\s*["']source-attachment["'][^>]*>/iu,
+                        marker,
+                      )
+                    : `${plannedContent}${marker}`;
+              }
+              const discoveredPayloadSlots = payloadImageSlotKeys(
+                plannedContent,
+                payloadTypes,
+              );
+              if (
+                declaredPayloadSlots.size > 0 &&
+                (discoveredPayloadSlots.size !== declaredPayloadSlots.size ||
+                  [...declaredPayloadSlots].some(
+                    (slot) => !discoveredPayloadSlots.has(slot),
+                  ) ||
+                  [...discoveredPayloadSlots].some(
+                    (slot) => !declaredPayloadSlots.has(slot),
+                  ))
+              ) {
+                throw capabilityError(
+                  "conflict",
+                  "payload image slots do not match the note content",
+                  { reason: "ambiguous_state", kind: "note" },
+                );
+              }
+              const payloadSlotsToStrip =
+                declaredPayloadSlots.size > 0
+                  ? declaredPayloadSlots
+                  : discoveredPayloadSlots;
+              plannedContent = stripPayloadImageSlots(
+                plannedContent,
+                payloadTypes,
+                payloadSlotsToStrip,
+              );
+              const payloadImageSlotNames = new Set(
+                [...payloadSlotsToStrip].map((key) =>
+                  key.slice(key.indexOf("\n") + 1),
+                ),
+              );
+              const imageContent =
+                input.preparedImage && artifactKind === "digest"
+                  ? normalizeNoteContentInput(
+                      {
+                        format: "html",
+                        value: plannedContent,
+                        embeddedImages: [
+                          {
+                            slot: "representative",
+                            preparedImage: input.preparedImage,
+                            altText:
+                              input.imageAltText || "Representative image",
+                          },
+                        ],
+                      },
+                      { allowManagedMarkers: true },
+                    )
+                  : entry.embeddedImages && entry.embeddedImages.length > 0
+                    ? normalizeNoteContentInput(
+                        {
+                          format: "html",
+                          value: plannedContent,
+                          embeddedImages: entry.embeddedImages.filter(
+                            (image) => !payloadImageSlotNames.has(image.slot),
+                          ),
+                        },
+                        { allowManagedMarkers: true },
+                      )
+                    : undefined;
+              const preparedAuxiliaryPayloads = auxiliaryPayloads.map(
+                (payload) => ({
+                  payload,
+                  blocks: [] as ZoteroNotePayloadBlock[],
+                }),
+              );
+              if (input.matchingMetadata && artifactKind === "digest") {
+                if (
+                  auxiliaryPayloadTypes.has("literature-matching-metadata-json")
+                ) {
+                  throw capabilityError(
+                    "conflict",
+                    "matching metadata payload is duplicated",
+                    { reason: "ambiguous_state", kind: "note" },
+                  );
+                }
+                preparedAuxiliaryPayloads.push({
+                  payload: {
+                    payloadType: "literature-matching-metadata-json",
+                    noteKind: "digest",
+                    schemaVersion: "literature_matching_metadata.v1",
+                    format: "json",
+                    value: input.matchingMetadata,
+                  },
+                  blocks: [],
+                });
+              }
+              plans.push({
+                entry,
+                content: plannedContent,
+                payload: built.payload,
+                parent: singleton.parent,
+                note,
+                before,
+                beforeHtml,
+                beforeTags,
+                payloadBlocks: [],
+                legacyPayloadBlocks: [],
+                auxiliaryPayloads: preparedAuxiliaryPayloads,
+                ...(imageContent
+                  ? {
+                      imageContent: imageContent.value,
+                      imageBindings: resolveNoteImageBindings(
+                        imageContent,
+                        scope,
+                      ),
+                    }
+                  : {}),
+              });
+            }
+            if (
+              input.matchingMetadata &&
+              !plans.some((plan) => plan.entry.noteKind === "digest")
+            ) {
+              throw capabilityError(
+                "invalid_request",
+                "matching metadata requires a digest entry",
+                {
+                  reason: "invalid_combination",
+                  field: "matchingMetadata",
+                },
+              );
+            }
+
+            // Re-read the prepared scope immediately before the native transaction.
+            // This keeps the private composition seam from applying a stale scan.
+            for (const plan of plans) {
+              const current = plan.entry.migrationSourceRef
+                ? await withZoteroHostSlice(control, () => {
+                    const parent = requireItem(input.parentRef, "note parent");
+                    const target = requireNote(plan.entry.migrationSourceRef!);
+                    const targetParentId = Number(
+                      (
+                        target as unknown as {
+                          parentID?: unknown;
+                          parentItemID?: unknown;
+                        }
+                      ).parentID ||
+                        (target as unknown as { parentItemID?: unknown })
+                          .parentItemID ||
+                        0,
+                    );
+                    if (
+                      !targetParentId ||
+                      targetParentId !== Number(parent.id)
+                    ) {
+                      throw capabilityError(
+                        "conflict",
+                        "migration target note belongs to a different parent",
+                        { reason: "basis_mismatch", kind: "note" },
+                      );
+                    }
+                    return { parent, note: target, inspection: null };
+                  })
+                : plan.entry.noteKind === "custom" ||
+                    plan.entry.noteKind === "conversation-note"
+                  ? {
+                      parent: await withZoteroHostSlice(control, () =>
+                        requireItem(input.parentRef, "note parent"),
+                      ),
+                      note: null,
+                      inspection: null,
+                    }
+                  : await managedSingleton(
+                      input.parentRef,
+                      plan.entry.noteKind,
+                      control,
+                    );
+              const currentRef = current.note
+                ? canonicalItemRef(current.note)
+                : null;
+              const preparedRef = plan.note
+                ? canonicalItemRef(plan.note)
+                : null;
+              const sameRef =
+                currentRef === preparedRef ||
+                (currentRef !== null &&
+                  preparedRef !== null &&
+                  currentRef.libraryId === preparedRef.libraryId &&
+                  currentRef.key === preparedRef.key);
+              if (!sameRef) {
+                throw capabilityError(
+                  "conflict",
+                  "managed parent set changed during preparation",
+                  {
+                    reason: "revision_mismatch",
+                    kind: "note",
+                  },
+                );
+              }
+              if (plan.note && plan.before) {
+                const currentRevision = await withZoteroHostSlice(
+                  control,
+                  () => canonicalNoteVersion(current.note!).revision,
+                );
+                if (currentRevision !== plan.before.revision) {
+                  throw capabilityError(
+                    "conflict",
+                    "managed parent set changed during preparation",
+                    {
+                      reason: "revision_mismatch",
+                      kind: "note",
+                    },
+                  );
+                }
+              }
+              plan.parent = current.parent;
+              plan.note = current.note;
+              if (plan.note) {
+                const blocks = await listMutationPayloadBlocks(
+                  plan.note,
+                  control,
+                );
+                plan.legacyPayloadBlocks = blocks;
+                plan.payloadBlocks = blocks.filter(
+                  (block) => block.payloadType === plan.payload.payloadType,
+                );
+                for (const auxiliary of plan.auxiliaryPayloads) {
+                  auxiliary.blocks = blocks.filter(
+                    (block) =>
+                      block.payloadType === auxiliary.payload.payloadType,
+                  );
+                }
+              }
+            }
+
+            const db = (
+              resolveZotero() as unknown as {
+                DB: {
+                  executeTransaction: (
+                    run: () => Promise<void>,
+                  ) => Promise<void>;
+                };
+              }
+            ).DB;
+            // Validate the exact embedded payload envelope before allocating any
+            // storage.  Parent-set execution must fail before staging when the
+            // native payload budget would be exceeded.
+            for (const plan of plans) {
+              const payloads = [
+                plan.payload,
+                ...plan.auxiliaryPayloads.map((entry) => entry.payload),
+              ];
+              for (const payload of payloads) {
+                assertManagedPayloadImageBudget({
+                  payload,
+                  noteId: plan.note?.id,
+                  noteKey: plan.note?.key,
+                  parentId: plan.parent.id,
+                });
+              }
+            }
+            const stagedParentSetPaths = new Set<string>();
+            const preparedStorageDirectories = new Set<string>();
+            try {
+              // All bytes are prepared before the native transaction.  In
+              // particular, do not call Attachments.importEmbeddedImage from the
+              // transaction: Zotero implements that helper with its own
+              // executeTransaction wrapper.
+              for (const plan of plans) {
+                if (plan.imageBindings?.length) {
+                  const files = new Map<string, PreparedNativeAttachmentFile>();
+                  for (const binding of plan.imageBindings) {
+                    const bytes = new Uint8Array(
+                      await binding.blob.arrayBuffer(),
+                    );
+                    const file = await stageNativeAttachmentFile({
+                      bytes,
+                      operationId: input.operationId,
+                      label: `image-${binding.slot}`,
+                      libraryId: normalizeLibraryId(plan.parent.libraryID),
+                      contentType: binding.blob.type || "image/png",
+                    });
+                    files.set(binding.slot, file);
+                    stagedParentSetPaths.add(file.stagedPath);
+                    preparedStorageDirectories.add(file.storageDirectory);
+                  }
+                  plan.stagedImageFiles = files;
+                }
+                const payloadFiles = new Map<
+                  string,
+                  PreparedNativeAttachmentFile
+                >();
+                const payloads = [
+                  plan.payload,
+                  ...plan.auxiliaryPayloads.map((entry) => entry.payload),
+                ];
+                for (const payload of payloads) {
+                  const envelope = buildWorkbenchPayloadEnvelope({
+                    // New notes do not have an identity until the native
+                    // transaction inserts them.  The envelope identity is
+                    // diagnostic only; semantic payloadHash is independent of it.
+                    noteId: plan.note?.id || null,
+                    noteKey: plan.note?.key || "",
+                    parentId: plan.parent.id || null,
+                    noteKind: payload.noteKind,
+                    payloadType: payload.payloadType,
+                    schemaVersion: payload.schemaVersion,
+                    format: payload.format,
+                    value: payload.value,
+                  });
+                  const file = await stageNativeAttachmentFile({
+                    bytes: buildWorkbenchPayloadImageBytes(envelope),
+                    operationId: input.operationId,
+                    label: `payload-${payload.payloadType}`,
+                    libraryId: normalizeLibraryId(plan.parent.libraryID),
+                    contentType: "image/png",
+                  });
+                  payloadFiles.set(payload.payloadType, file);
+                  stagedParentSetPaths.add(file.stagedPath);
+                  preparedStorageDirectories.add(file.storageDirectory);
+                }
+                plan.stagedPayloadFiles = payloadFiles;
+              }
+
+              // Staging can yield to the runtime and therefore cannot be the
+              // final admission check. Revalidate parent/note revisions and every
+              // migration source payload immediately before the native write.
+              for (const plan of plans) {
+                const current = plan.entry.migrationSourceRef
+                  ? await withZoteroHostSlice(control, () => {
+                      const parent = requireItem(
+                        input.parentRef,
+                        "note parent",
+                      );
+                      const target = requireNote(
+                        plan.entry.migrationSourceRef!,
+                      );
+                      const targetParentId = Number(
+                        (
+                          target as unknown as {
+                            parentID?: unknown;
+                            parentItemID?: unknown;
+                          }
+                        ).parentID ||
+                          (target as unknown as { parentItemID?: unknown })
+                            .parentItemID ||
+                          0,
+                      );
+                      if (
+                        !targetParentId ||
+                        targetParentId !== Number(parent.id)
+                      ) {
+                        throw capabilityError(
+                          "conflict",
+                          "migration target note belongs to a different parent",
+                          { reason: "basis_mismatch", kind: "note" },
+                        );
+                      }
+                      return { parent, note: target };
+                    })
+                  : plan.entry.noteKind === "custom" ||
+                      plan.entry.noteKind === "conversation-note"
+                    ? {
+                        parent: await withZoteroHostSlice(control, () =>
+                          requireItem(input.parentRef, "note parent"),
+                        ),
+                        note: null,
+                      }
+                    : await managedSingleton(
+                        input.parentRef,
+                        plan.entry.noteKind,
+                        control,
+                      );
+                const currentRef = current.note
+                  ? canonicalItemRef(current.note)
+                  : null;
+                const preparedRef = plan.note
+                  ? canonicalItemRef(plan.note)
+                  : null;
+                const sameRef =
+                  currentRef === preparedRef ||
+                  (currentRef !== null &&
+                    preparedRef !== null &&
+                    currentRef.libraryId === preparedRef.libraryId &&
+                    currentRef.key === preparedRef.key);
+                if (!sameRef) {
+                  throw capabilityError(
+                    "conflict",
+                    "managed parent set changed during staging",
+                    { reason: "revision_mismatch", kind: "note" },
+                  );
+                }
+                if (plan.note && plan.before) {
+                  const currentRevision = await withZoteroHostSlice(
+                    control,
+                    () => canonicalNoteVersion(current.note!).revision,
+                  );
+                  if (currentRevision !== plan.before.revision) {
+                    throw capabilityError(
+                      "conflict",
+                      "managed parent set changed during staging",
+                      { reason: "revision_mismatch", kind: "note" },
+                    );
+                  }
+                }
+                if (plan.entry.migrationSourceRef && plan.note) {
+                  const currentBlocks = await listMutationPayloadBlocks(
+                    plan.note,
+                    control,
+                  );
+                  if (
+                    migrationPayloadSourceFacts(currentBlocks) !==
+                    migrationPayloadSourceFacts(plan.legacyPayloadBlocks)
+                  ) {
+                    throw capabilityError(
+                      "conflict",
+                      "migration source payload changed during staging",
+                      { reason: "revision_mismatch", kind: "note" },
+                    );
+                  }
+                }
+              }
+            } catch (error) {
+              await cleanupPreparedNativeAttachmentDirectories(
+                preparedStorageDirectories,
+              );
+              await cleanupStagedNoteAttachmentPaths(stagedParentSetPaths);
+              if (error instanceof MutationAuthorityExecutionError) {
+                throw error;
+              }
+              if (error instanceof ZoteroHostCapabilityError) {
+                const status: "failed" | "canceled" =
+                  error.code === "canceled" ? "canceled" : "failed";
+                const recovery:
+                  | "none"
+                  | "retry_same_operation"
+                  | "refresh_and_retry_new_operation" =
+                  error.code === "canceled"
+                    ? "none"
+                    : error.retryable
+                      ? "retry_same_operation"
+                      : "refresh_and_retry_new_operation";
+                throw new MutationAuthorityExecutionError(
+                  status,
+                  error.code,
+                  "staging",
+                  recovery,
+                  error.details as WorkflowHostErrorDetailsByCode[WorkflowHostErrorCode],
+                  error.message,
+                );
+              }
+              throw new MutationAuthorityExecutionError(
+                "failed",
+                "execution_failed",
+                "staging",
+                "retry_same_operation",
+                { phase: "staging", recovery: "retry_same_operation" },
+                error instanceof Error
+                  ? error.message
+                  : "managed parent set staging failed",
+              );
+            }
+            const committedPlans: PreparedParentSetEntry[] = [];
+            const payloadResults: Array<{
+              plan: PreparedParentSetEntry;
+              result: Awaited<ReturnType<typeof upsertNotePayloadAttachment>>;
+            }> = [];
+            const imageAttachments: Array<{
+              plan: PreparedParentSetEntry;
+              attachments: Zotero.Item[];
+              storagePaths: ReadonlyMap<string, string>;
+            }> = [];
+            const compensate = async (primary: unknown) => {
+              const residualRefs: MutationEntityRef[] = [];
+              for (const { attachments, storagePaths } of [
+                ...imageAttachments,
+              ].reverse()) {
+                await cleanupStagedNoteAttachmentPaths(storagePaths.values());
+                for (const attachment of [...attachments].reverse()) {
+                  try {
+                    const existing = await withZoteroHostSlice(control, () =>
+                      resolveZotero().Items.getByLibraryAndKey?.(
+                        normalizeLibraryId(attachment.libraryID),
+                        trimText(attachment.key),
+                      ),
+                    );
+                    if (!existing) continue;
+                    await withZoteroHostSlice(control, () =>
+                      brokerMutationPrimitives.attachment.remove(attachment),
+                    );
+                  } catch {
+                    residualRefs.push({
+                      kind: "item",
+                      ref: canonicalItemRef(attachment),
+                    });
+                  }
+                }
+              }
+              for (const { result } of [...payloadResults].reverse()) {
+                if (result.attachmentStoragePath) {
+                  await cleanupStagedNoteAttachmentPaths([
+                    result.attachmentStoragePath,
+                  ]);
+                }
+                if (!result.createdAttachment) continue;
+                try {
+                  const existing = await withZoteroHostSlice(control, () =>
+                    resolveZotero().Items.getByLibraryAndKey?.(
+                      normalizeLibraryId(result.createdAttachment!.libraryID),
+                      trimText(result.createdAttachment!.key),
+                    ),
+                  );
+                  if (!existing) continue;
+                  await withZoteroHostSlice(control, () =>
+                    brokerMutationPrimitives.attachment.remove(
+                      result.createdAttachment!,
+                    ),
+                  );
+                } catch {
+                  residualRefs.push({
+                    kind: "item",
+                    ref: canonicalItemRef(result.createdAttachment),
+                  });
+                }
+              }
+              for (const plan of [...committedPlans].reverse()) {
+                const note = plan.note;
+                if (!note) continue;
+                try {
+                  const existing = await withZoteroHostSlice(control, () =>
+                    resolveZotero().Items.getByLibraryAndKey?.(
+                      normalizeLibraryId(note.libraryID),
+                      trimText(note.key),
+                    ),
+                  );
+                  if (!existing) continue;
+                  if (!plan.before) {
+                    await withZoteroHostSlice(control, () =>
+                      brokerMutationPrimitives.note.remove(note),
+                    );
+                  } else {
+                    await withZoteroHostSlice(control, () =>
+                      brokerMutationPrimitives.note.update(
+                        note,
+                        plan.beforeHtml,
+                      ),
+                    );
+                    if (plan.entry.tags !== undefined) {
+                      await withZoteroHostSlice(control, () =>
+                        brokerMutationPrimitives.tag.update(
+                          note,
+                          plan.beforeTags,
+                        ),
+                      );
+                    }
+                  }
+                } catch {
+                  residualRefs.push({
+                    kind: "item",
+                    ref: canonicalItemRef(note),
+                  });
+                }
+              }
+              if (!residualRefs.length) {
+                if (primary instanceof MutationAuthorityExecutionError) {
+                  throw primary;
+                }
+                if (primary instanceof ZoteroHostCapabilityError) {
+                  const recovery:
+                    | "none"
+                    | "retry_same_operation"
+                    | "refresh_and_retry_new_operation" =
+                    primary.code === "canceled"
+                      ? "none"
+                      : primary.retryable
+                        ? "retry_same_operation"
+                        : "refresh_and_retry_new_operation";
+                  throw new MutationAuthorityExecutionError(
+                    primary.code === "canceled" ? "canceled" : "failed",
+                    primary.code,
+                    "commit",
+                    recovery,
+                    primary.details,
+                    primary.message,
+                    committedPlans.map((plan) => ({
+                      kind: "item",
+                      ref: canonicalItemRef(plan.note!),
+                    })),
+                    [],
+                  );
+                }
+              }
+              throw new MutationAuthorityExecutionError(
+                residualRefs.length ? "repair_required" : "failed",
+                "execution_failed",
+                "compensation",
+                residualRefs.length ? "manual_repair" : "retry_same_operation",
+                {
+                  phase: residualRefs.length ? "cleanup" : "commit",
+                  recovery: residualRefs.length
+                    ? "manual_repair"
+                    : "retry_same_operation",
+                  affectedCount: committedPlans.length,
+                  residualCount: residualRefs.length,
+                },
+                primary instanceof Error
+                  ? primary.message
+                  : "managed parent set failed",
+                committedPlans.map((plan) => ({
+                  kind: "item",
+                  ref: canonicalItemRef(plan.note!),
+                })),
+                residualRefs,
+              );
+            };
+
+            try {
+              // The only native DB transaction in this composition. All reads and
+              // file/payload work stay outside it; native calls here are direct so
+              // they do not queue a second FIFO host slice while this one is held.
+              await withZoteroHostSlice(control, async () => {
+                await db.executeTransaction(async () => {
+                  for (const plan of plans) {
+                    throwIfWorkflowCallCanceled(control);
+                    if (!committedPlans.includes(plan))
+                      committedPlans.push(plan);
+                    if (!plan.note) {
+                      plan.note = await brokerMutationPrimitives.note.create({
+                        content: plan.content,
+                        parent: plan.parent,
+                        libraryID: normalizeLibraryId(plan.parent.libraryID),
+                        tags: plan.entry.tags || [],
+                        collections: [],
+                        transaction: { inNativeTransaction: true },
+                      });
+                    } else {
+                      const existing = String(plan.note.getNote?.() || "");
+                      const comparableExisting = stripPayloadAnchorForType(
+                        existing,
+                        plan.payload.payloadType,
+                      );
+                      const comparableDesired = stripPayloadAnchorForType(
+                        plan.content,
+                        plan.payload.payloadType,
+                      );
+                      if (comparableExisting !== comparableDesired) {
+                        await brokerMutationPrimitives.note.update(
+                          plan.note,
+                          plan.content,
+                          {
+                            inNativeTransaction: true,
+                          },
+                        );
+                      }
+                      if (plan.entry.tags !== undefined) {
+                        await brokerMutationPrimitives.tag.update(
+                          plan.note,
+                          plan.entry.tags,
+                          {
+                            inNativeTransaction: true,
+                          },
+                        );
+                      }
+                    }
+                    if (plan.imageBindings && plan.imageContent) {
+                      const staged = await importPreparedNoteImages(
+                        plan.note,
+                        plan.imageBindings,
+                        control,
+                        undefined,
+                        {
+                          inNativeTransaction: true,
+                          stagedFiles: plan.stagedImageFiles,
+                        },
+                      );
+                      imageAttachments.push({
+                        plan,
+                        attachments: staged.attachments,
+                        storagePaths: staged.storagePaths,
+                      });
+                      plan.content = bindNoteImageSlots(
+                        plan.imageContent,
+                        staged.attachmentKeys,
+                      );
+                      await brokerMutationPrimitives.note.update(
+                        plan.note,
+                        plan.content,
+                        { inNativeTransaction: true },
+                      );
+                    }
+                    const primaryPayloadResult =
+                      await upsertNotePayloadAttachment(
+                        plan.note,
+                        plan.payload,
+                        plan.payloadBlocks,
+                        control,
+                        undefined,
+                        {
+                          inNativeTransaction: true,
+                          stagedFile: plan.stagedPayloadFiles?.get(
+                            plan.payload.payloadType,
+                          ),
+                          deferLegacyAttachmentCleanup: Boolean(
+                            plan.entry.migrationSourceRef,
+                          ),
+                        },
+                      );
+                    payloadResults.push({ plan, result: primaryPayloadResult });
+                    for (const auxiliary of plan.auxiliaryPayloads) {
+                      const auxiliaryPayloadResult =
+                        await upsertNotePayloadAttachment(
+                          plan.note,
+                          auxiliary.payload,
+                          auxiliary.blocks,
+                          control,
+                          undefined,
+                          {
+                            inNativeTransaction: true,
+                            stagedFile: plan.stagedPayloadFiles?.get(
+                              auxiliary.payload.payloadType,
+                            ),
+                            deferLegacyAttachmentCleanup: Boolean(
+                              plan.entry.migrationSourceRef,
+                            ),
+                          },
+                        );
+                      payloadResults.push({
+                        plan,
+                        result: auxiliaryPayloadResult,
+                      });
+                    }
+                  }
+                });
+              });
+              const usedStorageDirectories = new Set<string>();
+              for (const { storagePaths } of imageAttachments) {
+                for (const path of storagePaths.values()) {
+                  const directory = runtimeDirectoryForPath(path);
+                  if (directory) usedStorageDirectories.add(directory);
+                }
+              }
+              for (const { result } of payloadResults) {
+                if (!result.attachmentStoragePath) continue;
+                const directory = runtimeDirectoryForPath(
+                  result.attachmentStoragePath,
+                );
+                if (directory) usedStorageDirectories.add(directory);
+              }
+              await cleanupPreparedNativeAttachmentDirectories(
+                [...preparedStorageDirectories].filter(
+                  (directory) => !usedStorageDirectories.has(directory),
+                ),
+              );
+            } catch (error) {
+              await cleanupPreparedNativeAttachmentDirectories(
+                preparedStorageDirectories,
+              );
+              await compensate(error);
+            } finally {
+              await cleanupStagedNoteAttachmentPaths(stagedParentSetPaths);
+            }
+
+            // Migration targets may still have legacy payload attachments after
+            // the paired canonical write. Verify the new v2 payload first, then
+            // combine those discovered attachments with the caller's private
+            // cleanup tail. The cleanup remains part of this parent-set authority
+            // operation; it never claims a second receipt.
+            const legacyPayloadRefs = new Map<string, ZoteroHostItemRefInput>();
+            for (const plan of plans) {
+              if (!plan.entry.migrationSourceRef) continue;
+              const blocks = await listMutationPayloadBlocks(
+                plan.note!,
+                control,
+              );
+              const canonicalBlocks = blocks.filter(
+                (block) =>
+                  block.payloadType === plan.payload.payloadType &&
+                  block.sourceStorage === "embedded-image-attachment-v2" &&
+                  block.payloadStorageVersion === 2 &&
+                  logicalPayloadHashFromBlock(block) ===
+                    canonicalLogicalNotePayloadHash(plan.payload),
+              );
+              if (canonicalBlocks.length !== 1) {
+                throw new MutationAuthorityExecutionError(
+                  "failed",
+                  "execution_failed",
+                  "verification",
+                  "reconcile",
+                  { phase: "verification", recovery: "reconcile" },
+                  "canonical migration payload could not be verified",
+                  [{ kind: "item", ref: canonicalItemRef(plan.note!) }],
+                );
+              }
+              for (const block of plan.legacyPayloadBlocks) {
+                // Migration only replaces the semantic primary represented by
+                // this plan. Auxiliary payload attachments stay untouched even
+                // when they use legacy storage; they were not converted or
+                // verified by this parent-set entry.
+                if (
+                  block.payloadType !== plan.payload.payloadType ||
+                  block.payloadStorageVersion === 2 ||
+                  !block.attachmentKey
+                ) {
+                  continue;
+                }
+                const ref = {
+                  libraryId: normalizeLibraryId(plan.note!.libraryID),
+                  key: trimText(block.attachmentKey),
+                };
+                if (ref.key)
+                  legacyPayloadRefs.set(`${ref.libraryId}:${ref.key}`, ref);
+              }
+            }
+            // Verify and normalize every canonical detail before starting any
+            // migration cleanup. Once cleanup begins, canonical data must remain
+            // durable even if a later cleanup step needs repair.
+            const notes: ManagedNoteDetailDto[] = [];
+            const changes: MutationChangeDto[] = [];
+            for (const plan of plans) {
+              const note = plan.note!;
+              let detail: NoteDetailResultDto;
+              try {
+                detail = await readManagedNoteDetail(
+                  note,
+                  { format: "html" },
+                  {
+                    runNativeSlice: (run) => withZoteroHostSlice(control, run),
+                    checkCanceled: () => throwIfWorkflowCallCanceled(control),
+                    readRevision: () => canonicalNoteVersion(note).revision,
+                  },
+                );
+              } catch (error) {
+                await compensate(error);
+                throw error;
+              }
+              detail = await enrichManagedNoteDetail(detail, control || {});
+              if (detail.kind !== "managed") {
+                await compensate(
+                  new Error(
+                    "managed parent set final state could not be confirmed",
+                  ),
+                );
+              }
+              notes.push(detail as ManagedNoteDetailDto);
+              const planPayloadResults = payloadResults
+                .filter((item) => item.plan === plan)
+                .map((item) => item.result);
+              const payloadResult = planPayloadResults[0];
+              const after = await withZoteroHostSlice(control, () =>
+                canonicalNoteVersion(note),
+              );
+              const noteChanged =
+                !plan.before || plan.before.revision !== after.revision;
+              changes.push({
+                entity: { kind: "item", ref: canonicalItemRef(note) },
+                effect: !plan.before
+                  ? "created"
+                  : noteChanged || payloadResult?.outcome !== "unchanged"
+                    ? "updated"
+                    : "unchanged",
+                before: plan.before,
+                after,
+              });
+              for (const result of planPayloadResults) {
+                if (result.createdAttachment) {
+                  changes.push({
+                    entity: {
+                      kind: "item",
+                      ref: canonicalItemRef(result.createdAttachment),
+                    },
+                    effect: "created",
+                    before: null,
+                    after: canonicalItemVersion(result.createdAttachment),
+                  });
+                }
+                if (result.removedAttachment) {
+                  const removedRef = canonicalItemRef(result.removedAttachment);
+                  changes.push({
+                    entity: { kind: "item", ref: removedRef },
+                    effect: "deleted",
+                    before: canonicalItemVersion(result.removedAttachment),
+                    after: {
+                      revision: hashSynthesisContractCanonicalJson({
+                        ref: removedRef,
+                        state: "deleted",
+                        operationId: input.operationId,
+                      }),
+                      state: "deleted",
+                    },
+                  });
+                }
+              }
+            }
+            const cleanupInput =
+              migrationCleanup || legacyPayloadRefs.size
+                ? {
+                    notes: migrationCleanup?.notes || [],
+                    payloadRefs: [
+                      ...(migrationCleanup?.payloadRefs || []),
+                      ...legacyPayloadRefs.values(),
+                    ],
+                  }
+                : undefined;
+            let cleanupPlan: LegacyMigrationCleanupPlan | undefined;
+            if (cleanupInput) {
+              try {
+                cleanupPlan = normalizeLegacyMigrationCleanupPlan(cleanupInput);
+              } catch (error) {
+                // Cleanup planning is part of the required migration tail.
+                // Canonical notes have already been verified, so a bounded
+                // plan failure must retain them as repair_required too.
+                throw migrationCleanupRepairError(error, plans, cleanupInput);
+              }
+            }
+            if (cleanupPlan) {
+              try {
+                const preparedCleanup = await prepareLegacyMigrationCleanup(
+                  cleanupPlan,
+                  input.operationId,
+                  control,
+                );
+                const cleanupResult = await executeLegacyMigrationCleanupDirect(
+                  preparedCleanup,
+                  control,
+                );
+                changes.push(...cleanupResult.changes);
+              } catch (error) {
+                // Canonical notes are deliberately retained. The parent-set
+                // authority must settle as repair_required when this required
+                // migration tail cannot be completed.
+                throw migrationCleanupRepairError(error, plans, cleanupPlan);
+              }
+            }
+
+            const changed = changes.some(
+              (change) => change.effect !== "unchanged",
+            );
+            return {
+              outcome: changed ? "committed" : "unchanged",
+              changes,
+              result: {
+                notes,
+                ...(referencesBasis ? { referencesBasis } : {}),
+                ...(dependentStale ? { dependentStale: true } : {}),
+              },
+            };
+          } catch (error) {
+            if (error instanceof MutationAuthorityExecutionError) {
+              throw error;
+            }
+            if (error instanceof ZoteroHostCapabilityError) {
+              const status: "failed" | "canceled" =
+                error.code === "canceled" ? "canceled" : "failed";
+              const recovery:
+                | "none"
+                | "retry_same_operation"
+                | "refresh_and_retry_new_operation" =
+                error.code === "canceled"
+                  ? "none"
+                  : error.retryable
+                    ? "retry_same_operation"
+                    : "refresh_and_retry_new_operation";
+              throw new MutationAuthorityExecutionError(
+                status,
+                error.code,
+                "commit",
+                recovery,
+                error.details as WorkflowHostErrorDetailsByCode[WorkflowHostErrorCode],
+                error.message,
+              );
+            }
+            throw error;
+          }
+        },
+      },
+    );
+  } catch (error) {
+    if (error instanceof MutationAuthorityAdmissionError)
+      throw mutationAdmissionError(error);
+    throw error;
+  }
+}
+
+async function callManagedOwner<T extends object>(
+  run: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    if (!(error instanceof ManagedNoteOwnerError)) throw error;
+    const knownCodes = new Set<ZoteroHostCapabilityErrorCode>([
+      "invalid_request",
+      "invalid_ref",
+      "not_found",
+      "resource_limited",
+      "conflict",
+      "execution_failed",
+    ]);
+    if (knownCodes.has(error.code as ZoteroHostCapabilityErrorCode)) {
+      throw capabilityError(
+        error.code as ZoteroHostCapabilityErrorCode,
+        error.message,
+        error.details as WorkflowHostErrorDetailsByCode[WorkflowHostErrorCode],
+        error.retryable,
+      );
+    }
+    throw new ZoteroManagedArtifactDiagnostic(
+      error.code as ManagedArtifactDiagnosticCode,
+      error.message,
+      error.details,
+      error.retryable,
+    );
   }
 }
 
@@ -8552,6 +11843,246 @@ type ResolvedNoteImageBinding = {
   blob: Blob;
 };
 
+type NativeAttachmentImport = {
+  attachment: Zotero.Item;
+  storagePath: string;
+  storageDirectory: string;
+};
+
+type PreparedNativeAttachmentFile = Readonly<{
+  key: string;
+  filename: string;
+  contentType: string;
+  storageDirectory: string;
+  storagePath: string;
+  stagedPath: string;
+}>;
+
+function stagedNoteFileId() {
+  const crypto = (globalThis as { crypto?: { randomUUID?: () => string } })
+    .crypto;
+  if (typeof crypto?.randomUUID === "function") return crypto.randomUUID();
+  return [
+    Date.now().toString(36),
+    Math.random().toString(36).slice(2),
+    Math.random().toString(36).slice(2),
+  ].join("-");
+}
+
+async function stageNoteAttachmentBytes(
+  bytes: Uint8Array,
+  operationId: string,
+  label: string,
+) {
+  const operationToken = String(operationId || "operation")
+    .replace(/[^A-Za-z0-9._-]/g, "_")
+    .slice(0, 64);
+  const directory = joinPath(
+    getRuntimePersistencePaths().tmpDir,
+    "managed-note-parent-set",
+    `${operationToken}-${stagedNoteFileId()}`,
+  );
+  await ensureRuntimeDirectory(directory);
+  const path = joinPath(directory, `${label}-${stagedNoteFileId()}.bin`);
+  await writeRuntimeBytes(path, bytes, { overwrite: false });
+  return path;
+}
+
+function generateNativeAttachmentKey(zotero: typeof Zotero) {
+  const utilities = zotero as typeof Zotero & {
+    DataObjectUtilities?: { generateKey?: () => string };
+    Utilities?: { generateObjectKey?: () => string };
+    randomString?: (length: number) => string;
+  };
+  const generators = [
+    utilities.DataObjectUtilities?.generateKey,
+    utilities.Utilities?.generateObjectKey,
+    utilities.randomString ? () => utilities.randomString!(8) : undefined,
+  ].filter(
+    (generator): generator is () => string => typeof generator === "function",
+  );
+  for (let attempt = 0; attempt < 16; attempt += 1) {
+    const generated = String(
+      generators[attempt % Math.max(1, generators.length)]?.() ||
+        Math.random().toString(36).slice(2, 10),
+    )
+      .trim()
+      .toUpperCase();
+    if (/^[A-Z0-9]{8}$/.test(generated)) return generated;
+  }
+  throw new MutationAuthorityExecutionError(
+    "failed",
+    "unavailable",
+    "staging",
+    "retry_same_operation",
+    { reason: "capability", kind: "attachment" },
+    "Zotero attachment key generation is unavailable",
+  );
+}
+
+async function prepareNativeAttachmentFile(args: {
+  stagedPath: string;
+  libraryId: number;
+  contentType: string;
+  operationId: string;
+  label: string;
+}): Promise<PreparedNativeAttachmentFile> {
+  const zotero = resolveZotero() as typeof Zotero & {
+    Attachments?: typeof Zotero.Attachments & {
+      getStorageDirectoryByLibraryAndKey?: (
+        libraryId: number,
+        key: string,
+      ) => { path?: string };
+    };
+  };
+  const attachments = zotero.Attachments;
+  if (typeof attachments?.getStorageDirectoryByLibraryAndKey !== "function") {
+    throw new MutationAuthorityExecutionError(
+      "failed",
+      "unavailable",
+      "staging",
+      "retry_same_operation",
+      { reason: "capability", kind: "attachment" },
+      "Zotero attachment storage directory support is unavailable",
+    );
+  }
+  const normalizedType = String(args.contentType || "image/png")
+    .trim()
+    .toLowerCase();
+  const extension = normalizedType === "image/jpeg" ? "jpg" : "png";
+  const filename = `image.${extension}`;
+  for (let attempt = 0; attempt < 16; attempt += 1) {
+    const key = generateNativeAttachmentKey(zotero);
+    const storageDirectory = String(
+      attachments.getStorageDirectoryByLibraryAndKey(args.libraryId, key)
+        ?.path || "",
+    ).trim();
+    if (!storageDirectory || (await runtimePathExists(storageDirectory))) {
+      continue;
+    }
+    const storagePath = joinPath(storageDirectory, filename);
+    try {
+      await ensureRuntimeDirectory(storageDirectory);
+      await copyRuntimeFile({
+        sourcePath: args.stagedPath,
+        targetPath: storagePath,
+      });
+      return {
+        key,
+        filename,
+        contentType: normalizedType,
+        storageDirectory,
+        storagePath,
+        stagedPath: args.stagedPath,
+      };
+    } catch (error) {
+      try {
+        await removeRuntimePath(storageDirectory);
+      } catch {
+        // Preserve the staging error; the caller reports residual files.
+      }
+      if (attempt === 15) throw error;
+    }
+  }
+  throw new MutationAuthorityExecutionError(
+    "failed",
+    "conflict",
+    "staging",
+    "refresh_and_retry_new_operation",
+    { reason: "ambiguous_state", kind: "attachment" },
+    "unable to reserve a unique Zotero attachment storage key",
+  );
+}
+
+async function stageNativeAttachmentFile(args: {
+  bytes: Uint8Array;
+  operationId: string;
+  label: string;
+  libraryId: number;
+  contentType: string;
+}): Promise<PreparedNativeAttachmentFile> {
+  const stagedPath = await stageNoteAttachmentBytes(
+    args.bytes,
+    args.operationId,
+    args.label,
+  );
+  try {
+    return await prepareNativeAttachmentFile({ ...args, stagedPath });
+  } catch (error) {
+    await cleanupStagedNoteAttachmentPaths([stagedPath]);
+    throw error;
+  }
+}
+
+async function cleanupPreparedNativeAttachmentDirectories(
+  directories: Iterable<string>,
+) {
+  for (const directory of directories) {
+    try {
+      await removeRuntimePath(directory);
+    } catch {
+      // The durable mutation result keeps the primary failure.
+    }
+  }
+}
+
+function runtimeDirectoryForPath(path: string) {
+  const separator = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  return separator > 0 ? path.slice(0, separator) : "";
+}
+
+async function cleanupStagedNoteAttachmentPaths(paths: Iterable<string>) {
+  for (const path of paths) {
+    try {
+      await removeRuntimePath(path);
+      const parent = runtimeDirectoryForPath(path);
+      if (parent) await removeRuntimePath(parent);
+    } catch {
+      // Staging cleanup is best-effort; the mutation's primary failure remains
+      // the durable authority error.
+    }
+  }
+}
+
+async function importPreparedNoteImageInNativeTransaction(
+  note: Zotero.Item,
+  args: {
+    preparedFile: PreparedNativeAttachmentFile;
+  },
+): Promise<NativeAttachmentImport> {
+  const zotero = resolveZotero();
+  const attachment = new zotero.Item("attachment");
+  (attachment as unknown as { libraryID: number }).libraryID =
+    normalizeLibraryId(note.libraryID);
+  (attachment as unknown as { parentID: number }).parentID = note.id;
+  (attachment as unknown as { key: string }).key = args.preparedFile.key;
+  (attachment as unknown as { attachmentLinkMode: number }).attachmentLinkMode =
+    zotero.Attachments.LINK_MODE_EMBEDDED_IMAGE ?? 4;
+  (attachment as unknown as { attachmentPath: string }).attachmentPath =
+    `storage:${args.preparedFile.filename}`;
+  (
+    attachment as unknown as { attachmentContentType: string }
+  ).attachmentContentType = args.preparedFile.contentType;
+  const save = (attachment as unknown as { save?: () => Promise<unknown> })
+    .save;
+  if (typeof save !== "function") {
+    throw new MutationAuthorityExecutionError(
+      "failed",
+      "unavailable",
+      "staging",
+      "retry_same_operation",
+      { reason: "capability", kind: "attachment" },
+      "Zotero item save is unavailable inside a native transaction",
+    );
+  }
+  await save.call(attachment);
+  return {
+    attachment,
+    storagePath: args.preparedFile.storagePath,
+    storageDirectory: args.preparedFile.storageDirectory,
+  };
+}
+
 function resolveNoteImageBindings(
   content: ReturnType<typeof normalizeNoteContentInput>,
   scope: ZoteroHostNoteMutationCallerScope,
@@ -8619,9 +12150,20 @@ async function importPreparedNoteImages(
   bindings: ResolvedNoteImageBinding[],
   control?: WorkflowCallControl,
   beforeEffect?: CanonicalMutationEffectGuard,
+  options: {
+    inNativeTransaction?: boolean;
+    stagedFiles?: ReadonlyMap<string, PreparedNativeAttachmentFile>;
+  } = {},
 ) {
+  const native = <T>(run: () => Promise<T> | T) =>
+    options.inNativeTransaction
+      ? Promise.resolve().then(run)
+      : withZoteroHostSlice(control, run);
   const zotero = resolveZotero();
-  if (typeof zotero.Attachments?.importEmbeddedImage !== "function") {
+  if (
+    !options.inNativeTransaction &&
+    typeof zotero.Attachments?.importEmbeddedImage !== "function"
+  ) {
     throw new MutationAuthorityExecutionError(
       "failed",
       "unavailable",
@@ -8633,33 +12175,68 @@ async function importPreparedNoteImages(
   }
   const attachments: Zotero.Item[] = [];
   const attachmentKeys = new Map<string, string>();
+  const storagePaths = new Map<string, string>();
   try {
     for (const binding of bindings) {
-      const attachment = await withZoteroHostSlice(control, async () => {
+      const imported = await native(async () => {
         await beforeEffect?.("effect");
-        const imported = await zotero.Attachments.importEmbeddedImage({
+        if (options.inNativeTransaction) {
+          const preparedFile = options.stagedFiles?.get(binding.slot);
+          if (!preparedFile) {
+            throw new MutationAuthorityExecutionError(
+              "failed",
+              "unavailable",
+              "staging",
+              "retry_same_operation",
+              { reason: "capability", kind: "attachment" },
+              "native embedded image staging is missing",
+            );
+          }
+          return importPreparedNoteImageInNativeTransaction(note, {
+            preparedFile,
+          });
+        }
+        const attachment = await zotero.Attachments.importEmbeddedImage({
           blob: binding.blob,
           parentItemID: note.id,
         });
-        beforeEffect?.markWritten([
-          {
-            kind: "item",
-            ref: {
-              libraryId: normalizeLibraryId(note.libraryID),
-              key: trimText(note.key),
-            },
-          },
-        ]);
-        return imported;
+        return { attachment, storagePath: "", storageDirectory: "" };
       });
+      const attachment = imported.attachment;
+      beforeEffect?.markWritten([
+        {
+          kind: "item",
+          ref: {
+            libraryId: normalizeLibraryId(note.libraryID),
+            key: trimText(note.key),
+          },
+        },
+      ]);
       const key = trimText(attachment?.key);
       if (!key) throw new Error("embedded image attachment has no key");
       attachments.push(attachment);
       attachmentKeys.set(binding.slot, key);
+      if (imported.storagePath)
+        storagePaths.set(binding.slot, imported.storagePath);
     }
-    return { attachments, attachmentKeys };
+    return { attachments, attachmentKeys, storagePaths };
   } catch (error) {
-    const residualRefs = await cleanupNoteMutationItems(attachments, control);
+    await cleanupStagedNoteAttachmentPaths(storagePaths.values());
+    const residualRefs: MutationEntityRef[] = [];
+    for (const attachment of [...attachments].reverse()) {
+      try {
+        await native(() =>
+          brokerMutationPrimitives.item.remove(attachment, {
+            inNativeTransaction: options.inNativeTransaction,
+          }),
+        );
+      } catch {
+        residualRefs.push({
+          kind: "item",
+          ref: canonicalItemRef(attachment),
+        });
+      }
+    }
     throw new MutationAuthorityExecutionError(
       residualRefs.length ? "repair_required" : "failed",
       "execution_failed",
@@ -10431,6 +14008,59 @@ function publicCanonicalLiteratureIngestPlan(
 async function canonicalMutationPreviewFacts(
   request: MutationPreviewRequestByOperation[MutationPreviewOperation],
 ): Promise<{ changed: boolean; plan: JsonObject }> {
+  if (isManagedSemanticOperation(request.operation)) {
+    const managedRequest = request as ManagedSemanticRequest;
+    const prepared = normalizeManagedSemanticRequest(managedRequest);
+    if (prepared.target?.kind === "update") {
+      const target = prepared.target;
+      const note = await withZoteroHostSlice({}, () =>
+        requireNote(target.noteRef),
+      );
+      const inspection = await inspectManagedNote(note, {
+        runNativeSlice: (run) => withZoteroHostSlice({}, run),
+      });
+      if (
+        inspection.kind !== "managed" ||
+        inspection.noteKind !== prepared.kind
+      ) {
+        throw capabilityError(
+          "conflict",
+          "managed note kind does not match the writer",
+          {
+            reason: "ambiguous_state",
+            kind: "note",
+          },
+        );
+      }
+      return {
+        changed: true,
+        plan: {
+          kind: prepared.kind,
+          target: prepared.target,
+          payloadBytes: new TextEncoder().encode(
+            JSON.stringify(prepared.publicPayload),
+          ).byteLength,
+        },
+      };
+    }
+    const parentRef = prepared.parentRef || prepared.target?.parentRef;
+    if (!parentRef)
+      throw capabilityError("invalid_request", "managed target is missing", {
+        reason: "missing_field",
+      });
+    const singleton = await managedSingleton(parentRef, prepared.kind);
+    return {
+      changed: true,
+      plan: {
+        kind: prepared.kind,
+        parentRef,
+        outcome: singleton.note ? "replaced" : "created",
+        payloadBytes: new TextEncoder().encode(
+          JSON.stringify(prepared.publicPayload),
+        ).byteLength,
+      },
+    };
+  }
   if (request.operation === "attachments.replaceFile") {
     const attachment = await withZoteroHostSlice({}, () =>
       requireAttachment(request.attachmentRef),
@@ -12778,6 +16408,66 @@ export function createZoteroHostCapabilityBroker(
           control,
         ),
     },
+    managedNotes: {
+      writeCustom: (request, scope, control) =>
+        executeManagedSemanticMutation(
+          broker,
+          request,
+          "custom",
+          scope,
+          control,
+        ) as Promise<MutationExecutionResult<ManagedNoteWriteResultDto>>,
+      writeConversation: (request, scope, control) =>
+        executeManagedSemanticMutation(
+          broker,
+          request,
+          "conversation-note",
+          scope,
+          control,
+        ) as Promise<MutationExecutionResult<ManagedNoteWriteResultDto>>,
+    },
+    literatureArtifacts: {
+      upsertDigest: (request, scope, control) =>
+        executeManagedSemanticMutation(
+          broker,
+          request,
+          "digest",
+          scope,
+          control,
+        ) as Promise<
+          MutationExecutionResult<LiteratureArtifactUpsertResultDto>
+        >,
+      upsertReferences: (request, scope, control) =>
+        executeManagedSemanticMutation(
+          broker,
+          request,
+          "references",
+          scope,
+          control,
+        ) as Promise<
+          MutationExecutionResult<LiteratureArtifactUpsertResultDto>
+        >,
+      upsertCitationAnalysis: (request, scope, control) =>
+        executeManagedSemanticMutation(
+          broker,
+          request,
+          "citation-analysis",
+          scope,
+          control,
+        ) as Promise<
+          MutationExecutionResult<LiteratureArtifactUpsertResultDto>
+        >,
+      upsertScore: (request, scope, control) =>
+        executeManagedSemanticMutation(
+          broker,
+          request,
+          "literature-score",
+          scope,
+          control,
+        ) as Promise<
+          MutationExecutionResult<LiteratureArtifactUpsertResultDto>
+        >,
+    },
     attachments: {
       create: (request, scope, control) =>
         executeCanonicalMutationLifecycle(
@@ -12817,6 +16507,101 @@ export function createZoteroHostCapabilityBroker(
     },
   };
   canonicalMutationControls.set(broker, createCanonicalMutationControl());
+  registerZoteroManagedNoteLocalControl(broker, {
+    isLibraryWritable: async (libraryId, control = {}) =>
+      withZoteroHostSlice(control, () => {
+        const libraries = (
+          resolveZotero() as unknown as {
+            Libraries?: { get?: (id: number) => { editable?: boolean } | null };
+          }
+        ).Libraries;
+        const library = libraries?.get?.(libraryId);
+        return Boolean(library && library.editable !== false);
+      }),
+    applyParentSet: (input, scope, control) =>
+      executeManagedParentSetMutation(broker, input, scope, control),
+    readForTransfer: async (ref, control = {}) => {
+      const note = await withZoteroHostSlice(control, () => requireNote(ref));
+      let detail: NoteDetailResultDto;
+      try {
+        detail = await readManagedNoteDetail(
+          note,
+          { format: "html" },
+          {
+            runNativeSlice: (run) => withZoteroHostSlice(control, run),
+            checkCanceled: () => throwIfWorkflowCallCanceled(control),
+            readRevision: () => canonicalNoteVersion(note).revision,
+          },
+        );
+      } catch (error) {
+        mapManagedOwnerError(error);
+      }
+      detail = await enrichManagedNoteDetail(detail!, control);
+      const transferFacts = await withZoteroHostSlice(control, () => ({
+        html: String(note.getNote?.() || ""),
+        tags: getTags(note),
+        revision: canonicalNoteVersion(note).revision,
+      }));
+      const blocks = await listMutationPayloadBlocks(note, control);
+      const payloads: NotePayloadValueDto[] = [];
+      for (const block of blocks) {
+        const summary = await withZoteroHostSlice(control, () =>
+          canonicalPayloadSummary(block, note),
+        );
+        if (summary.state !== "available") {
+          throw capabilityError(
+            "execution_failed",
+            "managed note payload could not be transferred",
+            { phase: "read", recovery: "retry_same_operation" },
+          );
+        }
+        let value: JsonValue;
+        try {
+          value = transferPayloadValueFromBlock(block);
+          assertJsonValue(value, "note payload");
+        } catch (error) {
+          if (error instanceof ManagedNoteOwnerError)
+            mapManagedOwnerError(error);
+          throw capabilityError(
+            "execution_failed",
+            "managed note payload could not be decoded",
+            { phase: "read", recovery: "retry_same_operation" },
+            error instanceof Error ? true : false,
+          );
+        }
+        payloads.push({ summary, value });
+      }
+      const finalRevision = await withZoteroHostSlice(
+        control,
+        () => canonicalNoteVersion(note).revision,
+      );
+      if (
+        finalRevision !== detail!.revision ||
+        transferFacts.revision !== finalRevision
+      ) {
+        throw capabilityError(
+          "conflict",
+          "managed note changed while it was being transferred",
+          { reason: "revision_mismatch", kind: "note" },
+          true,
+        );
+      }
+      return {
+        detail: detail!,
+        html: transferFacts.html,
+        payloads,
+        tags: transferFacts.tags,
+      };
+    },
+    readLegacyForMigration: async (ref, control = {}) => {
+      const note = await withZoteroHostSlice(control, () => requireNote(ref));
+      return readLegacyManagedNoteForMigration(note, {
+        runNativeSlice: (run) => withZoteroHostSlice(control, run),
+        checkCanceled: () => throwIfWorkflowCallCanceled(control),
+        readRevision: () => canonicalNoteVersion(note).revision,
+      });
+    },
+  });
   return broker;
 }
 
@@ -13175,7 +16960,7 @@ async function getCanonicalNoteDetail(
   ref: ZoteroHostItemRefInput,
   options: NoteDetailOptionsDto,
   control: WorkflowCallControl = {},
-): Promise<NoteDetailDto> {
+): Promise<NoteDetailResultDto> {
   throwIfWorkflowCallCanceled(control);
   if (options?.format !== "html" && options?.format !== "text") {
     throw capabilityError("invalid_request", "note format is required", {
@@ -13183,20 +16968,133 @@ async function getCanonicalNoteDetail(
       field: "format",
     });
   }
-  const detail = await withZoteroHostSlice(control, () => {
-    const note = requireNote(ref);
-    const content = canonicalNoteText(note);
-    return {
-      ref: canonicalItemRef(note),
-      parentRef: canonicalParentRef(note),
-      title: canonicalTitle(note) || content.text.slice(0, 80),
-      format: options.format,
-      content: options.format === "html" ? content.html : content.text,
-      revision: canonicalNoteVersion(note).revision,
-    };
-  });
+  const note = await withZoteroHostSlice(control, () => requireNote(ref));
+  let detail: NoteDetailResultDto;
+  try {
+    detail = await readManagedNoteDetail(note, options, {
+      runNativeSlice: (run) => withZoteroHostSlice(control, run),
+      checkCanceled: () => throwIfWorkflowCallCanceled(control),
+      readRevision: () => canonicalNoteVersion(note).revision,
+    });
+  } catch (error) {
+    if (error instanceof ManagedNoteOwnerError) {
+      const supported = new Set([
+        "invalid_request",
+        "invalid_ref",
+        "not_found",
+        "resource_limited",
+        "conflict",
+        "unavailable",
+        "execution_failed",
+        "invalid_artifact",
+        "legacy_artifact_requires_migration",
+      ]);
+      const code = supported.has(error.code) ? error.code : "execution_failed";
+      if (
+        code === "invalid_artifact" ||
+        code === "legacy_artifact_requires_migration"
+      ) {
+        throw new ZoteroManagedArtifactDiagnostic(
+          code as ManagedArtifactDiagnosticCode,
+          error.message,
+          error.details,
+          error.retryable,
+        );
+      }
+      throw capabilityError(
+        code as ZoteroHostCapabilityErrorCode,
+        error.message,
+        error.details as WorkflowHostErrorDetailsByCode[WorkflowHostErrorCode],
+        error.retryable,
+      );
+    }
+    throw error;
+  }
   throwIfWorkflowCallCanceled(control);
-  return detail;
+  return enrichManagedNoteDetail(detail, control);
+}
+
+async function enrichManagedNoteDetail(
+  detail: NoteDetailResultDto,
+  control: WorkflowCallControl,
+): Promise<NoteDetailResultDto> {
+  if (detail.kind !== "managed" || detail.noteKind !== "citation-analysis") {
+    return detail;
+  }
+  if (!detail.parentRef) {
+    return finalizeManagedNoteDetail({ ...detail, health: { state: "stale" } });
+  }
+  let references: Awaited<ReturnType<typeof managedSingleton>>;
+  try {
+    references = await managedSingleton(
+      detail.parentRef,
+      "references",
+      control,
+    );
+  } catch (error) {
+    // A damaged, legacy, or ambiguous References dependency makes Citation
+    // health unavailable, but does not invalidate the Citation payload that
+    // was read successfully. Infrastructure/read failures still propagate.
+    if (!isCitationReferenceDependencyFailure(error)) throw error;
+    return finalizeManagedNoteDetail({ ...detail, health: { state: "stale" } });
+  }
+  if (
+    !references.inspection ||
+    references.inspection.kind !== "managed" ||
+    references.inspection.noteKind !== "references"
+  ) {
+    return finalizeManagedNoteDetail({ ...detail, health: { state: "stale" } });
+  }
+  const health = deriveCitationHealth(
+    detail.provenance?.referencesBasis,
+    references.inspection.payload,
+  );
+  let markdown: string | undefined;
+  try {
+    markdown = renderCitationAnalysisMarkdown({
+      citation: detail.payload,
+      references: references.inspection.payload,
+    });
+  } catch {
+    // Keep the semantic detail and explicit basis health even if the derived
+    // renderer cannot project the current report. Export/readiness callers
+    // must classify health from the basis, never from renderer success.
+  }
+  const enriched = {
+    ...detail,
+    health,
+    derived: {
+      ...detail.derived,
+      ...(markdown !== undefined ? { markdown } : {}),
+    },
+  } satisfies ManagedNoteDetailDto;
+  assertWorkflowHostStrictJsonValue(enriched as unknown as JsonValue);
+  try {
+    return finalizeManagedNoteDetail(enriched);
+  } catch (error) {
+    if (error instanceof ManagedNoteOwnerError) mapManagedOwnerError(error);
+    throw error;
+  }
+}
+
+function isCitationReferenceDependencyFailure(error: unknown) {
+  if (error instanceof ManagedNoteOwnerError) {
+    if (error.code === "legacy_artifact_requires_migration") return true;
+    const noteKind = String(
+      error.details.noteKind || error.details.managedType || "",
+    );
+    if (error.code === "invalid_artifact") return noteKind === "references";
+    return (
+      error.code === "conflict" &&
+      error.details.reason === "ambiguous_state" &&
+      (!noteKind || noteKind === "references")
+    );
+  }
+  if (error instanceof ZoteroHostCapabilityError && error.code === "conflict") {
+    const details = error.details as WorkflowHostErrorDetailsByCode["conflict"];
+    return details.reason === "ambiguous_state" && details.kind === "note";
+  }
+  return false;
 }
 
 function canonicalPayloadSummary(

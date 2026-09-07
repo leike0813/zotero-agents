@@ -3,14 +3,20 @@ import { RESEARCH_PRODUCT_SCHEMA } from "./researchBundle.mjs";
 import {
   workbenchPayloadArtifactName,
   workbenchPayloadText,
+  parseWorkbenchEmbeddedPayloadBytes,
 } from "./embeddedPayloadAttachments.mjs";
 import { exportBundleBibliography } from "./bundleBibliography.mjs";
 import { rewriteMarkdownLocalImages } from "./markdownLocalImages.mjs";
-import {
-  buildLiteratureScorePayload,
-  upsertLiteratureScoreNote,
-} from "./literatureScoreNote.mjs";
 import { portableItemRef } from "./runtime.mjs";
+import {
+  previewLegacyArtifactSetForImport,
+  stripLegacyArtifactMarkupForImport,
+} from "../import-notes/hooks/applyResult.mjs";
+import {
+  parseImportedCitationArtifact,
+  parseImportedReferencesArtifact,
+  parseImportedScoreArtifact,
+} from "./importSchemas.mjs";
 
 export { rewriteMarkdownLocalImages };
 
@@ -266,12 +272,7 @@ export function validateResearchProductManifest(value, archiveEntries) {
       if (asset?.path) referenced.push(asset.path);
     for (const payload of paper.payloads || []) {
       if (
-        !new Set([
-          "digest-markdown",
-          "references-json",
-          "citation-analysis-json",
-          "conversation-note-markdown",
-        ]).has(normalizeText(payload?.payload_type))
+        !workbenchPayloadArtifactName(payload?.payload_type)
       ) {
         throw new Error("unsupported research product payload type");
       }
@@ -416,7 +417,10 @@ function ensureUniqueProductIds(manifest) {
       }
       const noteId = normalizeText(payload?.source_note_id);
       const imageId = normalizeText(payload?.source_image_id);
-      if (!noteImages.get(noteId)?.has(imageId)) {
+      if (
+        !noteImages.has(noteId) ||
+        (payload?.source_image_id !== null && !noteImages.get(noteId).has(imageId))
+      ) {
         throw new Error("unresolved literature product payload source");
       }
       if (
@@ -533,6 +537,25 @@ export async function verifyLiteratureProductFiles(manifest, archive) {
       throw new Error(`literature product file integrity mismatch: ${path}`);
     }
   }
+}
+
+const MANAGED_ARTIFACT_PAYLOAD_TYPES = {
+  custom: "custom-markdown",
+  "conversation-note": "conversation-note-markdown",
+  digest: "digest-markdown",
+  references: "references-json",
+  "citation-analysis": "citation-analysis-json",
+  "literature-score": "literature-score-json",
+};
+
+function managedArtifactPayloadBlock(note) {
+  const artifact = note?.managedArtifact;
+  const payloadType = MANAGED_ARTIFACT_PAYLOAD_TYPES[artifact?.noteKind];
+  if (!payloadType || artifact?.payload === undefined) return null;
+  return {
+    summary: canonicalBundlePayloadSummary(payloadType, artifact.payload),
+    value: artifact.payload,
+  };
 }
 
 export async function buildLiteratureBundleExport(args) {
@@ -688,7 +711,18 @@ export async function buildLiteratureBundleExport(args) {
         name: htmlPath,
         content: { kind: "text", text: portableHtml },
       });
-      const payloads = note.payloads.map((block) => {
+      const payloadBlocks = [...(note.payloads || [])];
+      const managedBlock = managedArtifactPayloadBlock(note);
+      if (
+        managedBlock &&
+        !payloadBlocks.some(
+          (block) =>
+            block.summary?.payloadType === managedBlock.summary.payloadType,
+        )
+      ) {
+        payloadBlocks.push(managedBlock);
+      }
+      const payloads = payloadBlocks.map((block) => {
         const source = block.summary.source;
         const sourceSlot =
           source.kind === "embedded_attachment"
@@ -705,6 +739,8 @@ export async function buildLiteratureBundleExport(args) {
       noteRecords.push({
         id,
         htmlPath,
+        tags: note.tags,
+        ...(note.managedArtifact ? { managedArtifact: note.managedArtifact } : {}),
         images: imageRecords.map((image) => ({
           ...image,
           ...(payloadImageIds.has(image.id)
@@ -833,7 +869,7 @@ export async function buildLiteratureProduct(args) {
       })),
     }));
     const notes = (item.notes || []).map(
-      ({ payloads: _payloads, ...note }) => ({
+      ({ payloads: _payloads, managedArtifact: _managedArtifact, ...note }) => ({
         ...note,
         htmlPath: remapPath(note.htmlPath),
         images: (note.images || []).map((image) => ({
@@ -855,23 +891,38 @@ export async function buildLiteratureProduct(args) {
     const payloadOrdinals = new Map();
     for (let noteIndex = 0; noteIndex < notes.length; noteIndex += 1) {
       const noteRecord = notes[noteIndex];
-      for (const block of item.notes[noteIndex].payloads || []) {
+      const sourceNote = item.notes[noteIndex];
+      const notePayloadBlocks = [...(sourceNote.payloads || [])];
+      const managedBlock = managedArtifactPayloadBlock(sourceNote);
+      if (
+        managedBlock &&
+        !notePayloadBlocks.some(
+          (block) =>
+            block.summary?.payloadType === managedBlock.summary.payloadType,
+        )
+      ) {
+        notePayloadBlocks.push(managedBlock);
+      }
+      for (const block of notePayloadBlocks) {
         const payloadType = block.summary.payloadType;
         const artifactName = workbenchPayloadArtifactName(payloadType);
-        if (!artifactName || !block.sourceImageId) continue;
+        if (!artifactName) continue;
         const ordinal = (payloadOrdinals.get(payloadType) || 0) + 1;
         payloadOrdinals.set(payloadType, ordinal);
         const extension = block.summary.format === "json" ? "json" : "md";
+        const managed = sourceNote.managedArtifact;
+        const semanticPayload = managed?.payload;
+        const projection = managed && managed.noteKind === block.summary.noteKind
+          ? typeof semanticPayload?.markdown === "string"
+            ? semanticPayload.markdown
+            : `${JSON.stringify(semanticPayload, null, 2)}\n`
+          : workbenchPayloadText({ format: block.summary.format, payload: block.value, markdown: typeof block.value === "string" ? block.value : "" });
         const path = `papers/${logicalId}/payloads/${artifactName}-${String(ordinal).padStart(3, "0")}.${extension}`;
         entries.push({
           name: path,
           content: {
             kind: "text",
-            text: workbenchPayloadText({
-              format: block.summary.format,
-              payload: block.value,
-              markdown: typeof block.value === "string" ? block.value : "",
-            }),
+            text: projection,
           },
         });
         payloads.push({
@@ -881,14 +932,15 @@ export async function buildLiteratureProduct(args) {
           format: block.summary.format,
           path,
           source_note_id: noteRecord.id,
-          source_image_id: block.sourceImageId,
+          source_image_id: block.sourceImageId || null,
           payload_hash: "",
-          anchor_status:
-            block.summary.state === "stale"
+          anchor_status: block.sourceImageId
+            ? block.summary.state === "stale"
               ? "stale"
               : block.summary.state === "available"
                 ? "present"
-                : "missing",
+                : "missing"
+            : "present",
         });
       }
     }
@@ -1309,6 +1361,678 @@ export async function exportLiteratureBundle(args) {
   };
 }
 
+const LEGACY_BUNDLE_PAYLOAD_TYPES = new Set([
+  "references-json",
+  "citation-analysis-json",
+]);
+const CANONICAL_BUNDLE_PAYLOAD_TYPES = new Set(
+  Object.values(MANAGED_ARTIFACT_PAYLOAD_TYPES),
+);
+
+function archiveSourcePath(archive, path) {
+  return typeof archive?.resolvePath === "function"
+    ? archive.resolvePath(path)
+    : path;
+}
+
+function bundlePayloadType(value) {
+  const row = value && typeof value === "object" ? value : null;
+  const summary = row?.summary && typeof row.summary === "object"
+    ? row.summary
+    : row;
+  return normalizeText(
+    summary?.payloadType || row?.payload_type || row?.payloadType,
+  );
+}
+
+function bundlePayloadValue(value) {
+  const row = value && typeof value === "object" ? value : null;
+  if (row && Object.prototype.hasOwnProperty.call(row, "value")) {
+    return { found: true, value: row.value };
+  }
+  if (row && Object.prototype.hasOwnProperty.call(row, "payload")) {
+    return { found: true, value: row.payload };
+  }
+  return { found: false, value: undefined };
+}
+
+function bundlePayloadStorageVersion(value) {
+  const row = value && typeof value === "object" ? value : null;
+  const summary = row?.summary && typeof row.summary === "object"
+    ? row.summary
+    : row;
+  return Number(
+    row?.payloadStorageVersion ||
+      row?.payload_storage_version ||
+      summary?.payloadStorageVersion ||
+      summary?.payload_storage_version ||
+      0,
+  );
+}
+
+function bundlePayloadFormat(value, payloadType) {
+  const row = value && typeof value === "object" ? value : null;
+  const summary = row?.summary && typeof row.summary === "object"
+    ? row.summary
+    : row;
+  return summary?.format === "markdown" || payloadType.endsWith("-markdown")
+    ? "markdown"
+    : "json";
+}
+
+function extractBundlePayloadMarkers(html) {
+  const inlineEntries = [];
+  const canonicalInlineTypes = new Set();
+  const anchorTypes = new Map();
+  const canonicalAnchorTypes = new Map();
+  const source = String(html || "");
+  const inlinePattern =
+    /<span\b[^>]*data-zs-payload\s*=\s*(["']?)([^\s"'>]+)\1[^>]*>/giu;
+  for (const match of source.matchAll(inlinePattern)) {
+    const payloadType = normalizeText(match[2]);
+    if (CANONICAL_BUNDLE_PAYLOAD_TYPES.has(payloadType)) {
+      canonicalInlineTypes.add(payloadType);
+    }
+    if (LEGACY_BUNDLE_PAYLOAD_TYPES.has(payloadType)) {
+      inlineEntries.push({ payloadType, tag: match[0] });
+    }
+  }
+  const anchorPattern =
+    /<img\b[^>]*data-zs-payload-anchor\s*=\s*(["']?)([^\s"'>]+)\1[^>]*>/giu;
+  for (const match of source.matchAll(anchorPattern)) {
+    const payloadType = normalizeText(match[2]);
+    const tag = match[0];
+    const keyMatch = tag.match(
+      /\bdata-attachment-key\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/iu,
+    );
+    const attachmentKey = normalizeText(
+      keyMatch?.[1] || keyMatch?.[2] || keyMatch?.[3],
+    );
+    if (CANONICAL_BUNDLE_PAYLOAD_TYPES.has(payloadType)) {
+      canonicalAnchorTypes.set(payloadType, attachmentKey);
+    }
+    if (LEGACY_BUNDLE_PAYLOAD_TYPES.has(payloadType)) {
+      anchorTypes.set(payloadType, attachmentKey);
+    }
+  }
+  return {
+    inlineEntries,
+    canonicalInlineTypes,
+    anchorTypes,
+    canonicalAnchorTypes,
+  };
+}
+
+function isCanonicalBundlePayload(payloadType, value) {
+  try {
+    if (
+      payloadType === "custom-markdown" ||
+      payloadType === "digest-markdown"
+    ) {
+      return typeof value === "string" && Boolean(value.trim());
+    }
+    if (payloadType === "conversation-note-markdown") {
+      if (typeof value === "string") return Boolean(value.trim());
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return false;
+      }
+      const keys = Object.keys(value).sort();
+      return (
+        keys.length === 4 &&
+        keys[0] === "content" &&
+        keys[1] === "format" &&
+        keys[2] === "path" &&
+        keys[3] === "version" &&
+        value.version === 1 &&
+        value.format === "markdown" &&
+        typeof value.path === "string" &&
+        Boolean(value.path.trim()) &&
+        typeof value.content === "string" &&
+        Boolean(value.content.trim())
+      );
+    }
+    if (payloadType === "references-json") {
+      parseImportedReferencesArtifact(value);
+      return true;
+    }
+    if (payloadType === "citation-analysis-json") {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return false;
+      }
+      const { referencesBasis: _referencesBasis, ...canonical } = value;
+      if (
+        _referencesBasis !== undefined &&
+        typeof _referencesBasis !== "string"
+      ) {
+        return false;
+      }
+      parseImportedCitationArtifact(canonical);
+      return true;
+    }
+    if (payloadType === "literature-score-json") {
+      parseImportedScoreArtifact(value);
+      return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+function canonicalBundlePayloadSummary(payloadType, value) {
+  const noteKindByPayloadType = {
+    "custom-markdown": "custom",
+    "conversation-note-markdown": "conversation-note",
+    "digest-markdown": "digest",
+    "references-json": "references",
+    "citation-analysis-json": "citation-analysis",
+    "literature-score-json": "literature-score",
+  };
+  const format = payloadType.endsWith("-markdown") ? "markdown" : "json";
+  const content =
+    format === "markdown"
+      ? typeof value === "string"
+        ? value
+        : typeof value?.content === "string"
+          ? value.content
+          : typeof value?.markdown === "string"
+            ? value.markdown
+            : String(value || "")
+      : String(JSON.stringify(value) || "");
+  return {
+    payloadType,
+    noteKind: noteKindByPayloadType[payloadType] || "custom",
+    version: "1",
+    format,
+    encoding: "utf-8",
+    estimatedBytes: new TextEncoder().encode(content).byteLength,
+    source: { kind: "inline" },
+    state: "available",
+    issues: [],
+  };
+}
+
+function decodeBundlePayloadText(text, payloadType, block) {
+  if (bundlePayloadFormat(block, payloadType) === "markdown") {
+    return String(text || "");
+  }
+  return JSON.parse(String(text || "null"));
+}
+
+async function readBundlePayloadBlock(archive, block) {
+  const payloadType = bundlePayloadType(block);
+  if (!payloadType) return null;
+  const sourceImageId = normalizeText(
+    block?.sourceImageId || block?.source_image_id,
+  );
+  const direct = bundlePayloadValue(block);
+  if (direct.found) {
+    return {
+      payloadType,
+      value: direct.value,
+      storageVersion: bundlePayloadStorageVersion(block),
+      ...(sourceImageId ? { sourceImageId } : {}),
+    };
+  }
+  const path = normalizeText(block?.path);
+  if (!path || typeof archive?.readText !== "function") {
+    return { payloadType, error: "legacy payload value is missing" };
+  }
+  try {
+    const text = await archive.readText(path);
+    return {
+      payloadType,
+      value: decodeBundlePayloadText(text, payloadType, block),
+      storageVersion: bundlePayloadStorageVersion(block),
+      ...(sourceImageId ? { sourceImageId } : {}),
+    };
+  } catch (error) {
+    return {
+      payloadType,
+      error: normalizeText(error?.message || error) || "legacy payload cannot be read",
+      storageVersion: bundlePayloadStorageVersion(block),
+      ...(sourceImageId ? { sourceImageId } : {}),
+    };
+  }
+}
+
+function unwrapEmbeddedBundlePayload(value) {
+  const row = value && typeof value === "object" ? value : null;
+  if (
+    row &&
+    (row.format === "json" || row.format === "markdown") &&
+    Object.prototype.hasOwnProperty.call(row, "payload")
+  ) {
+    return row.payload;
+  }
+  return value;
+}
+
+async function readBundleNoteFacts({ archive, noteRecord, runtime }) {
+  const readErrors = [];
+  let html = "";
+  try {
+    html = await archive.readText(noteRecord.htmlPath);
+  } catch (error) {
+    readErrors.push(
+      normalizeText(error?.message || error) ||
+        `note HTML cannot be read: ${noteRecord.id}`,
+    );
+  }
+  const markers = extractBundlePayloadMarkers(html);
+  const noteImageIds = new Set(
+    (noteRecord.images || []).map((imageRecord) => normalizeText(imageRecord.id)),
+  );
+  const payloadImageIds = new Set();
+  for (const imageRecord of noteRecord.images || []) {
+    const imageId = normalizeText(imageRecord.id);
+    for (const attachmentKey of markers.anchorTypes.values()) {
+      if (attachmentKey && attachmentKey === imageId) {
+        payloadImageIds.add(imageId);
+      }
+    }
+  }
+  const filePayloads = [];
+  const canonicalPayloads = [];
+  const blockPayloads = [];
+  for (const block of noteRecord.payloads || []) {
+    const payload = await readBundlePayloadBlock(archive, block);
+    if (payload) blockPayloads.push(payload);
+  }
+  const legacyPayloadTypes = new Set();
+  for (const payload of blockPayloads) {
+    if (!CANONICAL_BUNDLE_PAYLOAD_TYPES.has(payload.payloadType)) continue;
+    if (payload.error) {
+      if (LEGACY_BUNDLE_PAYLOAD_TYPES.has(payload.payloadType)) {
+        legacyPayloadTypes.add(payload.payloadType);
+      }
+      readErrors.push("payload_read_failed");
+      continue;
+    }
+    const canonical = isCanonicalBundlePayload(
+      payload.payloadType,
+      payload.value,
+    );
+    if (payload.storageVersion === 1 || !canonical) {
+      if (LEGACY_BUNDLE_PAYLOAD_TYPES.has(payload.payloadType)) {
+        legacyPayloadTypes.add(payload.payloadType);
+        filePayloads.push({
+          payloadType: payload.payloadType,
+          value: payload.value,
+          ...(payload.storageVersion
+            ? { payloadStorageVersion: payload.storageVersion }
+            : {}),
+        });
+      } else {
+        readErrors.push(
+          payload.storageVersion === 1
+            ? "legacy_artifact_requires_migration"
+            : "invalid_artifact",
+        );
+      }
+      continue;
+    }
+    const sourceImageId = normalizeText(payload.sourceImageId);
+    const anchorImageId = normalizeText(
+      markers.canonicalAnchorTypes.get(payload.payloadType),
+    );
+    const hasSourceImage =
+      Boolean(sourceImageId && noteImageIds.has(sourceImageId)) ||
+      Boolean(anchorImageId && noteImageIds.has(anchorImageId));
+    if (
+      !markers.canonicalInlineTypes.has(payload.payloadType) &&
+      !hasSourceImage
+    ) {
+      readErrors.push("canonical_payload_source_missing");
+      continue;
+    }
+    canonicalPayloads.push({
+      summary: canonicalBundlePayloadSummary(
+        payload.payloadType,
+        payload.value,
+      ),
+      value: payload.value,
+      ...(sourceImageId ? { sourceImageId } : {}),
+    });
+  }
+  const canonicalPayloadTypes = new Set(
+    canonicalPayloads.map((payload) => payload.summary.payloadType),
+  );
+  for (const inlineEntry of markers.inlineEntries) {
+    if (canonicalPayloadTypes.has(inlineEntry.payloadType)) continue;
+    // The private converter is the only owner allowed to decode legacy HTML.
+    // Keeping the raw note content here also preserves its evidence order and
+    // lets malformed values fail closed in that seam.
+    legacyPayloadTypes.add(inlineEntry.payloadType);
+  }
+  const decoderRuntime = {
+    ...(runtime?.TextDecoder ? { TextDecoder: runtime.TextDecoder } : {}),
+    ...(runtime?.Buffer ? { Buffer: runtime.Buffer } : {}),
+  };
+  for (const imageRecord of noteRecord.images || []) {
+    const imageId = normalizeText(imageRecord.id);
+    const markerPayloadType = [...markers.canonicalAnchorTypes.entries()].find(
+      ([, attachmentKey]) => attachmentKey && attachmentKey === imageId,
+    )?.[0];
+    if (!markerPayloadType && !imageRecord.preserveSourceBytes) continue;
+    if (typeof archive?.readBytes !== "function") {
+      if (markerPayloadType) {
+        if (LEGACY_BUNDLE_PAYLOAD_TYPES.has(markerPayloadType)) {
+          legacyPayloadTypes.add(markerPayloadType);
+          readErrors.push(`legacy payload image cannot be read: ${imageId}`);
+        } else {
+          readErrors.push("canonical_payload_source_unreadable");
+        }
+      }
+      continue;
+    }
+    try {
+      const parsed = parseWorkbenchEmbeddedPayloadBytes(
+        await archive.readBytes(archiveSourcePath(archive, imageRecord.path)),
+        decoderRuntime,
+      );
+      if (!parsed || !CANONICAL_BUNDLE_PAYLOAD_TYPES.has(parsed.payloadType)) {
+        if (markerPayloadType) {
+          if (LEGACY_BUNDLE_PAYLOAD_TYPES.has(markerPayloadType)) {
+            legacyPayloadTypes.add(markerPayloadType);
+            readErrors.push(`legacy payload image is unreadable: ${imageId}`);
+          } else {
+            readErrors.push("canonical_payload_source_unreadable");
+          }
+        }
+        continue;
+      }
+      if (
+        parsed.payloadStorageVersion === 1 ||
+        parsed.sourceStorage === "embedded-image-attachment-v1"
+      ) {
+        if (LEGACY_BUNDLE_PAYLOAD_TYPES.has(parsed.payloadType)) {
+          legacyPayloadTypes.add(parsed.payloadType);
+          filePayloads.push({
+            payloadType: parsed.payloadType,
+            value: unwrapEmbeddedBundlePayload(parsed.payload),
+            payloadStorageVersion: 1,
+          });
+        } else {
+          readErrors.push("legacy_artifact_requires_migration");
+        }
+      } else {
+        const value = unwrapEmbeddedBundlePayload(parsed.payload);
+        if (!isCanonicalBundlePayload(parsed.payloadType, value)) {
+          readErrors.push("invalid_artifact");
+          continue;
+        }
+        canonicalPayloads.push({
+          summary: canonicalBundlePayloadSummary(parsed.payloadType, value),
+          value,
+          sourceImageId: imageId,
+        });
+      }
+    } catch (error) {
+      if (markerPayloadType) {
+        if (LEGACY_BUNDLE_PAYLOAD_TYPES.has(markerPayloadType)) {
+          legacyPayloadTypes.add(markerPayloadType);
+          readErrors.push(
+            normalizeText(error?.message || error) ||
+              `legacy payload image is damaged: ${imageId}`,
+          );
+        } else {
+          readErrors.push("canonical_payload_source_unreadable");
+        }
+      }
+    }
+  }
+  const uniqueCanonicalPayloads = [];
+  for (const payload of canonicalPayloads) {
+    if (
+      uniqueCanonicalPayloads.some(
+        (candidate) =>
+          candidate.summary.payloadType === payload.summary.payloadType &&
+          JSON.stringify(candidate.value) === JSON.stringify(payload.value),
+      )
+    ) {
+      continue;
+    }
+    uniqueCanonicalPayloads.push(payload);
+  }
+  for (const payloadType of markers.canonicalInlineTypes) {
+    if (
+      !LEGACY_BUNDLE_PAYLOAD_TYPES.has(payloadType) &&
+      !uniqueCanonicalPayloads.some(
+        (payload) => payload.summary.payloadType === payloadType,
+      )
+    ) {
+      readErrors.push("canonical_payload_source_missing");
+    }
+  }
+  for (const [payloadType, attachmentKey] of markers.canonicalAnchorTypes) {
+    if (attachmentKey && !noteImageIds.has(attachmentKey)) {
+      readErrors.push("canonical_payload_source_missing");
+    }
+    if (
+      !attachmentKey &&
+      !uniqueCanonicalPayloads.some(
+        (payload) => payload.summary.payloadType === payloadType,
+      )
+    ) {
+      readErrors.push("canonical_payload_source_missing");
+    }
+  }
+  return {
+    noteId: normalizeText(noteRecord.id),
+    html,
+    noteRecord,
+    legacyPayloadTypes,
+    payloadImageIds,
+    filePayloads,
+    canonicalPayloads: uniqueCanonicalPayloads,
+    readErrors,
+    legacy: legacyPayloadTypes.size > 0 || readErrors.length > 0,
+  };
+}
+
+async function readBundleItemNoteFacts({ archive, itemRecord, runtime }) {
+  const facts = [];
+  for (const noteRecord of itemRecord.notes || []) {
+    facts.push(await readBundleNoteFacts({ archive, noteRecord, runtime }));
+  }
+  return facts;
+}
+
+function bundleMigrationError(reason, details = {}) {
+  const error = new Error(
+    `Legacy literature bundle artifacts require explicit conversion: ${reason}`,
+  );
+  error.code = "legacy_artifact_requires_migration";
+  error.structuredResult = {
+    kind: "literature_bundle_import",
+    status: "migration_required",
+    importedItems: [],
+    failedItems: [],
+    warnings: [
+      {
+        code: "legacy_artifact_requires_migration",
+        reason,
+        ...(details.itemIds ? { itemIds: details.itemIds } : {}),
+      },
+    ],
+  };
+  return error;
+}
+
+function createBundleHtmlElement(doc, tag) {
+  return typeof doc?.createElementNS === "function"
+    ? doc.createElementNS("http://www.w3.org/1999/xhtml", tag)
+    : doc.createElement(tag);
+}
+
+function renderBundleMigrationPreview({ doc, root, candidates, previews }) {
+  while (root.firstChild) root.removeChild(root.firstChild);
+  const panel = createBundleHtmlElement(doc, "div");
+  panel.style.display = "flex";
+  panel.style.flexDirection = "column";
+  panel.style.gap = "8px";
+  panel.style.padding = "8px";
+  const title = createBundleHtmlElement(doc, "h3");
+  title.textContent = "Review legacy literature artifacts";
+  title.style.margin = "0";
+  panel.appendChild(title);
+  const description = createBundleHtmlElement(doc, "p");
+  description.textContent =
+    "Confirm to import the verified legacy evidence as canonical References and Citation notes.";
+  description.style.margin = "0";
+  panel.appendChild(description);
+  for (const candidate of candidates) {
+    const preview = previews.get(candidate.itemId);
+    const row = createBundleHtmlElement(doc, "div");
+    row.style.border = "1px solid #d8d8dd";
+    row.style.borderRadius = "6px";
+    row.style.padding = "6px";
+    row.textContent = [
+      `Item ${candidate.itemId}`,
+      `notes=${candidate.noteFacts.length}`,
+      `payloads=${candidate.filePayloads.length}`,
+      `status=${String(preview?.classification || "blocked")}`,
+      `verified=${Number(preview?.verifiedCount || 0)}`,
+      `unresolved=${Number(preview?.unresolvedCount || 0)}`,
+      `recovered=${Number(preview?.recoveredCount || 0)}`,
+      `dropped=${Number(preview?.droppedCount || 0)}`,
+      ...(preview?.reasonCodes?.length
+        ? [`reasons=${preview.reasonCodes.slice(0, 4).join(",")}`]
+        : []),
+    ].join(" | ");
+    panel.appendChild(row);
+  }
+  root.appendChild(panel);
+}
+
+async function confirmLegacyBundleConversion({ host, candidates }) {
+  if (typeof host.editor?.openSession !== "function") {
+    throw bundleMigrationError("interactive conversion review is unavailable", {
+      itemIds: candidates.map((candidate) => candidate.itemId),
+    });
+  }
+  const previews = new Map();
+  const editorResult = await host.editor.openSession({
+    title: "Review legacy literature bundle conversion",
+    initialState: {},
+    context: {
+      candidates: candidates.map((candidate) => ({
+        itemId: candidate.itemId,
+        noteCount: candidate.noteFacts.length,
+        payloadCount: candidate.filePayloads.length,
+      })),
+    },
+    labels: { save: "Confirm conversion", cancel: "Cancel" },
+    renderer: {
+      render({ doc, root, host: editorHost }) {
+        previews.clear();
+        for (const candidate of candidates) {
+          try {
+            previews.set(
+              candidate.itemId,
+              previewLegacyArtifactSetForImport({
+                host: editorHost,
+                parentRef: candidate.parentRef,
+                noteContents: candidate.noteFacts
+                  .filter((fact) => fact.legacy)
+                  .map((fact) => fact.html),
+                legacyNoteRefs: candidate.legacyNoteRefs,
+                filePayloads: candidate.filePayloads,
+                readErrors: candidate.readErrors,
+              }),
+            );
+          } catch (error) {
+            previews.set(candidate.itemId, {
+              classification: "blocked",
+              reasonCodes: ["converter_unavailable"],
+              diagnostics: [normalizeText(error?.message || error)],
+              verifiedCount: 0,
+              unresolvedCount: 0,
+              recoveredCount: 0,
+              droppedCount: 0,
+              payload: { references: null, citation: null },
+            });
+          }
+        }
+        renderBundleMigrationPreview({ doc, root, candidates, previews });
+      },
+      serialize: () => ({ confirmed: true }),
+    },
+    layout: { width: 760, height: 520, minWidth: 640, minHeight: 360 },
+  });
+  if (!editorResult?.saved) {
+    throw bundleMigrationError("conversion was canceled", {
+      itemIds: candidates.map((candidate) => candidate.itemId),
+    });
+  }
+  const blocked = candidates.filter((candidate) => {
+    const preview = previews.get(candidate.itemId);
+    return (
+      !preview ||
+      preview.classification === "blocked" ||
+      !preview.payload?.references?.references?.length
+    );
+  });
+  if (blocked.length) {
+    throw bundleMigrationError("conversion preview is blocked", {
+      itemIds: blocked.map((candidate) => candidate.itemId),
+    });
+  }
+  return new Map(
+    candidates.map((candidate) => [candidate.itemId, previews.get(candidate.itemId)]),
+  );
+}
+
+function addConvertedBundlePayloads({ notes, noteFacts, preview }) {
+  const payloads = [
+    ["references-json", preview.payload.references],
+    ["citation-analysis-json", preview.payload.citation],
+  ].filter(([, value]) => value !== null && value !== undefined);
+  const usedNoteIds = new Set();
+  const noteIds = new Set(notes.map((note) => note.noteId));
+  for (const [payloadType, value] of payloads) {
+    const matchingFact = noteFacts.find(
+      (fact) =>
+        fact.legacyPayloadTypes.has(payloadType),
+    );
+    if (!matchingFact) {
+      throw bundleMigrationError(
+        `converted ${payloadType} has no source note`,
+      );
+    }
+    const fact = matchingFact;
+    let note = notes.find((entry) => entry.noteId === fact.noteId);
+    if (!note) {
+      throw bundleMigrationError(`source note is missing: ${fact.noteId}`);
+    }
+    if (usedNoteIds.has(fact.noteId)) {
+      const baseId = `${note.noteId}-${payloadType.replace(/-json$/iu, "")}`;
+      let noteId = baseId;
+      let ordinal = 2;
+      while (noteIds.has(noteId)) noteId = `${baseId}-${ordinal++}`;
+      note = {
+        ...note,
+        noteId,
+        payloads: [],
+        content: {
+          format: "html",
+          value: "",
+          embeddedImages: [],
+        },
+        tags: [],
+      };
+      notes.push(note);
+      noteIds.add(noteId);
+    }
+    note.payloads.push({
+      summary: canonicalBundlePayloadSummary(payloadType, value),
+      value,
+    });
+    usedNoteIds.add(fact.noteId);
+  }
+}
+
 export async function importLiteratureBundleArchive(args) {
   const { host, archive, manifest } = args;
   const target = args.target || resolveLiteratureBundleImportTarget(host);
@@ -1330,6 +2054,40 @@ export async function importLiteratureBundleArchive(args) {
     normalizeText(collectionRef?.key)
       ? [{ libraryId: libraryID, key: normalizeText(collectionRef.key) }]
       : [];
+  const noteFactsByItem = new Map();
+  const legacyCandidates = [];
+  for (const itemRecord of manifest.items) {
+    const noteFacts = await readBundleItemNoteFacts({
+      archive,
+      itemRecord,
+      runtime: args.runtime,
+    });
+    noteFactsByItem.set(itemRecord.id, noteFacts);
+    const legacyFacts = noteFacts.filter((fact) => fact.legacy);
+    if (!legacyFacts.length) continue;
+    legacyCandidates.push({
+      itemId: itemRecord.id,
+      parentRef: { libraryId: libraryID, key: itemRecord.id },
+      noteFacts: legacyFacts,
+      legacyNoteRefs: legacyFacts.map((fact) => ({
+        libraryId: libraryID,
+        key: fact.noteId,
+      })),
+      filePayloads: legacyFacts.flatMap((fact) =>
+        fact.filePayloads.map((payload) => ({
+          ...payload,
+          sourceRef: { libraryId: libraryID, key: fact.noteId },
+        })),
+      ),
+      readErrors: legacyFacts.flatMap((fact) => fact.readErrors),
+    });
+  }
+  const legacyConversions = legacyCandidates.length
+    ? await confirmLegacyBundleConversion({
+        host,
+        candidates: legacyCandidates,
+      })
+    : new Map();
   const papers = [];
   for (const itemRecord of manifest.items) {
     const attachments = [];
@@ -1348,7 +2106,7 @@ export async function importLiteratureBundleArchive(args) {
       }
       const main = await host.resources.materializeFile({
         slotId: "research-import-files",
-        sourcePath: archive.resolvePath(attachmentRecord.path),
+        sourcePath: archiveSourcePath(archive, attachmentRecord.path),
         displayName: attachmentRecord.path.split("/").pop(),
         contentType: attachmentRecord.metadata?.contentType,
       });
@@ -1358,7 +2116,7 @@ export async function importLiteratureBundleArchive(args) {
         : []) {
         const resource = await host.resources.materializeFile({
           slotId: "research-import-files",
-          sourcePath: archive.resolvePath(asset.path),
+          sourcePath: archiveSourcePath(archive, asset.path),
           displayName: asset.path.split("/").pop(),
           contentType: asset.contentType || "application/octet-stream",
         });
@@ -1386,13 +2144,22 @@ export async function importLiteratureBundleArchive(args) {
       });
     }
     const notes = [];
-    for (const noteRecord of itemRecord.notes || []) {
-      const portableHtml = await archive.readText(noteRecord.htmlPath);
+    const noteFacts = noteFactsByItem.get(itemRecord.id) || [];
+    for (const fact of noteFacts) {
+      const noteRecord = fact.noteRecord;
+      const legacyConversion = legacyConversions.get(itemRecord.id);
+      const isLegacyFact = Boolean(legacyConversion && fact.legacy);
+      const portableHtml = isLegacyFact
+        ? stripLegacyArtifactMarkupForImport(fact.html)
+        : fact.html;
       const embeddedImages = [];
       for (const imageRecord of noteRecord.images || []) {
+        if (isLegacyFact && fact.payloadImageIds.has(imageRecord.id)) {
+          continue;
+        }
         const resource = await host.resources.materializeFile({
           slotId: "research-import-files",
-          sourcePath: archive.resolvePath(imageRecord.path),
+          sourcePath: archiveSourcePath(archive, imageRecord.path),
           displayName: imageRecord.path.split("/").pop(),
           contentType: imageRecord.metadata?.contentType || "image/png",
         });
@@ -1412,8 +2179,16 @@ export async function importLiteratureBundleArchive(args) {
           value: bindPortableNoteImageSlots(portableHtml),
           embeddedImages,
         },
-        tags: [],
-        payloads: [],
+        tags: noteRecord.tags || [],
+        payloads: isLegacyFact ? [] : fact.canonicalPayloads,
+      });
+    }
+    const legacyConversion = legacyConversions.get(itemRecord.id);
+    if (legacyConversion) {
+      addConvertedBundlePayloads({
+        notes,
+        noteFacts,
+        preview: legacyConversion,
       });
     }
     papers.push({
@@ -1469,6 +2244,19 @@ export async function importLiteratureProductArchive(args) {
         (payload) => `${payload.source_note_id}:${payload.source_image_id}`,
       ),
     );
+    const payloadsByNote = new Map();
+    for (const payload of paper.payloads || []) {
+      const content = await args.archive.readText(payload.path);
+      const entries = payloadsByNote.get(payload.source_note_id) || [];
+      entries.push({
+        summary: researchPayloadSummary(payload.payload_type, payload, content),
+        value: researchPayloadValue(payload.payload_type, content),
+        ...(normalizeText(payload.source_image_id)
+          ? { sourceImageId: normalizeText(payload.source_image_id) }
+          : {}),
+      });
+      payloadsByNote.set(payload.source_note_id, entries);
+    }
     items.push({
       id: paper.logical_id,
       itemJson: JSON.parse(await args.archive.readText(paper.metadata_path)),
@@ -1476,6 +2264,7 @@ export async function importLiteratureProductArchive(args) {
       attachments: paper.attachments || [],
       notes: (paper.notes || []).map((note) => ({
         ...note,
+        payloads: payloadsByNote.get(note.id) || [],
         images: (note.images || []).map((image) => ({
           ...image,
           ...(payloadImages.has(`${note.id}:${image.id}`)
@@ -1494,26 +2283,10 @@ export async function importLiteratureProductArchive(args) {
   });
 }
 
-function productPayloadForImport(payloadType, content) {
-  if (
-    payloadType === "digest-markdown" ||
-    payloadType === "conversation-note-markdown"
-  ) {
-    return { format: "markdown", content };
-  }
-  return JSON.parse(content);
-}
-
 function productPayloadNoteKind(payloadType) {
-  return payloadType === "digest-markdown"
-    ? "digest"
-    : payloadType === "references-json"
-      ? "references"
-      : payloadType === "citation-analysis-json"
-        ? "citation-analysis"
-        : payloadType === "literature-score-json"
-          ? "literature-score"
-          : "conversation-note";
+  const kind = workbenchPayloadArtifactName(payloadType);
+  if (!kind) throw new Error("Unsupported managed payload type");
+  return kind === "conversation" ? "conversation-note" : kind;
 }
 
 function portableResearchItem(metadata) {
@@ -1576,10 +2349,21 @@ function researchImportOperationId() {
 }
 
 function researchPayloadValue(payloadType, content) {
-  return payloadType === "digest-markdown" ||
-    payloadType === "conversation-note-markdown"
-    ? content
-    : JSON.parse(content);
+  if (
+    payloadType === "digest-markdown" ||
+    payloadType === "custom-markdown"
+  ) {
+    return content;
+  }
+  if (payloadType === "conversation-note-markdown") {
+    return {
+      version: 1,
+      path: "mcp/conversation-note.md",
+      format: "markdown",
+      content,
+    };
+  }
+  return JSON.parse(content);
 }
 
 function researchPayloadSummary(payloadType, payload, content) {
@@ -1852,8 +2636,8 @@ export async function importLiteratureBundle(args) {
         } catch (error) {
           return throwLiteratureBundleImportFailure(args.host, "target", error);
         }
-        try {
-          const importArgs = {
+      try {
+        const importArgs = {
             host: args.host,
             archive,
             manifest,
@@ -1864,8 +2648,11 @@ export async function importLiteratureBundle(args) {
             ? await importResearchProductArchive(importArgs)
             : manifest?.schema_id === LITERATURE_PRODUCT_SCHEMA
               ? await importLiteratureProductArchive(importArgs)
-              : await importLiteratureBundleArchive(importArgs);
+            : await importLiteratureBundleArchive(importArgs);
         } catch (error) {
+          if (error?.code === "legacy_artifact_requires_migration") {
+            throw error;
+          }
           return throwLiteratureBundleImportFailure(
             args.host,
             "materialization",

@@ -32,6 +32,7 @@
 - `doc/components/runtime-persistence-governance-ssot.md` — 运行时持久化治理
 - `doc/components/skillrunner-provider-state-machine-ssot.md` — SkillRunner run settlement 状态机
 - `doc/components/workflow-execution-seams.md` — 工作流执行 seam 与 deferred completion 边界
+- `doc/components/literature-artifact-migration.md` — Literature Artifact 迁移运行时、私有 receipt 与 Dashboard 边界
 
 ## 数据库 Schema
 

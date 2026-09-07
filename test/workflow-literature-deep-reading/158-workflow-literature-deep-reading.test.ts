@@ -1,4 +1,10 @@
 import { assert } from "chai";
+import { installNodeZoteroTransactionStub } from "../helpers/nodeZoteroTransactionStub";
+import { createMockZoteroLibrarySourcePageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
+import {
+  setZoteroLibrarySourcePageQueryAdapterForTests,
+  resetZoteroLibrarySourcePageQueryAdapterForTests,
+} from "../../src/modules/zoteroLibraryPageQuery";
 import { ACP_SKILL_RUN_REQUEST_KIND } from "../../src/config/defaults";
 import { nativeFixtureMutations as handlers } from "../helpers/nativeFixtureMutations";
 import { validateAcpSkillRunRequestAgainstSchemas } from "../../src/modules/acpSkillSchemaAssets";
@@ -14,9 +20,9 @@ import {
 } from "../../src/workflows/runtime";
 import { ZipBundleReader } from "../../src/workflows/zipBundleReader";
 import { createWorkflowArchiveApi } from "../../src/workflows/archive";
-import { renderPayloadBlock } from "../../workflows_builtin/literature-workbench-package/lib/noteCodecs.mjs";
 import {
   ensureDir,
+  isZoteroRuntime,
   joinPath,
   mkTempDir,
   readBytes,
@@ -50,36 +56,59 @@ async function createParent(title = "DETR Test Paper") {
 }
 
 async function addGeneratedSidecars(parent: Zotero.Item) {
-  await handlers.parent.addNote(parent, {
-    content: [
-      '<div data-zs-note-kind="digest">',
-      renderPayloadBlock(
-        "digest-markdown",
-        "# Digest\n\nA concise digest.",
-        undefined,
-        { payloadFormat: "text" },
-      ),
-      "</div>",
-    ].join("\n"),
+  const host = createWorkflowHostApi();
+  const parentRef = itemRef(parent);
+  const digest = await host.literatureArtifacts.upsertDigest({
+    operationId: `deep-reading-digest:${parent.key}`,
+    parentRef,
+    markdown: "A concise digest.",
   });
-  await handlers.parent.addNote(parent, {
-    content: [
-      '<div data-zs-note-kind="references">',
-      renderPayloadBlock("references-json", {
-        references: [{ id: "ref-1", title: "Reference One", year: 2020 }],
-      }),
-      "</div>",
-    ].join("\n"),
+  assert.equal(digest.outcome, "committed", JSON.stringify(digest));
+  const references = await host.literatureArtifacts.upsertReferences({
+    operationId: `deep-reading-references:${parent.key}`,
+    parentRef,
+    references: {
+      schema: "source_reference_artifact.v1",
+      references: [
+        {
+          sourceReferenceId: "source-reference-one",
+          extraction: null,
+          bibliography: { title: "Reference One", authors: [], year: 2020 },
+          matching: {},
+        },
+      ],
+    },
   });
-  await handlers.parent.addNote(parent, {
-    content: [
-      '<div data-zs-note-kind="citation_analysis">',
-      renderPayloadBlock("citation-analysis-json", {
-        report_md: "# Citation Analysis\n\nUsed as context.",
-      }),
-      "</div>",
-    ].join("\n"),
+  assert.equal(references.outcome, "committed", JSON.stringify(references));
+  const citation = await host.literatureArtifacts.upsertCitationAnalysis({
+    operationId: `deep-reading-citation:${parent.key}`,
+    parentRef,
+    citationAnalysis: {
+      schema: "citation_analysis_artifact.v1",
+      meta: {
+        language: "en",
+        scope: { section_title: null, line_start: null, line_end: null },
+        scope_source: null,
+        scope_decision: {
+          selection_reason: null,
+          covered_sections: [],
+          fallback_from: null,
+          fallback_reason: null,
+        },
+        mapping_reliability: "normal",
+        reference_extraction: { status: "completed" },
+      },
+      summary: "Used as context.",
+      timeline: {
+        early: { summary: "", sourceReferenceIds: [] },
+        mid: { summary: "", sourceReferenceIds: [] },
+        recent: { summary: "", sourceReferenceIds: [] },
+      },
+      items: [],
+      unresolved: [],
+    },
   });
+  assert.equal(citation.outcome, "committed", JSON.stringify(citation));
 }
 
 function createDeepReadingResultBundleReader(html: string) {
@@ -103,6 +132,19 @@ function createDeepReadingResultBundleReader(html: string) {
 }
 
 describe("workflow: literature-deep-reading", function () {
+  let restoreTransaction: () => void;
+  beforeEach(() => {
+    restoreTransaction = installNodeZoteroTransactionStub();
+    if (!isZoteroRuntime()) {
+      setZoteroLibrarySourcePageQueryAdapterForTests(
+        createMockZoteroLibrarySourcePageQueryAdapter(),
+      );
+    }
+  });
+  afterEach(() => {
+    restoreTransaction();
+    resetZoteroLibrarySourcePageQueryAdapterForTests();
+  });
   this.timeout(30000);
 
   it("writes ArrayBuffer and typed-array ZIP entries without dropping bytes", async function () {
@@ -379,7 +421,7 @@ describe("workflow: literature-deep-reading", function () {
     assert.include(sourceMarkdown, 'src="missing.png"');
     assert.equal(
       await bundle.readText("artifacts/digest.md"),
-      "# Digest\n\nA concise digest.",
+      "A concise digest.",
     );
     assert.include(
       await bundle.readText("artifacts/references.json"),
@@ -387,7 +429,7 @@ describe("workflow: literature-deep-reading", function () {
     );
     assert.include(
       await bundle.readText("artifacts/citation_analysis.json"),
-      "report_md",
+      "citation_analysis_artifact.v1",
     );
     const manifest = JSON.parse(await bundle.readText("source-manifest.json"));
     assert.equal(manifest.source.kind, "markdown");
@@ -470,15 +512,54 @@ describe("workflow: literature-deep-reading", function () {
                 payload_type: "references-json",
                 status: "available",
                 payload: {
-                  references: [{ id: "ref-host", title: "Host Reference" }],
+                  schema: "source_reference_artifact.v1",
+                  references: [
+                    {
+                      sourceReferenceId: "source-host",
+                      extraction: null,
+                      bibliography: {
+                        title: "Host Reference",
+                        authors: [],
+                        year: null,
+                      },
+                      matching: {},
+                    },
+                  ],
                 },
               },
               {
                 paper_ref: `1:${parent.key}`,
                 artifact_type: "citation_analysis",
-                payload_type: "citation-analysis-markdown",
+                payload_type: "citation-analysis-json",
                 status: "available",
-                decoded_text: "# Host Citation Analysis",
+                payload: {
+                  schema: "citation_analysis_artifact.v1",
+                  meta: {
+                    language: "en",
+                    scope: {
+                      section_title: null,
+                      line_start: null,
+                      line_end: null,
+                    },
+                    scope_source: null,
+                    scope_decision: {
+                      selection_reason: null,
+                      covered_sections: [],
+                      fallback_from: null,
+                      fallback_reason: null,
+                    },
+                    mapping_reliability: "normal",
+                    reference_extraction: { status: "completed" },
+                  },
+                  summary: "Host Citation Analysis",
+                  timeline: {
+                    early: { summary: "", sourceReferenceIds: [] },
+                    mid: { summary: "", sourceReferenceIds: [] },
+                    recent: { summary: "", sourceReferenceIds: [] },
+                  },
+                  items: [],
+                  unresolved: [],
+                },
               },
             ],
             diagnostics: [],
@@ -510,8 +591,9 @@ describe("workflow: literature-deep-reading", function () {
       "Host Reference",
     );
     assert.equal(
-      await bundle.readText("artifacts/citation-analysis.md"),
-      "# Host Citation Analysis",
+      JSON.parse(await bundle.readText("artifacts/citation_analysis.json"))
+        .summary,
+      "Host Citation Analysis",
     );
     const manifest = JSON.parse(await bundle.readText("source-manifest.json"));
     assert.equal(

@@ -129,6 +129,7 @@ This command has no structured JSON input parameter.
       "type": "integer"
     },
     "offset": {
+      "description": "Ordinary note content offset; managed payloads are returned complete.",
       "minimum": 0,
       "type": "integer"
     }
@@ -199,30 +200,250 @@ The executable command contract owns the base source, fixed values, field mappin
       "const": "library.get_note_detail"
     },
     "data": {
-      "additionalProperties": true,
-      "description": "Result data owned by library.get_note_detail.",
-      "properties": {
-        "hasMore": {
-          "type": "boolean"
+      "$defs": {
+        "itemRef": {
+          "additionalProperties": false,
+          "properties": {
+            "key": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "libraryId": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "libraryId",
+            "key"
+          ],
+          "type": "object"
         },
-        "maxChars": {
-          "minimum": 0,
-          "type": "integer"
-        },
-        "nextOffset": {
-          "minimum": 0,
-          "type": "integer"
-        },
-        "totalChars": {
-          "minimum": 0,
-          "type": "integer"
-        },
-        "truncated": {
-          "type": "boolean"
+        "jsonValue": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "$ref": "#/$defs/jsonValue"
+              },
+              "type": "array"
+            },
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/jsonValue"
+              },
+              "type": "object"
+            }
+          ]
         }
       },
-      "type": "object",
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "content": {
+              "type": "string"
+            },
+            "format": {
+              "enum": [
+                "html",
+                "text"
+              ]
+            },
+            "hasMore": {
+              "type": "boolean"
+            },
+            "kind": {
+              "const": "ordinary"
+            },
+            "maxChars": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "nextOffset": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "offset": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "parentRef": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/itemRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "ref": {
+              "$ref": "#/$defs/itemRef"
+            },
+            "revision": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "totalChars": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "ref",
+            "parentRef",
+            "title",
+            "format",
+            "content",
+            "revision",
+            "offset",
+            "nextOffset",
+            "totalChars",
+            "hasMore",
+            "truncated",
+            "maxChars"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "derived": {
+              "additionalProperties": false,
+              "properties": {
+                "markdown": {
+                  "type": "string"
+                },
+                "representativeImage": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "alt": {
+                      "type": "string"
+                    },
+                    "attachmentRef": {
+                      "$ref": "#/$defs/itemRef"
+                    }
+                  },
+                  "required": [
+                    "attachmentRef",
+                    "alt"
+                  ],
+                  "type": "object"
+                }
+              },
+              "type": "object"
+            },
+            "detailBytes": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "health": {
+              "additionalProperties": false,
+              "properties": {
+                "currentReferencesBasis": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "state": {
+                  "enum": [
+                    "current",
+                    "stale"
+                  ]
+                }
+              },
+              "required": [
+                "state"
+              ],
+              "type": "object"
+            },
+            "kind": {
+              "const": "managed"
+            },
+            "noteKind": {
+              "enum": [
+                "custom",
+                "conversation-note",
+                "digest",
+                "references",
+                "citation-analysis",
+                "literature-score"
+              ]
+            },
+            "parentRef": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/itemRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "payload": {
+              "$ref": "#/$defs/jsonValue"
+            },
+            "payloadBytes": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "provenance": {
+              "additionalProperties": false,
+              "properties": {
+                "referencesBasis": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "sourceRef": {
+                  "$ref": "#/$defs/itemRef"
+                }
+              },
+              "type": "object"
+            },
+            "ref": {
+              "$ref": "#/$defs/itemRef"
+            },
+            "revision": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "noteKind",
+            "ref",
+            "parentRef",
+            "title",
+            "payload",
+            "payloadBytes",
+            "detailBytes",
+            "revision"
+          ],
+          "type": "object"
+        }
+      ]
     }
   },
   "required": [
@@ -604,6 +825,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "type": "integer"
       },
       "offset": {
+        "description": "Ordinary note content offset; managed payloads are returned complete.",
         "minimum": 0,
         "type": "integer"
       }
@@ -630,30 +852,250 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "const": "library.get_note_detail"
       },
       "data": {
-        "additionalProperties": true,
-        "description": "Result data owned by library.get_note_detail.",
-        "properties": {
-          "hasMore": {
-            "type": "boolean"
+        "$defs": {
+          "itemRef": {
+            "additionalProperties": false,
+            "properties": {
+              "key": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "libraryId": {
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "libraryId",
+              "key"
+            ],
+            "type": "object"
           },
-          "maxChars": {
-            "minimum": 0,
-            "type": "integer"
-          },
-          "nextOffset": {
-            "minimum": 0,
-            "type": "integer"
-          },
-          "totalChars": {
-            "minimum": 0,
-            "type": "integer"
-          },
-          "truncated": {
-            "type": "boolean"
+          "jsonValue": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "$ref": "#/$defs/jsonValue"
+                },
+                "type": "array"
+              },
+              {
+                "additionalProperties": {
+                  "$ref": "#/$defs/jsonValue"
+                },
+                "type": "object"
+              }
+            ]
           }
         },
-        "type": "object",
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "content": {
+                "type": "string"
+              },
+              "format": {
+                "enum": [
+                  "html",
+                  "text"
+                ]
+              },
+              "hasMore": {
+                "type": "boolean"
+              },
+              "kind": {
+                "const": "ordinary"
+              },
+              "maxChars": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "nextOffset": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "offset": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "parentRef": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/itemRef"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "ref": {
+                "$ref": "#/$defs/itemRef"
+              },
+              "revision": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "totalChars": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "kind",
+              "ref",
+              "parentRef",
+              "title",
+              "format",
+              "content",
+              "revision",
+              "offset",
+              "nextOffset",
+              "totalChars",
+              "hasMore",
+              "truncated",
+              "maxChars"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "derived": {
+                "additionalProperties": false,
+                "properties": {
+                  "markdown": {
+                    "type": "string"
+                  },
+                  "representativeImage": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "alt": {
+                        "type": "string"
+                      },
+                      "attachmentRef": {
+                        "$ref": "#/$defs/itemRef"
+                      }
+                    },
+                    "required": [
+                      "attachmentRef",
+                      "alt"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              },
+              "detailBytes": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "health": {
+                "additionalProperties": false,
+                "properties": {
+                  "currentReferencesBasis": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "state": {
+                    "enum": [
+                      "current",
+                      "stale"
+                    ]
+                  }
+                },
+                "required": [
+                  "state"
+                ],
+                "type": "object"
+              },
+              "kind": {
+                "const": "managed"
+              },
+              "noteKind": {
+                "enum": [
+                  "custom",
+                  "conversation-note",
+                  "digest",
+                  "references",
+                  "citation-analysis",
+                  "literature-score"
+                ]
+              },
+              "parentRef": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/itemRef"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "payload": {
+                "$ref": "#/$defs/jsonValue"
+              },
+              "payloadBytes": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "provenance": {
+                "additionalProperties": false,
+                "properties": {
+                  "referencesBasis": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "sourceRef": {
+                    "$ref": "#/$defs/itemRef"
+                  }
+                },
+                "type": "object"
+              },
+              "ref": {
+                "$ref": "#/$defs/itemRef"
+              },
+              "revision": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "noteKind",
+              "ref",
+              "parentRef",
+              "title",
+              "payload",
+              "payloadBytes",
+              "detailBytes",
+              "revision"
+            ],
+            "type": "object"
+          }
+        ]
       }
     },
     "required": [

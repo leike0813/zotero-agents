@@ -1,11 +1,11 @@
 # Issue #39：Zotero Host 能力合同统一——实施指导与计划
 
-> 状态：五个 OpenSpec change 的切分方案已确认；尚未创建 change 工件、实施代码或发布。
-> 整理日期：2026-09-05。
-> 目标版本：v0.9.0；#39 作为总任务，五个 OpenSpec change 的清单和依赖见第 14 节。
+> 状态：读取、选择和 canonical mutation 三个 change 已于 2026-09-06 归档；工件与导航尚未创建。新增的 agent-facing mutation projection follow-up 现在只创建并冻结计划，待其余原始 change 完成后作为 #39 最后一个实现 change 执行；该 follow-up 尚未创建 change 工件或实施代码。
+> 整理日期：2026-09-06。
+> 目标版本：v0.9.0；#39 作为总任务，五个原始 OpenSpec change 与一个收尾 projection change 的清单和依赖见第 14 节。
 > 代码审计基线：`4fb76b73f3ec9744e905c39e45d0b86ac03b34ed`。开始审计时工作区干净；该 SHA 是本次只读审计基线，实施前须重新固定开发基线。
 
-本文件将 [#39 正文及全部 93 条评论](https://github.com/leike0813/zotero-agents/issues/39) 合并为一份实施合同，并回查 [#20 的原始能力决议](https://github.com/leike0813/zotero-agents/issues/20#issuecomment-5507754387) 与 [#26 的最终修订](https://github.com/leike0813/zotero-agents/issues/26)。其中两组评论内容重复，按一项决策处理。后文附逐评论索引。
+本文件将 [#39 正文及全部 95 条评论](https://github.com/leike0813/zotero-agents/issues/39) 合并为一份实施合同，并回查 [#20 的原始能力决议](https://github.com/leike0813/zotero-agents/issues/20#issuecomment-5507754387) 与 [#26 的最终修订](https://github.com/leike0813/zotero-agents/issues/26)。其中两组评论内容重复，按一项决策处理。后文附逐评论索引。
 
 本文区分三种信息：**已确认合同**必须实现；**实施建议**是据当前代码提出的任务安排；**待冻结项**不能由实现者猜成既定合同。后续评论明确修订早期决策时，以修订后的合同为准。本文不授权提交、推送、切换分支或发布，也不把“文档写完”视为 #39 完成。
 
@@ -25,9 +25,9 @@
 8. Host Bridge registry、直接 REST 路径、MCP、CLI、内置 Workflow/相关 Skill 的原子切换，以及旧 DSL/别名/回退删除。
 9. OpenSpec、架构文档、三层受治理表面、兼容性验证和正式 Host Bridge release receipt。
 
-上述范围按五个可分别验收的 change 实施，整组统一发布。#39 与本文件持有总范围、依赖和最终完成条件，不另建仅汇总任务的空 OpenSpec change。原名称 `canonicalize-host-bridge-zotero-capabilities` 保留给写入合同切换；其余读取、选择、工件和导航各有独立 change。每个 change 贯穿 Broker、适用的 adapters、消费者、删除、测试与文档，不按 TypeScript/Rust 或 Broker/Bridge/MCP/CLI 层分别交付半条调用链。
+原范围按五个可分别验收的 change 实施，整组统一发布。2026-09-06 已归档的 `canonicalize-host-bridge-zotero-capabilities` 完成了 Broker mutation authority 的 canonical cutover，却留下不适合 agent 的公开 union transport。因此 #39 现有**五个原始 change 加一个后续 projection change**；#39 与本文件持有总范围、依赖和最终完成条件，不另建仅汇总任务的空 OpenSpec change。后续 projection change 只替换 CLI/MCP 的 agent-facing mutation projection，不重开或修改归档 change 的 Broker 实现。为避免在 Managed Note/Artifact 写入和导航的最终业务集合尚未冻结前重复渲染大量 CLI/MCP/受治理表面，它现在只做 planning，待五个原始 change 全部归档后执行。每个 change 贯穿其适用的 adapters、消费者、删除、测试与文档，不按 TypeScript/Rust 或 Broker/Bridge/MCP/CLI 层分别交付半条调用链。
 
-不纳入 Pi runtime、Pi tool descriptors/catalog、Pi UI、provider、preferences 或 C07/C19 的产品生命周期实现。Pi C12/C13/C14/C15/C19 是后续消费者，不能替本票实现缺失的 Broker 行为。C12/C13 的生产启动条件仍包含本票实现、验证、归档、v0.9.0 发布与完整 Host Bridge receipt。
+不纳入 Pi runtime、Pi tool descriptors/catalog、Pi UI、provider、preferences 或 C07/C19 的产品生命周期实现。projection change 只冻结 Pi C14 必须复用的 per-operation `dryRun` 合同，不创建任何 Pi tool。Pi C12/C13/C14/C15/C19 是后续消费者，不能替本票实现缺失的 Broker 行为；C14 必须直接消费 projection change 已发布的业务语义合同，不能恢复 union 或另建 mutation adapter。C12/C13 的生产启动条件仍包含本票实现、验证、归档、v0.9.0 发布与完整 Host Bridge receipt。
 
 不新增通用 repository、capability 元框架、adapter 继承体系、通用 batch、多版本兼容层、动态 migration 注册、迁移 DSL、重放调度器或凭据系统。保留现有非本票领域的 notification、watched runs、attention、catalog/index、maintenance、workflow control 和 Generic Input Planning v2 语义。
 
@@ -46,6 +46,7 @@
 | attachment source 可直接传路径或 linked replacement | 私有 prepared-file lease；文件导入只进入 managed storage；不支持 linked replacement | Q94/Q95 |
 | mutation authority 仅在内存，重启事实全由外部 owner 保存 | Broker 持久化 identity/semantic binding/结果，并提供只读观察 | Q207–Q214 |
 | 回执过期后同 operationId 可以再次执行 | 保留最小 identity/digest；同输入 `outcome_unavailable`，不同输入 conflict，均不重写 | Q213 |
+| agent-facing mutation 暴露 `mutation.preview` / `mutation.execute` union | 各业务语义操作独立暴露；CLI 用 `--dry-run` 选择 preview，MCP/Pi 用 `dryRun`；Broker 内部 preview/execute 保留 | 2026-09-06 transport projection 修订 |
 | scan plan 必须跨 Zotero 重启可执行 | durable history 保留；重启后必须显式重新扫描；不能执行旧 preview | C14 closeout 覆盖 Q123 |
 | 为 navigation 新建签名/委派凭据 | 保留 master token 与协作 scope；不宣称 scope 防伪 | Q149b 覆盖 Q149a 凭据要求 |
 | MCP scope 绑定会话或来自 initialize | 每个 HTTP request 解析一次 `X-Zotero-Bridge-Scope`，用于 list/call | Q152 |
@@ -73,7 +74,7 @@
 | DSL | `src/handlers` aggregate 仍被 Broker、Workflow 和 Synthesis tag adapter 消费 | 将必要 raw effects 内收；删除公开领域 DSL |
 | 文档 | Broker SSOT 仍称 stateless、保留 handlers、Workflow navigation、MCP 整调用队列和 linked source | 与实现同时更新，不能用文档旧描述推翻 #39 修订 |
 
-本次审计时 `openspec list --json` 只有 `complete-synthesis-r9-stage1-acceptance`；本票五个 change 尚未创建。不可把本票任务写进该无关 change，也不可提前把现有主 specs 改成“已实现”。
+本次状态核对时，读取、选择和写入三个原始 change 已于 2026-09-06 归档；工件、导航和 projection change 尚未创建。当前只有无关的 active change `complete-synthesis-r9-stage1-acceptance`，不可把本票任务写入其中，也不可提前把现有主 specs 改成“已实现”。
 
 ## 4. 接口、所有权与信任边界
 
@@ -201,10 +202,13 @@ Skill/文档仅修改实际受影响源：metadata-search input schema 删除旧
 
 ### 7.1 请求、preflight 与执行
 
-Bridge 保留 `mutation.preview / mutation.execute` 这两个 transport capability，但输入原子替换为 canonical operation union。正文所列 `item.updateMetadata / item.updateTags / collection.updateMembership / notes.create / notes.updateContent / notes.upsertPayload / attachments.create / literature.ingest` 使用 Broker 语义；后续新增 Trash、Managed Note 同样进入明确投影。Pi 的 snake_case tool identity 不能反向改名 Broker member。
+CLI、MCP 和未来 Pi tools 直接暴露业务语义操作；每个业务操作拥有独立的输入、输出和描述 schema。示例包括 `item.updateMetadata`、`item.updateTags`、`collection.updateMembership`、`notes.create`、`notes.updateContent`、`notes.upsertPayload`、`attachments.create`、`attachments.replaceFile`、`literature.ingest` 和 `trash.setItemsState`。不向 agent 发布跨所有写操作的 request/result union，也不把 mutation 作为 agent 需要理解的顶层 capability。
 
-- 每个 execute intent 必须提供合法的 caller-supplied `operationId`；Broker 不生成、不从参数 hash 派生。CLI 为一次 intent 生成一次，调用者重试使用同一 ID。
-- `mutation.preview` effect-free，不要求 operationId；返回结构化 plan facts。approval 文案由 Bridge 生成。
+- CLI 使用语义子命令上的 `--dry-run`；MCP 和 Pi 使用可选的 `dryRun`。设置为 true 时调用 Broker 的 effect-free preview；缺省或为 false 时调用 Broker execute。
+- adapter 从业务工具/子命令身份补入 Broker canonical request 所需的 `operation` 字段；`--dry-run`/`dryRun` 只控制 projection 分支，不进入 canonical mutation request。Pi 的 snake_case tool identity 不能反向改名 Broker member。
+- preview 与 execute 的公开结果按业务操作分别投影；通用失败、receipt、attempt 和 observation 结构继续遵守 canonical evidence contract。
+- 每个 execute intent 的 `operationId` 由 adapter 生成；CLI/script 可接受显式 operation id，调用者重试使用同一 ID。Broker 不从参数 hash 派生 operation identity。
+- Broker 内部仍保留 canonical operation mapping、preview、execute、private preflight、approval、post-approval revalidation、durable admission、receipt/attempt 和 operation observation；这些内部边界不等于 agent-facing schema。
 - 所有 write domains 共用 normalization、validation、preflight；当前 revisions/states 进入 Broker 私有 prepared plan/token。public DTO 不允许 caller 提交 expectedRevision。
 - token 绑定 normalized semantic input、实际 effect scope、caller scope、observed basis/revisions；需要文件时绑定 prepared-file identity/size/SHA-256。
 - token/lease 不进入 public schema、approval UI、transcript、audit、可复用配置或跨重启持久化。trusted execute 路径内部取得并传递它们。
@@ -523,7 +527,7 @@ Pi 每个 assistant batch 最多一个 navigation 的规则属于未来 C15，�
 | `AGENTS.md`、`doc/components/zotero-host-capability-broker-ssot.md`、`doc/components/host-bridge-lifecycle.md`、`doc/host-bridge-cli.md`、相关 selection/note/Workflow/Synthesis 文档 | 同步实际 ownership、scope、回执、删除面；不提前宣称已完成 |
 | `skills_src/zotero-bridge-cli/**`、受影响 `skills_src/zotero-library-agent/**`、`profiles_src/hermes/zotero-librarian/**` | 按 manifest ownership 更新确实受影响语义，保留其它指令厚度 |
 | `host-bridge/contracts/**`、materialized packages/release set | 确认生成来源后通过治理 renderer/prebuild/release 流程更新，禁止手工改生成物 |
-| `openspec/changes/<第 14 节列出的五个 change 名称>/**` | 各自创建 proposal/design/tasks/delta specs，记录依赖与验收；使用 OpenSpec CLI scaffold，不另建汇总 change |
+| `openspec/changes/<第 14 节列出的尚未创建的 change 名称>/**` | 工件、导航和 projection 各自创建 proposal/design/tasks/delta specs，记录依赖与验收；projection 此时只冻结计划，不开始实现，也不另建汇总 change |
 
 ### 12.1 删除 inventory
 
@@ -547,6 +551,7 @@ Pi 每个 assistant batch 最多一个 navigation 的规则属于未来 C15，�
 | DEL-14 | `src/handlers` public aggregate、`WorkflowRuntimeInfrastructureContext.handlers`、生产 imports/runtime.handlers | 必要 raw primitive 内收到 Broker 实现，不保留领域 DSL |
 | DEL-15 | `debug-migrate-note-payloads` workflow/入口 | Dashboard 本地迁移，禁止包装旧 workflow 当 backend |
 | DEL-16 | `ZoteroMcpToolCallQueue` 的整调用 Host serialization、相应旧规范断言 | Broker module-level FIFO short slices；transport admission 单独审阅 |
+| DEL-17 | CLI/MCP 面向 agent 的 `mutation.preview`、`mutation.execute`、通用 preview/apply command card 与跨 23-operation request/result union | 逐业务操作的命令/工具与独立 schema；CLI `--dry-run`、MCP `dryRun`；Broker 内部 canonical mapping、preview/execute 和 `mutation.get_operation` 保留 |
 
 `doc/components/handlers.md` 应删除或合并到新 owner 文档；`result-apply-handlers` 按 spec/其它引用审计，当前不存在同名 `doc/components/result-apply-handlers.md`，不要把猜测路径当现存文件。不要因 dispatch handler 同名而误删 Host Bridge capability handlers。
 
@@ -562,7 +567,7 @@ Pi 每个 assistant batch 最多一个 navigation 的规则属于未来 C15，�
 | D2 | Q108 后仍未固定正常 References rewrite 的 sourceReferenceId 保留/重发规则 | authoring/import/round-trip 如何区分保留既有 row 与新 row；同 semantic rewrite 保持 basis 的规则；不得按 DOI/title/content hash 猜身份 | 工件：P4/P5/P6 |
 | D3 | 现有 ingest 的 PDF/landing/collection best-effort 与 Q92 完整 effect/no partial 有张力 | 明确 required effects 与 optional enrichment；若全 required 则定义 compensation；结果不能掩盖失败，不能直接沿用旧 created/existing envelope | 写入：ingest 的 P3/P7；不阻塞该 change 内已确定的其它任务 |
 
-各 change 的 P0 只冻结自身所需合同，无需等待所有 D 项一起关闭。工程设计记录按 owner 分配：读取负责 opaque cursor 的逐领域 basis/error 与 Host gate；选择负责 exact selection/locked refs；写入负责 operation union/schema 的事实源和生成路径、prepared plan 在 approval wait 中的传递、durable admission/再校验与最小 SQLite layout；工件负责从既有 contract 提取 score 等类型专用 semantic schema，以及 D1/D2；导航负责三版 native API 的 feature detection。共享接口引用前置 change 的决定，不另造框架或复制事实源。
+各 change 的 P0 只冻结自身所需合同，无需等待所有 D 项一起关闭。工程设计记录按 owner 分配：读取负责 opaque cursor 的逐领域 basis/error 与 Host gate；选择负责 exact selection/locked refs；已归档写入 change 负责 Broker canonical operation mapping、prepared plan 在 approval wait 中的传递、durable admission/再校验与最小 SQLite layout；projection change 负责每项业务操作的 agent-facing schema、CLI/MCP projection 与 dry-run 路由；工件负责从既有 contract 提取 score 等类型专用 semantic schema，以及 D1/D2；导航负责三版 native API 的 feature detection。共享接口引用前置 change 的决定，不另造框架或复制事实源。
 
 若上述记录改变已确认行为或需要新授权范围，提交具体 DTO/例子后再确认，不能用实现便利取代决策。其余内部函数名、table 名、组件拆分由实现者决定。
 
@@ -574,9 +579,9 @@ Pi 每个 assistant batch 最多一个 navigation 的规则属于未来 C15，�
 
 V12 当前 conformance 为 23 top-level / 21 nested / 87 callables；单独移除旧四项 navigation 后为 22/20/83，但本票还会替换 reference helpers/投影，因此 **22/20/83 只能是导航删除子步骤的预期值**。最终计数必须从最终批准的显式 member list 重新计算，不能硬套局部数字。
 
-## 14. 五个 OpenSpec change 与实施顺序
+## 14. 六个 OpenSpec change 与实施顺序
 
-五个 change 的切分已经确认。下表短称仅用于本文映射，实际目录使用完整名称；每个 change 各自维护 proposal/design/tasks/delta specs，独立验证、同步与归档。#39 统一追踪整组完成和发布，不再另建汇总 change。
+五个原始 change 的切分已经确认；`replace-host-bridge-mutation-union-projection` 是归档 canonical mutation change 发现 agent-facing union 问题后新增的第六个 change。下表短称仅用于本文映射，实际目录使用完整名称；每个 change 各自维护 proposal/design/tasks/delta specs，独立验证、同步与归档。#39 统一追踪整组完成和发布，不再另建汇总 change。
 
 ### 14.1 Change 清单与依赖
 
@@ -584,9 +589,10 @@ V12 当前 conformance 为 23 top-level / 21 nested / 87 callables；单独移�
 | --- | --- | --- |
 | 读取：`canonicalize-zotero-host-reads` | 源头分页、非平凡读取取消、跨实例 Host gate、MCP queue 职责调整、Saved Search discovery；同步 Bridge/MCP/Workflow/CLI 的相关读取消费者，删除对应二次分页和 legacy 回退 | 无其它本票 change 前置。交付页内 hydration、cursor/basis/budget、cancel/FIFO/native settle 证据。exact selected-items 和 current-view 中嵌入 selection 的移除由选择 change 端到端处理 |
 | 选择：`canonicalize-workflow-selection` | exact selected-items page、小型 current-view、locked refs、ACP/Workflow acquisition、planner/compiler/runtime/hooks 和内置 Workflow selection 迁移；同步 Bridge REST/registry、MCP、CLI selection/current-view 合同 | 依赖读取的 gate/page/control。四项 selection closure counters 为 0；43 项 inventory 中 debug migrator 的最终入口删除归工件 change，选择 change 须先消除其旧 selection acquisition |
-| 写入：`canonicalize-host-bridge-zotero-capabilities` | 保留原名称，聚焦 mutation：全域 preflight、durable identity/receipt/attempt/observation、列表/Trash、prepared-file、ingest；贯穿 Bridge/MCP/CLI/Workflow 与其它写入消费者；删除 legacy mutation 和公开 handler DSL | 依赖读取基础；D3 阻塞 ingest 收口。无 partial receipt，跨 restart/transport/retention 不重复 effect，完整 Broker 注入。此 change 保持现有 Managed Note 任务可运行；六类语义 hard cut 与普通 note 保护在工件 change 随 writer 消费者同时落地 |
+| 写入：`canonicalize-host-bridge-zotero-capabilities` | 已于 2026-09-06 归档。完成 mutation authority：全域 preflight、durable identity/receipt/attempt/observation、列表/Trash、prepared-file、ingest，以及 Broker/Bridge/MCP/CLI 的 canonical union transport cutover | 其 Broker 语义是后续 projection change 的固定输入，不重开已归档实现。该 change 的 agent-facing union 是明确替换对象，不是需要兼容保留的公开合同 |
 | 工件：`canonicalize-managed-literature-artifacts` | 六类 Managed Note、Source Reference/Citation schema/ID/basis、上游 Skill、import/export/bundle、Synthesis 产消链、显式迁移与 Dashboard Migrations；删除旧 reference/payload orchestration 和 debug migrator | 依赖写入基础与 D1/D2 冻结。新 artifact、全部生产者/消费者、library/offline 升级路径共同验收；不能先删除旧 reader，再让另一个 change 补迁移 |
 | 导航：`canonicalize-zotero-navigation` | 七项 Broker 导航、可信窗口、scope/approval、Bridge/MCP/CLI 投影；完整删除 Workflow navigation 及旧 REST/CLI open 路径 | 依赖读取基础（含 Saved Search ref/discovery）。exact window/selection/native dispatch、list/call 准入、三版 native 证据完整 |
+| Projection：`replace-host-bridge-mutation-union-projection` | 删除 CLI/MCP agent-facing `mutation.preview` / `mutation.execute` 和 23-operation request/result union；为每个最终业务写操作投影独立 schema/description/result；CLI 语义子命令加 `--dry-run`，MCP 语义工具加 `dryRun`；保留只读 `mutation.get_operation` | **现在创建并冻结 OpenSpec 工件，但不开始生产实现。** 语义依赖已归档写入 change 与工件 change 的最终 operation 集合；调度上等待五个原始 change 均归档，以避免与导航及受治理表面的同文件重渲染冲突。完成后才进入 #39 P9/P10、v0.9.0 release 和 Pi C14 |
 
 ```text
 canonicalize-zotero-host-reads
@@ -595,13 +601,16 @@ canonicalize-zotero-host-reads
   |      +--> canonicalize-managed-literature-artifacts
   +--> canonicalize-zotero-navigation
 
-all five verified / synced / archived
+all five original changes verified / synced / archived
+  --> replace-host-bridge-mutation-union-projection
   --> issue #39 cross-change acceptance
   --> exact release set + authorized v0.9.0 publication
   --> complete Host Bridge release receipt + source-main finalize
 ```
 
-读取基础完成后，选择、写入和导航可分别推进。工件 change 内部按 Managed Note、artifact 产消链、migration/UI 拆任务，共同验收；D1/D2 不阻塞其它 change，D3 不阻塞读取/选择/导航。工件与选择会修改同一批 workflow hooks，须同步已落地的 canonical task DTO，不能覆盖彼此改动或恢复 rich selection。
+读取、选择、写入已在 2026-09-06 归档。当前生产实现应继续工件与导航；projection change 的 proposal/design/tasks/delta specs 可以现在起草，但不得提前改 CLI/MCP handler、contract、受治理语义源或 materialized package。工件 change 内部按 Managed Note、artifact 产消链、migration/UI 拆任务，共同验收；D1/D2 不阻塞导航。工件与选择会修改同一批 workflow hooks，须同步已落地的 canonical task DTO，不能覆盖彼此改动或恢复 rich selection。
+
+projection change 在五个原始 change 都归档后立即执行，不是 P9/P10 的文档补丁，也不能延后到 Pi C14：它是 v0.9.0 发布前的独立实现和验证 gate。将其排在最后仅是为了消费最终业务操作集合并合并一次 agent surface render/review；它仍必须在 #39 总验收、release receipt 和 Pi C14 之前完成。
 
 按行为贯穿各层：Bridge/MCP/CLI 的页面、mutation、selection、navigation changes 分别归对应 owner，不建立按 transport 或语言拆分的独立 change。新 member 不自动扩大其它 projection；类型/能力变化须与受影响 caller、schema、tests、语义源同步完成。
 
@@ -610,12 +619,13 @@ all five verified / synced / archived
 | 删除项 | 负责 change |
 | --- | --- |
 | DEL-01/02/05 | 读取关闭自己涉及的 read projection、legacy helpers、二次分页；选择关闭 current-view/selection 剩余路径；导航关闭 legacy open helpers。P0 将共享条目细化到 symbol/member，最后一个消费者所属 change 删除空壳，不能留待总验收 |
-| DEL-03/04/08 | 写入关闭 legacy mutation types/builders/aliases、expectedRevision、旧 related/Trash/file authority；工件后续切换六类 Managed Note 的 canonical 语义，不恢复旧 transport operation |
+| DEL-03/04/08 | 已归档写入 change 关闭 legacy mutation types/builders/aliases（不含现行 canonical public union）、expectedRevision、旧 related/Trash/file authority；工件后续切换六类 Managed Note 的 canonical 语义，不恢复旧 transport operation |
 | DEL-06/07 | 选择关闭 rich context、live fallback、重复 acquisition/promotion/serializer 和 package selection aliases |
 | DEL-09/10/11 | 导航关闭 Workflow navigation、四个 REST route、旧 CLI commands/cards/instructions |
 | DEL-12/13/15 | 工件关闭并行 note orchestration、reference aliases/DTO/projection 与 debug migration workflow |
 | DEL-14 | 写入将生产 handler consumers 迁到 canonical Broker，内收必要 native primitives，删除 aggregate/infrastructure context 与旧公开 DSL 文档；工件继续消除迁移到 Broker 之后尚存的 package-local note 编排 |
 | DEL-16 | 读取移除 MCP 整调用 Host serialization，保留有明确职责的 transport admission/guard |
+| DEL-17 | projection change 删除 agent-facing `mutation.preview` / `mutation.execute`、generic preview/apply CLI entry、MCP union tool schema 与跨 operation result union；保留 Broker 私有 preview/execute、durable authority/evidence 和只读 `mutation.get_operation` |
 
 每项消费者迁移与对应删除都是所属 change 的完成条件。不能以其它 change 尚未完成为由宣布当前范围闭合；仍被其它既有路径使用的共享 symbol 必须明确列出剩余 caller 和负责 change，不新增 alias/fallback 帮当前切片过关。
 
@@ -625,24 +635,25 @@ all five verified / synced / archived
 
 每个 change 自行更新它实际影响的文档、受治理语义源、render 结果和 semantic review evidence。总任务保留同一固定治理 baseline，各 change 另记实施基线和删除子清单；最终仍对总 baseline 进行整组 parity，不能逐 change 重置比较基线掩盖累计变薄。
 
-### 14.3 P0–P11 任务归属
+### 14.3 P0–P12 任务归属
 
-P 编号保留为原实施任务的定位索引，**不再表示十二个串行阶段或十二个 change**。每个行为切片先改/扩展已有接口测试，观察失败，再实现和删除旧路径。
+P 编号保留为原实施任务的定位索引，**不表示串行阶段，也不表示 change 数量**。每个行为切片先改/扩展已有接口测试，观察失败，再实现和删除旧路径。
 
 | 任务 | 所属 change / 总任务 | 具体输出与完成条件 |
 | --- | --- | --- |
-| P0 冻结与审计 | 五个 change 各自执行；#39 汇总范围 | 分别用 CLI 创建 scaffold，读取 artifact instructions，形成 proposal/design/tasks/delta specs；冻结自身所需合同，记录基线/caller/result/producer/删除子清单/surface metrics。无全局“等待 D1–D3 全部完成”前置 |
+| P0 冻结与审计 | 原始五个 change 各自执行；projection 现在仅执行 planning；#39 汇总范围 | 分别用 CLI 创建 scaffold，读取 artifact instructions，形成 proposal/design/tasks/delta specs；冻结自身所需合同，记录基线/caller/result/producer/删除子清单/surface metrics。projection 的 P0 现在完成后保持冻结，直到其余原始 change 归档；无全局“等待 D1–D3 全部完成”前置 |
 | P1 读取基础 | 读取 | child/collection/Saved Search 源头页；跨实例 gate、readiness/export/translate control、MCP queue 职责；同步适用读取消费者，验证 cursor/budget/cancel/FIFO/页内 hydration |
 | P2 选择链 | 选择 | exact selection page 和小 current-view；locked selectionContext；ACP/menu/execute/preparation/sample/Bridge workflow control/planner/compiler/runtime/hook；preview/preparation/execute 同 identity，四项 closure counters 为 0 |
-| P3 写入基础 | 写入 | durable authority/observation、全域 private preflight、relatedRefs/100-item limits/Trash、prepared-file、D3 冻结后的 ingest；同时迁移 handler consumers（含 tagEffectAdapter/stored attachment composition）并删除公开 DSL |
+| P3 写入基础 | 写入（2026-09-06 已归档） | durable authority/observation、全域 private preflight、relatedRefs/100-item limits/Trash、prepared-file、D3 冻结后的 ingest；迁移 handler consumers（含 tagEffectAdapter/stored attachment composition）并删除公开 DSL。其 canonical union transport 是 P12 的替换输入，不在已归档 change 上返工 |
 | P4 Note/Artifact | 工件 | 一个 Managed Note owner、六类 semantic detail/write、ordinary 保护、singleton、bytes；D1/D2 冻结后的 schema/ID/basis 和内部 parent-set writer；与所有调用者一起切换 |
 | P5 产消链 | 工件 | literature Workflow、Skill renderer/pin、import/export/bundle、reference helpers、TS/Rust Synthesis；一个 artifact 与一个 Application projection，删除旧 aliases/duplicate DTO |
 | P6 显式迁移 | 工件 | note/file 共用 converter；本地 scan/apply/stop/continue、single-flight/history、Dashboard/locales/deep-link；parent-set verification/Trash/receipt/restart fresh scan，删除 debug migrator，最终 42 个活动 workflow |
-| P7 Bridge/MCP/CLI | 按行为分配给五个 change | 读取负责普通 read pages；选择负责 selection/current-view；写入负责 mutation envelope/locality/operationId/query；工件负责新 note/artifact 输入输出与适用投影；导航负责七项 capability/admission。每条路径在其 change 内同步 schema/handler/CLI/consumer 并删除旧名 |
+| P7 Bridge/MCP/CLI | 按行为分配给五个原始 change | 读取负责普通 read pages；选择负责 selection/current-view；写入负责 canonical mutation transport、locality、operationId 与 observation 查询；工件负责新 note/artifact 输入输出与适用投影；导航负责七项 capability/admission。每条路径在其 change 内同步 schema/handler/CLI/consumer；agent-facing mutation union 的替换独立归 P12 |
 | P8 导航 | 导航 | 七项 native behavior、exact target control、scope list/call、CLI navigation；旧 REST/CLI/Workflow navigation 删除；三版 native 和 no-fallback/no-auto-retry 证据 |
-| P9 删除闭合 | #39 总验收 | 汇总各 change 已完成的 DEL-01–16、selection/surface counters、V12 conformance 与 42 个 workflow，核对整组无 Pi 代码、无剩余 legacy。发现遗漏回到负责 change 修复；P9 不承接延后的代码或删除 |
+| P9 删除闭合 | #39 总验收 | 汇总六个 change 已完成的 DEL-01–17、selection/surface counters、V12 conformance 与 42 个 workflow，核对整组无 Pi 代码、无剩余 legacy。发现遗漏回到负责 change 修复；P9 不承接延后的代码或删除 |
 | P10 治理与验证 | 各 change + #39 总验收 | 每个 change 完成自身相关 suites、文档/语义源/render/review 与官方 verify/sync/archive；整组再核对跨 change 行为、full/release gates、总 baseline parity、上游/sidecar/pin、exact prebuild/release inputs |
-| P11 正式收口 | #39 发布里程碑 | 五个 change 完成后，用户另行授权提交/推送/发布，执行 exact release set；远端三表面、mutable pointers、v0.9.0、complete receipt、source-main finalize 全部成功后关闭 #39 |
+| P11 正式收口 | #39 发布里程碑 | 六个 change 完成后，用户另行授权提交/推送/发布，执行 exact release set；远端三表面、mutable pointers、v0.9.0、complete receipt、source-main finalize 全部成功后关闭 #39 |
+| P12 agent-facing mutation projection | Projection；只在五个原始 change 均归档后实施 | 以最终业务操作集合建立静态 per-operation CLI/MCP projection：语义子命令/工具、独立 input/output/description schema、CLI `--dry-run`、MCP `dryRun`、adapter 补 canonical `operation`、execute operationId 生成与只读 observation 恢复。删除 DEL-17，更新 registry/handlers/contracts/CLI/MCP catalog/受治理语义源及 materialized renders，并完成相关测试和 semantic review。不得改 Broker authority，也不得创建 Pi runtime/tool descriptor/catalog；完成后才可进入 P9/P10、release 与 Pi C14 |
 
 ### 14.4 OpenSpec 映射与归档边界
 
@@ -652,21 +663,22 @@ P 编号保留为原实施任务的定位索引，**不再表示十二个串行�
 | --- | --- |
 | 读取 | `zotero-host-broker-capability-api` 的 pages/gate/read control；`zotero-mcp-concurrency-queue-policy`；read 相关 `zotero-mcp-host-bridge-capability-catalog`、`host-bridge-service`、`host-bridge-output-boundaries`、`host-bridge-file-downloads`、`workflow-host-api-v12`、CLI/agent surfaces |
 | 选择 | `selection-context`、`workflow-host-api-v12`、Broker selection/current-view requirement；Bridge workflow/context、MCP/CLI selection 与 affected Workflow contracts |
-| 写入 | Broker mutation/observation；`host-bridge-operation-receipts`、`host-bridge-approval-prompts`、`host-bridge-file-downloads`、`host-bridge-cli-literature-ingest`；适用 service/output/MCP/CLI/V12/handler requirements |
+| 写入 | 已归档的 Broker mutation/observation；`host-bridge-operation-receipts`、`host-bridge-approval-prompts`、`host-bridge-file-downloads`、`host-bridge-cli-literature-ingest`；适用的 canonical service/output/MCP/CLI/V12/handler requirements |
 | 工件 | Broker Managed Note/Artifact detail/write；note/import/export、Synthesis host artifact/native reference/application specs；新显式数据迁移与 Dashboard Migrations capability specs（无既有对应项时） |
 | 导航 | Broker navigation/Saved Search 使用合同；`workflow-host-api-v12` navigation 删除；Bridge service/approval、MCP catalog、CLI interface 与 agent surfaces 的导航 requirements |
+| Projection | `host-bridge-service`、`host-bridge-cli-interface`、`host-bridge-cli-literature-ingest`、`host-bridge-output-boundaries`、`host-bridge-operation-receipts`、`host-bridge-approval-prompts`、MCP capability catalog/tool contracts 与受治理 agent-facing surface/CLI contracts：将仍要求公开 mutation union 的条文替换成 per-operation projection、CLI `--dry-run`、MCP/Pi `dryRun`、operation identity 与 observation recovery。Pi C14 的实际 descriptor/catalog 仍不属于本 change |
 
 不能只追加新 requirement 而保留相反旧条文。普通 reader 自动读取 legacy payload、execute delegates to handlers、V12 暴露 navigation、partial receipt 等条文分别由负责 change 明确替换/删除。
 
 每个 change 的 task 完成条件只包含自身可验收交付、消费者/删除闭合、必要测试与文档/语义审阅。满足后可按官方流程独立验证、同步、归档；不在每个 change 中复制一遍整组 v0.9.0 发布任务。工件 change 必须连同显式迁移入口一起归档，不能用“schema 已完成”代替完整交付。
 
-五个 change 全部归档仍只意味着实施阶段结束。#39 总体验收、整组 release set 和发布 receipt 是另外的完成层次；任何单个 change 的归档都不能解除 Pi 的 #39 前置 gate，也不意味着可单独发布混合合同。
+五个原始 change 全部归档只会解锁 projection 实施，并不意味着实施阶段结束；第六个 projection change 也验证、同步、归档后，#39 才能进入总体验收、整组 release set 和发布 receipt。任何单个 change 的归档都不能解除 Pi 的 #39 前置 gate，也不意味着可单独发布混合合同。
 
 ## 15. 验收矩阵与验证命令
 
 ### 15.1 稳定行为矩阵
 
-验收归属：读取负责 R1/R3，选择负责 R2/R4，写入负责 M1–M5，工件负责 N1/N2/G1–G4，导航负责 V1–V3。C1/C2 按每个 change 的实际范围分别验证，#39 再做整组闭合检查；同一测试套件可以服务多个 change，无需复制测试文件。跨 change 的回归风险在后续 change 中扩展原有 suite。
+验收归属：读取负责 R1/R3，选择负责 R2/R4，已归档写入 change 负责 M1–M5，projection change 负责 M6，工件负责 N1/N2/G1–G4，导航负责 V1–V3。C1/C2 按每个 change 的实际范围分别验证，#39 再做整组闭合检查；同一测试套件可以服务多个 change，无需复制测试文件。跨 change 的回归风险在后续 change 中扩展原有 suite。
 
 | 验收组 | 必须失败/成功的代表行为 | 优先复用测试 |
 | --- | --- | --- |
@@ -675,6 +687,7 @@ P 编号保留为原实施任务的定位索引，**不再表示十二个串行�
 | R3 Host responsiveness | 多实例/表面重入≤1，FIFO、queued cancel、native settle 前不释放；外部工作不占 gate | `102`、`105-zotero-mcp-concurrency-policy`、`101-zotero-mcp-server` |
 | R4 locked Workflow | trigger 后改 UI 不影响 preview/preparation/execute；override/durable plan 不被 live 替换；任务策略不变 | `48-workflow-execution-seams`、`173-workflow-input-planning-v2`、相关 Literature/MinerU/Tag tests |
 | M1 canonical identity | 缺失/非法 operationId 拒绝；同输入不重复效果，不同输入 conflict；跨 Bridge/MCP/CLI namespace 一致 | Broker `102`、Bridge `107/108`、Rust CLI |
+| M6 agent-facing mutation projection | CLI/MCP/Pi 只暴露业务语义 operation 的独立 schema；CLI `--dry-run`、MCP/Pi `dryRun` 正确分流 preview/execute；agent-facing surface 不出现 `mutation.preview`、`mutation.execute` 或跨 23-operation union；Broker canonical lifecycle 不变 | Bridge/MCP/CLI schema and handler tests、Pi tool contract tests、Broker mutation suite |
 | M2 crash/durability | admission 失败无 effect；commit 后 receipt persist 失败 unknown；restart started 无 terminal unknown；observe 不 execute | Broker interface suite 与既有 persistence tests |
 | M3 retention | known evidence 30 天边界；unknown/repair 不龄删；过期同 ID outcome_unavailable、不同输入 conflict | 同 authority/interface suite；可控时钟，不等真实 30 天 |
 | M4 Trash/list | parent-only/parent+部分 children/child-only；already state；跨库/重复/101/expansion>100；rollback/cancel/commit | `102` + Zotero 7/9/10 real-runtime |
@@ -688,7 +701,7 @@ P 编号保留为原实施任务的定位索引，**不再表示十二个串行�
 | V1 navigation | exact refs、Library-tab activation、filters、public postcondition 一次读、native no-op dispatch、Reader initialized+location accepted | Broker `102`、Bridge `106/107`、真实 native 矩阵 |
 | V2 admission/window | missing/global/acp-chat 允许；三个 run kinds/unknown/malformed 拒绝；list 隐藏、call 硬拒；capture 后窗口关闭无 fallback | MCP `101/108`、Bridge `106/107`、Rust CLI |
 | V3 Reader fidelity | 目标窗口已有 tab/别窗 reader/new-window pref、Markdown on/off、annotation、CFI 0/4096/4097、unsupported reason | Zotero 7.0.32/9.0.6/10.0.1；不以 fake DOM 代替 native 证据 |
-| C1 conformance/deletion | partial broker 无 native fallback；V12 无 navigation/handlers；旧 operation/REST 拒绝；raw call 同样拒绝 | broker harness、`187-workflow-host-contract-governance`、`106/107/108`、CLI |
+| C1 conformance/deletion | partial broker 无 native fallback；V12 无 navigation/handlers；旧 operation/REST 拒绝；raw call 同样拒绝；旧 mutation union 不再出现在 agent-facing schema/catalog/help 中 | broker harness、`187-workflow-host-contract-governance`、`106/107/108`、CLI |
 | C2 governed surfaces | current-state 指令、各层 ownership、schema/CLI 对齐、四个 parity 计数为 0 | `169/170`、既有 surface validators 与语义审阅；不写 prose snapshot tests |
 
 测试断言 stable DTO/code/receipt/identity/effect/locality，不锁完整 error/approval 文案、字段顺序、JSON whitespace、内部 call order、Skill/generated prose。只在现有 interface suite 无法表达稳定行为时新增测试文件；删除旧 shape 测试时补等价用户行为证据。
@@ -720,11 +733,11 @@ npm run check:host-bridge-review-mirror
 
 Synthesis TS/Rust 受影响时使用其既有 `check:synthesis-*`、`test:synthesis-rust-sidecar` 和相关 application/process tests；只有 build/runtime 输入变化才走相应 sidecar prebuild/release。上游 literature-analysis 修改使用该仓声明工具链，不安装新依赖来绕过约束。
 
-五个 OpenSpec change 各自使用官方 verify change skill 核对 implementation/spec/tasks，再按官方 sync/archive 流程关闭。共享 requirement 按第 14.2 节同步顺序处理；`openspec validate` 的结构通过不能替代 implementation verification。任何验证不可运行都记录命令、环境、原因与未覆盖行为，不能填 PASS。
+六个 OpenSpec change 各自使用官方 verify change skill 核对 implementation/spec/tasks，再按官方 sync/archive 流程关闭；其中 projection change 的工件现在可创建，但必须等五个原始 change 归档后才开始生产实现。共享 requirement 按第 14.2 节同步顺序处理；`openspec validate` 的结构通过不能替代 implementation verification。任何验证不可运行都记录命令、环境、原因与未覆盖行为，不能填 PASS。
 
 ## 16. 受治理表面与发布完成定义
 
-#39 是五个 change 的共同发布与验收总任务。每个 change 负责自身语义源、render/review 与删除证据；正式 release set 只在五个 change 的交付全部收敛后准备、验证和发布。单个 change 可以独立归档，不能用其归档状态声称 #39 或 v0.9.0 已完成。
+#39 是六个 change 的共同发布与验收总任务，其中最后一个是 agent-facing mutation projection 收尾 change。每个 change 负责自身语义源、render/review 与删除证据；正式 release set 只在六个 change 的交付全部收敛后准备、验证和发布。单个 change 可以独立归档，不能用其归档状态声称 #39 或 v0.9.0 已完成。
 
 修改语义源前，按 `host-bridge/surfaces.json` 解析 minimum-core、Generic、Hermes 的真实 composition，记录固定 clean baseline 和每个受影响 materialized SKILL/reference 的 substantive instruction lines、normalized prose characters、明确删除 semantic units。
 
@@ -754,7 +767,7 @@ governed surfaces:
 
 本票分三种完成状态：
 
-1. **实施可验收**：五个 change 分别验证、同步、归档；整组代码/消费者/删除/文档一致，P9 跨 change 审计与必要回归证据齐全。
+1. **实施可验收**：六个 change 分别验证、同步、归档；整组代码/消费者/删除/文档一致，projection change 的 agent-facing schema/catalog/help 与 dry-run 路由证据齐全，P9 跨 change 审计与必要回归证据齐全。
 2. **发布就绪**：语义审阅、中文 mirror、content/surface gates、exact CLI 七平台 prebuild freshness、必要 sidecar/upstream pin 全部通过，release set 可供审阅。
 3. **Issue/release 完成**：另行得到提交/推送/发布授权后，经 dedicated pipeline 发布 exact set；三表面远端验证、mutable pointers、complete receipt、自动 source-main finalize 全部成功，并有 v0.9.0 发布记录。
 
@@ -764,7 +777,7 @@ GitHub 是正式发布事实源。Gitee 同步不属于本票主线；仅用户�
 
 ## 17. 决策来源索引
 
-以下索引覆盖抓取时 #39 的全部 93 条评论；重复项也保留来源，以便实施审阅逐条核对。章节正文已经合并同义要求并落实后续修订，不能把索引中的早期原文重新当成最终合同。
+以下索引覆盖当前记录的 #39 全部 95 条评论；第 94 条因 shell quoting 损坏，已由第 95 条校正版取代，不作为合同来源。重复项也保留来源，以便实施审阅逐条核对。章节正文已经合并同义要求并落实后续修订，不能把索引中的早期原文重新当成最终合同。
 
 | 序号 | 评论 | 本文落点 |
 | --- | --- | --- |
@@ -861,5 +874,7 @@ GitHub 是正式发布事实源。Gitee 同步不属于本票主线；仅用户�
 | 91 | [C19 Q210–Q212 — mutation observation, durability and retention](https://github.com/leike0813/zotero-agents/issues/39#issuecomment-5551463843) | §7.4 |
 | 92 | [C19 Q213–Q214 — expired operation identity and observation projections](https://github.com/leike0813/zotero-agents/issues/39#issuecomment-5551485460) | §7.4 |
 | 93 | [C19 Q222 — stable mutation namespace for execution and observation](https://github.com/leike0813/zotero-agents/issues/39#issuecomment-5551555870) | §7.4 |
+| 94 | [Superseded scope amendment — shell-quoting-damaged business-semantic mutation decision](https://github.com/leike0813/zotero-agents/issues/39#issuecomment-5558556038) | 仅作历史记录；不作为合同来源 |
+| 95 | [Scope amendment — business-semantic mutation tools with `--dry-run` / `dryRun` (corrected)](https://github.com/leike0813/zotero-agents/issues/39#issuecomment-5558577669) | §7.1、§14、§15 |
 
 补充来源：[Q103 完整领域定义](https://github.com/leike0813/zotero-agents/issues/26#issuecomment-5542640534)、[Q108 identity/basis 细则](https://github.com/leike0813/zotero-agents/issues/26#issuecomment-5543196139)、[C14 closeout 对 Q123/Q124 的明确修订](https://github.com/leike0813/zotero-agents/issues/26#issuecomment-5543869931)。

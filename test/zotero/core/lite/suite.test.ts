@@ -14,3 +14,4 @@ import "../../../core/182-host-bridge-socket.integration.test";
 import "../../../core/185-zotero-library-page-query.zotero.test";
 import "../../../core/186-acp-runtime-file-io.zotero.test";
 import "../../../core/187-runtime-log-persistence.zotero.test";
+import "../../../core/275-managed-note-transaction.zotero.test";

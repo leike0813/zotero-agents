@@ -11,6 +11,7 @@ import {
   MUTATION_GET_OPERATION_OUTPUT_SCHEMA,
   MUTATION_PREVIEW_INPUT_SCHEMA,
   MUTATION_PREVIEW_OUTPUT_SCHEMA,
+  NOTE_DETAIL_OUTPUT_SCHEMA,
 } from "../schemas/zoteroHostMutationSchemas";
 import type {
   HostBridgeApprovalRequirement,
@@ -61,7 +62,40 @@ export type HostBridgeContractViolation = {
   suggestions?: string[];
 };
 
+export const HOST_BRIDGE_NOTE_DETAIL_OUTPUT_SCHEMA = {
+  ...NOTE_DETAIL_OUTPUT_SCHEMA,
+  oneOf: NOTE_DETAIL_OUTPUT_SCHEMA.oneOf.map((branch) =>
+    branch.properties.kind.const === "ordinary"
+      ? {
+          ...branch,
+          properties: {
+            ...branch.properties,
+            offset: { type: "integer", minimum: 0 },
+            nextOffset: { type: "integer", minimum: 0 },
+            totalChars: { type: "integer", minimum: 0 },
+            hasMore: { type: "boolean" },
+            truncated: { type: "boolean" },
+            maxChars: { type: "integer", minimum: 1 },
+          },
+          required: [
+            ...branch.required,
+            "offset",
+            "nextOffset",
+            "totalChars",
+            "hasMore",
+            "truncated",
+            "maxChars",
+          ],
+        }
+      : branch,
+  ),
+};
+
 const contract = capabilityContractJson as HostBridgeCapabilityContract;
+contract.capabilities["library.get_note_detail"] = {
+  ...contract.capabilities["library.get_note_detail"],
+  outputSchema: HOST_BRIDGE_NOTE_DETAIL_OUTPUT_SCHEMA,
+};
 const ajv = new Ajv2020({
   allErrors: true,
   strict: false,

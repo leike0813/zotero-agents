@@ -231,6 +231,10 @@
 - Selection 必须经 Broker 精确分页完成一次获取后锁定有序 canonical facts；分页 basis 变化使整次获取失败，不得混合页或自动重采样。Workflow settings/preparation/execute 共用锁定输入，显式与 durable 输入只接受完整 portable refs；promotion、去重和来源优先级仅属于命名 task selector。选择与任务 DTO 不携带 native ID 或路径，上传路径仅从最终 canonical attachment file descriptor 获取。
 
 - `src/modules/zoteroHostCapabilityBroker.ts` 中的 `ZoteroHostCapabilityBroker` 是 Zotero host capability 语义的唯一事实源；`WorkflowHostApi`、Host Bridge 与 MCP 是独立 projection，不得反向成为 broker 定义来源。
+- Managed Note 语义固定为 custom、conversation-note、digest、references、citation-analysis、literature-score 六类；完整 detail、canonical payload、provenance、health 与 derived projection 由 Broker owner 统一提供。
+- paired References/Citation 与 migration parent-set 通过 Broker 私有 writer 一次提交 identity/receipt；canonical verify 后的 legacy cleanup 是同一 authority operation 的 required tail，失败保留 canonical 结果并进入 repair_required。
+- library migration 仅由 Dashboard-local service 持有 scan/apply/stop/continue 生命周期；普通 Import UI 只对已确认的 recognized legacy 使用私有 converter，canonical 输入走普通 writer。
+- Source Reference ID 由 producer/authoring runtime 生成并由 contract-set 保留；basis 由 canonical artifact owner 重算，DOI、标题、作者、年份、内容 hash 或 Synthesis ID 不得推测迁移目标身份。
 - broker 公共输入只接受 portable JSON refs，公共 DTO 只允许 strict JSON 值；raw `Zotero.Item` / `Zotero.Collection` 仅可由 `src/workflows/hostApi.ts` 在 Workflow Host API v12 adapter 内归一化。
 - `WorkflowHostApi` 必须通过 member-level `Pick` 和显式对象字面量投影 broker；不得传播整个 broker domain，不得使用 spread、proxy、运行时 capability catalog 或隐式成员继承。
 - broker 不负责 authorization、permission、exposure、noninteractive policy、transport 或 remote locality；这些规则属于 Host Bridge/MCP adapter。

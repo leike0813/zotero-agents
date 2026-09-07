@@ -1,5 +1,8 @@
 import { assert } from "chai";
-import { getSelectedImportCandidateForKind } from "../../workflows_builtin/literature-workbench-package/import-notes/hooks/applyResult.mjs";
+import {
+  getSelectedImportCandidateForKind,
+  previewLegacyArtifactSetForImport,
+} from "../../workflows_builtin/literature-workbench-package/import-notes/hooks/applyResult.mjs";
 import { nativeFixtureMutations as handlers } from "../helpers/nativeFixtureMutations";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import {
@@ -30,13 +33,16 @@ import {
   extractExistingRepresentativeImageKeys,
   resolveRepresentativeImageMarkdownImportCandidate,
 } from "../../workflows_builtin/literature-workbench-package/lib/representativeImage.mjs";
-import {
-  analyzeNoteHtmlForDebug,
-  parsePseudoEmbeddedPayloadBytesForDebug,
-} from "../../workflows_builtin/literature-workbench-package/debug-note-artifact-inspector/hooks/applyResult.mjs";
+import { analyzeNoteItemForDebug } from "../../workflows_builtin/literature-workbench-package/debug-note-artifact-inspector/hooks/applyResult.mjs";
 import { parseEmbeddedNotePayloadBlock } from "../../src/modules/notePayloadCodec";
 import { createWorkflowHostApi } from "../../src/workflows/hostApi";
+import {
+  createConversationNote,
+  exportGeneratedNoteCandidate,
+  importCustomNotes,
+} from "../../workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs";
 import { createWorkflowPreparedImageScope } from "../../src/workflows/workflowNoteImagePreparation";
+import { generateSourceReferenceId } from "../../packages/synthesis-contracts/src/sourceReferenceArtifact";
 import {
   resetZoteroLibrarySourcePageQueryAdapterForTests,
   setZoteroLibrarySourcePageQueryAdapterForTests,
@@ -111,12 +117,7 @@ function buildDigestNoteContent(markdown: string) {
     '<div data-zs-note-kind="digest">',
     "<h1>Digest</h1>",
     '<div data-zs-view="digest-html"><p>Digest HTML</p></div>',
-    renderPayloadBlock("digest-markdown", {
-      version: 1,
-      entry: "artifacts/digest.md",
-      format: "markdown",
-      content: markdown,
-    }),
+    renderPlainMarkdownPayloadBlock("digest-markdown", markdown),
     "</div>",
   ].join("\n");
 }
@@ -137,41 +138,34 @@ function buildDigestNoteContentWithRepresentativeImage(
     "</figure>",
     "</div>",
     '<div data-zs-view="digest-html"><p>Digest HTML</p></div>',
-    renderPayloadBlock("digest-markdown", {
-      version: 1,
-      entry: "artifacts/digest.md",
-      format: "markdown",
-      content: markdown,
-    }),
+    renderPlainMarkdownPayloadBlock("digest-markdown", markdown),
     "</div>",
   ].join("\n");
 }
 
 function buildNativeReferencesArtifact() {
-  return [
-    {
-      author: ["Alice Zhang"],
-      title: "Structured Reference",
-      year: 2024,
-      raw: "Alice Zhang. Structured Reference. 2024.",
-      confidence: 0.92,
-    },
-  ];
-}
-
-function buildSchemaWrappedReferencesArtifact() {
   return {
-    items: buildNativeReferencesArtifact(),
+    schema: "source_reference_artifact.v1",
+    references: [
+      {
+        sourceReferenceId: "source-ref-structured",
+        extraction: {
+          raw: "Alice Zhang. Structured Reference. 2024.",
+          confidence: 0.92,
+        },
+        bibliography: {
+          title: "Structured Reference",
+          authors: ["Alice Zhang"],
+          year: 2024,
+        },
+        matching: {},
+      },
+    ],
   };
 }
 
 function buildReferencesPayloadWrapper() {
-  return {
-    version: 1,
-    entry: "artifacts/references.json",
-    format: "json",
-    references: buildNativeReferencesArtifact(),
-  };
+  return buildNativeReferencesArtifact();
 }
 
 function buildReferencesNoteContent() {
@@ -186,6 +180,7 @@ function buildReferencesNoteContent() {
 
 function buildNativeCitationArtifact() {
   return {
+    schema: "citation_analysis_artifact.v1",
     meta: {
       language: "en",
       scope: {
@@ -193,26 +188,31 @@ function buildNativeCitationArtifact() {
         line_start: 1,
         line_end: 12,
       },
+      scope_source: null,
+      scope_decision: {
+        selection_reason: null,
+        covered_sections: [],
+        fallback_from: null,
+        fallback_reason: null,
+      },
+      mapping_reliability: "normal",
+      reference_extraction: {
+        status: "completed",
+      },
     },
-    items: [],
-    unmapped_mentions: [],
     summary: "Summary text",
     timeline: {
-      early: {},
-      mid: {},
-      recent: {},
+      early: { summary: "", sourceReferenceIds: [] },
+      mid: { summary: "", sourceReferenceIds: [] },
+      recent: { summary: "", sourceReferenceIds: [] },
     },
-    report_md: "# Citation Analysis\n\nStructured report",
+    items: [],
+    unresolved: [],
   };
 }
 
 function buildCitationPayloadWrapper() {
-  return {
-    version: 1,
-    entry: "artifacts/citation_analysis.json",
-    format: "json",
-    citation_analysis: buildNativeCitationArtifact(),
-  };
+  return buildNativeCitationArtifact();
 }
 
 function buildCitationNoteContent() {
@@ -220,7 +220,10 @@ function buildCitationNoteContent() {
     '<div data-zs-note-kind="citation-analysis">',
     "<h1>Citation Analysis</h1>",
     '<div data-zs-view="citation-analysis-html"><p>Structured report</p></div>',
-    renderPayloadBlock("citation-analysis-json", buildCitationPayloadWrapper()),
+    renderPayloadBlock("citation-analysis-json", {
+      ...buildCitationPayloadWrapper(),
+      referencesBasis: "sha256:test-references-basis",
+    }),
     "</div>",
   ].join("\n");
 }
@@ -247,6 +250,21 @@ function buildNativeLiteratureScoreArtifact() {
       score: 60,
       confidence: 0.8,
       summary: `${dimension_key} summary`,
+      configured_weight: 1 / 6,
+      effective_weight: 1 / 6,
+      raw_score: 6,
+      applicable_max_score: 10,
+      criteria: [
+        {
+          criterion_key: `${dimension_key}.evidence`,
+          name: "Evidence",
+          status: "scored",
+          score: 6,
+          max_score: 10,
+          reason: "Source evidence",
+          evidence: [],
+        },
+      ],
     })),
   };
 }
@@ -255,12 +273,10 @@ function buildLiteratureScoreNoteContent() {
   return [
     '<div data-zs-note-kind="literature-score">',
     "<h1>Literature Score</h1>",
-    renderPayloadBlock("literature-score-json", {
-      version: 1,
-      entry: "artifacts/literature_score.json",
-      format: "json",
-      literature_score: buildNativeLiteratureScoreArtifact(),
-    }),
+    renderPayloadBlock(
+      "literature-score-json",
+      buildNativeLiteratureScoreArtifact(),
+    ),
     "</div>",
   ].join("\n");
 }
@@ -320,7 +336,8 @@ function findGeneratedNoteByHeading(notes: Zotero.Item[], title: string) {
 
 async function parseStoredPayload(note: Zotero.Item, payloadType: string) {
   try {
-    return parsePayload(note.getNote(), payloadType);
+    const payload = parsePayload(note.getNote(), payloadType);
+    return typeof payload === "string" ? { content: payload } : payload;
   } catch {
     // New literature-workbench generated notes store machine payloads in
     // note-child embedded-image attachments so Zotero's note editor can
@@ -337,10 +354,41 @@ async function parseStoredPayload(note: Zotero.Item, payloadType: string) {
       id: attachment?.id,
     });
     if (block?.payloadType === payloadType && !block.errors?.length) {
-      return block.payload;
+      return typeof block.payload === "string"
+        ? { content: block.payload }
+        : block.payload;
     }
   }
   assert.fail(`payload ${payloadType} should exist`);
+}
+
+function createNodeDatabaseValue() {
+  const sourceQueryAdapter = createMockZoteroLibrarySourcePageQueryAdapter();
+  return {
+    executeTransaction: (run: () => Promise<void>) => run(),
+    async queryAsync(sql: string, params: Array<string | number> = []) {
+      const normalized = sql.replace(/\s+/g, " ").trim().toLowerCase();
+      const domain = normalized.includes("itemattachments")
+        ? ("attachments" as const)
+        : normalized.includes("itemnotes")
+          ? ("notes" as const)
+          : null;
+      if (!domain) {
+        throw new Error(`unsupported Node Zotero query: ${sql}`);
+      }
+      const isCount = normalized.startsWith("select count(*)");
+      return sourceQueryAdapter.queryAsync(sql, params, {
+        kind: isCount ? "count" : "page",
+        domain,
+        criteria: {
+          libraryId: Number(params[1]),
+          parentItemId: Number(params[0]),
+        },
+        position: isCount ? {} : { id: Number(params[2]) || 0 },
+        limitPlusOne: isCount ? 0 : Number(params[3]) || 0,
+      });
+    },
+  };
 }
 
 const describeImportEditorSuite = isZoteroRuntime() ? describe.skip : describe;
@@ -351,9 +399,97 @@ const itZoteroFullOrNode =
 describe("workflow: literature-workbench import/export notes", function () {
   this.timeout(30000);
   let previousContentDevRootEnv: string | undefined;
+  let databaseDescriptor: PropertyDescriptor | undefined;
+
+  for (const noteKind of ["custom", "conversation-note"] as const) {
+    it(`round-trips ${noteKind} through the managed semantic writer`, async function () {
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: "Semantic markdown parent" },
+      });
+      const hostApi = createWorkflowHostApi();
+      const runtime = { hostApi, hostApiVersion: hostApi.version };
+      const markdown = "# Reading\n\n中文 notes with **emphasis**.\n";
+      let note;
+      if (noteKind === "custom") {
+        const directory = await mkTempDir("managed-custom-roundtrip");
+        const sourcePath = joinPath(directory, "Reading.md");
+        await writeUtf8(sourcePath, markdown);
+        const result = await importCustomNotes({
+          runtime,
+          parentItem: itemRef(parent),
+          customNotes: [{ sourcePath, fileName: "Reading" }],
+        });
+        note = result.notes[0];
+      } else {
+        note = await createConversationNote({
+          runtime,
+          parentItem: itemRef(parent),
+          title: "Reading",
+          markdown,
+        });
+      }
+      const detail = await hostApi.library.getNoteDetail(note.ref, {
+        format: "html",
+      });
+      assert.equal(detail.kind, "managed");
+      if (detail.kind !== "managed") assert.fail("Expected managed detail");
+      assert.equal(detail.noteKind, noteKind);
+      assert.deepEqual(detail.parentRef, itemRef(parent));
+      assert.deepEqual(detail.payload, { title: "Reading", markdown });
+      assert.notProperty(detail, "content");
+      const exported = await exportGeneratedNoteCandidate({
+        runtime,
+        noteRef: note.ref,
+        noteKind,
+      });
+      assert.deepEqual(exported.payload, { title: "Reading", markdown });
+      assert.deepEqual(exported.files, [
+        { fileName: "Reading.md", content: markdown },
+      ]);
+      const children = await hostApi.library.getItemNotes(itemRef(parent));
+      assert.lengthOf(children.notes, 1);
+    });
+  }
+
+  it("replays an analysis parent set with one operation identity and unchanged note refs", async function () {
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Canonical analysis set" },
+    });
+    const host = createWorkflowHostApi();
+    const request = {
+      operationId: "analysis-parent-set-roundtrip",
+      parentRef: itemRef(parent),
+      digest: { markdown: "## Summary\n\nComplete semantic evidence." },
+      references: {
+        schema: "source_reference_artifact.v1" as const,
+        references: [],
+      },
+    };
+    const first = await host.literatureArtifacts.applyAnalysis(request);
+    assert.property(first, "result");
+    if (!("result" in first)) assert.fail("Expected committed analysis");
+    assert.sameMembers(
+      first.result.notes.map((note) => note.noteKind),
+      ["digest", "references"],
+    );
+    const replay = await host.literatureArtifacts.applyAnalysis(request);
+    assert.property(replay, "result");
+    if (!("result" in replay)) assert.fail("Expected canonical replay");
+    assert.deepEqual(replay.result, first.result);
+    const children = await host.library.getItemNotes(itemRef(parent));
+    assert.lengthOf(children.notes, 2);
+  });
 
   beforeEach(function () {
     if (!isZoteroRuntime()) {
+      databaseDescriptor = Object.getOwnPropertyDescriptor(Zotero, "DB");
+      Object.defineProperty(Zotero, "DB", {
+        configurable: true,
+        // Node round trips exercise transfer; native Zotero owns rollback evidence.
+        value: createNodeDatabaseValue(),
+      });
       setZoteroLibrarySourcePageQueryAdapterForTests(
         createMockZoteroLibrarySourcePageQueryAdapter(),
       );
@@ -370,6 +506,12 @@ describe("workflow: literature-workbench import/export notes", function () {
 
   afterEach(function () {
     resetZoteroLibrarySourcePageQueryAdapterForTests();
+    if (!isZoteroRuntime()) {
+      if (databaseDescriptor)
+        Object.defineProperty(Zotero, "DB", databaseDescriptor);
+      else Reflect.deleteProperty(Zotero, "DB");
+      databaseDescriptor = undefined;
+    }
     for (const scope of preparedImageScopes) scope.dispose();
     preparedImageScopes.clear();
     const processEnv = (
@@ -447,7 +589,7 @@ describe("workflow: literature-workbench import/export notes", function () {
   );
 
   itNodeOnly(
-    "loads literature-workbench debug-only note artifact workflows",
+    "loads remaining literature-workbench debug-only note artifact workflows",
     async function () {
       const loaded = await loadWorkflowManifests(workflowsPath());
       const debugApply = loaded.workflows.find(
@@ -456,118 +598,100 @@ describe("workflow: literature-workbench import/export notes", function () {
       const debugInspector = loaded.workflows.find(
         (entry) => entry.manifest.id === "debug-note-artifact-inspector",
       );
-      const debugMigrator = loaded.workflows.find(
-        (entry) => entry.manifest.id === "debug-migrate-note-payloads",
-      );
 
       assert.isOk(debugApply);
       assert.isOk(debugInspector);
-      assert.isOk(debugMigrator);
       assert.equal(debugApply?.manifest.debug_only, true);
       assert.equal(debugInspector?.manifest.debug_only, true);
-      assert.equal(debugMigrator?.manifest.debug_only, true);
       assert.isFunction(debugApply?.hooks.applyResult);
       assert.isFunction(debugInspector?.hooks.applyResult);
-      assert.isFunction(debugMigrator?.hooks.applyResult);
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: "Canonical debug fixture" },
+      });
+      const host = createPreparedImageTestHost();
+      await debugApply!.hooks.applyResult!({
+        parent: itemRef(parent),
+        runtime: { hostApi: host, hostApiVersion: 12 },
+      } as never);
+      const details = await Promise.all(
+        parent
+          .getNotes()
+          .map(async (id: number) =>
+            host.library.getNoteDetail(
+              itemRef(await Zotero.Items.getAsync(id)),
+              { format: "html" },
+            ),
+          ),
+      );
+      assert.sameMembers(
+        details.map((note) => note.noteKind),
+        ["digest", "references", "citation-analysis"],
+      );
+      const citation = details.find(
+        (note) => note.noteKind === "citation-analysis",
+      );
+      assert.equal(citation?.kind, "managed");
+      if (citation?.kind === "managed")
+        assert.equal(citation.health?.state, "current");
     },
   );
 
-  it("debug migrator converts legacy digest payload blocks to payload attachments", async function () {
-    const workflow = await getWorkflow("debug-migrate-note-payloads");
-    const parent = await handlers.item.create({
-      itemType: "journalArticle",
-      fields: { title: "Debug Migrator Legacy Parent" },
-    });
-    const digestNote = await handlers.parent.addNote(parent, {
-      content: [
-        '<div data-zs-note-kind="digest">',
-        "<h1>Digest</h1>",
-        '<div data-zs-view="digest-html">',
-        "<h2>TL;DR</h2>",
-        "<p>Legacy visible body.</p>",
-        "</div>",
-        renderPayloadBlock("digest-markdown", {
-          version: 1,
-          entry: "artifacts/digest.md",
-          format: "markdown",
-          content: "# Digest\n\nStale legacy payload.",
-        }),
-        "</div>",
-      ].join("\n"),
-    });
+  itNodeOnly(
+    "reports canonical note detail and bounded attachment facts from the debug inspector",
+    async function () {
+      const ref = { libraryId: 1, key: "NOTE_CANONICAL" };
+      const parentRef = { libraryId: 1, key: "PARENT_CANONICAL" };
+      const detail = {
+        kind: "managed" as const,
+        ref,
+        parentRef,
+        title: "Canonical digest",
+        noteKind: "digest" as const,
+        payload: { title: "Canonical digest", markdown: "# Digest\n" },
+        derived: {},
+        revision: 4,
+        payloadBytes: 19,
+        detailBytes: 27,
+        provenance: null,
+      };
+      const host = {
+        library: {
+          async getNoteDetail() {
+            return detail;
+          },
+          async getItemAttachments() {
+            return {
+              attachments: [],
+              limit: 100,
+              nextCursor: null,
+              hasMore: false,
+              returned: 0,
+              total: 0,
+            };
+          },
+        },
+      };
+      const result = await analyzeNoteItemForDebug({
+        host,
+        noteItem: detail,
+        runtime: { hostApi: host, hostApiVersion: 12 },
+      });
 
-    const result = (await executeApplyResult({
-      workflow,
-      parent,
-      bundleReader: { readText: async () => "" },
-    })) as {
-      summary?: { migratedCount?: number; recoveredDigestCount?: number };
-      notes?: Array<{ status?: string; payloadType?: string }>;
-    };
-
-    const migratedNote = Zotero.Items.get(digestNote.id)!;
-    assert.equal(result.summary?.migratedCount, 1);
-    assert.equal(result.summary?.recoveredDigestCount, 1);
-    assert.equal(result.notes?.[0]?.status, "migrated");
-    assert.equal(result.notes?.[0]?.payloadType, "digest-markdown");
-    assert.include(migratedNote.getNote(), 'data-schema-version="9"');
-    assert.notMatch(migratedNote.getNote(), /\bdata-zs-payload\s*=/);
-    assert.notInclude(migratedNote.getNote(), "data-zs-note-kind");
-    assert.equal(
-      (await parseStoredPayload(migratedNote, "digest-markdown")).content,
-      "## TL;DR\n\nLegacy visible body.",
-    );
-  });
-
-  it("debug migrator converts legacy conversation note payload blocks to v2 anchored attachments", async function () {
-    const workflow = await getWorkflow("debug-migrate-note-payloads");
-    const parent = await handlers.item.create({
-      itemType: "journalArticle",
-      fields: { title: "Debug Migrator Conversation Parent" },
-    });
-    const conversationNote = await handlers.parent.addNote(parent, {
-      content: [
-        '<div data-zs-note-kind="conversation-note">',
-        "<h1>Conversation Note</h1>",
-        '<div data-zs-view="conversation-note-html"><p>Visible chat.</p></div>',
-        renderPayloadBlock("conversation-note-markdown", {
-          version: 1,
-          path: "artifacts/conversation-note.md",
-          format: "markdown",
-          content: "# Conversation\n\nVisible chat.",
-        }),
-        "</div>",
-      ].join("\n"),
-    });
-
-    const result = (await executeApplyResult({
-      workflow,
-      parent,
-      bundleReader: { readText: async () => "" },
-    })) as {
-      summary?: { migratedCount?: number };
-      notes?: Array<{
-        status?: string;
-        payloadType?: string;
-        anchorStatus?: string;
-      }>;
-    };
-
-    const migratedNote = Zotero.Items.get(conversationNote.id)!;
-    assert.equal(result.summary?.migratedCount, 1);
-    assert.equal(result.notes?.[0]?.status, "migrated");
-    assert.equal(result.notes?.[0]?.payloadType, "conversation-note-markdown");
-    assert.notMatch(migratedNote.getNote(), /\bdata-zs-payload\s*=/);
-    assert.include(
-      migratedNote.getNote(),
-      'data-zs-payload-anchor="conversation-note-markdown"',
-    );
-    assert.equal(
-      (await parseStoredPayload(migratedNote, "conversation-note-markdown"))
-        .content,
-      "# Conversation\n\nVisible chat.",
-    );
-  });
+      assert.deepEqual(result.ref, ref);
+      assert.deepEqual(result.parentRef, parentRef);
+      assert.equal(result.kind, "managed");
+      assert.equal(result.noteKind, "digest");
+      assert.equal(result.payloadBytes, 19);
+      assert.equal(result.detailBytes, 27);
+      assert.deepEqual(result.attachments, []);
+      assert.deepEqual(result.exportAttempt, {
+        attempted: true,
+        ok: true,
+        files: [{ fileName: "digest.md", hasContent: true, hasBytes: false }],
+      });
+    },
+  );
 
   it("adds a representative image to an existing digest note from a selected parent", async function () {
     const workflow = await getWorkflow("add-digest-representative-image");
@@ -685,7 +809,7 @@ describe("workflow: literature-workbench import/export notes", function () {
     }
   });
 
-  it("adds a representative image to a normalized digest note without stored payload", async function () {
+  it("rejects an HTML-only digest note without mutating it", async function () {
     const workflow = await getWorkflow("add-digest-representative-image");
     const root = await mkTempDir("add-digest-rep-image-normalized");
     const sourcePath = joinPath(root, "paper.md");
@@ -721,261 +845,37 @@ describe("workflow: literature-workbench import/export notes", function () {
       ].join("\n"),
     });
     const selectionContext = await buildSelectionContext([digestNote]);
-    const requests = await executeBuildRequests({
-      workflow,
-      selectionContext,
-      executionOptions: {
-        workflowParams: {
-          markdown_src: "Images/figure.jpg",
+    const beforeContent = digestNote.getNote();
+    const beforeAttachments = digestNote.getAttachments();
+    let thrown: unknown = null;
+    try {
+      const requests = await executeBuildRequests({
+        workflow,
+        selectionContext,
+        executionOptions: {
+          workflowParams: {
+            markdown_src: "Images/figure.jpg",
+          },
         },
-      },
-    });
-    assert.lengthOf(requests, 1);
-
-    const hostApi = createPreparedImageTestHost((source) => {
-      assert.equal(source, imagePath);
-    });
-    const applied = (await executeApplyResult({
-      workflow,
-      parent,
-      request: requests[0],
-      bundleReader: { readText: async () => "" },
-      runtime: {
-        hostApi,
-      },
-    })) as { status?: string };
-
-    const updatedDigest = Zotero.Items.get(digestNote.id)!;
-    assert.equal(applied.status, "embedded");
-    const image = Zotero.Items.get(updatedDigest.getAttachments()[0])!;
-    assert.include(
-      updatedDigest.getNote(),
-      `data-attachment-key="${image.key}"`,
+      });
+      assert.lengthOf(requests, 1);
+    } catch (error) {
+      thrown = error;
+    }
+    assert.isOk(thrown, "HTML-only digest recovery must fail closed");
+    const message = thrown instanceof Error ? thrown.message : String(thrown);
+    const code =
+      thrown && typeof thrown === "object" && "code" in thrown
+        ? String((thrown as { code?: unknown }).code || "")
+        : "";
+    assert.isTrue(
+      ["NO_VALID_INPUT_UNITS", "legacy_artifact_requires_migration"].includes(
+        code,
+      ) || /canonical digest note|migration|one digest note/i.test(message),
+      `unexpected fail-closed diagnostic: ${code} ${message}`,
     );
-    assert.equal(
-      (await parseStoredPayload(updatedDigest, "digest-markdown")).content,
-      "## TL;DR\n\nRecovered visible body.",
-    );
-  });
-
-  it("debug migrator recovers normalized digest markdown from visible HTML", async function () {
-    const workflow = await getWorkflow("debug-migrate-note-payloads");
-    const parent = await handlers.item.create({
-      itemType: "journalArticle",
-      fields: { title: "Debug Migrator Normalized Parent" },
-    });
-    const digestNote = await handlers.parent.addNote(parent, {
-      content: [
-        '<div data-schema-version="9">',
-        "<h1>Digest</h1>",
-        '<p><img alt="Figure 1" width="720" height="200" data-attachment-key="IMGDEBUG1"></p>',
-        "<p>Figure 1. Normalized figure caption.</p>",
-        "<h2>TL;DR</h2>",
-        "<p>Recovered body.</p>",
-        "</div>",
-      ].join("\n"),
-    });
-
-    const result = (await executeApplyResult({
-      workflow,
-      parent,
-      bundleReader: { readText: async () => "" },
-    })) as {
-      summary?: { migratedCount?: number; recoveredDigestCount?: number };
-      notes?: Array<{ source?: string }>;
-    };
-
-    const migratedNote = Zotero.Items.get(digestNote.id)!;
-    const payload = await parseStoredPayload(migratedNote, "digest-markdown");
-    assert.equal(result.summary?.migratedCount, 1);
-    assert.equal(result.summary?.recoveredDigestCount, 1);
-    assert.equal(result.notes?.[0]?.source, "rebuilt-digest-html");
-    assert.include(migratedNote.getNote(), 'data-attachment-key="IMGDEBUG1"');
-    assert.notMatch(migratedNote.getNote(), /\bdata-zs-payload\s*=/);
-    assert.notInclude(payload.content, "# Digest");
-    assert.include(payload.content, "## TL;DR");
-    assert.include(payload.content, "Recovered body.");
-    assert.match(payload.content, /^## TL;DR\s*\n\s*Recovered body\./);
-    assert.equal(payload.recovery?.source, "note_html");
-  });
-
-  it("debug migrator does not mistake a payload carrier for a representative image", async function () {
-    const workflow = await getWorkflow("debug-migrate-note-payloads");
-    const parent = await handlers.item.create({
-      itemType: "journalArticle",
-      fields: { title: "Debug Migrator Payload Carrier Parent" },
-    });
-    const digestNote = await handlers.parent.addNote(parent, {
-      content: [
-        '<div data-schema-version="9">',
-        "<h1>Digest</h1>",
-        '<p><img data-attachment-key="PAYLOADIMG1" alt="Zotero Skills artifact payload" width="1" height="1"></p>',
-        '<div data-zs-block="representative-image" data-zs-version="1" data-zs-representative_image_status="embedded" data-zs-representative_image_attachment_key="IMGREAL1">',
-        '<figure data-zs-block="representative-image-figure">',
-        '<img data-attachment-key="IMGREAL1" alt="Figure Real" width="720" height="360">',
-        "<figcaption>Figure Real caption.</figcaption>",
-        "</figure>",
-        "</div>",
-        "<h2>TL;DR</h2>",
-        "<p>Recovered body.</p>",
-        "</div>",
-      ].join("\n"),
-    });
-
-    await executeApplyResult({
-      workflow,
-      parent,
-      bundleReader: { readText: async () => "" },
-    });
-
-    const migratedNote = Zotero.Items.get(digestNote.id)!;
-    const html = migratedNote.getNote();
-    assert.include(html, 'data-attachment-key="IMGREAL1"');
-    assert.include(html, "Figure Real caption.");
-    assert.notInclude(html, 'data-attachment-key="PAYLOADIMG1"');
-    assert.notInclude(html, "Zotero Skills artifact payload");
-  });
-
-  it("debug migrator drops payload-only digest images instead of preserving them as representative images", async function () {
-    const workflow = await getWorkflow("debug-migrate-note-payloads");
-    const parent = await handlers.item.create({
-      itemType: "journalArticle",
-      fields: { title: "Debug Migrator Payload Only Parent" },
-    });
-    const digestNote = await handlers.parent.addNote(parent, {
-      content: [
-        '<div data-schema-version="9">',
-        "<h1>Digest</h1>",
-        '<p><img data-attachment-key="PAYLOADIMG2" alt="Zotero Skills artifact payload" width="1" height="1"></p>',
-        "<h2>TL;DR</h2>",
-        "<p>Recovered body.</p>",
-        "</div>",
-      ].join("\n"),
-    });
-
-    await executeApplyResult({
-      workflow,
-      parent,
-      bundleReader: { readText: async () => "" },
-    });
-
-    const migratedNote = Zotero.Items.get(digestNote.id)!;
-    const html = migratedNote.getNote();
-    assert.notInclude(html, 'data-attachment-key="PAYLOADIMG2"');
-    assert.notInclude(html, "Zotero Skills artifact payload");
-    assert.include(
-      (await parseStoredPayload(migratedNote, "digest-markdown")).content,
-      "Recovered body.",
-    );
-  });
-
-  it("debug migrator rebuilds digest payload attachments from current visible HTML", async function () {
-    const workflow = await getWorkflow("debug-migrate-note-payloads");
-    const parent = await handlers.item.create({
-      itemType: "journalArticle",
-      fields: { title: "Debug Migrator Rebuild Parent" },
-    });
-    const digestNote = await handlers.parent.addNote(parent, {
-      content: [
-        '<div data-schema-version="9">',
-        "<h1>Digest</h1>",
-        "<h2>TL;DR</h2>",
-        "<p>Old visible body.</p>",
-        "</div>",
-      ].join("\n"),
-    });
-
-    await executeApplyResult({
-      workflow,
-      parent,
-      bundleReader: { readText: async () => "" },
-    });
-    await handlers.note.update(digestNote, {
-      content: [
-        '<div data-schema-version="9">',
-        "<h1>Digest</h1>",
-        "<h2>TL;DR</h2>",
-        "<p>Fresh visible body.</p>",
-        "</div>",
-      ].join("\n"),
-    });
-
-    const result = (await executeApplyResult({
-      workflow,
-      parent,
-      bundleReader: { readText: async () => "" },
-    })) as {
-      summary?: { migratedCount?: number };
-      notes?: Array<{ status?: string; source?: string; reason?: string }>;
-    };
-
-    const migratedNote = Zotero.Items.get(digestNote.id)!;
-    const payload = await parseStoredPayload(migratedNote, "digest-markdown");
-    assert.equal(result.summary?.migratedCount, 1);
-    assert.equal(result.notes?.[0]?.status, "migrated");
-    assert.equal(result.notes?.[0]?.source, "rebuilt-digest-html");
-    assert.notEqual(result.notes?.[0]?.reason, "already_attachment_backed");
-    assert.equal(payload.content, "## TL;DR\n\nFresh visible body.");
-  });
-
-  it("classifies payload-backed and editor-rewritten digest note HTML", function () {
-    const payloadBacked = analyzeNoteHtmlForDebug(
-      buildDigestNoteContentWithRepresentativeImage(
-        "# Digest\n\nBody",
-        "ABCD1234",
-      ),
-    );
-    assert.equal(payloadBacked.currentExportKindGuess, "digest");
-    assert.equal(payloadBacked.hasDigestPayload, true);
-    assert.equal(payloadBacked.hasRepresentativeImageBlock, true);
-    assert.equal(payloadBacked.diagnosis, "payload_backed_digest");
-
-    const editorRewritten = analyzeNoteHtmlForDebug(
-      [
-        '<div data-schema-version="9">',
-        "<h1>Digest</h1>",
-        '<p><img alt="Figure 1" data-attachment-key="ABCD1234"></p>',
-        "<p>Visible digest body.</p>",
-        "</div>",
-      ].join("\n"),
-    );
-    assert.equal(editorRewritten.currentExportKindGuess, "digest");
-    assert.equal(editorRewritten.hasSchemaVersion, true);
-    assert.equal(editorRewritten.hasDigestPayload, false);
-    assert.equal(
-      editorRewritten.diagnosis,
-      "html_only_digest_after_editor_rewrite",
-    );
-  });
-
-  it("decodes debug pseudo embedded-image payload markers", function () {
-    const envelope = {
-      schemaVersion: 1,
-      kind: "zotero-skills-debug-pseudo-embedded-image-payload",
-      noteKind: "digest",
-      noteKey: "NOTEKEY",
-      payloadType: "digest-markdown",
-      payload: {
-        format: "markdown",
-        entry: "artifacts/digest.md",
-        content: "# Digest\n\nDebug payload.",
-      },
-    };
-    const suffix = new TextEncoder().encode(
-      `\nZS_EMBEDDED_PAYLOAD_V1:${encodeBase64Utf8(JSON.stringify(envelope))}\n`,
-    );
-    const bytes = new Uint8Array(8 + suffix.length);
-    bytes.set(new Uint8Array([137, 80, 78, 71, 0, 0, 0, 0]), 0);
-    bytes.set(suffix, 8);
-
-    const parsed = parsePseudoEmbeddedPayloadBytesForDebug(bytes, {
-      TextDecoder,
-      Buffer: typeof Buffer !== "undefined" ? Buffer : null,
-    });
-    assert.equal(parsed?.payloadType, "digest-markdown");
-    assert.equal(parsed?.noteKind, "digest");
-    assert.equal(parsed?.payloadEntry, "artifacts/digest.md");
-    assert.equal(parsed?.contentLength, 24);
+    assert.equal(digestNote.getNote(), beforeContent);
+    assert.deepEqual(digestNote.getAttachments(), beforeAttachments);
   });
 
   it("scopes representative-image cleanup away from score and payload images", function () {
@@ -1124,9 +1024,9 @@ describe("workflow: literature-workbench import/export notes", function () {
       await readUtf8(joinPath(targetDir, "literature_score.json")),
     );
     assert.deepEqual(scoreJson, buildNativeLiteratureScoreArtifact());
-    assert.equal(
+    assert.include(
       await readUtf8(joinPath(targetDir, "citation_analysis.md")),
-      "# Citation Analysis\n\nStructured report",
+      "Summary text",
     );
   });
 
@@ -1274,7 +1174,7 @@ describe("workflow: literature-workbench import/export notes", function () {
     await handlers.parent.addNote(parent, {
       content: buildDigestNoteContentWithRepresentativeImage(
         "# Digest Export\n\nBody",
-        "MISSINGIMG",
+        "ABCD1234",
       ),
     });
 
@@ -1615,6 +1515,36 @@ describe("workflow: literature-workbench import/export notes", function () {
   );
 
   describeImportEditorSuite("import-notes editor-driven flows", function () {
+    it("previews legacy bundle note payloads through the private converter seam", async function () {
+      const { convertLegacyArtifactSet } =
+        await import("../../src/modules/literatureArtifactMigration");
+      const legacyHtml = renderPayloadBlock("references-json", {
+        items: [
+          {
+            title: "Legacy bundle reference",
+            authors: ["Legacy Author"],
+            year: 2024,
+            rawCitation: "Legacy Author. Legacy bundle reference. 2024.",
+          },
+        ],
+      });
+      const preview = previewLegacyArtifactSetForImport({
+        host: { convertLegacyArtifactSet },
+        parentRef: { libraryId: 1, key: "ABCD1234" },
+        noteContents: [legacyHtml],
+        idFactory: generateSourceReferenceId,
+      });
+
+      assert.equal(preview.classification, "ready");
+      assert.lengthOf(preview.payload.references.references, 1);
+      assert.match(
+        preview.payload.references.references[0].sourceReferenceId,
+        /^[0-9a-f-]{36}$/,
+      );
+      assert.equal(preview.payload.citation, null);
+      assert.lengthOf(preview.diagnostics, 0);
+    });
+
     it("imports a literature score file as a generated score note", async function () {
       const workflow = await getWorkflow("import-notes");
       const parent = await handlers.item.create({
@@ -1626,12 +1556,7 @@ describe("workflow: literature-workbench import/export notes", function () {
         result: {
           literatureScore: {
             sourcePath: "D:/imports/literature_score.json",
-            payload: {
-              version: 1,
-              entry: "D:/imports/literature_score.json",
-              format: "json",
-              literature_score: buildNativeLiteratureScoreArtifact(),
-            },
+            payload: buildNativeLiteratureScoreArtifact(),
           },
         },
       };
@@ -1650,8 +1575,7 @@ describe("workflow: literature-workbench import/export notes", function () {
         .find((note) => hasGeneratedHeading(note, "Literature Score"));
       assert.isOk(scoreNote);
       assert.deepEqual(
-        (await parseStoredPayload(scoreNote!, "literature-score-json"))
-          .literature_score,
+        await parseStoredPayload(scoreNote!, "literature-score-json"),
         buildNativeLiteratureScoreArtifact(),
       );
     });
@@ -1675,21 +1599,11 @@ describe("workflow: literature-workbench import/export notes", function () {
           },
           references: {
             sourcePath: "D:/imports/references.json",
-            payload: {
-              version: 1,
-              entry: "D:/imports/references.json",
-              format: "json",
-              references: buildNativeReferencesArtifact(),
-            },
+            payload: buildNativeReferencesArtifact(),
           },
           citationAnalysis: {
             sourcePath: "D:/imports/citation_analysis.json",
-            payload: {
-              version: 1,
-              entry: "D:/imports/citation_analysis.json",
-              format: "json",
-              citation_analysis: buildNativeCitationArtifact(),
-            },
+            payload: buildNativeCitationArtifact(),
           },
         },
       };
@@ -1744,31 +1658,27 @@ describe("workflow: literature-workbench import/export notes", function () {
         references!,
         "references-json",
       );
-      assert.deepEqual(importedReferencesPayload, {
-        ...buildReferencesPayloadWrapper(),
-        entry: "D:/imports/references.json",
-      });
+      assert.deepEqual(
+        importedReferencesPayload,
+        buildReferencesPayloadWrapper(),
+      );
       const importedCitationPayload = await parseStoredPayload(
         citation!,
         "citation-analysis-json",
       );
-      assert.deepEqual(importedCitationPayload, {
-        ...buildCitationPayloadWrapper(),
-        entry: "D:/imports/citation_analysis.json",
-      });
+      assert.deepInclude(
+        importedCitationPayload,
+        buildCitationPayloadWrapper(),
+      );
+      assert.match(importedCitationPayload.referencesBasis, /^sha256:/);
       assert.lengthOf(sidecarCalls, 1);
       assert.equal(sidecarCalls[0].source.workflow, "import-notes");
       assert.equal(sidecarCalls[0].digest.noteKey, digest!.key);
       assert.equal(sidecarCalls[0].digest.content, "# Imported Digest\n\nBody");
-      assert.equal(sidecarCalls[0].references.noteKey, references!.key);
+      assert.deepEqual(sidecarCalls[0].references, importedReferencesPayload);
       assert.deepEqual(
-        sidecarCalls[0].references.references,
-        buildNativeReferencesArtifact(),
-      );
-      assert.equal(sidecarCalls[0].citationAnalysis.noteKey, citation!.key);
-      assert.deepEqual(
-        sidecarCalls[0].citationAnalysis.payload,
-        importedCitationPayload,
+        sidecarCalls[0].citationAnalysis,
+        buildCitationPayloadWrapper(),
       );
     });
 
@@ -1787,12 +1697,7 @@ describe("workflow: literature-workbench import/export notes", function () {
         result: {
           references: {
             sourcePath: "D:/imports/references-only.json",
-            payload: {
-              version: 1,
-              entry: "D:/imports/references-only.json",
-              format: "json",
-              references: buildNativeReferencesArtifact(),
-            },
+            payload: buildNativeReferencesArtifact(),
           },
         },
       };
@@ -1837,7 +1742,7 @@ describe("workflow: literature-workbench import/export notes", function () {
       assert.isUndefined(sidecarCalls[0].citationAnalysis);
       assert.equal(sidecarCalls[0].source.workflow, "import-notes");
       assert.equal(
-        sidecarCalls[0].references.references[0].title,
+        sidecarCalls[0].references.references[0].bibliography.title,
         "Structured Reference",
       );
       assert.equal(
@@ -2125,11 +2030,14 @@ describe("workflow: literature-workbench import/export notes", function () {
       assert.equal(applied.representative_image?.strategy, "manual_import");
     });
 
-    it("imports a native citation analysis artifact and rejects wrapper-shaped citation imports", async function () {
+    it("imports a canonical citation analysis artifact", async function () {
       const workflow = await getWorkflow("import-notes");
       const parent = await handlers.item.create({
         itemType: "journalArticle",
         fields: { title: "Import Native Citation Parent" },
+      });
+      await handlers.parent.addNote(parent, {
+        content: buildReferencesNoteContent(),
       });
 
       installWorkflowEditorSessionOverrideForTests(async () => ({
@@ -2138,13 +2046,7 @@ describe("workflow: literature-workbench import/export notes", function () {
           citationAnalysis: {
             sourcePath:
               "Y:/Code/Python/Skill-Runner/data/runs/sample/citation_analysis.json",
-            payload: {
-              version: 1,
-              entry:
-                "Y:/Code/Python/Skill-Runner/data/runs/sample/citation_analysis.json",
-              format: "json",
-              citation_analysis: buildNativeCitationArtifact(),
-            },
+            payload: buildNativeCitationArtifact(),
           },
         },
       }));
@@ -2160,17 +2062,15 @@ describe("workflow: literature-workbench import/export notes", function () {
         .map((id) => Zotero.Items.get(id)!)
         .find((entry) => hasGeneratedHeading(entry, "Citation Analysis"));
       assert.isOk(citation);
-      assert.deepEqual(
-        await parseStoredPayload(citation!, "citation-analysis-json"),
-        {
-          ...buildCitationPayloadWrapper(),
-          entry:
-            "Y:/Code/Python/Skill-Runner/data/runs/sample/citation_analysis.json",
-        },
+      const storedCitation = await parseStoredPayload(
+        citation!,
+        "citation-analysis-json",
       );
+      assert.deepInclude(storedCitation, buildCitationPayloadWrapper());
+      assert.match(storedCitation.referencesBasis, /^sha256:/);
     });
 
-    it("accepts schema-style native references artifact object with top-level items", async function () {
+    it("accepts a canonical references artifact object", async function () {
       const workflow = await getWorkflow("import-notes");
       const parent = await handlers.item.create({
         itemType: "journalArticle",
@@ -2183,13 +2083,7 @@ describe("workflow: literature-workbench import/export notes", function () {
           references: {
             sourcePath:
               "Y:/Code/Python/Skill-Runner/data/runs/sample/references.json",
-            payload: {
-              version: 1,
-              entry:
-                "Y:/Code/Python/Skill-Runner/data/runs/sample/references.json",
-              format: "json",
-              references: buildNativeReferencesArtifact(),
-            },
+            payload: buildNativeReferencesArtifact(),
           },
         },
       }));
@@ -2207,10 +2101,7 @@ describe("workflow: literature-workbench import/export notes", function () {
       assert.isOk(references);
       assert.deepEqual(
         await parseStoredPayload(references!, "references-json"),
-        {
-          ...buildReferencesPayloadWrapper(),
-          entry: "Y:/Code/Python/Skill-Runner/data/runs/sample/references.json",
-        },
+        buildReferencesPayloadWrapper(),
       );
     });
 

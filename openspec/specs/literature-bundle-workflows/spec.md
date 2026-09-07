@@ -1,7 +1,7 @@
 # literature-bundle-workflows Specification
 
 ## Purpose
-Define the portable literature bundle export/import workflows that move complete Zotero parent items, their notes, artifacts, and attachments between libraries as versioned ZIP bundles.
+Define the portable literature bundle export/import workflows that move complete Zotero parent items, their notes, canonical managed-artifact payloads, and attachments between libraries as versioned ZIP bundles.
 ## Requirements
 
 ### Requirement: Literature bundle workflows SHALL execute locally with distinct export and import identities
@@ -34,36 +34,42 @@ Export SHALL prompt once for a target `.zip` file and SHALL write a root `manife
 
 ### Requirement: Default export SHALL be an independent lossless Literature Product
 
-The default non-source-only export SHALL create a `literature_bundle.product@1.0.0` ZIP with `README.md`, `index.md`, `manifest.json`, `references.bib`, and one `papers/paper-###` directory per resolved parent. Each paper SHALL preserve portable parent metadata, every direct attachment record, every child note and note image, package-local relations, and a single Agent navigation source without using Research Product roles or scores.
+The default non-source-only export SHALL create a versioned Literature Product whose parent, attachment, note, and managed-artifact records are portable and independent of source Zotero identity. It SHALL carry canonical semantic artifact payloads and their provenance without exporting plugin-internal wrappers as alternate source shapes.
 
 #### Scenario: Parent has Markdown and PDF sources
 - **WHEN** a parent has readable Markdown and PDF attachments
-- **THEN** both attachments and their portable metadata SHALL be present exactly once in the Product
-- **AND** `primary_source` SHALL reference the existing Markdown attachment record without creating a duplicate source file.
+- **THEN** both attachments and portable metadata SHALL be present exactly once
+- **AND** the preferred source SHALL reference the existing attachment record without creating a duplicate source file.
 
 #### Scenario: Parent has no preferred source
 - **WHEN** a parent has no readable Markdown or PDF attachment
 - **THEN** all other portable attachments and notes SHALL remain in the Product
-- **AND** `primary_source` SHALL be null and a stable warning SHALL describe the missing Agent source.
+- **AND** the preferred source SHALL be null with a bounded missing-source warning.
 
 #### Scenario: Package-local relations are exported
 - **WHEN** two Product papers are related in Zotero
 - **THEN** their relationship SHALL use Product-local paper ids
-- **AND** no source Zotero item identity SHALL be used as an import target.
+- **AND** no source Zotero item identity or native Source Reference ID SHALL be used as an import target identity.
 
 ### Requirement: Literature Product SHALL expose Agent-readable payload projections
 
-The Product SHALL decode recognized embedded Workbench payloads into read-only text projections while retaining the original note HTML and note-child attachment bytes as the import source of truth.
+The Product SHALL export canonical managed-artifact payloads as read-only projections while retaining source note HTML and note-child attachment bytes as the import source of truth. The projection SHALL include declared type, canonical schema version, payload hash, anchor state, and bounded provenance without creating an alternate alias shape.
+
+#### Scenario: Recognized canonical payload is exported
+- **WHEN** a note contains a valid digest, Source Reference, Citation, score, or conversation payload
+- **THEN** the Product manifest SHALL identify its canonical type, format, path, payload hash, anchor state, and source note facts
+- **AND** the decoded semantic JSON or Markdown SHALL be stored below that paper's payload directory.
 
 #### Scenario: Recognized payload is exported
-- **WHEN** a note contains a valid digest, references, citation-analysis, or conversation-note payload
-- **THEN** the paper manifest SHALL include a payload record with type, format, path, payload hash, anchor state, source note id, and source note-image id
-- **AND** the decoded Markdown or JSON SHALL be stored below that paper's `payloads/` directory.
+- **WHEN** a note contains a valid managed artifact payload
+- **THEN** the paper manifest SHALL include its canonical type, format, path, payload hash, and anchor state
+- **AND** the decoded artifact projection SHALL be stored below that paper's payload directory.
 
 #### Scenario: Literature Product is imported
-- **WHEN** a valid Literature Product contains payload projections and their source notes
-- **THEN** import SHALL restore the original notes and note images
-- **AND** it SHALL NOT materialize payload projections as additional notes or attachments.
+- **WHEN** a valid Literature Product contains canonical payload projections and source notes
+- **THEN** import SHALL restore the notes and note images
+- **AND** it SHALL materialize the canonical payload through the managed-artifact writer
+- **AND** it SHALL not materialize projections as additional notes or attachments.
 
 ### Requirement: Literature Product SHALL provide deterministic Agent entry documents
 
@@ -90,28 +96,29 @@ Each exported parent SHALL receive a bundle-local id and SHALL preserve its item
 
 ### Requirement: Bundle SHALL preserve all child notes and note-owned artifacts
 
-Export SHALL include every child note, its HTML, and every readable note-child embedded image, including package-managed v2 payload images for literature-analysis digest, references, citation-analysis, custom Markdown, and literature-explainer conversation notes.
+Export SHALL include every child note, its visible HTML, and every readable note-child image, including managed custom, conversation-note, digest, references, citation-analysis, and literature-score artifacts. Import SHALL preserve semantic payloads, opaque source IDs, Citation mention evidence, and valid derived-resource relationships while allocating new Zotero item and attachment identities.
 
 #### Scenario: Package-managed analysis notes round-trip
-- **WHEN** a parent contains the literature-analysis three-note set or literature-explainer conversation notes
-- **THEN** export SHALL retain their visible HTML and machine-readable embedded payload attachments
-- **AND** import SHALL recreate equivalent note kinds and payload content under the new parent.
+- **WHEN** a parent contains managed analysis artifacts or conversation notes
+- **THEN** export SHALL retain their visible HTML and canonical machine-readable payloads
+- **AND** import SHALL recreate equivalent managed note kinds and semantic payload content under the new parent
+- **AND** paired References/Citation artifacts SHALL be written with one parent-set identity and receipt.
 
 #### Scenario: Note attachment keys change on import
-- **WHEN** a note-child image is created with a new Zotero attachment key
-- **THEN** import SHALL rewrite the note HTML `data-attachment-key` and payload-anchor references from bundle-local references to the new key
-- **AND** no source attachment key SHALL remain as an unresolved note reference.
+- **WHEN** a note-child image or payload attachment receives a new Zotero key
+- **THEN** import SHALL rewrite visible references to the new local key
+- **AND** no source attachment key SHALL remain as an unresolved target reference.
+
+#### Scenario: Embedded payload carries source provenance
+- **WHEN** an artifact envelope contains source note ids, parent ids, keys, or an output path
+- **THEN** import MAY retain those values as bounded provenance
+- **AND** semantic content and opaque sourceReferenceId values SHALL remain the canonical source facts
+- **AND** source identity or path fields SHALL not be used as target Zotero references.
 
 #### Scenario: Referenced note image is unreadable
 - **WHEN** note HTML references a note-child attachment whose bytes cannot be exported
-- **THEN** export SHALL add warning code `note_image_missing`
+- **THEN** export SHALL add a bounded `note_image_missing` warning
 - **AND** import SHALL omit the broken image element rather than retain an unresolved source attachment key.
-
-#### Scenario: Embedded payload carries source provenance
-- **WHEN** an embedded payload envelope contains source note ids, parent ids, keys, or an explainer output path
-- **THEN** import MAY retain those fields as provenance
-- **AND** payload `content` SHALL remain the machine-readable content source
-- **AND** source identity and path fields SHALL NOT be used as target Zotero references or required target-local files.
 
 ### Requirement: Bundle SHALL carry every readable parent attachment
 
@@ -161,20 +168,30 @@ For each exported Markdown parent attachment, export SHALL resolve local Markdow
 
 ### Requirement: Import SHALL validate the complete bundle before mutation
 
-Import SHALL open one selected ZIP and SHALL validate archive safety, the supported manifest identity and version, unique owner-scoped ids, reference closure, declared file presence, declared-entry ownership, and declared file size/hash before creating Zotero objects. The new Literature Product SHALL validate paper ids globally; attachment, note, note-image, and payload ids SHALL be unique within their owning paper or note as defined by the manifest.
+Import SHALL validate archive safety, supported manifest identity/version, unique owner-scoped ids, canonical artifact schema versions, reference closure, declared files, ownership, sizes, and hashes before creating Zotero objects. A recognized legacy artifact payload inside an otherwise valid bundle SHALL produce a migration preview requirement rather than being silently normalized by ordinary import.
+
+#### Scenario: Valid canonical Literature Product is selected
+- **WHEN** the selected ZIP has a safe, complete supported manifest and canonical payloads
+- **THEN** import SHALL proceed to lossless parent materialization.
 
 #### Scenario: Valid Literature Product is selected
-- **WHEN** the selected ZIP has a safe, complete `literature_bundle.product@1.0.0` manifest
-- **THEN** import SHALL proceed to lossless paper materialization.
+- **WHEN** the selected ZIP has a safe, complete `literature_bundle.product@1.0.0` manifest and canonical payloads
+- **THEN** import SHALL proceed to lossless parent materialization.
 
 #### Scenario: Supported historical bundle is selected
-- **WHEN** the selected ZIP is a valid `zotero-agents-literature-bundle@1` or `research_bundle.product@2.0.0`
-- **THEN** import SHALL dispatch to the corresponding compatibility adapter after complete validation.
+- **WHEN** a valid historical bundle is selected and it contains no legacy artifact requiring explicit conversion
+- **THEN** import SHALL dispatch it to its compatibility adapter after complete validation
+- **AND** no Zotero object SHALL be created before that validation completes.
+
+#### Scenario: A legacy artifact is present
+- **WHEN** a bundle contains a recognized legacy note or artifact shape
+- **THEN** whole-bundle validation SHALL report `legacy_artifact_requires_migration`
+- **AND** ordinary import SHALL not mutate the library until the explicit migration converter is previewed and confirmed.
 
 #### Scenario: Bundle structure is invalid
-- **WHEN** the ZIP is corrupt, contains an unsafe entry path, has a missing or duplicate manifest, uses an unsupported kind or schema version, contains duplicate logical ids, has unresolved logical references, or omits a required declared file
+- **WHEN** the ZIP is corrupt, unsafe, incomplete, duplicated, unsupported, or has unresolved logical references
 - **THEN** import SHALL return a structured validation failure
-- **AND** it SHALL NOT create any Zotero item.
+- **AND** it SHALL not create any Zotero item.
 
 #### Scenario: Declared file integrity does not match
 - **WHEN** a declared bundle file has a byte length or SHA-256 digest different from its manifest record
@@ -182,13 +199,18 @@ Import SHALL open one selected ZIP and SHALL validate archive safety, the suppor
 
 #### Scenario: Validation and import failures remain distinct
 - **WHEN** archive opening, manifest validation, or integrity measurement fails
-- **THEN** import SHALL return `validation_failed` with a stable validation stage
-- **AND** target resolution or non-isolated materialization failures SHALL be reported as `import_failed` rather than validation failures.
+- **THEN** import SHALL return a validation-stage failure
+- **AND** target resolution or materialization failures SHALL remain import-stage failures.
 
 #### Scenario: User cancels import
 - **WHEN** the open-file picker is canceled
 - **THEN** import SHALL return a structured canceled result
-- **AND** it SHALL NOT mutate the Zotero library.
+- **AND** it SHALL not mutate the Zotero library.
+
+#### Scenario: Bundle structure or integrity is invalid
+- **WHEN** the ZIP is corrupt, unsafe, incomplete, duplicated, unsupported, or has mismatched declared bytes
+- **THEN** import SHALL return a structured validation failure
+- **AND** it SHALL not create any Zotero item.
 
 ### Requirement: Import SHALL always create new parents in the current target
 
@@ -271,27 +293,23 @@ When `sourceOnly` is true, export SHALL retain kind `zotero-agents-literature-bu
 
 ### Requirement: Import dispatches both package formats
 
-Import SHALL validate ZIP safety, manifest references, file closure, and declared size/hash before dispatching `literature_bundle.product@1.0.0`, `zotero-agents-literature-bundle@1`, or `research_bundle.product@2.0.0` to its matching materializer.
+Import SHALL validate ZIP safety, manifest references, file closure, declared size/hash, and artifact state before dispatching supported Literature Product and Research Product formats. Canonical payloads SHALL use the managed-artifact writer; recognized legacy payloads SHALL dispatch only to the explicit migration-only converter after confirmation.
 
 #### Scenario: Literature Product import
-
-- **WHEN** a valid Literature Product is selected
+- **WHEN** a valid canonical Literature Product is selected
 - **THEN** each paper metadata record SHALL create a new Zotero parent
-- **AND** every declared attachment, note, note image, and package-local relation SHALL be restored
-- **AND** README, index, BibTeX, and payload projections SHALL remain validated Agent materials rather than additional Zotero children.
+- **AND** every declared attachment, note, managed artifact, note image, and package-local relation SHALL be restored
+- **AND** README, index, BibTeX, and payload projections SHALL remain validated agent materials rather than Zotero children.
 
 #### Scenario: Research Product import
-
 - **WHEN** a valid Research Product is selected
-- **THEN** each paper metadata creates a new Zotero parent
-- **AND** source Markdown/PDF, companion images, and supported embedded payloads are restored
-- **AND** README, index, topic reports, and BibTeX remain validated agent materials rather than Zotero children.
+- **THEN** its supported canonical notes, source files, companion images, and artifacts SHALL be restored through the corresponding owner
+- **AND** no legacy alias reader SHALL be used as a normal fallback.
 
 #### Scenario: One paper fails
-
 - **WHEN** one paper cannot be materialized
-- **THEN** its created parent and children are cleaned up
-- **AND** remaining papers continue importing with a structured partial result.
+- **THEN** its created parent and children SHALL be cleaned up according to the existing per-parent isolation contract
+- **AND** remaining papers SHALL continue importing with a structured partial result.
 
 ### Requirement: `sourceOnly` parameter selects a flat, title-renamed, import-incompatible export format
 
@@ -348,3 +366,17 @@ When `export-literature-bundle` is invoked with `sourceOnly: true`, the produced
 - **THEN** the ZIP SHALL contain exactly `manifest.json` and one file per item that has a source file, all under `items/`
 - **AND** the manifest SHALL list `kind`, `createdAt`, `source`, `warnings`, `items`, and `files`
 - **AND** the manifest SHALL NOT contain `schemaVersion`.
+
+### Requirement: Bundle import and export SHALL preserve canonical identity without content guessing
+
+Bundle conversion SHALL preserve explicit opaque Source Reference IDs for intentionally retained rows and SHALL allocate new IDs for new extraction or snapshot recovery. DOI, title, author, year, position, content hash, and Synthesis IDs SHALL not be used to guess target identity during normal bundle round-trip.
+
+#### Scenario: Existing source row is exported and imported
+- **WHEN** a canonical Source Reference row is retained by an export/import round-trip
+- **THEN** its declared opaque identity SHALL remain part of the semantic artifact
+- **AND** target Zotero item identity SHALL still be allocated independently.
+
+#### Scenario: Legacy bundle needs conversion
+- **WHEN** a legacy bundle lacks a canonical source identity
+- **THEN** only the migration converter's deterministic evidence rules MAY classify it
+- **AND** unresolved or recovered identity SHALL be surfaced for set-level review.

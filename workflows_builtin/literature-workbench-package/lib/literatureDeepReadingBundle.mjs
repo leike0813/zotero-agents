@@ -1,5 +1,7 @@
-import { parsePayloadBlock, parseWorkbenchNoteKind } from "./noteCodecs.mjs";
-import { resolveWorkbenchEmbeddedPayloadBlock } from "./embeddedPayloadAttachments.mjs";
+import {
+  parseImportedReferencesArtifact,
+  parseImportedCitationArtifact,
+} from "./importSchemas.mjs";
 import { getBaseName, joinPath, sanitizeFileNameSegment } from "./path.mjs";
 import {
   portableItemRef,
@@ -439,41 +441,18 @@ function sidecarBundlePath(kind, payloadType = "") {
 }
 
 function payloadTextFromHostArtifact(artifact, kind) {
-  const payloadType = normalizeString(
-    artifact?.payload_type || artifact?.payloadType,
+  if (kind === "digest") {
+    if (typeof artifact.markdown !== "string")
+      throw new Error("Digest Markdown is unavailable");
+    return artifact.markdown;
+  }
+  return JSON.stringify(
+    kind === "references"
+      ? parseImportedReferencesArtifact(artifact.payload)
+      : parseImportedCitationArtifact(artifact.payload),
+    null,
+    2,
   );
-  const normalizedKind = normalizeArtifactKind(kind);
-  if (normalizedKind === "digest") {
-    return normalizeString(
-      artifact?.markdown || artifact?.decoded_text || artifact?.decodedText,
-    );
-  }
-  if (normalizedKind === "references") {
-    const payload = artifact?.payload;
-    if (payload && typeof payload === "object") {
-      return JSON.stringify(payload, null, 2);
-    }
-    return normalizeString(artifact?.decoded_text || artifact?.decodedText);
-  }
-  if (normalizedKind === "citation-analysis") {
-    const markdown = normalizeString(
-      artifact?.markdown || artifact?.decoded_text || artifact?.decodedText,
-    );
-    if (markdown) {
-      return markdown;
-    }
-    const payload = artifact?.payload;
-    if (payload && typeof payload === "object") {
-      const reportMarkdown = normalizeString(
-        payload.report_md || payload.reportMarkdown || payload.markdown,
-      );
-      return reportMarkdown || JSON.stringify(payload, null, 2);
-    }
-    return payloadType.includes("json")
-      ? normalizeString(artifact?.decoded_text || artifact?.decodedText)
-      : "";
-  }
-  return "";
 }
 
 async function addArtifactEntry({
@@ -510,80 +489,11 @@ async function addArtifactEntry({
     source,
   };
   if (sourceNote) {
-    row.source_note_key = normalizeString(sourceNote.key);
-    row.source_note_id = sourceNote.id || null;
+    row.source_note_ref = sourceNote.ref;
   }
   artifactEntries[normalizedKind] = row;
   artifactManifest.push(row);
   return true;
-}
-
-async function resolveNotePayload(noteItem, noteContent, kind, runtime) {
-  const normalizedKind =
-    kind === "citation_analysis" ? "citation-analysis" : kind;
-  if (normalizedKind === "digest") {
-    const embedded = await resolveWorkbenchEmbeddedPayloadBlock({
-      runtime,
-      noteItem,
-      payloadType: "digest-markdown",
-    });
-    return {
-      name: "artifacts/digest.md",
-      payloadType: "digest-markdown",
-      payloadFormat: "text",
-      payload:
-        embedded?.markdown ??
-        embedded?.decodedText ??
-        parsePayloadBlock(noteContent, "digest-markdown", runtime, {
-          payloadFormat: "text",
-        }).payload,
-    };
-  }
-  if (normalizedKind === "references") {
-    const embedded = await resolveWorkbenchEmbeddedPayloadBlock({
-      runtime,
-      noteItem,
-      payloadType: "references-json",
-    });
-    return {
-      name: "artifacts/references.json",
-      payloadType: "references-json",
-      payloadFormat: "json",
-      payload:
-        embedded?.payload ??
-        parsePayloadBlock(noteContent, "references-json", runtime).payload,
-    };
-  }
-  if (normalizedKind === "citation-analysis") {
-    const embeddedJson = await resolveWorkbenchEmbeddedPayloadBlock({
-      runtime,
-      noteItem,
-      payloadType: "citation-analysis-json",
-    });
-    const embeddedMarkdown = await resolveWorkbenchEmbeddedPayloadBlock({
-      runtime,
-      noteItem,
-      payloadType: "citation-analysis-markdown",
-    });
-    if (embeddedMarkdown?.decodedText || embeddedMarkdown?.markdown) {
-      return {
-        name: "artifacts/citation-analysis.md",
-        payloadType: "citation-analysis-markdown",
-        payloadFormat: "text",
-        payload: embeddedMarkdown.markdown || embeddedMarkdown.decodedText,
-      };
-    }
-    return {
-      name: "artifacts/citation_analysis.json",
-      payloadType: "citation-analysis-json",
-      payloadFormat: "json",
-      payload:
-        embeddedJson?.payload ??
-        parsePayloadBlock(noteContent, "citation-analysis-json", runtime)
-          .payload,
-    };
-  }
-  return null;
 }
 
 async function collectSidecarArtifacts({
@@ -602,11 +512,6 @@ async function collectSidecarArtifacts({
   };
   const host = runtime.hostApi;
   const parentRef = portableItemRef(parentItem);
-  const notes = await readHostPages({
-    readPage: (page) => host.library.getItemNotes(parentRef, page),
-    getItems: (page) => page.notes,
-    operation: "deep-reading note read",
-  });
   const paperRef = normalizePaperRef(parentItem);
 
   if (
@@ -625,9 +530,7 @@ async function collectSidecarArtifacts({
         ? result.artifacts
         : [];
       for (const artifact of artifacts) {
-        const kind = normalizeArtifactKind(
-          artifact?.artifact_type || artifact?.artifactType,
-        );
+        const kind = normalizeArtifactKind(artifact?.artifact_type);
         if (!kinds.has(kind) || artifactEntries[kind]) {
           continue;
         }
@@ -636,18 +539,16 @@ async function collectSidecarArtifacts({
             level: "info",
             code: "sidecar_artifact_host_unavailable",
             message:
-              normalizeString(
-                artifact?.missing_reason || artifact?.missingReason,
-              ) || `${kind} artifact is not available from Host.`,
+              normalizeString(artifact?.missing_reason) ||
+              `${kind} artifact is not available from Host.`,
             artifact_type: kind,
             status: normalizeString(artifact?.status),
           });
           continue;
         }
         try {
-          const payloadType = normalizeString(
-            artifact?.payload_type || artifact?.payloadType,
-          );
+          const payloadType =
+            kind === "digest" ? "digest-markdown" : `${kind}-json`;
           const content = payloadTextFromHostArtifact(artifact, kind);
           await addArtifactEntry({
             kind,
@@ -689,35 +590,45 @@ async function collectSidecarArtifacts({
     });
   }
 
+  const missingKinds = new Set(
+    [...kinds].filter((kind) => !artifactEntries[kind]),
+  );
+  const notes =
+    missingKinds.size === 0
+      ? []
+      : await readHostPages({
+          readPage: (page) => host.library.getItemNotes(parentRef, page),
+          getItems: (page) => page.notes,
+          operation: "deep-reading note read",
+        });
   for (const note of notes) {
     const noteItem = await host.library.getNoteDetail(note.ref, {
       format: "html",
     });
-    const noteContent = noteItem.content;
-    const kind = parseWorkbenchNoteKind(noteContent);
-    if (!kinds.has(kind) || artifactEntries[kind]) {
+    const kind = noteItem.kind === "managed" ? noteItem.noteKind : null;
+    if (!missingKinds.has(kind)) {
       continue;
     }
     attemptedByKind[kind] += 1;
-    try {
-      const decoded = await resolveNotePayload(
-        noteItem,
-        noteContent,
-        kind,
-        runtime,
+    if (attemptedByKind[kind] > 1) {
+      const error = new Error(
+        `Multiple ${kind} notes require explicit resolution`,
       );
-      if (!decoded) {
-        continue;
-      }
+      error.code = "conflict";
+      throw error;
+    }
+    try {
+      const payloadType =
+        kind === "digest" ? "digest-markdown" : `${kind}-json`;
       const content =
-        decoded.payloadFormat === "text"
-          ? String(decoded.payload || "")
-          : JSON.stringify(decoded.payload, null, 2);
+        kind === "digest"
+          ? noteItem.payload.markdown
+          : JSON.stringify(noteItem.payload, null, 2);
       await addArtifactEntry({
         kind,
-        payloadType: decoded.payloadType,
+        payloadType,
         content,
-        source: "note_payload_fallback",
+        source: "managed_note",
         sourceNote: noteItem,
         entries,
         artifactEntries,

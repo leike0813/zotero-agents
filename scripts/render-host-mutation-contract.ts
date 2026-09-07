@@ -1,6 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { format } from "prettier";
+import { HOST_BRIDGE_NOTE_DETAIL_OUTPUT_SCHEMA } from "../src/modules/hostBridgeCapabilityContract";
 
 import {
   MUTATION_EXECUTE_INPUT_SCHEMA,
@@ -51,6 +52,8 @@ function bridgeMutationInput(schema: JsonObject): JsonObject {
 
 function renderedContract(contract: JsonObject) {
   const capabilities = contract.capabilities as Record<string, JsonObject>;
+  capabilities["library.get_note_detail"].outputSchema =
+    HOST_BRIDGE_NOTE_DETAIL_OUTPUT_SCHEMA;
   const set = (
     name: string,
     inputSchema: JsonObject,
@@ -118,6 +121,7 @@ async function renderMutationCapabilities(source: string) {
   const capabilities = contract.capabilities as Record<string, JsonObject>;
   let rendered = source;
   const names = [
+    "library.get_note_detail",
     "mutation.execute",
     "mutation.preview",
     "mutation.get_operation",

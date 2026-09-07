@@ -30,6 +30,7 @@ import {
   listHostBridgeCapabilities,
 } from "../../src/modules/hostBridgeCapabilityRegistry";
 import { createFailClosedZoteroHostCapabilityBroker } from "../helpers/zoteroHostCapabilityBrokerHarness";
+import { validateHostBridgeCapabilityOutput } from "../../src/modules/hostBridgeCapabilityContract";
 import type { HostBridgeStatusSnapshot } from "../../src/modules/hostBridgeProtocol";
 import {
   resetAcpSkillRunsForTests,
@@ -55,6 +56,8 @@ import { runtimeHttpResponseInternalsForTests } from "../../src/modules/runtimeH
 import { createProductStorageApi } from "../../src/modules/workflowProductStore";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 import { resolveHostBridgeUploadedFile } from "../../src/modules/hostBridgeFileRegistry";
+import { renderPayloadBlock } from "../../src/modules/notePayloadCodec";
+import { hashSynthesisContractCanonicalJson } from "../../packages/synthesis-contracts/src/index";
 
 const CONTRACT_HASH = `sha256:${"a".repeat(64)}`;
 
@@ -101,6 +104,94 @@ function createMockZoteroSourcePageQueryAdapter(): ZoteroLibrarySourcePageQueryA
 }
 
 describe("canonical Host read projection", function () {
+  it("preserves complete managed detail above the downstream ToolResult budget", async function () {
+    const markdown = "文献内容".repeat(5000);
+    const detail = {
+      kind: "managed" as const,
+      noteKind: "custom" as const,
+      ref: { libraryId: 1, key: "NOTE0001" },
+      parentRef: { libraryId: 1, key: "PARENT01" },
+      title: "Reading notes",
+      revision: "note-revision",
+      payload: { title: "Reading notes", markdown },
+      payloadBytes: new TextEncoder().encode(
+        JSON.stringify({ title: "Reading notes", markdown }),
+      ).byteLength,
+      detailBytes: 61000,
+    };
+    const broker = createFailClosedZoteroHostCapabilityBroker({
+      library: {
+        async getNoteDetail() {
+          return detail;
+        },
+      },
+    });
+    const result = await executeHostBridgeCapability(
+      "library.get_note_detail",
+      { libraryId: 1, key: "NOTE0001", maxChars: 1 },
+      {
+        getStatus: (): HostBridgeStatusSnapshot => {
+          throw new Error("status is not part of a note read");
+        },
+        connectionMode: "remote",
+        resolveZoteroHostCapabilityBroker: () => broker,
+      },
+    );
+    assert.isAbove(detail.payloadBytes, 50 * 1024);
+    assert.deepEqual(result, detail);
+    assert.deepEqual(
+      validateHostBridgeCapabilityOutput("library.get_note_detail", result),
+      [],
+    );
+    assert.isNotEmpty(
+      validateHostBridgeCapabilityOutput("library.get_note_detail", {
+        ...detail,
+        content: "raw HTML",
+      }),
+    );
+  });
+
+  it("keeps ordinary note continuation independent of managed payload reads", async function () {
+    const broker = createFailClosedZoteroHostCapabilityBroker({
+      library: {
+        async getNoteDetail() {
+          return {
+            kind: "ordinary" as const,
+            ref: { libraryId: 1, key: "NOTE0001" },
+            parentRef: null,
+            title: "Ordinary note",
+            format: "text" as const,
+            content: "abcdef",
+            revision: "note-revision",
+          };
+        },
+      },
+    });
+    const result = await executeHostBridgeCapability(
+      "library.get_note_detail",
+      { libraryId: 1, key: "NOTE0001", offset: 2, maxChars: 2 },
+      {
+        getStatus: (): HostBridgeStatusSnapshot => {
+          throw new Error("status is not part of a note read");
+        },
+        connectionMode: "remote",
+        resolveZoteroHostCapabilityBroker: () => broker,
+      },
+    );
+    assert.include(result, {
+      kind: "ordinary",
+      content: "cd",
+      nextOffset: 4,
+      hasMore: true,
+      totalChars: 6,
+    });
+    assert.notProperty(result, "payload");
+    assert.deepEqual(
+      validateHostBridgeCapabilityOutput("library.get_note_detail", result),
+      [],
+    );
+  });
+
   it("passes the request control into library snapshot reads", async function () {
     const control = {};
     const snapshot = {
@@ -677,6 +768,15 @@ describe("host bridge capability calls", function () {
   });
 
   it("routes library readiness audits with shared artifact evidence", async function () {
+    const references = {
+      schema: "source_reference_artifact.v1",
+      references: [],
+    };
+    const digestHtml = `<div data-zs-note-kind="digest">${renderPayloadBlock({
+      payloadType: "digest-markdown",
+      payload: "Digest",
+      payloadFormat: "text",
+    })}</div>`;
     const token = configureHostBridgeServerForTests({
       token: "readiness-token",
     });
@@ -689,20 +789,43 @@ describe("host bridge capability calls", function () {
     await createAttachment(complete, "D:\\Private\\complete.md", {
       contentType: "text/markdown",
     });
-    await createNote(
-      complete,
-      "Digest",
-      '<div data-zs-note-kind="digest"><p>Digest</p></div>',
-    );
+    await createNote(complete, "Digest", digestHtml);
     await createNote(
       complete,
       "References",
-      '<div data-zs-note-kind="references"><p>References</p></div>',
+      `<div data-zs-note-kind="references">${renderPayloadBlock({ payloadType: "references-json", payload: references })}</div>`,
     );
     await createNote(
       complete,
       "Citation",
-      '<div data-zs-note-kind="citation_analysis"><p>Citation</p></div>',
+      `<div data-zs-note-kind="citation-analysis">${renderPayloadBlock({
+        payloadType: "citation-analysis-json",
+        payload: {
+          schema: "citation_analysis_artifact.v1",
+          meta: {
+            language: "en",
+            scope: { section_title: null, line_start: null, line_end: null },
+            scope_source: null,
+            scope_decision: {
+              selection_reason: null,
+              covered_sections: [],
+              fallback_from: null,
+              fallback_reason: null,
+            },
+            mapping_reliability: "normal",
+            reference_extraction: { status: "completed" },
+          },
+          summary: "",
+          timeline: {
+            early: { summary: "", sourceReferenceIds: [] },
+            mid: { summary: "", sourceReferenceIds: [] },
+            recent: { summary: "", sourceReferenceIds: [] },
+          },
+          items: [],
+          unresolved: [],
+          referencesBasis: hashSynthesisContractCanonicalJson(references),
+        },
+      })}</div>`,
     );
     complete.getBestAttachment = async () => completePdf;
 
@@ -715,11 +838,7 @@ describe("host bridge capability calls", function () {
     await createAttachment(missing, "D:\\Private\\other.md", {
       contentType: "text/markdown",
     });
-    await createNote(
-      missing,
-      "Digest",
-      '<div data-zs-note-kind="digest"><p>Digest</p></div>',
-    );
+    await createNote(missing, "Digest", digestHtml);
     missing.getBestAttachment = async () => missingPdf;
 
     const parsed = await callBridgeCapability({

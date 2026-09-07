@@ -1,4 +1,10 @@
 import { assert } from "chai";
+import { installNodeZoteroTransactionStub } from "../helpers/nodeZoteroTransactionStub";
+import { createMockZoteroLibrarySourcePageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
+import {
+  setZoteroLibrarySourcePageQueryAdapterForTests,
+  resetZoteroLibrarySourcePageQueryAdapterForTests,
+} from "../../src/modules/zoteroLibraryPageQuery";
 import { config } from "../../package.json";
 import { nativeFixtureMutations as handlers } from "../helpers/nativeFixtureMutations";
 import {
@@ -22,7 +28,6 @@ import {
 } from "../../src/workflows/runtime";
 import { __tagRegulatorApplyResultTestOnly } from "../../workflows_builtin/literature-workbench-package/tag-regulator/hooks/applyResult.mjs";
 import { __tagRegulatorBuildRequestTestOnly } from "../../workflows_builtin/literature-workbench-package/tag-regulator/hooks/buildRequest.mjs";
-import { attachWorkbenchPayloadToNote } from "../../workflows_builtin/literature-workbench-package/lib/embeddedPayloadAttachments.mjs";
 import {
   installWorkflowFetchMockAcrossRuntimes,
   installTagVocabularyHostApiGlobals,
@@ -773,10 +778,17 @@ async function runSuggestTagsEmptyScenario(args?: { titleSuffix?: string }) {
 }
 
 function setupTagRegulatorWorkflowSuite() {
+  let restoreTransaction: () => void;
   let restoreHostApi: (() => void) | null = null;
   let restorePrefs: (() => void) | null = null;
 
   beforeEach(function () {
+    restoreTransaction = installNodeZoteroTransactionStub();
+    if (!isZoteroRuntime()) {
+      setZoteroLibrarySourcePageQueryAdapterForTests(
+        createMockZoteroLibrarySourcePageQueryAdapter(),
+      );
+    }
     restorePrefs = installMutablePrefsForTest();
     clearTagVocabularyState();
     resetRuntimeBridgeOverrideForTests();
@@ -790,6 +802,8 @@ function setupTagRegulatorWorkflowSuite() {
     clearTagVocabularyState();
     restorePrefs?.();
     restorePrefs = null;
+    restoreTransaction();
+    resetZoteroLibrarySourcePageQueryAdapterForTests();
   });
   return { itNodeOnly, itZoteroFullOrNode };
 }
@@ -964,35 +978,19 @@ function registerTagRegulatorRequestBuildingSegmentOne() {
       ]);
 
       const digestMarkdown = [
-        "# Digest",
-        "",
         "This digest was stored through the Workbench payload attachment helper.",
       ].join("\n");
       const parent = await handlers.item.create({
         itemType: "journalArticle",
         fields: { title: "Tag Regulator Parent With Workbench Digest" },
       });
-      const note = await handlers.parent.addNote(parent, {
-        content:
-          '<div data-schema-version="9"><h1>Literature Digest</h1><p>Visible digest note</p></div>',
-      });
-      await attachWorkbenchPayloadToNote({
-        runtime: {
-          hostApi: createWorkflowHostApi(),
-          hostApiVersion: WORKFLOW_HOST_API_VERSION,
-          TextEncoder,
-          TextDecoder,
-          Buffer,
-        },
-        note: { ref: itemRef(note) },
-        noteKind: "digest",
-        payloadType: "digest-markdown",
-        payload: {
-          format: "markdown",
-          entry: "artifacts/digest.md",
-          content: digestMarkdown,
-        },
-      });
+      const write =
+        await createWorkflowHostApi().literatureArtifacts.upsertDigest({
+          operationId: `tag-digest-fixture:${parent.key}`,
+          parentRef: itemRef(parent),
+          markdown: digestMarkdown,
+        });
+      assert.equal(write.outcome, "committed", JSON.stringify(write));
 
       const workflow = await getTagRegulatorWorkflow();
       const selectionContext = await buildSelectionContext([parent]);

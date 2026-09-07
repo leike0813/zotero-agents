@@ -159,6 +159,39 @@ const noteContent = {
   additionalProperties: false,
 } satisfies JsonSchema;
 
+const managedWriteTarget = {
+  oneOf: [
+    {
+      type: "object",
+      properties: {
+        kind: { const: "create" },
+        parentRef: { $ref: "#/$defs/itemRef" },
+      },
+      required: ["kind", "parentRef"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: {
+        kind: { const: "update" },
+        noteRef: { $ref: "#/$defs/itemRef" },
+      },
+      required: ["kind", "noteRef"],
+      additionalProperties: false,
+    },
+  ],
+} satisfies JsonSchema;
+
+const managedWriteContent = {
+  type: "object",
+  properties: {
+    title: { type: "string", minLength: 1 },
+    markdown: { type: "string", minLength: 1 },
+  },
+  required: ["title", "markdown"],
+  additionalProperties: false,
+} satisfies JsonSchema;
+
 const operationInputSchemas = {
   "item.create": {
     type: "object",
@@ -570,6 +603,72 @@ const operationInputSchemas = {
     },
     required: ["operation", "collectionRef", "paper"],
   },
+  "managed_note.write_custom": {
+    type: "object",
+    properties: {
+      operation: { const: "managed_note.write_custom" },
+      operationId: { type: "string", minLength: 1, maxLength: 128 },
+      target: managedWriteTarget,
+      content: managedWriteContent,
+    },
+    required: ["operation", "target", "content"],
+    additionalProperties: false,
+  },
+  "managed_note.write_conversation": {
+    type: "object",
+    properties: {
+      operation: { const: "managed_note.write_conversation" },
+      operationId: { type: "string", minLength: 1, maxLength: 128 },
+      target: managedWriteTarget,
+      content: managedWriteContent,
+    },
+    required: ["operation", "target", "content"],
+    additionalProperties: false,
+  },
+  "literature_artifact.upsert_digest": {
+    type: "object",
+    properties: {
+      operation: { const: "literature_artifact.upsert_digest" },
+      operationId: { type: "string", minLength: 1, maxLength: 128 },
+      parentRef: { $ref: "#/$defs/itemRef" },
+      markdown: { type: "string", minLength: 1 },
+    },
+    required: ["operation", "parentRef", "markdown"],
+    additionalProperties: false,
+  },
+  "literature_artifact.upsert_references": {
+    type: "object",
+    properties: {
+      operation: { const: "literature_artifact.upsert_references" },
+      operationId: { type: "string", minLength: 1, maxLength: 128 },
+      parentRef: { $ref: "#/$defs/itemRef" },
+      references: { $ref: "#/$defs/jsonValue" },
+    },
+    required: ["operation", "parentRef", "references"],
+    additionalProperties: false,
+  },
+  "literature_artifact.upsert_citation_analysis": {
+    type: "object",
+    properties: {
+      operation: { const: "literature_artifact.upsert_citation_analysis" },
+      operationId: { type: "string", minLength: 1, maxLength: 128 },
+      parentRef: { $ref: "#/$defs/itemRef" },
+      citationAnalysis: { $ref: "#/$defs/jsonValue" },
+    },
+    required: ["operation", "parentRef", "citationAnalysis"],
+    additionalProperties: false,
+  },
+  "literature_artifact.upsert_score": {
+    type: "object",
+    properties: {
+      operation: { const: "literature_artifact.upsert_score" },
+      operationId: { type: "string", minLength: 1, maxLength: 128 },
+      parentRef: { $ref: "#/$defs/itemRef" },
+      score: { $ref: "#/$defs/literatureScoreArtifact" },
+    },
+    required: ["operation", "parentRef", "score"],
+    additionalProperties: false,
+  },
 } satisfies Record<MutationOperation, JsonSchema>;
 
 // These type-only aliases make a missing canonical operation fail compilation at the schema boundary.
@@ -593,7 +692,332 @@ const mutationDefs = {
   attachmentContentManifest,
   storedAttachmentSource,
   attachmentSource,
+  literatureScoreArtifact: {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "schema",
+      "rubric_id",
+      "paper_type",
+      "paper_type_reason",
+      "overall_score",
+      "confidence",
+      "confidence_adjusted_score",
+      "dimensions",
+    ],
+    properties: {
+      schema: { const: "literature_score.v1" },
+      rubric_id: { type: "string", minLength: 1 },
+      paper_type: {
+        enum: [
+          "empirical",
+          "review",
+          "theoretical",
+          "qualitative",
+          "mixed_methods",
+          "other",
+        ],
+      },
+      paper_type_reason: { type: "string", minLength: 1 },
+      overall_score: { type: "number", minimum: 0, maximum: 100 },
+      confidence: { type: "number", minimum: 0, maximum: 1 },
+      confidence_adjusted_score: {
+        type: "number",
+        minimum: 0,
+        maximum: 100,
+      },
+      dimensions: {
+        type: "array",
+        minItems: 6,
+        maxItems: 6,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "dimension_key",
+            "name",
+            "configured_weight",
+            "effective_weight",
+            "raw_score",
+            "applicable_max_score",
+            "score",
+            "confidence",
+            "summary",
+            "criteria",
+          ],
+          properties: {
+            dimension_key: { type: "string", minLength: 1 },
+            name: { type: "string", minLength: 1 },
+            configured_weight: { type: "number", minimum: 0, maximum: 1 },
+            effective_weight: { type: "number", minimum: 0, maximum: 1 },
+            raw_score: { type: "integer", minimum: 0 },
+            applicable_max_score: { type: "integer", minimum: 0 },
+            score: {
+              type: ["number", "null"],
+              minimum: 0,
+              maximum: 100,
+            },
+            confidence: {
+              type: ["number", "null"],
+              minimum: 0,
+              maximum: 1,
+            },
+            summary: { type: "string", minLength: 1 },
+            criteria: {
+              type: "array",
+              minItems: 1,
+              items: {
+                type: "object",
+                additionalProperties: false,
+                required: [
+                  "criterion_key",
+                  "name",
+                  "status",
+                  "score",
+                  "max_score",
+                  "reason",
+                  "evidence",
+                ],
+                properties: {
+                  criterion_key: { type: "string", minLength: 1 },
+                  name: { type: "string", minLength: 1 },
+                  status: { enum: ["scored", "not_applicable"] },
+                  score: { type: ["integer", "null"], minimum: 0 },
+                  max_score: { type: "integer", minimum: 1 },
+                  reason: { type: "string", minLength: 1 },
+                  evidence: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      additionalProperties: false,
+                      required: ["line_start", "line_end", "quote"],
+                      properties: {
+                        line_start: { type: "integer", minimum: 1 },
+                        line_end: { type: "integer", minimum: 1 },
+                        quote: {
+                          type: "string",
+                          minLength: 1,
+                          maxLength: 500,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
 };
+
+const managedNoteKind = {
+  enum: [
+    "custom",
+    "conversation-note",
+    "digest",
+    "references",
+    "citation-analysis",
+    "literature-score",
+  ],
+} satisfies JsonSchema;
+
+const noteDetail = {
+  oneOf: [
+    {
+      type: "object",
+      properties: {
+        kind: { const: "ordinary" },
+        ref: { $ref: "#/$defs/itemRef" },
+        parentRef: {
+          anyOf: [{ $ref: "#/$defs/itemRef" }, { type: "null" }],
+        },
+        title: { type: "string" },
+        format: { enum: ["html", "text"] },
+        content: { type: "string" },
+        revision: { type: "string", minLength: 1 },
+      },
+      required: [
+        "kind",
+        "ref",
+        "parentRef",
+        "title",
+        "format",
+        "content",
+        "revision",
+      ],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: {
+        kind: { const: "managed" },
+        noteKind: managedNoteKind,
+        ref: { $ref: "#/$defs/itemRef" },
+        parentRef: {
+          anyOf: [{ $ref: "#/$defs/itemRef" }, { type: "null" }],
+        },
+        title: { type: "string" },
+        payload: { $ref: "#/$defs/jsonValue" },
+        payloadBytes: { type: "integer", minimum: 0 },
+        detailBytes: { type: "integer", minimum: 0 },
+        revision: { type: "string", minLength: 1 },
+        provenance: {
+          type: "object",
+          properties: {
+            sourceRef: { $ref: "#/$defs/itemRef" },
+            referencesBasis: { type: "string", minLength: 1 },
+          },
+          additionalProperties: false,
+        },
+        health: {
+          type: "object",
+          properties: {
+            state: { enum: ["current", "stale"] },
+            currentReferencesBasis: { type: "string", minLength: 1 },
+          },
+          required: ["state"],
+          additionalProperties: false,
+        },
+        derived: {
+          type: "object",
+          properties: {
+            markdown: { type: "string" },
+            representativeImage: {
+              type: "object",
+              properties: {
+                attachmentRef: { $ref: "#/$defs/itemRef" },
+                alt: { type: "string" },
+              },
+              required: ["attachmentRef", "alt"],
+              additionalProperties: false,
+            },
+          },
+          additionalProperties: false,
+        },
+      },
+      required: [
+        "kind",
+        "noteKind",
+        "ref",
+        "parentRef",
+        "title",
+        "payload",
+        "payloadBytes",
+        "detailBytes",
+        "revision",
+      ],
+      additionalProperties: false,
+    },
+  ],
+} satisfies JsonSchema;
+
+/** Shared Note detail schema for Broker and Host Bridge projections. */
+export const NOTE_DETAIL_OUTPUT_SCHEMA = {
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  ...noteDetail,
+  $defs: { itemRef: portableItemRef, jsonValue },
+} satisfies JsonSchema;
+
+const managedNoteWriteTarget = {
+  oneOf: [
+    {
+      type: "object",
+      properties: {
+        kind: { const: "create" },
+        parentRef: { $ref: "#/$defs/itemRef" },
+      },
+      required: ["kind", "parentRef"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: {
+        kind: { const: "update" },
+        noteRef: { $ref: "#/$defs/itemRef" },
+      },
+      required: ["kind", "noteRef"],
+      additionalProperties: false,
+    },
+  ],
+} satisfies JsonSchema;
+
+export const MANAGED_NOTE_WRITE_INPUT_SCHEMA = {
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  type: "object",
+  properties: {
+    operationId: { type: "string", minLength: 1, maxLength: 128 },
+    target: managedNoteWriteTarget,
+    content: {
+      type: "object",
+      properties: {
+        title: { type: "string", minLength: 1 },
+        markdown: { type: "string", minLength: 1 },
+      },
+      required: ["title", "markdown"],
+      additionalProperties: false,
+    },
+  },
+  required: ["operationId", "target", "content"],
+  additionalProperties: false,
+  $defs: { itemRef: portableItemRef },
+} satisfies JsonSchema;
+
+export const LITERATURE_ARTIFACT_UPSERT_INPUT_SCHEMAS = {
+  digest: {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    type: "object",
+    properties: {
+      operationId: { type: "string", minLength: 1, maxLength: 128 },
+      parentRef: { $ref: "#/$defs/itemRef" },
+      markdown: { type: "string", minLength: 1 },
+    },
+    required: ["operationId", "parentRef", "markdown"],
+    additionalProperties: false,
+    $defs: { itemRef: portableItemRef },
+  },
+  references: {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    type: "object",
+    properties: {
+      operationId: { type: "string", minLength: 1, maxLength: 128 },
+      parentRef: { $ref: "#/$defs/itemRef" },
+      references: { $ref: "#/$defs/jsonValue" },
+    },
+    required: ["operationId", "parentRef", "references"],
+    additionalProperties: false,
+    $defs: { itemRef: portableItemRef, jsonValue },
+  },
+  citationAnalysis: {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    type: "object",
+    properties: {
+      operationId: { type: "string", minLength: 1, maxLength: 128 },
+      parentRef: { $ref: "#/$defs/itemRef" },
+      citationAnalysis: { $ref: "#/$defs/jsonValue" },
+    },
+    required: ["operationId", "parentRef", "citationAnalysis"],
+    additionalProperties: false,
+    $defs: { itemRef: portableItemRef, jsonValue },
+  },
+  score: {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    type: "object",
+    properties: {
+      operationId: { type: "string", minLength: 1, maxLength: 128 },
+      parentRef: { $ref: "#/$defs/itemRef" },
+      score: { $ref: "#/$defs/literatureScoreArtifact" },
+    },
+    required: ["operationId", "parentRef", "score"],
+    additionalProperties: false,
+    $defs: {
+      itemRef: portableItemRef,
+      jsonValue,
+      literatureScoreArtifact: mutationDefs.literatureScoreArtifact,
+    },
+  },
+} as const;
 
 export const MUTATION_EXECUTE_INPUT_SCHEMA = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
@@ -977,6 +1401,58 @@ const resultPayloadSchemas = {
     ],
     additionalProperties: false,
   },
+  "managed_note.write_custom": {
+    type: "object",
+    properties: { note: noteDetail },
+    required: ["note"],
+    additionalProperties: false,
+  },
+  "managed_note.write_conversation": {
+    type: "object",
+    properties: { note: noteDetail },
+    required: ["note"],
+    additionalProperties: false,
+  },
+  "literature_artifact.upsert_digest": {
+    type: "object",
+    properties: {
+      note: noteDetail,
+      dependentStale: { type: "boolean" },
+      referencesBasis: { type: "string", minLength: 1 },
+    },
+    required: ["note"],
+    additionalProperties: false,
+  },
+  "literature_artifact.upsert_references": {
+    type: "object",
+    properties: {
+      note: noteDetail,
+      dependentStale: { type: "boolean" },
+      referencesBasis: { type: "string", minLength: 1 },
+    },
+    required: ["note"],
+    additionalProperties: false,
+  },
+  "literature_artifact.upsert_citation_analysis": {
+    type: "object",
+    properties: {
+      note: noteDetail,
+      dependentStale: { type: "boolean" },
+      referencesBasis: { type: "string", minLength: 1 },
+    },
+    required: ["note"],
+    additionalProperties: false,
+  },
+  "literature_artifact.upsert_score": {
+    type: "object",
+    properties: {
+      note: noteDetail,
+      dependentStale: { type: "boolean" },
+      referencesBasis: { type: "string", minLength: 1 },
+    },
+    required: ["note"],
+    additionalProperties: false,
+  },
 } satisfies Record<MutationOperation, JsonSchema>;
 
 const successfulResultSchemas = Object.entries(resultPayloadSchemas).map(
@@ -1013,6 +1489,7 @@ const failedResultSchema: JsonSchema = {
 
 const mutationExecutionResultDefinitions = {
   ...mutationDefs,
+  managedNoteDetail: noteDetail,
   receipt,
   mutationAttempt,
 };

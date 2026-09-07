@@ -1,9 +1,6 @@
 import { upsertLiteratureDigestGeneratedNotes } from "../../lib/literatureDigestNotes.mjs";
 import { applyLiteratureDigestSidecar } from "../../lib/literatureDigestSidecar.mjs";
 import { extractRepresentativeImageLocator } from "../../lib/representativeImage.mjs";
-import { parseGeneratedNoteKind } from "../../lib/referencesNote.mjs";
-import { filterReferencesForDigestApply } from "../../lib/referenceQualityGate.mjs";
-import { buildLiteratureScorePayload } from "../../lib/literatureScoreNote.mjs";
 import {
   appendSkillDiagnosticsToResult,
   collectSkillOutputDiagnostics,
@@ -16,7 +13,12 @@ import {
   withPackageRuntimeScope,
 } from "../../lib/runtime.mjs";
 import { collectStatusTransitionDiagnostics } from "../../lib/statusTransition.mjs";
-import { normalizeReferencesPayload } from "../../lib/referenceModel.mjs";
+import { filterReferencesForDigestApply } from "../../lib/referenceQualityGate.mjs";
+import {
+  parseImportedReferencesArtifact,
+  parseImportedCitationArtifact,
+  parseImportedScoreArtifact,
+} from "../../lib/importSchemas.mjs";
 
 function normalizePathForCompare(targetPath) {
   const text = String(targetPath || "").trim();
@@ -124,16 +126,9 @@ function resolveWorkflowParameter(args) {
 }
 
 function findGeneratedNote(notes, targetKind) {
-  for (const note of Array.isArray(notes) ? notes : []) {
-    try {
-      if (parseGeneratedNoteKind(note?.getNote?.() || "") === targetKind) {
-        return note;
-      }
-    } catch {
-      // ignore malformed note objects and continue
-    }
-  }
-  return null;
+  return (Array.isArray(notes) ? notes : []).find(
+    (note) => note.kind === "managed" && note.noteKind === targetKind,
+  ) || null;
 }
 
 function findReferencesNote(notes) {
@@ -411,9 +406,8 @@ async function applyResultImpl({
         fallbackPath: "artifacts/literature_score.json",
       }),
   );
-  const literatureScorePayload = buildLiteratureScorePayload(
+  const literatureScorePayload = parseImportedScoreArtifact(
     JSON.parse(literatureScoreResolved.text),
-    literatureScoreResolved.entryPath,
   );
 
   if (scoreOnly) {
@@ -505,34 +499,26 @@ async function applyResultImpl({
   );
 
   const referencesPayload = await measureWorkflowTestSpan(
-    "executeApplyResult:literatureDigest:normalizeReferencesPayload",
+    "executeApplyResult:literatureDigest:validateReferencesArtifact",
     {},
     async () => {
-      const normalizedReferences = normalizeReferencesPayload(
+      const parsed = parseImportedReferencesArtifact(
         JSON.parse(referencesResolved.text),
       );
-      const referenceQuality =
-        filterReferencesForDigestApply(normalizedReferences);
+      const quality = filterReferencesForDigestApply(parsed.references);
       return {
         payload: {
-          version: 1,
-          entry: referencesResolved.entryPath,
-          format: "json",
-          references: referenceQuality.accepted,
+          ...parsed,
+          references: quality.accepted,
         },
-        quality: referenceQuality.summary,
+        quality: quality.summary,
       };
     },
   );
   const citationPayload = await measureWorkflowTestSpan(
-    "executeApplyResult:literatureDigest:normalizeCitationPayload",
+    "executeApplyResult:literatureDigest:validateCitationArtifact",
     {},
-    async () => ({
-      version: 1,
-      entry: citationAnalysisResolved.entryPath,
-      format: "json",
-      citation_analysis: JSON.parse(citationAnalysisResolved.text) || {},
-    }),
+    async () => parseImportedCitationArtifact(JSON.parse(citationAnalysisResolved.text)),
   );
   const sourceAttachmentItemKey = await measureWorkflowTestSpan(
     "executeApplyResult:literatureDigest:resolveSourceAttachment",
@@ -549,9 +535,6 @@ async function applyResultImpl({
         parentItem,
         digest: {
           payload: {
-            version: 1,
-            entry: digestResolved.entryPath,
-            format: "markdown",
             content: digestResolved.text,
           },
           literatureMatchingMetadata:

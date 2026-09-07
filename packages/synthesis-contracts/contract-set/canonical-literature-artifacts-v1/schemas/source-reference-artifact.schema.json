@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zotero-agents.local/canonical-literature-artifacts/v1/source-reference-artifact.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "references"],
+  "properties": {
+    "schema": { "const": "source_reference_artifact.v1" },
+    "references": {
+      "type": "array",
+      "maxItems": 25000,
+      "items": { "$ref": "#/$defs/SourceReference" }
+    }
+  },
+  "$defs": {
+    "OpaqueId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "NullableString": {
+      "type": ["string", "null"],
+      "maxLength": 65536
+    },
+    "String": {
+      "type": "string",
+      "maxLength": 65536
+    },
+    "NonEmptyString": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 65536
+    },
+    "Extraction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["raw", "confidence"],
+      "properties": {
+        "raw": { "$ref": "#/$defs/String" },
+        "confidence": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "Bibliography": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "authors", "year"],
+      "properties": {
+        "title": { "$ref": "#/$defs/String" },
+        "authors": {
+          "type": "array",
+          "maxItems": 512,
+          "items": { "$ref": "#/$defs/String" }
+        },
+        "year": { "type": ["integer", "null"] },
+        "publicationTitle": { "$ref": "#/$defs/String" },
+        "conferenceName": { "$ref": "#/$defs/String" },
+        "university": { "$ref": "#/$defs/String" },
+        "archiveID": { "$ref": "#/$defs/String" },
+        "volume": { "$ref": "#/$defs/String" },
+        "issue": { "$ref": "#/$defs/String" },
+        "pages": { "$ref": "#/$defs/String" },
+        "place": { "$ref": "#/$defs/String" },
+        "numPages": { "type": "integer", "minimum": 0 },
+        "publisher": { "$ref": "#/$defs/String" },
+        "itemType": { "$ref": "#/$defs/String" },
+        "date": { "$ref": "#/$defs/String" }
+      }
+    },
+    "Matching": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "DOI": { "$ref": "#/$defs/String" },
+        "url": { "$ref": "#/$defs/String" },
+        "ISBN": { "$ref": "#/$defs/String" },
+        "ISSN": { "$ref": "#/$defs/String" },
+        "citekey": { "$ref": "#/$defs/String" }
+      }
+    },
+    "SourceReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceReferenceId",
+        "extraction",
+        "bibliography",
+        "matching"
+      ],
+      "properties": {
+        "sourceReferenceId": { "$ref": "#/$defs/OpaqueId" },
+        "extraction": {
+          "anyOf": [{ "$ref": "#/$defs/Extraction" }, { "type": "null" }]
+        },
+        "bibliography": { "$ref": "#/$defs/Bibliography" },
+        "matching": { "$ref": "#/$defs/Matching" }
+      }
+    }
+  }
+}

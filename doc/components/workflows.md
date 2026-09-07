@@ -93,8 +93,8 @@ Workflow 负责声明当前 workflow 下的 skill 显示名。Skill 包的 `runn
 
 ```javascript
 // hooks/applyResult.mjs
-import { normalizeTag } from '../lib/model.mjs';
-import { fetchRemote } from '../lib/remote.mjs';
+import { normalizeTag } from "../lib/model.mjs";
+import { fetchRemote } from "../lib/remote.mjs";
 ```
 
 **两种格式并存**：loader 同时支持传统单 workflow 目录和多 workflow 包目录。
@@ -251,8 +251,17 @@ Manifest 契约由以下 schema 唯一定义（SSOT）：
 ```ts
 type PreflightOutcome =
   | { kind: "continue"; context?: Record<string, unknown> }
-  | { kind: "replace-units"; units: PreflightUnit[]; aggregate?: PreflightAggregatePlan; context?: Record<string, unknown> }
-  | { kind: "short-circuit-apply"; apply: PreflightApplyInput; context?: Record<string, unknown> }
+  | {
+      kind: "replace-units";
+      units: PreflightUnit[];
+      aggregate?: PreflightAggregatePlan;
+      context?: Record<string, unknown>;
+    }
+  | {
+      kind: "short-circuit-apply";
+      apply: PreflightApplyInput;
+      context?: Record<string, unknown>;
+    }
   | { kind: "skip"; reason?: string };
 ```
 
@@ -284,6 +293,7 @@ child 的 request、runResult、resultContext、bundleReader 和 preflight conte
 - `src/schemas/workflow-package.schema.json`
 
 字段：
+
 - `id`（必需）：包标识符
 - `version`（必需）：版本号
 - `workflows`（必需）：包内 workflow manifest 相对路径数组，例如 `literature-analysis/workflow.json`
@@ -345,9 +355,7 @@ child 的 request、runResult、resultContext、bundleReader 和 preflight conte
       }
     },
     "select": { "policy": "input-member", "source": "selected" },
-    "filters": [
-      { "kind": "source-file-exists", "phase": "availability" }
-    ]
+    "filters": [{ "kind": "source-file-exists", "phase": "availability" }]
   },
   "execution": {
     "mode": "auto",
@@ -649,16 +657,17 @@ Hook 接收的 `runtime` 对象包含：
 
 - 修改 `src/workflows/types.ts` 中 `WorkflowHooksSpec` 或 `WorkflowManifest` 后，同步更新本文件的 manifest 契约章节。
 - 修改 `src/workflows/loader.ts` 的 hook 载入策略或失败语义后，同步更新本文件的运行时兼容/失败语义章节。
-- 修改 `src/workflows/helpers.ts` 中 canonical references 表格渲染逻辑后，同步更新本文件的”Reference 表格列映射”。
+- 修改 Managed Note owner 的 References 表格渲染逻辑后，同步更新本文件的“Reference 表格列映射”。
 
 ## Host API（Hook 可调用）
 
 `runtime.hostApi` 是精确的 Workflow Host API v12 投影。其身份由
-`src/workflows/workflowHostContract.ts` 的只读 manifest 唯一持有：23 个顶层
-key、21 个模块、89 个 callable。Hook 只通过以下命名模块访问宿主能力：
+`src/workflows/workflowHostContract.ts` 的只读 manifest 唯一持有：25 个顶层
+key、23 个模块、96 个 callable。Hook 只通过以下命名模块访问宿主能力：
 
 - `addon`、`environment`、`context`、`navigation`
 - `library`、`metadata`、`mutations`、`notes`、`images`、`attachments`
+- `managedNotes`、`literatureArtifacts`
 - `bibliography`、`researchBundles`、`statusTags`
 - `file`、`archive`、`resources`、`clipboard`
 - `editor`、`notifications`、`logging`
@@ -675,6 +684,34 @@ key、21 个模块、89 个 callable。Hook 只通过以下命名模块访问宿
 `hasMore` / `nextCursor` 消费所有页。payload 页的 `total` 为 `null`，空页仍可能
 有后续候选，不得按数组长度停止。单页目标读取失败使整页失败。Hook 的运行级
 取消信号由 Host projection 传入 Broker，并在后续页进入 Host 前检查。
+
+### Managed Note 与文献工件
+
+`library.getNoteDetail` 返回可区分的 union。普通笔记提供 `content`；受管理
+笔记提供 `noteKind`、完整 `payload`、UTF-8 序列化字节数和 revision，不提供
+原始 HTML。语义读取上限为 1 MiB；50 KiB 是下游 ToolResult 的独立预算。
+
+Custom 和 conversation 通过 `managedNotes.writeCustom` /
+`writeConversation` 写入 title 与 Markdown；新建可产生多个同类笔记，更新
+必须指定同类、同父条目的笔记。Digest、References、Citation Analysis 与
+Literature Score 使用 `literatureArtifacts` 的四个 upsert；同父条目同类型
+存在多个笔记时返回冲突，调用方不能选择第一个或自动删除重复项。
+
+文献分析使用 Workflow 本地 `literatureArtifacts.applyAnalysis` 提交父集合。
+References 与 Citation 共用操作身份与终态证据，调用方通过
+`mutations.getOperation` 观察结果。这个组合入口不属于 Bridge/MCP 的公开操作。
+普通 `notes.create` / `updateContent` 不能承载受管理标记或改写 Managed Note。
+
+References 使用闭合的 `source_reference_artifact.v1`：引用身份为
+`sourceReferenceId`，书目字段在 `bibliography`，提取证据在 `extraction`，
+匹配字段在 `matching`。导入和编辑保留已有身份；新提取记录分配不依赖位置或
+内容的身份。Citation 使用 `citation_analysis_artifact.v1`，保留 meta、summary、
+timeline、items、unresolved 及 mention 证据；References basis 由运行时计算，
+报告 Markdown 是派生结果。包内不得另行 normalize、重建旧 wrapper 或反向导出。
+
+Bundle 的可见 HTML 和 note-child 图片字节由私有 transfer adapter 保真传输；
+canonical JSON/Markdown 文件是只读投影。识别到旧格式时，普通 Import 使用
+迁移 converter 的预览与显式确认；库内迁移由 Dashboard 的 Migrations 入口管理。
 
 ## Workflow Package Schema
 

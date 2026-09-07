@@ -8,6 +8,7 @@ import {
 import { hashCanonicalJson, sha256 } from "./foundation";
 
 export type CitationGraphReferenceInput = {
+  sourceReferenceId?: string;
   citekey?: string;
   doi?: string;
   arxiv?: string;
@@ -515,7 +516,10 @@ export function buildUnifiedCitationGraph(args: {
           index,
         }),
         sourceId: source,
-        sourceRef: `${source}#ref:${index}`,
+        // The graph's provisional/canonical node identity still comes from
+        // matching facts. Keep the artifact's opaque source identity only as
+        // evidence for the derived edge projection.
+        sourceRef: reference.sourceReferenceId || `${source}#ref:${index}`,
         targetId: target,
         targetKind: targetLibraryNode
           ? "library_paper"

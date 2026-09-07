@@ -1,9 +1,5 @@
 import { summarizeLibraryGeneratedArtifacts } from "../libraryArtifactReadiness";
 import {
-  listNotePayloadBlocks,
-  type ZoteroNotePayloadBlock,
-} from "../notePayloadCodec";
-import {
   queryZoteroLibraryPage,
   ZoteroLibraryCursorError,
 } from "../zoteroLibraryPageQuery";
@@ -22,10 +18,11 @@ import {
   createZoteroHostCapabilityBroker,
   type ZoteroHostCapabilityBroker,
 } from "../zoteroHostCapabilityBroker";
-import type {
-  NotePayloadSummaryDto,
-  PortableItemRef,
-} from "../../workflows/types";
+import type { ManagedNoteKind, PortableItemRef } from "../../workflows/types";
+import {
+  parseCitationAnalysisArtifact,
+  parseSourceReferenceArtifact,
+} from "../../../packages/synthesis-contracts/src/sourceReferenceArtifact";
 import type {
   CitationGraphPaperInput,
   CitationGraphReferenceInput,
@@ -113,6 +110,8 @@ export type PaperArtifactReadResult = {
   hash?: string;
   payload_hash?: string;
   payload?: unknown;
+  /** Runtime-only Citation provenance; never part of canonical Citation JSON. */
+  referencesBasis?: string;
   markdown?: string;
   decoded_text?: string;
   missing_reason?: string;
@@ -143,6 +142,17 @@ const ARTIFACT_TYPE_ALIASES: Record<string, PaperArtifactType> = {
 
 function cleanString(value: unknown) {
   return String(value || "").trim();
+}
+
+function managedNoteKind(value: unknown): ManagedNoteKind | null {
+  return value === "custom" ||
+    value === "conversation-note" ||
+    value === "digest" ||
+    value === "references" ||
+    value === "citation-analysis" ||
+    value === "literature-score"
+    ? value
+    : null;
 }
 
 function normalizeLibraryId(value: unknown, fallback = 1) {
@@ -294,112 +304,6 @@ async function readCanonicalPages<
   }
 }
 
-type CanonicalPayloadBlockBase = Omit<
-  ZoteroNotePayloadBlock,
-  "payload" | "markdown" | "decodedText" | "errors"
->;
-
-function canonicalPayloadBlockBase(
-  summary: NotePayloadSummaryDto,
-): CanonicalPayloadBlockBase {
-  return {
-    source:
-      summary.source.kind === "embedded_attachment"
-        ? "embedded-image-attachment"
-        : "html-payload-block",
-    anchorStatus:
-      summary.source.kind === "embedded_attachment"
-        ? summary.state === "stale"
-          ? "stale"
-          : summary.state === "missing"
-            ? "missing"
-            : "present"
-        : "not_applicable",
-    payloadType: summary.payloadType,
-    noteKind: summary.noteKind,
-    version: summary.version,
-    encoding: summary.encoding,
-    // The canonical DTO intentionally omits the source encoded value. Keep
-    // that omission instead of re-encoding a value with different provenance.
-    encodedValue: "",
-    estimatedSize: summary.estimatedBytes,
-    format: summary.format,
-    ...(summary.source.kind === "embedded_attachment"
-      ? { attachmentKey: summary.source.attachmentRef.key }
-      : {}),
-  };
-}
-
-function canonicalPayloadBlock(
-  summary: NotePayloadSummaryDto,
-  value: unknown,
-): ZoteroNotePayloadBlock {
-  const block: ZoteroNotePayloadBlock = {
-    ...canonicalPayloadBlockBase(summary),
-    payload: value,
-    ...(summary.format === "markdown"
-      ? { markdown: String(value ?? ""), decodedText: String(value ?? "") }
-      : summary.format === "text"
-        ? { decodedText: String(value ?? "") }
-        : {}),
-  };
-  return block;
-}
-
-function canonicalUnavailablePayloadBlock(
-  summary: NotePayloadSummaryDto,
-): ZoteroNotePayloadBlock {
-  return {
-    ...canonicalPayloadBlockBase(summary),
-    errors: summary.issues.map((issue) => issue.code),
-  };
-}
-
-async function canonicalNotePayloadBlocks(
-  broker: ZoteroHostCapabilityBroker,
-  noteRef: PortableItemRef,
-  html: string,
-) {
-  const inlineBlocks = listNotePayloadBlocks(html);
-  const inlineByType = new Map<string, ZoteroNotePayloadBlock[]>();
-  for (const block of inlineBlocks) {
-    const blocks = inlineByType.get(block.payloadType) || [];
-    blocks.push(block);
-    inlineByType.set(block.payloadType, blocks);
-  }
-  const inlineOffsets = new Map<string, number>();
-  const payloads = await readCanonicalPages(
-    (page) => broker.library.listNotePayloads(noteRef, page),
-    (page) => page.payloads,
-    "note payloads",
-  );
-  const blocks: ZoteroNotePayloadBlock[] = [];
-  for (const summary of payloads) {
-    if (summary.source.kind === "inline") {
-      const candidates = inlineByType.get(summary.payloadType) || [];
-      const offset = inlineOffsets.get(summary.payloadType) || 0;
-      const block = candidates[offset];
-      if (!block) {
-        throw new Error(
-          `note payload page returned an unprojectable inline payload: ${summary.payloadType}`,
-        );
-      }
-      inlineOffsets.set(summary.payloadType, offset + 1);
-      blocks.push(block);
-      continue;
-    }
-    if (summary.state !== "available") {
-      blocks.push(canonicalUnavailablePayloadBlock(summary));
-      continue;
-    }
-    const value = await broker.library.getNotePayload(noteRef, {
-      payloadType: summary.payloadType,
-    });
-    blocks.push(canonicalPayloadBlock(value.summary, value.value));
-  }
-  return blocks;
-}
-
 async function childNotes(
   item: any,
   broker: ZoteroHostCapabilityBroker,
@@ -418,20 +322,56 @@ async function childNotes(
   );
   const rows: ReferenceSidecarInputNote[] = [];
   for (const note of notes) {
-    const detail = await broker.library.getNoteDetail(note.ref, {
-      format: "html",
-    });
-    rows.push({
-      key: cleanString(note.ref.key),
-      title: cleanString(note.title || detail.title),
-      html: detail.content,
-      updatedAt: cleanString(note.revision),
-      payloadBlocks: await canonicalNotePayloadBlocks(
-        broker,
-        note.ref,
-        detail.content,
-      ),
-    });
+    try {
+      const detail = await broker.library.getNoteDetail(note.ref, {
+        format: "text",
+      });
+      const issue =
+        detail.kind === "managed" &&
+        detail.noteKind === "citation-analysis" &&
+        detail.health?.state === "stale"
+          ? "references_basis_mismatch"
+          : null;
+      rows.push({
+        key: cleanString(note.ref.key),
+        title: cleanString(note.title || detail.title),
+        updatedAt: cleanString(note.revision || detail.revision),
+        noteKind: detail.kind === "managed" ? detail.noteKind : null,
+        payload: detail.kind === "managed" ? detail.payload : null,
+        ...(detail.kind === "managed" && detail.provenance
+          ? { provenance: detail.provenance }
+          : {}),
+        issue,
+      });
+    } catch (error) {
+      const code =
+        typeof error === "object" && error && "code" in error
+          ? cleanString((error as { code?: unknown }).code)
+          : "";
+      if (
+        code !== "invalid_artifact" &&
+        code !== "legacy_artifact_requires_migration"
+      ) {
+        throw error;
+      }
+      const details =
+        typeof error === "object" && error && "details" in error
+          ? (error as { details?: unknown }).details
+          : undefined;
+      const diagnosticNoteKind =
+        details && typeof details === "object" && !Array.isArray(details)
+          ? managedNoteKind((details as { noteKind?: unknown }).noteKind) ||
+            managedNoteKind((details as { managedType?: unknown }).managedType)
+          : null;
+      rows.push({
+        key: cleanString(note.ref.key),
+        title: cleanString(note.title),
+        updatedAt: cleanString(note.revision),
+        noteKind: diagnosticNoteKind,
+        payload: null,
+        issue: code,
+      });
+    }
   }
   return rows.filter((note) => note.key);
 }
@@ -490,9 +430,11 @@ async function literatureAnalysisSummaryFromNotes(
     notes.map((note) => ({
       key: note.key,
       title: note.title || "",
-      html: note.html,
       updatedAt: note.updatedAt || "",
-      payloadBlocks: note.payloadBlocks || [],
+      noteKind: note.noteKind ?? null,
+      payload: note.payload ?? null,
+      issue: note.issue ?? null,
+      ...(note.provenance ? { provenance: note.provenance } : {}),
     })),
   );
   const score = readiness.score;
@@ -654,15 +596,49 @@ function payloadBlocksForInput(input: ReferenceSidecarInput) {
   const noteRows = [...(input.notes || [])].sort((left, right) =>
     cleanString(left.key).localeCompare(cleanString(right.key)),
   );
+  type RegistryPayloadBlock = {
+    source: string;
+    payloadType: string;
+    format: "markdown" | "json" | "text";
+    payload?: unknown;
+    markdown?: string;
+    decodedText?: string;
+    errors?: string[];
+  };
   const rows: Array<{
     note: ReferenceSidecarInputNote;
-    block: ZoteroNotePayloadBlock;
+    block: RegistryPayloadBlock;
   }> = [];
   const payloadTypesSeen: string[] = [];
   const decodeErrors: string[] = [];
+  const managedArtifactTypes: Partial<
+    Record<ManagedNoteKind, PaperArtifactType>
+  > = {
+    digest: "digest",
+    references: "references",
+    "citation-analysis": "citation_analysis",
+    "literature-score": "literature_score",
+  };
   for (const note of noteRows) {
-    for (const block of note.payloadBlocks ||
-      listNotePayloadBlocks(note.html)) {
+    const directType = note.noteKind
+      ? managedArtifactTypes[note.noteKind]
+      : undefined;
+    const directBlocks: RegistryPayloadBlock[] = directType
+      ? [
+          {
+            source: "managed-note-detail",
+            payloadType: PAPER_ARTIFACT_PAYLOAD_TYPES[directType],
+            format: directType === "digest" ? "markdown" : "json",
+            payload: note.payload ?? undefined,
+            ...(directType === "digest" && typeof note.payload === "string"
+              ? { markdown: note.payload, decodedText: note.payload }
+              : {}),
+            ...(note.issue ? { errors: [note.issue] } : {}),
+          },
+        ]
+      : [];
+    const blocks = directBlocks;
+    for (const block of blocks) {
       const payloadType = cleanString(block.payloadType);
       if (payloadType) {
         payloadTypesSeen.push(payloadType);
@@ -707,13 +683,10 @@ function firstPayloadBlock(args: {
   artifactType: PaperArtifactType;
 }) {
   const payloadType = PAPER_ARTIFACT_PAYLOAD_TYPES[args.artifactType];
-  const acceptedSources = new Set([
-    "embedded-image-attachment",
-    "html-payload-block",
-  ]);
+  const acceptedSources = new Set(["managed-note-detail"]);
   let decodeError: {
     note: ReferenceSidecarInputNote;
-    block: ZoteroNotePayloadBlock;
+    block: ReturnType<typeof payloadBlocksForInput>["rows"][number]["block"];
   } | null = null;
   for (const row of args.scan.rows) {
     if (row.block.payloadType !== payloadType) {
@@ -730,54 +703,19 @@ function firstPayloadBlock(args: {
   return decodeError ? { ...decodeError, decodeError: true } : null;
 }
 
-function asArray(value: unknown): unknown[] {
-  return Array.isArray(value) ? value : [];
-}
-
-function asStringOrArray(value: unknown): unknown[] {
-  if (Array.isArray(value)) {
-    return value;
-  }
-  return cleanString(value) ? [value] : [];
-}
-
-function normalizeRoles(value: unknown) {
-  if (Array.isArray(value)) {
-    return value.map(cleanString).filter(Boolean);
-  }
-  const role = cleanString(value);
-  return role ? [role] : [];
-}
-
-function referenceTitleKey(value: unknown) {
-  return cleanString(value).toLowerCase().replace(/\s+/g, " ");
-}
-
 function rolesByReference(payload: unknown) {
-  const byIndex = new Map<number, string[]>();
-  const byTitle = new Map<string, string[]>();
-  const citations = asArray((payload as any)?.citations);
-  for (const citation of citations) {
-    const roles = normalizeRoles(
-      (citation as any)?.roles || (citation as any)?.role,
-    );
-    if (!roles.length) {
-      continue;
+  const bySourceReferenceId = new Map<string, string[]>();
+  try {
+    const citation = parseCitationAnalysisArtifact(payload);
+    for (const item of citation.items) {
+      if (!item.function) continue;
+      bySourceReferenceId.set(item.sourceReferenceId, [item.function]);
     }
-    const rawIndex =
-      (citation as any)?.reference_index ?? (citation as any)?.index;
-    const index = Number(rawIndex);
-    if (Number.isFinite(index) && index >= 0) {
-      byIndex.set(index, [...(byIndex.get(index) || []), ...roles]);
-    }
-    const title = referenceTitleKey(
-      (citation as any)?.title || (citation as any)?.reference_title,
-    );
-    if (title) {
-      byTitle.set(title, [...(byTitle.get(title) || []), ...roles]);
-    }
+  } catch {
+    // The host read reports the artifact as unavailable; it must not invent
+    // positional or title-based linkage for an invalid Citation artifact.
   }
-  return { byIndex, byTitle };
+  return bySourceReferenceId;
 }
 
 function extractReferences(
@@ -797,43 +735,31 @@ function extractReferences(
     scan,
     artifactType: "citation_analysis",
   });
+  let references: ReturnType<typeof parseSourceReferenceArtifact>["references"];
+  try {
+    references = parseSourceReferenceArtifact(
+      referencesBlock.block.payload,
+    ).references;
+  } catch {
+    return [];
+  }
   const roleMaps = rolesByReference(citationBlock?.block.payload);
-  const payload = referencesBlock.block.payload as any;
-  const references = asArray(payload?.references || payload?.items || payload);
-  return references.map((entry, index): CitationGraphReferenceInput => {
-    const source = entry as any;
-    const title = cleanString(
-      source.title || source.paper_title || source.raw_title,
-    );
-    const raw = cleanString(
-      source.rawText || source.raw || source.reference || source.text,
-    );
-    const roles = [
-      ...normalizeRoles(source.roles || source.role),
-      ...(roleMaps.byIndex.get(index) || []),
-      ...(roleMaps.byTitle.get(referenceTitleKey(title)) || []),
-    ];
+  return references.map((entry): CitationGraphReferenceInput => {
+    const title = cleanString(entry.bibliography.title);
+    const raw = cleanString(entry.extraction?.raw);
+    const roles = roleMaps.get(entry.sourceReferenceId) || [];
     return {
-      citekey: cleanString(
-        source.citekey || source.citeKey || source.citationKey,
-      ),
-      doi: cleanString(source.doi || source.DOI),
-      arxiv: cleanString(source.arxiv || source.arXiv),
-      isbn: cleanString(source.isbn || source.ISBN),
-      url: cleanString(source.url),
+      sourceReferenceId: entry.sourceReferenceId,
+      citekey: cleanString(entry.matching.citekey),
+      doi: cleanString(entry.matching.DOI),
+      isbn: cleanString(entry.matching.ISBN),
+      url: cleanString(entry.matching.url),
       title,
-      year: cleanString(source.year || source.date),
-      authors: asStringOrArray(
-        source.author || source.authors || source.creators,
-      )
-        .map((author) =>
-          typeof author === "string"
-            ? cleanString(author)
-            : cleanString((author as any)?.name || (author as any)?.lastName),
-        )
-        .filter(Boolean),
+      year:
+        entry.bibliography.year === null ? "" : String(entry.bibliography.year),
+      authors: entry.bibliography.authors.map(cleanString).filter(Boolean),
       raw,
-      roles: Array.from(new Set(roles)).sort((left, right) =>
+      roles: [...new Set(roles)].sort((left, right) =>
         left.localeCompare(right),
       ),
     };
@@ -859,11 +785,27 @@ export function buildCitationGraphInputsFromRegistryInputs(
   }));
 }
 
-function artifactHash(block: ZoteroNotePayloadBlock) {
+function artifactHash(block: {
+  format: "json" | "markdown" | "text";
+  payload?: unknown;
+  markdown?: string;
+  decodedText?: string;
+}) {
   if (block.format === "json") {
     return hashCanonicalJson(block.payload);
   }
   return hashMarkdown(block.markdown || block.decodedText || "");
+}
+
+function validateCanonicalArtifactPayload(
+  type: PaperArtifactType,
+  payload: unknown,
+) {
+  if (type === "references") {
+    parseSourceReferenceArtifact(payload);
+  } else if (type === "citation_analysis") {
+    parseCitationAnalysisArtifact(payload);
+  }
 }
 
 export function readArtifactsFromRegistryInputs(
@@ -969,6 +911,34 @@ export function readArtifactsFromRegistryInputs(
         });
         continue;
       }
+      if (type === "references" || type === "citation_analysis") {
+        try {
+          validateCanonicalArtifactPayload(type, found.block.payload);
+        } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : "canonical artifact schema validation failed";
+          const payloadHash = artifactHash(found.block);
+          diagnostics.push(
+            `${paperRef}:${PAPER_ARTIFACT_PAYLOAD_TYPES[type]}:decode_error:${message}`,
+          );
+          artifacts.push({
+            ...baseProbe,
+            paper_ref: paperRef,
+            artifact_type: type,
+            status: "decode_error",
+            payload_type: PAPER_ARTIFACT_PAYLOAD_TYPES[type],
+            note_key: found.note.key,
+            note_title: cleanString(found.note.title),
+            hash: payloadHash,
+            payload_hash: payloadHash,
+            missing_reason: "payload_decode_error",
+            diagnostics: [message],
+          });
+          continue;
+        }
+      }
       const payloadHash = artifactHash(found.block);
       artifacts.push({
         ...baseProbe,
@@ -981,6 +951,14 @@ export function readArtifactsFromRegistryInputs(
         hash: payloadHash,
         payload_hash: payloadHash,
         payload: found.block.payload,
+        ...(type === "citation_analysis" &&
+        cleanString(found.note.provenance?.referencesBasis)
+          ? {
+              referencesBasis: cleanString(
+                found.note.provenance?.referencesBasis,
+              ),
+            }
+          : {}),
         markdown: found.block.markdown,
         decoded_text: found.block.decodedText,
         diagnostics: [],
@@ -1449,6 +1427,10 @@ export function createZoteroSynthesisHostReadPort(
           status: "available" as const,
           payloadHash: currentHash,
           content,
+          ...(locator.artifactType === "citation_analysis" &&
+          cleanString(artifact.referencesBasis)
+            ? { referencesBasis: cleanString(artifact.referencesBasis) }
+            : {}),
           diagnostics: [...(artifact.diagnostics || [])],
         };
       },

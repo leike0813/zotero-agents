@@ -120,6 +120,8 @@ export type SynthesisHostArtifactReadResult = {
   payloadHash?: string;
   currentHash?: string;
   content?: SynthesisHostArtifactContent;
+  /** Runtime Citation provenance; excluded from canonical Citation JSON. */
+  referencesBasis?: string;
   diagnostics: string[];
 };
 
@@ -676,7 +678,7 @@ export function rebuildSynthesisHostArtifactReadResult(
   assertSynthesisExactFields(
     record,
     ["status", "diagnostics"],
-    ["payloadHash", "currentHash", "content"],
+    ["payloadHash", "currentHash", "content", "referencesBasis"],
     "hostArtifactReadResult",
   );
   if (
@@ -757,6 +759,15 @@ export function rebuildSynthesisHostArtifactReadResult(
           ),
         }),
     ...(content === undefined ? {} : { content }),
+    ...(record.referencesBasis === undefined
+      ? {}
+      : {
+          referencesBasis: stringValue(
+            record.referencesBasis,
+            "hostArtifactReadResult.referencesBasis",
+            false,
+          ),
+        }),
     diagnostics: diagnostics(
       record.diagnostics,
       "hostArtifactReadResult.diagnostics",

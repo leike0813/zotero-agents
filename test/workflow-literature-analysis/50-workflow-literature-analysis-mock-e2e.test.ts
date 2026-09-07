@@ -1,5 +1,6 @@
 import { assert } from "chai";
 import { nativeFixtureMutations as handlers } from "../helpers/nativeFixtureMutations";
+import { installNodeZoteroTransactionStub } from "../helpers/nodeZoteroTransactionStub";
 import { buildSelectionContext } from "../helpers/workflowSelectionContext";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import {
@@ -10,6 +11,13 @@ import singleMarkdownFixture from "../fixtures/selection-context/selection-conte
 import { fixturePath, workflowsPath } from "./workflow-test-utils";
 import { ZipBundleReader } from "../../src/workflows/zipBundleReader";
 import { isFullTestMode } from "./testMode";
+import { createWorkflowHostApi } from "../../src/workflows/hostApi";
+import {
+  resetZoteroLibrarySourcePageQueryAdapterForTests,
+  setZoteroLibrarySourcePageQueryAdapterForTests,
+} from "../../src/modules/zoteroLibraryPageQuery";
+import { createMockZoteroLibrarySourcePageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
+import { isZoteroRuntime } from "../zotero/workflow-test-utils";
 
 function formatError(error: unknown) {
   if (error instanceof Error) {
@@ -54,6 +62,21 @@ describeLiteratureDigestE2ESuite(
   "integration: literature-analysis with mock skill-runner",
   function () {
     this.timeout(30000);
+    let restoreNodeZoteroTransaction: (() => void) | undefined;
+
+    beforeEach(function () {
+      restoreNodeZoteroTransaction = installNodeZoteroTransactionStub();
+      if (!isZoteroRuntime())
+        setZoteroLibrarySourcePageQueryAdapterForTests(
+          createMockZoteroLibrarySourcePageQueryAdapter(),
+        );
+    });
+
+    afterEach(function () {
+      restoreNodeZoteroTransaction?.();
+      restoreNodeZoteroTransaction = undefined;
+      resetZoteroLibrarySourcePageQueryAdapterForTests();
+    });
 
     it("rebuilds single-markdown sequence request and applies fixture bundle with notes written", async function () {
       try {
@@ -140,40 +163,42 @@ describeLiteratureDigestE2ESuite(
         assert.equal(digestStep?.parameter?.language, "zh-CN");
 
         const bundleReader = new ZipBundleReader(
-          fixturePath("literature-analysis", "run_bundle.zip"),
+          fixturePath("literature-analysis", "run_bundle_canonical.zip"),
         );
         const applyResult = (await executeApplyResult({
           workflow: workflow!,
           parent: { libraryId: parent.libraryID, key: parent.key },
           bundleReader,
           request: requests[0],
-        })) as { notes: Zotero.Item[] };
+        })) as { notes: Array<{ ref: { libraryId: number; key: string } }> };
         assert.lengthOf(applyResult.notes, 4);
-        const firstNote = Zotero.Items.get(applyResult.notes[0].id)!;
-        const secondNote = Zotero.Items.get(applyResult.notes[1].id)!;
-        const thirdNote = Zotero.Items.get(applyResult.notes[2].id)!;
-        const fourthNote = Zotero.Items.get(applyResult.notes[3].id)!;
-        assert.equal(firstNote.parentItemID, parent.id);
-        assert.equal(secondNote.parentItemID, parent.id);
-        assert.equal(thirdNote.parentItemID, parent.id);
-        assert.equal(fourthNote.parentItemID, parent.id);
-        assert.match(firstNote.getNote(), /<h1>Digest<\/h1>/);
-        assert.isAtLeast((firstNote.getAttachments?.() || []).length, 1);
-        assert.match(secondNote.getNote(), /<h1>References<\/h1>/);
-        assert.match(secondNote.getNote(), /<table\b/);
-        assert.isAtLeast((secondNote.getAttachments?.() || []).length, 1);
-        assert.match(thirdNote.getNote(), /<h1>Citation Analysis<\/h1>/);
-        assert.isAtLeast((thirdNote.getAttachments?.() || []).length, 1);
-        assert.include(
-          fourthNote.getNote(),
-          'data-zs-note-kind="literature-score"',
-        );
-        assert.isAtLeast((fourthNote.getAttachments?.() || []).length, 1);
-        const parentNotes = parent.getNotes();
-        assert.include(parentNotes, firstNote.id);
-        assert.include(parentNotes, secondNote.id);
-        assert.include(parentNotes, thirdNote.id);
-        assert.include(parentNotes, fourthNote.id);
+        const host = createWorkflowHostApi();
+        const kinds: string[] = [];
+        for (const note of applyResult.notes) {
+          const detail = await host.library.getNoteDetail(note.ref, {
+            format: "html",
+          });
+          assert.equal(detail.kind, "managed");
+          if (detail.kind !== "managed")
+            assert.fail("Expected managed artifact");
+          assert.deepEqual(detail.parentRef, {
+            libraryId: parent.libraryID,
+            key: parent.key,
+          });
+          kinds.push(detail.noteKind);
+          const native = Zotero.Items.getByLibraryAndKey(
+            note.ref.libraryId,
+            note.ref.key,
+          );
+          assert.include(parent.getNotes(), native.id);
+          assert.isAtLeast(native.getAttachments().length, 1);
+        }
+        assert.sameMembers(kinds, [
+          "digest",
+          "references",
+          "citation-analysis",
+          "literature-score",
+        ]);
       } catch (error) {
         console.error(
           `[integration: literature-analysis with mock skill-runner] e2e failed\n${formatError(error)}`,

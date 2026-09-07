@@ -6,6 +6,9 @@ The task dashboard is built from several sub-modules that handle active task
 filtering, toolbar button management, task history persistence, and snapshot
 normalization.
 
+The Dashboard-local Literature Artifact migration and its bounded Migrations
+region are documented in [literature-artifact-migration.md](./literature-artifact-migration.md).
+
 Four modules implement these concerns:
 
 | Module | File | Role |

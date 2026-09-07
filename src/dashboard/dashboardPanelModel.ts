@@ -75,6 +75,7 @@ import {
   projectDashboardAcpTraceReplaySelection,
   type DashboardAcpTraceReplaySelection,
 } from "./components/AcpTraceReplayRegion";
+import type { DashboardMigrationsSelection } from "./components/MigrationsRegion";
 import type {
   DashboardPageSnapshot,
   DashboardPanel,
@@ -1141,6 +1142,72 @@ function projectViews(
   selectedTabKey: string,
 ): DashboardPanelViews {
   const labels: DashboardLabels = snapshot.labels || {};
+  const migrationView = snapshot.literatureArtifactMigrationView || {
+    migrationId: "literature-artifacts",
+    definitionVersion: 1,
+    availability: "unavailable" as const,
+    availabilityReason: labelText(
+      labels,
+      "literatureMigrationUnavailable",
+      "Literature artifact migration is unavailable in this runtime.",
+    ),
+    libraryId: 0,
+    activeRun: null,
+    activeOperationId: "",
+    candidates: [],
+    receipts: [],
+    history: [],
+  };
+  const migrations: DashboardMigrationsSelection = {
+    view: migrationView,
+    pageTitle: labelText(labels, "literatureMigrationPageTitle", "Migrations"),
+    migrationTitle: labelText(
+      labels,
+      "literatureMigrationEmpty",
+      "No migration preview is active.",
+    ),
+    unavailableText: labelText(
+      labels,
+      "literatureMigrationUnavailable",
+      "Literature artifact migration is unavailable in this runtime.",
+    ),
+    scanLabel: labelText(labels, "literatureMigrationScan", "Scan library"),
+    applyLabel: labelText(
+      labels,
+      "literatureMigrationApply",
+      "Apply selected sets",
+    ),
+    stopLabel: labelText(
+      labels,
+      "literatureMigrationStop",
+      "Stop after current set",
+    ),
+    continueLabel: labelText(labels, "literatureMigrationContinue", "Continue"),
+    reviewLabel: labelText(
+      labels,
+      "literatureMigrationReview",
+      "Review required",
+    ),
+    readyLabel: labelText(labels, "literatureMigrationReady", "Ready"),
+    blockedLabel: labelText(labels, "literatureMigrationBlocked", "Blocked"),
+    historyTitle: labelText(
+      labels,
+      "literatureMigrationHistory",
+      "Migration history",
+    ),
+    emptyHistoryText: labelText(
+      labels,
+      "literatureMigrationHistoryEmpty",
+      "No migration receipts yet.",
+    ),
+    candidateLabel: labelText(labels, "literatureMigrationCandidate", "Set"),
+    progressLabel: labelText(labels, "literatureMigrationProgress", "Progress"),
+    attentionLabel: labelText(
+      labels,
+      "literatureMigrationAttention",
+      "Attention required",
+    ),
+  };
   return {
     products:
       selectedTabKey === "products"
@@ -1173,6 +1240,7 @@ function projectViews(
             (key, fallback) => labelText(labels, key, fallback),
           )
         : null,
+    migrations: selectedTabKey === "migrations" ? migrations : null,
     backend: selectedTabKey.startsWith("backend:")
       ? projectBackend(snapshot, labels)
       : null,
@@ -1259,6 +1327,12 @@ export function dashboardAcpTraceReplayEqualityInput(
   panel: DashboardPanel,
 ): DashboardAcpTraceReplaySelection | null {
   return panel.views.acpTraceReplay;
+}
+
+export function dashboardMigrationsEqualityInput(
+  panel: DashboardPanel,
+): DashboardMigrationsSelection | null {
+  return panel.views.migrations;
 }
 
 export function dashboardBackendEqualityInput(

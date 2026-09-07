@@ -273,11 +273,18 @@ export function createSynthesisReferenceRefreshApplication(options: Options) {
       .map((item) => item.paperRef)
       .filter((paperRef) => {
         const descriptor = descriptors.get(`${paperRef}\nreferences`)!;
+        const citationDescriptor = descriptors.get(
+          `${paperRef}\ncitation_analysis`,
+        )!;
         return (
           request.force ||
           descriptorChanged(
             currentArtifacts.get(`${paperRef}\nreferences`),
             descriptor,
+          ) ||
+          descriptorChanged(
+            currentArtifacts.get(`${paperRef}\ncitation_analysis`),
+            citationDescriptor,
           )
         );
       });
@@ -457,6 +464,12 @@ export function createSynthesisReferenceRefreshApplication(options: Options) {
       source[read.artifactType] = (
         payload.result.content as { kind: "json"; value: unknown }
       ).value;
+      if (
+        read.artifactType === "citation_analysis" &&
+        payload.result.referencesBasis
+      ) {
+        source.citationReferencesBasis = payload.result.referencesBasis;
+      }
       plannedBySource.set(read.paperRef, source);
     }
     let projected: ReturnType<typeof projectSynthesisReferencePayloads>;
@@ -470,6 +483,8 @@ export function createSynthesisReferenceRefreshApplication(options: Options) {
           referencesPayload: plannedBySource.get(paperRef)?.references,
           citationAnalysisPayload:
             plannedBySource.get(paperRef)?.citation_analysis,
+          citationReferencesBasis: plannedBySource.get(paperRef)
+            ?.citationReferencesBasis as string | undefined,
         })),
         timestamp,
       });

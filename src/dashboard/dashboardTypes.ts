@@ -24,6 +24,7 @@ import type {
 import type { DashboardSkillrunnerAuditSelection } from "./components/SkillrunnerAuditRegion";
 import type { DashboardAcpTraceReplaySelection } from "./components/AcpTraceReplayRegion";
 import type { DashboardBackendSelection } from "./components/BackendRegion";
+import type { DashboardMigrationsSelection } from "./components/MigrationsRegion";
 
 export type DashboardPageSnapshot = DashboardSnapshot;
 
@@ -76,6 +77,7 @@ export type DashboardPanelViews = {
   synthesisSidecar: DashboardSynthesisSidecarSelection | null;
   skillrunnerConnectionAudit: DashboardSkillrunnerAuditSelection | null;
   acpTraceReplay: DashboardAcpTraceReplaySelection | null;
+  migrations: DashboardMigrationsSelection | null;
   backend: DashboardBackendSelection | null;
 };
 

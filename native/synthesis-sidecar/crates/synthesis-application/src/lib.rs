@@ -1,4 +1,5 @@
 mod admission;
+pub mod canonical_literature_artifacts;
 pub mod citation_graph;
 pub mod concept_kb;
 pub mod debug_maintenance;

@@ -10,6 +10,7 @@ import {
   createResearchBundleImporter,
   createResearchBundleMaterializer,
   materializeResearchBundlePapers,
+  formatResearchBundleArtifact,
   publishDirectResearchBundle,
   type DirectResearchBundlePaper,
   type ResearchBundleEntry,
@@ -26,6 +27,84 @@ import {
   resolveHostBridgeFileDownload,
 } from "../../src/modules/hostBridgeFileRegistry";
 import { createWorkflowArchiveApi } from "../../src/workflows/archive";
+
+describe("Research Bundle canonical artifact presentation", function () {
+  it("preserves every digest section", function () {
+    const markdown = Array.from(
+      { length: 6 },
+      (_, index) => `## Section ${index}\n\nEvidence ${index}`,
+    ).join("\n\n");
+    const result = formatResearchBundleArtifact({
+      artifact_type: "digest",
+      markdown,
+    });
+    assert.equal(result?.text, markdown);
+  });
+
+  it("exports canonical Citation JSON alongside its derived Markdown", function () {
+    const payload = {
+      schema: "citation_analysis_artifact.v1",
+      meta: {
+        language: "en",
+        scope: { section_title: null, line_start: null, line_end: null },
+        scope_source: null,
+        scope_decision: {
+          selection_reason: null,
+          covered_sections: [],
+          fallback_from: null,
+          fallback_reason: null,
+        },
+        mapping_reliability: "normal",
+        reference_extraction: { status: "completed" },
+      },
+      summary: "Preserved evidence",
+      timeline: {
+        early: { summary: "", sourceReferenceIds: [] },
+        mid: { summary: "", sourceReferenceIds: [] },
+        recent: { summary: "", sourceReferenceIds: [] },
+      },
+      items: [],
+      unresolved: [],
+    };
+    const result = formatResearchBundleArtifact(
+      { artifact_type: "citation_analysis", payload },
+      {
+        referencesPayload: {
+          schema: "source_reference_artifact.v1",
+          references: [],
+        },
+      },
+    );
+    assert.ok(result?.canonicalFile);
+    assert.deepEqual(JSON.parse(result!.canonicalFile!.text), payload);
+    assert.ok(result!.text.includes(payload.summary));
+  });
+
+  it("exports complete Source Reference facts without compacting identity or authors", function () {
+    const payload = {
+      schema: "source_reference_artifact.v1",
+      references: [
+        {
+          sourceReferenceId: "9704b7e9-c965-4a44-97d1-1183e378b17d",
+          extraction: { raw: "A; B; C. Study. 2024.", confidence: 0.8 },
+          bibliography: {
+            title: "Study",
+            authors: ["A", "B", "C"],
+            year: 2024,
+          },
+          matching: { DOI: "10.1000/study" },
+        },
+      ],
+    };
+    const result = formatResearchBundleArtifact({
+      artifact_type: "references",
+      status: "available",
+      payload,
+    });
+    assert.ok(result);
+    assert.deepEqual(JSON.parse(result.text), payload);
+  });
+});
 
 describe("Research Bundle service", function () {
   this.timeout(10_000);
@@ -304,9 +383,14 @@ describe("Research Bundle service", function () {
       async addToCollection() {
         assert.fail("unexpected collection");
       },
-      async createNote({ graphId, note }) {
-        calls.push(`note:${graphId}:${note.noteId}`);
-        return { libraryId: 1, key: `${graphId.toUpperCase()}NOTE` };
+      async createNotes({ graphId, notes }) {
+        return notes.map(({ note }) => {
+          calls.push(`note:${graphId}:${note.noteId}`);
+          return {
+            noteId: note.noteId,
+            value: { libraryId: 1, key: `${graphId.toUpperCase()}NOTE` },
+          };
+        });
       },
       async createAttachment() {
         assert.fail("unexpected attachment");
@@ -376,11 +460,14 @@ describe("Research Bundle service", function () {
         };
       },
       async addToCollection() {},
-      async createNote() {
-        return {
-          ref: { libraryId: 1, key: "NOTE" },
-          revision: "note-revision",
-        };
+      async createNotes({ notes }) {
+        return notes.map(({ note }) => ({
+          noteId: note.noteId,
+          value: {
+            ref: { libraryId: 1, key: "NOTE" },
+            revision: "note-revision",
+          },
+        }));
       },
       async createAttachment() {
         return {
@@ -443,9 +530,12 @@ describe("Research Bundle service", function () {
         return { libraryId: 1, key: `${graphId.toUpperCase()}KEY` };
       },
       async addToCollection() {},
-      async createNote({ graphId }) {
+      async createNotes({ graphId, notes }) {
         if (graphId === "b") throw new Error("note import failed");
-        return { libraryId: 1, key: "ANOTE" };
+        return notes.map(({ note }) => ({
+          noteId: note.noteId,
+          value: { libraryId: 1, key: "ANOTE" },
+        }));
       },
       async createAttachment() {
         assert.fail("unexpected attachment");
@@ -545,7 +635,7 @@ describe("Research Bundle service", function () {
         return { libraryId: 1, key: "RESIDUAL" };
       },
       async addToCollection() {},
-      async createNote() {
+      async createNotes() {
         throw new Error("note creation failed");
       },
       async createAttachment() {

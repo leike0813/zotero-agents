@@ -27,6 +27,7 @@ import { SynthesisSidecarRegion } from "./components/SynthesisSidecarRegion";
 import { SkillrunnerAuditRegion } from "./components/SkillrunnerAuditRegion";
 import { AcpTraceReplayRegion } from "./components/AcpTraceReplayRegion";
 import { BackendRegion } from "./components/BackendRegion";
+import { MigrationsRegion } from "./components/MigrationsRegion";
 import {
   copyTextToClipboard,
   copyTextWithToastFeedback,
@@ -39,6 +40,7 @@ import {
   dashboardHomeEqualityInput,
   dashboardProductsEqualityInput,
   dashboardRuntimeLogsEqualityInput,
+  dashboardMigrationsEqualityInput,
   dashboardSkillrunnerAuditEqualityInput,
   dashboardSynthesisSidecarEqualityInput,
   dashboardTabBarEqualityInput,
@@ -149,6 +151,7 @@ function shouldFillMain(panel: DashboardPanel): boolean {
   if (key === "home") return panel.home?.kind === "doc";
   if (
     key === "products" ||
+    key === "migrations" ||
     key === "runtime-logs" ||
     key === "skillrunner-connection-audit"
   ) {
@@ -326,6 +329,19 @@ export function createDashboardChromeRenderer(
       acpTraceReplaySelection
         ? h(AcpTraceReplayRegion, {
             selection: acpTraceReplaySelection,
+            onAction: deps.dispatchAction,
+          })
+        : null,
+    );
+
+    const migrationsSelection = panel
+      ? dashboardMigrationsEqualityInput(panel)
+      : null;
+    renderMainRegion(
+      "migrations",
+      migrationsSelection
+        ? h(MigrationsRegion, {
+            selection: migrationsSelection,
             onAction: deps.dispatchAction,
           })
         : null,

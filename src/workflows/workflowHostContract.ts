@@ -83,6 +83,17 @@ export const WORKFLOW_HOST_API_MANIFEST = defineWorkflowHostCandidateManifest({
   },
   metadata: { translateIdentifier: "function" },
   mutations: { preview: "function", execute: "function", getOperation: "function" },
+  managedNotes: {
+    writeCustom: "function",
+    writeConversation: "function",
+  },
+  literatureArtifacts: {
+    applyAnalysis: "function",
+    upsertDigest: "function",
+    upsertReferences: "function",
+    upsertCitationAnalysis: "function",
+    upsertScore: "function",
+  },
   notes: {
     create: "function",
     updateContent: "function",

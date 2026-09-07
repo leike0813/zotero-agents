@@ -1,0 +1,12 @@
+{
+  "schema": "canonical-literature-artifacts-registry.v1",
+  "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
+  "schemas": {
+    "sourceReferenceArtifact": "schemas/source-reference-artifact.schema.json",
+    "citationAnalysisArtifact": "schemas/citation-analysis-artifact.schema.json",
+    "literatureScoreArtifact": "schemas/literature-score-artifact.schema.json"
+  },
+  "bounds": {
+    "maxBytes": 1048576
+  }
+}

@@ -161,6 +161,9 @@ export function createTestSynthesisHostReadPort(
         return {
           status: "available",
           payloadHash: currentHash,
+          ...(artifact.referencesBasis
+            ? { referencesBasis: artifact.referencesBasis }
+            : {}),
           content:
             artifact.artifact_type === "digest"
               ? {

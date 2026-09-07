@@ -13,7 +13,12 @@ import {
   unregisterLibraryArtifactsColumn,
   unregisterLibraryRatingColumn,
 } from "../../src/modules/libraryArtifactsColumn";
-import { resolveLibraryArtifactReadiness } from "../../src/modules/libraryArtifactReadiness";
+import {
+  resolveLibraryArtifactReadiness,
+  summarizeLibraryGeneratedArtifacts,
+  type LibraryArtifactGeneratedNoteFacts,
+} from "../../src/modules/libraryArtifactReadiness";
+import { hashSynthesisContractCanonicalJson } from "../../packages/synthesis-contracts/src/index";
 import {
   literatureScoreToStars,
   parseLiteratureScore,
@@ -265,7 +270,7 @@ describe("library artifacts column", function () {
     assert.equal(state, "");
   });
 
-  it("detects generated note artifacts from note-kind markers without title fallback", async function () {
+  it("requires canonical semantic evidence instead of legacy markers or headings", async function () {
     const parent = await createParentItem("Paper");
     await createNote(
       parent,
@@ -289,7 +294,7 @@ describe("library artifacts column", function () {
         parent,
       );
 
-    assert.equal(state, "digest|references|citation-analysis");
+    assert.equal(state, "");
 
     const titleOnlyParent = await createParentItem("Title-only Paper");
     await createNote(titleOnlyParent, "Digest", "<p>title only</p>");
@@ -312,7 +317,7 @@ describe("library artifacts column", function () {
       await libraryArtifactsColumnInternalsForTests.resolveArtifactState(
         anchorOnlyParent,
       ),
-      "digest",
+      "",
     );
 
     const payloadOnlyParent = await createParentItem("Payload-only Paper");
@@ -326,7 +331,7 @@ describe("library artifacts column", function () {
       await libraryArtifactsColumnInternalsForTests.resolveArtifactState(
         payloadOnlyParent,
       ),
-      "references",
+      "",
     );
   });
 
@@ -334,16 +339,15 @@ describe("library artifacts column", function () {
     const parent = await createParentItem("Paper");
     const note = await createNote(
       parent,
-      "Citation Analysis",
-      '<div data-schema-version="9"><h1>Citation Analysis</h1><p>normalized note</p></div>',
+      "References",
+      '<div data-schema-version="9"><h1>References</h1><p>normalized note</p></div>',
     );
     await createEmbeddedPayloadAttachment(note, {
-      noteKind: "citation-analysis",
-      payloadType: "citation-analysis-json",
+      noteKind: "references",
+      payloadType: "references-json",
       payload: {
-        version: 1,
-        format: "json",
-        citations: [],
+        schema: "source_reference_artifact.v1",
+        references: [],
       },
     });
 
@@ -352,7 +356,7 @@ describe("library artifacts column", function () {
         parent,
       );
 
-    assert.equal(state, "citation-analysis");
+    assert.equal(state, "references");
   });
 
   it("does not classify schema headings as generated artifacts without marker or payload evidence", async function () {
@@ -373,11 +377,16 @@ describe("library artifacts column", function () {
 
   it("refreshes artifact rows without refreshing item tree columns after lazy scans", async function () {
     const parent = await createParentItem("Paper");
-    await createNote(
+    const note = await createNote(
       parent,
       "Digest",
       '<div data-zs-note-kind="digest"><p>payload</p></div>',
     );
+    await createEmbeddedPayloadAttachment(note, {
+      noteKind: "digest",
+      payloadType: "digest-markdown",
+      payload: "Digest content",
+    });
     const originalRefreshColumns = Zotero.ItemTreeManager.refreshColumns;
     const originalTrigger = Zotero.Notifier.trigger;
     let refreshColumnsCalls = 0;
@@ -554,11 +563,16 @@ describe("library artifacts column", function () {
     await createAttachment(parent, "D:\\Library\\readiness.md", {
       contentType: "text/markdown",
     });
-    await createNote(
+    const note = await createNote(
       parent,
       "Digest",
       '<div data-zs-note-kind="digest"><p>Digest</p></div>',
     );
+    await createEmbeddedPayloadAttachment(note, {
+      noteKind: "digest",
+      payloadType: "digest-markdown",
+      payload: "Digest content",
+    });
     parent.getBestAttachment = async () => pdf;
 
     const readiness = await resolveLibraryArtifactReadiness(parent);
@@ -571,6 +585,55 @@ describe("library artifacts column", function () {
       "citation-analysis",
     ]);
     assert.equal(readiness.state, "source-markdown|digest");
+  });
+
+  it("excludes stale Citation evidence and restores it when References match again", async function () {
+    const references = {
+      schema: "source_reference_artifact.v1",
+      references: [],
+    };
+    const facts: LibraryArtifactGeneratedNoteFacts[] = [
+      {
+        key: "REFS1234",
+        title: "References",
+        updatedAt: "",
+        noteKind: "references",
+        payload: references,
+        issue: null,
+      },
+      {
+        key: "CITE1234",
+        title: "Citation Analysis",
+        updatedAt: "",
+        noteKind: "citation-analysis",
+        payload: {},
+        referencesBasis: hashSynthesisContractCanonicalJson(references),
+        issue: null,
+      },
+    ];
+    assert.isTrue(
+      (await summarizeLibraryGeneratedArtifacts(facts)).artifacts.has(
+        "citation-analysis",
+      ),
+    );
+    facts[0].payload = null;
+    assert.isFalse(
+      (await summarizeLibraryGeneratedArtifacts(facts)).artifacts.has(
+        "citation-analysis",
+      ),
+    );
+    facts[0].payload = references;
+    assert.isTrue(
+      (await summarizeLibraryGeneratedArtifacts(facts)).artifacts.has(
+        "citation-analysis",
+      ),
+    );
+    facts.push({ ...facts[0], key: "DUPL1234" });
+    assert.isFalse(
+      (await summarizeLibraryGeneratedArtifacts(facts)).artifacts.has(
+        "citation-analysis",
+      ),
+    );
   });
 
   it("resolves a valid score payload and quantizes it to half stars", async function () {
@@ -597,6 +660,13 @@ describe("library artifacts column", function () {
       fills: [1, 1, 1, 0.5, 0],
     });
     assert.equal(parseLiteratureScore(scorePayload(101)), null);
+    const incomplete = structuredClone(scorePayload(65));
+    delete (incomplete.dimensions[0] as Record<string, unknown>).criteria;
+    assert.equal(parseLiteratureScore(incomplete), null);
+    assert.equal(
+      parseLiteratureScore({ literature_score: scorePayload(65) }),
+      null,
+    );
   });
 
   it("renders rated and missing star states with one accessible label", function () {
@@ -850,38 +920,34 @@ function scorePayload(overallScore: number) {
     "writing_quality",
   ];
   return {
-    version: 1,
-    format: "json",
-    literature_score: {
-      schema: "literature_score.v1",
-      rubric_id: "default-v1",
-      paper_type: "empirical",
-      paper_type_reason: "The paper reports an empirical study.",
-      overall_score: overallScore,
+    schema: "literature_score.v1",
+    rubric_id: "default-v1",
+    paper_type: "empirical",
+    paper_type_reason: "The paper reports an empirical study.",
+    overall_score: overallScore,
+    confidence: 0.8,
+    confidence_adjusted_score: Math.min(100, overallScore * 0.8),
+    dimensions: dimensionKeys.map((dimensionKey) => ({
+      dimension_key: dimensionKey,
+      name: dimensionKey,
+      configured_weight: 1 / 6,
+      effective_weight: 1 / 6,
+      raw_score: 8,
+      applicable_max_score: 10,
+      score: 80,
       confidence: 0.8,
-      confidence_adjusted_score: Math.min(100, overallScore * 0.8),
-      dimensions: dimensionKeys.map((dimensionKey) => ({
-        dimension_key: dimensionKey,
-        name: dimensionKey,
-        configured_weight: 1 / 6,
-        effective_weight: 1 / 6,
-        raw_score: 8,
-        applicable_max_score: 10,
-        score: 80,
-        confidence: 0.8,
-        summary: `${dimensionKey} summary`,
-        criteria: [
-          {
-            criterion_key: `${dimensionKey}.criterion`,
-            name: "Criterion",
-            status: "scored",
-            score: 8,
-            max_score: 10,
-            reason: "Supported",
-            evidence: [],
-          },
-        ],
-      })),
-    },
+      summary: `${dimensionKey} summary`,
+      criteria: [
+        {
+          criterion_key: `${dimensionKey}.criterion`,
+          name: "Criterion",
+          status: "scored",
+          score: 8,
+          max_score: 10,
+          reason: "Supported",
+          evidence: [],
+        },
+      ],
+    })),
   };
 }

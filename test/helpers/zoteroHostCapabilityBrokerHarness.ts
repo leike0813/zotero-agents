@@ -71,6 +71,18 @@ export function createFailClosedZoteroHostCapabilityBroker(
       remove: unexpected("notes.remove"),
       upsertPayload: unexpected("notes.upsertPayload"),
     },
+    managedNotes: {
+      writeCustom: unexpected("managedNotes.writeCustom"),
+      writeConversation: unexpected("managedNotes.writeConversation"),
+    },
+    literatureArtifacts: {
+      upsertDigest: unexpected("literatureArtifacts.upsertDigest"),
+      upsertReferences: unexpected("literatureArtifacts.upsertReferences"),
+      upsertCitationAnalysis: unexpected(
+        "literatureArtifacts.upsertCitationAnalysis",
+      ),
+      upsertScore: unexpected("literatureArtifacts.upsertScore"),
+    },
     attachments: {
       create: unexpected("attachments.create"),
       updateMetadata: unexpected("attachments.updateMetadata"),
@@ -88,6 +100,11 @@ export function createFailClosedZoteroHostCapabilityBroker(
     mutations: { ...broker.mutations, ...configuration.mutations },
     statusTags: { ...broker.statusTags, ...configuration.statusTags },
     notes: { ...broker.notes, ...configuration.notes },
+    managedNotes: { ...broker.managedNotes, ...configuration.managedNotes },
+    literatureArtifacts: {
+      ...broker.literatureArtifacts,
+      ...configuration.literatureArtifacts,
+    },
     attachments: { ...broker.attachments, ...configuration.attachments },
   };
 }

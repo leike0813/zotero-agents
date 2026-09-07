@@ -3,10 +3,16 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { nativeFixtureMutations as handlers } from "../helpers/nativeFixtureMutations";
+import { installNodeZoteroTransactionStub } from "../helpers/nodeZoteroTransactionStub";
 import {
   buildSelectionContext,
   itemRef,
 } from "../helpers/workflowSelectionContext";
+import {
+  resetZoteroLibrarySourcePageQueryAdapterForTests,
+  setZoteroLibrarySourcePageQueryAdapterForTests,
+} from "../../src/modules/zoteroLibraryPageQuery";
+import { createMockZoteroLibrarySourcePageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import {
   executeApplyResult as executeWorkflowApplyResult,
@@ -29,6 +35,7 @@ import { isFullTestMode } from "../zotero/testMode";
 import {
   encodeBase64Utf8,
   parseEmbeddedNotePayloadBlock,
+  renderPayloadBlock,
 } from "../../src/modules/notePayloadCodec";
 import {
   classifyReferenceExtractionQuality,
@@ -36,45 +43,244 @@ import {
 } from "../../workflows_builtin/literature-workbench-package/lib/referenceQualityGate.mjs";
 
 const literatureScoreArtifact = {
-  literature_score: {
-    schema: "literature_score.v1",
-    rubric_id: "default.v1",
-    paper_type: "empirical",
-    paper_type_reason: "The paper reports an empirical evaluation.",
-    overall_score: 60,
+  schema: "literature_score.v1",
+  rubric_id: "default.v1",
+  paper_type: "empirical",
+  paper_type_reason: "The paper reports an empirical evaluation.",
+  overall_score: 60,
+  confidence: 0.8,
+  confidence_adjusted_score: 58,
+  dimensions: [
+    "methodological_rigor",
+    "evidence_completeness",
+    "reproducibility",
+    "innovation_signals",
+    "research_impact_potential",
+    "writing_quality",
+  ].map((dimension_key) => ({
+    dimension_key,
+    name: dimension_key.replaceAll("_", " "),
+    configured_weight: 1 / 6,
+    effective_weight: 1 / 6,
+    raw_score: 6,
+    applicable_max_score: 10,
+    score: 60,
     confidence: 0.8,
-    confidence_adjusted_score: 58,
-    dimensions: [
-      "methodological_rigor",
-      "evidence_completeness",
-      "reproducibility",
-      "innovation_signals",
-      "research_impact_potential",
-      "writing_quality",
-    ].map((dimension_key) => ({
-      dimension_key,
-      name: dimension_key.replaceAll("_", " "),
-      configured_weight: 1 / 6,
-      effective_weight: 1 / 6,
-      raw_score: 6,
-      applicable_max_score: 10,
-      score: 60,
-      confidence: 0.8,
-      summary: `${dimension_key} summary`,
-      criteria: [
-        {
-          criterion_key: `${dimension_key}.criterion`,
-          name: "Criterion",
-          status: "scored",
-          score: 6,
-          max_score: 10,
-          reason: "Supported by the paper.",
-          evidence: [],
-        },
-      ],
-    })),
-  },
+    summary: `${dimension_key} summary`,
+    criteria: [
+      {
+        criterion_key: `${dimension_key}.criterion`,
+        name: "Criterion",
+        status: "scored",
+        score: 6,
+        max_score: 10,
+        reason: "Supported by the paper.",
+        evidence: [],
+      },
+    ],
+  })),
 };
+
+type FixtureReference = {
+  id?: string;
+  sourceReferenceId?: string;
+  title?: string;
+  year?: string | number | null;
+  raw?: string;
+  rawText?: string;
+  author?: string[] | string;
+  authors?: string[] | string;
+  publicationTitle?: string;
+  conferenceName?: string;
+  university?: string;
+  archiveID?: string;
+  volume?: string;
+  issue?: string;
+  pages?: string;
+  place?: string;
+  numPages?: number;
+  publisher?: string;
+  itemType?: string;
+  date?: string;
+  DOI?: string;
+  url?: string;
+  ISBN?: string;
+  ISSN?: string;
+  citekey?: string;
+};
+
+function canonicalReferencesArtifact(entries: FixtureReference[] = []) {
+  return {
+    schema: "source_reference_artifact.v1",
+    references: entries.map((entry, index) => {
+      const title = String(entry.title || "");
+      const raw = String(entry.raw ?? entry.rawText ?? title);
+      const authors = Array.isArray(entry.author || entry.authors)
+        ? ((entry.author || entry.authors) as string[])
+        : String(entry.author || entry.authors || "")
+            .split(/[;\n]/)
+            .map((value) => value.trim())
+            .filter(Boolean);
+      const numericYear =
+        typeof entry.year === "number"
+          ? Number.isInteger(entry.year)
+            ? entry.year
+            : null
+          : /^-?\d+$/.test(String(entry.year || "").trim())
+            ? Number.parseInt(String(entry.year).trim(), 10)
+            : null;
+      const bibliography: Record<string, unknown> = {
+        title,
+        authors,
+        year: numericYear,
+      };
+      for (const field of [
+        "publicationTitle",
+        "conferenceName",
+        "university",
+        "archiveID",
+        "volume",
+        "issue",
+        "pages",
+        "place",
+        "publisher",
+        "itemType",
+        "date",
+      ] as const) {
+        const value = entry[field];
+        if (typeof value === "string" && value.length > 0) {
+          bibliography[field] = value;
+        }
+      }
+      if (typeof entry.numPages === "number") {
+        bibliography.numPages = entry.numPages;
+      }
+      const matching: Record<string, string> = {};
+      for (const field of ["DOI", "url", "ISBN", "ISSN", "citekey"] as const) {
+        const value = entry[field];
+        if (typeof value === "string" && value.length > 0) {
+          matching[field] = value;
+        }
+      }
+      return {
+        sourceReferenceId:
+          entry.sourceReferenceId || entry.id || `fixture-source-${index + 1}`,
+        extraction: { raw, confidence: null },
+        bibliography,
+        matching,
+      };
+    }),
+  };
+}
+
+function canonicalCitationArtifact(
+  entries: Array<{
+    sourceReferenceId?: string;
+    id?: string;
+    function?: string | null;
+    role_in_context?: string | null;
+    topic?: string | null;
+    usage?: string | null;
+    keywords?: string[];
+    summary?: string | null;
+    key_reference_reason?: string | null;
+    confidence?: number | null;
+  }> = [],
+) {
+  return {
+    schema: "citation_analysis_artifact.v1",
+    meta: {
+      language: "en-US",
+      scope: { section_title: null, line_start: null, line_end: null },
+      scope_source: null,
+      scope_decision: {
+        selection_reason: null,
+        covered_sections: [],
+        fallback_from: null,
+        fallback_reason: null,
+      },
+      mapping_reliability: "normal",
+      reference_extraction: { status: "completed" },
+    },
+    summary: "",
+    timeline: {
+      early: { summary: "", sourceReferenceIds: [] },
+      mid: { summary: "", sourceReferenceIds: [] },
+      recent: { summary: "", sourceReferenceIds: [] },
+    },
+    items: entries.map((entry, index) => ({
+      sourceReferenceId:
+        entry.sourceReferenceId || entry.id || `fixture-source-${index + 1}`,
+      function: entry.function || null,
+      role_in_context: entry.role_in_context || null,
+      topic: entry.topic || null,
+      usage: entry.usage || null,
+      keywords: entry.keywords || [],
+      summary: entry.summary || null,
+      key_reference_reason: entry.key_reference_reason || null,
+      confidence: entry.confidence ?? null,
+      mentions: [],
+    })),
+    unresolved: [],
+  };
+}
+
+const emptyReferencesJson = () => JSON.stringify(canonicalReferencesArtifact());
+const emptyCitationJson = () => JSON.stringify(canonicalCitationArtifact());
+
+function canonicalGeneratedNoteContent(
+  noteKind: "digest" | "references" | "citation-analysis",
+  payload: unknown,
+  body = "",
+) {
+  const payloadType =
+    noteKind === "digest"
+      ? "digest-markdown"
+      : noteKind === "references"
+        ? "references-json"
+        : "citation-analysis-json";
+  return [
+    `<div data-zs-note-kind="${noteKind}"><h1>${
+      noteKind === "digest"
+        ? "Digest"
+        : noteKind === "references"
+          ? "References"
+          : "Citation Analysis"
+    }</h1>`,
+    body,
+    renderPayloadBlock({
+      payloadType,
+      payload,
+      payloadFormat: noteKind === "digest" ? "text" : "json",
+    }),
+    "</div>",
+  ].join("");
+}
+
+function canonicalGeneratedTriplet(
+  body: {
+    digest?: string;
+    references?: string;
+    citationAnalysis?: string;
+  } = {},
+) {
+  return {
+    digest: canonicalGeneratedNoteContent(
+      "digest",
+      body.digest || "# Digest\n\nGenerated digest.",
+    ),
+    references: canonicalGeneratedNoteContent(
+      "references",
+      JSON.parse(emptyReferencesJson()),
+      body.references,
+    ),
+    citationAnalysis: canonicalGeneratedNoteContent(
+      "citation-analysis",
+      JSON.parse(emptyCitationJson()),
+      body.citationAnalysis,
+    ),
+  };
+}
 
 function withLiteratureScoreBundleReader(bundleReader: {
   readText(entryPath: string): Promise<string>;
@@ -207,25 +413,24 @@ function parseNoteKind(noteContent: string) {
   return "";
 }
 
+function resolveAppliedNote(note: unknown): Zotero.Item {
+  if (note && typeof (note as Zotero.Item).getNote === "function") {
+    return note as Zotero.Item;
+  }
+  const ref = (note as { ref?: { libraryId?: number; key?: string } } | null)
+    ?.ref;
+  assert.isNumber(ref?.libraryId);
+  assert.isString(ref?.key);
+  const item = Zotero.Items.getByLibraryAndKey(ref!.libraryId!, ref!.key!);
+  assert.isOk(item, "applied managed note should resolve to a Zotero item");
+  return item!;
+}
+
 function parseSourceAttachmentItemKey(noteContent: string) {
   const match = String(noteContent || "").match(
     /data-zs-source_attachment_item_key=(["'])([^"']+)\1/i,
   );
   return match ? match[2] : "";
-}
-
-function parsePayloadEntryPath(noteContent: string, payloadType: string) {
-  const pattern = new RegExp(
-    `data-zs-payload=(["'])${payloadType}\\1[^>]*data-zs-value=(["'])([^"']+)\\2`,
-    "i",
-  );
-  const match = String(noteContent || "").match(pattern);
-  if (!match) {
-    return "";
-  }
-  const decoded = decodeBase64Utf8(match[3]);
-  const parsed = JSON.parse(decoded) as { entry?: string };
-  return String(parsed.entry || "").trim();
 }
 
 function parsePayloadValue(noteContent: string, payloadType: string) {
@@ -262,17 +467,6 @@ async function parseStoredPayload(note: Zotero.Item, payloadType: string) {
   assert.fail(`payload ${payloadType} should exist`);
 }
 
-async function parseStoredPayloadEntryPath(
-  note: Zotero.Item,
-  payloadType: string,
-) {
-  const payload = (await parseStoredPayload(note, payloadType)) as {
-    entry?: string;
-    path?: string;
-  };
-  return String(payload.entry || payload.path || "").trim();
-}
-
 async function assertStoredPayloadExists(
   note: Zotero.Item,
   payloadType: string,
@@ -302,10 +496,10 @@ function createRepresentativeImageBundleReader(args: {
         return "# Digest\n\nRepresentative content.";
       }
       if (entryPath === "artifacts/references.json") {
-        return "[]";
+        return emptyReferencesJson();
       }
       if (entryPath === "artifacts/citation_analysis.json") {
-        return '{"report_md":"# Citation Analysis"}';
+        return emptyCitationJson();
       }
       throw new Error(`missing bundle entry: ${entryPath}`);
     },
@@ -365,6 +559,23 @@ const itFullOnly = isFullTestMode() ? it : it.skip;
 const itNodeOnly = isZoteroRuntime() ? it.skip : it;
 
 describe("workflow: literature-analysis", function () {
+  let restoreNodeZoteroTransaction: (() => void) | undefined;
+
+  beforeEach(function () {
+    restoreNodeZoteroTransaction = installNodeZoteroTransactionStub();
+    if (!isZoteroRuntime()) {
+      setZoteroLibrarySourcePageQueryAdapterForTests(
+        createMockZoteroLibrarySourcePageQueryAdapter(),
+      );
+    }
+  });
+
+  afterEach(function () {
+    restoreNodeZoteroTransaction?.();
+    restoreNodeZoteroTransaction = undefined;
+    resetZoteroLibrarySourcePageQueryAdapterForTests();
+  });
+
   async function getLiteratureDigestWorkflow() {
     const loaded = await loadWorkflowManifests(workflowsPath());
     const workflow = loaded.workflows.find(
@@ -625,20 +836,14 @@ describe("workflow: literature-analysis", function () {
     },
   );
 
-  it("builds score-only request for the complete legacy triplet", async function () {
+  it("builds score-only request for a complete canonical artifact triplet", async function () {
     const workflow = await getLiteratureDigestWorkflow();
     const cases = [
       {
         label: "generated note-kind markers",
         title: "Workflow Skip Parent",
         fields: { DOI: "10.1000/score-only-parent" },
-        noteContents: {
-          digest: '<div data-zs-note-kind="digest"><h1>Digest</h1></div>',
-          references:
-            '<div data-zs-note-kind="references"><h1>References</h1></div>',
-          citationAnalysis:
-            '<div data-zs-note-kind="citation-analysis"><h1>Citation Analysis</h1></div>',
-        },
+        noteContents: canonicalGeneratedTriplet(),
       },
     ];
 
@@ -671,18 +876,12 @@ describe("workflow: literature-analysis", function () {
     }
   });
 
-  it("rejects parents whose legacy triplet and valid score are complete", async function () {
+  it("rejects parents whose canonical artifact triplet and valid score are complete", async function () {
     const workflow = await getLiteratureDigestWorkflow();
     const { parent, attachment } = await createDigestAttachmentParent({
       title: "Workflow Fully Scored Parent",
     });
-    await addGeneratedDigestNotes(parent, {
-      digest: '<div data-zs-note-kind="digest"><h1>Digest</h1></div>',
-      references:
-        '<div data-zs-note-kind="references"><h1>References</h1></div>',
-      citationAnalysis:
-        '<div data-zs-note-kind="citation-analysis"><h1>Citation Analysis</h1></div>',
-    });
+    await addGeneratedDigestNotes(parent, canonicalGeneratedTriplet());
     await addGeneratedScoreNote(parent);
 
     let thrown: unknown = null;
@@ -696,7 +895,7 @@ describe("workflow: literature-analysis", function () {
     }
 
     assert.isOk(thrown);
-    assert.match(String(thrown), /has no valid input units after filtering/);
+    assert.match(String(thrown), /input already has all generated artifacts/);
   });
 
   it("repairs an invalid score payload through score-only mode", async function () {
@@ -704,26 +903,17 @@ describe("workflow: literature-analysis", function () {
     const { parent, attachment } = await createDigestAttachmentParent({
       title: "Workflow Invalid Score Parent",
     });
-    await addGeneratedDigestNotes(parent, {
-      digest: '<div data-zs-note-kind="digest"><h1>Digest</h1></div>',
-      references:
-        '<div data-zs-note-kind="references"><h1>References</h1></div>',
-      citationAnalysis:
-        '<div data-zs-note-kind="citation-analysis"><h1>Citation Analysis</h1></div>',
-    });
+    await addGeneratedDigestNotes(parent, canonicalGeneratedTriplet());
     await addGeneratedScoreNote(parent, {
-      literature_score: {
-        ...literatureScoreArtifact.literature_score,
-        dimensions: literatureScoreArtifact.literature_score.dimensions.map(
-          (dimension, index) =>
-            index === 1
-              ? {
-                  ...dimension,
-                  dimension_key: "methodological_rigor",
-                }
-              : dimension,
-        ),
-      },
+      ...literatureScoreArtifact,
+      dimensions: literatureScoreArtifact.dimensions.map((dimension, index) =>
+        index === 1
+          ? {
+              ...dimension,
+              criteria: [],
+            }
+          : dimension,
+      ),
     });
 
     const requests = (await executeBuildRequests({
@@ -734,19 +924,19 @@ describe("workflow: literature-analysis", function () {
     assert.equal(requests[0]?.steps?.[0]?.parameter?.score_only, true);
   });
 
-  it("applies score-only output without rewriting the legacy triplet", async function () {
+  it("applies score-only output without rewriting the canonical artifact triplet", async function () {
     const workflow = await getLiteratureDigestWorkflow();
     const { parent, attachment } = await createDigestAttachmentParent({
       title: "Workflow Score-only Apply Parent",
     });
-    await addGeneratedDigestNotes(parent, {
-      digest:
-        '<div data-zs-note-kind="digest"><h1>Digest</h1><p>Keep digest</p></div>',
-      references:
-        '<div data-zs-note-kind="references"><h1>References</h1><p>Keep references</p></div>',
-      citationAnalysis:
-        '<div data-zs-note-kind="citation-analysis"><h1>Citation Analysis</h1><p>Keep citation analysis</p></div>',
-    });
+    await addGeneratedDigestNotes(
+      parent,
+      canonicalGeneratedTriplet({
+        digest: "# Digest\n\nKeep digest",
+        references: "<p>Keep references</p>",
+        citationAnalysis: "<p>Keep citation analysis</p>",
+      }),
+    );
     const originalNotes = parent.getNotes();
     const preparedHostApi = createPreparedImageTestHost({
       onPrepare(input) {
@@ -784,16 +974,19 @@ describe("workflow: literature-analysis", function () {
     assert.equal(applied.mode, "score-only");
     assert.lengthOf(applied.notes, 1);
     assert.deepEqual(parent.getNotes().slice(0, 3), originalNotes);
-    const scoreNote = Zotero.Items.get(applied.notes[0].id)!;
+    const scoreNote = resolveAppliedNote(applied.notes[0]);
     assert.equal(parseNoteKind(scoreNote.getNote()), "literature-score");
     assert.include(scoreNote.getNote(), "60/100");
     assert.include(scoreNote.getNote(), "3/5 stars");
-    assert.include(scoreNote.getNote(), 'data-zs-score-radar="v1"');
+    assert.include(
+      scoreNote.getNote(),
+      'data-zs-block="literature-score-radar"',
+    );
     await assertStoredPayloadExists(scoreNote, "literature-score-json");
   });
 
   itFullOnly(
-    "builds score-only for payload-marker note formats",
+    "builds full analysis when payload markers contain invalid artifacts",
     async function () {
       const workflow = await getLiteratureDigestWorkflow();
       const { parent, attachment } = await createDigestAttachmentParent({
@@ -815,7 +1008,7 @@ describe("workflow: literature-analysis", function () {
       })) as LiteratureAnalysisSequenceRequest[];
 
       assert.lengthOf(requests, 1);
-      assert.equal(requests[0]?.steps?.[0]?.parameter?.score_only, true);
+      assert.equal(requests[0]?.steps?.[0]?.parameter?.score_only, false);
     },
   );
 
@@ -827,44 +1020,18 @@ describe("workflow: literature-analysis", function () {
         title: "Workflow Schema Payload Parent",
       });
       const hostApi = createWorkflowHostApi();
-      const artifacts = [
-        {
-          noteKind: "digest",
-          title: "Digest",
-          payloadType: "digest-markdown",
-          format: "markdown" as const,
-          value: "# Digest",
-        },
-        {
-          noteKind: "references",
-          title: "References",
-          payloadType: "references-json",
-          format: "json" as const,
-          value: [],
-        },
-        {
-          noteKind: "citation-analysis",
-          title: "Citation Analysis",
-          payloadType: "citation-analysis-json",
-          format: "json" as const,
-          value: {},
-        },
-      ];
-      for (const artifact of artifacts) {
-        const note = await handlers.parent.addNote(parent, {
-          content: `<div data-schema-version="9"><h1>${artifact.title}</h1></div>`,
-        });
-        await hostApi.notes.upsertPayload({
-          operationId: `schema-payload:${note.libraryID}:${note.key}`,
-          noteRef: { libraryId: note.libraryID, key: note.key },
-          payload: {
-            payloadType: artifact.payloadType,
-            noteKind: artifact.noteKind,
-            schemaVersion: `${artifact.payloadType}.v1`,
-            format: artifact.format,
-            value: artifact.value,
-          },
-        });
+      const result = await hostApi.literatureArtifacts.applyAnalysis({
+        operationId: "schema-headings-canonical",
+        parentRef: itemRef(parent),
+        digest: { markdown: "Readable digest evidence." },
+        references: JSON.parse(emptyReferencesJson()),
+        citationAnalysis: JSON.parse(emptyCitationJson()),
+      });
+      assert.equal(result.outcome, "committed");
+      for (const id of parent.getNotes()) {
+        const note = Zotero.Items.get(id)!;
+        note.setNote(note.getNote().replace(/ data-zs-note-kind="[^"]+"/g, ""));
+        await note.saveTx();
       }
 
       const requests = (await executeBuildRequests({
@@ -947,7 +1114,7 @@ describe("workflow: literature-analysis", function () {
     const attachment = await createApplySourceAttachment(parent);
 
     const currentBundle = new ZipBundleReader(
-      fixturePath("literature-analysis", "run_bundle.zip"),
+      fixturePath("literature-analysis", "run_bundle_canonical.zip"),
     );
     const legacyBundle = {
       async readText(entryPath: string) {
@@ -991,15 +1158,10 @@ describe("workflow: literature-analysis", function () {
     const attachment = await createApplySourceAttachment(parent);
     const workflow = await getLiteratureDigestWorkflow();
     const invalidScore = {
-      literature_score: {
-        ...literatureScoreArtifact.literature_score,
-        dimensions: literatureScoreArtifact.literature_score.dimensions.map(
-          (dimension, index) =>
-            index === 1
-              ? { ...dimension, dimension_key: "methodological_rigor" }
-              : dimension,
-        ),
-      },
+      ...literatureScoreArtifact,
+      dimensions: literatureScoreArtifact.dimensions.map((dimension, index) =>
+        index === 1 ? { ...dimension, criteria: [] } : dimension,
+      ),
     };
 
     let thrown: unknown = null;
@@ -1027,6 +1189,15 @@ describe("workflow: literature-analysis", function () {
             if (entryPath === "artifacts/literature_score.json") {
               return JSON.stringify(invalidScore);
             }
+            if (entryPath === "artifacts/digest.md") {
+              return "# Digest\n\nFixture digest.";
+            }
+            if (entryPath === "artifacts/references.json") {
+              return emptyReferencesJson();
+            }
+            if (entryPath === "artifacts/citation_analysis.json") {
+              return emptyCitationJson();
+            }
             throw new Error(`unexpected read: ${entryPath}`);
           },
         },
@@ -1036,7 +1207,10 @@ describe("workflow: literature-analysis", function () {
     }
 
     assert.isOk(thrown);
-    assert.match(String(thrown), /literature score dimension is invalid/);
+    assert.match(
+      String(thrown),
+      /criteria.*fewer than 1 items|literature score artifact is invalid/,
+    );
     assert.lengthOf(parent.getNotes(), 0);
   });
 
@@ -1072,10 +1246,10 @@ describe("workflow: literature-analysis", function () {
             return "# Digest\n\nDiagnostic apply still works.";
           }
           if (entryPath === "artifacts/references.json") {
-            return "[]";
+            return emptyReferencesJson();
           }
           if (entryPath === "artifacts/citation_analysis.json") {
-            return '{"report_md":"# Citation Analysis"}';
+            return emptyCitationJson();
           }
           throw new Error(`missing bundle entry: ${entryPath}`);
         },
@@ -1109,16 +1283,16 @@ describe("workflow: literature-analysis", function () {
     assert.lengthOf(applied.notes || [], 4);
     const scoreNote = (applied.notes || []).find(
       (note) =>
-        parseNoteKind(Zotero.Items.get(note.id)!.getNote()) ===
+        parseNoteKind(resolveAppliedNote(note).getNote()) ===
         "literature-score",
     );
     assert.isOk(scoreNote);
     assert.match(
-      Zotero.Items.get(scoreNote!.id)!.getNote(),
+      resolveAppliedNote(scoreNote!).getNote(),
       /<h1>Literature Score<\/h1>/,
     );
     await assertStoredPayloadExists(
-      Zotero.Items.get(scoreNote!.id)!,
+      resolveAppliedNote(scoreNote!),
       "literature-score-json",
     );
     assert.deepEqual(applied.warnings, ["partial extraction"]);
@@ -1162,34 +1336,36 @@ describe("workflow: literature-analysis", function () {
             return "# Digest\n\nBody";
           }
           if (entryPath === "artifacts/references.json") {
-            return JSON.stringify([
-              {
-                title: "Attention is all you need",
-                year: "2017",
-                raw: "Ashish Vaswani et al. Attention is all you need. In NeurIPS, 2017.",
-              },
-              {
-                title: "https://doi.org/10.1007/978-3-319-10602-1_48",
-                raw: "https://doi.org/10.1007/978-3-319-10602-1_48",
-              },
-              {
-                title: "Sensors 18(10), 3337",
-                raw: "Sensors 18(10), 3337",
-              },
-              {
-                title: "Ashish Vaswani, Noam Shazeer",
-                raw: "Ashish Vaswani, Noam Shazeer",
-              },
-              {
-                title:
-                  "Conditional DETR for fast training convergence. In Proceedings of the IEEE/CVF international conference on computer vision, pp",
-                year: "2021",
-                raw: "Conditional DETR for fast training convergence. In Proceedings of the IEEE/CVF international conference on computer vision, pp. 2021.",
-              },
-            ]);
+            return JSON.stringify(
+              canonicalReferencesArtifact([
+                {
+                  title: "Attention is all you need",
+                  year: "2017",
+                  raw: "Ashish Vaswani et al. Attention is all you need. In NeurIPS, 2017.",
+                },
+                {
+                  title: "https://doi.org/10.1007/978-3-319-10602-1_48",
+                  raw: "https://doi.org/10.1007/978-3-319-10602-1_48",
+                },
+                {
+                  title: "Sensors 18(10), 3337",
+                  raw: "Sensors 18(10), 3337",
+                },
+                {
+                  title: "Ashish Vaswani, Noam Shazeer",
+                  raw: "Ashish Vaswani, Noam Shazeer",
+                },
+                {
+                  title:
+                    "Conditional DETR for fast training convergence. In Proceedings of the IEEE/CVF international conference on computer vision, pp",
+                  year: "2021",
+                  raw: "Conditional DETR for fast training convergence. In Proceedings of the IEEE/CVF international conference on computer vision, pp. 2021.",
+                },
+              ]),
+            );
           }
           if (entryPath === "artifacts/citation_analysis.json") {
-            return '{"report_md":"# Citation Analysis"}';
+            return emptyCitationJson();
           }
           throw new Error(`missing bundle entry: ${entryPath}`);
         },
@@ -1214,18 +1390,18 @@ describe("workflow: literature-analysis", function () {
 
     const referencesNote = applied.notes.find(
       (note) =>
-        parseNoteKind(Zotero.Items.get(note.id)!.getNote()) === "references",
+        parseNoteKind(resolveAppliedNote(note).getNote()) === "references",
     );
     assert.isOk(referencesNote);
     const payload = (await parseStoredPayload(
-      Zotero.Items.get(referencesNote!.id)!,
+      resolveAppliedNote(referencesNote!),
       "references-json",
     )) as {
-      references?: Array<{ title?: string }>;
+      references?: Array<{ bibliography?: { title?: string } }>;
       reference_quality?: unknown;
     };
     assert.deepEqual(
-      (payload.references || []).map((entry) => entry.title),
+      (payload.references || []).map((entry) => entry.bibliography?.title),
       [
         "Attention is all you need",
         "Conditional DETR for fast training convergence. In Proceedings of the IEEE/CVF international conference on computer vision, pp",
@@ -1277,13 +1453,15 @@ describe("workflow: literature-analysis", function () {
             return "# Digest\n\nBody";
           }
           if (entryPath === "artifacts/references.json") {
-            return JSON.stringify([
-              { title: "" },
-              { title: "//doi.org/10.1007/978-3-319-10602-1_48" },
-            ]);
+            return JSON.stringify(
+              canonicalReferencesArtifact([
+                { title: "" },
+                { title: "//doi.org/10.1007/978-3-319-10602-1_48" },
+              ]),
+            );
           }
           if (entryPath === "artifacts/citation_analysis.json") {
-            return '{"report_md":"# Citation Analysis"}';
+            return emptyCitationJson();
           }
           throw new Error(`missing bundle entry: ${entryPath}`);
         },
@@ -1302,11 +1480,11 @@ describe("workflow: literature-analysis", function () {
 
     const referencesNote = applied.notes.find(
       (note) =>
-        parseNoteKind(Zotero.Items.get(note.id)!.getNote()) === "references",
+        parseNoteKind(resolveAppliedNote(note).getNote()) === "references",
     );
     assert.isOk(referencesNote);
     const payload = (await parseStoredPayload(
-      Zotero.Items.get(referencesNote!.id)!,
+      resolveAppliedNote(referencesNote!),
       "references-json",
     )) as { references?: unknown[] };
     assert.deepEqual(payload.references, []);
@@ -1340,17 +1518,19 @@ describe("workflow: literature-analysis", function () {
             return "# Digest\n\nBody";
           }
           if (entryPath === "artifacts/references.json") {
-            return JSON.stringify([
-              {
-                title: "Reference With Citekey",
-                year: "2026",
-                author: ["Cite Key"],
-                citekey: "citekey_hidden_2026",
-              },
-            ]);
+            return JSON.stringify(
+              canonicalReferencesArtifact([
+                {
+                  title: "Reference With Citekey",
+                  year: "2026",
+                  author: ["Cite Key"],
+                  citekey: "citekey_hidden_2026",
+                },
+              ]),
+            );
           }
           if (entryPath === "artifacts/citation_analysis.json") {
-            return '{"report_md":"# Citation Analysis"}';
+            return emptyCitationJson();
           }
           throw new Error(`missing bundle entry: ${entryPath}`);
         },
@@ -1363,18 +1543,21 @@ describe("workflow: literature-analysis", function () {
 
     const referencesNote = applied.notes.find(
       (note) =>
-        parseNoteKind(Zotero.Items.get(note.id)!.getNote()) === "references",
+        parseNoteKind(resolveAppliedNote(note).getNote()) === "references",
     );
     assert.isOk(referencesNote);
-    const noteContent = Zotero.Items.get(referencesNote!.id)!.getNote();
+    const noteContent = resolveAppliedNote(referencesNote!).getNote();
     assert.notInclude(noteContent, "<th>Citekey</th>");
     assert.notInclude(noteContent, "citekey_hidden_2026");
 
     const payload = (await parseStoredPayload(
-      Zotero.Items.get(referencesNote!.id)!,
+      resolveAppliedNote(referencesNote!),
       "references-json",
-    )) as { references?: Array<{ citekey?: string }> };
-    assert.equal(payload.references?.[0]?.citekey, "citekey_hidden_2026");
+    )) as { references?: Array<{ matching?: { citekey?: string } }> };
+    assert.equal(
+      payload.references?.[0]?.matching?.citekey,
+      "citekey_hidden_2026",
+    );
   });
 
   it("stores literature matching metadata as a hidden digest note payload", async function () {
@@ -1416,10 +1599,10 @@ describe("workflow: literature-analysis", function () {
             return "# Digest\n\nBody";
           }
           if (entryPath === "artifacts/references.json") {
-            return "[]";
+            return emptyReferencesJson();
           }
           if (entryPath === "artifacts/citation_analysis.json") {
-            return '{"report_md":"# Citation Analysis"}';
+            return emptyCitationJson();
           }
           if (entryPath === "artifacts/literature_matching_metadata.json") {
             return JSON.stringify(matchingMetadata);
@@ -1446,7 +1629,7 @@ describe("workflow: literature-analysis", function () {
 
     assert.lengthOf(applied.notes, 4);
     assert.equal(applied.literature_matching_metadata?.status, "attached");
-    const digestNote = Zotero.Items.get(applied.notes[0].id)!;
+    const digestNote = resolveAppliedNote(applied.notes[0]);
     assert.deepEqual(
       await parseStoredPayload(digestNote, "literature-matching-metadata-json"),
       matchingMetadata,
@@ -1487,7 +1670,7 @@ describe("workflow: literature-analysis", function () {
         workflow,
         parent: itemRef(parent),
         bundleReader: new ZipBundleReader(
-          fixturePath("literature-analysis", "run_bundle.zip"),
+          fixturePath("literature-analysis", "run_bundle_canonical.zip"),
         ),
         request: {
           targetParentRef: itemRef(parent),
@@ -1500,17 +1683,17 @@ describe("workflow: literature-analysis", function () {
 
       const referencesNote = applied.notes.find(
         (note) =>
-          parseNoteKind(Zotero.Items.get(note.id)!.getNote()) === "references",
+          parseNoteKind(resolveAppliedNote(note).getNote()) === "references",
       );
       assert.isOk(referencesNote);
       const payload = (await parseStoredPayload(
-        Zotero.Items.get(referencesNote!.id)!,
+        resolveAppliedNote(referencesNote!),
         "references-json",
       )) as {
-        references?: Array<{ citekey?: string }>;
+        references?: Array<{ matching?: { citekey?: string } }>;
         reference_matching?: unknown;
       };
-      assert.isUndefined(payload.references?.[0]?.citekey);
+      assert.isUndefined(payload.references?.[0]?.matching?.citekey);
       assert.isUndefined(payload.reference_matching);
       assert.isUndefined(applied.auto_reference_matching);
     },
@@ -1539,7 +1722,7 @@ describe("workflow: literature-analysis", function () {
         workflow,
         parent: itemRef(parent),
         bundleReader: new ZipBundleReader(
-          fixturePath("literature-analysis", "run_bundle.zip"),
+          fixturePath("literature-analysis", "run_bundle_canonical.zip"),
         ),
         request: {
           targetParentRef: itemRef(parent),
@@ -1555,17 +1738,17 @@ describe("workflow: literature-analysis", function () {
 
       const referencesNote = applied.notes.find(
         (note) =>
-          parseNoteKind(Zotero.Items.get(note.id)!.getNote()) === "references",
+          parseNoteKind(resolveAppliedNote(note).getNote()) === "references",
       );
       assert.isOk(referencesNote);
       const payload = (await parseStoredPayload(
-        Zotero.Items.get(referencesNote!.id)!,
+        resolveAppliedNote(referencesNote!),
         "references-json",
       )) as {
-        references?: Array<{ citekey?: string }>;
+        references?: Array<{ matching?: { citekey?: string } }>;
         reference_matching?: unknown;
       };
-      assert.isUndefined(payload.references?.[0]?.citekey);
+      assert.isUndefined(payload.references?.[0]?.matching?.citekey);
       assert.isUndefined(payload.reference_matching);
       assert.isUndefined(applied.auto_reference_matching);
     },
@@ -1604,7 +1787,7 @@ describe("workflow: literature-analysis", function () {
         workflow,
         parent: itemRef(parent),
         bundleReader: new ZipBundleReader(
-          fixturePath("literature-analysis", "run_bundle.zip"),
+          fixturePath("literature-analysis", "run_bundle_canonical.zip"),
         ),
         request: {
           targetParentRef: itemRef(parent),
@@ -1615,7 +1798,7 @@ describe("workflow: literature-analysis", function () {
         workflow,
         parent: itemRef(parent),
         bundleReader: new ZipBundleReader(
-          fixturePath("literature-analysis", "run_bundle.zip"),
+          fixturePath("literature-analysis", "run_bundle_canonical.zip"),
         ),
         request: {
           targetParentRef: itemRef(parent),
@@ -1628,17 +1811,17 @@ describe("workflow: literature-analysis", function () {
 
       const referencesNote = second.notes.find(
         (note) =>
-          parseNoteKind(Zotero.Items.get(note.id)!.getNote()) === "references",
+          parseNoteKind(resolveAppliedNote(note).getNote()) === "references",
       );
       assert.isOk(referencesNote);
       const payload = (await parseStoredPayload(
-        Zotero.Items.get(referencesNote!.id)!,
+        resolveAppliedNote(referencesNote!),
         "references-json",
       )) as {
-        references?: Array<{ citekey?: string }>;
+        references?: Array<{ matching?: { citekey?: string } }>;
         reference_matching?: unknown;
       };
-      assert.isUndefined(payload.references?.[0]?.citekey);
+      assert.isUndefined(payload.references?.[0]?.matching?.citekey);
       assert.isUndefined(payload.reference_matching);
       assert.isUndefined(second.auto_reference_matching);
     },
@@ -1680,13 +1863,13 @@ describe("workflow: literature-analysis", function () {
               });
             }
             if (entryPath === digestPath) {
-              return "# Digest";
+              return "# Digest\n\nUploads-prefixed artifact content.";
             }
             if (entryPath === referencesPath) {
-              return "[]";
+              return emptyReferencesJson();
             }
             if (entryPath === citationPath) {
-              return '{"report_md":"# Citation Analysis"}';
+              return emptyCitationJson();
             }
             throw new Error(`missing bundle entry: ${entryPath}`);
           },
@@ -1698,23 +1881,29 @@ describe("workflow: literature-analysis", function () {
       })) as { notes: Zotero.Item[] };
 
       assert.lengthOf(applied.notes, 4);
-      const digestNote = Zotero.Items.get(applied.notes[0].id)!;
-      const referencesNote = Zotero.Items.get(applied.notes[1].id)!;
-      const citationAnalysisNote = Zotero.Items.get(applied.notes[2].id)!;
-      assert.equal(
-        await parseStoredPayloadEntryPath(digestNote, "digest-markdown"),
-        digestPath,
+      const digestNote = resolveAppliedNote(applied.notes[0]);
+      const referencesNote = applied.notes
+        .map(resolveAppliedNote)
+        .find((note) => parseNoteKind(note.getNote()) === "references")!;
+      const citationAnalysisNote = applied.notes
+        .map(resolveAppliedNote)
+        .find((note) => parseNoteKind(note.getNote()) === "citation-analysis")!;
+      assert.include(
+        String(await parseStoredPayload(digestNote, "digest-markdown")),
+        "Uploads-prefixed artifact content.",
       );
       assert.equal(
-        await parseStoredPayloadEntryPath(referencesNote, "references-json"),
-        referencesPath,
+        (await parseStoredPayload(referencesNote, "references-json")).schema,
+        "source_reference_artifact.v1",
       );
       assert.equal(
-        await parseStoredPayloadEntryPath(
-          citationAnalysisNote,
-          "citation-analysis-json",
-        ),
-        citationPath,
+        (
+          await parseStoredPayload(
+            citationAnalysisNote,
+            "citation-analysis-json",
+          )
+        ).schema,
+        "citation_analysis_artifact.v1",
       );
     },
   );
@@ -1751,18 +1940,21 @@ describe("workflow: literature-analysis", function () {
               });
             }
             if (entryPath === "artifacts/digest.md") {
-              return "# Digest";
+              return "# Digest\n\nCitation evidence fixture.";
             }
             if (entryPath === "artifacts/references.json") {
-              return JSON.stringify([
-                { id: "ref-1", title: "Baseline Paper", year: "2021" },
-              ]);
+              return JSON.stringify(
+                canonicalReferencesArtifact([
+                  { id: "ref-1", title: "Baseline Paper", year: "2021" },
+                ]),
+              );
             }
             if (entryPath === "artifacts/citation_analysis.json") {
-              return JSON.stringify({
-                items: [{ ref_index: 0, function: "baseline" }],
-                report_md: "# Citation Analysis",
-              });
+              return JSON.stringify(
+                canonicalCitationArtifact([
+                  { id: "ref-1", function: "baseline" },
+                ]),
+              );
             }
             throw new Error(`missing bundle entry: ${entryPath}`);
           },
@@ -1789,8 +1981,7 @@ describe("workflow: literature-analysis", function () {
       });
 
       assert.equal(
-        capturedSidecarInput?.citationAnalysis?.payload?.citation_analysis
-          ?.items?.[0]?.function,
+        capturedSidecarInput?.citationAnalysis?.items?.[0]?.function,
         "baseline",
       );
     },
@@ -1816,12 +2007,8 @@ describe("workflow: literature-analysis", function () {
           "literature_score.json",
         );
         await fs.writeFile(digestPath, "# ACP Digest", "utf8");
-        await fs.writeFile(referencesPath, "[]", "utf8");
-        await fs.writeFile(
-          citationPath,
-          '{"report_md":"# ACP Citation"}',
-          "utf8",
-        );
+        await fs.writeFile(referencesPath, emptyReferencesJson(), "utf8");
+        await fs.writeFile(citationPath, emptyCitationJson(), "utf8");
         await fs.writeFile(
           literatureScorePath,
           JSON.stringify(literatureScoreArtifact),
@@ -1872,10 +2059,10 @@ describe("workflow: literature-analysis", function () {
         })) as { notes: Zotero.Item[] };
 
         assert.lengthOf(applied.notes, 4);
-        const digestNote = Zotero.Items.get(applied.notes[0].id)!;
-        assert.equal(
-          await parseStoredPayloadEntryPath(digestNote, "digest-markdown"),
-          digestPath.replace(/\\/g, "/"),
+        const digestNote = resolveAppliedNote(applied.notes[0]);
+        assert.include(
+          String(await parseStoredPayload(digestNote, "digest-markdown")),
+          "ACP Digest",
         );
       } finally {
         await fs.rm(root, { recursive: true, force: true });
@@ -1974,7 +2161,7 @@ describe("workflow: literature-analysis", function () {
       assert.lengthOf(requests, 1);
 
       const bundle = new ZipBundleReader(
-        fixturePath("literature-analysis", "run_bundle.zip"),
+        fixturePath("literature-analysis", "run_bundle_canonical.zip"),
       );
       const applied = (await executeApplyResult({
         workflow: workflow!,
@@ -1984,16 +2171,26 @@ describe("workflow: literature-analysis", function () {
       })) as { notes: Zotero.Item[] };
 
       assert.lengthOf(applied.notes, 4);
-      const digestNote = Zotero.Items.get(applied.notes[0].id)!;
-      const referencesNote = Zotero.Items.get(applied.notes[1].id)!;
-      const citationAnalysisNote = Zotero.Items.get(applied.notes[2].id)!;
-      assert.notMatch(digestNote.getNote(), /data-zs-block="meta"/);
-      assert.notMatch(digestNote.getNote(), /data-zs-meta="source-attachment"/);
-      assert.equal(
-        ((await parseStoredPayload(digestNote, "digest-markdown")) as any)
-          .source_attachment_item_key,
-        attachment.key,
+      const digestResult = applied.notes.find(
+        (note) => (note as any).noteKind === "digest",
       );
+      const referencesResult = applied.notes.find(
+        (note) => (note as any).noteKind === "references",
+      );
+      const citationAnalysisResult = applied.notes.find(
+        (note) => (note as any).noteKind === "citation-analysis",
+      );
+      assert.isOk(digestResult);
+      assert.isOk(referencesResult);
+      assert.isOk(citationAnalysisResult);
+      const digestNote = resolveAppliedNote(digestResult);
+      const referencesNote = resolveAppliedNote(referencesResult);
+      const citationAnalysisNote = resolveAppliedNote(citationAnalysisResult);
+      assert.deepEqual((digestResult as any).provenance?.sourceRef, {
+        libraryId: parent.libraryID,
+        key: attachment.key,
+      });
+      assert.isString(await parseStoredPayload(digestNote, "digest-markdown"));
       await assertStoredPayloadExists(digestNote, "digest-markdown");
       await assertStoredPayloadExists(referencesNote, "references-json");
       await assertStoredPayloadExists(
@@ -2012,7 +2209,7 @@ describe("workflow: literature-analysis", function () {
       });
 
       const bundle = new ZipBundleReader(
-        fixturePath("literature-analysis", "run_bundle.zip"),
+        fixturePath("literature-analysis", "run_bundle_canonical.zip"),
       );
       const loaded = await loadWorkflowManifests(workflowsPath());
       const workflow = loaded.workflows.find(
@@ -2031,13 +2228,19 @@ describe("workflow: literature-analysis", function () {
       })) as { notes: Zotero.Item[] };
 
       assert.lengthOf(applied.notes, 4);
-      const digestNote = Zotero.Items.get(applied.notes[0].id)!;
-      const referencesNote = Zotero.Items.get(applied.notes[1].id)!;
-      const citationAnalysisNote = Zotero.Items.get(applied.notes[2].id)!;
-      assert.notInclude(
-        digestNote.getNote(),
-        "data-zs-source_attachment_item_key",
+      const digestNote = resolveAppliedNote(applied.notes[0]);
+      const referencesNote = applied.notes
+        .map(resolveAppliedNote)
+        .find((note) => parseNoteKind(note.getNote()) === "references")!;
+      const citationAnalysisNote = applied.notes
+        .map(resolveAppliedNote)
+        .find((note) => parseNoteKind(note.getNote()) === "citation-analysis")!;
+      const detail = await createWorkflowHostApi().library.getNoteDetail(
+        itemRef(digestNote),
+        { format: "html" },
       );
+      if (detail.kind !== "managed") assert.fail("Expected managed digest");
+      assert.deepEqual(detail.provenance?.sourceRef, itemRef(attachment));
       await assertStoredPayloadExists(digestNote, "digest-markdown");
       await assertStoredPayloadExists(referencesNote, "references-json");
       await assertStoredPayloadExists(
@@ -2126,7 +2329,7 @@ describe("workflow: literature-analysis", function () {
           };
         };
 
-        const digestNote = Zotero.Items.get(applied.notes[0].id)!;
+        const digestNote = resolveAppliedNote(applied.notes[0]);
         assert.equal(
           applied.representative_image?.status,
           "embedded",
@@ -2137,7 +2340,7 @@ describe("workflow: literature-analysis", function () {
           imagePath.replace(/\\/g, "/"),
         );
         assert.equal(applied.representative_image?.compressedBytes, 120 * 1024);
-        assert.notInclude(
+        assert.include(
           digestNote.getNote(),
           'data-zs-block="representative-image"',
         );
@@ -2216,9 +2419,9 @@ describe("workflow: literature-analysis", function () {
         };
 
         assert.equal(applied.representative_image?.status, "embedded");
-        const digestNote = Zotero.Items.get(applied.notes[0].id)!;
+        const digestNote = resolveAppliedNote(applied.notes[0]);
         await assertStoredPayloadExists(digestNote, "digest-markdown");
-        assert.notInclude(
+        assert.include(
           digestNote.getNote(),
           'data-zs-block="representative-image"',
         );
@@ -2307,7 +2510,7 @@ describe("workflow: literature-analysis", function () {
           applied.representative_image?.reason,
           "unsafe_markdown_image_path",
         );
-        const digestNote = Zotero.Items.get(applied.notes[0].id)!;
+        const digestNote = resolveAppliedNote(applied.notes[0]);
         assert.notInclude(
           digestNote.getNote(),
           'data-zs-block="representative-image"',
@@ -2415,7 +2618,7 @@ describe("workflow: literature-analysis", function () {
           applied.representative_image?.reason,
           "markdown_src_hint_not_resolved",
         );
-        const digestNote = Zotero.Items.get(applied.notes[0].id)!;
+        const digestNote = resolveAppliedNote(applied.notes[0]);
         assert.notInclude(
           digestNote.getNote(),
           "markdown_src_hint_not_resolved",
@@ -2763,7 +2966,7 @@ describe("workflow: literature-analysis", function () {
         applied.representative_image?.reason,
         "pdf_resolution_best_effort_unavailable",
       );
-      const digestNote = Zotero.Items.get(applied.notes[0].id)!;
+      const digestNote = resolveAppliedNote(applied.notes[0]);
       assert.notInclude(
         digestNote.getNote(),
         'data-zs-block="representative-image-diagnostic"',
@@ -2789,7 +2992,7 @@ describe("workflow: literature-analysis", function () {
   );
 
   itFullOnly(
-    "upserts existing generated notes and keeps each kind unique",
+    "rejects duplicate singleton notes without modifying the parent set",
     async function () {
       this.timeout(5000);
       const parent = await handlers.item.create({
@@ -2798,17 +3001,17 @@ describe("workflow: literature-analysis", function () {
       });
       const attachment = await createApplySourceAttachment(parent);
 
-      await handlers.parent.addNote(parent, {
-        content:
-          '<div data-zs-note-kind="digest"><h1>Digest</h1><p>old-a</p></div>',
-      });
-      await handlers.parent.addNote(parent, {
-        content:
-          '<div data-zs-note-kind="digest"><h1>Digest</h1><p>old-b</p></div>',
-      });
+      for (const body of ["old-a", "old-b"]) {
+        await handlers.parent.addNote(parent, {
+          content: `<div data-zs-note-kind="digest">${renderPayloadBlock({ payloadType: "digest-markdown", payload: body, payloadFormat: "text" })}</div>`,
+        });
+      }
+      const before = parent
+        .getNotes()
+        .map((id) => ({ id, html: Zotero.Items.get(id)!.getNote() }));
 
       const bundle = new ZipBundleReader(
-        fixturePath("literature-analysis", "run_bundle.zip"),
+        fixturePath("literature-analysis", "run_bundle_canonical.zip"),
       );
       const loaded = await loadWorkflowManifests(workflowsPath());
       const workflow = loaded.workflows.find(
@@ -2816,48 +3019,34 @@ describe("workflow: literature-analysis", function () {
       );
       assert.isOk(workflow, "missing literature-analysis workflow");
 
-      await executeApplyResult({
-        workflow: workflow!,
-        parent: itemRef(parent),
-        bundleReader: bundle,
-        request: {
-          targetParentRef: itemRef(parent),
-          sourceAttachmentRefs: [itemRef(attachment)],
-        },
-      });
-
-      const allNoteItems = (parent.getNotes() || [])
-        .map((id) => Zotero.Items.get(id))
-        .filter(Boolean) as Zotero.Item[];
-      const noteItems = allNoteItems.filter((note) => !note.deleted);
-      const generated = noteItems.filter((note) =>
-        parseNoteKind(note.getNote()),
+      let failure: any;
+      try {
+        await executeApplyResult({
+          workflow: workflow!,
+          parent: itemRef(parent),
+          bundleReader: bundle,
+          request: {
+            targetParentRef: itemRef(parent),
+            sourceAttachmentRefs: [itemRef(attachment)],
+          },
+        });
+      } catch (error) {
+        failure = error;
+      }
+      assert.equal(
+        failure?.attempt?.error?.code || failure?.code,
+        "conflict",
+        JSON.stringify(failure?.attempt),
       );
-      const digestNotes = generated.filter(
-        (note) => parseNoteKind(note.getNote()) === "digest",
+      assert.deepEqual(
+        parent.getNotes(),
+        before.map((note) => note.id),
       );
-      const referencesNotes = generated.filter(
-        (note) => parseNoteKind(note.getNote()) === "references",
-      );
-      const citationAnalysisNotes = generated.filter(
-        (note) => parseNoteKind(note.getNote()) === "citation-analysis",
-      );
-
-      assert.lengthOf(digestNotes, 1);
-      assert.lengthOf(referencesNotes, 1);
-      assert.lengthOf(citationAnalysisNotes, 1);
-      assert.lengthOf(
-        allNoteItems.filter(
-          (note) => note.deleted && parseNoteKind(note.getNote()) === "digest",
-        ),
-        1,
-      );
-      await assertStoredPayloadExists(digestNotes[0], "digest-markdown");
-      await assertStoredPayloadExists(referencesNotes[0], "references-json");
-      await assertStoredPayloadExists(
-        citationAnalysisNotes[0],
-        "citation-analysis-json",
-      );
+      for (const note of before) {
+        const current = Zotero.Items.get(note.id)!;
+        assert.equal(current.getNote(), note.html);
+        assert.isFalse(Boolean(current.deleted));
+      }
     },
   );
 
@@ -2887,17 +3076,7 @@ describe("workflow: literature-analysis", function () {
         mimeType: "text/markdown",
       });
 
-      await handlers.parent.addNote(parentSkipped, {
-        content: '<div data-zs-note-kind="digest"><h1>Digest</h1></div>',
-      });
-      await handlers.parent.addNote(parentSkipped, {
-        content:
-          '<div data-zs-note-kind="references"><h1>References</h1></div>',
-      });
-      await handlers.parent.addNote(parentSkipped, {
-        content:
-          '<div data-zs-note-kind="citation-analysis"><h1>Citation Analysis</h1></div>',
-      });
+      await addGeneratedDigestNotes(parentSkipped, canonicalGeneratedTriplet());
 
       const context = await buildSelectionContext([parentSkipped, parentRun]);
       const workflow = await getLiteratureDigestWorkflow();
@@ -2950,13 +3129,7 @@ describe("workflow: literature-analysis", function () {
             const { parent, attachment } = await createDigestAttachmentParent({
               title: "Workflow Execute Skip Parent",
             });
-            await addGeneratedDigestNotes(parent, {
-              digest: '<div data-zs-note-kind="digest"><h1>Digest</h1></div>',
-              references:
-                '<div data-zs-note-kind="references"><h1>References</h1></div>',
-              citationAnalysis:
-                '<div data-zs-note-kind="citation-analysis"><h1>Citation Analysis</h1></div>',
-            });
+            await addGeneratedDigestNotes(parent, canonicalGeneratedTriplet());
             return [attachment];
           },
           expectedSkipped: 1,
@@ -3066,19 +3239,13 @@ describe("workflow: literature-analysis", function () {
   );
 
   itFullOnly(
-    "builds score-only for a parent-selected item with the legacy triplet",
+    "builds score-only for a parent-selected item with the canonical artifact triplet",
     async function () {
       const workflow = await getLiteratureDigestWorkflow();
       const { parent, attachment } = await createDigestAttachmentParent({
         title: "Workflow Parent Selection Skip",
       });
-      await addGeneratedDigestNotes(parent, {
-        digest: '<div data-zs-note-kind="digest"><h1>Digest</h1></div>',
-        references:
-          '<div data-zs-note-kind="references"><h1>References</h1></div>',
-        citationAnalysis:
-          '<div data-zs-note-kind="citation-analysis"><h1>Citation Analysis</h1></div>',
-      });
+      await addGeneratedDigestNotes(parent, canonicalGeneratedTriplet());
 
       const context = await buildSelectionContext([parent]);
       const requests = (await executeBuildRequests({

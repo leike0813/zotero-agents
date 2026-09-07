@@ -4,6 +4,12 @@ import {
   createWorkflowHostError,
 } from "../workflows/workflowHostErrorContract";
 import type { WorkflowEditorOwner } from "../workflows/types";
+import {
+  convertLegacyArtifactSet,
+  type LegacyArtifactSetInput,
+  type LiteratureArtifactMigrationConversion,
+  type LiteratureArtifactMigrationConverterOptions,
+} from "./literatureArtifactMigration";
 
 const HTML_NS = "http://www.w3.org/1999/xhtml";
 const ROOT_ID = "zs-workflow-editor-root";
@@ -49,6 +55,11 @@ type WorkflowEditorRenderArgs<TState = unknown, TContext = unknown> = {
     patchState: (updater: (state: TState) => void) => void;
     closeWithAction: (actionId?: string) => void;
     setFooterVisible: (visible: boolean) => void;
+    /** Private editor-owner seam for the approved offline legacy import path. */
+    convertLegacyArtifactSet: (
+      input: LegacyArtifactSetInput,
+      options?: LiteratureArtifactMigrationConverterOptions,
+    ) => LiteratureArtifactMigrationConversion;
   };
 };
 
@@ -463,6 +474,10 @@ async function openDialogSession(
             labels,
           });
         },
+        convertLegacyArtifactSet: (
+          input: LegacyArtifactSetInput,
+          options?: LiteratureArtifactMigrationConverterOptions,
+        ) => convertLegacyArtifactSet(input, options),
       };
       rerenderCurrent = host.rerender;
 

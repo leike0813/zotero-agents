@@ -531,48 +531,6 @@ export type SynthesisDigestArtifact = {
   content?: string;
 };
 
-export type SynthesisReferenceEntry = {
-  id?: string;
-  title?: string;
-  year?: string;
-  authors?: string[];
-  doi?: string;
-  url?: string;
-  text?: string;
-};
-
-export type SynthesisReferencesArtifact = {
-  noteKey?: string;
-  payloadHash?: string;
-  references?: SynthesisReferenceEntry[];
-};
-
-export type SynthesisCitationAnalysisItem = {
-  id?: string;
-  ref_index?: number;
-  reference_index?: number;
-  index?: number;
-  title?: string;
-  year?: string;
-  function?: string;
-  role?: string;
-  roles?: string[];
-};
-
-export type SynthesisCitationAnalysisArtifact = {
-  noteKey?: string;
-  payloadHash?: string;
-  items?: SynthesisCitationAnalysisItem[];
-  citations?: SynthesisCitationAnalysisItem[];
-};
-
-export type SynthesisLiteratureScore = {
-  score?: number;
-  level?: string;
-  reason?: string;
-  dimensions?: Record<string, number>;
-};
-
 export type SynthesisLiteratureMatchingMetadata = {
   schema: "synthesis.literature_matching_metadata.v1";
   key_terms: string[];

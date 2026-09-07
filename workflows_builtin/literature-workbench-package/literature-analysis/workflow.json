@@ -47,11 +47,11 @@
             "payload": {
               "type": "literature-score-json",
               "requirements": [
-                { "pointer": "/literature_score/schema", "const": "literature_score.v1" },
-                { "pointer": "/literature_score/overall_score", "type": "number", "minimum": 0, "maximum": 100 },
-                { "pointer": "/literature_score/confidence", "type": "number", "minimum": 0, "maximum": 1 },
-                { "pointer": "/literature_score/confidence_adjusted_score", "type": "number", "minimum": 0, "maximum": 100 },
-                { "pointer": "/literature_score/dimensions", "type": "array", "length": 6 }
+                { "pointer": "/schema", "const": "literature_score.v1" },
+                { "pointer": "/overall_score", "type": "number", "minimum": 0, "maximum": 100 },
+                { "pointer": "/confidence", "type": "number", "minimum": 0, "maximum": 1 },
+                { "pointer": "/confidence_adjusted_score", "type": "number", "minimum": 0, "maximum": 100 },
+                { "pointer": "/dimensions", "type": "array", "length": 6 }
               ]
             }
           }
