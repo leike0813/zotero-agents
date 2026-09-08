@@ -324,12 +324,6 @@ export function createWorkflowHostApi(
           withDefaultControl(control),
         ),
     },
-    navigation: {
-      openItem: liveReads.navigation.openItem,
-      openNote: liveReads.navigation.openNote,
-      openCollection: liveReads.navigation.openCollection,
-      openSelection: liveReads.navigation.openSelection,
-    },
     library: {
       listItems: (input, control) =>
         liveReads.library.listItems(input, withDefaultControl(control)),

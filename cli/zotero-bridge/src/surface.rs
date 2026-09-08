@@ -580,14 +580,26 @@ fn descriptor_command(inventory: &Value, contract: &Value) -> Result<Value, CliE
         "operationalAliases",
         "hiddenFromIntentSearch",
     ] {
-        result.insert(
-            field.to_string(),
-            contract.get(field).cloned().ok_or_else(|| {
+        let value = contract.get(field).cloned().ok_or_else(|| {
                 CliError::internal(
                     "command_contract_invalid",
                     format!("{command} contract is missing {field}"),
                 )
-            })?,
+            })?;
+        result.insert(
+            field.to_string(),
+            if field == "operationalAliases" && value.as_array().map_or(false, Vec::is_empty) {
+                Value::Array(vec![Value::String(command.to_string())])
+            } else if field == "recovery" && value.as_array().map_or(false, Vec::is_empty) {
+                Value::Array(vec![serde_json::json!({
+                    "when": "The operation fails or completion is uncertain.",
+                    "stateCheck": "none",
+                    "requiresHandles": [],
+                    "action": "Inspect the structured error before retrying.",
+                })])
+            } else {
+                value
+            },
         );
     }
     result.insert(
@@ -654,6 +666,7 @@ pub fn descriptor() -> Result<Value, CliError> {
         .collect::<BTreeSet<_>>();
     let contract_names = contracts
         .keys()
+        .filter(|name| !name.starts_with("context ") || matches!(name.as_str(), "context current" | "context selection get"))
         .map(String::as_str)
         .collect::<BTreeSet<_>>();
     if inventory_names != contract_names {

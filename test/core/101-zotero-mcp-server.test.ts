@@ -47,6 +47,7 @@ const ZOTERO_MCP_TOOL_GET_ITEM_ATTACHMENTS = "library.get_item_attachments";
 const ZOTERO_MCP_TOOL_GET_MCP_STATUS = "diagnostic.get_status";
 const ZOTERO_MCP_TOOL_PREVIEW_MUTATION = "mutation.preview";
 const ZOTERO_MCP_TOOL_EXECUTE_MUTATION = "mutation.execute";
+const ZOTERO_MCP_TOOL_FOCUS_ZOTERO = "navigation.focus_zotero";
 
 const dynamicImport = new Function("specifier", "return import(specifier)") as <
   T = any,
@@ -595,6 +596,28 @@ describe("embedded Zotero MCP server protocol", function () {
     );
     assert.include(notePayload.description, "Decode one workflow payload");
     assert.deepEqual(executeMutation.inputSchema.required, ["operationId"]);
+  });
+
+  it("hides navigation tools from automated MCP scopes", async function () {
+    const response = await handleZoteroMcpRequestForTests(
+      { jsonrpc: "2.0", id: "tools", method: "tools/list" },
+      { mcpScope: "automated" },
+    );
+    const names = (response as any).result.tools.map(
+      (tool: { name: string }) => tool.name,
+    );
+    assert.notInclude(names, ZOTERO_MCP_TOOL_FOCUS_ZOTERO);
+
+    const denied = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "call",
+        method: "tools/call",
+        params: { name: ZOTERO_MCP_TOOL_FOCUS_ZOTERO, arguments: {} },
+      },
+      { mcpScope: "automated" },
+    );
+    assert.strictEqual((denied as any).error.data.code, "navigation_scope_denied");
   });
 
   it("accepts MCP initialized notification without returning an error", async function () {

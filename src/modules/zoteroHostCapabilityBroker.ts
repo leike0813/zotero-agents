@@ -70,7 +70,10 @@ import type {
   MetadataLookupResultDto,
   MetadataTranslationEvidenceDto,
   NavigationSelectionInputDto,
+  NavigationResult,
   NavigationResultDto,
+  NavigationLibraryViewRef,
+  ReaderLocation,
   NoteDetailDto,
   NoteDetailResultDto,
   NoteDetailOptionsDto,
@@ -327,37 +330,7 @@ export type ZoteroHostCollectionDto = {
   path?: string[];
 };
 
-export type ZoteroHostNavigationTargetDto =
-  | {
-      kind: "item" | "note";
-      item: ZoteroHostItemSummaryDto;
-    }
-  | {
-      kind: "collection";
-      collection: ZoteroHostCollectionDto;
-    }
-  | {
-      kind: "selection";
-      items: ZoteroHostItemSummaryDto[];
-    };
-
-export type ZoteroHostNavigationResultDto = {
-  opened: boolean;
-  found: boolean;
-  target: ZoteroHostNavigationTargetDto;
-  currentView: CurrentViewDto;
-};
-
-export type ZoteroHostSelectionOpenArgs = {
-  items?: ZoteroHostItemRefInput[];
-};
-
-export type ZoteroHostCollectionOpenArgs = {
-  key?: string;
-  collectionKey?: string;
-  libraryId?: number | string;
-  libraryID?: number | string;
-};
+export type ZoteroHostReaderLocation = ReaderLocation;
 
 export type ZoteroHostLibraryListArgs = {
   libraryId?: number | string;
@@ -552,22 +525,31 @@ export interface ZoteroHostCapabilityBroker {
     ): Promise<SelectedItemsPageDto>;
   };
   readonly navigation: {
+    focusZotero(control?: WorkflowCallControl): Promise<NavigationResult>;
+    selectLibraryView(
+      view: NavigationLibraryViewRef,
+      control?: WorkflowCallControl,
+    ): Promise<NavigationResult>;
+    selectCollection(
+      ref: ZoteroHostCollectionRefInput,
+      control?: WorkflowCallControl,
+    ): Promise<NavigationResult>;
+    selectSavedSearch(
+      ref: PortableSavedSearchRef,
+      control?: WorkflowCallControl,
+    ): Promise<NavigationResult>;
+    revealItems(
+      input: NavigationSelectionInputDto,
+      control?: WorkflowCallControl,
+    ): Promise<NavigationResult>;
     openItem(
       ref: ZoteroHostItemRefInput,
       control?: WorkflowCallControl,
-    ): Promise<NavigationResultDto>;
-    openNote(
-      ref: ZoteroHostItemRefInput,
+    ): Promise<NavigationResult>;
+    openReaderLocation(
+      input: { target: ZoteroHostItemRefInput; location: ReaderLocation },
       control?: WorkflowCallControl,
-    ): Promise<NavigationResultDto>;
-    openCollection(
-      ref: ZoteroHostCollectionRefInput,
-      control?: WorkflowCallControl,
-    ): Promise<NavigationResultDto>;
-    openSelection(
-      input: NavigationSelectionInputDto,
-      control?: WorkflowCallControl,
-    ): Promise<NavigationResultDto>;
+    ): Promise<NavigationResult>;
   };
   readonly library: {
     listItems(
@@ -1146,7 +1128,7 @@ function invalidRefError(
 }
 
 function notFoundError(
-  kind: "item" | "note" | "collection",
+  kind: "item" | "note" | "collection" | "saved-search",
   ref?: ZoteroHostItemRefInput | ZoteroHostCollectionRefInput | null,
 ) {
   return capabilityError("not_found", `${kind} not found`, {
@@ -1689,15 +1671,21 @@ function canonicalCollectionRefs(item: Zotero.Item) {
 }
 
 function canonicalItemKind(item: Zotero.Item): ItemSummaryDto["kind"] {
-  if (item.isNote?.()) return "note";
-  if (item.isAttachment?.()) return "attachment";
-  if (
-    (item as any).isAnnotation?.() ||
-    String(item.itemType) === "annotation"
-  ) {
+  if (typeof item.isNote === "function" && item.isNote()) return "note";
+  if (typeof item.isAttachment === "function" && item.isAttachment())
+    return "attachment";
+  const annotation =
+    typeof (item as any).isAnnotation === "function"
+      ? (item as any).isAnnotation()
+      : Boolean((item as any).isAnnotation);
+  if (annotation || String(item.itemType) === "annotation") {
     return "annotation";
   }
-  if (item.isRegularItem?.() !== false) return "regular";
+  const regular =
+    typeof item.isRegularItem === "function"
+      ? item.isRegularItem()
+      : (item as any).isRegularItem;
+  if (regular !== false) return "regular";
   throw capabilityError(
     "unsupported_operation",
     "unsupported Zotero item kind",
@@ -2939,10 +2927,18 @@ export async function getAllRegularZoteroItems(libraryId?: number | string) {
 }
 
 function isRegularVisibleItem(item: Zotero.Item) {
+  const note =
+    typeof item.isNote === "function"
+      ? item.isNote()
+      : Boolean((item as any).isNote);
+  const attachment =
+    typeof item.isAttachment === "function"
+      ? item.isAttachment()
+      : Boolean((item as any).isAttachment);
   const regular =
     typeof item.isRegularItem === "function"
       ? item.isRegularItem()
-      : !item.isNote?.() && !item.isAttachment?.();
+      : !note && !attachment;
   const deleted =
     typeof (item as any).isDeleted === "function"
       ? (item as any).isDeleted()
@@ -16018,7 +16014,377 @@ function resolveZoteroPane() {
   return { win, pane };
 }
 
-async function selectZoteroItems(items: Zotero.Item[]) {
+function resolveNavigationPane(
+  control: WorkflowCallControl = {},
+  selectionWindow?: () => _ZoteroTypes.MainWindow,
+) {
+  const win =
+    control.target?.resolveAndValidate?.() ||
+    selectionWindow?.() ||
+    (globalThis as any).Zotero?.getMainWindow?.() ||
+    (globalThis as any).window;
+  const pane = win?.ZoteroPane;
+  if (!win || !pane) {
+    throw navigationUnavailableError("Zotero pane navigation is unavailable");
+  }
+  return { win, pane };
+}
+
+function assertNavigationObject(value: unknown, keys: readonly string[]) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw capabilityError(
+      "invalid_request",
+      "navigation input must be an object",
+      {
+        reason: "invalid_type",
+      },
+    );
+  }
+  const actual = Object.keys(value as object).sort();
+  const expected = [...keys].sort();
+  if (
+    actual.length !== expected.length ||
+    actual.some((key, i) => key !== expected[i])
+  ) {
+    throw capabilityError(
+      "invalid_request",
+      "navigation input has unknown fields",
+      {
+        reason: "invalid_schema",
+      },
+    );
+  }
+}
+
+function assertSavedSearchRef(
+  ref: unknown,
+): asserts ref is PortableSavedSearchRef {
+  assertNavigationObject(ref, ["libraryId", "key"]);
+  const candidate = ref as any;
+  if (
+    !Number.isSafeInteger(candidate.libraryId) ||
+    candidate.libraryId <= 0 ||
+    typeof candidate.key !== "string" ||
+    !ZOTERO_OBJECT_KEY_PATTERN.test(candidate.key)
+  ) {
+    throw capabilityError("invalid_request", "saved search ref is invalid", {
+      reason: "invalid_value",
+      field: "ref",
+    });
+  }
+}
+
+function assertLibraryViewRef(
+  ref: unknown,
+): asserts ref is NavigationLibraryViewRef {
+  assertNavigationObject(ref, ["libraryId", "view"]);
+  const candidate = ref as any;
+  const views = [
+    "library",
+    "trash",
+    "duplicates",
+    "unfiled",
+    "retracted",
+    "publications",
+  ];
+  if (
+    !views.includes(candidate.view) ||
+    !Number.isSafeInteger(candidate.libraryId) ||
+    candidate.libraryId <= 0
+  ) {
+    throw capabilityError("invalid_request", "library view is invalid", {
+      reason: "invalid_value",
+      field: "view",
+    });
+  }
+}
+
+function navigationWindow(
+  control: WorkflowCallControl = {},
+  selectionWindow?: () => _ZoteroTypes.MainWindow,
+) {
+  return resolveNavigationPane(control, selectionWindow);
+}
+
+async function focusZotero(
+  control: WorkflowCallControl = {},
+): Promise<NavigationResult> {
+  throwIfWorkflowCallCanceled(control);
+  const win =
+    control.target?.resolveAndValidate?.() ||
+    (globalThis as any).Zotero?.getMainWindow?.() ||
+    (globalThis as any).window;
+  if (!win) {
+    throw navigationUnavailableError("Zotero window focus is unavailable");
+  }
+  win.focus?.();
+  throwIfWorkflowCallCanceled(control);
+  return { outcome: "focused" };
+}
+
+async function selectLibraryView(
+  view: NavigationLibraryViewRef,
+  control: WorkflowCallControl = {},
+): Promise<NavigationResult> {
+  assertLibraryViewRef(view);
+  throwIfWorkflowCallCanceled(control);
+  const { win, pane } = navigationWindow(control);
+  const tree = pane.collectionsView || pane.collectionsTree;
+  const idPrefix: Record<string, string> = {
+    library: "L",
+    trash: "T",
+    duplicates: "D",
+    unfiled: "U",
+    retracted: "R",
+    publications: "P",
+  };
+  const id = `${idPrefix[view.view]}${view.libraryId}`;
+  if (typeof tree?.selectByID === "function") await tree.selectByID(id);
+  else if (typeof pane.selectLibrary === "function")
+    await pane.selectLibrary(view.libraryId, view.view);
+  else
+    throw navigationUnavailableError("Zotero pane cannot select library view");
+  win.focus?.();
+  return { outcome: "library_view_selected", view };
+}
+
+async function selectSavedSearch(
+  ref: PortableSavedSearchRef,
+  control: WorkflowCallControl = {},
+): Promise<NavigationResult> {
+  assertSavedSearchRef(ref);
+  throwIfWorkflowCallCanceled(control);
+  const zotero = resolveZotero();
+  const search =
+    zotero.Searches?.getByLibraryAndKey?.(ref.libraryId, ref.key) || null;
+  if (!search) throw notFoundError("saved-search", ref);
+  const { win, pane } = navigationWindow(control);
+  const tree = pane.collectionsView || pane.collectionsTree;
+  const id = (search as any).id || (search as any).searchID;
+  if (typeof tree?.selectByID !== "function" || !id)
+    throw navigationUnavailableError(
+      "Zotero pane cannot select saved searches",
+    );
+  await tree.selectByID(`S${id}`);
+  win.focus?.();
+  return { outcome: "saved_search_selected", ref };
+}
+
+async function selectCollectionCanonical(
+  ref: ZoteroHostCollectionRefInput,
+  control: WorkflowCallControl = {},
+): Promise<NavigationResult> {
+  assertPortableRef(ref, "collection");
+  throwIfWorkflowCallCanceled(control);
+  const collection = resolveCollection(ref);
+  if (!collection) throw notFoundError("collection", ref);
+  const target = navigationWindow(control);
+  const { win } = target;
+  await selectZoteroCollection(collection, target);
+  win.focus?.();
+  return {
+    outcome: "collection_selected",
+    ref: canonicalCollectionRef(collection),
+  };
+}
+
+async function revealItems(
+  input: NavigationSelectionInputDto,
+  control: WorkflowCallControl = {},
+): Promise<NavigationResult> {
+  assertNavigationObject(input, ["itemRefs"]);
+  if (
+    !Array.isArray(input.itemRefs) ||
+    input.itemRefs.length < 1 ||
+    input.itemRefs.length > 100
+  ) {
+    throw capabilityError(
+      "invalid_request",
+      "items must contain 1 to 100 refs",
+      { reason: "invalid_value", field: "itemRefs" },
+    );
+  }
+  throwIfWorkflowCallCanceled(control);
+  const items: Zotero.Item[] = [];
+  const seen = new Set<string>();
+  let libraryId = 0;
+  for (const ref of input.itemRefs) {
+    const item = requireItem(ref);
+    const normalized = canonicalItemRef(item);
+    const id = `${normalized.libraryId}:${normalized.key}`;
+    if (seen.has(id))
+      throw capabilityError("invalid_request", "duplicate item ref", {
+        reason: "duplicate_value",
+        field: "itemRefs",
+      });
+    seen.add(id);
+    if (!libraryId) libraryId = normalized.libraryId;
+    if (libraryId !== normalized.libraryId)
+      throw capabilityError("invalid_request", "items must share a library", {
+        reason: "invalid_combination",
+        field: "itemRefs",
+      });
+    const deleted = Boolean(
+      (item as any).isDeleted?.() ?? (item as any).deleted,
+    );
+    if (
+      items.length &&
+      deleted !==
+        Boolean((items[0] as any).isDeleted?.() ?? (items[0] as any).deleted)
+    ) {
+      throw capabilityError(
+        "invalid_request",
+        "items must share active state",
+        { reason: "invalid_combination", field: "itemRefs" },
+      );
+    }
+    items.push(item);
+  }
+  const { win, pane } = navigationWindow(control);
+  if (typeof pane.viewItems === "function") await pane.viewItems(items);
+  else await selectZoteroItems(items, { win, pane });
+  win.focus?.();
+  return { outcome: "items_revealed", items: items.map(canonicalItemRef) };
+}
+
+async function openCanonicalItem(
+  ref: ZoteroHostItemRefInput,
+  control: WorkflowCallControl = {},
+): Promise<NavigationResult> {
+  throwIfWorkflowCallCanceled(control);
+  const item = requireItem(ref);
+  const { win, pane } = navigationWindow(control);
+  if (typeof pane.viewItems !== "function")
+    throw navigationUnavailableError("Zotero pane cannot open items");
+  await pane.viewItems([item]);
+  win.focus?.();
+  return { outcome: "item_opened", ref: canonicalItemRef(item) };
+}
+
+async function openReaderLocation(
+  input: { target: ZoteroHostItemRefInput; location: ReaderLocation },
+  control: WorkflowCallControl = {},
+): Promise<NavigationResult> {
+  assertNavigationObject(input, ["location", "target"]);
+  assertPortableRef(input.target, "item");
+  const location = input.location;
+  if (!location || typeof location !== "object")
+    throw capabilityError("invalid_request", "reader location is invalid", {
+      reason: "invalid_type",
+      field: "location",
+    });
+  const item = requireItem(input.target);
+  const itemKind = canonicalItemKind(item);
+  if (
+    location.kind !== "page" &&
+    location.kind !== "annotation" &&
+    location.kind !== "epub"
+  ) {
+    throw capabilityError(
+      "invalid_request",
+      "reader location kind is invalid",
+      { reason: "invalid_value", field: "location" },
+    );
+  }
+  if (itemKind !== "attachment") {
+    throw invalidRefError(
+      "item",
+      "wrong_kind",
+      "reader locations require an attachment",
+    );
+  }
+  const reader = (globalThis as any).Zotero?.Reader;
+  const { win } = navigationWindow(control);
+  if (!reader?.open)
+    throw new ZoteroHostCapabilityError(
+      "unsupported_operation",
+      "Reader location is unsupported",
+      {
+        memberOrOperation: "navigation.openReaderLocation",
+        reason: "location_unsupported",
+      } as any,
+    );
+  if (
+    location.kind === "page" &&
+    (!Number.isSafeInteger(location.pageIndex) || location.pageIndex < 0)
+  )
+    throw capabilityError("invalid_request", "page index is invalid", {
+      reason: "invalid_value",
+      field: "location",
+    });
+  if (
+    location.kind === "epub" &&
+    (typeof location.cfi !== "string" ||
+      !location.cfi ||
+      location.cfi.length > 4096)
+  )
+    throw capabilityError("invalid_request", "EPUB CFI is invalid", {
+      reason: "invalid_value",
+      field: "location",
+    });
+  if (
+    location.kind === "annotation" &&
+    (typeof location.annotationKey !== "string" ||
+      !ZOTERO_OBJECT_KEY_PATTERN.test(location.annotationKey))
+  )
+    throw capabilityError("invalid_request", "annotation key is invalid", {
+      reason: "invalid_value",
+      field: "location",
+    });
+  if (location.kind === "page") {
+    const pageCount = Number((item as any).getField?.("pageCount") || 0);
+    if (
+      Number.isSafeInteger(pageCount) &&
+      pageCount > 0 &&
+      location.pageIndex >= pageCount
+    ) {
+      throw capabilityError("invalid_request", "page index is out of bounds", {
+        reason: "invalid_value",
+        field: "location",
+      });
+    }
+  }
+  if (location.kind === "annotation") {
+    const annotation = resolveZotero().Items.getByLibraryAndKey?.(
+      input.target.libraryId,
+      location.annotationKey,
+    );
+    const parentId = parsePositiveInteger(
+      (annotation as any)?.parentItemID ?? (annotation as any)?.parentID,
+    );
+    if (
+      !annotation ||
+      canonicalItemKind(annotation) !== "annotation" ||
+      parentId !== Number((item as any).id)
+    ) {
+      throw invalidRefError(
+        "item",
+        "wrong_kind",
+        "annotation is not a child of the target attachment",
+      );
+    }
+  }
+  const tab = await reader.open(Number((item as any).id), location);
+  if (!tab || (tab.ownerGlobal && tab.ownerGlobal !== win))
+    throw new ZoteroHostCapabilityError(
+      "unsupported_operation",
+      "Reader location is unsupported",
+      {
+        memberOrOperation: "navigation.openReaderLocation",
+        reason: "location_unsupported",
+      } as any,
+    );
+  return {
+    outcome: "reader_location_dispatched",
+    target: canonicalItemRef(item),
+    location,
+  };
+}
+
+async function selectZoteroItems(
+  items: Zotero.Item[],
+  target?: { win: any; pane: any },
+) {
   const itemIds = items
     .map((item) => parsePositiveInteger(item.id))
     .filter((id) => id > 0);
@@ -16028,7 +16394,7 @@ async function selectZoteroItems(items: Zotero.Item[]) {
       recovery: "none",
     });
   }
-  const { win, pane } = resolveZoteroPane();
+  const { win, pane } = target || resolveZoteroPane();
   if (itemIds.length === 1 && typeof pane.selectItem === "function") {
     await pane.selectItem(itemIds[0]);
   } else if (typeof pane.selectItems === "function") {
@@ -16039,14 +16405,17 @@ async function selectZoteroItems(items: Zotero.Item[]) {
   win?.focus?.();
 }
 
-async function selectZoteroCollection(collection: Zotero.Collection) {
+async function selectZoteroCollection(
+  collection: Zotero.Collection,
+  target?: { win: any; pane: any },
+) {
   const collectionId = parsePositiveInteger(
     (collection as unknown as { id?: unknown }).id,
   );
   const collectionKey = trimText(
     (collection as unknown as { key?: unknown }).key,
   );
-  const { win, pane } = resolveZoteroPane();
+  const { win, pane } = target || resolveZoteroPane();
   const collectionsView = pane.collectionsView || pane.collectionsTree;
   if (typeof pane.selectCollection === "function") {
     await pane.selectCollection(collectionId || collectionKey);
@@ -16058,98 +16427,6 @@ async function selectZoteroCollection(collection: Zotero.Collection) {
     throw navigationUnavailableError("Zotero pane cannot select collections");
   }
   win?.focus?.();
-}
-
-function collectionRefFromOpenArgs(args: ZoteroHostCollectionOpenArgs) {
-  const key = trimText(args.key || args.collectionKey);
-  if (!key) {
-    throw invalidRefError(
-      "collection",
-      "invalid_key",
-      "collection key is required",
-    );
-  }
-  const ref = {
-    key,
-    libraryId: parsePositiveInteger(args.libraryId ?? args.libraryID),
-  };
-  assertPortableRef(ref, "collection");
-  return ref;
-}
-
-export async function openLegacyZoteroItem(
-  ref: ZoteroHostItemRefInput,
-): Promise<ZoteroHostNavigationResultDto> {
-  const item = requireItem(ref);
-  await selectZoteroItems([item]);
-  return {
-    opened: true,
-    found: true,
-    target: {
-      kind: "item",
-      item: serializeZoteroItemSummary(item),
-    },
-    currentView: getCurrentView(),
-  };
-}
-
-export async function openLegacyZoteroNote(
-  ref: ZoteroHostItemRefInput,
-): Promise<ZoteroHostNavigationResultDto> {
-  const note = requireNote(ref);
-  await selectZoteroItems([note]);
-  return {
-    opened: true,
-    found: true,
-    target: {
-      kind: "note",
-      item: serializeZoteroItemSummary(note),
-    },
-    currentView: getCurrentView(),
-  };
-}
-
-export async function openLegacyZoteroCollection(
-  args: ZoteroHostCollectionOpenArgs,
-): Promise<ZoteroHostNavigationResultDto> {
-  const ref = collectionRefFromOpenArgs(args);
-  const collection = resolveCollection(ref);
-  if (!collection) {
-    throw notFoundError("collection", ref);
-  }
-  await selectZoteroCollection(collection);
-  return {
-    opened: true,
-    found: true,
-    target: {
-      kind: "collection",
-      collection: serializeCollection(collection),
-    },
-    currentView: getCurrentView(),
-  };
-}
-
-export async function openLegacyZoteroSelection(
-  args: ZoteroHostSelectionOpenArgs,
-): Promise<ZoteroHostNavigationResultDto> {
-  const refs = Array.isArray(args.items) ? args.items : [];
-  if (refs.length === 0) {
-    throw capabilityError("invalid_request", "selection open requires items", {
-      reason: "missing_field",
-      field: "items",
-    });
-  }
-  const items = refs.map((ref) => requireItem(ref));
-  await selectZoteroItems(items);
-  return {
-    opened: true,
-    found: true,
-    target: {
-      kind: "selection",
-      items: items.map(serializeZoteroItemSummary),
-    },
-    currentView: getCurrentView(),
-  };
 }
 
 export function createZoteroHostCapabilityBroker(
@@ -16164,10 +16441,15 @@ export function createZoteroHostCapabilityBroker(
         getSelectedItems(request, control, selectionWindow?.()),
     },
     navigation: {
-      openItem: openZoteroItem,
-      openNote: openZoteroNote,
-      openCollection: openZoteroCollection,
-      openSelection: openZoteroSelection,
+      focusZotero: (control) => focusZotero(control),
+      selectLibraryView: (view, control) => selectLibraryView(view, control),
+      selectCollection: (ref, control) =>
+        selectCollectionCanonical(ref, control),
+      selectSavedSearch: (ref, control) => selectSavedSearch(ref, control),
+      revealItems: (input, control) => revealItems(input, control),
+      openItem: (ref, control) => openCanonicalItem(ref, control),
+      openReaderLocation: (input, control) =>
+        openReaderLocation(input, control),
     },
     library: {
       listItems: listLibraryItems,
@@ -16783,115 +17065,6 @@ async function mapZoteroHostTargets<T, R>(
     }
   }
   return results;
-}
-
-async function openZoteroItem(
-  ref: ZoteroHostItemRefInput,
-  control: WorkflowCallControl = {},
-): Promise<NavigationResultDto> {
-  throwIfWorkflowCallCanceled(control);
-  const item = await withZoteroHostSlice(control, () => requireItem(ref));
-  if (canonicalItemKind(item) !== "regular") {
-    throw invalidRefError(
-      "item",
-      "wrong_kind",
-      "ref does not identify a regular item",
-    );
-  }
-  await withZoteroHostSlice(control, () => selectZoteroItems([item]));
-  throwIfWorkflowCallCanceled(control);
-  return {
-    openedAt: new Date().toISOString(),
-    target: { kind: "item", ref: canonicalItemRef(item) },
-  };
-}
-
-async function openZoteroNote(
-  ref: ZoteroHostItemRefInput,
-  control: WorkflowCallControl = {},
-): Promise<NavigationResultDto> {
-  throwIfWorkflowCallCanceled(control);
-  const note = await withZoteroHostSlice(control, () => requireNote(ref));
-  await withZoteroHostSlice(control, () => selectZoteroItems([note]));
-  throwIfWorkflowCallCanceled(control);
-  return {
-    openedAt: new Date().toISOString(),
-    target: { kind: "note", ref: canonicalItemRef(note) },
-  };
-}
-
-async function openZoteroCollection(
-  ref: ZoteroHostCollectionRefInput,
-  control: WorkflowCallControl = {},
-): Promise<NavigationResultDto> {
-  throwIfWorkflowCallCanceled(control);
-  const collection = await withZoteroHostSlice(control, () =>
-    resolveCollection(ref),
-  );
-  if (!collection) throw notFoundError("collection", ref);
-  await withZoteroHostSlice(control, () => selectZoteroCollection(collection));
-  throwIfWorkflowCallCanceled(control);
-  return {
-    openedAt: new Date().toISOString(),
-    target: { kind: "collection", ref: canonicalCollectionRef(collection) },
-  };
-}
-
-async function openZoteroSelection(
-  input: NavigationSelectionInputDto,
-  control: WorkflowCallControl = {},
-): Promise<NavigationResultDto> {
-  if (!input || !Array.isArray(input.itemRefs) || input.itemRefs.length === 0) {
-    throw capabilityError(
-      "invalid_request",
-      "selection open requires item refs",
-      {
-        reason: "missing_field",
-        field: "itemRefs",
-      },
-    );
-  }
-  if (input.itemRefs.length > 10_000) {
-    throw capabilityError("resource_limited", "selection exceeds the limit", {
-      resource: "selection",
-      limit: 10_000,
-      observed: input.itemRefs.length,
-    });
-  }
-  const seen = new Set<string>();
-  const items: Zotero.Item[] = [];
-  let sliceStartedAt = Date.now();
-  let sliceProcessed = 0;
-  for (const ref of input.itemRefs) {
-    throwIfWorkflowCallCanceled(control);
-    const item = await withZoteroHostSlice(control, () => requireItem(ref));
-    const normalized = canonicalItemRef(item);
-    const identity = `${normalized.libraryId}:${normalized.key}`;
-    if (seen.has(identity)) {
-      throw capabilityError(
-        "invalid_request",
-        "selection contains a duplicate ref",
-        {
-          reason: "duplicate_value",
-          field: "itemRefs",
-        },
-      );
-    }
-    seen.add(identity);
-    items.push(item);
-    sliceProcessed += 1;
-    if (shouldYieldHostSlice(sliceStartedAt, sliceProcessed)) {
-      await yieldToEventLoop();
-      sliceStartedAt = Date.now();
-      sliceProcessed = 0;
-    }
-  }
-  await withZoteroHostSlice(control, () => selectZoteroItems(items));
-  throwIfWorkflowCallCanceled(control);
-  return {
-    openedAt: new Date().toISOString(),
-    target: { kind: "selection", refs: items.map(canonicalItemRef) },
-  };
 }
 
 async function getCanonicalItemNotes(

@@ -33,14 +33,16 @@ Canonical mutations cover item metadata/type/tag/related changes, collections an
 - `metadata`: controlled read-only metadata translation facade as DTOs
 - `mutations`: preview/execute command API and durable getOperation observation
 
-It projects navigation, bounded library reads, canonical mutations, notes,
-attachments, status tags, and the other members declared by the single runtime
-manifest. Broker-only members remain private unless named by that manifest.
+It projects bounded library reads, canonical mutations, notes, attachments,
+status tags, and the other members declared by the single runtime manifest.
+Broker navigation members remain private to Host Bridge and MCP unless a future
+Workflow Host contract explicitly names them.
 
 The main read, navigation and mutation entry points are:
 
 - `context`: current view and selection queries
-- `navigation`: item, note, collection, and selection opening effects
+- Host Bridge/MCP `navigation.*`: captured-window UI navigation effects owned by
+  the Broker and exposed only through their explicit projections
 - `library`: bounded library, note, payload, annotation, and attachment reads
 - `metadata`: identifier translation
 - `mutations`: preview, execute and getOperation

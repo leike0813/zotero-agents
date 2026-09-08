@@ -675,34 +675,13 @@ describe("host bridge server phase 1", function () {
     const item = new Zotero.Item("book");
     item.setField("title", "Navigation Target");
     await item.saveTx();
-    const note = new Zotero.Item("note");
-    note.parentItemID = item.id;
-    note.setNote("<p>Navigation Note</p>");
-    await note.saveTx();
-    const collection = new Zotero.Collection();
-    collection.name = "Navigation Collection";
-    collection.libraryID = Zotero.Libraries.userLibraryID;
-    await collection.saveTx();
 
-    const selectedItemIds: number[][] = [];
-    const selectedCollections: Array<number | string> = [];
     const previousGetMainWindow = (Zotero as any).getMainWindow;
     (Zotero as any).getMainWindow = () => ({
       focus: () => {},
       ZoteroPane: {
         getSelectedItems: () => [item],
         getSelectedLibraryID: () => Zotero.Libraries.userLibraryID,
-        selectItem: async (itemId: number) => {
-          selectedItemIds.push([itemId]);
-        },
-        selectItems: async (itemIds: number[]) => {
-          selectedItemIds.push(itemIds);
-        },
-        collectionsView: {
-          selectCollection: async (collectionId: number | string) => {
-            selectedCollections.push(collectionId);
-          },
-        },
       },
       Zotero_Tabs: {
         selectedID: "",
@@ -735,74 +714,28 @@ describe("host bridge server phase 1", function () {
       assert.strictEqual(selection.status, 200);
       assert.strictEqual(selection.json.result.items[0].ref.key, item.key);
 
-      const openedItem = parseRawHttpResponse(
-        await handleHostBridgeHttpRequestForTests({
-          method: "POST",
-          path: "/bridge/v2/context/items/open",
-          headers: auth,
-          body: JSON.stringify({ item: `${item.libraryID}:${item.key}` }),
-        }),
-      );
-      assert.strictEqual(openedItem.status, 200);
-      assert.deepInclude(openedItem.json.result, {
-        opened: true,
-        found: true,
-      });
-      assert.strictEqual(openedItem.json.result.target.item.key, item.key);
-
-      const openedNote = parseRawHttpResponse(
-        await handleHostBridgeHttpRequestForTests({
-          method: "POST",
-          path: "/bridge/v2/context/notes/open",
-          headers: auth,
-          body: JSON.stringify({
-            note: { key: note.key, libraryId: note.libraryID },
+      for (const path of [
+        "/bridge/v2/context/items/open",
+        "/bridge/v2/context/notes/open",
+        "/bridge/v2/context/collections/open",
+        "/bridge/v2/context/selection/open",
+      ]) {
+        const legacy = parseRawHttpResponse(
+          await handleHostBridgeHttpRequestForTests({
+            method: "POST",
+            path,
+            headers: auth,
+            body: JSON.stringify({}),
           }),
-        }),
-      );
-      assert.strictEqual(openedNote.status, 200);
-      assert.strictEqual(openedNote.json.result.target.kind, "note");
-      assert.strictEqual(openedNote.json.result.target.item.key, note.key);
-
-      const openedCollection = parseRawHttpResponse(
-        await handleHostBridgeHttpRequestForTests({
-          method: "POST",
-          path: "/bridge/v2/context/collections/open",
-          headers: auth,
-          body: JSON.stringify({
-            key: collection.key,
-            libraryId: collection.libraryID,
-          }),
-        }),
-      );
-      assert.strictEqual(openedCollection.status, 200);
-      assert.strictEqual(
-        openedCollection.json.result.target.collection.key,
-        collection.key,
-      );
-
-      const openedSelection = parseRawHttpResponse(
-        await handleHostBridgeHttpRequestForTests({
-          method: "POST",
-          path: "/bridge/v2/context/selection/open",
-          headers: auth,
-          body: JSON.stringify({ items: [item.key, { id: note.id }] }),
-        }),
-      );
-      assert.strictEqual(openedSelection.status, 200);
-      assert.strictEqual(openedSelection.json.result.target.kind, "selection");
-      assert.deepEqual(selectedItemIds, [
-        [item.id],
-        [note.id],
-        [item.id, note.id],
-      ]);
-      assert.deepEqual(selectedCollections, [collection.id]);
+        );
+        assert.strictEqual(legacy.status, 404);
+      }
     } finally {
       (Zotero as any).getMainWindow = previousGetMainWindow;
     }
   });
 
-  it("rejects unsafe context navigation refs", async function () {
+  it("rejects removed context navigation routes", async function () {
     const token = configureHostBridgeServerForTests({ token: "context-token" });
     const parsed = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
@@ -815,8 +748,7 @@ describe("host bridge server phase 1", function () {
       }),
     );
 
-    assert.strictEqual(parsed.status, 400);
-    assert.strictEqual(parsed.json.error.code, "invalid_object_ref");
+    assert.strictEqual(parsed.status, 404);
   });
 
   it("invalidates the old bearer token after rotation", async function () {

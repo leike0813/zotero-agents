@@ -40,6 +40,13 @@ This section is generated from the executable Host Bridge capability and CLI com
 | `workflow_products.read_asset` | workflow_products | `none` | `object required` | `raw call only` | raw-only, response:file-output, mcp-mirror |
 | `context.get_current_view` | context | `none` | `object` |  | response:limit-bounded, mcp-mirror |
 | `context.get_selected_items` | context | `none` | `object` |  | response:paged, mcp-mirror |
+| `navigation.focus_zotero` | context | `none` | `object` | `navigation focus-zotero` | response:limit-bounded, mcp-mirror |
+| `navigation.open_item` | context | `none` | `object required` | `navigation open-item` | response:limit-bounded, mcp-mirror |
+| `navigation.open_reader_location` | context | `none` | `object required` | `navigation open-reader-location` | response:limit-bounded, mcp-mirror |
+| `navigation.reveal_items` | context | `none` | `object required` | `navigation reveal-items` | response:selector-bounded, mcp-mirror |
+| `navigation.select_collection` | context | `none` | `object required` | `navigation select-collection` | response:limit-bounded, mcp-mirror |
+| `navigation.select_library_view` | context | `none` | `object required` | `navigation select-library-view` | response:limit-bounded, mcp-mirror |
+| `navigation.select_saved_search` | context | `none` | `object required` | `navigation select-saved-search` | response:limit-bounded, mcp-mirror |
 | `library.export_annotations` | library | `none` | `object` | `library annotation export` | response:selector-bounded, mcp-mirror |
 | `library.get_item_attachments` | library | `none` | `object` | `library item attachments` | response:paged, mcp-mirror |
 | `library.get_item_detail` | library | `none` | `object` | `library item get` | response:selector-bounded, mcp-mirror |
@@ -213,12 +220,15 @@ This section is generated from the executable Host Bridge capability and CLI com
 | `debug synthesis snapshot` | `debug.synthesis.snapshot` | capability | - |
 | `debug tasks` | `debug.tasks.snapshot` | capability | - |
 | `call` | `POST /bridge/v2/call` | service | - |
-| `context collection open` | `POST /bridge/v2/context/collections/open` | endpoint | - |
 | `context current` | `GET /bridge/v2/context/current` | endpoint | - |
-| `context item open` | `POST /bridge/v2/context/items/open` | endpoint | - |
-| `context note open` | `POST /bridge/v2/context/notes/open` | endpoint | - |
 | `context selection get` | `GET /bridge/v2/context/selection` | endpoint | - |
-| `context selection open` | `POST /bridge/v2/context/selection/open` | endpoint | - |
+| `navigation focus-zotero` | `navigation.focus_zotero` | capability | - |
+| `navigation open-item` | `navigation.open_item` | capability | - |
+| `navigation open-reader-location` | `navigation.open_reader_location` | capability | - |
+| `navigation reveal-items` | `navigation.reveal_items` | capability | - |
+| `navigation select-collection` | `navigation.select_collection` | capability | - |
+| `navigation select-library-view` | `navigation.select_library_view` | capability | - |
+| `navigation select-saved-search` | `navigation.select_saved_search` | capability | - |
 
 #### Library guidance
 

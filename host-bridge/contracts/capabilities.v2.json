@@ -722,6 +722,57 @@
         "responseSizing": "paged"
       }
     },
+    "navigation.focus_zotero": {
+      "category": "context",
+      "summary": "Focus the captured Zotero window.",
+      "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+      "outputSchema": { "type": "object", "properties": { "outcome": { "const": "focused" } }, "required": ["outcome"], "additionalProperties": false },
+      "effect": "state-change", "approval": "none",
+      "exposure": { "public": true, "debugOnly": false, "dangerous": false, "cacheView": false, "rawOnly": false, "mcpMirror": true, "responseSizing": "limit-bounded" }
+    },
+    "navigation.select_library_view": {
+      "category": "context",
+      "summary": "Select a supported Zotero library view.",
+      "inputSchema": { "type": "object", "properties": { "view": { "type": "string", "enum": ["library", "trash", "duplicates", "unfiled", "retracted", "publications"] }, "libraryId": { "type": "integer", "minimum": 1 } }, "required": ["view", "libraryId"], "additionalProperties": false },
+      "outputSchema": { "type": "object", "properties": { "outcome": { "const": "library_view_selected" }, "view": { "type": "object" } }, "required": ["outcome", "view"], "additionalProperties": false },
+      "effect": "state-change", "approval": "none",
+      "exposure": { "public": true, "debugOnly": false, "dangerous": false, "cacheView": false, "rawOnly": false, "mcpMirror": true, "responseSizing": "limit-bounded" }
+    },
+    "navigation.select_collection": {
+      "category": "context", "summary": "Select a Zotero collection by portable reference.",
+      "inputSchema": { "type": "object", "properties": { "libraryId": { "type": "integer", "minimum": 1 }, "key": { "type": "string", "pattern": "^[A-Z0-9]{8}$" } }, "required": ["libraryId", "key"], "additionalProperties": false },
+      "outputSchema": { "type": "object", "properties": { "outcome": { "const": "collection_selected" }, "ref": { "type": "object" } }, "required": ["outcome", "ref"], "additionalProperties": false },
+      "effect": "state-change", "approval": "none",
+      "exposure": { "public": true, "debugOnly": false, "dangerous": false, "cacheView": false, "rawOnly": false, "mcpMirror": true, "responseSizing": "limit-bounded" }
+    },
+    "navigation.select_saved_search": {
+      "category": "context", "summary": "Select a Zotero saved search by portable reference.",
+      "inputSchema": { "type": "object", "properties": { "libraryId": { "type": "integer", "minimum": 1 }, "key": { "type": "string", "pattern": "^[A-Z0-9]{8}$" } }, "required": ["libraryId", "key"], "additionalProperties": false },
+      "outputSchema": { "type": "object", "properties": { "outcome": { "const": "saved_search_selected" }, "ref": { "type": "object" } }, "required": ["outcome", "ref"], "additionalProperties": false },
+      "effect": "state-change", "approval": "none",
+      "exposure": { "public": true, "debugOnly": false, "dangerous": false, "cacheView": false, "rawOnly": false, "mcpMirror": true, "responseSizing": "limit-bounded" }
+    },
+    "navigation.reveal_items": {
+      "category": "context", "summary": "Reveal an ordered bounded set of Zotero items.",
+      "inputSchema": { "type": "object", "properties": { "itemRefs": { "type": "array", "minItems": 1, "maxItems": 100, "items": { "type": "object" } } }, "required": ["itemRefs"], "additionalProperties": false },
+      "outputSchema": { "type": "object", "properties": { "outcome": { "const": "items_revealed" }, "items": { "type": "array" } }, "required": ["outcome", "items"], "additionalProperties": false },
+      "effect": "state-change", "approval": "none",
+      "exposure": { "public": true, "debugOnly": false, "dangerous": false, "cacheView": false, "rawOnly": false, "mcpMirror": true, "responseSizing": "selector-bounded" }
+    },
+    "navigation.open_item": {
+      "category": "context", "summary": "Open a Zotero item by portable reference.",
+      "inputSchema": { "type": "object", "properties": { "libraryId": { "type": "integer", "minimum": 1 }, "key": { "type": "string", "pattern": "^[A-Z0-9]{8}$" } }, "required": ["libraryId", "key"], "additionalProperties": false },
+      "outputSchema": { "type": "object", "properties": { "outcome": { "const": "item_opened" }, "ref": { "type": "object" } }, "required": ["outcome", "ref"], "additionalProperties": false },
+      "effect": "state-change", "approval": "none",
+      "exposure": { "public": true, "debugOnly": false, "dangerous": false, "cacheView": false, "rawOnly": false, "mcpMirror": true, "responseSizing": "limit-bounded" }
+    },
+    "navigation.open_reader_location": {
+      "category": "context", "summary": "Open an exact built-in Reader location.",
+      "inputSchema": { "type": "object", "properties": { "target": { "type": "object" }, "location": { "type": "object" } }, "required": ["target", "location"], "additionalProperties": false },
+      "outputSchema": { "type": "object", "properties": { "outcome": { "const": "reader_location_dispatched" }, "target": { "type": "object" }, "location": { "type": "object" } }, "required": ["outcome", "target", "location"], "additionalProperties": false },
+      "effect": "state-change", "approval": "none",
+      "exposure": { "public": true, "debugOnly": false, "dangerous": false, "cacheView": false, "rawOnly": false, "mcpMirror": true, "responseSizing": "limit-bounded" }
+    },
     "debug.acpSkillRun.reapplyResult": {
       "category": "debug",
       "summary": "Debug-only operation: re-run applyResult for an existing ACP skill run result.",

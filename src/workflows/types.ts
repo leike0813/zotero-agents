@@ -54,6 +54,29 @@ export type PortableSavedSearchRef = Readonly<{
   key: string;
 }>;
 
+export type NavigationLibraryViewRef = Readonly<{
+  view: "library" | "trash" | "duplicates" | "unfiled" | "retracted" | "publications";
+  libraryId: number;
+}>;
+
+export type ReaderLocation =
+  | Readonly<{ kind: "page"; pageIndex: number }>
+  | Readonly<{ kind: "annotation"; annotationKey: string }>
+  | Readonly<{ kind: "epub"; cfi: string }>;
+
+export type NavigationResult =
+  | Readonly<{ outcome: "focused" }>
+  | Readonly<{ outcome: "library_view_selected"; view: NavigationLibraryViewRef }>
+  | Readonly<{ outcome: "collection_selected"; ref: PortableCollectionRef }>
+  | Readonly<{ outcome: "saved_search_selected"; ref: PortableSavedSearchRef }>
+  | Readonly<{ outcome: "items_revealed"; items: PortableItemRef[] }>
+  | Readonly<{ outcome: "item_opened"; ref: PortableItemRef }>
+  | Readonly<{
+      outcome: "reader_location_dispatched";
+      target: PortableItemRef;
+      location: ReaderLocation;
+    }>;
+
 export type AddonIdentityDto = {
   readonly addonName: string;
   readonly addonRef: string;
@@ -865,6 +888,9 @@ export type NavigationResultDto = {
 
 export type WorkflowCallControl = Readonly<{
   signal?: CancellationSignal;
+  target?: Readonly<{
+    resolveAndValidate(): _ZoteroTypes.MainWindow | null | undefined;
+  }>;
 }>;
 
 export type WorkflowHostCreatorDto = {
@@ -1764,10 +1790,6 @@ export type WorkflowHostLiveReadAdapters = {
     ZoteroHostCapabilityBroker["context"],
     "getCurrentView" | "getSelectedItems"
   >;
-  navigation: Pick<
-    ZoteroHostCapabilityBroker["navigation"],
-    "openItem" | "openNote" | "openCollection" | "openSelection"
-  >;
   library: Pick<
     ZoteroHostCapabilityBroker["library"],
     | "listItems"
@@ -2292,24 +2314,6 @@ export type WorkflowHostApiV12 = Readonly<{
       request?: SelectedItemsPageRequestDto,
       control?: WorkflowCallControl,
     ): Promise<SelectedItemsPageDto>;
-  }>;
-  navigation: Readonly<{
-    openItem(
-      ref: PortableItemRef,
-      control?: WorkflowCallControl,
-    ): Promise<NavigationResultDto>;
-    openNote(
-      ref: PortableItemRef,
-      control?: WorkflowCallControl,
-    ): Promise<NavigationResultDto>;
-    openCollection(
-      ref: PortableCollectionRef,
-      control?: WorkflowCallControl,
-    ): Promise<NavigationResultDto>;
-    openSelection(
-      input: NavigationSelectionInputDto,
-      control?: WorkflowCallControl,
-    ): Promise<NavigationResultDto>;
   }>;
   library: Readonly<{
     listItems(

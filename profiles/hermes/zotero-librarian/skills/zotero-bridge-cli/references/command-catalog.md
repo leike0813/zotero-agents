@@ -81,12 +81,8 @@ Select one command below, then read its linked command card. Each card contains 
 | `zotero-bridge bridge profile diagnose` | Diagnose Zotero Bridge connection-profile readiness | [Open card](commands/bridge/profile/diagnose.md) |
 | `zotero-bridge bridge profile inspect` | Inspect the redacted Zotero Bridge connection profile | [Open card](commands/bridge/profile/inspect.md) |
 | `zotero-bridge bridge status` | Check Zotero Bridge service health without authentication | [Open card](commands/bridge/status.md) |
-| `zotero-bridge context collection open` | Open one Zotero collection | [Open card](commands/context/collection/open.md) |
 | `zotero-bridge context current` | Read current Zotero UI context | [Open card](commands/context/current.md) |
-| `zotero-bridge context item open` | Open one Zotero item | [Open card](commands/context/item/open.md) |
-| `zotero-bridge context note open` | Open one Zotero note | [Open card](commands/context/note/open.md) |
 | `zotero-bridge context selection get` | Read one exact page of selected Zotero items | [Open card](commands/context/selection/get.md) |
-| `zotero-bridge context selection open` | Open one or more Zotero items as the active selection | [Open card](commands/context/selection/open.md) |
 | `zotero-bridge surface describe` | Describe one canonical command | [Open card](commands/surface/describe.md) |
 | `zotero-bridge surface identity` | Print exact CLI build and command-catalog identity | [Open card](commands/surface/identity.md) |
 | `zotero-bridge surface search` | Search canonical commands by task intent | [Open card](commands/surface/search.md) |
@@ -129,6 +125,35 @@ Select one command below, then read its linked command card. Each card contains 
 | `zotero-bridge library readiness missing-pdf` | List Zotero items missing a PDF attachment | [Open card](commands/library/readiness/missing-pdf.md) |
 | `zotero-bridge library saved-searches list` | List a source-bounded Saved Search page | [Open card](commands/library/saved-searches/list.md) |
 | `zotero-bridge library snapshot` | Read a fixed Zotero full-library snapshot page | [Open card](commands/library/snapshot.md) |
+
+Selection check:
+
+- Match the user's requested outcome, object type, freshness, and state-change boundary to this family.
+- If several commands remain plausible, use `zotero-bridge surface search --intent <plain-language intent>` to narrow the candidates.
+- Confirm the selected command with `zotero-bridge surface describe '<canonical command>'` before constructing the invocation.
+- Read the linked detailed reference before execution; the compact index is not an argv or approval contract.
+
+## Navigate the Zotero user interface
+
+Use this family for explicit UI navigation while preserving portable references and the captured Zotero window boundary.
+
+Natural-language cues:
+
+- focus Zotero, select a library view, collection, or saved search.
+- reveal or open a known item in the Zotero interface.
+- open an exact page, annotation, or EPUB location in Reader.
+
+Select one command below, then read its linked command card. Each card contains the exact argv, schemas, examples, effects, approval, handles, and recovery contract.
+
+| Canonical command | Purpose | Command card |
+| --- | --- | --- |
+| `zotero-bridge navigation focus-zotero` | navigation focus-zotero | [Open card](commands/navigation/focus-zotero.md) |
+| `zotero-bridge navigation open-item` | navigation open-item | [Open card](commands/navigation/open-item.md) |
+| `zotero-bridge navigation open-reader-location` | navigation open-reader-location | [Open card](commands/navigation/open-reader-location.md) |
+| `zotero-bridge navigation reveal-items` | navigation reveal-items | [Open card](commands/navigation/reveal-items.md) |
+| `zotero-bridge navigation select-collection` | navigation select-collection | [Open card](commands/navigation/select-collection.md) |
+| `zotero-bridge navigation select-library-view` | navigation select-library-view | [Open card](commands/navigation/select-library-view.md) |
+| `zotero-bridge navigation select-saved-search` | navigation select-saved-search | [Open card](commands/navigation/select-saved-search.md) |
 
 Selection check:
 

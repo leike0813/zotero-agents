@@ -30,10 +30,6 @@ const V12_CALLABLE_PATHS = [
   "environment.getInfo",
   "context.getCurrentView",
   "context.getSelectedItems",
-  "navigation.openItem",
-  "navigation.openNote",
-  "navigation.openCollection",
-  "navigation.openSelection",
   "library.listItems",
   "library.traverseItems",
   "library.withItemSnapshot",
@@ -142,15 +138,15 @@ describe("Workflow Host contract governance", function () {
       "interactive",
       "non_interactive",
     ]);
-    assert.lengthOf(Object.keys(WORKFLOW_HOST_API_MANIFEST), 25);
+    assert.lengthOf(Object.keys(WORKFLOW_HOST_API_MANIFEST), 24);
     assert.lengthOf(
       Object.keys(WORKFLOW_HOST_API_MANIFEST).filter(
         (key) => key !== "version" && key !== "interactionMode",
       ),
-      23,
+      22,
     );
     const callablePaths = collectCallablePaths(WORKFLOW_HOST_API_MANIFEST);
-    assert.lengthOf(callablePaths, 96);
+    assert.lengthOf(callablePaths, 92);
     assert.sameMembers(callablePaths, V12_CALLABLE_PATHS);
   });
 

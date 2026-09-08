@@ -203,10 +203,10 @@ Host Bridge SHALL expose a lightweight bounded notification inbox for workflow a
 - **THEN** Host Bridge SHALL retain lightweight notification events without transcript access
 - **AND** SHALL prune old or excess retained events so the in-memory inbox and deduplication index remain bounded.
 
-### Requirement: Host Bridge exposes context and navigation endpoints
+### Requirement: Host Bridge exposes context reads and canonical navigation capabilities
 
-Host Bridge SHALL expose authenticated REST endpoints for reading Zotero context
-and navigating to Zotero objects.
+Host Bridge SHALL expose authenticated REST context reads and route UI
+navigation through the canonical `/bridge/v2/call` capability dispatcher.
 
 #### Scenario: Client reads current context
 
@@ -220,19 +220,18 @@ and navigating to Zotero objects.
 - **WHEN** an authenticated client requests `GET /bridge/v2/context/selection`
 - **THEN** the bridge SHALL return the canonical exact selection page using the requested limit/cursor, with unchanged basis errors and no transport repagination.
 
-#### Scenario: Client opens Zotero objects
+#### Scenario: Client invokes canonical navigation
 
-- **WHEN** a client posts a Zotero item, note, collection, or selected item
-  handle to a context navigation endpoint
-- **THEN** the bridge SHALL navigate the Zotero UI to the requested object when
-  it exists
-- **AND** the response SHALL include `opened`, `found`, `target`, and
-  `currentView`.
+- **WHEN** a client calls one of the registered `navigation.*` capabilities with
+  a portable target
+- **THEN** the bridge SHALL navigate the captured Zotero window when the target
+  exists
+- **AND** the response SHALL contain only the operation-specific JSON result.
 
 #### Scenario: Client supplies an invalid navigation target
 
-- **WHEN** a navigation request contains a local path, URI, arbitrary script, or
-  an unknown object handle
+- **WHEN** a navigation capability request contains a local path, URI, arbitrary
+  script, or an unknown object handle
 - **THEN** the bridge SHALL reject the request with a stable error code
 - **AND** it SHALL NOT fall back to arbitrary opening or evaluation.
 

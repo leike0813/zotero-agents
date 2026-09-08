@@ -114,9 +114,9 @@ fn validate_command_references(registry: &Value) -> Result<(), String> {
             ));
         }
         if binding == "passthrough" {
-            if inputs.len() != 1 {
+            if inputs.len() > 1 {
                 return Err(format!(
-                    "{command} passthrough binding requires exactly one structured input"
+                    "{command} passthrough binding requires at most one structured input"
                 ));
             }
         }
@@ -184,8 +184,7 @@ fn validate_command_references(registry: &Value) -> Result<(), String> {
             ));
         }
         match entry.get("payloadSchemaSource").and_then(Value::as_str) {
-            Some("inline")
-                if target_kind != "capability" && entry.get("payloadSchema").is_some() => {}
+            Some("inline") if entry.get("payloadSchema").is_some() => {}
             Some("target-capability")
                 if target_kind == "capability" && entry.get("payloadSchema").is_none() => {}
             Some(source) => {
@@ -966,12 +965,7 @@ pub fn compose_command_payload(
                 .get("inputs")
                 .and_then(Value::as_object)
                 .and_then(|inputs| inputs.keys().next())
-                .ok_or_else(|| {
-                    CliError::internal(
-                        "command_composition_contract_invalid",
-                        format!("{command} passthrough binding has no source argument"),
-                    )
-                })?;
+                .map_or("input", |value| value.as_str());
             arguments
                 .get(argument_id)
                 .cloned()

@@ -27,6 +27,7 @@ const ZOTERO_LITE_ALLOWLIST: Record<Exclude<TestDomain, "all">, RegExp[]> = {
     /(^|\/)test\/core\/186-acp-runtime-file-io\.zotero\.test\.ts$/,
     /(^|\/)test\/core\/187-runtime-log-persistence\.zotero\.test\.ts$/,
     /(^|\/)test\/core\/275-managed-note-transaction\.zotero\.test\.ts$/,
+    /(^|\/)test\/core\/188-zotero-navigation\.zotero\.test\.ts$/,
   ],
   ui: [
     /(^|\/)test\/ui\/01-startup-workflow-menu-init\.test\.ts$/,
@@ -90,6 +91,7 @@ const ZOTERO_LITE_TITLE_ALLOWLIST: Record<
     "ACP runtime file I/O in Zotero ",
     "runtime log persistence in Zotero ",
     "managed note transaction in Zotero ",
+    "canonical navigation in Zotero runtime ",
   ],
   ui: [
     "startup workflow scan + menu init ",

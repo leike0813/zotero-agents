@@ -157,6 +157,7 @@ export type ZoteroMcpToolPermissionRequest = {
 };
 
 export type ZoteroMcpHandlerOptions = {
+  mcpScope?: "operator" | "interactive" | "automated" | "invalid";
   control?: WorkflowCallControl;
   canonicalMutationControl?: ZoteroHostCanonicalMutationControl;
   resolveZoteroHostCapabilityBroker?: () => ZoteroHostCapabilityBroker;
@@ -919,12 +920,19 @@ function mcpInputSchemaForCapability(
   return objectSchema();
 }
 
-function listHostBridgeMcpToolDefinitions(): ToolDefinition[] {
+function listHostBridgeMcpToolDefinitions(
+  scope: ZoteroMcpHandlerOptions["mcpScope"] = "operator",
+): ToolDefinition[] {
   return listHostBridgeCapabilities()
     .filter(
       (capability) =>
         capability.name !== "workflow_products.export" &&
         capability.name !== "workflow_products.remove",
+    )
+    .filter(
+      (capability) =>
+        !capability.name.startsWith("navigation.") ||
+        (scope !== "automated" && scope !== "invalid"),
     )
     .map((capability) => ({
       name: capability.name,
@@ -1279,8 +1287,10 @@ async function callHostBridgeCapabilityAsMcpTool(
   });
 }
 
-export function listZoteroMcpTools() {
-  return listHostBridgeMcpToolDefinitions().map((tool) => ({
+export function listZoteroMcpTools(
+  options: Pick<ZoteroMcpHandlerOptions, "mcpScope"> = {},
+) {
+  return listHostBridgeMcpToolDefinitions(options.mcpScope).map((tool) => ({
     name: tool.name,
     title: tool.title,
     description: `${tool.description}${ZOTERO_MCP_ADMISSION_NOTICE}`,
@@ -1341,7 +1351,7 @@ export async function handleZoteroMcpJsonRpc(
         jsonrpc: "2.0",
         id: request.id ?? null,
         result: {
-          tools: listZoteroMcpTools(),
+          tools: listZoteroMcpTools(options),
         },
       };
     case "tools/call": {
@@ -1349,10 +1359,24 @@ export async function handleZoteroMcpJsonRpc(
         return null;
       }
       const toolName = resolveToolName(request.params);
-      const tool = listHostBridgeMcpToolDefinitions().find(
+      const tool = listHostBridgeMcpToolDefinitions(options.mcpScope).find(
         (entry) => entry.name === toolName,
       );
       if (!tool) {
+        if (
+          toolName.startsWith("navigation.") &&
+          (options.mcpScope === "automated" || options.mcpScope === "invalid")
+        ) {
+          return jsonRpcError(
+            request.id ?? null,
+            -32602,
+            "Navigation is unavailable for this MCP scope",
+            {
+              code: "navigation_scope_denied",
+              scope: options.mcpScope,
+            },
+          );
+        }
         return jsonRpcError(
           request.id ?? null,
           -32602,

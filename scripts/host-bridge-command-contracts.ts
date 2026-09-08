@@ -324,7 +324,8 @@ export function loadHostBridgeCommandContracts(
   }
   const capabilities = loadHostBridgeCapabilityContracts(root);
   const commands = Object.fromEntries(
-    Object.entries(registry.commands).map(([command, entry]) => {
+    Object.entries(registry.commands)
+      .map(([command, entry]) => {
       for (const target of [entry.target, ...(entry.auxiliaryTargets || [])]) {
         if (
           target.kind === "capability" &&
@@ -475,7 +476,7 @@ export function loadHostBridgeCommandContracts(
           resultSchema,
         } satisfies HostBridgeCommandContract,
       ];
-    }),
+      }),
   );
   return { ...registry, commands };
 }

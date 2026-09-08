@@ -30,10 +30,13 @@ export function createFailClosedZoteroHostCapabilityBroker(
       getSelectedItems: unexpected("context.getSelectedItems"),
     },
     navigation: {
+      focusZotero: unexpected("navigation.focusZotero"),
+      selectLibraryView: unexpected("navigation.selectLibraryView"),
+      selectCollection: unexpected("navigation.selectCollection"),
+      selectSavedSearch: unexpected("navigation.selectSavedSearch"),
+      revealItems: unexpected("navigation.revealItems"),
       openItem: unexpected("navigation.openItem"),
-      openNote: unexpected("navigation.openNote"),
-      openCollection: unexpected("navigation.openCollection"),
-      openSelection: unexpected("navigation.openSelection"),
+      openReaderLocation: unexpected("navigation.openReaderLocation"),
     },
     library: {
       listItems: unexpected("library.listItems"),

@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import "../../../core/188-zotero-navigation.zotero.test";
 
 declare global {
   interface Window {

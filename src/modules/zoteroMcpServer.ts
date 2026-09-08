@@ -8,6 +8,7 @@ import {
   ensureHostBridgeServer,
   getHostBridgeServerStatus,
 } from "./hostBridgeServer";
+import { parseHostBridgePermissionScope } from "./hostBridgePermissionManager";
 import type { HostBridgeStatusSnapshot } from "./hostBridgeProtocol";
 import {
   prepareEmptyHttpResponse,
@@ -39,6 +40,30 @@ import {
 import type { WorkflowCallControl } from "../workflows/types";
 
 const ZOTERO_MCP_STATUS_TOOL_NAME = "diagnostic.get_status";
+type ZoteroMcpScope = "operator" | "interactive" | "automated" | "invalid";
+
+function parseMcpScopeHeader(request: HttpRequest): ZoteroMcpScope {
+  const raw = String(request.headers["x-zotero-bridge-scope"] || "").trim();
+  if (!raw) return "operator";
+  let parsed: unknown = raw;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    parsed = { kind: raw };
+  }
+  const scope = parseHostBridgePermissionScope(parsed);
+  if (!scope) return "invalid";
+  if (scope.kind === "global") return "operator";
+  if (scope.kind === "acp-chat") return "interactive";
+  if (
+    scope.kind === "acp-skill-run" ||
+    scope.kind === "acp-run" ||
+    scope.kind === "skillrunner-run"
+  ) {
+    return "automated";
+  }
+  return "invalid";
+}
 
 export type ZoteroMcpServerStatus =
   | "idle"
@@ -1616,6 +1641,7 @@ async function runMcpJsonRpcWithMetrics(
   payload: unknown,
   requestId = "",
   externalSignal?: CancellationSignal,
+  mcpScope: ZoteroMcpScope = "operator",
 ): Promise<{
   response: unknown;
   inflightAtAccept: number;
@@ -1675,6 +1701,7 @@ async function runMcpJsonRpcWithMetrics(
         });
       }
       const response = await handleZoteroMcpJsonRpc(payload, {
+        mcpScope,
         control: requestControl.control,
         resolveZoteroHostCapabilityBroker:
           state.resolveZoteroHostCapabilityBroker,
@@ -1948,6 +1975,20 @@ async function handleHttpRequest(
       error: "unauthorized",
     });
   }
+  const mcpScope = parseMcpScopeHeader(request);
+  if (mcpScope === "invalid") {
+    return prepareAndRecordMcpResponse({
+      request,
+      status: 400,
+      reason: "Bad Request",
+      authorized,
+      body: {
+        error: "invalid_scope",
+        message: "X-Zotero-Bridge-Scope is invalid",
+      },
+      error: "invalid_scope",
+    });
+  }
   if (!isOriginAllowed(request)) {
     const responseBody = {
       error: "origin_not_allowed",
@@ -2044,6 +2085,7 @@ async function handleHttpRequest(
     payload,
     requestId,
     request.signal,
+    mcpScope,
   );
   const response = result.response;
   if (!response) {

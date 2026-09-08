@@ -1,23 +1,23 @@
 ---
 name: zotero-bridge-cli
-description: 在需要精确的 Zotero library、workflow 与 Synthesis 访问时，操作 Zotero Bridge CLI。适用于 agent 需要低级 Zotero 操作、命令发现或结构化恢复的场景。
+description: Operate Zotero Bridge CLI for exact Zotero library, workflow, and Synthesis access. Use when an agent needs low-level Zotero operations, command discovery, or structured recovery.
 license: AGPL-3.0-or-later
 ---
 
 # Zotero Bridge CLI
 
-## 目标
+## Goal
 
 Use the installed `zotero-bridge` CLI safely and deterministically for Zotero library, workflow, file, run, and Synthesis operations. This Skill is the complete mechanism contract: it owns executable selection, connection setup, command discovery, exact invocation, effects and approval interpretation, typed handles, output evidence, and recovery. It does not choose or compose research goals.
 
-## 输入
+## Inputs
 
 - A requested CLI operation or an already selected canonical command.
 - A run-local CLI shim, an installed `zotero-bridge` executable, or the bundled installer when neither is available.
 - The active release envelope and connection profile, including supplied endpoint, scope, mode, and secret environment values.
 - The selected canonical command's inputs, including JSON payloads, object refs, opaque handles, cursors, provider profiles, workflow options, and output destinations.
 
-## 工作流
+## Workflow
 
 1. Select one executable and one connection profile using the rules below. Keep the binary, embedded contract, profile, and release envelope in one release set.
 2. Run `zotero-bridge surface identity`. Compare `protocol`, `cliSchema`, `version`, `buildFingerprint`, and `commandCatalogChecksum` with the active release envelope; stop on any mismatch.
@@ -29,7 +29,7 @@ Use the installed `zotero-bridge` CLI safely and deterministically for Zotero li
 8. Complete any paging, file delivery, workflow control, or receipt check using the returned contract. Verify live Zotero state after a requested change rather than inferring success from submission or terminal execution alone.
 9. Return the valid result and its evidence, or classify the failure and take only a declared safe next action.
 
-## 可执行文件与 profile 选择
+## Executable and profile selection
 
 Prefer a run-local shim supplied with the current workspace. Otherwise use the installed executable. Use the bundled installer only when neither exists. Never combine a binary, profile, embedded descriptor, asset, or release envelope from different release sets; a matching version string is insufficient identity evidence.
 
@@ -43,7 +43,7 @@ Offline `surface` commands describe the embedded contract. They do not prove tha
 4. `bridge backend list` or `bridge backend status` for provider readiness;
 5. the selected domain read, workflow description, run status, or durable operation receipt.
 
-## 参数语义与位置
+## Parameter semantics and placement
 
 Only `--endpoint`, `--profile`, `--operation-id`, and `--schema` are global CLI options. They may appear before or after the canonical leaf command. Every other option is leaf-local and must be present in that command's `surface describe` result or generated command card before use.
 
@@ -69,11 +69,11 @@ There is no global result-output option. `file download --output`, `product down
 
 Workflow external resources use opaque bridge handles rather than picker or path arguments. Read `supportedInvocationModes` and `resourceRequirements` from live workflow discovery before preparing the invocation. For each declared input slot, run `file upload` on agent-accessible bytes, preserve the returned `fileId`, and bind it with repeatable `--input-resource <slot>=<fileId>` flags in upload order. For each declared output slot that the caller needs, pass `--output-resource <slot>=bridge-download`. Use the same bindings for `workflow validate` and `workflow submit`; do not substitute the upload source path, invent a Host path, or name these bindings after a GUI picker.
 
-## 命令发现与调用
+## Command discovery and invocation
 
 Use `surface search` to discover operations, not to decide a research task. `surface describe` is authoritative for argv bindings, invocation and payload schemas, result shape, pagination, effects, approval scope, handle transitions, recovery, and targets. Use raw `call` only for an advanced diagnostic capability that has no canonical semantic command.
 
-## 输出边界与继续分页纪律
+## Output boundary and continuation discipline
 
 Every canonical command declares exactly one `outputBoundary.strategy` in its descriptor: `fixed`, `cursor`, `offset`, `limit`, `file`, or `raw`. Read that object before execution and treat its default, maximum, section, continuation, truncation, and file fields as part of the result contract. Do not infer boundedness from a short first response, a capability category, or an older command example.
 
@@ -101,7 +101,7 @@ For a workflow resource result, read every `resourceOutputs` descriptor before d
 
 `raw` is reserved for `call`. The target capability still owns its own paging, limit, offset, or file boundary; raw invocation never widens it and is not a bypass for a canonical semantic command. If a semantic command exists, use it so argv validation, result contracts, recovery, and generated guidance remain enforceable.
 
-### 从用户意图出发
+### Start from user intent
 
 An agent often receives a request such as “show me the papers about this topic,” “download the analysis result,” or “run the deep-reading workflow” before it knows any CLI names. Do not make the user translate that request into a command.
 
@@ -117,7 +117,7 @@ Use this sequence:
 
 The catalog is intentionally compact. It owns discovery by user intent, while the command references own executable detail. Do not construct argv from the catalog table or copy a command merely because its summary shares a keyword with the user's request.
 
-### 翻译常见请求形式
+### Translate common request shapes
 
 - “This paper,” “these items,” and “the current collection” first require `context` commands to resolve the live selection.
 - For selected items, consume the exact selection page and pass each opaque `nextCursor` unchanged until `hasMore` is false; default page size is 25 and the maximum is 100. Preserve object refs and order across pages, and keep current-view tree sources separate from item selection. A `basis_mismatch` failure invalidates the entire acquisition: discard its collected pages, stop that invocation, and obtain a fresh explicit scope before starting another acquisition. Never submit a partial page set as the user's complete selection.
@@ -133,7 +133,7 @@ The catalog is intentionally compact. It owns discovery by user intent, while th
 
 When a request spans families, preserve the boundary between each result and the next input. A context read does not authorize a mutation, workflow validation does not authorize submission, run termination does not prove Product delivery, and a maintenance receipt does not prove an unrelated model is current.
 
-### Provider profile 权限
+### Provider profile authority
 
 Resolve provider profiles in this order: an explicit `--provider-profile`, then
 `ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE`, then a Host-saved workflow candidate,
@@ -166,7 +166,7 @@ global list or invent a missing model. `workflow profile validate` returns only
 the normalized profile, non-sensitive source, catalog diagnostics, and a
 fingerprint; it never returns environment-variable text or file paths.
 
-### 确认所选命令
+### Confirm the selected command
 
 Before execution, answer all of these questions from the live descriptor and detailed reference:
 
@@ -191,7 +191,7 @@ Choose an input channel only when the descriptor permits it:
 
 Do not reinterpret a CLI option from a similarly named command. The generated command-surface references expose all bindings, but the active binary's `surface describe` result wins when the loaded artifact and executable differ.
 
-## 标识、分页与时效
+## Identity, paging, and freshness
 
 A title, citation string, cached index row, generated report, or search candidate is not a Zotero object identity. Resolve current context for deictic requests, keep returned library IDs and item keys, normalize child notes or attachments to their top-level parent only when the next contract requires parent items, and fetch the selected object before reporting detailed state or writing.
 
@@ -199,7 +199,21 @@ For cursor or offset pagination, preserve accepted pages and the last returned c
 
 Local indexes, snapshots, workflow catalogs, notifications, and generated Synthesis artifacts have explicit freshness limits. Re-read the live object, selection, permission, run, Product, operation, or workflow description whenever the requested conclusion or write depends on current state.
 
-## 影响、审批与 handle
+## Managed notes and literature artifacts
+
+Inspect the `kind` returned by `library note get` before choosing a read continuation or a write. An ordinary note exposes its requested text or HTML and the command's offset continuation. A managed note exposes a complete semantic `payload`, its `noteKind`, provenance, derived views, and the UTF-8 `payloadBytes` and `detailBytes` facts. Offset and character limits do not partition that payload. Keep its source identifiers and evidence together when using it in another operation.
+
+Use the declared semantic operation in `mutation execute` for a managed write: `managed_note.write_custom` and `managed_note.write_conversation` accept a title and Markdown with an explicit create-parent or update-note target; `literature_artifact.upsert_digest`, `literature_artifact.upsert_references`, `literature_artifact.upsert_citation_analysis`, and `literature_artifact.upsert_score` address one parent and the corresponding semantic input. Read the current command descriptor for the exact closed input schema. Ordinary note creation cannot supply reserved managed markers, and ordinary content replacement cannot edit a managed note. Do not assemble managed writes from raw HTML replacement and separate payload attachment calls.
+
+Digest, References, Citation Analysis, and Literature Score each have one slot per parent. Create the slot when no candidate exists; update it when exactly one candidate exists. Multiple candidates are a conflict requiring inspection of the returned refs. Keep all candidates intact and report the conflict instead of choosing the first note, removing duplicates, or supplying a note ref to override singleton selection. A custom or conversation update must preserve its parent and exact managed type.
+
+Pass References as the complete `source_reference_artifact.v1` object and preserve every `sourceReferenceId`, extraction fact, bibliography field, and matching field. Pass Citation Analysis as its complete canonical artifact with the source IDs, mentions, unresolved evidence, scope decisions, and timeline intact. Citation function and free-text role are distinct facts. Rendered labels, report Markdown, source snapshots, and `referencesBasis` are derived or runtime-owned evidence; they are not writable alternatives to the semantic input. A References-only update preserves the Citation note but can make its basis stale, so re-read the dependent artifact before claiming that the pair is current.
+
+The Broker's managed-detail limit is 1 MiB. A downstream tool's smaller result budget is a separate delivery boundary, not a request to truncate or re-page the artifact. On `resource_limited`, retain the target and byte facts and report the unavailable complete result; do not substitute a raw-HTML read, guessed file path, partial artifact, or hidden attachment scan. On `invalid_artifact` or `legacy_artifact_requires_migration`, keep the original note and source files intact, report the typed failure, and direct the operator to the registered Literature Artifacts entry in Dashboard Migrations or the explicit file-import preview. No CLI mutation accepts migration mappings or caller-supplied write authority.
+
+After a managed write, verify its durable canonical operation evidence and re-read the managed detail. Check the exact parent and type, promised semantic payload, and any dependency or image evidence relevant to the request. A receipt for one artifact does not prove that a separately written sibling committed; use the declared Workflow or import operation when the result requires an atomic parent set, and retain its single authoritative receipt.
+
+## Effects, approval, and handles
 
 The command card distinguishes read, navigation, write, maintenance, and debug operations. Navigation may change visible Zotero UI state without modifying bibliographic data. Ephemeral output or workflow control is not automatically a library mutation. Maintenance and debug repair require their own diagnosed scope and must not be used as shortcuts around a failed semantic command.
 
@@ -213,7 +227,7 @@ An unavailable observation cannot establish whether an identity is new or its ev
 
 Treat every returned identifier as an opaque typed handle. Keep Zotero refs, `submissionId`, `queueId`, `workflowRunId`, `skillRunId`, `agentRunId`, `agentRequestId`, `permissionRequestId`, `operationId`, `eventId`, `fileId`, and Product identifiers in their declared command families. Never synthesize, recast, or exchange them. A `submissionId` identifies one immutable native-queue admission, while a `queueId` identifies one pending unit inside that submission; neither is a workflow-run identity. Do not reuse a handle after `handleConsumption` is `consumed` or `unknown` without a domain receipt that explicitly permits continuation.
 
-## 文件、Product 与 artifact
+## Files, Products, and artifacts
 
 A Zotero-side path is not automatically readable by the agent. When an attachment, Product, artifact, or operation returns a `fileId` or delivery instruction, use the declared download command and verify checksum and byte count before using the bytes as evidence. Reacquire expired access from the owning object rather than guessing a storage path.
 
@@ -227,7 +241,7 @@ Keep these identities separate:
 
 For a local file writeback, verify the artifact first, upload it, retain the returned checksum and `fileId`, perform the approved attachment mutation, and re-read the parent item's attachments. A completed workflow run does not prove that a Product or expected artifact exists; inspect and download the requested output separately.
 
-## Workflow 与 run 控制
+## Workflow and run control
 
 For Zotero-managed execution, discover the current workflow, read its description or requirements, validate selection and workflow options, validate the backend provider profile independently, then submit them through the declared join point. Read the returned `admission` branch before choosing a monitoring family. Direct admission returns a `workflowRunId`; preserve it and use run commands for status, cancellation, skill interaction, permission observation, notifications, history, and events. A direct-run cancellation request is intent until a later run read confirms terminal state.
 
@@ -245,13 +259,13 @@ For self-owned agent execution, confirm that the workflow supports that mode, pr
 
 Notifications are lifecycle signals, not transcripts, interaction targets, or authorization. Use `skillRunId` for reply/connect, `permissionRequestId` for permission inspection, and `eventId` for acknowledgement. Acknowledge an event only after its action has been handled.
 
-## Synthesis operation 边界
+## Synthesis operation boundaries
 
 Treat topics, graphs, indexes, resolvers, artifacts, concepts, schemas, and attention queues as distinct derived models. A derived association is not automatically a scholarly or causal claim, and a generated artifact is not proof of a current Zotero write.
 
 Use cache and index status reads before proposing maintenance. Reference-sidecar refresh, citation-graph update, graph-metric refresh, and cache invalidation are separate operations with separate scopes, approvals, operation IDs, and receipts. Preserve the committed basis hash where required; do not treat one operation's completion as evidence that another derived model is current.
 
-## 硬性约束
+## Hard constraints
 
 - Use only documented canonical CLI commands and the argv confirmed by `surface describe` or the command reference. Do not guess flags or substitute raw `call` for an available semantic command.
 - Never read or modify Zotero databases, storage, or application internals directly. All library writes and apply-back operations stay on the Zotero-side approval path.
@@ -266,13 +280,13 @@ Use cache and index status reads before proposing maintenance. Reference-sidecar
 - Do not implement an agent-side workflow queue, plan-entry registry, reservation loop, replay loop, or background batching layer around `workflow submit`. Bounded concurrency and pending-unit ownership belong to Zotero's native workflow queue.
 - Do not treat `submissionId`, `queueId`, and `workflowRunId` as interchangeable. Queue cancellation applies only to a pending `queueId`; admitted work is controlled through its real run handle.
 
-## LLM 与工具职责
+## LLM and tool responsibilities
 
 - The agent owns operation selection, semantic interpretation, approval-aware decisions, evidence use, and recovery choices.
 - The CLI owns exact argv parsing, Zotero Bridge service requests, typed-handle transport, structured errors, and local bundle/result validation.
 - The renderer owns the command-surface references and embedded Agent Surface; do not hand-assemble those artifacts or invent a handle, receipt, checksum, or result envelope.
 
-## 完成
+## Completion
 
 The Skill is complete when the requested operation has returned a valid JSON envelope, all required pages or delivered bytes have been obtained, relevant handles and receipts are preserved, and any requested state change is live-verified. It is also complete when a structured failure is classified with the next safe action and no unsafe repeat has occurred.
 
@@ -286,7 +300,7 @@ Match the evidence to the operation:
 - for a host-queue submission, retain `submissionId`, each unit's `queueId` and admitted task identity when present, the aggregate terminal projection, and the independently verified result or failure for every requested unit;
 - for a local validator, report only structural validity and do not imply remote authority.
 
-## 失败处理
+## Failure handling
 
 1. Preserve the command, sanitized inputs, structured error code, relevant handles, accepted pages, and any operation or output identifiers.
 2. Read `retryable`, `stateChange`, `handleConsumption`, `safeNextActions`, and `nextCommand` from the envelope.
@@ -300,6 +314,6 @@ Match the evidence to the operation:
 10. When pending cancellation races with admission, accept the queue endpoint's conflict as evidence that ownership has crossed to the run plane, re-read the submission projection, and continue only with the exposed task or run handle.
 11. For workflow resource failure, preserve the slot id, binding, upload descriptor, and submission/run handle. Re-upload only when the original `fileId` is expired, unavailable, or invalidated by service restart; do not retry a leased handle in another submission or replace it with a local path.
 
-## 参考
+## References
 
 When the canonical command is unknown, first read [the command catalog](references/command-catalog.md). The catalog links exactly one generated card for every canonical leaf command. After selecting a command, load only that card; it is independently complete for inherited globals, local argv, structured inputs, schemas, examples, effects, approval, handles, targets, and recovery. The active executable's `surface describe` result wins before a live operation.

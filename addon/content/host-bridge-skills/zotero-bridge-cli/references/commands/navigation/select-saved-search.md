@@ -1,14 +1,14 @@
-# `zotero-bridge context note open`
+# `zotero-bridge navigation select-saved-search`
 
-Open one Zotero note
+navigation select-saved-search
 
 ## Usage
 
 ```console
-zotero-bridge context note open [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] OBJECT_REF <OBJECT_REF>
+zotero-bridge navigation select-saved-search [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] [--input <JSON_OR_FILE>]
 ```
 
-The global options may appear before or after the leaf command. This leaf has no structured JSON input. `--schema` returns `command_input_schema_unavailable`; use command help or `surface describe` to inspect the invocation contract.
+The global options may appear before or after the leaf command. Use `--schema` to inspect raw structured-input schemas without loading a profile or connecting to Zotero.
 
 ## Global parameters
 
@@ -23,7 +23,7 @@ The global options may appear before or after the leaf command. This leaf has no
 
 | Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| OBJECT_REF | object_ref | positional | yes | — | OBJECT_REF | no | — | — | Zotero object ref: key, numeric id, libraryId:key, or JSON object |
+| --input | input | option | no | — | JSON_OR_FILE | no | — | — | Navigation input JSON |
 
 ## Invocation schema
 
@@ -31,22 +31,42 @@ The global options may appear before or after the leaf command. This leaf has no
 {
   "additionalProperties": false,
   "properties": {
-    "object_ref": {
-      "description": "Zotero object ref: key, numeric id, libraryId:key, or JSON object",
-      "position": 1,
+    "input": {
+      "description": "Navigation input JSON",
       "type": "string"
     }
   },
-  "required": [
-    "object_ref"
-  ],
+  "required": [],
   "type": "object"
 }
 ```
 
 ## Structured input schemas
 
-This command has no structured JSON input parameter.
+### `--input` (input)
+
+Required: `false`.
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "key": {
+      "pattern": "^[A-Z0-9]{8}$",
+      "type": "string"
+    },
+    "libraryId": {
+      "minimum": 1,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "libraryId",
+    "key"
+  ],
+  "type": "object"
+}
+```
 
 ## Composed payload schema
 
@@ -54,12 +74,19 @@ This command has no structured JSON input parameter.
 {
   "additionalProperties": false,
   "properties": {
-    "object_ref": {
-      "description": "Zotero object ref: key, numeric id, libraryId:key, or JSON object",
+    "key": {
+      "pattern": "^[A-Z0-9]{8}$",
       "type": "string"
+    },
+    "libraryId": {
+      "minimum": 1,
+      "type": "integer"
     }
   },
-  "required": [],
+  "required": [
+    "libraryId",
+    "key"
+  ],
   "type": "object"
 }
 ```
@@ -74,23 +101,50 @@ This command has no separate field-mapping program. Its binding mode is executab
 
 ```json
 {
-  "additionalProperties": true,
+  "additionalProperties": false,
   "properties": {
-    "response": {
-      "additionalProperties": true,
-      "description": "Response object returned by POST /bridge/v2/context/notes/open.",
-      "type": "object",
-      "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+    "approval": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "capability": {
+      "const": "navigation.select_saved_search"
+    },
+    "data": {
+      "additionalProperties": false,
+      "properties": {
+        "outcome": {
+          "const": "saved_search_selected"
+        },
+        "ref": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "outcome",
+        "ref"
+      ],
+      "type": "object"
     }
   },
-  "type": "object",
-  "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+  "required": [
+    "capability",
+    "approval",
+    "data"
+  ],
+  "type": "object"
 }
 ```
 
 ## Examples
 
-No structured-input example applies. Build argv from the parameter tables and confirm the command with `surface describe` before execution.
+### input: shape-only
+
+Governed shape-only example for --input.
+
+```console
+zotero-bridge navigation select-saved-search --input '{"key":"ABCDEFGH","libraryId":1}'
+```
 
 ## Complete command descriptor
 
@@ -100,7 +154,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 {
   "approvalContract": {
     "kind": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "scope": "No per-call approval.",
     "timing": "none"
   },
   "arguments": [
@@ -109,82 +163,98 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "conflictsWith": [],
       "defaultValues": [],
       "global": false,
-      "help": "Zotero object ref: key, numeric id, libraryId:key, or JSON object",
-      "id": "object_ref",
-      "kind": "positional",
-      "position": 1,
+      "help": "Navigation input JSON",
+      "id": "input",
+      "kind": "option",
       "possibleValues": [],
       "repeatable": false,
-      "required": true,
+      "required": false,
       "takesValue": true,
-      "token": "OBJECT_REF",
+      "token": "--input",
       "valueNames": [
-        "OBJECT_REF"
+        "JSON_OR_FILE"
       ]
     }
   ],
   "argv": [
-    "context",
-    "note",
-    "open"
+    "navigation",
+    "select-saved-search"
   ],
   "argvBindings": [
     {
-      "kind": "positional",
-      "position": 1,
-      "property": "object_ref",
-      "required": true,
+      "kind": "option",
+      "property": "input",
+      "required": false,
       "takesValue": true,
-      "token": "OBJECT_REF",
+      "token": "--input",
       "valueNames": [
-        "OBJECT_REF"
+        "JSON_OR_FILE"
       ]
     }
   ],
-  "binding": "object",
+  "binding": "passthrough",
   "category": "navigation",
-  "command": "context note open",
+  "command": "navigation select-saved-search",
   "composition": null,
-  "danger": "review",
+  "danger": "none",
   "effects": [
     {
-      "description": "May change ui navigation state.",
+      "description": "Selects a saved search.",
       "kind": "ui-navigation",
       "stateChanged": true
     }
   ],
-  "handleTransitions": [
-    {
-      "condition": "Required by the command invocation.",
-      "direction": "consume",
-      "handle": "noteRef",
-      "lifetime": "caller-owned",
-      "required": true
-    }
-  ],
+  "handleTransitions": [],
   "hiddenFromIntentSearch": false,
-  "inputSchemas": {},
+  "inputSchemas": {
+    "input": {
+      "examples": [
+        {
+          "kind": "shape-only",
+          "prerequisites": [],
+          "value": {
+            "key": "ABCDEFGH",
+            "libraryId": 1
+          }
+        }
+      ],
+      "required": false,
+      "requiredWhen": [],
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "pattern": "^[A-Z0-9]{8}$",
+            "type": "string"
+          },
+          "libraryId": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "libraryId",
+          "key"
+        ],
+        "type": "object"
+      },
+      "schemaSource": "target-capability",
+      "token": "--input"
+    }
+  },
   "invocationSchema": {
     "additionalProperties": false,
     "properties": {
-      "object_ref": {
-        "description": "Zotero object ref: key, numeric id, libraryId:key, or JSON object",
-        "position": 1,
+      "input": {
+        "description": "Navigation input JSON",
         "type": "string"
       }
     },
-    "required": [
-      "object_ref"
-    ],
+    "required": [],
     "type": "object"
   },
   "operationalAliases": [
-    "context note open",
-    "context",
-    "note",
-    "open",
-    "object_ref",
-    "OBJECT_REF"
+    "navigation select-saved-search"
   ],
   "outputBoundary": {
     "strategy": "fixed"
@@ -193,41 +263,68 @@ This closed descriptor is the machine-readable command contract returned by `sur
   "payloadSchema": {
     "additionalProperties": false,
     "properties": {
-      "object_ref": {
-        "description": "Zotero object ref: key, numeric id, libraryId:key, or JSON object",
+      "key": {
+        "pattern": "^[A-Z0-9]{8}$",
         "type": "string"
+      },
+      "libraryId": {
+        "minimum": 1,
+        "type": "integer"
       }
     },
-    "required": [],
+    "required": [
+      "libraryId",
+      "key"
+    ],
     "type": "object"
   },
   "recovery": [
     {
-      "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-      "nextCommand": "surface describe",
+      "action": "Inspect the structured error before retrying.",
       "requiresHandles": [],
       "stateCheck": "none",
       "when": "The operation fails or completion is uncertain."
     }
   ],
   "resultSchema": {
-    "additionalProperties": true,
+    "additionalProperties": false,
     "properties": {
-      "response": {
-        "additionalProperties": true,
-        "description": "Response object returned by POST /bridge/v2/context/notes/open.",
-        "type": "object",
-        "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+      "approval": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "capability": {
+        "const": "navigation.select_saved_search"
+      },
+      "data": {
+        "additionalProperties": false,
+        "properties": {
+          "outcome": {
+            "const": "saved_search_selected"
+          },
+          "ref": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "outcome",
+          "ref"
+        ],
+        "type": "object"
       }
     },
-    "type": "object",
-    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+    "required": [
+      "capability",
+      "approval",
+      "data"
+    ],
+    "type": "object"
   },
-  "summary": "Open one Zotero note",
+  "summary": "navigation select-saved-search",
   "targets": [
     {
-      "kind": "endpoint",
-      "target": "POST /bridge/v2/context/notes/open"
+      "kind": "capability",
+      "target": "navigation.select_saved_search"
     }
   ]
 }
@@ -240,27 +337,27 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 - `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
 - `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
 - `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
-- This leaf has no structured JSON input, so `command_input` is not an expected invocation boundary. Use `surface describe` for its scalar and positional contract.
+- `command_input` reports schema violations for a structured input. Inspect the bounded `violations`, then run this exact leaf with `--schema` and correct the declared field or type; do not invent an alias.
 - `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
 - `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
 - Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
-- Canonical argv path: `context` `note` `open`.
+- Canonical argv path: `navigation` `select-saved-search`.
 - Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
 - Pagination: `none`.
-- Category: `navigation`; danger: `review`.
-- Structured binding mode: `object`.
+- Category: `navigation`; danger: `none`.
+- Structured binding mode: `passthrough`.
 - Intent visibility: `visible`.
-- Operational aliases: `context note open`, `context`, `note`, `open`, `object_ref`, `OBJECT_REF`.
+- Operational aliases: `navigation select-saved-search`.
 
 ### Effects
 
 ```json
 [
   {
-    "description": "May change ui navigation state.",
+    "description": "Selects a saved search.",
     "kind": "ui-navigation",
     "stateChanged": true
   }
@@ -272,7 +369,7 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 ```json
 {
   "kind": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "scope": "No per-call approval.",
   "timing": "none"
 }
 ```
@@ -281,13 +378,6 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 
 ```json
 [
-  {
-    "condition": "Required by the command invocation.",
-    "direction": "consume",
-    "handle": "noteRef",
-    "lifetime": "caller-owned",
-    "required": true
-  }
 ]
 ```
 
@@ -296,8 +386,7 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 ```json
 [
   {
-    "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-    "nextCommand": "surface describe",
+    "action": "Inspect the structured error before retrying.",
     "requiresHandles": [],
     "stateCheck": "none",
     "when": "The operation fails or completion is uncertain."
@@ -310,8 +399,8 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 ```json
 [
   {
-    "kind": "endpoint",
-    "target": "POST /bridge/v2/context/notes/open"
+    "kind": "capability",
+    "target": "navigation.select_saved_search"
   }
 ]
 ```

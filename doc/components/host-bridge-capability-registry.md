@@ -104,7 +104,7 @@ dispatcher.
 | --- | --- | --- |
 | `citation_graph` | 9 | `citation_graph.get_layout`, `citation_graph.get_metrics`, `citation_graph.get_overview`, `citation_graph.get_slice`, `citation_graph.query_cluster`, `citation_graph.rank_external_references`, `citation_graph.rank_library_papers`, `citation_graph.refresh_metrics`, `citation_graph.update` |
 | `concepts` | 1 | `concepts.query` |
-| `context` | 2 | `context.get_current_view`, `context.get_selected_items` |
+| `context` | 9 | `context.get_current_view`, `context.get_selected_items`, `navigation.focus_zotero`, `navigation.open_item`, `navigation.open_reader_location`, `navigation.reveal_items`, `navigation.select_collection`, `navigation.select_library_view`, `navigation.select_saved_search` |
 | `debug` | 14 | `debug.acpSkillRun.reapplyResult`, `debug.persistence.snapshot`, `debug.skillrunner.connections.snapshot`, `debug.status`, `debug.synthesis.cache.list`, `debug.synthesis.cleanInstallReset`, `debug.synthesis.diff`, `debug.synthesis.operations.list`, `debug.synthesis.paper.inspect`, `debug.synthesis.profiler.list`, `debug.synthesis.snapshot`, `debug.synthesis.topic.inspect`, `debug.tasks.snapshot`, `debug.zotero.eval` |
 | `diagnostic` | 2 | `diagnostic.get_status`, `synthesis.operation.get` |
 | `insights` | 1 | `insights.get_attention_queue` |

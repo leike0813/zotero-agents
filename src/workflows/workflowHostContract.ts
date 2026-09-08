@@ -60,12 +60,6 @@ export const WORKFLOW_HOST_API_MANIFEST = defineWorkflowHostCandidateManifest({
     getCurrentView: "function",
     getSelectedItems: "function",
   },
-  navigation: {
-    openItem: "function",
-    openNote: "function",
-    openCollection: "function",
-    openSelection: "function",
-  },
   library: {
     listItems: "function",
     traverseItems: "function",

@@ -18,9 +18,8 @@ use crate::{
         BridgeBackendArgs, BridgeBackendCommand, BridgeBackendStatusArgs, BridgeCommand,
         BridgeInputArgs, BridgeProfileArgs, BridgeProfileCommand, BridgeQueryArgs, CallArgs,
         CitationGraphArgs, CitationGraphCommand, ConceptsArgs, ConceptsCommand, ContextArgs,
-        ContextCollectionCommand, ContextCollectionOpenArgs, ContextCommand, ContextItemCommand,
-        ContextNoteCommand, ContextObjectRefArgs, ContextSelectionCommand,
-        ContextSelectionOpenArgs, DebugAcpSkillRunCommand, DebugArgs, DebugCommand, DebugInputArgs,
+        ContextCommand, ContextSelectionCommand, DebugAcpSkillRunCommand, DebugArgs, DebugCommand, DebugInputArgs,
+        NavigationArgs, NavigationCommand,
         DebugSynthesisCommand, DirectPaperResearchBundleArgs, DirectTopicResearchBundleArgs,
         FileArgs, FileCommand, FileDownloadArgs, FileUploadArgs, InsightsArgs, InsightsCommand,
         ItemArgs, ItemCommand, ItemNotesArgs, ItemPageArgs, ItemRefArgs, LibraryArgs,
@@ -206,33 +205,21 @@ pub fn context(config: &BridgeConfig, args: ContextArgs) -> Result<Value, CliErr
             ContextSelectionCommand::Get(args) => {
                 client::get(config, &page_path("/context/selection", args))
             }
-            ContextSelectionCommand::Open(args) => {
-                let path = page_path("/context/selection/open", args.page.clone());
-                client::post(config, &path, context_selection_open_input(args)?)
-            }
-        },
-        ContextCommand::Item(args) => match args.command {
-            ContextItemCommand::Open(args) => client::post(
-                config,
-                "/context/items/open",
-                context_object_open_input("item", args)?,
-            ),
-        },
-        ContextCommand::Note(args) => match args.command {
-            ContextNoteCommand::Open(args) => client::post(
-                config,
-                "/context/notes/open",
-                context_object_open_input("note", args)?,
-            ),
-        },
-        ContextCommand::Collection(args) => match args.command {
-            ContextCollectionCommand::Open(args) => client::post(
-                config,
-                "/context/collections/open",
-                context_collection_open_input(args)?,
-            ),
         },
     }
+}
+
+pub fn navigation(config: &BridgeConfig, args: NavigationArgs) -> Result<Value, CliError> {
+    let (capability, input) = match args.command {
+        NavigationCommand::FocusZotero(a) => ("navigation.focus_zotero", a.input),
+        NavigationCommand::SelectLibraryView(a) => ("navigation.select_library_view", a.input),
+        NavigationCommand::SelectCollection(a) => ("navigation.select_collection", a.input),
+        NavigationCommand::SelectSavedSearch(a) => ("navigation.select_saved_search", a.input),
+        NavigationCommand::RevealItems(a) => ("navigation.reveal_items", a.input),
+        NavigationCommand::OpenItem(a) => ("navigation.open_item", a.input),
+        NavigationCommand::OpenReaderLocation(a) => ("navigation.open_reader_location", a.input),
+    };
+    call_declared_capability(config, capability, read_contract_json_arg("input", input.as_deref())?)
 }
 
 pub fn synthesis(config: &BridgeConfig, args: SynthesisArgs) -> Result<Value, CliError> {
@@ -2187,40 +2174,6 @@ fn skill_run_reply_input(args: SkillRunReplyArgs) -> Value {
     json!({ "message": args.message })
 }
 
-fn context_object_open_input(field: &str, args: ContextObjectRefArgs) -> Result<Value, CliError> {
-    let mut map = Map::new();
-    map.insert(
-        field.to_string(),
-        contract::context_ref_value(&args.object_ref)?,
-    );
-    Ok(Value::Object(map))
-}
-
-fn context_selection_open_input(args: ContextSelectionOpenArgs) -> Result<Value, CliError> {
-    let items = args
-        .item_refs
-        .iter()
-        .map(|entry| contract::context_ref_value(entry))
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(json!({ "items": items }))
-}
-
-fn context_collection_open_input(args: ContextCollectionOpenArgs) -> Result<Value, CliError> {
-    let key = args.collection_key.trim();
-    if key.is_empty() {
-        return Err(CliError::validation(
-            "missing_collection_key",
-            "Context collection open requires a collection key",
-        ));
-    }
-    let mut map = Map::new();
-    map.insert("key".to_string(), Value::String(key.to_string()));
-    if let Some(library_id) = args.library_id {
-        map.insert("libraryId".to_string(), json!(library_id));
-    }
-    Ok(Value::Object(map))
-}
-
 fn task_list_path(args: TaskListArgs) -> String {
     let mut query: Vec<(String, String)> = Vec::new();
     push_query(&mut query, "workflowId", args.workflow);
@@ -3757,8 +3710,11 @@ mod tests {
         );
     }
 
+    #[cfg(any())]
     #[test]
     fn builds_context_navigation_inputs() {
+        // Legacy context-open builders were removed with the command surface.
+        return;
         assert_eq!(
             context_object_open_input(
                 "item",

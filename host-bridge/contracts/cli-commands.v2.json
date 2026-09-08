@@ -176,7 +176,10 @@
             "type": "array"
           },
           "nextCursor": {
-            "type": ["string", "null"]
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "hasMore": {
             "type": "boolean"
@@ -203,7 +206,13 @@
         "defaultLimit": 25,
         "maxLimit": 100,
         "cursorInput": "cursor",
-        "continuation": ["nextCursor", "hasMore", "returned", "total", "limit"]
+        "continuation": [
+          "nextCursor",
+          "hasMore",
+          "returned",
+          "total",
+          "limit"
+        ]
       },
       "target": {
         "kind": "endpoint",
@@ -441,7 +450,11 @@
           "nextCommand": "surface describe"
         }
       ],
-      "operationalAliases": ["bridge status", "bridge", "status"],
+      "operationalAliases": [
+        "bridge status",
+        "bridge",
+        "status"
+      ],
       "hiddenFromIntentSearch": false,
       "pagination": "none",
       "payloadSchemaSource": "inline"
@@ -546,95 +559,6 @@
       "pagination": "none",
       "payloadSchemaSource": "inline"
     },
-    "context collection open": {
-      "payloadSchema": {
-        "type": "object",
-        "properties": {
-          "collection_key": {
-            "type": "string",
-            "description": "Zotero collection key"
-          },
-          "library_id": {
-            "type": "string",
-            "description": "Zotero library id for key lookup"
-          }
-        },
-        "required": [],
-        "additionalProperties": false
-      },
-      "resultSchemaSource": "inline",
-      "inputs": {},
-      "resultSchema": {
-        "type": "object",
-        "properties": {
-          "response": {
-            "type": "object",
-            "description": "Response object returned by POST /bridge/v2/context/collections/open.",
-            "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
-          }
-        },
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
-      },
-      "outputBoundary": {
-        "strategy": "fixed"
-      },
-      "target": {
-        "kind": "endpoint",
-        "method": "POST",
-        "path": "/bridge/v2/context/collections/open"
-      },
-      "binding": "object",
-      "approval": "none",
-      "effect": "read",
-      "category": "navigation",
-      "danger": "review",
-      "effects": [
-        {
-          "kind": "ui-navigation",
-          "stateChanged": true,
-          "description": "May change ui navigation state."
-        }
-      ],
-      "approvalContract": {
-        "kind": "none",
-        "timing": "none",
-        "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-      },
-      "handleTransitions": [
-        {
-          "handle": "collectionKey",
-          "direction": "consume",
-          "required": true,
-          "condition": "Required by the command invocation.",
-          "lifetime": "caller-owned"
-        }
-      ],
-      "recovery": [
-        {
-          "when": "The operation fails or completion is uncertain.",
-          "stateCheck": "none",
-          "requiresHandles": [],
-          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-          "nextCommand": "surface describe"
-        }
-      ],
-      "operationalAliases": [
-        "context collection open",
-        "context",
-        "collection",
-        "open",
-        "collection_key",
-        "COLLECTION_KEY",
-        "library_id",
-        "library-id",
-        "LIBRARY_ID"
-      ],
-      "hiddenFromIntentSearch": false,
-      "pagination": "none",
-      "payloadSchemaSource": "inline"
-    },
     "context current": {
       "payloadSchema": {
         "type": "object",
@@ -661,7 +585,10 @@
             "properties": {
               "target": {
                 "type": "string",
-                "enum": ["library", "reader"]
+                "enum": [
+                  "library",
+                  "reader"
+                ]
               },
               "libraryIds": {
                 "type": "array"
@@ -677,10 +604,16 @@
                 "type": "boolean"
               },
               "currentItem": {
-                "type": ["object", "null"]
+                "type": [
+                  "object",
+                  "null"
+                ]
               },
               "currentCollection": {
-                "type": ["object", "null"]
+                "type": [
+                  "object",
+                  "null"
+                ]
               }
             }
           }
@@ -732,170 +665,6 @@
       "pagination": "none",
       "payloadSchemaSource": "inline"
     },
-    "context item open": {
-      "payloadSchema": {
-        "type": "object",
-        "properties": {
-          "object_ref": {
-            "type": "string",
-            "description": "Zotero object ref: key, numeric id, libraryId:key, or JSON object"
-          }
-        },
-        "required": [],
-        "additionalProperties": false
-      },
-      "resultSchemaSource": "inline",
-      "inputs": {},
-      "resultSchema": {
-        "type": "object",
-        "properties": {
-          "response": {
-            "type": "object",
-            "description": "Response object returned by POST /bridge/v2/context/items/open.",
-            "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
-          }
-        },
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
-      },
-      "outputBoundary": {
-        "strategy": "fixed"
-      },
-      "target": {
-        "kind": "endpoint",
-        "method": "POST",
-        "path": "/bridge/v2/context/items/open"
-      },
-      "binding": "object",
-      "approval": "none",
-      "effect": "read",
-      "category": "navigation",
-      "danger": "review",
-      "effects": [
-        {
-          "kind": "ui-navigation",
-          "stateChanged": true,
-          "description": "May change ui navigation state."
-        }
-      ],
-      "approvalContract": {
-        "kind": "none",
-        "timing": "none",
-        "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-      },
-      "handleTransitions": [
-        {
-          "handle": "itemRef",
-          "direction": "consume",
-          "required": true,
-          "condition": "Required by the command invocation.",
-          "lifetime": "caller-owned"
-        }
-      ],
-      "recovery": [
-        {
-          "when": "The operation fails or completion is uncertain.",
-          "stateCheck": "none",
-          "requiresHandles": [],
-          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-          "nextCommand": "surface describe"
-        }
-      ],
-      "operationalAliases": [
-        "context item open",
-        "context",
-        "item",
-        "open",
-        "object_ref",
-        "OBJECT_REF"
-      ],
-      "hiddenFromIntentSearch": false,
-      "pagination": "none",
-      "payloadSchemaSource": "inline"
-    },
-    "context note open": {
-      "payloadSchema": {
-        "type": "object",
-        "properties": {
-          "object_ref": {
-            "type": "string",
-            "description": "Zotero object ref: key, numeric id, libraryId:key, or JSON object"
-          }
-        },
-        "required": [],
-        "additionalProperties": false
-      },
-      "resultSchemaSource": "inline",
-      "inputs": {},
-      "resultSchema": {
-        "type": "object",
-        "properties": {
-          "response": {
-            "type": "object",
-            "description": "Response object returned by POST /bridge/v2/context/notes/open.",
-            "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
-          }
-        },
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
-      },
-      "outputBoundary": {
-        "strategy": "fixed"
-      },
-      "target": {
-        "kind": "endpoint",
-        "method": "POST",
-        "path": "/bridge/v2/context/notes/open"
-      },
-      "binding": "object",
-      "approval": "none",
-      "effect": "read",
-      "category": "navigation",
-      "danger": "review",
-      "effects": [
-        {
-          "kind": "ui-navigation",
-          "stateChanged": true,
-          "description": "May change ui navigation state."
-        }
-      ],
-      "approvalContract": {
-        "kind": "none",
-        "timing": "none",
-        "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-      },
-      "handleTransitions": [
-        {
-          "handle": "noteRef",
-          "direction": "consume",
-          "required": true,
-          "condition": "Required by the command invocation.",
-          "lifetime": "caller-owned"
-        }
-      ],
-      "recovery": [
-        {
-          "when": "The operation fails or completion is uncertain.",
-          "stateCheck": "none",
-          "requiresHandles": [],
-          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-          "nextCommand": "surface describe"
-        }
-      ],
-      "operationalAliases": [
-        "context note open",
-        "context",
-        "note",
-        "open",
-        "object_ref",
-        "OBJECT_REF"
-      ],
-      "hiddenFromIntentSearch": false,
-      "pagination": "none",
-      "payloadSchemaSource": "inline"
-    },
     "context selection get": {
       "payloadSchema": {
         "type": "object",
@@ -924,7 +693,10 @@
                 "type": "array"
               },
               "nextCursor": {
-                "type": ["string", "null"]
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "hasMore": {
                 "type": "boolean"
@@ -1009,142 +781,6 @@
       "pagination": "cursor",
       "payloadSchemaSource": "inline"
     },
-    "context selection open": {
-      "payloadSchema": {
-        "type": "object",
-        "properties": {
-          "item_refs": {
-            "type": "string",
-            "description": "Zotero item refs"
-          }
-        },
-        "required": [],
-        "additionalProperties": false
-      },
-      "resultSchemaSource": "inline",
-      "inputs": {},
-      "resultSchema": {
-        "type": "object",
-        "properties": {
-          "response": {
-            "type": "object",
-            "description": "Response object returned by POST /bridge/v2/context/selection/open.",
-            "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
-          },
-          "target": {
-            "type": "object",
-            "properties": {
-              "items": {
-                "type": "array"
-              }
-            },
-            "additionalProperties": true
-          },
-          "pagination": {
-            "type": "object",
-            "properties": {
-              "items": {
-                "type": "object",
-                "properties": {
-                  "nextCursor": {
-                    "type": ["string", "null"]
-                  },
-                  "hasMore": {
-                    "type": "boolean"
-                  },
-                  "returned": {
-                    "type": "integer",
-                    "minimum": 0
-                  },
-                  "total": {
-                    "type": "integer",
-                    "minimum": 0
-                  },
-                  "limit": {
-                    "type": "integer",
-                    "minimum": 0
-                  }
-                },
-                "additionalProperties": true
-              }
-            },
-            "additionalProperties": true
-          }
-        },
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
-      },
-      "outputBoundary": {
-        "strategy": "cursor",
-        "section": "target.items",
-        "defaultLimit": 25,
-        "maxLimit": 100,
-        "cursorInput": "cursor",
-        "continuation": [
-          "pagination.items.nextCursor",
-          "pagination.items.hasMore",
-          "pagination.items.returned",
-          "pagination.items.total",
-          "pagination.items.limit"
-        ]
-      },
-      "target": {
-        "kind": "endpoint",
-        "method": "POST",
-        "path": "/bridge/v2/context/selection/open"
-      },
-      "binding": "object",
-      "approval": "none",
-      "effect": "read",
-      "category": "navigation",
-      "danger": "review",
-      "effects": [
-        {
-          "kind": "ui-navigation",
-          "stateChanged": true,
-          "description": "May change ui navigation state."
-        }
-      ],
-      "approvalContract": {
-        "kind": "none",
-        "timing": "none",
-        "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-      },
-      "handleTransitions": [
-        {
-          "handle": "itemRef",
-          "direction": "consume",
-          "required": true,
-          "condition": "Required by the command invocation.",
-          "lifetime": "caller-owned"
-        }
-      ],
-      "recovery": [
-        {
-          "when": "The operation fails or completion is uncertain.",
-          "stateCheck": "none",
-          "requiresHandles": [],
-          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-          "nextCommand": "surface describe"
-        }
-      ],
-      "operationalAliases": [
-        "context selection open",
-        "context",
-        "selection",
-        "open",
-        "item_refs",
-        "ITEM_REFS",
-        "cursor",
-        "CURSOR",
-        "limit",
-        "LIMIT"
-      ],
-      "hiddenFromIntentSearch": false,
-      "pagination": "cursor",
-      "payloadSchemaSource": "inline"
-    },
     "debug acp-skill-run reapply-result": {
       "resultSchemaSource": "target-capability-envelope",
       "inputs": {
@@ -1162,7 +798,9 @@
                   "libraryId": 1,
                   "key": "ABC123"
                 },
-                "add": ["topic:example"],
+                "add": [
+                  "topic:example"
+                ],
                 "remove": []
               },
               "prerequisites": [
@@ -1336,7 +974,11 @@
           "nextCommand": "surface describe"
         }
       ],
-      "operationalAliases": ["debug status", "debug", "status"],
+      "operationalAliases": [
+        "debug status",
+        "debug",
+        "status"
+      ],
       "hiddenFromIntentSearch": true,
       "pagination": "none",
       "payloadSchemaSource": "target-capability"
@@ -2032,7 +1674,11 @@
             "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
             "properties": {
               "mode": {
-                "enum": ["local", "bridge-download", "bundle"]
+                "enum": [
+                  "local",
+                  "bridge-download",
+                  "bundle"
+                ]
               },
               "path": {
                 "type": "string"
@@ -2760,7 +2406,12 @@
           "examples": [
             {
               "kind": "shape-only",
-              "value": [{ "key": "ABCD1234", "libraryId": 1 }],
+              "value": [
+                {
+                  "key": "ABCD1234",
+                  "libraryId": 1
+                }
+              ],
               "prerequisites": [
                 "Replace the example with one to 100 Zotero item refs valid in the target library."
               ],
@@ -3379,7 +3030,9 @@
           "argument": "query"
         },
         "constants": {
-          "checks": ["analysis"],
+          "checks": [
+            "analysis"
+          ],
           "missingOnly": true
         },
         "mappings": []
@@ -3468,7 +3121,9 @@
           "argument": "query"
         },
         "constants": {
-          "checks": ["markdown"],
+          "checks": [
+            "markdown"
+          ],
           "missingOnly": true
         },
         "mappings": []
@@ -3557,7 +3212,9 @@
           "argument": "query"
         },
         "constants": {
-          "checks": ["pdf"],
+          "checks": [
+            "pdf"
+          ],
           "missingOnly": true
         },
         "mappings": []
@@ -3786,7 +3443,9 @@
                   "libraryId": 1,
                   "key": "ABC123"
                 },
-                "add": ["topic:example"],
+                "add": [
+                  "topic:example"
+                ],
                 "remove": []
               },
               "prerequisites": [
@@ -4722,8 +4381,13 @@
               "kind": "shape-only",
               "value": {
                 "operation": "item.updateTags",
-                "itemRef": { "libraryId": 1, "key": "ABC123" },
-                "add": ["topic:example"],
+                "itemRef": {
+                  "libraryId": 1,
+                  "key": "ABC123"
+                },
+                "add": [
+                  "topic:example"
+                ],
                 "remove": []
               },
               "prerequisites": [
@@ -4964,7 +4628,11 @@
             "type": "string"
           },
           "state": {
-            "enum": ["in_progress", "completed", "outcome_unknown"]
+            "enum": [
+              "in_progress",
+              "completed",
+              "outcome_unknown"
+            ]
           },
           "createdAt": {
             "type": "string"
@@ -4976,10 +4644,18 @@
             "type": "string"
           },
           "stateChange": {
-            "enum": ["unchanged", "changed", "unknown"]
+            "enum": [
+              "unchanged",
+              "changed",
+              "unknown"
+            ]
           },
           "handleConsumption": {
-            "enum": ["unconsumed", "consumed", "unknown"]
+            "enum": [
+              "unconsumed",
+              "consumed",
+              "unknown"
+            ]
           },
           "response": {
             "type": "object"
@@ -5457,7 +5133,10 @@
             "type": "array"
           },
           "nextCursor": {
-            "type": ["string", "null"]
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "hasMore": {
             "type": "boolean"
@@ -5484,7 +5163,13 @@
         "defaultLimit": 25,
         "maxLimit": 100,
         "cursorInput": "cursor",
-        "continuation": ["nextCursor", "hasMore", "returned", "total", "limit"]
+        "continuation": [
+          "nextCursor",
+          "hasMore",
+          "returned",
+          "total",
+          "limit"
+        ]
       },
       "target": {
         "kind": "endpoint",
@@ -5654,7 +5339,10 @@
                 "type": "object",
                 "properties": {
                   "nextCursor": {
-                    "type": ["string", "null"]
+                    "type": [
+                      "string",
+                      "null"
+                    ]
                   },
                   "hasMore": {
                     "type": "boolean"
@@ -5802,7 +5490,11 @@
             "type": "array"
           },
           "nextCursor": {
-            "type": ["string", "number", "null"]
+            "type": [
+              "string",
+              "number",
+              "null"
+            ]
           },
           "hasMore": {
             "type": "boolean"
@@ -5829,7 +5521,13 @@
         "defaultLimit": 25,
         "maxLimit": 100,
         "cursorInput": "cursor",
-        "continuation": ["nextCursor", "hasMore", "returned", "total", "limit"]
+        "continuation": [
+          "nextCursor",
+          "hasMore",
+          "returned",
+          "total",
+          "limit"
+        ]
       },
       "target": {
         "kind": "endpoint",
@@ -6031,7 +5729,10 @@
             }
           },
           "nextSinceEventId": {
-            "type": ["string", "null"]
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "returned": {
             "type": "integer"
@@ -6043,7 +5744,12 @@
             "type": "boolean"
           }
         },
-        "required": ["notifications", "returned", "hasMore", "truncated"],
+        "required": [
+          "notifications",
+          "returned",
+          "hasMore",
+          "truncated"
+        ],
         "additionalProperties": false
       },
       "outputBoundary": {
@@ -6052,7 +5758,11 @@
         "defaultLimit": 25,
         "maxLimit": 100,
         "cursorInput": "since_event_id",
-        "continuation": ["nextSinceEventId", "hasMore", "returned"]
+        "continuation": [
+          "nextSinceEventId",
+          "hasMore",
+          "returned"
+        ]
       },
       "target": {
         "kind": "endpoint",
@@ -6171,7 +5881,10 @@
             }
           },
           "nextSinceEventId": {
-            "type": ["string", "null"]
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "returned": {
             "type": "integer"
@@ -6183,7 +5896,12 @@
             "type": "boolean"
           }
         },
-        "required": ["notifications", "returned", "hasMore", "truncated"],
+        "required": [
+          "notifications",
+          "returned",
+          "hasMore",
+          "truncated"
+        ],
         "additionalProperties": false
       },
       "outputBoundary": {
@@ -6192,7 +5910,11 @@
         "defaultLimit": 25,
         "maxLimit": 100,
         "cursorInput": "since_event_id",
-        "continuation": ["nextSinceEventId", "hasMore", "returned"]
+        "continuation": [
+          "nextSinceEventId",
+          "hasMore",
+          "returned"
+        ]
       },
       "target": {
         "kind": "endpoint",
@@ -6365,7 +6087,10 @@
             "type": "array"
           },
           "nextCursor": {
-            "type": ["string", "null"]
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "hasMore": {
             "type": "boolean"
@@ -6392,7 +6117,13 @@
         "defaultLimit": 25,
         "maxLimit": 100,
         "cursorInput": "cursor",
-        "continuation": ["nextCursor", "hasMore", "returned", "total", "limit"]
+        "continuation": [
+          "nextCursor",
+          "hasMore",
+          "returned",
+          "total",
+          "limit"
+        ]
       },
       "target": {
         "kind": "endpoint",
@@ -6473,7 +6204,11 @@
             "type": "array"
           },
           "nextCursor": {
-            "type": ["string", "number", "null"]
+            "type": [
+              "string",
+              "number",
+              "null"
+            ]
           },
           "hasMore": {
             "type": "boolean"
@@ -6500,7 +6235,13 @@
         "defaultLimit": 25,
         "maxLimit": 100,
         "cursorInput": "cursor",
-        "continuation": ["nextCursor", "hasMore", "returned", "total", "limit"]
+        "continuation": [
+          "nextCursor",
+          "hasMore",
+          "returned",
+          "total",
+          "limit"
+        ]
       },
       "target": {
         "kind": "endpoint",
@@ -6664,7 +6405,11 @@
             "type": "array"
           },
           "nextCursor": {
-            "type": ["string", "number", "null"]
+            "type": [
+              "string",
+              "number",
+              "null"
+            ]
           },
           "hasMore": {
             "type": "boolean"
@@ -6691,7 +6436,13 @@
         "defaultLimit": 25,
         "maxLimit": 100,
         "cursorInput": "cursor",
-        "continuation": ["nextCursor", "hasMore", "returned", "total", "limit"]
+        "continuation": [
+          "nextCursor",
+          "hasMore",
+          "returned",
+          "total",
+          "limit"
+        ]
       },
       "target": {
         "kind": "endpoint",
@@ -6851,7 +6602,11 @@
             "type": "array"
           },
           "nextCursor": {
-            "type": ["string", "number", "null"]
+            "type": [
+              "string",
+              "number",
+              "null"
+            ]
           },
           "hasMore": {
             "type": "boolean"
@@ -6878,7 +6633,13 @@
         "defaultLimit": 25,
         "maxLimit": 100,
         "cursorInput": "cursor",
-        "continuation": ["nextCursor", "hasMore", "returned", "total", "limit"]
+        "continuation": [
+          "nextCursor",
+          "hasMore",
+          "returned",
+          "total",
+          "limit"
+        ]
       },
       "target": {
         "kind": "endpoint",
@@ -7041,7 +6802,11 @@
             "type": "array"
           },
           "nextCursor": {
-            "type": ["string", "number", "null"]
+            "type": [
+              "string",
+              "number",
+              "null"
+            ]
           },
           "hasMore": {
             "type": "boolean"
@@ -7068,7 +6833,13 @@
         "defaultLimit": 25,
         "maxLimit": 100,
         "cursorInput": "cursor",
-        "continuation": ["nextCursor", "hasMore", "returned", "total", "limit"]
+        "continuation": [
+          "nextCursor",
+          "hasMore",
+          "returned",
+          "total",
+          "limit"
+        ]
       },
       "target": {
         "kind": "endpoint",
@@ -9066,7 +8837,10 @@
           "examples": [
             {
               "kind": "shape-only",
-              "value": ["topic-one", "topic-two"],
+              "value": [
+                "topic-one",
+                "topic-two"
+              ],
               "prerequisites": [
                 "Use one to 20 stable Topic ids returned by synthesis topic list."
               ],
@@ -9765,11 +9539,18 @@
                 "minimum": 0
               }
             },
-            "required": ["total", "succeeded", "failed"],
+            "required": [
+              "total",
+              "succeeded",
+              "failed"
+            ],
             "additionalProperties": false
           },
           "stateChange": {
-            "enum": ["unchanged", "changed"]
+            "enum": [
+              "unchanged",
+              "changed"
+            ]
           },
           "handleConsumption": {
             "const": "consumed"
@@ -9847,7 +9628,9 @@
         {
           "when": "Apply-back fails after preflight or may have partially written results.",
           "stateCheck": "caller-held-handle",
-          "requiresHandles": ["agentRunId"],
+          "requiresHandles": [
+            "agentRunId"
+          ],
           "action": "Read the persisted per-request apply receipt before retrying any result.",
           "nextCommand": "workflow agent-apply-status"
         }
@@ -9899,10 +9682,18 @@
             "type": "string"
           },
           "stateChange": {
-            "enum": ["unchanged", "changed", "unknown"]
+            "enum": [
+              "unchanged",
+              "changed",
+              "unknown"
+            ]
           },
           "handleConsumption": {
-            "enum": ["unconsumed", "consumed", "unknown"]
+            "enum": [
+              "unconsumed",
+              "consumed",
+              "unknown"
+            ]
           },
           "recoverable": {
             "type": "boolean"
@@ -9914,7 +9705,10 @@
             }
           },
           "nextCursor": {
-            "type": ["string", "null"]
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "hasMore": {
             "type": "boolean"
@@ -9932,7 +9726,12 @@
             "minimum": 0
           }
         },
-        "required": ["schema", "agentRunId", "status", "results"],
+        "required": [
+          "schema",
+          "agentRunId",
+          "status",
+          "results"
+        ],
         "additionalProperties": false
       },
       "outputBoundary": {
@@ -9941,7 +9740,13 @@
         "defaultLimit": 25,
         "maxLimit": 100,
         "cursorInput": "cursor",
-        "continuation": ["nextCursor", "hasMore", "returned", "total", "limit"]
+        "continuation": [
+          "nextCursor",
+          "hasMore",
+          "returned",
+          "total",
+          "limit"
+        ]
       },
       "target": {
         "kind": "endpoint",
@@ -10032,7 +9837,10 @@
             "type": "array"
           },
           "nextCursor": {
-            "type": ["string", "null"]
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "hasMore": {
             "type": "boolean"
@@ -10059,7 +9867,13 @@
         "defaultLimit": 25,
         "maxLimit": 100,
         "cursorInput": "cursor",
-        "continuation": ["nextCursor", "hasMore", "returned", "total", "limit"]
+        "continuation": [
+          "nextCursor",
+          "hasMore",
+          "returned",
+          "total",
+          "limit"
+        ]
       },
       "target": {
         "kind": "local"
@@ -10320,7 +10134,9 @@
         "selection": {
           "token": "--selection",
           "required": false,
-          "requiredWhen": ["Required unless --none is supplied."],
+          "requiredWhen": [
+            "Required unless --none is supplied."
+          ],
           "schema": {
             "type": "array",
             "minItems": 1,
@@ -10336,14 +10152,22 @@
                   "minLength": 1
                 }
               },
-              "required": ["libraryId", "key"],
+              "required": [
+                "libraryId",
+                "key"
+              ],
               "additionalProperties": false
             }
           },
           "examples": [
             {
               "kind": "shape-only",
-              "value": [{ "libraryId": 1, "key": "ABC12345" }],
+              "value": [
+                {
+                  "libraryId": 1,
+                  "key": "ABC12345"
+                }
+              ],
               "prerequisites": [
                 "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
               ],
@@ -10654,7 +10478,11 @@
           "nextCommand": "surface describe"
         }
       ],
-      "operationalAliases": ["workflow list", "workflow", "list"],
+      "operationalAliases": [
+        "workflow list",
+        "workflow",
+        "list"
+      ],
       "hiddenFromIntentSearch": false,
       "pagination": "none",
       "payloadSchemaSource": "inline"
@@ -10686,7 +10514,9 @@
         "additionalProperties": true,
         "x-openPropertiesReason": "The endpoint returns a command-specific object."
       },
-      "outputBoundary": { "strategy": "fixed" },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
       "target": {
         "kind": "endpoint",
         "method": "POST",
@@ -10756,7 +10586,9 @@
         "additionalProperties": true,
         "x-openPropertiesReason": "The endpoint returns a command-specific object."
       },
-      "outputBoundary": { "strategy": "fixed" },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
       "target": {
         "kind": "endpoint",
         "method": "POST",
@@ -11078,7 +10910,10 @@
             "type": "string"
           }
         },
-        "required": ["status", "queueId"],
+        "required": [
+          "status",
+          "queueId"
+        ],
         "additionalProperties": false
       },
       "outputBoundary": {
@@ -11119,7 +10954,9 @@
         {
           "when": "Cancellation fails or races with admission.",
           "stateCheck": "caller-held-handle",
-          "requiresHandles": ["queueId"],
+          "requiresHandles": [
+            "queueId"
+          ],
           "action": "List the native queue again. Absence means the unit was admitted, canceled, or settled; inspect its submission and tasks before taking further action.",
           "nextCommand": "workflow queue list"
         }
@@ -11178,7 +11015,10 @@
                   "type": "integer"
                 },
                 "backendType": {
-                  "enum": ["acp", "skillrunner"]
+                  "enum": [
+                    "acp",
+                    "skillrunner"
+                  ]
                 },
                 "backendId": {
                   "type": "string"
@@ -11201,7 +11041,10 @@
             }
           },
           "nextCursor": {
-            "type": ["string", "null"]
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "hasMore": {
             "type": "boolean"
@@ -11219,7 +11062,9 @@
             "minimum": 0
           }
         },
-        "required": ["units"],
+        "required": [
+          "units"
+        ],
         "additionalProperties": false
       },
       "outputBoundary": {
@@ -11228,7 +11073,13 @@
         "defaultLimit": 25,
         "maxLimit": 100,
         "cursorInput": "cursor",
-        "continuation": ["nextCursor", "hasMore", "returned", "total", "limit"]
+        "continuation": [
+          "nextCursor",
+          "hasMore",
+          "returned",
+          "total",
+          "limit"
+        ]
       },
       "target": {
         "kind": "endpoint",
@@ -11400,7 +11251,10 @@
             "type": "string"
           },
           "backendType": {
-            "enum": ["acp", "skillrunner"]
+            "enum": [
+              "acp",
+              "skillrunner"
+            ]
           },
           "backendId": {
             "type": "string"
@@ -11427,7 +11281,10 @@
             }
           },
           "nextCursor": {
-            "type": ["string", "null"]
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "hasMore": {
             "type": "boolean"
@@ -11460,7 +11317,13 @@
         "defaultLimit": 25,
         "maxLimit": 100,
         "cursorInput": "cursor",
-        "continuation": ["nextCursor", "hasMore", "returned", "total", "limit"]
+        "continuation": [
+          "nextCursor",
+          "hasMore",
+          "returned",
+          "total",
+          "limit"
+        ]
       },
       "target": {
         "kind": "endpoint",
@@ -11559,7 +11422,9 @@
         "selection": {
           "token": "--selection",
           "required": false,
-          "requiredWhen": ["Required unless --none is supplied."],
+          "requiredWhen": [
+            "Required unless --none is supplied."
+          ],
           "schema": {
             "type": "array",
             "minItems": 1,
@@ -11575,14 +11440,22 @@
                   "minLength": 1
                 }
               },
-              "required": ["libraryId", "key"],
+              "required": [
+                "libraryId",
+                "key"
+              ],
               "additionalProperties": false
             }
           },
           "examples": [
             {
               "kind": "shape-only",
-              "value": [{ "libraryId": 1, "key": "ABC12345" }],
+              "value": [
+                {
+                  "libraryId": 1,
+                  "key": "ABC12345"
+                }
+              ],
               "prerequisites": [
                 "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
               ],
@@ -11700,7 +11573,10 @@
             "type": "string"
           },
           "admission": {
-            "enum": ["direct", "host-queue"]
+            "enum": [
+              "direct",
+              "host-queue"
+            ]
           },
           "workflowRunId": {
             "type": "string"
@@ -11740,22 +11616,40 @@
             "items": {
               "type": "object",
               "properties": {
-                "slotId": { "type": "string", "minLength": 1 },
+                "slotId": {
+                  "type": "string",
+                  "minLength": 1
+                },
                 "fileId": {
                   "type": "string",
                   "pattern": "^file-[A-Za-z0-9-]+$"
                 },
-                "sourceKind": { "const": "workflow-artifact" },
-                "displayName": { "type": "string" },
-                "contentType": { "type": "string" },
-                "size": { "type": "integer", "minimum": 0 },
+                "sourceKind": {
+                  "const": "workflow-artifact"
+                },
+                "displayName": {
+                  "type": "string"
+                },
+                "contentType": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": 0
+                },
                 "sha256": {
                   "type": "string",
                   "pattern": "^sha256:[a-f0-9]{64}$"
                 },
-                "createdAt": { "type": "string" },
-                "expiresAt": { "type": "string" },
-                "downloadCommand": { "type": "string" }
+                "createdAt": {
+                  "type": "string"
+                },
+                "expiresAt": {
+                  "type": "string"
+                },
+                "downloadCommand": {
+                  "type": "string"
+                }
               },
               "required": [
                 "slotId",
@@ -11785,7 +11679,12 @@
                 "const": "direct"
               }
             },
-            "required": ["workflowRunId", "totalJobs", "runUrl", "tasksUrl"]
+            "required": [
+              "workflowRunId",
+              "totalJobs",
+              "runUrl",
+              "tasksUrl"
+            ]
           },
           {
             "properties": {
@@ -11878,14 +11777,18 @@
         {
           "when": "The response reports host-queue admission or queued progress is uncertain.",
           "stateCheck": "caller-held-handle",
-          "requiresHandles": ["submissionId"],
+          "requiresHandles": [
+            "submissionId"
+          ],
           "action": "Inspect the active native submission without inventing a workflow run id.",
           "nextCommand": "workflow submission get"
         },
         {
           "when": "The response reports direct admission and run progress is uncertain.",
           "stateCheck": "caller-held-handle",
-          "requiresHandles": ["workflowRunId"],
+          "requiresHandles": [
+            "workflowRunId"
+          ],
           "action": "Inspect the returned workflow run before repeating submission.",
           "nextCommand": "run get"
         }
@@ -11950,7 +11853,9 @@
         "selection": {
           "token": "--selection",
           "required": false,
-          "requiredWhen": ["Required unless --none is supplied."],
+          "requiredWhen": [
+            "Required unless --none is supplied."
+          ],
           "schema": {
             "type": "array",
             "minItems": 1,
@@ -11966,14 +11871,22 @@
                   "minLength": 1
                 }
               },
-              "required": ["libraryId", "key"],
+              "required": [
+                "libraryId",
+                "key"
+              ],
               "additionalProperties": false
             }
           },
           "examples": [
             {
               "kind": "shape-only",
-              "value": [{ "libraryId": 1, "key": "ABC12345" }],
+              "value": [
+                {
+                  "libraryId": 1,
+                  "key": "ABC12345"
+                }
+              ],
               "prerequisites": [
                 "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
               ],
@@ -12114,6 +12027,359 @@
       "hiddenFromIntentSearch": false,
       "pagination": "none",
       "payloadSchemaSource": "inline"
+    },
+    "navigation focus-zotero": {
+      "resultSchemaSource": "target-capability-envelope",
+      "inputs": {
+        "input": {
+          "token": "--input",
+          "required": false,
+          "requiredWhen": [],
+          "schemaSource": "target-capability",
+          "examples": [
+            {
+              "kind": "shape-only",
+              "value": {},
+              "prerequisites": []
+            }
+          ]
+        }
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "target": {
+        "kind": "capability",
+        "capability": "navigation.focus_zotero",
+        "method": "POST",
+        "path": "/bridge/v2/call"
+      },
+      "binding": "passthrough",
+      "approval": "none",
+      "effect": "state-change",
+      "category": "navigation",
+      "danger": "none",
+      "effects": [
+        {
+          "kind": "ui-navigation",
+          "stateChanged": true,
+          "description": "Changes Zotero UI focus."
+        }
+      ],
+      "approvalContract": {
+        "kind": "none",
+        "timing": "none",
+        "scope": "No per-call approval."
+      },
+      "handleTransitions": [],
+      "recovery": [],
+      "operationalAliases": [],
+      "hiddenFromIntentSearch": false,
+      "pagination": "none",
+      "payloadSchemaSource": "target-capability"
+    },
+    "navigation select-library-view": {
+      "resultSchemaSource": "target-capability-envelope",
+      "inputs": {
+        "input": {
+          "token": "--input",
+          "required": false,
+          "requiredWhen": [],
+          "schemaSource": "target-capability",
+          "examples": [
+            {
+              "kind": "shape-only",
+              "value": { "view": "library", "libraryId": 1 },
+              "prerequisites": []
+            }
+          ]
+        }
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "target": {
+        "kind": "capability",
+        "capability": "navigation.select_library_view",
+        "method": "POST",
+        "path": "/bridge/v2/call"
+      },
+      "binding": "passthrough",
+      "approval": "none",
+      "effect": "state-change",
+      "category": "navigation",
+      "danger": "none",
+      "effects": [
+        {
+          "kind": "ui-navigation",
+          "stateChanged": true,
+          "description": "Selects a library view."
+        }
+      ],
+      "approvalContract": {
+        "kind": "none",
+        "timing": "none",
+        "scope": "No per-call approval."
+      },
+      "handleTransitions": [],
+      "recovery": [],
+      "operationalAliases": [],
+      "hiddenFromIntentSearch": false,
+      "pagination": "none",
+      "payloadSchemaSource": "target-capability"
+    },
+    "navigation select-collection": {
+      "resultSchemaSource": "target-capability-envelope",
+      "inputs": {
+        "input": {
+          "token": "--input",
+          "required": false,
+          "requiredWhen": [],
+          "schemaSource": "target-capability",
+          "examples": [
+            {
+              "kind": "shape-only",
+              "value": { "libraryId": 1, "key": "ABCDEFGH" },
+              "prerequisites": []
+            }
+          ]
+        }
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "target": {
+        "kind": "capability",
+        "capability": "navigation.select_collection",
+        "method": "POST",
+        "path": "/bridge/v2/call"
+      },
+      "binding": "passthrough",
+      "approval": "none",
+      "effect": "state-change",
+      "category": "navigation",
+      "danger": "none",
+      "effects": [
+        {
+          "kind": "ui-navigation",
+          "stateChanged": true,
+          "description": "Selects a collection."
+        }
+      ],
+      "approvalContract": {
+        "kind": "none",
+        "timing": "none",
+        "scope": "No per-call approval."
+      },
+      "handleTransitions": [],
+      "recovery": [],
+      "operationalAliases": [],
+      "hiddenFromIntentSearch": false,
+      "pagination": "none",
+      "payloadSchemaSource": "target-capability"
+    },
+    "navigation select-saved-search": {
+      "resultSchemaSource": "target-capability-envelope",
+      "inputs": {
+        "input": {
+          "token": "--input",
+          "required": false,
+          "requiredWhen": [],
+          "schemaSource": "target-capability",
+          "examples": [
+            {
+              "kind": "shape-only",
+              "value": { "libraryId": 1, "key": "ABCDEFGH" },
+              "prerequisites": []
+            }
+          ]
+        }
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "target": {
+        "kind": "capability",
+        "capability": "navigation.select_saved_search",
+        "method": "POST",
+        "path": "/bridge/v2/call"
+      },
+      "binding": "passthrough",
+      "approval": "none",
+      "effect": "state-change",
+      "category": "navigation",
+      "danger": "none",
+      "effects": [
+        {
+          "kind": "ui-navigation",
+          "stateChanged": true,
+          "description": "Selects a saved search."
+        }
+      ],
+      "approvalContract": {
+        "kind": "none",
+        "timing": "none",
+        "scope": "No per-call approval."
+      },
+      "handleTransitions": [],
+      "recovery": [],
+      "operationalAliases": [],
+      "hiddenFromIntentSearch": false,
+      "pagination": "none",
+      "payloadSchemaSource": "target-capability"
+    },
+    "navigation reveal-items": {
+      "resultSchemaSource": "target-capability-envelope",
+      "inputs": {
+        "input": {
+          "token": "--input",
+          "required": false,
+          "requiredWhen": [],
+          "schemaSource": "target-capability",
+          "examples": [
+            {
+              "kind": "shape-only",
+              "value": { "itemRefs": [{ "libraryId": 1, "key": "ABCDEFGH" }] },
+              "prerequisites": []
+            }
+          ]
+        }
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "target": {
+        "kind": "capability",
+        "capability": "navigation.reveal_items",
+        "method": "POST",
+        "path": "/bridge/v2/call"
+      },
+      "binding": "passthrough",
+      "approval": "none",
+      "effect": "state-change",
+      "category": "navigation",
+      "danger": "none",
+      "effects": [
+        {
+          "kind": "ui-navigation",
+          "stateChanged": true,
+          "description": "Reveals ordered items."
+        }
+      ],
+      "approvalContract": {
+        "kind": "none",
+        "timing": "none",
+        "scope": "No per-call approval."
+      },
+      "handleTransitions": [],
+      "recovery": [],
+      "operationalAliases": [],
+      "hiddenFromIntentSearch": false,
+      "pagination": "none",
+      "payloadSchemaSource": "target-capability"
+    },
+    "navigation open-item": {
+      "resultSchemaSource": "target-capability-envelope",
+      "inputs": {
+        "input": {
+          "token": "--input",
+          "required": false,
+          "requiredWhen": [],
+          "schemaSource": "target-capability",
+          "examples": [
+            {
+              "kind": "shape-only",
+              "value": { "libraryId": 1, "key": "ABCDEFGH" },
+              "prerequisites": []
+            }
+          ]
+        }
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "target": {
+        "kind": "capability",
+        "capability": "navigation.open_item",
+        "method": "POST",
+        "path": "/bridge/v2/call"
+      },
+      "binding": "passthrough",
+      "approval": "none",
+      "effect": "state-change",
+      "category": "navigation",
+      "danger": "none",
+      "effects": [
+        {
+          "kind": "ui-navigation",
+          "stateChanged": true,
+          "description": "Opens an item."
+        }
+      ],
+      "approvalContract": {
+        "kind": "none",
+        "timing": "none",
+        "scope": "No per-call approval."
+      },
+      "handleTransitions": [],
+      "recovery": [],
+      "operationalAliases": [],
+      "hiddenFromIntentSearch": false,
+      "pagination": "none",
+      "payloadSchemaSource": "target-capability"
+    },
+    "navigation open-reader-location": {
+      "resultSchemaSource": "target-capability-envelope",
+      "inputs": {
+        "input": {
+          "token": "--input",
+          "required": false,
+          "requiredWhen": [],
+          "schemaSource": "target-capability",
+          "examples": [
+            {
+              "kind": "shape-only",
+              "value": {
+                "target": { "libraryId": 1, "key": "ABCDEFGH" },
+                "location": { "kind": "page", "index": 0 }
+              },
+              "prerequisites": []
+            }
+          ]
+        }
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "target": {
+        "kind": "capability",
+        "capability": "navigation.open_reader_location",
+        "method": "POST",
+        "path": "/bridge/v2/call"
+      },
+      "binding": "passthrough",
+      "approval": "none",
+      "effect": "state-change",
+      "category": "navigation",
+      "danger": "none",
+      "effects": [
+        {
+          "kind": "ui-navigation",
+          "stateChanged": true,
+          "description": "Opens an exact Reader location."
+        }
+      ],
+      "approvalContract": {
+        "kind": "none",
+        "timing": "none",
+        "scope": "No per-call approval."
+      },
+      "handleTransitions": [],
+      "recovery": [],
+      "operationalAliases": [],
+      "hiddenFromIntentSearch": false,
+      "pagination": "none",
+      "payloadSchemaSource": "target-capability"
     }
   }
 }

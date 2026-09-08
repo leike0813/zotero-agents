@@ -28,6 +28,7 @@ export type WorkflowHostTargetKind =
   | "attachment"
   | "annotation"
   | "collection"
+  | "saved-search"
   | "resource"
   | "prepared_image"
   | "bibliography_format"
@@ -37,10 +38,6 @@ export type WorkflowHostTargetKind =
 export type WorkflowInteractionMember =
   | "context.getCurrentView"
   | "context.getSelectedItems"
-  | "navigation.openItem"
-  | "navigation.openNote"
-  | "navigation.openCollection"
-  | "navigation.openSelection"
   | "file.pickDirectory"
   | "file.pickFile"
   | "file.pickSaveFile"
@@ -191,10 +188,6 @@ const TARGET_KINDS = new Set<WorkflowHostTargetKind>([
 const INTERACTION_MEMBERS = new Set<WorkflowInteractionMember>([
   "context.getCurrentView",
   "context.getSelectedItems",
-  "navigation.openItem",
-  "navigation.openNote",
-  "navigation.openCollection",
-  "navigation.openSelection",
   "file.pickDirectory",
   "file.pickFile",
   "file.pickSaveFile",

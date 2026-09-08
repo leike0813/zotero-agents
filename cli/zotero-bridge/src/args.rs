@@ -89,6 +89,9 @@ pub enum Command {
     #[command(about = "Read Zotero UI context and navigate to Zotero objects")]
     Context(ContextArgs),
 
+    #[command(about = "Perform canonical Zotero navigation")]
+    Navigation(NavigationArgs),
+
     #[command(about = "Read Synthesis topics, graph, indexes, artifacts, and insights")]
     Synthesis(SynthesisArgs),
 
@@ -286,6 +289,29 @@ pub struct ContextArgs {
     pub command: ContextCommand,
 }
 
+#[derive(Debug, Clone, Args)]
+pub struct NavigationArgs {
+    #[command(subcommand)]
+    pub command: NavigationCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum NavigationCommand {
+    FocusZotero(NavigationInputArgs),
+    SelectLibraryView(NavigationInputArgs),
+    SelectCollection(NavigationInputArgs),
+    SelectSavedSearch(NavigationInputArgs),
+    RevealItems(NavigationInputArgs),
+    OpenItem(NavigationInputArgs),
+    OpenReaderLocation(NavigationInputArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct NavigationInputArgs {
+    #[arg(long, value_name = "JSON_OR_FILE", help = "Navigation input JSON")]
+    pub input: Option<String>,
+}
+
 #[derive(Debug, Clone, Subcommand)]
 pub enum ContextCommand {
     #[command(
@@ -297,14 +323,6 @@ pub enum ContextCommand {
     #[command(about = "Read or open the current Zotero selection")]
     Selection(ContextSelectionArgs),
 
-    #[command(about = "Navigate to a Zotero item")]
-    Item(ContextItemArgs),
-
-    #[command(about = "Navigate to a Zotero note")]
-    Note(ContextNoteArgs),
-
-    #[command(about = "Navigate to a Zotero collection")]
-    Collection(ContextCollectionArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -321,80 +339,6 @@ pub enum ContextSelectionCommand {
     )]
     Get(PageArgs),
 
-    #[command(
-        about = "Open one or more Zotero items as the active selection",
-        long_about = "Call POST /bridge/v2/context/selection/open. Item refs must be Zotero object handles such as item keys, numeric ids, libraryId:itemKey, or JSON objects."
-    )]
-    Open(ContextSelectionOpenArgs),
-}
-
-#[derive(Debug, Clone, Args)]
-pub struct ContextSelectionOpenArgs {
-    #[arg(required = true, help = "Zotero item refs")]
-    pub item_refs: Vec<String>,
-
-    #[command(flatten)]
-    pub page: PageArgs,
-}
-
-#[derive(Debug, Clone, Args)]
-pub struct ContextItemArgs {
-    #[command(subcommand)]
-    pub command: ContextItemCommand,
-}
-
-#[derive(Debug, Clone, Subcommand)]
-pub enum ContextItemCommand {
-    #[command(
-        about = "Open one Zotero item",
-        long_about = "Call POST /bridge/v2/context/items/open. The item ref must be a Zotero object handle, not a path or URI."
-    )]
-    Open(ContextObjectRefArgs),
-}
-
-#[derive(Debug, Clone, Args)]
-pub struct ContextNoteArgs {
-    #[command(subcommand)]
-    pub command: ContextNoteCommand,
-}
-
-#[derive(Debug, Clone, Subcommand)]
-pub enum ContextNoteCommand {
-    #[command(
-        about = "Open one Zotero note",
-        long_about = "Call POST /bridge/v2/context/notes/open. The note ref must be a Zotero object handle, not a path or URI."
-    )]
-    Open(ContextObjectRefArgs),
-}
-
-#[derive(Debug, Clone, Args)]
-pub struct ContextCollectionArgs {
-    #[command(subcommand)]
-    pub command: ContextCollectionCommand,
-}
-
-#[derive(Debug, Clone, Subcommand)]
-pub enum ContextCollectionCommand {
-    #[command(
-        about = "Open one Zotero collection",
-        long_about = "Call POST /bridge/v2/context/collections/open. The collection target is a collection key with optional --library-id."
-    )]
-    Open(ContextCollectionOpenArgs),
-}
-
-#[derive(Debug, Clone, Args)]
-pub struct ContextObjectRefArgs {
-    #[arg(help = "Zotero object ref: key, numeric id, libraryId:key, or JSON object")]
-    pub object_ref: String,
-}
-
-#[derive(Debug, Clone, Args)]
-pub struct ContextCollectionOpenArgs {
-    #[arg(help = "Zotero collection key")]
-    pub collection_key: String,
-
-    #[arg(long, help = "Zotero library id for key lookup")]
-    pub library_id: Option<u64>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -2352,8 +2296,7 @@ mod tests {
 
     use super::{
         AnnotationCommand, BridgeBackendCommand, BridgeCommand, BridgeProfileCommand,
-        CitationGraphCommand, Cli, Command, ContextCollectionCommand, ContextCommand,
-        ContextItemCommand, ContextNoteCommand, ContextSelectionCommand, FileCommand, ItemCommand,
+        CitationGraphCommand, Cli, Command, FileCommand, ItemCommand,
         LibraryCommand, LibraryItemsCommand, LibraryReadinessCommand, MutationCollectionCommand,
         MutationCommand, MutationItemCommand, MutationNoteCommand, MutationTagCommand,
         NotificationCommand, PageArgs, ProductCommand, RunArgs, RunCommand, RunPermissionCommand,
@@ -3117,83 +3060,6 @@ mod tests {
                 _ => panic!("expected library readiness"),
             },
             _ => panic!("expected library command"),
-        }
-    }
-
-    #[test]
-    fn parses_context_commands() {
-        let cli = Cli::parse_from(["zotero-bridge", "context", "current"]);
-        match cli.command {
-            Command::Context(args) => match args.command {
-                ContextCommand::Current => {}
-                _ => panic!("expected context current"),
-            },
-            _ => panic!("expected context command"),
-        }
-
-        let cli = Cli::parse_from([
-            "zotero-bridge",
-            "context",
-            "selection",
-            "open",
-            "1:ABC123",
-            "{\"key\":\"DEF456\"}",
-        ]);
-        match cli.command {
-            Command::Context(args) => match args.command {
-                ContextCommand::Selection(args) => match args.command {
-                    ContextSelectionCommand::Open(input) => {
-                        assert_eq!(input.item_refs, vec!["1:ABC123", "{\"key\":\"DEF456\"}"]);
-                    }
-                    _ => panic!("expected selection open"),
-                },
-                _ => panic!("expected context selection"),
-            },
-            _ => panic!("expected context command"),
-        }
-
-        let cli = Cli::parse_from(["zotero-bridge", "context", "item", "open", "ABC123"]);
-        match cli.command {
-            Command::Context(args) => match args.command {
-                ContextCommand::Item(args) => match args.command {
-                    ContextItemCommand::Open(input) => assert_eq!(input.object_ref, "ABC123"),
-                },
-                _ => panic!("expected context item"),
-            },
-            _ => panic!("expected context command"),
-        }
-
-        let cli = Cli::parse_from(["zotero-bridge", "context", "note", "open", "NOTE123"]);
-        match cli.command {
-            Command::Context(args) => match args.command {
-                ContextCommand::Note(args) => match args.command {
-                    ContextNoteCommand::Open(input) => assert_eq!(input.object_ref, "NOTE123"),
-                },
-                _ => panic!("expected context note"),
-            },
-            _ => panic!("expected context command"),
-        }
-
-        let cli = Cli::parse_from([
-            "zotero-bridge",
-            "context",
-            "collection",
-            "open",
-            "COLL123",
-            "--library-id",
-            "1",
-        ]);
-        match cli.command {
-            Command::Context(args) => match args.command {
-                ContextCommand::Collection(args) => match args.command {
-                    ContextCollectionCommand::Open(input) => {
-                        assert_eq!(input.collection_key, "COLL123");
-                        assert_eq!(input.library_id, Some(1));
-                    }
-                },
-                _ => panic!("expected context collection"),
-            },
-            _ => panic!("expected context command"),
         }
     }
 

@@ -544,6 +544,32 @@ function bridgeSelectedItems(
   );
 }
 
+function bridgeNavigation(
+  capabilityName: string,
+  input: unknown,
+  context: HostBridgeCapabilityContext,
+) {
+  const navigation = resolveCapabilityBroker(context).navigation;
+  switch (capabilityName) {
+    case "navigation.focus_zotero":
+      return navigation.focusZotero(context.control);
+    case "navigation.select_library_view":
+      return navigation.selectLibraryView(asObject(input) as any, context.control);
+    case "navigation.select_collection":
+      return navigation.selectCollection(asObject(input) as any, context.control);
+    case "navigation.select_saved_search":
+      return navigation.selectSavedSearch(asObject(input) as any, context.control);
+    case "navigation.reveal_items":
+      return navigation.revealItems(asObject(input) as any, context.control);
+    case "navigation.open_item":
+      return navigation.openItem(asObject(input) as any, context.control);
+    case "navigation.open_reader_location":
+      return navigation.openReaderLocation(asObject(input) as any, context.control);
+    default:
+      throw new ZoteroHostCapabilityError("unsupported_operation", "Unknown navigation capability", { memberOrOperation: capabilityName });
+  }
+}
+
 function bridgeLibraryItems(
   context: HostBridgeCapabilityContext,
   args: ZoteroHostLibraryListArgs,
@@ -2785,6 +2811,27 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
   ),
   synthesisCapability("topics.get_review_input", "getReviewInput"),
   synthesisCapability("insights.get_attention_queue", "getAttentionQueue"),
+  capability("navigation.focus_zotero", (input, context) =>
+    bridgeNavigation("navigation.focus_zotero", input, context),
+  ),
+  capability("navigation.select_library_view", (input, context) =>
+    bridgeNavigation("navigation.select_library_view", input, context),
+  ),
+  capability("navigation.select_collection", (input, context) =>
+    bridgeNavigation("navigation.select_collection", input, context),
+  ),
+  capability("navigation.select_saved_search", (input, context) =>
+    bridgeNavigation("navigation.select_saved_search", input, context),
+  ),
+  capability("navigation.reveal_items", (input, context) =>
+    bridgeNavigation("navigation.reveal_items", input, context),
+  ),
+  capability("navigation.open_item", (input, context) =>
+    bridgeNavigation("navigation.open_item", input, context),
+  ),
+  capability("navigation.open_reader_location", (input, context) =>
+    bridgeNavigation("navigation.open_reader_location", input, context),
+  ),
 ];
 
 const CAPABILITY_BY_NAME = new Map<string, HostBridgeCapabilityDefinition>(

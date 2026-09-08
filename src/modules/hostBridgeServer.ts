@@ -13,8 +13,6 @@ import {
   HostBridgeCapabilityContractError,
   HostBridgeWorkflowProductError,
   listHostBridgeCapabilities,
-  normalizeHostBridgeCollectionRef,
-  normalizeHostBridgeItemRef,
 } from "./hostBridgeCapabilityRegistry";
 import {
   SynthesisClientError,
@@ -116,10 +114,6 @@ import {
   readAcpRuntimePerformanceClockMs,
 } from "./acpRuntimePerformanceProfiler";
 import {
-  openLegacyZoteroCollection,
-  openLegacyZoteroItem,
-  openLegacyZoteroNote,
-  openLegacyZoteroSelection,
   resolveZoteroHostCapabilityBroker,
   ZoteroHostCapabilityError,
 } from "./zoteroHostCapabilityBroker";
@@ -748,10 +742,6 @@ function isStateChangingHostBridgeRequest(request: HttpRequest) {
     }
   }
   const exact = new Set([
-    "/bridge/v2/context/selection/open",
-    "/bridge/v2/context/items/open",
-    "/bridge/v2/context/collections/open",
-    "/bridge/v2/context/notes/open",
     "/bridge/v2/workflows/submit",
     "/bridge/v2/workflows/agent-run",
     "/bridge/v2/notifications/ack",
@@ -882,6 +872,14 @@ function parsePermissionScopeHeader(request: HttpRequest) {
   } catch {
     return null;
   }
+}
+
+function navigationScopeAllowed(request: HttpRequest) {
+  const raw = String(request.headers["x-zotero-bridge-scope"] || "").trim();
+  if (!raw) return true;
+  const scope = parsePermissionScopeHeader(request);
+  const kind = String(scope?.kind || "").trim();
+  return kind === "global" || kind === "acp-chat";
 }
 
 function performanceProfileRequestIdForHostRequest(request: HttpRequest) {
@@ -1275,10 +1273,6 @@ function manifest(request?: HttpRequest) {
       endpoints: [
         "GET /bridge/v2/context/current",
         "GET /bridge/v2/context/selection",
-        "POST /bridge/v2/context/selection/open",
-        "POST /bridge/v2/context/items/open",
-        "POST /bridge/v2/context/collections/open",
-        "POST /bridge/v2/context/notes/open",
       ],
     },
     fileDownloads: {
@@ -1310,7 +1304,17 @@ function methodNotAllowed(message: string, allow: string) {
 }
 
 function requestWorkflowCallControl(request: HttpRequest) {
-  return request.signal ? { signal: request.signal } : undefined;
+  const captured = (globalThis as any).Zotero?.getMainWindow?.();
+  if (!captured) return request.signal ? { signal: request.signal } : undefined;
+  return {
+    ...(request.signal ? { signal: request.signal } : {}),
+    target: {
+      resolveAndValidate: () => {
+        if (captured.closed || !captured.ZoteroPane) return null;
+        return captured;
+      },
+    },
+  };
 }
 
 function requestPageInput(request: HttpRequest) {
@@ -1377,6 +1381,20 @@ async function callCapability(
         { capability: capabilityName },
       ),
       "capability_not_found",
+    );
+  }
+
+  if (capabilityName.startsWith("navigation.") && !navigationScopeAllowed(request)) {
+    return response(
+      403,
+      "Forbidden",
+      hostBridgeError(
+        "permission_denied",
+        "Navigation is unavailable for this Host Bridge scope",
+        "permission",
+        { reason: "navigation_scope_denied" },
+      ),
+      "navigation_scope_denied",
     );
   }
 
@@ -1838,12 +1856,10 @@ function asRequestObject(value: unknown): Record<string, unknown> {
     : {};
 }
 
-function navigationErrorResponse(error: unknown) {
+function contextErrorResponse(error: unknown) {
   if (error instanceof ZoteroHostCapabilityError) {
     const details = error.details as Record<string, unknown>;
     const notFound = error.code === "not_found";
-    const unavailable =
-      error.code === "unavailable" && details.reason === "navigation";
     const transportCode =
       error.code === "invalid_ref"
         ? "invalid_object_ref"
@@ -1855,20 +1871,14 @@ function navigationErrorResponse(error: unknown) {
               : details.kind === "collection"
                 ? "collection_not_found"
                 : "item_not_found"
-            : unavailable
-              ? "navigation_unavailable"
-              : "context_navigation_failed";
+            : "context_navigation_failed";
     return response(
-      unavailable ? 503 : notFound ? 404 : 400,
-      unavailable
-        ? "Service Unavailable"
-        : notFound
-          ? "Not Found"
-          : "Bad Request",
+      notFound ? 404 : 400,
+      notFound ? "Not Found" : "Bad Request",
       hostBridgeError(
         transportCode,
         error.message,
-        unavailable ? "internal" : notFound ? "not_found" : "validation",
+        notFound ? "not_found" : "validation",
         error.details,
       ),
       transportCode,
@@ -1884,18 +1894,6 @@ function navigationErrorResponse(error: unknown) {
     ),
     "context_navigation_failed",
   );
-}
-
-function parseNavigationBody(request: HttpRequest) {
-  try {
-    return parseJsonBody(request.body || "");
-  } catch {
-    throw new ZoteroHostCapabilityError(
-      "invalid_request",
-      "navigation request body must be JSON",
-      { reason: "invalid_format" },
-    );
-  }
 }
 
 async function listWorkflows(request: HttpRequest) {
@@ -3283,7 +3281,7 @@ async function getCurrentContext(request: HttpRequest) {
     }
     return response(200, "OK", hostBridgeOk(broker.context.getCurrentView()));
   } catch (error) {
-    return navigationErrorResponse(error);
+    return contextErrorResponse(error);
   }
 }
 
@@ -3312,169 +3310,7 @@ async function getCurrentSelection(request: HttpRequest) {
     );
     return response(200, "OK", hostBridgeOk(page));
   } catch (error) {
-    return navigationErrorResponse(error);
-  }
-}
-
-async function openContextItem(request: HttpRequest) {
-  if (request.method !== "POST") {
-    return methodNotAllowed(
-      "Context item open endpoint only supports POST",
-      "POST",
-    );
-  }
-  try {
-    const payload = parseNavigationBody(request);
-    const object = asRequestObject(payload);
-    const ref =
-      object.item ??
-      object.ref ??
-      object.target ??
-      (typeof payload === "string" ? payload : object);
-    return response(
-      200,
-      "OK",
-      hostBridgeOk(await openLegacyZoteroItem(normalizeHostBridgeItemRef(ref))),
-    );
-  } catch (error) {
-    if (error instanceof HostBridgeCursorError) {
-      return paginationErrorResponse(error);
-    }
-    return navigationErrorResponse(error);
-  }
-}
-
-async function openContextNote(request: HttpRequest) {
-  if (request.method !== "POST") {
-    return methodNotAllowed(
-      "Context note open endpoint only supports POST",
-      "POST",
-    );
-  }
-  try {
-    const payload = parseNavigationBody(request);
-    const object = asRequestObject(payload);
-    const ref =
-      object.note ??
-      object.ref ??
-      object.target ??
-      (typeof payload === "string" ? payload : object);
-    return response(
-      200,
-      "OK",
-      hostBridgeOk(
-        await openLegacyZoteroNote(normalizeHostBridgeItemRef(ref, "note")),
-      ),
-    );
-  } catch (error) {
-    if (error instanceof HostBridgeCursorError) {
-      return paginationErrorResponse(error);
-    }
-    return navigationErrorResponse(error);
-  }
-}
-
-async function openContextCollection(request: HttpRequest) {
-  if (request.method !== "POST") {
-    return methodNotAllowed(
-      "Context collection open endpoint only supports POST",
-      "POST",
-    );
-  }
-  try {
-    const payload = parseNavigationBody(request);
-    const object = asRequestObject(payload);
-    const collection = asRequestObject(object.collection);
-    const libraryId =
-      typeof object.libraryId === "string" ||
-      typeof object.libraryId === "number"
-        ? object.libraryId
-        : typeof object.libraryID === "string" ||
-            typeof object.libraryID === "number"
-          ? object.libraryID
-          : typeof collection.libraryId === "string" ||
-              typeof collection.libraryId === "number"
-            ? collection.libraryId
-            : undefined;
-    return response(
-      200,
-      "OK",
-      hostBridgeOk(
-        await openLegacyZoteroCollection(
-          normalizeHostBridgeCollectionRef({
-            key: String(
-              object.key || object.collectionKey || collection.key || "",
-            ),
-            libraryId,
-          }),
-        ),
-      ),
-    );
-  } catch (error) {
-    return navigationErrorResponse(error);
-  }
-}
-
-async function openContextSelection(request: HttpRequest) {
-  if (request.method !== "POST") {
-    return methodNotAllowed(
-      "Context selection open endpoint only supports POST",
-      "POST",
-    );
-  }
-  try {
-    const payload = parseNavigationBody(request);
-    const object = asRequestObject(payload);
-    const items = Array.isArray(object.items)
-      ? object.items
-      : Array.isArray(payload)
-        ? payload
-        : [];
-    const result = await openLegacyZoteroSelection({
-      items: items.map((item) => normalizeHostBridgeItemRef(item)),
-    });
-    const target = asRequestObject(result.target);
-    const targetItems = Array.isArray(target.items) ? target.items : [];
-    const page = paginateRequestRows(
-      request,
-      "context selection open",
-      targetItems,
-      { items },
-    );
-    const broker = resolveZoteroHostCapabilityBroker();
-    if (
-      !broker?.context ||
-      typeof broker.context.getCurrentView !== "function"
-    ) {
-      throw new ZoteroHostCapabilityError(
-        "unavailable",
-        "Broker current-view capability is unavailable",
-        { reason: "capability" },
-      );
-    }
-    return response(
-      200,
-      "OK",
-      hostBridgeOk({
-        ...result,
-        target: { ...target, items: page.page },
-        currentView: broker.context.getCurrentView(),
-        pagination: {
-          items: {
-            nextCursor: page.nextCursor,
-            hasMore: page.hasMore,
-            returned: page.returned,
-            total: page.total,
-            limit: page.limit,
-          },
-        },
-      }),
-    );
-  } catch (error) {
-    if (error instanceof HostBridgeCursorError) {
-      return paginationErrorResponse(error);
-    }
-    return navigationErrorResponse(error);
+    return contextErrorResponse(error);
   }
 }
 
@@ -4168,22 +4004,6 @@ async function handleHttpRequestImpl(
 
     if (request.path === "/bridge/v2/context/selection") {
       return getCurrentSelection(request);
-    }
-
-    if (request.path === "/bridge/v2/context/selection/open") {
-      return openContextSelection(request);
-    }
-
-    if (request.path === "/bridge/v2/context/items/open") {
-      return openContextItem(request);
-    }
-
-    if (request.path === "/bridge/v2/context/collections/open") {
-      return openContextCollection(request);
-    }
-
-    if (request.path === "/bridge/v2/context/notes/open") {
-      return openContextNote(request);
     }
 
     if (request.path === "/bridge/v2/workflows") {

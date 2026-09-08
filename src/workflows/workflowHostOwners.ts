@@ -452,36 +452,6 @@ export function createWorkflowHostLiveReadAdapters(args: {
               interactionRequiredError("context.getSelectedItems"),
             ),
     },
-    navigation: {
-      openItem: (
-        ...parameters: Parameters<typeof broker.navigation.openItem>
-      ) =>
-        interactive
-          ? broker.navigation.openItem(...parameters)
-          : Promise.reject(interactionRequiredError("navigation.openItem")),
-      openNote: (
-        ...parameters: Parameters<typeof broker.navigation.openNote>
-      ) =>
-        interactive
-          ? broker.navigation.openNote(...parameters)
-          : Promise.reject(interactionRequiredError("navigation.openNote")),
-      openCollection: (
-        ...parameters: Parameters<typeof broker.navigation.openCollection>
-      ) =>
-        interactive
-          ? broker.navigation.openCollection(...parameters)
-          : Promise.reject(
-              interactionRequiredError("navigation.openCollection"),
-            ),
-      openSelection: (
-        ...parameters: Parameters<typeof broker.navigation.openSelection>
-      ) =>
-        interactive
-          ? broker.navigation.openSelection(...parameters)
-          : Promise.reject(
-              interactionRequiredError("navigation.openSelection"),
-            ),
-    },
     library: {
       listItems: broker.library.listItems,
       traverseItems: broker.library.traverseItems,

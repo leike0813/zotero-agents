@@ -200,6 +200,19 @@ export const COMMAND_REFERENCE_PARTITIONS = [
     ],
   },
   {
+    path: "references/commands/navigation.md",
+    title: "Navigation",
+    roots: ["navigation"],
+    catalogTitle: "Navigate the Zotero user interface",
+    taskSummary:
+      "Use this family for explicit UI navigation while preserving portable references and the captured Zotero window boundary.",
+    cues: [
+      "focus Zotero, select a library view, collection, or saved search",
+      "reveal or open a known item in the Zotero interface",
+      "open an exact page, annotation, or EPUB location in Reader",
+    ],
+  },
+  {
     path: "references/commands/mutation.md",
     title: "Mutation",
     roots: ["mutation"],

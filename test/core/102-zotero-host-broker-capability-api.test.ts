@@ -4093,10 +4093,13 @@ describe("zotero host broker capability api", function () {
       "getSelectedItems",
     ]);
     assert.deepEqual(Object.keys(broker.navigation).sort(), [
-      "openCollection",
+      "focusZotero",
       "openItem",
-      "openNote",
-      "openSelection",
+      "openReaderLocation",
+      "revealItems",
+      "selectCollection",
+      "selectLibraryView",
+      "selectSavedSearch",
     ]);
 
     const detail = await broker.library.getItemDetail(itemRef);
@@ -4954,26 +4957,23 @@ describe("zotero host broker capability api", function () {
       assert.isFalse(snapshot.hasMore);
       assert.isNull(snapshot.nextCursor);
 
-      const opened = await broker.navigation.openSelection({
+      const opened = await broker.navigation.revealItems({
         itemRefs: [parentRef, noteRef],
       });
-      assert.deepEqual(opened.target, {
-        kind: "selection",
-        refs: [parentRef, noteRef],
-      });
+      assert.deepEqual(opened, { outcome: "items_revealed", items: [parentRef, noteRef] });
       assert.deepEqual(selectedIds.at(-1), [parent.id, note.id]);
 
-      const collectionResult = await broker.navigation.openCollection({
+      const collectionResult = await broker.navigation.selectCollection({
         libraryId: collection.libraryID,
         key: collection.key,
       });
-      assert.strictEqual(collectionResult.target.kind, "collection");
+      assert.strictEqual(collectionResult.outcome, "collection_selected");
 
       for (const startOperation of [
         () =>
-          broker.navigation.openSelection({ itemRefs: [parentRef, parentRef] }),
-        () => broker.navigation.openItem(noteRef),
-        () => broker.navigation.openNote(parentRef),
+          broker.navigation.revealItems({ itemRefs: [parentRef, parentRef] }),
+        () => broker.navigation.selectCollection({ libraryId: parent.libraryID, key: "BAD" } as any),
+        () => broker.navigation.selectLibraryView({ view: "bad" as any, libraryId: parent.libraryID }),
       ]) {
         try {
           await startOperation();
@@ -4998,10 +4998,7 @@ describe("zotero host broker capability api", function () {
         interactionMode: "non_interactive",
         broker,
       });
-      await expectBrokerError(
-        nonInteractive.navigation.openItem(parentRef),
-        "interaction_required",
-      );
+      assert.isUndefined((nonInteractive as any).navigation);
     } finally {
       (Zotero as any).getMainWindow = previousGetMainWindow;
     }
