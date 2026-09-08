@@ -13,6 +13,7 @@ import type {
   MutationPreviewOperation,
   MutationPreviewRequestByOperation,
   MutationRequestByOperation,
+  MutationOperation,
   SelectedItemsPageRequestDto,
   WorkflowCallControl,
 } from "../workflows/types";
@@ -111,6 +112,7 @@ import {
 export type HostBridgeCapabilityContext = {
   getStatus: () => HostBridgeStatusSnapshot;
   connectionMode: HostBridgeConnectionMode;
+  operationId?: string;
   control?: WorkflowCallControl;
   approveMutation?: (
     preview: MutationPreviewResult<JsonObject>,
@@ -626,7 +628,7 @@ function readPageRequest(input: unknown): SelectedItemsPageRequestDto {
 
 async function toBridgeAttachmentDescriptors(
   attachments: BridgeAttachmentProjectionInput[],
-  capability: "library.get_item_attachments" | "mutation.execute",
+  capability: "library.get_item_attachments" | MutationOperation,
 ) {
   const registerable = attachments.filter(
     (attachment) =>
@@ -745,19 +747,42 @@ async function projectCanonicalMutationObservation(observation: unknown) {
 }
 
 async function executeMutationWithBridgeProjection(
+  operation: MutationOperation,
   input: unknown,
   context: HostBridgeCapabilityContext,
 ) {
-  const storedAttachmentIngress = parseBridgeStoredAttachmentIngress(input);
+  const request = asObject(input);
+  const { dryRun = false, operationId: requestedOperationId, ...payload } = request;
+  const operationId =
+    typeof requestedOperationId === "string" && requestedOperationId
+      ? requestedOperationId
+      : context.operationId || (dryRun ? undefined : generatedMutationOperationId());
+  const canonicalInput = {
+    ...payload,
+    operation,
+    ...(!dryRun && operationId ? { operationId } : {}),
+  };
+  const storedAttachmentIngress = parseBridgeStoredAttachmentIngress(
+    canonicalInput,
+  );
   if (isBridgeStoredAttachmentExecuteIngress(storedAttachmentIngress)) {
     return executeBridgeStoredAttachmentMutation(
       storedAttachmentIngress,
       context,
     );
   }
+  if (storedAttachmentIngress && dryRun) {
+    return previewBridgeStoredAttachmentMutation(storedAttachmentIngress, context);
+  }
+  if (dryRun) {
+    return resolveCapabilityBroker(context).mutations.preview(
+      canonicalInput as MutationPreviewRequestByOperation[MutationPreviewOperation],
+      HOST_BRIDGE_MUTATION_CALLER_SCOPE,
+    );
+  }
   const response = await executeHostBridgeCanonicalMutation({
     broker: resolveCapabilityBroker(context),
-    request: input as MutationExecuteRequest,
+    request: canonicalInput as MutationExecuteRequest,
     control: context.control,
     ...(context.approveMutation ? { approve: context.approveMutation } : {}),
     ...(context.canonicalMutationControl
@@ -765,6 +790,11 @@ async function executeMutationWithBridgeProjection(
       : {}),
   });
   return projectCanonicalMutationExecution(response);
+}
+
+function generatedMutationOperationId() {
+  const crypto = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  return crypto?.randomUUID?.() || `mutation-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 type BridgeStoredAttachmentOperation =
@@ -1185,6 +1215,44 @@ async function getCanonicalMutationOperation(
     HOST_BRIDGE_MUTATION_CALLER_SCOPE,
   );
   return projectCanonicalMutationObservation(observation);
+}
+
+export const CANONICAL_MUTATION_PROJECTION_NAMES = [
+  "item.create",
+  "item.updateMetadata",
+  "item.changeType",
+  "item.remove",
+  "item.updateTags",
+  "item.addRelated",
+  "item.removeRelated",
+  "collection.create",
+  "collection.update",
+  "collection.updateMembership",
+  "collection.remove",
+  "notes.create",
+  "notes.updateContent",
+  "notes.remove",
+  "notes.upsertPayload",
+  "attachments.create",
+  "attachments.updateMetadata",
+  "attachments.replaceFile",
+  "attachments.move",
+  "attachments.remove",
+  "statusTags.transition",
+  "trash.setItemsState",
+  "literature.ingest",
+  "managed_note.write_custom",
+  "managed_note.write_conversation",
+  "literature_artifact.upsert_digest",
+  "literature_artifact.upsert_references",
+  "literature_artifact.upsert_citation_analysis",
+  "literature_artifact.upsert_score",
+] as const satisfies readonly MutationOperation[];
+
+export function isCanonicalMutationProjectionCapability(
+  name: string,
+): name is MutationOperation {
+  return (CANONICAL_MUTATION_PROJECTION_NAMES as readonly string[]).includes(name);
 }
 
 function capability(
@@ -2682,16 +2750,11 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     }
     return { productId: product.productId, removed: true };
   }),
-  capability("mutation.preview", (input, context) => {
-    const ingress = parseBridgeStoredAttachmentIngress(input);
-    return ingress
-      ? previewBridgeStoredAttachmentMutation(ingress, context)
-      : resolveCapabilityBroker(context).mutations.preview(
-          input as MutationPreviewRequestByOperation[MutationPreviewOperation],
-          HOST_BRIDGE_MUTATION_CALLER_SCOPE,
-        );
-  }),
-  capability("mutation.execute", executeMutationWithBridgeProjection),
+  ...CANONICAL_MUTATION_PROJECTION_NAMES.map((operation) =>
+    capability(operation, (input, context) =>
+      executeMutationWithBridgeProjection(operation, input, context),
+    ),
+  ),
   capability("mutation.get_operation", getCanonicalMutationOperation),
   capability("diagnostic.get_status", (_input, context) => context.getStatus()),
   debugCapability("debug.status", debugStatus),

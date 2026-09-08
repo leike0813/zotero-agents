@@ -1006,18 +1006,6 @@ pub struct BridgeInputArgs {
 }
 
 #[derive(Debug, Clone, Args)]
-pub struct MutationInputArgs {
-    #[arg(
-        long,
-        required = true,
-        value_name = "JSON_OR_FILE",
-        help = "Canonical mutation input as inline JSON, a file path, @file, or '-' for stdin",
-        long_help = "Canonical mutation input is required. Use inline JSON, a file path containing JSON, @file syntax, or '-' to read JSON from stdin."
-    )]
-    pub input: String,
-}
-
-#[derive(Debug, Clone, Args)]
 pub struct BridgeQueryArgs {
     #[arg(
         long,
@@ -1031,24 +1019,14 @@ pub struct BridgeQueryArgs {
 
 #[derive(Debug, Clone, Args)]
 pub struct MutationArgs {
+    #[arg(long, global = false, help = "Preview the mutation without applying it")]
+    pub dry_run: bool,
     #[command(subcommand)]
     pub command: MutationCommand,
 }
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum MutationCommand {
-    #[command(
-        about = "Preview a Zotero mutation",
-        long_about = "Call Zotero capability mutation.preview. Use --input with the mutation preview payload."
-    )]
-    Preview(MutationInputArgs),
-
-    #[command(
-        about = "Apply a Zotero mutation",
-        long_about = "Call Zotero capability mutation.execute. Use --input with the mutation execution payload."
-    )]
-    Apply(MutationInputArgs),
-
     #[command(
         name = "get-operation",
         about = "Read canonical mutation evidence",
@@ -1080,7 +1058,7 @@ pub enum MutationCommand {
 pub struct MutationGetOperationArgs {
     #[arg(
         value_parser = parse_operation_id,
-        help = "Canonical mutation operation id returned by or supplied to mutation.execute"
+        help = "Canonical mutation operation id returned by or supplied to a semantic mutation"
     )]
     pub operation_id: String,
 }
@@ -2443,8 +2421,9 @@ mod tests {
         let mutation = command.find_subcommand_mut("mutation").unwrap();
         let help = mutation.render_long_help().to_string();
 
-        assert!(help.contains("preview"));
-        assert!(help.contains("apply"));
+        assert!(!help.contains("preview"));
+        assert!(!help.contains("mutation apply"));
+        assert!(help.contains("dry-run"));
         assert!(help.contains("literature-ingest"));
         let ingest = mutation.find_subcommand_mut("literature-ingest").unwrap();
         let ingest_help = ingest.render_long_help().to_string();

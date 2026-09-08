@@ -23,7 +23,7 @@ The global options may appear before or after the leaf command. Use `--schema` t
 
 | Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| OPERATION_ID | operation_id | positional | yes | — | OPERATION_ID | no | — | — | Canonical mutation operation id returned by or supplied to mutation.execute |
+| OPERATION_ID | operation_id | positional | yes | — | OPERATION_ID | no | — | — | Canonical mutation operation id returned by or supplied to a semantic mutation |
 
 ## Invocation schema
 
@@ -32,7 +32,7 @@ The global options may appear before or after the leaf command. Use `--schema` t
   "additionalProperties": false,
   "properties": {
     "operation_id": {
-      "description": "Canonical mutation operation id returned by or supplied to mutation.execute",
+      "description": "Canonical mutation operation id returned by or supplied to a semantic mutation",
       "position": 1,
       "type": "string"
     }
@@ -3740,7 +3740,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "conflictsWith": [],
       "defaultValues": [],
       "global": false,
-      "help": "Canonical mutation operation id returned by or supplied to mutation.execute",
+      "help": "Canonical mutation operation id returned by or supplied to a semantic mutation",
       "id": "operation_id",
       "kind": "positional",
       "position": 1,
@@ -3829,7 +3829,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "additionalProperties": false,
     "properties": {
       "operation_id": {
-        "description": "Canonical mutation operation id returned by or supplied to mutation.execute",
+        "description": "Canonical mutation operation id returned by or supplied to a semantic mutation",
         "position": 1,
         "type": "string"
       }

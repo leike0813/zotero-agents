@@ -12,6 +12,7 @@ import {
   getHostBridgeCapability,
   HostBridgeCapabilityContractError,
   HostBridgeWorkflowProductError,
+  isCanonicalMutationProjectionCapability,
   listHostBridgeCapabilities,
 } from "./hostBridgeCapabilityRegistry";
 import {
@@ -733,10 +734,11 @@ function isStateChangingHostBridgeRequest(request: HttpRequest) {
   if (request.path === "/bridge/v2/call") {
     try {
       const payload = parseJsonBody(request.body) as HostBridgeCallRequest;
-      return (
-        getHostBridgeCapability(String(payload.capability || "").trim())
-          ?.requestEffect === "state-change"
-      );
+      const capability = String(payload.capability || "").trim();
+      if (isCanonicalMutationProjectionCapability(capability)) {
+        return (payload.input as Record<string, unknown>)?.dryRun !== true;
+      }
+      return getHostBridgeCapability(capability)?.requestEffect === "state-change";
     } catch {
       return false;
     }
@@ -759,11 +761,12 @@ function isStateChangingHostBridgeRequest(request: HttpRequest) {
   );
 }
 
-function isCanonicalMutationExecuteRequest(request: HttpRequest) {
+function isCanonicalMutationRequest(request: HttpRequest) {
   if (request.path !== "/bridge/v2/call") return false;
   try {
     const payload = parseJsonBody(request.body) as HostBridgeCallRequest;
-    return String(payload.capability || "").trim() === "mutation.execute";
+    const capability = String(payload.capability || "").trim();
+    return isCanonicalMutationProjectionCapability(capability);
   } catch {
     return false;
   }
@@ -1423,18 +1426,18 @@ async function callCapability(
     );
   }
 
-  if (capabilityName === "mutation.execute") {
+  if (isCanonicalMutationProjectionCapability(capabilityName)) {
     const inputOperationId = String(
       (normalizedInput as Record<string, unknown>).operationId || "",
     ).trim();
     const headerOperationId = operationIdFromRequest(request);
-    if (headerOperationId && headerOperationId !== inputOperationId) {
+    if (headerOperationId && inputOperationId && headerOperationId !== inputOperationId) {
       return response(
         400,
         "Bad Request",
         hostBridgeError(
           "invalid_operation_id",
-          "X-Zotero-Bridge-Operation-Id must match mutation.execute operationId",
+          "X-Zotero-Bridge-Operation-Id must match the mutation operationId",
           "validation",
           { headerOperationId, inputOperationId },
         ),
@@ -1444,11 +1447,16 @@ async function callCapability(
   }
 
   try {
+    const requestOperationId = operationIdFromRequest(request);
     const permissionScope = parsePermissionScopeHeader(request);
     const autoApprovedWrite =
       capability.category === "mutation" &&
       isHostBridgeWriteAutoApprovalScope(permissionScope);
-    const canonicalMutationExecute = capabilityName === "mutation.execute";
+    const canonicalMutationProjection =
+      isCanonicalMutationProjectionCapability(capabilityName);
+    const canonicalMutationExecute =
+      canonicalMutationProjection &&
+      (normalizedInput as Record<string, unknown>).dryRun !== true;
     const requestApproval = async (
       preview?: MutationPreviewResult<JsonObject>,
     ) => {
@@ -1467,7 +1475,7 @@ async function callCapability(
     if (
       capability.approval !== "none" &&
       !autoApprovedWrite &&
-      !canonicalMutationExecute
+      !canonicalMutationProjection
     ) {
       await requestApproval();
     }
@@ -1477,6 +1485,7 @@ async function callCapability(
       {
         getStatus: getHostBridgeServerStatus,
         connectionMode: parseConnectionModeHeader(request, transportContext),
+        ...(requestOperationId ? { operationId: requestOperationId } : {}),
         control: requestWorkflowCallControl(request),
         ...(canonicalMutationExecute &&
         capability.approval !== "none" &&
@@ -1499,7 +1508,13 @@ async function callCapability(
       "OK",
       hostBridgeOk({
         capability: capability.name,
-        approval: autoApprovedWrite ? "auto-approved" : capability.approval,
+        approval:
+          canonicalMutationProjection &&
+          (normalizedInput as Record<string, unknown>).dryRun === true
+            ? "none"
+            : autoApprovedWrite
+              ? "auto-approved"
+              : capability.approval,
         data,
       }),
     );
@@ -3886,7 +3901,7 @@ async function handleHttpRequestImpl(
   const operationId = operationIdFromRequest(request);
   let operationReserved = false;
   const stateChangingRequest = isStateChangingHostBridgeRequest(request);
-  const canonicalMutationExecution = isCanonicalMutationExecuteRequest(request);
+  const canonicalMutationExecution = isCanonicalMutationRequest(request);
   if (stateChangingRequest && !canonicalMutationExecution && !operationId) {
     return response(
       428,

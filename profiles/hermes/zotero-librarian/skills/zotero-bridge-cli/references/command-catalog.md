@@ -176,7 +176,6 @@ Select one command below, then read its linked command card. Each card contains 
 
 | Canonical command | Purpose | Command card |
 | --- | --- | --- |
-| `zotero-bridge mutation apply` | Apply a Zotero mutation | [Open card](commands/mutation/apply.md) |
 | `zotero-bridge mutation collection add-items` | Add Zotero items to a collection | [Open card](commands/mutation/collection/add-items.md) |
 | `zotero-bridge mutation collection create` | Create a Zotero collection | [Open card](commands/mutation/collection/create.md) |
 | `zotero-bridge mutation collection remove-items` | Remove Zotero items from a collection | [Open card](commands/mutation/collection/remove-items.md) |
@@ -187,7 +186,6 @@ Select one command below, then read its linked command card. Each card contains 
 | `zotero-bridge mutation note create` | Create a child note under one Zotero item | [Open card](commands/mutation/note/create.md) |
 | `zotero-bridge mutation note update` | Update one Zotero note | [Open card](commands/mutation/note/update.md) |
 | `zotero-bridge mutation note upsert-payload` | Upsert one embedded note payload | [Open card](commands/mutation/note/upsert-payload.md) |
-| `zotero-bridge mutation preview` | Preview a Zotero mutation | [Open card](commands/mutation/preview.md) |
 | `zotero-bridge mutation tag add` | Add tags to Zotero items | [Open card](commands/mutation/tag/add.md) |
 | `zotero-bridge mutation tag remove` | Remove tags from Zotero items | [Open card](commands/mutation/tag/remove.md) |
 

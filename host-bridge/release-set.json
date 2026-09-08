@@ -1,11 +1,11 @@
 {
   "schema": "host-bridge.release-set.v4",
-  "releaseSetId": "hbrs-55709ae0da988b79dc46f144",
+  "releaseSetId": "hbrs-b030702272cc636b2f37f2c9",
   "status": "planned",
-  "payloadDigest": "sha256:55709ae0da988b79dc46f144565ba3ae2fc117f5000424aa3b7f709568938abd",
+  "payloadDigest": "sha256:b030702272cc636b2f37f2c9b00818d65e9b1a1a2d2f02108d57d5597029c5ba",
   "source": {
     "repository": "leike0813/zotero-agents",
-    "commit": "9e3bb54a1d06c13a1175b11bb5d8c2a393e789d5"
+    "commit": "fc7384cc7381db2a4da1373e84adf4c00c9dd2a9"
   },
   "protocol": "host-bridge.v2",
   "cliSchema": "zotero-bridge.cli.v5",
@@ -14,7 +14,7 @@
     "version": "0.5.5",
     "buildFingerprint": "2ef15640bcf10945895ab4a1daa65e89337d6f99978316278c8aa4b1ecb4b4c1",
     "binariesBuildFingerprint": "2ef15640bcf10945895ab4a1daa65e89337d6f99978316278c8aa4b1ecb4b4c1",
-    "commandCatalogChecksum": "df61f53dfcc03bf6ae67b82188083ab81fecfc7726d7ff0f8f982e25de027984",
+    "commandCatalogChecksum": "351370aea6695c3a3956305396ad56fd736b28eb20d1e42d23ec9601bfb0ff8f",
     "binaryAggregateSha256": "68bc4ecccb1c68fb47b6697da3d43ad444aaa1be1b16dfa7f88eba83cccfcedc",
     "binaries": [
       {
@@ -66,7 +66,7 @@
       "cliSchema": "zotero-bridge.cli.v5",
       "version": "0.5.5",
       "buildFingerprint": "2ef15640bcf10945895ab4a1daa65e89337d6f99978316278c8aa4b1ecb4b4c1",
-      "commandCatalogChecksum": "df61f53dfcc03bf6ae67b82188083ab81fecfc7726d7ff0f8f982e25de027984"
+      "commandCatalogChecksum": "351370aea6695c3a3956305396ad56fd736b28eb20d1e42d23ec9601bfb0ff8f"
     },
     "prebuild": {
       "verified": true,
@@ -78,47 +78,47 @@
   "surfaces": {
     "cliBundle": {
       "version": "0.5.4",
-      "contentDigest": "ddf7fb92b70294a40d01b81226a1885549f7e8132c2add1a5623a21f696ca9fd",
+      "contentDigest": "2af71eb74609f4550ca8d04838e5908f101cc9c9706d93442cd8ba1e474089e0",
       "repository": "leike0813/zotero-agents",
       "mutableRef": "host-bridge/zotero-bridge-cli-bundle",
-      "immutableTag": "host-bridge/hbrs-55709ae0da988b79dc46f144",
+      "immutableTag": "host-bridge/hbrs-b030702272cc636b2f37f2c9",
       "cliIdentity": {
         "schema": "host-bridge.surface-identity.v6",
         "protocol": "host-bridge.v2",
         "cliSchema": "zotero-bridge.cli.v5",
         "version": "0.5.5",
         "buildFingerprint": "2ef15640bcf10945895ab4a1daa65e89337d6f99978316278c8aa4b1ecb4b4c1",
-        "commandCatalogChecksum": "df61f53dfcc03bf6ae67b82188083ab81fecfc7726d7ff0f8f982e25de027984"
+        "commandCatalogChecksum": "351370aea6695c3a3956305396ad56fd736b28eb20d1e42d23ec9601bfb0ff8f"
       }
     },
     "libraryAgent": {
       "version": "0.5.5",
-      "contentDigest": "8e238d3ac18be9930ae741428b8d810b85ddfdde496ececbe338bc3e2c401fc8",
+      "contentDigest": "49b34d7cec7ade7ed49f299223577a227c4535c7fc0befc944c2fcc2684851c3",
       "repository": "leike0813/zotero-library-agent-bundle",
       "mutableRef": "main",
-      "immutableTag": "host-bridge/hbrs-55709ae0da988b79dc46f144",
+      "immutableTag": "host-bridge/hbrs-b030702272cc636b2f37f2c9",
       "cliIdentity": {
         "schema": "host-bridge.surface-identity.v6",
         "protocol": "host-bridge.v2",
         "cliSchema": "zotero-bridge.cli.v5",
         "version": "0.5.5",
         "buildFingerprint": "2ef15640bcf10945895ab4a1daa65e89337d6f99978316278c8aa4b1ecb4b4c1",
-        "commandCatalogChecksum": "df61f53dfcc03bf6ae67b82188083ab81fecfc7726d7ff0f8f982e25de027984"
+        "commandCatalogChecksum": "351370aea6695c3a3956305396ad56fd736b28eb20d1e42d23ec9601bfb0ff8f"
       }
     },
     "librarianProfile": {
       "version": "0.5.5",
-      "contentDigest": "4f23c21acac81bd3df375f40e093b85d1de498408d4e04994cd42a08562eda48",
+      "contentDigest": "6f368d6e7e079b8a04350262564b0822f1681afc674838e5df29e598b554da1e",
       "repository": "leike0813/zotero-librarian-profile",
       "mutableRef": "main",
-      "immutableTag": "host-bridge/hbrs-55709ae0da988b79dc46f144",
+      "immutableTag": "host-bridge/hbrs-b030702272cc636b2f37f2c9",
       "cliIdentity": {
         "schema": "host-bridge.surface-identity.v6",
         "protocol": "host-bridge.v2",
         "cliSchema": "zotero-bridge.cli.v5",
         "version": "0.5.5",
         "buildFingerprint": "2ef15640bcf10945895ab4a1daa65e89337d6f99978316278c8aa4b1ecb4b4c1",
-        "commandCatalogChecksum": "df61f53dfcc03bf6ae67b82188083ab81fecfc7726d7ff0f8f982e25de027984"
+        "commandCatalogChecksum": "351370aea6695c3a3956305396ad56fd736b28eb20d1e42d23ec9601bfb0ff8f"
       }
     }
   }

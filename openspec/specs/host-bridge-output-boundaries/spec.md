@@ -220,3 +220,10 @@ Bridge, MCP, and CLI projections of canonical mutation execute and observation S
 - **WHEN** a canonical mutation cannot establish complete success evidence or leaves residual work
 - **THEN** the output contains the corresponding typed attempt
 - **AND** it SHALL not present a partial mutation result as a success receipt.
+
+### Requirement: Typed mutation evidence has an operation-specific boundary
+Bridge, MCP, and CLI projections SHALL expose operation-specific preview or execution results with the existing path-free attachment projection. They SHALL not expose the generic mutation union or generic HTTP operation envelope.
+
+#### Scenario: Typed mutation returns attachment facts
+- **WHEN** a typed attachment mutation returns attachment facts
+- **THEN** every attachment summary uses the existing remote-safe descriptor projection and omits host-local paths.

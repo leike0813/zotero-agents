@@ -114,6 +114,7 @@ pub(super) fn call(
 
 pub(super) fn call_mutation_execute(
     config: &BridgeConfig,
+    capability: &str,
     input: Value,
     operation_id: &str,
 ) -> Result<Value, CliError> {
@@ -122,7 +123,7 @@ pub(super) fn call_mutation_execute(
         "POST",
         "/call",
         Some(json!({
-            "capability": "mutation.execute",
+            "capability": capability,
             "input": input
         })),
         true,
@@ -1150,6 +1151,7 @@ mod tests {
             });
             let error = call_mutation_execute(
                 &download_config(port),
+                "item.create",
                 json!({ "operation": "item.create", "operationId": "mutation-1" }),
                 "mutation-1",
             )

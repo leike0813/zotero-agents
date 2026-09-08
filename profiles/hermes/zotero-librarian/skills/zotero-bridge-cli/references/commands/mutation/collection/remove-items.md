@@ -104,6 +104,7 @@ This command has no structured JSON input parameter.
       "type": "array"
     }
   },
+  "additionalProperties": false,
   "properties": {
     "add": {
       "$ref": "#/$defs/itemRefArray"
@@ -111,21 +112,25 @@ This command has no structured JSON input parameter.
     "collectionRef": {
       "$ref": "#/$defs/collectionRef"
     },
-    "operation": {
-      "const": "collection.updateMembership"
+    "dryRun": {
+      "default": false,
+      "type": "boolean"
+    },
+    "operationId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
     },
     "remove": {
       "$ref": "#/$defs/itemRefArray"
     }
   },
   "required": [
-    "operation",
     "collectionRef",
     "add",
     "remove"
   ],
-  "type": "object",
-  "unevaluatedProperties": false
+  "type": "object"
 }
 ```
 
@@ -136,8 +141,7 @@ The executable command contract owns the base source, fixed values, field mappin
 ```json
 {
   "constants": {
-    "add": [],
-    "operation": "collection.updateMembership"
+    "add": []
   },
   "mappings": [
     {
@@ -167,7 +171,7 @@ The executable command contract owns the base source, fixed values, field mappin
       "type": "string"
     },
     "capability": {
-      "const": "mutation.execute"
+      "const": "collection.updateMembership"
     },
     "data": {
       "$defs": {
@@ -1052,2671 +1056,999 @@ The executable command contract owns the base source, fixed values, field mappin
         {
           "additionalProperties": false,
           "properties": {
+            "domainPlanDigest": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "observedAt": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "operation": {
+              "const": "collection.updateMembership"
+            },
             "outcome": {
               "enum": [
-                "committed",
+                "would_change",
                 "unchanged"
               ]
             },
-            "receipt": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/receipt"
-                },
-                {
-                  "properties": {
-                    "operation": {
-                      "const": "item.create"
-                    }
-                  },
-                  "required": [
-                    "operation"
-                  ],
-                  "type": "object"
-                }
-              ]
-            },
-            "result": {
-              "additionalProperties": false,
-              "properties": {
-                "item": {
-                  "additionalProperties": true,
-                  "type": "object"
-                }
-              },
-              "required": [
-                "item"
-              ],
+            "plan": {
+              "additionalProperties": true,
               "type": "object"
+            },
+            "schema": {
+              "const": "zotero-agents.mutation-preview.v1"
             }
           },
           "required": [
+            "schema",
+            "operation",
             "outcome",
-            "receipt",
-            "result"
+            "observedAt",
+            "domainPlanDigest",
+            "plan"
           ],
           "type": "object"
         },
         {
-          "additionalProperties": false,
-          "properties": {
-            "outcome": {
-              "enum": [
-                "committed",
-                "unchanged"
-              ]
-            },
-            "receipt": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/receipt"
-                },
-                {
-                  "properties": {
-                    "operation": {
-                      "const": "item.updateMetadata"
-                    }
-                  },
-                  "required": [
-                    "operation"
-                  ],
-                  "type": "object"
-                }
-              ]
-            },
-            "result": {
+          "$defs": {
+            "attachmentContentManifest": {
               "additionalProperties": false,
               "properties": {
-                "item": {
-                  "additionalProperties": true,
-                  "type": "object"
-                }
-              },
-              "required": [
-                "item"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "outcome",
-            "receipt",
-            "result"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "outcome": {
-              "enum": [
-                "committed",
-                "unchanged"
-              ]
-            },
-            "receipt": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/receipt"
-                },
-                {
-                  "properties": {
-                    "operation": {
-                      "const": "item.changeType"
-                    }
-                  },
-                  "required": [
-                    "operation"
-                  ],
-                  "type": "object"
-                }
-              ]
-            },
-            "result": {
-              "additionalProperties": false,
-              "properties": {
-                "item": {
-                  "additionalProperties": true,
-                  "type": "object"
-                }
-              },
-              "required": [
-                "item"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "outcome",
-            "receipt",
-            "result"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "outcome": {
-              "enum": [
-                "committed",
-                "unchanged"
-              ]
-            },
-            "receipt": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/receipt"
-                },
-                {
-                  "properties": {
-                    "operation": {
-                      "const": "item.remove"
-                    }
-                  },
-                  "required": [
-                    "operation"
-                  ],
-                  "type": "object"
-                }
-              ]
-            },
-            "result": {
-              "additionalProperties": false,
-              "properties": {
-                "itemRef": {
-                  "$ref": "#/$defs/itemRef"
-                },
-                "outcome": {
-                  "enum": [
-                    "trashed",
-                    "permanently_deleted",
-                    "already_trashed",
-                    "already_absent"
-                  ]
-                }
-              },
-              "required": [
-                "itemRef",
-                "outcome"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "outcome",
-            "receipt",
-            "result"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "outcome": {
-              "enum": [
-                "committed",
-                "unchanged"
-              ]
-            },
-            "receipt": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/receipt"
-                },
-                {
-                  "properties": {
-                    "operation": {
-                      "const": "item.updateTags"
-                    }
-                  },
-                  "required": [
-                    "operation"
-                  ],
-                  "type": "object"
-                }
-              ]
-            },
-            "result": {
-              "additionalProperties": false,
-              "properties": {
-                "item": {
-                  "additionalProperties": true,
-                  "type": "object"
-                }
-              },
-              "required": [
-                "item"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "outcome",
-            "receipt",
-            "result"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "outcome": {
-              "enum": [
-                "committed",
-                "unchanged"
-              ]
-            },
-            "receipt": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/receipt"
-                },
-                {
-                  "properties": {
-                    "operation": {
-                      "const": "item.addRelated"
-                    }
-                  },
-                  "required": [
-                    "operation"
-                  ],
-                  "type": "object"
-                }
-              ]
-            },
-            "result": {
-              "additionalProperties": false,
-              "properties": {
-                "relatedRefs": {
-                  "$ref": "#/$defs/itemRefArray"
-                },
-                "relations": {
+                "companions": {
                   "items": {
                     "additionalProperties": false,
                     "properties": {
-                      "outcome": {
-                        "enum": [
-                          "added",
-                          "removed",
-                          "already_present",
-                          "already_absent"
-                        ]
+                      "relativePath": {
+                        "minLength": 1,
+                        "type": "string"
                       },
-                      "relatedRef": {
-                        "$ref": "#/$defs/itemRef"
+                      "sha256": {
+                        "pattern": "^sha256:[0-9a-f]{64}$",
+                        "type": "string"
+                      },
+                      "sizeBytes": {
+                        "minimum": 0,
+                        "type": "integer"
                       }
                     },
                     "required": [
-                      "relatedRef",
-                      "outcome"
+                      "relativePath",
+                      "sizeBytes",
+                      "sha256"
                     ],
                     "type": "object"
                   },
                   "type": "array"
                 },
-                "sourceRef": {
-                  "$ref": "#/$defs/itemRef"
-                },
-                "sourceRevision": {
+                "identity": {
                   "minLength": 1,
                   "type": "string"
-                }
-              },
-              "required": [
-                "sourceRef",
-                "relatedRefs",
-                "relations",
-                "sourceRevision"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "outcome",
-            "receipt",
-            "result"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "outcome": {
-              "enum": [
-                "committed",
-                "unchanged"
-              ]
-            },
-            "receipt": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/receipt"
                 },
-                {
+                "main": {
+                  "additionalProperties": false,
                   "properties": {
-                    "operation": {
-                      "const": "item.removeRelated"
+                    "relativePath": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "sha256": {
+                      "pattern": "^sha256:[0-9a-f]{64}$",
+                      "type": "string"
+                    },
+                    "sizeBytes": {
+                      "minimum": 0,
+                      "type": "integer"
                     }
                   },
                   "required": [
-                    "operation"
+                    "relativePath",
+                    "sizeBytes",
+                    "sha256"
+                  ],
+                  "type": "object"
+                },
+                "schema": {
+                  "const": "zotero-agents.attachment-content.v1"
+                }
+              },
+              "required": [
+                "schema",
+                "identity",
+                "main",
+                "companions"
+              ],
+              "type": "object"
+            },
+            "attachmentSource": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/storedAttachmentSource"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "const": "linked_url"
+                    },
+                    "url": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "url"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "const": "stored_url"
+                    },
+                    "url": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "url"
                   ],
                   "type": "object"
                 }
               ]
             },
-            "result": {
+            "collectionRef": {
               "additionalProperties": false,
               "properties": {
-                "relatedRefs": {
-                  "$ref": "#/$defs/itemRefArray"
+                "key": {
+                  "minLength": 1,
+                  "type": "string"
                 },
-                "relations": {
+                "libraryId": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "libraryId",
+                "key"
+              ],
+              "type": "object"
+            },
+            "collectionRefArray": {
+              "items": {
+                "$ref": "#/$defs/collectionRef"
+              },
+              "type": "array"
+            },
+            "creator": {
+              "additionalProperties": false,
+              "properties": {
+                "creatorType": {
+                  "type": "string"
+                },
+                "firstName": {
+                  "type": "string"
+                },
+                "lastName": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "itemRef": {
+              "additionalProperties": false,
+              "properties": {
+                "key": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "libraryId": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "libraryId",
+                "key"
+              ],
+              "type": "object"
+            },
+            "itemRefArray": {
+              "items": {
+                "$ref": "#/$defs/itemRef"
+              },
+              "type": "array"
+            },
+            "jsonValue": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "items": {
+                    "$ref": "#/$defs/jsonValue"
+                  },
+                  "type": "array"
+                },
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/jsonValue"
+                  },
+                  "type": "object"
+                }
+              ]
+            },
+            "literatureScoreArtifact": {
+              "additionalProperties": false,
+              "properties": {
+                "confidence": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "confidence_adjusted_score": {
+                  "maximum": 100,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "dimensions": {
                   "items": {
                     "additionalProperties": false,
                     "properties": {
-                      "outcome": {
-                        "enum": [
-                          "added",
-                          "removed",
-                          "already_present",
-                          "already_absent"
+                      "applicable_max_score": {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "confidence": {
+                        "maximum": 1,
+                        "minimum": 0,
+                        "type": [
+                          "number",
+                          "null"
                         ]
                       },
-                      "relatedRef": {
-                        "$ref": "#/$defs/itemRef"
+                      "configured_weight": {
+                        "maximum": 1,
+                        "minimum": 0,
+                        "type": "number"
+                      },
+                      "criteria": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "criterion_key": {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "evidence": {
+                              "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "line_end": {
+                                    "minimum": 1,
+                                    "type": "integer"
+                                  },
+                                  "line_start": {
+                                    "minimum": 1,
+                                    "type": "integer"
+                                  },
+                                  "quote": {
+                                    "maxLength": 500,
+                                    "minLength": 1,
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "line_start",
+                                  "line_end",
+                                  "quote"
+                                ],
+                                "type": "object"
+                              },
+                              "type": "array"
+                            },
+                            "max_score": {
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "name": {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "reason": {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "score": {
+                              "minimum": 0,
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
+                            },
+                            "status": {
+                              "enum": [
+                                "scored",
+                                "not_applicable"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "criterion_key",
+                            "name",
+                            "status",
+                            "score",
+                            "max_score",
+                            "reason",
+                            "evidence"
+                          ],
+                          "type": "object"
+                        },
+                        "minItems": 1,
+                        "type": "array"
+                      },
+                      "dimension_key": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "effective_weight": {
+                        "maximum": 1,
+                        "minimum": 0,
+                        "type": "number"
+                      },
+                      "name": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "raw_score": {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "score": {
+                        "maximum": 100,
+                        "minimum": 0,
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      },
+                      "summary": {
+                        "minLength": 1,
+                        "type": "string"
                       }
                     },
                     "required": [
-                      "relatedRef",
-                      "outcome"
+                      "dimension_key",
+                      "name",
+                      "configured_weight",
+                      "effective_weight",
+                      "raw_score",
+                      "applicable_max_score",
+                      "score",
+                      "confidence",
+                      "summary",
+                      "criteria"
                     ],
+                    "type": "object"
+                  },
+                  "maxItems": 6,
+                  "minItems": 6,
+                  "type": "array"
+                },
+                "overall_score": {
+                  "maximum": 100,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "paper_type": {
+                  "enum": [
+                    "empirical",
+                    "review",
+                    "theoretical",
+                    "qualitative",
+                    "mixed_methods",
+                    "other"
+                  ]
+                },
+                "paper_type_reason": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "rubric_id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "schema": {
+                  "const": "literature_score.v1"
+                }
+              },
+              "required": [
+                "schema",
+                "rubric_id",
+                "paper_type",
+                "paper_type_reason",
+                "overall_score",
+                "confidence",
+                "confidence_adjusted_score",
+                "dimensions"
+              ],
+              "type": "object"
+            },
+            "managedNoteDetail": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "content": {
+                      "type": "string"
+                    },
+                    "format": {
+                      "enum": [
+                        "html",
+                        "text"
+                      ]
+                    },
+                    "kind": {
+                      "const": "ordinary"
+                    },
+                    "parentRef": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/itemRef"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "ref": {
+                      "$ref": "#/$defs/itemRef"
+                    },
+                    "revision": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "ref",
+                    "parentRef",
+                    "title",
+                    "format",
+                    "content",
+                    "revision"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "derived": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "markdown": {
+                          "type": "string"
+                        },
+                        "representativeImage": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "alt": {
+                              "type": "string"
+                            },
+                            "attachmentRef": {
+                              "$ref": "#/$defs/itemRef"
+                            }
+                          },
+                          "required": [
+                            "attachmentRef",
+                            "alt"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "detailBytes": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "health": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "currentReferencesBasis": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "state": {
+                          "enum": [
+                            "current",
+                            "stale"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "state"
+                      ],
+                      "type": "object"
+                    },
+                    "kind": {
+                      "const": "managed"
+                    },
+                    "noteKind": {
+                      "enum": [
+                        "custom",
+                        "conversation-note",
+                        "digest",
+                        "references",
+                        "citation-analysis",
+                        "literature-score"
+                      ]
+                    },
+                    "parentRef": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/itemRef"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "payload": {
+                      "$ref": "#/$defs/jsonValue"
+                    },
+                    "payloadBytes": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "provenance": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "referencesBasis": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "sourceRef": {
+                          "$ref": "#/$defs/itemRef"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "ref": {
+                      "$ref": "#/$defs/itemRef"
+                    },
+                    "revision": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "noteKind",
+                    "ref",
+                    "parentRef",
+                    "title",
+                    "payload",
+                    "payloadBytes",
+                    "detailBytes",
+                    "revision"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "mutationAttempt": {
+              "additionalProperties": false,
+              "properties": {
+                "affectedRefs": {
+                  "items": {
+                    "additionalProperties": false,
                     "type": "object"
                   },
                   "type": "array"
                 },
-                "sourceRef": {
-                  "$ref": "#/$defs/itemRef"
-                },
-                "sourceRevision": {
-                  "minLength": 1,
-                  "type": "string"
-                }
-              },
-              "required": [
-                "sourceRef",
-                "relatedRefs",
-                "relations",
-                "sourceRevision"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "outcome",
-            "receipt",
-            "result"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "outcome": {
-              "enum": [
-                "committed",
-                "unchanged"
-              ]
-            },
-            "receipt": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/receipt"
-                },
-                {
-                  "properties": {
-                    "operation": {
-                      "const": "collection.create"
-                    }
-                  },
-                  "required": [
-                    "operation"
-                  ],
-                  "type": "object"
-                }
-              ]
-            },
-            "result": {
-              "additionalProperties": false,
-              "properties": {
-                "collection": {
-                  "additionalProperties": true,
-                  "type": "object"
-                }
-              },
-              "required": [
-                "collection"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "outcome",
-            "receipt",
-            "result"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "outcome": {
-              "enum": [
-                "committed",
-                "unchanged"
-              ]
-            },
-            "receipt": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/receipt"
-                },
-                {
-                  "properties": {
-                    "operation": {
-                      "const": "collection.update"
-                    }
-                  },
-                  "required": [
-                    "operation"
-                  ],
-                  "type": "object"
-                }
-              ]
-            },
-            "result": {
-              "additionalProperties": false,
-              "properties": {
-                "collection": {
-                  "additionalProperties": true,
-                  "type": "object"
-                }
-              },
-              "required": [
-                "collection"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "outcome",
-            "receipt",
-            "result"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "outcome": {
-              "enum": [
-                "committed",
-                "unchanged"
-              ]
-            },
-            "receipt": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/receipt"
-                },
-                {
-                  "properties": {
-                    "operation": {
-                      "const": "collection.updateMembership"
-                    }
-                  },
-                  "required": [
-                    "operation"
-                  ],
-                  "type": "object"
-                }
-              ]
-            },
-            "result": {
-              "additionalProperties": false,
-              "properties": {
-                "addedRefs": {
-                  "$ref": "#/$defs/itemRefArray"
-                },
-                "collection": {
-                  "additionalProperties": true,
-                  "type": "object"
-                },
-                "removedRefs": {
-                  "$ref": "#/$defs/itemRefArray"
-                }
-              },
-              "required": [
-                "collection",
-                "addedRefs",
-                "removedRefs"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "outcome",
-            "receipt",
-            "result"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "outcome": {
-              "enum": [
-                "committed",
-                "unchanged"
-              ]
-            },
-            "receipt": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/receipt"
-                },
-                {
-                  "properties": {
-                    "operation": {
-                      "const": "collection.remove"
-                    }
-                  },
-                  "required": [
-                    "operation"
-                  ],
-                  "type": "object"
-                }
-              ]
-            },
-            "result": {
-              "additionalProperties": false,
-              "properties": {
-                "removedRef": {
-                  "$ref": "#/$defs/collectionRef"
-                }
-              },
-              "required": [
-                "removedRef"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "outcome",
-            "receipt",
-            "result"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "outcome": {
-              "enum": [
-                "committed",
-                "unchanged"
-              ]
-            },
-            "receipt": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/receipt"
-                },
-                {
-                  "properties": {
-                    "operation": {
-                      "const": "notes.create"
-                    }
-                  },
-                  "required": [
-                    "operation"
-                  ],
-                  "type": "object"
-                }
-              ]
-            },
-            "result": {
-              "additionalProperties": false,
-              "properties": {
-                "note": {
-                  "additionalProperties": true,
-                  "type": "object"
-                }
-              },
-              "required": [
-                "note"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "outcome",
-            "receipt",
-            "result"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "outcome": {
-              "enum": [
-                "committed",
-                "unchanged"
-              ]
-            },
-            "receipt": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/receipt"
-                },
-                {
-                  "properties": {
-                    "operation": {
-                      "const": "notes.updateContent"
-                    }
-                  },
-                  "required": [
-                    "operation"
-                  ],
-                  "type": "object"
-                }
-              ]
-            },
-            "result": {
-              "additionalProperties": false,
-              "properties": {
-                "note": {
-                  "additionalProperties": true,
-                  "type": "object"
-                }
-              },
-              "required": [
-                "note"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "outcome",
-            "receipt",
-            "result"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "outcome": {
-              "enum": [
-                "committed",
-                "unchanged"
-              ]
-            },
-            "receipt": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/receipt"
-                },
-                {
-                  "properties": {
-                    "operation": {
-                      "const": "notes.remove"
-                    }
-                  },
-                  "required": [
-                    "operation"
-                  ],
-                  "type": "object"
-                }
-              ]
-            },
-            "result": {
-              "additionalProperties": false,
-              "properties": {
-                "noteRef": {
-                  "$ref": "#/$defs/itemRef"
-                },
-                "outcome": {
-                  "enum": [
-                    "trashed",
-                    "permanently_deleted",
-                    "already_trashed",
-                    "already_absent"
-                  ]
-                }
-              },
-              "required": [
-                "noteRef",
-                "outcome"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "outcome",
-            "receipt",
-            "result"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "outcome": {
-              "enum": [
-                "committed",
-                "unchanged"
-              ]
-            },
-            "receipt": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/receipt"
-                },
-                {
-                  "properties": {
-                    "operation": {
-                      "const": "notes.upsertPayload"
-                    }
-                  },
-                  "required": [
-                    "operation"
-                  ],
-                  "type": "object"
-                }
-              ]
-            },
-            "result": {
-              "additionalProperties": false,
-              "properties": {
-                "note": {
-                  "additionalProperties": true,
-                  "type": "object"
-                },
-                "outcome": {
-                  "enum": [
-                    "created",
-                    "replaced",
-                    "unchanged"
-                  ]
-                },
-                "payload": {
-                  "additionalProperties": true,
-                  "type": "object"
-                }
-              },
-              "required": [
-                "note",
-                "payload",
-                "outcome"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "outcome",
-            "receipt",
-            "result"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "outcome": {
-              "enum": [
-                "committed",
-                "unchanged"
-              ]
-            },
-            "receipt": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/receipt"
-                },
-                {
-                  "properties": {
-                    "operation": {
-                      "const": "attachments.create"
-                    }
-                  },
-                  "required": [
-                    "operation"
-                  ],
-                  "type": "object"
-                }
-              ]
-            },
-            "result": {
-              "additionalProperties": false,
-              "properties": {
-                "attachment": {
-                  "additionalProperties": true,
-                  "type": "object"
-                }
-              },
-              "required": [
-                "attachment"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "outcome",
-            "receipt",
-            "result"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "outcome": {
-              "enum": [
-                "committed",
-                "unchanged"
-              ]
-            },
-            "receipt": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/receipt"
-                },
-                {
-                  "properties": {
-                    "operation": {
-                      "const": "attachments.updateMetadata"
-                    }
-                  },
-                  "required": [
-                    "operation"
-                  ],
-                  "type": "object"
-                }
-              ]
-            },
-            "result": {
-              "additionalProperties": false,
-              "properties": {
-                "attachment": {
-                  "additionalProperties": true,
-                  "type": "object"
-                }
-              },
-              "required": [
-                "attachment"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "outcome",
-            "receipt",
-            "result"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "outcome": {
-              "enum": [
-                "committed",
-                "unchanged"
-              ]
-            },
-            "receipt": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/receipt"
-                },
-                {
-                  "properties": {
-                    "operation": {
-                      "const": "attachments.replaceFile"
-                    }
-                  },
-                  "required": [
-                    "operation"
-                  ],
-                  "type": "object"
-                }
-              ]
-            },
-            "result": {
-              "additionalProperties": false,
-              "properties": {
-                "attachment": {
-                  "additionalProperties": true,
-                  "type": "object"
-                },
-                "outcome": {
-                  "enum": [
-                    "replaced",
-                    "unchanged"
-                  ]
-                }
-              },
-              "required": [
-                "attachment",
-                "outcome"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "outcome",
-            "receipt",
-            "result"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "outcome": {
-              "enum": [
-                "committed",
-                "unchanged"
-              ]
-            },
-            "receipt": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/receipt"
-                },
-                {
-                  "properties": {
-                    "operation": {
-                      "const": "attachments.move"
-                    }
-                  },
-                  "required": [
-                    "operation"
-                  ],
-                  "type": "object"
-                }
-              ]
-            },
-            "result": {
-              "additionalProperties": false,
-              "properties": {
-                "attachment": {
-                  "additionalProperties": true,
-                  "type": "object"
-                },
-                "outcome": {
-                  "enum": [
-                    "moved",
-                    "unchanged"
-                  ]
-                }
-              },
-              "required": [
-                "attachment",
-                "outcome"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "outcome",
-            "receipt",
-            "result"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "outcome": {
-              "enum": [
-                "committed",
-                "unchanged"
-              ]
-            },
-            "receipt": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/receipt"
-                },
-                {
-                  "properties": {
-                    "operation": {
-                      "const": "attachments.remove"
-                    }
-                  },
-                  "required": [
-                    "operation"
-                  ],
-                  "type": "object"
-                }
-              ]
-            },
-            "result": {
-              "additionalProperties": false,
-              "properties": {
-                "attachmentRef": {
-                  "$ref": "#/$defs/itemRef"
-                },
-                "outcome": {
-                  "enum": [
-                    "trashed",
-                    "permanently_deleted",
-                    "already_trashed",
-                    "already_absent"
-                  ]
-                }
-              },
-              "required": [
-                "attachmentRef",
-                "outcome"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "outcome",
-            "receipt",
-            "result"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "outcome": {
-              "enum": [
-                "committed",
-                "unchanged"
-              ]
-            },
-            "receipt": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/receipt"
-                },
-                {
-                  "properties": {
-                    "operation": {
-                      "const": "statusTags.transition"
-                    }
-                  },
-                  "required": [
-                    "operation"
-                  ],
-                  "type": "object"
-                }
-              ]
-            },
-            "result": {
-              "additionalProperties": false,
-              "properties": {
-                "added": {
-                  "$ref": "#/$defs/stringArray"
-                },
-                "itemRef": {
-                  "$ref": "#/$defs/itemRef"
-                },
-                "removed": {
-                  "$ref": "#/$defs/stringArray"
-                },
-                "revision": {
+                "attemptId": {
                   "minLength": 1,
                   "type": "string"
                 },
-                "unchanged": {
-                  "$ref": "#/$defs/stringArray"
-                }
-              },
-              "required": [
-                "itemRef",
-                "added",
-                "removed",
-                "unchanged",
-                "revision"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "outcome",
-            "receipt",
-            "result"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "outcome": {
-              "enum": [
-                "committed",
-                "unchanged"
-              ]
-            },
-            "receipt": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/receipt"
-                },
-                {
+                "error": {
+                  "additionalProperties": false,
                   "properties": {
-                    "operation": {
-                      "const": "trash.setItemsState"
+                    "code": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "details": {
+                      "$ref": "#/$defs/jsonValue"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "phase": {
+                      "enum": [
+                        "validation",
+                        "reservation",
+                        "read",
+                        "staging",
+                        "commit",
+                        "verification",
+                        "compensation",
+                        "cleanup"
+                      ]
+                    },
+                    "recovery": {
+                      "enum": [
+                        "none",
+                        "retry_same_operation",
+                        "refresh_and_retry_new_operation",
+                        "reconcile",
+                        "manual_repair"
+                      ]
                     }
                   },
                   "required": [
-                    "operation"
+                    "code",
+                    "phase",
+                    "recovery",
+                    "details"
                   ],
                   "type": "object"
-                }
-              ]
-            },
-            "result": {
-              "additionalProperties": false,
-              "properties": {
-                "expandedRefs": {
-                  "$ref": "#/$defs/itemRefArray"
                 },
-                "explicitRefs": {
-                  "$ref": "#/$defs/itemRefArray"
-                },
-                "state": {
+                "operation": {
                   "enum": [
-                    "trashed",
-                    "active"
-                  ]
-                }
-              },
-              "required": [
-                "state",
-                "explicitRefs",
-                "expandedRefs"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "outcome",
-            "receipt",
-            "result"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "outcome": {
-              "enum": [
-                "committed",
-                "unchanged"
-              ]
-            },
-            "receipt": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/receipt"
-                },
-                {
-                  "properties": {
-                    "operation": {
-                      "const": "literature.ingest"
-                    }
-                  },
-                  "required": [
-                    "operation"
-                  ],
-                  "type": "object"
-                }
-              ]
-            },
-            "result": {
-              "additionalProperties": false,
-              "properties": {
-                "collectionOutcome": {
-                  "enum": [
-                    "added",
-                    "already_present"
+                    "item.create",
+                    "item.updateMetadata",
+                    "item.changeType",
+                    "item.remove",
+                    "item.updateTags",
+                    "item.addRelated",
+                    "item.removeRelated",
+                    "collection.create",
+                    "collection.update",
+                    "collection.updateMembership",
+                    "collection.remove",
+                    "notes.create",
+                    "notes.updateContent",
+                    "notes.remove",
+                    "notes.upsertPayload",
+                    "attachments.create",
+                    "attachments.updateMetadata",
+                    "attachments.replaceFile",
+                    "attachments.move",
+                    "attachments.remove",
+                    "statusTags.transition",
+                    "trash.setItemsState",
+                    "literature.ingest",
+                    "managed_note.write_custom",
+                    "managed_note.write_conversation",
+                    "literature_artifact.upsert_digest",
+                    "literature_artifact.upsert_references",
+                    "literature_artifact.upsert_citation_analysis",
+                    "literature_artifact.upsert_score"
                   ]
                 },
-                "collectionRef": {
-                  "$ref": "#/$defs/collectionRef"
+                "operationId": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
                 },
-                "enrichment": {
+                "residualRefs": {
                   "items": {
-                    "oneOf": [
-                      {
-                        "additionalProperties": false,
-                        "properties": {
-                          "kind": {
-                            "enum": [
-                              "pdf",
-                              "landing"
-                            ]
-                          },
-                          "outcome": {
-                            "const": "attached"
-                          }
-                        },
-                        "required": [
-                          "kind",
-                          "outcome"
-                        ],
-                        "type": "object"
+                    "additionalProperties": false,
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "schema": {
+                  "const": "zotero-agents.mutation-attempt.v1"
+                },
+                "status": {
+                  "enum": [
+                    "failed",
+                    "canceled",
+                    "unknown",
+                    "repair_required"
+                  ]
+                }
+              },
+              "required": [
+                "schema",
+                "attemptId",
+                "operationId",
+                "operation",
+                "status",
+                "error",
+                "affectedRefs",
+                "residualRefs"
+              ],
+              "type": "object"
+            },
+            "noteContent": {
+              "additionalProperties": false,
+              "properties": {
+                "embeddedImages": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "altText": {
+                        "type": "string"
                       },
-                      {
+                      "preparedImage": {
                         "additionalProperties": false,
                         "properties": {
-                          "kind": {
-                            "enum": [
-                              "pdf",
-                              "landing"
-                            ]
-                          },
-                          "outcome": {
-                            "const": "skipped"
-                          }
-                        },
-                        "required": [
-                          "kind",
-                          "outcome"
-                        ],
-                        "type": "object"
-                      },
-                      {
-                        "additionalProperties": false,
-                        "properties": {
-                          "code": {
+                          "id": {
                             "minLength": 1,
                             "type": "string"
                           },
                           "kind": {
-                            "enum": [
-                              "pdf",
-                              "landing"
-                            ]
-                          },
-                          "outcome": {
-                            "const": "failed"
+                            "const": "prepared_note_image"
                           }
                         },
                         "required": [
                           "kind",
-                          "outcome",
-                          "code"
+                          "id"
                         ],
                         "type": "object"
+                      },
+                      "slot": {
+                        "minLength": 1,
+                        "type": "string"
                       }
-                    ]
+                    },
+                    "required": [
+                      "slot",
+                      "preparedImage"
+                    ],
+                    "type": "object"
                   },
                   "type": "array"
                 },
-                "item": {
-                  "additionalProperties": true,
-                  "type": "object"
-                },
-                "itemOutcome": {
+                "format": {
                   "enum": [
-                    "created",
-                    "existing"
+                    "html",
+                    "text"
                   ]
+                },
+                "value": {
+                  "type": "string"
                 }
               },
               "required": [
-                "item",
-                "collectionRef",
-                "itemOutcome",
-                "collectionOutcome",
-                "enrichment"
+                "format",
+                "value"
               ],
               "type": "object"
-            }
-          },
-          "required": [
-            "outcome",
-            "receipt",
-            "result"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "outcome": {
-              "enum": [
-                "committed",
-                "unchanged"
-              ]
             },
             "receipt": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/receipt"
-                },
-                {
-                  "properties": {
-                    "operation": {
-                      "const": "managed_note.write_custom"
-                    }
-                  },
-                  "required": [
-                    "operation"
-                  ],
-                  "type": "object"
-                }
-              ]
-            },
-            "result": {
               "additionalProperties": false,
               "properties": {
-                "note": {
-                  "oneOf": [
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "content": {
-                          "type": "string"
-                        },
-                        "format": {
-                          "enum": [
-                            "html",
-                            "text"
-                          ]
-                        },
-                        "kind": {
-                          "const": "ordinary"
-                        },
-                        "parentRef": {
-                          "anyOf": [
-                            {
-                              "$ref": "#/$defs/itemRef"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
-                        },
-                        "ref": {
-                          "$ref": "#/$defs/itemRef"
-                        },
-                        "revision": {
-                          "minLength": 1,
-                          "type": "string"
-                        },
-                        "title": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "kind",
-                        "ref",
-                        "parentRef",
-                        "title",
-                        "format",
-                        "content",
-                        "revision"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "derived": {
-                          "additionalProperties": false,
-                          "properties": {
-                            "markdown": {
-                              "type": "string"
-                            },
-                            "representativeImage": {
-                              "additionalProperties": false,
-                              "properties": {
-                                "alt": {
-                                  "type": "string"
-                                },
-                                "attachmentRef": {
-                                  "$ref": "#/$defs/itemRef"
-                                }
-                              },
-                              "required": [
-                                "attachmentRef",
-                                "alt"
-                              ],
-                              "type": "object"
-                            }
-                          },
-                          "type": "object"
-                        },
-                        "detailBytes": {
-                          "minimum": 0,
-                          "type": "integer"
-                        },
-                        "health": {
-                          "additionalProperties": false,
-                          "properties": {
-                            "currentReferencesBasis": {
-                              "minLength": 1,
-                              "type": "string"
-                            },
-                            "state": {
-                              "enum": [
-                                "current",
-                                "stale"
-                              ]
-                            }
-                          },
-                          "required": [
-                            "state"
-                          ],
-                          "type": "object"
-                        },
-                        "kind": {
-                          "const": "managed"
-                        },
-                        "noteKind": {
-                          "enum": [
-                            "custom",
-                            "conversation-note",
-                            "digest",
-                            "references",
-                            "citation-analysis",
-                            "literature-score"
-                          ]
-                        },
-                        "parentRef": {
-                          "anyOf": [
-                            {
-                              "$ref": "#/$defs/itemRef"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
-                        },
-                        "payload": {
-                          "$ref": "#/$defs/jsonValue"
-                        },
-                        "payloadBytes": {
-                          "minimum": 0,
-                          "type": "integer"
-                        },
-                        "provenance": {
-                          "additionalProperties": false,
-                          "properties": {
-                            "referencesBasis": {
-                              "minLength": 1,
-                              "type": "string"
-                            },
-                            "sourceRef": {
-                              "$ref": "#/$defs/itemRef"
-                            }
-                          },
-                          "type": "object"
-                        },
-                        "ref": {
-                          "$ref": "#/$defs/itemRef"
-                        },
-                        "revision": {
-                          "minLength": 1,
-                          "type": "string"
-                        },
-                        "title": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "kind",
-                        "noteKind",
-                        "ref",
-                        "parentRef",
-                        "title",
-                        "payload",
-                        "payloadBytes",
-                        "detailBytes",
-                        "revision"
-                      ],
-                      "type": "object"
-                    }
+                "changes": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "committedAt": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "effectDigest": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "operation": {
+                  "enum": [
+                    "item.create",
+                    "item.updateMetadata",
+                    "item.changeType",
+                    "item.remove",
+                    "item.updateTags",
+                    "item.addRelated",
+                    "item.removeRelated",
+                    "collection.create",
+                    "collection.update",
+                    "collection.updateMembership",
+                    "collection.remove",
+                    "notes.create",
+                    "notes.updateContent",
+                    "notes.remove",
+                    "notes.upsertPayload",
+                    "attachments.create",
+                    "attachments.updateMetadata",
+                    "attachments.replaceFile",
+                    "attachments.move",
+                    "attachments.remove",
+                    "statusTags.transition",
+                    "trash.setItemsState",
+                    "literature.ingest",
+                    "managed_note.write_custom",
+                    "managed_note.write_conversation",
+                    "literature_artifact.upsert_digest",
+                    "literature_artifact.upsert_references",
+                    "literature_artifact.upsert_citation_analysis",
+                    "literature_artifact.upsert_score"
                   ]
+                },
+                "operationId": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "outcome": {
+                  "enum": [
+                    "committed",
+                    "unchanged"
+                  ]
+                },
+                "receiptId": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "schema": {
+                  "const": "zotero-agents.mutation-receipt.v1"
                 }
               },
               "required": [
-                "note"
+                "schema",
+                "receiptId",
+                "operationId",
+                "operation",
+                "outcome",
+                "committedAt",
+                "effectDigest",
+                "changes"
               ],
               "type": "object"
-            }
-          },
-          "required": [
-            "outcome",
-            "receipt",
-            "result"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "outcome": {
-              "enum": [
-                "committed",
-                "unchanged"
-              ]
             },
-            "receipt": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/receipt"
-                },
-                {
-                  "properties": {
-                    "operation": {
-                      "const": "managed_note.write_conversation"
-                    }
-                  },
-                  "required": [
-                    "operation"
-                  ],
-                  "type": "object"
-                }
-              ]
-            },
-            "result": {
+            "storedAttachmentSource": {
               "additionalProperties": false,
               "properties": {
-                "note": {
-                  "oneOf": [
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "content": {
-                          "type": "string"
-                        },
-                        "format": {
-                          "enum": [
-                            "html",
-                            "text"
-                          ]
-                        },
-                        "kind": {
-                          "const": "ordinary"
-                        },
-                        "parentRef": {
-                          "anyOf": [
-                            {
-                              "$ref": "#/$defs/itemRef"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
-                        },
-                        "ref": {
-                          "$ref": "#/$defs/itemRef"
-                        },
-                        "revision": {
-                          "minLength": 1,
-                          "type": "string"
-                        },
-                        "title": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "kind",
-                        "ref",
-                        "parentRef",
-                        "title",
-                        "format",
-                        "content",
-                        "revision"
-                      ],
-                      "type": "object"
+                "companions": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "targetRelativePath": {
+                        "minLength": 1,
+                        "type": "string"
+                      }
                     },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "derived": {
-                          "additionalProperties": false,
-                          "properties": {
-                            "markdown": {
-                              "type": "string"
-                            },
-                            "representativeImage": {
-                              "additionalProperties": false,
-                              "properties": {
-                                "alt": {
-                                  "type": "string"
-                                },
-                                "attachmentRef": {
-                                  "$ref": "#/$defs/itemRef"
-                                }
-                              },
-                              "required": [
-                                "attachmentRef",
-                                "alt"
-                              ],
-                              "type": "object"
-                            }
-                          },
-                          "type": "object"
-                        },
-                        "detailBytes": {
-                          "minimum": 0,
-                          "type": "integer"
-                        },
-                        "health": {
-                          "additionalProperties": false,
-                          "properties": {
-                            "currentReferencesBasis": {
-                              "minLength": 1,
-                              "type": "string"
-                            },
-                            "state": {
-                              "enum": [
-                                "current",
-                                "stale"
-                              ]
-                            }
-                          },
-                          "required": [
-                            "state"
-                          ],
-                          "type": "object"
-                        },
-                        "kind": {
-                          "const": "managed"
-                        },
-                        "noteKind": {
-                          "enum": [
-                            "custom",
-                            "conversation-note",
-                            "digest",
-                            "references",
-                            "citation-analysis",
-                            "literature-score"
-                          ]
-                        },
-                        "parentRef": {
-                          "anyOf": [
-                            {
-                              "$ref": "#/$defs/itemRef"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
-                        },
-                        "payload": {
-                          "$ref": "#/$defs/jsonValue"
-                        },
-                        "payloadBytes": {
-                          "minimum": 0,
-                          "type": "integer"
-                        },
-                        "provenance": {
-                          "additionalProperties": false,
-                          "properties": {
-                            "referencesBasis": {
-                              "minLength": 1,
-                              "type": "string"
-                            },
-                            "sourceRef": {
-                              "$ref": "#/$defs/itemRef"
-                            }
-                          },
-                          "type": "object"
-                        },
-                        "ref": {
-                          "$ref": "#/$defs/itemRef"
-                        },
-                        "revision": {
-                          "minLength": 1,
-                          "type": "string"
-                        },
-                        "title": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "kind",
-                        "noteKind",
-                        "ref",
-                        "parentRef",
-                        "title",
-                        "payload",
-                        "payloadBytes",
-                        "detailBytes",
-                        "revision"
-                      ],
-                      "type": "object"
-                    }
-                  ]
-                }
-              },
-              "required": [
-                "note"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "outcome",
-            "receipt",
-            "result"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "outcome": {
-              "enum": [
-                "committed",
-                "unchanged"
-              ]
-            },
-            "receipt": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/receipt"
-                },
-                {
-                  "properties": {
-                    "operation": {
-                      "const": "literature_artifact.upsert_digest"
-                    }
+                    "required": [
+                      "targetRelativePath"
+                    ],
+                    "type": "object"
                   },
-                  "required": [
-                    "operation"
-                  ],
-                  "type": "object"
-                }
-              ]
-            },
-            "result": {
-              "additionalProperties": false,
-              "properties": {
-                "dependentStale": {
-                  "type": "boolean"
+                  "type": "array"
                 },
-                "note": {
-                  "oneOf": [
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "content": {
-                          "type": "string"
-                        },
-                        "format": {
-                          "enum": [
-                            "html",
-                            "text"
-                          ]
-                        },
-                        "kind": {
-                          "const": "ordinary"
-                        },
-                        "parentRef": {
-                          "anyOf": [
-                            {
-                              "$ref": "#/$defs/itemRef"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
-                        },
-                        "ref": {
-                          "$ref": "#/$defs/itemRef"
-                        },
-                        "revision": {
-                          "minLength": 1,
-                          "type": "string"
-                        },
-                        "title": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "kind",
-                        "ref",
-                        "parentRef",
-                        "title",
-                        "format",
-                        "content",
-                        "revision"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "derived": {
-                          "additionalProperties": false,
-                          "properties": {
-                            "markdown": {
-                              "type": "string"
-                            },
-                            "representativeImage": {
-                              "additionalProperties": false,
-                              "properties": {
-                                "alt": {
-                                  "type": "string"
-                                },
-                                "attachmentRef": {
-                                  "$ref": "#/$defs/itemRef"
-                                }
-                              },
-                              "required": [
-                                "attachmentRef",
-                                "alt"
-                              ],
-                              "type": "object"
-                            }
-                          },
-                          "type": "object"
-                        },
-                        "detailBytes": {
-                          "minimum": 0,
-                          "type": "integer"
-                        },
-                        "health": {
-                          "additionalProperties": false,
-                          "properties": {
-                            "currentReferencesBasis": {
-                              "minLength": 1,
-                              "type": "string"
-                            },
-                            "state": {
-                              "enum": [
-                                "current",
-                                "stale"
-                              ]
-                            }
-                          },
-                          "required": [
-                            "state"
-                          ],
-                          "type": "object"
-                        },
-                        "kind": {
-                          "const": "managed"
-                        },
-                        "noteKind": {
-                          "enum": [
-                            "custom",
-                            "conversation-note",
-                            "digest",
-                            "references",
-                            "citation-analysis",
-                            "literature-score"
-                          ]
-                        },
-                        "parentRef": {
-                          "anyOf": [
-                            {
-                              "$ref": "#/$defs/itemRef"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
-                        },
-                        "payload": {
-                          "$ref": "#/$defs/jsonValue"
-                        },
-                        "payloadBytes": {
-                          "minimum": 0,
-                          "type": "integer"
-                        },
-                        "provenance": {
-                          "additionalProperties": false,
-                          "properties": {
-                            "referencesBasis": {
-                              "minLength": 1,
-                              "type": "string"
-                            },
-                            "sourceRef": {
-                              "$ref": "#/$defs/itemRef"
-                            }
-                          },
-                          "type": "object"
-                        },
-                        "ref": {
-                          "$ref": "#/$defs/itemRef"
-                        },
-                        "revision": {
-                          "minLength": 1,
-                          "type": "string"
-                        },
-                        "title": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "kind",
-                        "noteKind",
-                        "ref",
-                        "parentRef",
-                        "title",
-                        "payload",
-                        "payloadBytes",
-                        "detailBytes",
-                        "revision"
-                      ],
-                      "type": "object"
-                    }
-                  ]
+                "content": {
+                  "$ref": "#/$defs/attachmentContentManifest"
                 },
-                "referencesBasis": {
+                "kind": {
+                  "const": "stored_file"
+                },
+                "targetFilename": {
                   "minLength": 1,
                   "type": "string"
                 }
               },
               "required": [
-                "note"
+                "kind",
+                "content"
               ],
               "type": "object"
+            },
+            "stringArray": {
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "type": "array"
             }
           },
-          "required": [
-            "outcome",
-            "receipt",
-            "result"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "outcome": {
-              "enum": [
-                "committed",
-                "unchanged"
-              ]
-            },
-            "receipt": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/receipt"
-                },
-                {
-                  "properties": {
-                    "operation": {
-                      "const": "literature_artifact.upsert_references"
-                    }
-                  },
-                  "required": [
-                    "operation"
-                  ],
-                  "type": "object"
-                }
-              ]
-            },
-            "result": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "oneOf": [
+            {
               "additionalProperties": false,
               "properties": {
-                "dependentStale": {
-                  "type": "boolean"
+                "outcome": {
+                  "enum": [
+                    "committed",
+                    "unchanged"
+                  ]
                 },
-                "note": {
-                  "oneOf": [
+                "receipt": {
+                  "allOf": [
                     {
-                      "additionalProperties": false,
-                      "properties": {
-                        "content": {
-                          "type": "string"
-                        },
-                        "format": {
-                          "enum": [
-                            "html",
-                            "text"
-                          ]
-                        },
-                        "kind": {
-                          "const": "ordinary"
-                        },
-                        "parentRef": {
-                          "anyOf": [
-                            {
-                              "$ref": "#/$defs/itemRef"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
-                        },
-                        "ref": {
-                          "$ref": "#/$defs/itemRef"
-                        },
-                        "revision": {
-                          "minLength": 1,
-                          "type": "string"
-                        },
-                        "title": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "kind",
-                        "ref",
-                        "parentRef",
-                        "title",
-                        "format",
-                        "content",
-                        "revision"
-                      ],
-                      "type": "object"
+                      "$ref": "#/$defs/receipt"
                     },
                     {
-                      "additionalProperties": false,
                       "properties": {
-                        "derived": {
-                          "additionalProperties": false,
-                          "properties": {
-                            "markdown": {
-                              "type": "string"
-                            },
-                            "representativeImage": {
-                              "additionalProperties": false,
-                              "properties": {
-                                "alt": {
-                                  "type": "string"
-                                },
-                                "attachmentRef": {
-                                  "$ref": "#/$defs/itemRef"
-                                }
-                              },
-                              "required": [
-                                "attachmentRef",
-                                "alt"
-                              ],
-                              "type": "object"
-                            }
-                          },
-                          "type": "object"
-                        },
-                        "detailBytes": {
-                          "minimum": 0,
-                          "type": "integer"
-                        },
-                        "health": {
-                          "additionalProperties": false,
-                          "properties": {
-                            "currentReferencesBasis": {
-                              "minLength": 1,
-                              "type": "string"
-                            },
-                            "state": {
-                              "enum": [
-                                "current",
-                                "stale"
-                              ]
-                            }
-                          },
-                          "required": [
-                            "state"
-                          ],
-                          "type": "object"
-                        },
-                        "kind": {
-                          "const": "managed"
-                        },
-                        "noteKind": {
-                          "enum": [
-                            "custom",
-                            "conversation-note",
-                            "digest",
-                            "references",
-                            "citation-analysis",
-                            "literature-score"
-                          ]
-                        },
-                        "parentRef": {
-                          "anyOf": [
-                            {
-                              "$ref": "#/$defs/itemRef"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
-                        },
-                        "payload": {
-                          "$ref": "#/$defs/jsonValue"
-                        },
-                        "payloadBytes": {
-                          "minimum": 0,
-                          "type": "integer"
-                        },
-                        "provenance": {
-                          "additionalProperties": false,
-                          "properties": {
-                            "referencesBasis": {
-                              "minLength": 1,
-                              "type": "string"
-                            },
-                            "sourceRef": {
-                              "$ref": "#/$defs/itemRef"
-                            }
-                          },
-                          "type": "object"
-                        },
-                        "ref": {
-                          "$ref": "#/$defs/itemRef"
-                        },
-                        "revision": {
-                          "minLength": 1,
-                          "type": "string"
-                        },
-                        "title": {
-                          "type": "string"
+                        "operation": {
+                          "const": "collection.updateMembership"
                         }
                       },
                       "required": [
-                        "kind",
-                        "noteKind",
-                        "ref",
-                        "parentRef",
-                        "title",
-                        "payload",
-                        "payloadBytes",
-                        "detailBytes",
-                        "revision"
+                        "operation"
                       ],
                       "type": "object"
                     }
                   ]
                 },
-                "referencesBasis": {
-                  "minLength": 1,
-                  "type": "string"
-                }
-              },
-              "required": [
-                "note"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "outcome",
-            "receipt",
-            "result"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "outcome": {
-              "enum": [
-                "committed",
-                "unchanged"
-              ]
-            },
-            "receipt": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/receipt"
-                },
-                {
+                "result": {
+                  "additionalProperties": false,
                   "properties": {
-                    "operation": {
-                      "const": "literature_artifact.upsert_citation_analysis"
+                    "addedRefs": {
+                      "$ref": "#/$defs/itemRefArray"
+                    },
+                    "collection": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    },
+                    "removedRefs": {
+                      "$ref": "#/$defs/itemRefArray"
                     }
                   },
                   "required": [
-                    "operation"
+                    "collection",
+                    "addedRefs",
+                    "removedRefs"
                   ],
                   "type": "object"
                 }
-              ]
+              },
+              "required": [
+                "outcome",
+                "receipt",
+                "result"
+              ],
+              "type": "object"
             },
-            "result": {
+            {
               "additionalProperties": false,
               "properties": {
-                "dependentStale": {
-                  "type": "boolean"
+                "attempt": {
+                  "$ref": "#/$defs/mutationAttempt"
                 },
-                "note": {
-                  "oneOf": [
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "content": {
-                          "type": "string"
-                        },
-                        "format": {
-                          "enum": [
-                            "html",
-                            "text"
-                          ]
-                        },
-                        "kind": {
-                          "const": "ordinary"
-                        },
-                        "parentRef": {
-                          "anyOf": [
-                            {
-                              "$ref": "#/$defs/itemRef"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
-                        },
-                        "ref": {
-                          "$ref": "#/$defs/itemRef"
-                        },
-                        "revision": {
-                          "minLength": 1,
-                          "type": "string"
-                        },
-                        "title": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "kind",
-                        "ref",
-                        "parentRef",
-                        "title",
-                        "format",
-                        "content",
-                        "revision"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "derived": {
-                          "additionalProperties": false,
-                          "properties": {
-                            "markdown": {
-                              "type": "string"
-                            },
-                            "representativeImage": {
-                              "additionalProperties": false,
-                              "properties": {
-                                "alt": {
-                                  "type": "string"
-                                },
-                                "attachmentRef": {
-                                  "$ref": "#/$defs/itemRef"
-                                }
-                              },
-                              "required": [
-                                "attachmentRef",
-                                "alt"
-                              ],
-                              "type": "object"
-                            }
-                          },
-                          "type": "object"
-                        },
-                        "detailBytes": {
-                          "minimum": 0,
-                          "type": "integer"
-                        },
-                        "health": {
-                          "additionalProperties": false,
-                          "properties": {
-                            "currentReferencesBasis": {
-                              "minLength": 1,
-                              "type": "string"
-                            },
-                            "state": {
-                              "enum": [
-                                "current",
-                                "stale"
-                              ]
-                            }
-                          },
-                          "required": [
-                            "state"
-                          ],
-                          "type": "object"
-                        },
-                        "kind": {
-                          "const": "managed"
-                        },
-                        "noteKind": {
-                          "enum": [
-                            "custom",
-                            "conversation-note",
-                            "digest",
-                            "references",
-                            "citation-analysis",
-                            "literature-score"
-                          ]
-                        },
-                        "parentRef": {
-                          "anyOf": [
-                            {
-                              "$ref": "#/$defs/itemRef"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
-                        },
-                        "payload": {
-                          "$ref": "#/$defs/jsonValue"
-                        },
-                        "payloadBytes": {
-                          "minimum": 0,
-                          "type": "integer"
-                        },
-                        "provenance": {
-                          "additionalProperties": false,
-                          "properties": {
-                            "referencesBasis": {
-                              "minLength": 1,
-                              "type": "string"
-                            },
-                            "sourceRef": {
-                              "$ref": "#/$defs/itemRef"
-                            }
-                          },
-                          "type": "object"
-                        },
-                        "ref": {
-                          "$ref": "#/$defs/itemRef"
-                        },
-                        "revision": {
-                          "minLength": 1,
-                          "type": "string"
-                        },
-                        "title": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "kind",
-                        "noteKind",
-                        "ref",
-                        "parentRef",
-                        "title",
-                        "payload",
-                        "payloadBytes",
-                        "detailBytes",
-                        "revision"
-                      ],
-                      "type": "object"
-                    }
+                "outcome": {
+                  "enum": [
+                    "failed",
+                    "canceled",
+                    "unknown",
+                    "repair_required"
                   ]
-                },
-                "referencesBasis": {
-                  "minLength": 1,
-                  "type": "string"
                 }
               },
               "required": [
-                "note"
+                "outcome",
+                "attempt"
               ],
               "type": "object"
             }
-          },
-          "required": [
-            "outcome",
-            "receipt",
-            "result"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "outcome": {
-              "enum": [
-                "committed",
-                "unchanged"
-              ]
-            },
-            "receipt": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/receipt"
-                },
-                {
-                  "properties": {
-                    "operation": {
-                      "const": "literature_artifact.upsert_score"
-                    }
-                  },
-                  "required": [
-                    "operation"
-                  ],
-                  "type": "object"
-                }
-              ]
-            },
-            "result": {
-              "additionalProperties": false,
-              "properties": {
-                "dependentStale": {
-                  "type": "boolean"
-                },
-                "note": {
-                  "oneOf": [
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "content": {
-                          "type": "string"
-                        },
-                        "format": {
-                          "enum": [
-                            "html",
-                            "text"
-                          ]
-                        },
-                        "kind": {
-                          "const": "ordinary"
-                        },
-                        "parentRef": {
-                          "anyOf": [
-                            {
-                              "$ref": "#/$defs/itemRef"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
-                        },
-                        "ref": {
-                          "$ref": "#/$defs/itemRef"
-                        },
-                        "revision": {
-                          "minLength": 1,
-                          "type": "string"
-                        },
-                        "title": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "kind",
-                        "ref",
-                        "parentRef",
-                        "title",
-                        "format",
-                        "content",
-                        "revision"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "derived": {
-                          "additionalProperties": false,
-                          "properties": {
-                            "markdown": {
-                              "type": "string"
-                            },
-                            "representativeImage": {
-                              "additionalProperties": false,
-                              "properties": {
-                                "alt": {
-                                  "type": "string"
-                                },
-                                "attachmentRef": {
-                                  "$ref": "#/$defs/itemRef"
-                                }
-                              },
-                              "required": [
-                                "attachmentRef",
-                                "alt"
-                              ],
-                              "type": "object"
-                            }
-                          },
-                          "type": "object"
-                        },
-                        "detailBytes": {
-                          "minimum": 0,
-                          "type": "integer"
-                        },
-                        "health": {
-                          "additionalProperties": false,
-                          "properties": {
-                            "currentReferencesBasis": {
-                              "minLength": 1,
-                              "type": "string"
-                            },
-                            "state": {
-                              "enum": [
-                                "current",
-                                "stale"
-                              ]
-                            }
-                          },
-                          "required": [
-                            "state"
-                          ],
-                          "type": "object"
-                        },
-                        "kind": {
-                          "const": "managed"
-                        },
-                        "noteKind": {
-                          "enum": [
-                            "custom",
-                            "conversation-note",
-                            "digest",
-                            "references",
-                            "citation-analysis",
-                            "literature-score"
-                          ]
-                        },
-                        "parentRef": {
-                          "anyOf": [
-                            {
-                              "$ref": "#/$defs/itemRef"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
-                        },
-                        "payload": {
-                          "$ref": "#/$defs/jsonValue"
-                        },
-                        "payloadBytes": {
-                          "minimum": 0,
-                          "type": "integer"
-                        },
-                        "provenance": {
-                          "additionalProperties": false,
-                          "properties": {
-                            "referencesBasis": {
-                              "minLength": 1,
-                              "type": "string"
-                            },
-                            "sourceRef": {
-                              "$ref": "#/$defs/itemRef"
-                            }
-                          },
-                          "type": "object"
-                        },
-                        "ref": {
-                          "$ref": "#/$defs/itemRef"
-                        },
-                        "revision": {
-                          "minLength": 1,
-                          "type": "string"
-                        },
-                        "title": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "kind",
-                        "noteKind",
-                        "ref",
-                        "parentRef",
-                        "title",
-                        "payload",
-                        "payloadBytes",
-                        "detailBytes",
-                        "revision"
-                      ],
-                      "type": "object"
-                    }
-                  ]
-                },
-                "referencesBasis": {
-                  "minLength": 1,
-                  "type": "string"
-                }
-              },
-              "required": [
-                "note"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "outcome",
-            "receipt",
-            "result"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "attempt": {
-              "$ref": "#/$defs/mutationAttempt"
-            },
-            "outcome": {
-              "enum": [
-                "failed",
-                "canceled",
-                "unknown",
-                "repair_required"
-              ]
-            }
-          },
-          "required": [
-            "outcome",
-            "attempt"
-          ],
-          "type": "object"
+          ]
         }
       ]
     }
@@ -3813,8 +2145,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
   "command": "mutation collection remove-items",
   "composition": {
     "constants": {
-      "add": [],
-      "operation": "collection.updateMembership"
+      "add": []
     },
     "mappings": [
       {
@@ -3921,6 +2252,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "type": "array"
       }
     },
+    "additionalProperties": false,
     "properties": {
       "add": {
         "$ref": "#/$defs/itemRefArray"
@@ -3928,21 +2260,25 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "collectionRef": {
         "$ref": "#/$defs/collectionRef"
       },
-      "operation": {
-        "const": "collection.updateMembership"
+      "dryRun": {
+        "default": false,
+        "type": "boolean"
+      },
+      "operationId": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
       },
       "remove": {
         "$ref": "#/$defs/itemRefArray"
       }
     },
     "required": [
-      "operation",
       "collectionRef",
       "add",
       "remove"
     ],
-    "type": "object",
-    "unevaluatedProperties": false
+    "type": "object"
   },
   "recovery": [
     {
@@ -3961,7 +2297,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "type": "string"
       },
       "capability": {
-        "const": "mutation.execute"
+        "const": "collection.updateMembership"
       },
       "data": {
         "$defs": {
@@ -4846,2671 +3182,999 @@ This closed descriptor is the machine-readable command contract returned by `sur
           {
             "additionalProperties": false,
             "properties": {
+              "domainPlanDigest": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "observedAt": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "operation": {
+                "const": "collection.updateMembership"
+              },
               "outcome": {
                 "enum": [
-                  "committed",
+                  "would_change",
                   "unchanged"
                 ]
               },
-              "receipt": {
-                "allOf": [
-                  {
-                    "$ref": "#/$defs/receipt"
-                  },
-                  {
-                    "properties": {
-                      "operation": {
-                        "const": "item.create"
-                      }
-                    },
-                    "required": [
-                      "operation"
-                    ],
-                    "type": "object"
-                  }
-                ]
-              },
-              "result": {
-                "additionalProperties": false,
-                "properties": {
-                  "item": {
-                    "additionalProperties": true,
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "item"
-                ],
+              "plan": {
+                "additionalProperties": true,
                 "type": "object"
+              },
+              "schema": {
+                "const": "zotero-agents.mutation-preview.v1"
               }
             },
             "required": [
+              "schema",
+              "operation",
               "outcome",
-              "receipt",
-              "result"
+              "observedAt",
+              "domainPlanDigest",
+              "plan"
             ],
             "type": "object"
           },
           {
-            "additionalProperties": false,
-            "properties": {
-              "outcome": {
-                "enum": [
-                  "committed",
-                  "unchanged"
-                ]
-              },
-              "receipt": {
-                "allOf": [
-                  {
-                    "$ref": "#/$defs/receipt"
-                  },
-                  {
-                    "properties": {
-                      "operation": {
-                        "const": "item.updateMetadata"
-                      }
-                    },
-                    "required": [
-                      "operation"
-                    ],
-                    "type": "object"
-                  }
-                ]
-              },
-              "result": {
+            "$defs": {
+              "attachmentContentManifest": {
                 "additionalProperties": false,
                 "properties": {
-                  "item": {
-                    "additionalProperties": true,
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "item"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "outcome",
-              "receipt",
-              "result"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "outcome": {
-                "enum": [
-                  "committed",
-                  "unchanged"
-                ]
-              },
-              "receipt": {
-                "allOf": [
-                  {
-                    "$ref": "#/$defs/receipt"
-                  },
-                  {
-                    "properties": {
-                      "operation": {
-                        "const": "item.changeType"
-                      }
-                    },
-                    "required": [
-                      "operation"
-                    ],
-                    "type": "object"
-                  }
-                ]
-              },
-              "result": {
-                "additionalProperties": false,
-                "properties": {
-                  "item": {
-                    "additionalProperties": true,
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "item"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "outcome",
-              "receipt",
-              "result"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "outcome": {
-                "enum": [
-                  "committed",
-                  "unchanged"
-                ]
-              },
-              "receipt": {
-                "allOf": [
-                  {
-                    "$ref": "#/$defs/receipt"
-                  },
-                  {
-                    "properties": {
-                      "operation": {
-                        "const": "item.remove"
-                      }
-                    },
-                    "required": [
-                      "operation"
-                    ],
-                    "type": "object"
-                  }
-                ]
-              },
-              "result": {
-                "additionalProperties": false,
-                "properties": {
-                  "itemRef": {
-                    "$ref": "#/$defs/itemRef"
-                  },
-                  "outcome": {
-                    "enum": [
-                      "trashed",
-                      "permanently_deleted",
-                      "already_trashed",
-                      "already_absent"
-                    ]
-                  }
-                },
-                "required": [
-                  "itemRef",
-                  "outcome"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "outcome",
-              "receipt",
-              "result"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "outcome": {
-                "enum": [
-                  "committed",
-                  "unchanged"
-                ]
-              },
-              "receipt": {
-                "allOf": [
-                  {
-                    "$ref": "#/$defs/receipt"
-                  },
-                  {
-                    "properties": {
-                      "operation": {
-                        "const": "item.updateTags"
-                      }
-                    },
-                    "required": [
-                      "operation"
-                    ],
-                    "type": "object"
-                  }
-                ]
-              },
-              "result": {
-                "additionalProperties": false,
-                "properties": {
-                  "item": {
-                    "additionalProperties": true,
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "item"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "outcome",
-              "receipt",
-              "result"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "outcome": {
-                "enum": [
-                  "committed",
-                  "unchanged"
-                ]
-              },
-              "receipt": {
-                "allOf": [
-                  {
-                    "$ref": "#/$defs/receipt"
-                  },
-                  {
-                    "properties": {
-                      "operation": {
-                        "const": "item.addRelated"
-                      }
-                    },
-                    "required": [
-                      "operation"
-                    ],
-                    "type": "object"
-                  }
-                ]
-              },
-              "result": {
-                "additionalProperties": false,
-                "properties": {
-                  "relatedRefs": {
-                    "$ref": "#/$defs/itemRefArray"
-                  },
-                  "relations": {
+                  "companions": {
                     "items": {
                       "additionalProperties": false,
                       "properties": {
-                        "outcome": {
-                          "enum": [
-                            "added",
-                            "removed",
-                            "already_present",
-                            "already_absent"
-                          ]
+                        "relativePath": {
+                          "minLength": 1,
+                          "type": "string"
                         },
-                        "relatedRef": {
-                          "$ref": "#/$defs/itemRef"
+                        "sha256": {
+                          "pattern": "^sha256:[0-9a-f]{64}$",
+                          "type": "string"
+                        },
+                        "sizeBytes": {
+                          "minimum": 0,
+                          "type": "integer"
                         }
                       },
                       "required": [
-                        "relatedRef",
-                        "outcome"
+                        "relativePath",
+                        "sizeBytes",
+                        "sha256"
                       ],
                       "type": "object"
                     },
                     "type": "array"
                   },
-                  "sourceRef": {
-                    "$ref": "#/$defs/itemRef"
-                  },
-                  "sourceRevision": {
+                  "identity": {
                     "minLength": 1,
                     "type": "string"
-                  }
-                },
-                "required": [
-                  "sourceRef",
-                  "relatedRefs",
-                  "relations",
-                  "sourceRevision"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "outcome",
-              "receipt",
-              "result"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "outcome": {
-                "enum": [
-                  "committed",
-                  "unchanged"
-                ]
-              },
-              "receipt": {
-                "allOf": [
-                  {
-                    "$ref": "#/$defs/receipt"
                   },
-                  {
+                  "main": {
+                    "additionalProperties": false,
                     "properties": {
-                      "operation": {
-                        "const": "item.removeRelated"
+                      "relativePath": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "sha256": {
+                        "pattern": "^sha256:[0-9a-f]{64}$",
+                        "type": "string"
+                      },
+                      "sizeBytes": {
+                        "minimum": 0,
+                        "type": "integer"
                       }
                     },
                     "required": [
-                      "operation"
+                      "relativePath",
+                      "sizeBytes",
+                      "sha256"
+                    ],
+                    "type": "object"
+                  },
+                  "schema": {
+                    "const": "zotero-agents.attachment-content.v1"
+                  }
+                },
+                "required": [
+                  "schema",
+                  "identity",
+                  "main",
+                  "companions"
+                ],
+                "type": "object"
+              },
+              "attachmentSource": {
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/storedAttachmentSource"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "const": "linked_url"
+                      },
+                      "url": {
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "url"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "const": "stored_url"
+                      },
+                      "url": {
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "url"
                     ],
                     "type": "object"
                   }
                 ]
               },
-              "result": {
+              "collectionRef": {
                 "additionalProperties": false,
                 "properties": {
-                  "relatedRefs": {
-                    "$ref": "#/$defs/itemRefArray"
+                  "key": {
+                    "minLength": 1,
+                    "type": "string"
                   },
-                  "relations": {
+                  "libraryId": {
+                    "minimum": 1,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "libraryId",
+                  "key"
+                ],
+                "type": "object"
+              },
+              "collectionRefArray": {
+                "items": {
+                  "$ref": "#/$defs/collectionRef"
+                },
+                "type": "array"
+              },
+              "creator": {
+                "additionalProperties": false,
+                "properties": {
+                  "creatorType": {
+                    "type": "string"
+                  },
+                  "firstName": {
+                    "type": "string"
+                  },
+                  "lastName": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "itemRef": {
+                "additionalProperties": false,
+                "properties": {
+                  "key": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "libraryId": {
+                    "minimum": 1,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "libraryId",
+                  "key"
+                ],
+                "type": "object"
+              },
+              "itemRefArray": {
+                "items": {
+                  "$ref": "#/$defs/itemRef"
+                },
+                "type": "array"
+              },
+              "jsonValue": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "items": {
+                      "$ref": "#/$defs/jsonValue"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/jsonValue"
+                    },
+                    "type": "object"
+                  }
+                ]
+              },
+              "literatureScoreArtifact": {
+                "additionalProperties": false,
+                "properties": {
+                  "confidence": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "confidence_adjusted_score": {
+                    "maximum": 100,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "dimensions": {
                     "items": {
                       "additionalProperties": false,
                       "properties": {
-                        "outcome": {
-                          "enum": [
-                            "added",
-                            "removed",
-                            "already_present",
-                            "already_absent"
+                        "applicable_max_score": {
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "confidence": {
+                          "maximum": 1,
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
                           ]
                         },
-                        "relatedRef": {
-                          "$ref": "#/$defs/itemRef"
+                        "configured_weight": {
+                          "maximum": 1,
+                          "minimum": 0,
+                          "type": "number"
+                        },
+                        "criteria": {
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "criterion_key": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "evidence": {
+                                "items": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "line_end": {
+                                      "minimum": 1,
+                                      "type": "integer"
+                                    },
+                                    "line_start": {
+                                      "minimum": 1,
+                                      "type": "integer"
+                                    },
+                                    "quote": {
+                                      "maxLength": 500,
+                                      "minLength": 1,
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "line_start",
+                                    "line_end",
+                                    "quote"
+                                  ],
+                                  "type": "object"
+                                },
+                                "type": "array"
+                              },
+                              "max_score": {
+                                "minimum": 1,
+                                "type": "integer"
+                              },
+                              "name": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "reason": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "score": {
+                                "minimum": 0,
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ]
+                              },
+                              "status": {
+                                "enum": [
+                                  "scored",
+                                  "not_applicable"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "criterion_key",
+                              "name",
+                              "status",
+                              "score",
+                              "max_score",
+                              "reason",
+                              "evidence"
+                            ],
+                            "type": "object"
+                          },
+                          "minItems": 1,
+                          "type": "array"
+                        },
+                        "dimension_key": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "effective_weight": {
+                          "maximum": 1,
+                          "minimum": 0,
+                          "type": "number"
+                        },
+                        "name": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "raw_score": {
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "score": {
+                          "maximum": 100,
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "summary": {
+                          "minLength": 1,
+                          "type": "string"
                         }
                       },
                       "required": [
-                        "relatedRef",
-                        "outcome"
+                        "dimension_key",
+                        "name",
+                        "configured_weight",
+                        "effective_weight",
+                        "raw_score",
+                        "applicable_max_score",
+                        "score",
+                        "confidence",
+                        "summary",
+                        "criteria"
                       ],
+                      "type": "object"
+                    },
+                    "maxItems": 6,
+                    "minItems": 6,
+                    "type": "array"
+                  },
+                  "overall_score": {
+                    "maximum": 100,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "paper_type": {
+                    "enum": [
+                      "empirical",
+                      "review",
+                      "theoretical",
+                      "qualitative",
+                      "mixed_methods",
+                      "other"
+                    ]
+                  },
+                  "paper_type_reason": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "rubric_id": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "schema": {
+                    "const": "literature_score.v1"
+                  }
+                },
+                "required": [
+                  "schema",
+                  "rubric_id",
+                  "paper_type",
+                  "paper_type_reason",
+                  "overall_score",
+                  "confidence",
+                  "confidence_adjusted_score",
+                  "dimensions"
+                ],
+                "type": "object"
+              },
+              "managedNoteDetail": {
+                "oneOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "content": {
+                        "type": "string"
+                      },
+                      "format": {
+                        "enum": [
+                          "html",
+                          "text"
+                        ]
+                      },
+                      "kind": {
+                        "const": "ordinary"
+                      },
+                      "parentRef": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/itemRef"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "ref": {
+                        "$ref": "#/$defs/itemRef"
+                      },
+                      "revision": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "title": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "ref",
+                      "parentRef",
+                      "title",
+                      "format",
+                      "content",
+                      "revision"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "derived": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "markdown": {
+                            "type": "string"
+                          },
+                          "representativeImage": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "alt": {
+                                "type": "string"
+                              },
+                              "attachmentRef": {
+                                "$ref": "#/$defs/itemRef"
+                              }
+                            },
+                            "required": [
+                              "attachmentRef",
+                              "alt"
+                            ],
+                            "type": "object"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "detailBytes": {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "health": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "currentReferencesBasis": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "state": {
+                            "enum": [
+                              "current",
+                              "stale"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "state"
+                        ],
+                        "type": "object"
+                      },
+                      "kind": {
+                        "const": "managed"
+                      },
+                      "noteKind": {
+                        "enum": [
+                          "custom",
+                          "conversation-note",
+                          "digest",
+                          "references",
+                          "citation-analysis",
+                          "literature-score"
+                        ]
+                      },
+                      "parentRef": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/itemRef"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "payload": {
+                        "$ref": "#/$defs/jsonValue"
+                      },
+                      "payloadBytes": {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "provenance": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "referencesBasis": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "sourceRef": {
+                            "$ref": "#/$defs/itemRef"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "ref": {
+                        "$ref": "#/$defs/itemRef"
+                      },
+                      "revision": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "title": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "noteKind",
+                      "ref",
+                      "parentRef",
+                      "title",
+                      "payload",
+                      "payloadBytes",
+                      "detailBytes",
+                      "revision"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              },
+              "mutationAttempt": {
+                "additionalProperties": false,
+                "properties": {
+                  "affectedRefs": {
+                    "items": {
+                      "additionalProperties": false,
                       "type": "object"
                     },
                     "type": "array"
                   },
-                  "sourceRef": {
-                    "$ref": "#/$defs/itemRef"
-                  },
-                  "sourceRevision": {
-                    "minLength": 1,
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "sourceRef",
-                  "relatedRefs",
-                  "relations",
-                  "sourceRevision"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "outcome",
-              "receipt",
-              "result"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "outcome": {
-                "enum": [
-                  "committed",
-                  "unchanged"
-                ]
-              },
-              "receipt": {
-                "allOf": [
-                  {
-                    "$ref": "#/$defs/receipt"
-                  },
-                  {
-                    "properties": {
-                      "operation": {
-                        "const": "collection.create"
-                      }
-                    },
-                    "required": [
-                      "operation"
-                    ],
-                    "type": "object"
-                  }
-                ]
-              },
-              "result": {
-                "additionalProperties": false,
-                "properties": {
-                  "collection": {
-                    "additionalProperties": true,
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "collection"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "outcome",
-              "receipt",
-              "result"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "outcome": {
-                "enum": [
-                  "committed",
-                  "unchanged"
-                ]
-              },
-              "receipt": {
-                "allOf": [
-                  {
-                    "$ref": "#/$defs/receipt"
-                  },
-                  {
-                    "properties": {
-                      "operation": {
-                        "const": "collection.update"
-                      }
-                    },
-                    "required": [
-                      "operation"
-                    ],
-                    "type": "object"
-                  }
-                ]
-              },
-              "result": {
-                "additionalProperties": false,
-                "properties": {
-                  "collection": {
-                    "additionalProperties": true,
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "collection"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "outcome",
-              "receipt",
-              "result"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "outcome": {
-                "enum": [
-                  "committed",
-                  "unchanged"
-                ]
-              },
-              "receipt": {
-                "allOf": [
-                  {
-                    "$ref": "#/$defs/receipt"
-                  },
-                  {
-                    "properties": {
-                      "operation": {
-                        "const": "collection.updateMembership"
-                      }
-                    },
-                    "required": [
-                      "operation"
-                    ],
-                    "type": "object"
-                  }
-                ]
-              },
-              "result": {
-                "additionalProperties": false,
-                "properties": {
-                  "addedRefs": {
-                    "$ref": "#/$defs/itemRefArray"
-                  },
-                  "collection": {
-                    "additionalProperties": true,
-                    "type": "object"
-                  },
-                  "removedRefs": {
-                    "$ref": "#/$defs/itemRefArray"
-                  }
-                },
-                "required": [
-                  "collection",
-                  "addedRefs",
-                  "removedRefs"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "outcome",
-              "receipt",
-              "result"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "outcome": {
-                "enum": [
-                  "committed",
-                  "unchanged"
-                ]
-              },
-              "receipt": {
-                "allOf": [
-                  {
-                    "$ref": "#/$defs/receipt"
-                  },
-                  {
-                    "properties": {
-                      "operation": {
-                        "const": "collection.remove"
-                      }
-                    },
-                    "required": [
-                      "operation"
-                    ],
-                    "type": "object"
-                  }
-                ]
-              },
-              "result": {
-                "additionalProperties": false,
-                "properties": {
-                  "removedRef": {
-                    "$ref": "#/$defs/collectionRef"
-                  }
-                },
-                "required": [
-                  "removedRef"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "outcome",
-              "receipt",
-              "result"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "outcome": {
-                "enum": [
-                  "committed",
-                  "unchanged"
-                ]
-              },
-              "receipt": {
-                "allOf": [
-                  {
-                    "$ref": "#/$defs/receipt"
-                  },
-                  {
-                    "properties": {
-                      "operation": {
-                        "const": "notes.create"
-                      }
-                    },
-                    "required": [
-                      "operation"
-                    ],
-                    "type": "object"
-                  }
-                ]
-              },
-              "result": {
-                "additionalProperties": false,
-                "properties": {
-                  "note": {
-                    "additionalProperties": true,
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "note"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "outcome",
-              "receipt",
-              "result"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "outcome": {
-                "enum": [
-                  "committed",
-                  "unchanged"
-                ]
-              },
-              "receipt": {
-                "allOf": [
-                  {
-                    "$ref": "#/$defs/receipt"
-                  },
-                  {
-                    "properties": {
-                      "operation": {
-                        "const": "notes.updateContent"
-                      }
-                    },
-                    "required": [
-                      "operation"
-                    ],
-                    "type": "object"
-                  }
-                ]
-              },
-              "result": {
-                "additionalProperties": false,
-                "properties": {
-                  "note": {
-                    "additionalProperties": true,
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "note"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "outcome",
-              "receipt",
-              "result"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "outcome": {
-                "enum": [
-                  "committed",
-                  "unchanged"
-                ]
-              },
-              "receipt": {
-                "allOf": [
-                  {
-                    "$ref": "#/$defs/receipt"
-                  },
-                  {
-                    "properties": {
-                      "operation": {
-                        "const": "notes.remove"
-                      }
-                    },
-                    "required": [
-                      "operation"
-                    ],
-                    "type": "object"
-                  }
-                ]
-              },
-              "result": {
-                "additionalProperties": false,
-                "properties": {
-                  "noteRef": {
-                    "$ref": "#/$defs/itemRef"
-                  },
-                  "outcome": {
-                    "enum": [
-                      "trashed",
-                      "permanently_deleted",
-                      "already_trashed",
-                      "already_absent"
-                    ]
-                  }
-                },
-                "required": [
-                  "noteRef",
-                  "outcome"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "outcome",
-              "receipt",
-              "result"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "outcome": {
-                "enum": [
-                  "committed",
-                  "unchanged"
-                ]
-              },
-              "receipt": {
-                "allOf": [
-                  {
-                    "$ref": "#/$defs/receipt"
-                  },
-                  {
-                    "properties": {
-                      "operation": {
-                        "const": "notes.upsertPayload"
-                      }
-                    },
-                    "required": [
-                      "operation"
-                    ],
-                    "type": "object"
-                  }
-                ]
-              },
-              "result": {
-                "additionalProperties": false,
-                "properties": {
-                  "note": {
-                    "additionalProperties": true,
-                    "type": "object"
-                  },
-                  "outcome": {
-                    "enum": [
-                      "created",
-                      "replaced",
-                      "unchanged"
-                    ]
-                  },
-                  "payload": {
-                    "additionalProperties": true,
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "note",
-                  "payload",
-                  "outcome"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "outcome",
-              "receipt",
-              "result"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "outcome": {
-                "enum": [
-                  "committed",
-                  "unchanged"
-                ]
-              },
-              "receipt": {
-                "allOf": [
-                  {
-                    "$ref": "#/$defs/receipt"
-                  },
-                  {
-                    "properties": {
-                      "operation": {
-                        "const": "attachments.create"
-                      }
-                    },
-                    "required": [
-                      "operation"
-                    ],
-                    "type": "object"
-                  }
-                ]
-              },
-              "result": {
-                "additionalProperties": false,
-                "properties": {
-                  "attachment": {
-                    "additionalProperties": true,
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "attachment"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "outcome",
-              "receipt",
-              "result"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "outcome": {
-                "enum": [
-                  "committed",
-                  "unchanged"
-                ]
-              },
-              "receipt": {
-                "allOf": [
-                  {
-                    "$ref": "#/$defs/receipt"
-                  },
-                  {
-                    "properties": {
-                      "operation": {
-                        "const": "attachments.updateMetadata"
-                      }
-                    },
-                    "required": [
-                      "operation"
-                    ],
-                    "type": "object"
-                  }
-                ]
-              },
-              "result": {
-                "additionalProperties": false,
-                "properties": {
-                  "attachment": {
-                    "additionalProperties": true,
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "attachment"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "outcome",
-              "receipt",
-              "result"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "outcome": {
-                "enum": [
-                  "committed",
-                  "unchanged"
-                ]
-              },
-              "receipt": {
-                "allOf": [
-                  {
-                    "$ref": "#/$defs/receipt"
-                  },
-                  {
-                    "properties": {
-                      "operation": {
-                        "const": "attachments.replaceFile"
-                      }
-                    },
-                    "required": [
-                      "operation"
-                    ],
-                    "type": "object"
-                  }
-                ]
-              },
-              "result": {
-                "additionalProperties": false,
-                "properties": {
-                  "attachment": {
-                    "additionalProperties": true,
-                    "type": "object"
-                  },
-                  "outcome": {
-                    "enum": [
-                      "replaced",
-                      "unchanged"
-                    ]
-                  }
-                },
-                "required": [
-                  "attachment",
-                  "outcome"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "outcome",
-              "receipt",
-              "result"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "outcome": {
-                "enum": [
-                  "committed",
-                  "unchanged"
-                ]
-              },
-              "receipt": {
-                "allOf": [
-                  {
-                    "$ref": "#/$defs/receipt"
-                  },
-                  {
-                    "properties": {
-                      "operation": {
-                        "const": "attachments.move"
-                      }
-                    },
-                    "required": [
-                      "operation"
-                    ],
-                    "type": "object"
-                  }
-                ]
-              },
-              "result": {
-                "additionalProperties": false,
-                "properties": {
-                  "attachment": {
-                    "additionalProperties": true,
-                    "type": "object"
-                  },
-                  "outcome": {
-                    "enum": [
-                      "moved",
-                      "unchanged"
-                    ]
-                  }
-                },
-                "required": [
-                  "attachment",
-                  "outcome"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "outcome",
-              "receipt",
-              "result"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "outcome": {
-                "enum": [
-                  "committed",
-                  "unchanged"
-                ]
-              },
-              "receipt": {
-                "allOf": [
-                  {
-                    "$ref": "#/$defs/receipt"
-                  },
-                  {
-                    "properties": {
-                      "operation": {
-                        "const": "attachments.remove"
-                      }
-                    },
-                    "required": [
-                      "operation"
-                    ],
-                    "type": "object"
-                  }
-                ]
-              },
-              "result": {
-                "additionalProperties": false,
-                "properties": {
-                  "attachmentRef": {
-                    "$ref": "#/$defs/itemRef"
-                  },
-                  "outcome": {
-                    "enum": [
-                      "trashed",
-                      "permanently_deleted",
-                      "already_trashed",
-                      "already_absent"
-                    ]
-                  }
-                },
-                "required": [
-                  "attachmentRef",
-                  "outcome"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "outcome",
-              "receipt",
-              "result"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "outcome": {
-                "enum": [
-                  "committed",
-                  "unchanged"
-                ]
-              },
-              "receipt": {
-                "allOf": [
-                  {
-                    "$ref": "#/$defs/receipt"
-                  },
-                  {
-                    "properties": {
-                      "operation": {
-                        "const": "statusTags.transition"
-                      }
-                    },
-                    "required": [
-                      "operation"
-                    ],
-                    "type": "object"
-                  }
-                ]
-              },
-              "result": {
-                "additionalProperties": false,
-                "properties": {
-                  "added": {
-                    "$ref": "#/$defs/stringArray"
-                  },
-                  "itemRef": {
-                    "$ref": "#/$defs/itemRef"
-                  },
-                  "removed": {
-                    "$ref": "#/$defs/stringArray"
-                  },
-                  "revision": {
+                  "attemptId": {
                     "minLength": 1,
                     "type": "string"
                   },
-                  "unchanged": {
-                    "$ref": "#/$defs/stringArray"
-                  }
-                },
-                "required": [
-                  "itemRef",
-                  "added",
-                  "removed",
-                  "unchanged",
-                  "revision"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "outcome",
-              "receipt",
-              "result"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "outcome": {
-                "enum": [
-                  "committed",
-                  "unchanged"
-                ]
-              },
-              "receipt": {
-                "allOf": [
-                  {
-                    "$ref": "#/$defs/receipt"
-                  },
-                  {
+                  "error": {
+                    "additionalProperties": false,
                     "properties": {
-                      "operation": {
-                        "const": "trash.setItemsState"
+                      "code": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "details": {
+                        "$ref": "#/$defs/jsonValue"
+                      },
+                      "message": {
+                        "type": "string"
+                      },
+                      "phase": {
+                        "enum": [
+                          "validation",
+                          "reservation",
+                          "read",
+                          "staging",
+                          "commit",
+                          "verification",
+                          "compensation",
+                          "cleanup"
+                        ]
+                      },
+                      "recovery": {
+                        "enum": [
+                          "none",
+                          "retry_same_operation",
+                          "refresh_and_retry_new_operation",
+                          "reconcile",
+                          "manual_repair"
+                        ]
                       }
                     },
                     "required": [
-                      "operation"
+                      "code",
+                      "phase",
+                      "recovery",
+                      "details"
                     ],
                     "type": "object"
-                  }
-                ]
-              },
-              "result": {
-                "additionalProperties": false,
-                "properties": {
-                  "expandedRefs": {
-                    "$ref": "#/$defs/itemRefArray"
                   },
-                  "explicitRefs": {
-                    "$ref": "#/$defs/itemRefArray"
-                  },
-                  "state": {
+                  "operation": {
                     "enum": [
-                      "trashed",
-                      "active"
-                    ]
-                  }
-                },
-                "required": [
-                  "state",
-                  "explicitRefs",
-                  "expandedRefs"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "outcome",
-              "receipt",
-              "result"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "outcome": {
-                "enum": [
-                  "committed",
-                  "unchanged"
-                ]
-              },
-              "receipt": {
-                "allOf": [
-                  {
-                    "$ref": "#/$defs/receipt"
-                  },
-                  {
-                    "properties": {
-                      "operation": {
-                        "const": "literature.ingest"
-                      }
-                    },
-                    "required": [
-                      "operation"
-                    ],
-                    "type": "object"
-                  }
-                ]
-              },
-              "result": {
-                "additionalProperties": false,
-                "properties": {
-                  "collectionOutcome": {
-                    "enum": [
-                      "added",
-                      "already_present"
+                      "item.create",
+                      "item.updateMetadata",
+                      "item.changeType",
+                      "item.remove",
+                      "item.updateTags",
+                      "item.addRelated",
+                      "item.removeRelated",
+                      "collection.create",
+                      "collection.update",
+                      "collection.updateMembership",
+                      "collection.remove",
+                      "notes.create",
+                      "notes.updateContent",
+                      "notes.remove",
+                      "notes.upsertPayload",
+                      "attachments.create",
+                      "attachments.updateMetadata",
+                      "attachments.replaceFile",
+                      "attachments.move",
+                      "attachments.remove",
+                      "statusTags.transition",
+                      "trash.setItemsState",
+                      "literature.ingest",
+                      "managed_note.write_custom",
+                      "managed_note.write_conversation",
+                      "literature_artifact.upsert_digest",
+                      "literature_artifact.upsert_references",
+                      "literature_artifact.upsert_citation_analysis",
+                      "literature_artifact.upsert_score"
                     ]
                   },
-                  "collectionRef": {
-                    "$ref": "#/$defs/collectionRef"
+                  "operationId": {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "type": "string"
                   },
-                  "enrichment": {
+                  "residualRefs": {
                     "items": {
-                      "oneOf": [
-                        {
-                          "additionalProperties": false,
-                          "properties": {
-                            "kind": {
-                              "enum": [
-                                "pdf",
-                                "landing"
-                              ]
-                            },
-                            "outcome": {
-                              "const": "attached"
-                            }
-                          },
-                          "required": [
-                            "kind",
-                            "outcome"
-                          ],
-                          "type": "object"
+                      "additionalProperties": false,
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "schema": {
+                    "const": "zotero-agents.mutation-attempt.v1"
+                  },
+                  "status": {
+                    "enum": [
+                      "failed",
+                      "canceled",
+                      "unknown",
+                      "repair_required"
+                    ]
+                  }
+                },
+                "required": [
+                  "schema",
+                  "attemptId",
+                  "operationId",
+                  "operation",
+                  "status",
+                  "error",
+                  "affectedRefs",
+                  "residualRefs"
+                ],
+                "type": "object"
+              },
+              "noteContent": {
+                "additionalProperties": false,
+                "properties": {
+                  "embeddedImages": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "altText": {
+                          "type": "string"
                         },
-                        {
+                        "preparedImage": {
                           "additionalProperties": false,
                           "properties": {
-                            "kind": {
-                              "enum": [
-                                "pdf",
-                                "landing"
-                              ]
-                            },
-                            "outcome": {
-                              "const": "skipped"
-                            }
-                          },
-                          "required": [
-                            "kind",
-                            "outcome"
-                          ],
-                          "type": "object"
-                        },
-                        {
-                          "additionalProperties": false,
-                          "properties": {
-                            "code": {
+                            "id": {
                               "minLength": 1,
                               "type": "string"
                             },
                             "kind": {
-                              "enum": [
-                                "pdf",
-                                "landing"
-                              ]
-                            },
-                            "outcome": {
-                              "const": "failed"
+                              "const": "prepared_note_image"
                             }
                           },
                           "required": [
                             "kind",
-                            "outcome",
-                            "code"
+                            "id"
                           ],
                           "type": "object"
+                        },
+                        "slot": {
+                          "minLength": 1,
+                          "type": "string"
                         }
-                      ]
+                      },
+                      "required": [
+                        "slot",
+                        "preparedImage"
+                      ],
+                      "type": "object"
                     },
                     "type": "array"
                   },
-                  "item": {
-                    "additionalProperties": true,
-                    "type": "object"
-                  },
-                  "itemOutcome": {
+                  "format": {
                     "enum": [
-                      "created",
-                      "existing"
+                      "html",
+                      "text"
                     ]
+                  },
+                  "value": {
+                    "type": "string"
                   }
                 },
                 "required": [
-                  "item",
-                  "collectionRef",
-                  "itemOutcome",
-                  "collectionOutcome",
-                  "enrichment"
+                  "format",
+                  "value"
                 ],
                 "type": "object"
-              }
-            },
-            "required": [
-              "outcome",
-              "receipt",
-              "result"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "outcome": {
-                "enum": [
-                  "committed",
-                  "unchanged"
-                ]
               },
               "receipt": {
-                "allOf": [
-                  {
-                    "$ref": "#/$defs/receipt"
-                  },
-                  {
-                    "properties": {
-                      "operation": {
-                        "const": "managed_note.write_custom"
-                      }
-                    },
-                    "required": [
-                      "operation"
-                    ],
-                    "type": "object"
-                  }
-                ]
-              },
-              "result": {
                 "additionalProperties": false,
                 "properties": {
-                  "note": {
-                    "oneOf": [
-                      {
-                        "additionalProperties": false,
-                        "properties": {
-                          "content": {
-                            "type": "string"
-                          },
-                          "format": {
-                            "enum": [
-                              "html",
-                              "text"
-                            ]
-                          },
-                          "kind": {
-                            "const": "ordinary"
-                          },
-                          "parentRef": {
-                            "anyOf": [
-                              {
-                                "$ref": "#/$defs/itemRef"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          },
-                          "ref": {
-                            "$ref": "#/$defs/itemRef"
-                          },
-                          "revision": {
-                            "minLength": 1,
-                            "type": "string"
-                          },
-                          "title": {
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "kind",
-                          "ref",
-                          "parentRef",
-                          "title",
-                          "format",
-                          "content",
-                          "revision"
-                        ],
-                        "type": "object"
-                      },
-                      {
-                        "additionalProperties": false,
-                        "properties": {
-                          "derived": {
-                            "additionalProperties": false,
-                            "properties": {
-                              "markdown": {
-                                "type": "string"
-                              },
-                              "representativeImage": {
-                                "additionalProperties": false,
-                                "properties": {
-                                  "alt": {
-                                    "type": "string"
-                                  },
-                                  "attachmentRef": {
-                                    "$ref": "#/$defs/itemRef"
-                                  }
-                                },
-                                "required": [
-                                  "attachmentRef",
-                                  "alt"
-                                ],
-                                "type": "object"
-                              }
-                            },
-                            "type": "object"
-                          },
-                          "detailBytes": {
-                            "minimum": 0,
-                            "type": "integer"
-                          },
-                          "health": {
-                            "additionalProperties": false,
-                            "properties": {
-                              "currentReferencesBasis": {
-                                "minLength": 1,
-                                "type": "string"
-                              },
-                              "state": {
-                                "enum": [
-                                  "current",
-                                  "stale"
-                                ]
-                              }
-                            },
-                            "required": [
-                              "state"
-                            ],
-                            "type": "object"
-                          },
-                          "kind": {
-                            "const": "managed"
-                          },
-                          "noteKind": {
-                            "enum": [
-                              "custom",
-                              "conversation-note",
-                              "digest",
-                              "references",
-                              "citation-analysis",
-                              "literature-score"
-                            ]
-                          },
-                          "parentRef": {
-                            "anyOf": [
-                              {
-                                "$ref": "#/$defs/itemRef"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          },
-                          "payload": {
-                            "$ref": "#/$defs/jsonValue"
-                          },
-                          "payloadBytes": {
-                            "minimum": 0,
-                            "type": "integer"
-                          },
-                          "provenance": {
-                            "additionalProperties": false,
-                            "properties": {
-                              "referencesBasis": {
-                                "minLength": 1,
-                                "type": "string"
-                              },
-                              "sourceRef": {
-                                "$ref": "#/$defs/itemRef"
-                              }
-                            },
-                            "type": "object"
-                          },
-                          "ref": {
-                            "$ref": "#/$defs/itemRef"
-                          },
-                          "revision": {
-                            "minLength": 1,
-                            "type": "string"
-                          },
-                          "title": {
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "kind",
-                          "noteKind",
-                          "ref",
-                          "parentRef",
-                          "title",
-                          "payload",
-                          "payloadBytes",
-                          "detailBytes",
-                          "revision"
-                        ],
-                        "type": "object"
-                      }
+                  "changes": {
+                    "items": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "committedAt": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "effectDigest": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "operation": {
+                    "enum": [
+                      "item.create",
+                      "item.updateMetadata",
+                      "item.changeType",
+                      "item.remove",
+                      "item.updateTags",
+                      "item.addRelated",
+                      "item.removeRelated",
+                      "collection.create",
+                      "collection.update",
+                      "collection.updateMembership",
+                      "collection.remove",
+                      "notes.create",
+                      "notes.updateContent",
+                      "notes.remove",
+                      "notes.upsertPayload",
+                      "attachments.create",
+                      "attachments.updateMetadata",
+                      "attachments.replaceFile",
+                      "attachments.move",
+                      "attachments.remove",
+                      "statusTags.transition",
+                      "trash.setItemsState",
+                      "literature.ingest",
+                      "managed_note.write_custom",
+                      "managed_note.write_conversation",
+                      "literature_artifact.upsert_digest",
+                      "literature_artifact.upsert_references",
+                      "literature_artifact.upsert_citation_analysis",
+                      "literature_artifact.upsert_score"
                     ]
+                  },
+                  "operationId": {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "outcome": {
+                    "enum": [
+                      "committed",
+                      "unchanged"
+                    ]
+                  },
+                  "receiptId": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "schema": {
+                    "const": "zotero-agents.mutation-receipt.v1"
                   }
                 },
                 "required": [
-                  "note"
+                  "schema",
+                  "receiptId",
+                  "operationId",
+                  "operation",
+                  "outcome",
+                  "committedAt",
+                  "effectDigest",
+                  "changes"
                 ],
                 "type": "object"
-              }
-            },
-            "required": [
-              "outcome",
-              "receipt",
-              "result"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "outcome": {
-                "enum": [
-                  "committed",
-                  "unchanged"
-                ]
               },
-              "receipt": {
-                "allOf": [
-                  {
-                    "$ref": "#/$defs/receipt"
-                  },
-                  {
-                    "properties": {
-                      "operation": {
-                        "const": "managed_note.write_conversation"
-                      }
-                    },
-                    "required": [
-                      "operation"
-                    ],
-                    "type": "object"
-                  }
-                ]
-              },
-              "result": {
+              "storedAttachmentSource": {
                 "additionalProperties": false,
                 "properties": {
-                  "note": {
-                    "oneOf": [
-                      {
-                        "additionalProperties": false,
-                        "properties": {
-                          "content": {
-                            "type": "string"
-                          },
-                          "format": {
-                            "enum": [
-                              "html",
-                              "text"
-                            ]
-                          },
-                          "kind": {
-                            "const": "ordinary"
-                          },
-                          "parentRef": {
-                            "anyOf": [
-                              {
-                                "$ref": "#/$defs/itemRef"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          },
-                          "ref": {
-                            "$ref": "#/$defs/itemRef"
-                          },
-                          "revision": {
-                            "minLength": 1,
-                            "type": "string"
-                          },
-                          "title": {
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "kind",
-                          "ref",
-                          "parentRef",
-                          "title",
-                          "format",
-                          "content",
-                          "revision"
-                        ],
-                        "type": "object"
+                  "companions": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "targetRelativePath": {
+                          "minLength": 1,
+                          "type": "string"
+                        }
                       },
-                      {
-                        "additionalProperties": false,
-                        "properties": {
-                          "derived": {
-                            "additionalProperties": false,
-                            "properties": {
-                              "markdown": {
-                                "type": "string"
-                              },
-                              "representativeImage": {
-                                "additionalProperties": false,
-                                "properties": {
-                                  "alt": {
-                                    "type": "string"
-                                  },
-                                  "attachmentRef": {
-                                    "$ref": "#/$defs/itemRef"
-                                  }
-                                },
-                                "required": [
-                                  "attachmentRef",
-                                  "alt"
-                                ],
-                                "type": "object"
-                              }
-                            },
-                            "type": "object"
-                          },
-                          "detailBytes": {
-                            "minimum": 0,
-                            "type": "integer"
-                          },
-                          "health": {
-                            "additionalProperties": false,
-                            "properties": {
-                              "currentReferencesBasis": {
-                                "minLength": 1,
-                                "type": "string"
-                              },
-                              "state": {
-                                "enum": [
-                                  "current",
-                                  "stale"
-                                ]
-                              }
-                            },
-                            "required": [
-                              "state"
-                            ],
-                            "type": "object"
-                          },
-                          "kind": {
-                            "const": "managed"
-                          },
-                          "noteKind": {
-                            "enum": [
-                              "custom",
-                              "conversation-note",
-                              "digest",
-                              "references",
-                              "citation-analysis",
-                              "literature-score"
-                            ]
-                          },
-                          "parentRef": {
-                            "anyOf": [
-                              {
-                                "$ref": "#/$defs/itemRef"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          },
-                          "payload": {
-                            "$ref": "#/$defs/jsonValue"
-                          },
-                          "payloadBytes": {
-                            "minimum": 0,
-                            "type": "integer"
-                          },
-                          "provenance": {
-                            "additionalProperties": false,
-                            "properties": {
-                              "referencesBasis": {
-                                "minLength": 1,
-                                "type": "string"
-                              },
-                              "sourceRef": {
-                                "$ref": "#/$defs/itemRef"
-                              }
-                            },
-                            "type": "object"
-                          },
-                          "ref": {
-                            "$ref": "#/$defs/itemRef"
-                          },
-                          "revision": {
-                            "minLength": 1,
-                            "type": "string"
-                          },
-                          "title": {
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "kind",
-                          "noteKind",
-                          "ref",
-                          "parentRef",
-                          "title",
-                          "payload",
-                          "payloadBytes",
-                          "detailBytes",
-                          "revision"
-                        ],
-                        "type": "object"
-                      }
-                    ]
-                  }
-                },
-                "required": [
-                  "note"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "outcome",
-              "receipt",
-              "result"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "outcome": {
-                "enum": [
-                  "committed",
-                  "unchanged"
-                ]
-              },
-              "receipt": {
-                "allOf": [
-                  {
-                    "$ref": "#/$defs/receipt"
-                  },
-                  {
-                    "properties": {
-                      "operation": {
-                        "const": "literature_artifact.upsert_digest"
-                      }
+                      "required": [
+                        "targetRelativePath"
+                      ],
+                      "type": "object"
                     },
-                    "required": [
-                      "operation"
-                    ],
-                    "type": "object"
-                  }
-                ]
-              },
-              "result": {
-                "additionalProperties": false,
-                "properties": {
-                  "dependentStale": {
-                    "type": "boolean"
+                    "type": "array"
                   },
-                  "note": {
-                    "oneOf": [
-                      {
-                        "additionalProperties": false,
-                        "properties": {
-                          "content": {
-                            "type": "string"
-                          },
-                          "format": {
-                            "enum": [
-                              "html",
-                              "text"
-                            ]
-                          },
-                          "kind": {
-                            "const": "ordinary"
-                          },
-                          "parentRef": {
-                            "anyOf": [
-                              {
-                                "$ref": "#/$defs/itemRef"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          },
-                          "ref": {
-                            "$ref": "#/$defs/itemRef"
-                          },
-                          "revision": {
-                            "minLength": 1,
-                            "type": "string"
-                          },
-                          "title": {
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "kind",
-                          "ref",
-                          "parentRef",
-                          "title",
-                          "format",
-                          "content",
-                          "revision"
-                        ],
-                        "type": "object"
-                      },
-                      {
-                        "additionalProperties": false,
-                        "properties": {
-                          "derived": {
-                            "additionalProperties": false,
-                            "properties": {
-                              "markdown": {
-                                "type": "string"
-                              },
-                              "representativeImage": {
-                                "additionalProperties": false,
-                                "properties": {
-                                  "alt": {
-                                    "type": "string"
-                                  },
-                                  "attachmentRef": {
-                                    "$ref": "#/$defs/itemRef"
-                                  }
-                                },
-                                "required": [
-                                  "attachmentRef",
-                                  "alt"
-                                ],
-                                "type": "object"
-                              }
-                            },
-                            "type": "object"
-                          },
-                          "detailBytes": {
-                            "minimum": 0,
-                            "type": "integer"
-                          },
-                          "health": {
-                            "additionalProperties": false,
-                            "properties": {
-                              "currentReferencesBasis": {
-                                "minLength": 1,
-                                "type": "string"
-                              },
-                              "state": {
-                                "enum": [
-                                  "current",
-                                  "stale"
-                                ]
-                              }
-                            },
-                            "required": [
-                              "state"
-                            ],
-                            "type": "object"
-                          },
-                          "kind": {
-                            "const": "managed"
-                          },
-                          "noteKind": {
-                            "enum": [
-                              "custom",
-                              "conversation-note",
-                              "digest",
-                              "references",
-                              "citation-analysis",
-                              "literature-score"
-                            ]
-                          },
-                          "parentRef": {
-                            "anyOf": [
-                              {
-                                "$ref": "#/$defs/itemRef"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          },
-                          "payload": {
-                            "$ref": "#/$defs/jsonValue"
-                          },
-                          "payloadBytes": {
-                            "minimum": 0,
-                            "type": "integer"
-                          },
-                          "provenance": {
-                            "additionalProperties": false,
-                            "properties": {
-                              "referencesBasis": {
-                                "minLength": 1,
-                                "type": "string"
-                              },
-                              "sourceRef": {
-                                "$ref": "#/$defs/itemRef"
-                              }
-                            },
-                            "type": "object"
-                          },
-                          "ref": {
-                            "$ref": "#/$defs/itemRef"
-                          },
-                          "revision": {
-                            "minLength": 1,
-                            "type": "string"
-                          },
-                          "title": {
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "kind",
-                          "noteKind",
-                          "ref",
-                          "parentRef",
-                          "title",
-                          "payload",
-                          "payloadBytes",
-                          "detailBytes",
-                          "revision"
-                        ],
-                        "type": "object"
-                      }
-                    ]
+                  "content": {
+                    "$ref": "#/$defs/attachmentContentManifest"
                   },
-                  "referencesBasis": {
+                  "kind": {
+                    "const": "stored_file"
+                  },
+                  "targetFilename": {
                     "minLength": 1,
                     "type": "string"
                   }
                 },
                 "required": [
-                  "note"
+                  "kind",
+                  "content"
                 ],
                 "type": "object"
+              },
+              "stringArray": {
+                "items": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "type": "array"
               }
             },
-            "required": [
-              "outcome",
-              "receipt",
-              "result"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "outcome": {
-                "enum": [
-                  "committed",
-                  "unchanged"
-                ]
-              },
-              "receipt": {
-                "allOf": [
-                  {
-                    "$ref": "#/$defs/receipt"
-                  },
-                  {
-                    "properties": {
-                      "operation": {
-                        "const": "literature_artifact.upsert_references"
-                      }
-                    },
-                    "required": [
-                      "operation"
-                    ],
-                    "type": "object"
-                  }
-                ]
-              },
-              "result": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "oneOf": [
+              {
                 "additionalProperties": false,
                 "properties": {
-                  "dependentStale": {
-                    "type": "boolean"
+                  "outcome": {
+                    "enum": [
+                      "committed",
+                      "unchanged"
+                    ]
                   },
-                  "note": {
-                    "oneOf": [
+                  "receipt": {
+                    "allOf": [
                       {
-                        "additionalProperties": false,
-                        "properties": {
-                          "content": {
-                            "type": "string"
-                          },
-                          "format": {
-                            "enum": [
-                              "html",
-                              "text"
-                            ]
-                          },
-                          "kind": {
-                            "const": "ordinary"
-                          },
-                          "parentRef": {
-                            "anyOf": [
-                              {
-                                "$ref": "#/$defs/itemRef"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          },
-                          "ref": {
-                            "$ref": "#/$defs/itemRef"
-                          },
-                          "revision": {
-                            "minLength": 1,
-                            "type": "string"
-                          },
-                          "title": {
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "kind",
-                          "ref",
-                          "parentRef",
-                          "title",
-                          "format",
-                          "content",
-                          "revision"
-                        ],
-                        "type": "object"
+                        "$ref": "#/$defs/receipt"
                       },
                       {
-                        "additionalProperties": false,
                         "properties": {
-                          "derived": {
-                            "additionalProperties": false,
-                            "properties": {
-                              "markdown": {
-                                "type": "string"
-                              },
-                              "representativeImage": {
-                                "additionalProperties": false,
-                                "properties": {
-                                  "alt": {
-                                    "type": "string"
-                                  },
-                                  "attachmentRef": {
-                                    "$ref": "#/$defs/itemRef"
-                                  }
-                                },
-                                "required": [
-                                  "attachmentRef",
-                                  "alt"
-                                ],
-                                "type": "object"
-                              }
-                            },
-                            "type": "object"
-                          },
-                          "detailBytes": {
-                            "minimum": 0,
-                            "type": "integer"
-                          },
-                          "health": {
-                            "additionalProperties": false,
-                            "properties": {
-                              "currentReferencesBasis": {
-                                "minLength": 1,
-                                "type": "string"
-                              },
-                              "state": {
-                                "enum": [
-                                  "current",
-                                  "stale"
-                                ]
-                              }
-                            },
-                            "required": [
-                              "state"
-                            ],
-                            "type": "object"
-                          },
-                          "kind": {
-                            "const": "managed"
-                          },
-                          "noteKind": {
-                            "enum": [
-                              "custom",
-                              "conversation-note",
-                              "digest",
-                              "references",
-                              "citation-analysis",
-                              "literature-score"
-                            ]
-                          },
-                          "parentRef": {
-                            "anyOf": [
-                              {
-                                "$ref": "#/$defs/itemRef"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          },
-                          "payload": {
-                            "$ref": "#/$defs/jsonValue"
-                          },
-                          "payloadBytes": {
-                            "minimum": 0,
-                            "type": "integer"
-                          },
-                          "provenance": {
-                            "additionalProperties": false,
-                            "properties": {
-                              "referencesBasis": {
-                                "minLength": 1,
-                                "type": "string"
-                              },
-                              "sourceRef": {
-                                "$ref": "#/$defs/itemRef"
-                              }
-                            },
-                            "type": "object"
-                          },
-                          "ref": {
-                            "$ref": "#/$defs/itemRef"
-                          },
-                          "revision": {
-                            "minLength": 1,
-                            "type": "string"
-                          },
-                          "title": {
-                            "type": "string"
+                          "operation": {
+                            "const": "collection.updateMembership"
                           }
                         },
                         "required": [
-                          "kind",
-                          "noteKind",
-                          "ref",
-                          "parentRef",
-                          "title",
-                          "payload",
-                          "payloadBytes",
-                          "detailBytes",
-                          "revision"
+                          "operation"
                         ],
                         "type": "object"
                       }
                     ]
                   },
-                  "referencesBasis": {
-                    "minLength": 1,
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "note"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "outcome",
-              "receipt",
-              "result"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "outcome": {
-                "enum": [
-                  "committed",
-                  "unchanged"
-                ]
-              },
-              "receipt": {
-                "allOf": [
-                  {
-                    "$ref": "#/$defs/receipt"
-                  },
-                  {
+                  "result": {
+                    "additionalProperties": false,
                     "properties": {
-                      "operation": {
-                        "const": "literature_artifact.upsert_citation_analysis"
+                      "addedRefs": {
+                        "$ref": "#/$defs/itemRefArray"
+                      },
+                      "collection": {
+                        "additionalProperties": true,
+                        "type": "object"
+                      },
+                      "removedRefs": {
+                        "$ref": "#/$defs/itemRefArray"
                       }
                     },
                     "required": [
-                      "operation"
+                      "collection",
+                      "addedRefs",
+                      "removedRefs"
                     ],
                     "type": "object"
                   }
-                ]
+                },
+                "required": [
+                  "outcome",
+                  "receipt",
+                  "result"
+                ],
+                "type": "object"
               },
-              "result": {
+              {
                 "additionalProperties": false,
                 "properties": {
-                  "dependentStale": {
-                    "type": "boolean"
+                  "attempt": {
+                    "$ref": "#/$defs/mutationAttempt"
                   },
-                  "note": {
-                    "oneOf": [
-                      {
-                        "additionalProperties": false,
-                        "properties": {
-                          "content": {
-                            "type": "string"
-                          },
-                          "format": {
-                            "enum": [
-                              "html",
-                              "text"
-                            ]
-                          },
-                          "kind": {
-                            "const": "ordinary"
-                          },
-                          "parentRef": {
-                            "anyOf": [
-                              {
-                                "$ref": "#/$defs/itemRef"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          },
-                          "ref": {
-                            "$ref": "#/$defs/itemRef"
-                          },
-                          "revision": {
-                            "minLength": 1,
-                            "type": "string"
-                          },
-                          "title": {
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "kind",
-                          "ref",
-                          "parentRef",
-                          "title",
-                          "format",
-                          "content",
-                          "revision"
-                        ],
-                        "type": "object"
-                      },
-                      {
-                        "additionalProperties": false,
-                        "properties": {
-                          "derived": {
-                            "additionalProperties": false,
-                            "properties": {
-                              "markdown": {
-                                "type": "string"
-                              },
-                              "representativeImage": {
-                                "additionalProperties": false,
-                                "properties": {
-                                  "alt": {
-                                    "type": "string"
-                                  },
-                                  "attachmentRef": {
-                                    "$ref": "#/$defs/itemRef"
-                                  }
-                                },
-                                "required": [
-                                  "attachmentRef",
-                                  "alt"
-                                ],
-                                "type": "object"
-                              }
-                            },
-                            "type": "object"
-                          },
-                          "detailBytes": {
-                            "minimum": 0,
-                            "type": "integer"
-                          },
-                          "health": {
-                            "additionalProperties": false,
-                            "properties": {
-                              "currentReferencesBasis": {
-                                "minLength": 1,
-                                "type": "string"
-                              },
-                              "state": {
-                                "enum": [
-                                  "current",
-                                  "stale"
-                                ]
-                              }
-                            },
-                            "required": [
-                              "state"
-                            ],
-                            "type": "object"
-                          },
-                          "kind": {
-                            "const": "managed"
-                          },
-                          "noteKind": {
-                            "enum": [
-                              "custom",
-                              "conversation-note",
-                              "digest",
-                              "references",
-                              "citation-analysis",
-                              "literature-score"
-                            ]
-                          },
-                          "parentRef": {
-                            "anyOf": [
-                              {
-                                "$ref": "#/$defs/itemRef"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          },
-                          "payload": {
-                            "$ref": "#/$defs/jsonValue"
-                          },
-                          "payloadBytes": {
-                            "minimum": 0,
-                            "type": "integer"
-                          },
-                          "provenance": {
-                            "additionalProperties": false,
-                            "properties": {
-                              "referencesBasis": {
-                                "minLength": 1,
-                                "type": "string"
-                              },
-                              "sourceRef": {
-                                "$ref": "#/$defs/itemRef"
-                              }
-                            },
-                            "type": "object"
-                          },
-                          "ref": {
-                            "$ref": "#/$defs/itemRef"
-                          },
-                          "revision": {
-                            "minLength": 1,
-                            "type": "string"
-                          },
-                          "title": {
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "kind",
-                          "noteKind",
-                          "ref",
-                          "parentRef",
-                          "title",
-                          "payload",
-                          "payloadBytes",
-                          "detailBytes",
-                          "revision"
-                        ],
-                        "type": "object"
-                      }
+                  "outcome": {
+                    "enum": [
+                      "failed",
+                      "canceled",
+                      "unknown",
+                      "repair_required"
                     ]
-                  },
-                  "referencesBasis": {
-                    "minLength": 1,
-                    "type": "string"
                   }
                 },
                 "required": [
-                  "note"
+                  "outcome",
+                  "attempt"
                 ],
                 "type": "object"
               }
-            },
-            "required": [
-              "outcome",
-              "receipt",
-              "result"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "outcome": {
-                "enum": [
-                  "committed",
-                  "unchanged"
-                ]
-              },
-              "receipt": {
-                "allOf": [
-                  {
-                    "$ref": "#/$defs/receipt"
-                  },
-                  {
-                    "properties": {
-                      "operation": {
-                        "const": "literature_artifact.upsert_score"
-                      }
-                    },
-                    "required": [
-                      "operation"
-                    ],
-                    "type": "object"
-                  }
-                ]
-              },
-              "result": {
-                "additionalProperties": false,
-                "properties": {
-                  "dependentStale": {
-                    "type": "boolean"
-                  },
-                  "note": {
-                    "oneOf": [
-                      {
-                        "additionalProperties": false,
-                        "properties": {
-                          "content": {
-                            "type": "string"
-                          },
-                          "format": {
-                            "enum": [
-                              "html",
-                              "text"
-                            ]
-                          },
-                          "kind": {
-                            "const": "ordinary"
-                          },
-                          "parentRef": {
-                            "anyOf": [
-                              {
-                                "$ref": "#/$defs/itemRef"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          },
-                          "ref": {
-                            "$ref": "#/$defs/itemRef"
-                          },
-                          "revision": {
-                            "minLength": 1,
-                            "type": "string"
-                          },
-                          "title": {
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "kind",
-                          "ref",
-                          "parentRef",
-                          "title",
-                          "format",
-                          "content",
-                          "revision"
-                        ],
-                        "type": "object"
-                      },
-                      {
-                        "additionalProperties": false,
-                        "properties": {
-                          "derived": {
-                            "additionalProperties": false,
-                            "properties": {
-                              "markdown": {
-                                "type": "string"
-                              },
-                              "representativeImage": {
-                                "additionalProperties": false,
-                                "properties": {
-                                  "alt": {
-                                    "type": "string"
-                                  },
-                                  "attachmentRef": {
-                                    "$ref": "#/$defs/itemRef"
-                                  }
-                                },
-                                "required": [
-                                  "attachmentRef",
-                                  "alt"
-                                ],
-                                "type": "object"
-                              }
-                            },
-                            "type": "object"
-                          },
-                          "detailBytes": {
-                            "minimum": 0,
-                            "type": "integer"
-                          },
-                          "health": {
-                            "additionalProperties": false,
-                            "properties": {
-                              "currentReferencesBasis": {
-                                "minLength": 1,
-                                "type": "string"
-                              },
-                              "state": {
-                                "enum": [
-                                  "current",
-                                  "stale"
-                                ]
-                              }
-                            },
-                            "required": [
-                              "state"
-                            ],
-                            "type": "object"
-                          },
-                          "kind": {
-                            "const": "managed"
-                          },
-                          "noteKind": {
-                            "enum": [
-                              "custom",
-                              "conversation-note",
-                              "digest",
-                              "references",
-                              "citation-analysis",
-                              "literature-score"
-                            ]
-                          },
-                          "parentRef": {
-                            "anyOf": [
-                              {
-                                "$ref": "#/$defs/itemRef"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          },
-                          "payload": {
-                            "$ref": "#/$defs/jsonValue"
-                          },
-                          "payloadBytes": {
-                            "minimum": 0,
-                            "type": "integer"
-                          },
-                          "provenance": {
-                            "additionalProperties": false,
-                            "properties": {
-                              "referencesBasis": {
-                                "minLength": 1,
-                                "type": "string"
-                              },
-                              "sourceRef": {
-                                "$ref": "#/$defs/itemRef"
-                              }
-                            },
-                            "type": "object"
-                          },
-                          "ref": {
-                            "$ref": "#/$defs/itemRef"
-                          },
-                          "revision": {
-                            "minLength": 1,
-                            "type": "string"
-                          },
-                          "title": {
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "kind",
-                          "noteKind",
-                          "ref",
-                          "parentRef",
-                          "title",
-                          "payload",
-                          "payloadBytes",
-                          "detailBytes",
-                          "revision"
-                        ],
-                        "type": "object"
-                      }
-                    ]
-                  },
-                  "referencesBasis": {
-                    "minLength": 1,
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "note"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "outcome",
-              "receipt",
-              "result"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "attempt": {
-                "$ref": "#/$defs/mutationAttempt"
-              },
-              "outcome": {
-                "enum": [
-                  "failed",
-                  "canceled",
-                  "unknown",
-                  "repair_required"
-                ]
-              }
-            },
-            "required": [
-              "outcome",
-              "attempt"
-            ],
-            "type": "object"
+            ]
           }
         ]
       }
@@ -7526,7 +4190,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
   "targets": [
     {
       "kind": "capability",
-      "target": "mutation.execute"
+      "target": "collection.updateMembership"
     }
   ]
 }
@@ -7603,7 +4267,7 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 [
   {
     "kind": "capability",
-    "target": "mutation.execute"
+    "target": "collection.updateMembership"
   }
 ]
 ```

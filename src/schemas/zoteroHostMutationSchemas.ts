@@ -1560,3 +1560,60 @@ export const MUTATION_INPUT_SCHEMAS_BY_OPERATION =
   operationInputSchemas satisfies Record<MutationPreviewOperation, JsonSchema>;
 export const MUTATION_RESULT_SCHEMAS_BY_OPERATION =
   resultPayloadSchemas satisfies Record<MutationOperation, JsonSchema>;
+
+function cloneSchema<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+/** Public projection schemas deliberately omit the internal operation tag. */
+export const MUTATION_PUBLIC_INPUT_SCHEMAS_BY_OPERATION = Object.fromEntries(
+  Object.entries(operationInputSchemas).map(([operation, schema]) => {
+    const projected = cloneSchema(schema) as JsonSchema;
+    const properties = (projected.properties || {}) as JsonSchema;
+    delete properties.operation;
+    properties.dryRun = { type: "boolean", default: false };
+    properties.operationId = { type: "string", minLength: 1, maxLength: 128 };
+    projected.properties = properties;
+    projected.required = ((projected.required || []) as string[]).filter(
+      (property) => property !== "operation",
+    );
+    projected.additionalProperties = false;
+    return [operation, projected];
+  }),
+) as unknown as Record<MutationOperation, JsonSchema>;
+
+export const MUTATION_PUBLIC_PREVIEW_OUTPUT_SCHEMAS_BY_OPERATION =
+  Object.fromEntries(
+    Object.keys(operationInputSchemas).map((operation) => [
+      operation,
+      {
+        ...cloneSchema(MUTATION_PREVIEW_OUTPUT_SCHEMA),
+        properties: {
+          ...(MUTATION_PREVIEW_OUTPUT_SCHEMA.properties as JsonSchema),
+          operation: { const: operation },
+        },
+        required: MUTATION_PREVIEW_OUTPUT_SCHEMA.required,
+      },
+    ]),
+) as unknown as Record<MutationOperation, JsonSchema>;
+
+export const MUTATION_PUBLIC_EXECUTION_OUTPUT_SCHEMAS_BY_OPERATION =
+  Object.fromEntries(
+    Object.keys(resultPayloadSchemas).map((operation) => {
+      const successful = successfulResultSchemas.find((branch) => {
+        const receipt = (branch.properties as JsonSchema).receipt as JsonSchema;
+        const allOf = receipt.allOf as JsonSchema[];
+        const operationProperty = (allOf[1].properties as JsonSchema)
+          .operation as JsonSchema;
+        return operationProperty.const === operation;
+      });
+      return [
+        operation,
+        {
+          $schema: "https://json-schema.org/draft/2020-12/schema",
+          oneOf: [successful, failedResultSchema],
+          $defs: mutationExecutionResultDefinitions,
+        },
+      ];
+    }),
+) as unknown as Record<MutationOperation, JsonSchema>;

@@ -1664,12 +1664,12 @@ describe("embedded Zotero MCP server protocol", function () {
         id: "preview",
         method: "tools/call",
         params: {
-          name: ZOTERO_MCP_TOOL_PREVIEW_MUTATION,
+          name: "item.updateTags",
           arguments: {
-            operation: "item.updateTags",
             itemRef: { libraryId: 1, key: "ITEM0001" },
             add: ["mcp"],
             remove: [],
+            dryRun: true,
           },
         },
       },
@@ -1706,7 +1706,7 @@ describe("embedded Zotero MCP server protocol", function () {
     assert.strictEqual(permissionCalls, 0);
     assert.strictEqual(
       (response as any).result.structuredContent.capability,
-      ZOTERO_MCP_TOOL_PREVIEW_MUTATION,
+      "item.updateTags",
     );
     assert.strictEqual(
       (response as any).result.structuredContent.approval,
@@ -2326,9 +2326,8 @@ describe("embedded Zotero MCP server protocol", function () {
         id: "create-md-note",
         method: "tools/call",
         params: {
-          name: ZOTERO_MCP_TOOL_EXECUTE_MUTATION,
+          name: "notes.create",
           arguments: {
-            operation: "notes.create",
             operationId: "mcp-create-note",
             placement: {
               kind: "child",
@@ -2375,11 +2374,11 @@ describe("embedded Zotero MCP server protocol", function () {
     );
     assert.include(
       toolText(response),
-      "mutation.execute Host Bridge capability result.",
+      "notes.create Host Bridge capability result.",
     );
   });
 
-  it("updates markdown-backed notes through generic mutation.execute", async function () {
+  it("updates markdown-backed notes through typed notes.updateContent", async function () {
     let executeCalls = 0;
     const broker = createFailClosedZoteroHostCapabilityBroker();
     const updated = await handleZoteroMcpRequestForTests(
@@ -2388,9 +2387,8 @@ describe("embedded Zotero MCP server protocol", function () {
         id: "update-md-note",
         method: "tools/call",
         params: {
-          name: ZOTERO_MCP_TOOL_EXECUTE_MUTATION,
+          name: "notes.updateContent",
           arguments: {
-            operation: "notes.updateContent",
             operationId: "mcp-update-note",
             noteRef: {
               key: "NOTE1",

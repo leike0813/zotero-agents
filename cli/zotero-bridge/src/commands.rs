@@ -272,24 +272,20 @@ fn synthesis_cache(config: &BridgeConfig, args: SynthesisCacheArgs) -> Result<Va
 }
 
 pub fn mutation(config: &BridgeConfig, args: MutationArgs) -> Result<Value, CliError> {
+    let dry_run = args.dry_run;
     match args.command {
-        MutationCommand::Preview(input) | MutationCommand::Apply(input) => call_structured(
-            config,
-            "input",
-            read_contract_json_arg("input", Some(&input.input))?,
-        ),
         MutationCommand::GetOperation(args) => mutation_get_operation(config, args),
-        MutationCommand::LiteratureIngest(args) => call_structured(
-            config,
-            "input",
-            read_contract_json_arg("input", Some(&args.input))?,
-        ),
-        MutationCommand::Tag(args) => client::call_current(config, mutation_tag_arguments(args)?),
-        MutationCommand::Collection(args) => {
-            client::call_current(config, mutation_collection_arguments(args)?)
+        MutationCommand::LiteratureIngest(args) => {
+            let mut input = read_contract_json_arg("input", Some(&args.input))?;
+            if dry_run { input.as_object_mut().unwrap().insert("dryRun".into(), json!(true)); }
+            call_structured(config, "input", input)
         }
-        MutationCommand::Item(args) => client::call_current(config, mutation_item_arguments(args)?),
-        MutationCommand::Note(args) => client::call_current(config, mutation_note_arguments(args)?),
+        MutationCommand::Tag(args) => client::call_current_with_dry_run(config, mutation_tag_arguments(args)?, dry_run),
+        MutationCommand::Collection(args) => {
+            client::call_current_with_dry_run(config, mutation_collection_arguments(args)?, dry_run)
+        }
+        MutationCommand::Item(args) => client::call_current_with_dry_run(config, mutation_item_arguments(args)?, dry_run),
+        MutationCommand::Note(args) => client::call_current_with_dry_run(config, mutation_note_arguments(args)?, dry_run),
     }
 }
 
@@ -3117,23 +3113,23 @@ mod tests {
 
     #[test]
     fn reads_bridge_inline_and_file_inputs() {
-        contract::set_current_command("mutation preview");
+        contract::set_current_command("mutation note update");
         let inline = bridge_input(BridgeInputArgs {
-            input: Some("{\"operation\":\"trash.setItemsState\",\"itemRefs\":[{\"libraryId\":1,\"key\":\"ABC123\"}],\"state\":\"trashed\"}".to_string()),
+            input: Some("{\"content\":{\"format\":\"text\",\"value\":\"x\"}}".to_string()),
         })
         .unwrap();
-        assert_eq!(inline["operation"], "trash.setItemsState");
+        assert_eq!(inline["content"]["value"], "x");
 
         let path = std::env::temp_dir().join(format!(
             "zotero-bridge-domain-input-{}.json",
             std::process::id()
         ));
-        fs::write(&path, "{\"operation\":\"trash.setItemsState\",\"itemRefs\":[{\"libraryId\":1,\"key\":\"ABC123\"}],\"state\":\"active\"}").unwrap();
+        fs::write(&path, "{\"content\":{\"format\":\"text\",\"value\":\"y\"}}").unwrap();
         let file = bridge_input(BridgeInputArgs {
             input: Some(format!("@{}", path.display())),
         })
         .unwrap();
-        assert_eq!(file["state"], "active");
+        assert_eq!(file["content"]["value"], "y");
         let _ = fs::remove_file(path);
     }
 
@@ -3173,7 +3169,6 @@ mod tests {
         assert_eq!(
             input,
             json!({
-                "operation": "literature.ingest",
                 "paper": {
                     "itemType": "thesis",
                     "fields": {
@@ -3210,7 +3205,6 @@ mod tests {
         assert_eq!(
             input,
             json!({
-                "operation": "literature.ingest",
                 "collectionRef": { "libraryId": 1, "key": "COLL" },
                 "paper": {
                     "itemType": "journalArticle",
@@ -3249,7 +3243,6 @@ mod tests {
             })
             .unwrap(),
             json!({
-                "operation": "item.updateTags",
                 "itemRef": { "libraryId": 1, "key": "ABC123" },
                 "add": ["status:read"],
                 "remove": []
@@ -3264,7 +3257,6 @@ mod tests {
             ),)
             .unwrap(),
             json!({
-                "operation": "collection.updateMembership",
                 "collectionRef": { "libraryId": 1, "key": "COLL123" },
                 "add": [{ "libraryId": 1, "key": "ABC123" }],
                 "remove": []
@@ -3278,7 +3270,6 @@ mod tests {
             })
             .unwrap(),
             json!({
-                "operation": "item.updateMetadata",
                 "itemRef": { "libraryId": 1, "key": "ABC123" },
                 "patch": { "fields": { "title": "Updated" } }
             })
@@ -3291,7 +3282,6 @@ mod tests {
             })
             .unwrap(),
             json!({
-                "operation": "notes.create",
                 "placement": { "kind": "child", "parentRef": { "libraryId": 1, "key": "ABC123" } },
                 "content": { "format": "html", "value": "<p>Note</p>" }
             })
@@ -3305,7 +3295,6 @@ mod tests {
             })
             .unwrap(),
             json!({
-                "operation": "attachments.create",
                 "placement": { "kind": "child", "parentRef": { "libraryId": 1, "key": "ABC123" } },
                 "source": { "kind": "stored_file", "fileId": "file-abc" },
                 "metadata": { "title": "artifact.md", "contentType": "text/markdown" }

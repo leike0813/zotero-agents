@@ -1372,7 +1372,6 @@ mod tests {
                     }),
                 )]),
                 json!({
-                    "operation": "literature.ingest",
                     "collectionRef": { "libraryId": 1, "key": "COLL123" },
                     "paper": { "itemType": "journalArticle" }
                 }),
@@ -1384,7 +1383,6 @@ mod tests {
                     ("patch", json!({ "fields": { "title": "Revised" } })),
                 ]),
                 json!({
-                    "operation": "item.updateMetadata",
                     "itemRef": { "libraryId": 1, "key": "ABC123" },
                     "patch": { "fields": { "title": "Revised" } }
                 }),
@@ -1396,7 +1394,6 @@ mod tests {
                     ("tags", json!(["topic:graph"])),
                 ]),
                 json!({
-                    "operation": "item.updateTags",
                     "itemRef": { "libraryId": 1, "key": "ABC123" },
                     "add": ["topic:graph"],
                     "remove": []
@@ -1412,7 +1409,6 @@ mod tests {
                     ("input", json!({ "content": "note" })),
                 ]),
                 json!({
-                    "operation": "notes.create",
                     "placement": { "kind": "child", "parentRef": { "libraryId": 1, "key": "ABC123" } },
                     "content": "note"
                 }),

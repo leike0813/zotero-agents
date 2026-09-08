@@ -187,7 +187,7 @@ describe("host bridge server phase 1", function () {
     );
   });
 
-  it("keeps mutation.execute out of generic HTTP operation history", async function () {
+  it("keeps typed canonical mutations out of generic HTTP operation history", async function () {
     const token = configureHostBridgeServerForTests({
       token: "canonical-mutation-operation-token",
     });
@@ -201,8 +201,8 @@ describe("host bridge server phase 1", function () {
         "x-zotero-bridge-operation-id": operationId,
       },
       body: JSON.stringify({
-        capability: "mutation.execute",
-        input: { operationId },
+        capability: "item.updateMetadata",
+        input: { dryRun: true, itemRef: { libraryId: 1, key: "ITEM0001" }, patch: { fields: {} } },
       }),
     });
 
@@ -232,9 +232,8 @@ describe("host bridge server phase 1", function () {
           "x-zotero-bridge-operation-id": "header-operation",
         },
         body: JSON.stringify({
-          capability: "mutation.execute",
+          capability: "item.updateMetadata",
           input: {
-            operation: "item.updateMetadata",
             operationId: "input-operation",
             itemRef: { libraryId: 1, key: "ITEM0001" },
             patch: { fields: { title: "Mismatch" } },
@@ -491,7 +490,7 @@ describe("host bridge server phase 1", function () {
       parsed.json.result.capabilities.map(
         (capability: { name: string }) => capability.name,
       ),
-      "mutation.preview",
+      "item.create",
     );
     assert.deepInclude(parsed.json.result.workflowControl, {
       supported: true,

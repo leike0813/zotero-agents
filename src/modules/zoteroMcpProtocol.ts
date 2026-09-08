@@ -1,6 +1,7 @@
 import {
   executeHostBridgeCapability,
   getHostBridgeCapability,
+  isCanonicalMutationProjectionCapability,
   listHostBridgeCapabilities,
 } from "./hostBridgeCapabilityRegistry";
 import type { SynthesisClient } from "../../packages/synthesis-contracts/src/index";
@@ -1144,13 +1145,19 @@ async function requestCapabilityApprovalForMcp(args: {
   input: Record<string, unknown>;
   context: ToolContext;
 }): Promise<HostBridgeApprovalRequirement | "denied" | "unavailable"> {
+  if (
+    isCanonicalMutationProjectionCapability(args.capability.name) &&
+    args.input.dryRun === true
+  ) {
+    return "none";
+  }
   if (args.capability.approval === "none") {
     return "none";
   }
   if (!args.context.options.requestToolPermission) {
     return "unavailable";
   }
-  if (args.capability.name === "mutation.execute") {
+  if (isCanonicalMutationProjectionCapability(args.capability.name)) {
     return args.capability.approval;
   }
   const preview = {
@@ -1227,7 +1234,8 @@ async function callHostBridgeCapabilityAsMcpTool(
   let data: unknown;
   try {
     const approveMutation =
-      capability.name === "mutation.execute" &&
+      isCanonicalMutationProjectionCapability(capability.name) &&
+      normalizedInput.dryRun !== true &&
       context.options.requestToolPermission
         ? async (preview: MutationPreviewResult<JsonObject>) => {
             const decision = normalizePermissionDecision(

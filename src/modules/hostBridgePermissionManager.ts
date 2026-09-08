@@ -30,7 +30,6 @@ const NO_APPROVAL_CAPABILITIES = new Set([
   "workflow_products.get",
   "workflow_products.read_asset",
   "workflow_products.export",
-  "mutation.preview",
   "mutation.get_operation",
   "diagnostic.get_status",
 ]);

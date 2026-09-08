@@ -5,11 +5,11 @@ import { HOST_BRIDGE_NOTE_DETAIL_OUTPUT_SCHEMA } from "../src/modules/hostBridge
 
 import {
   MUTATION_EXECUTE_INPUT_SCHEMA,
-  MUTATION_EXECUTE_OUTPUT_SCHEMA,
   MUTATION_GET_OPERATION_INPUT_SCHEMA,
   MUTATION_GET_OPERATION_OUTPUT_SCHEMA,
-  MUTATION_PREVIEW_INPUT_SCHEMA,
-  MUTATION_PREVIEW_OUTPUT_SCHEMA,
+  MUTATION_PUBLIC_EXECUTION_OUTPUT_SCHEMAS_BY_OPERATION,
+  MUTATION_PUBLIC_INPUT_SCHEMAS_BY_OPERATION,
+  MUTATION_PUBLIC_PREVIEW_OUTPUT_SCHEMAS_BY_OPERATION,
 } from "../src/schemas/zoteroHostMutationSchemas";
 
 type JsonObject = Record<string, unknown>;
@@ -23,9 +23,11 @@ function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-function bridgeMutationInput(schema: JsonObject): JsonObject {
+function bridgeMutationInput(schema: JsonObject, operation: string): JsonObject {
   const projected = clone(schema);
-  const definitions = projected.$defs as JsonObject;
+  const definitions = (projected.$defs ||= clone(
+    MUTATION_EXECUTE_INPUT_SCHEMA.$defs,
+  )) as JsonObject;
   const storedFile = clone(definitions.storedAttachmentSource as JsonObject);
   const storedProperties = storedFile.properties as JsonObject;
   delete storedProperties.content;
@@ -41,10 +43,8 @@ function bridgeMutationInput(schema: JsonObject): JsonObject {
     ...(attachmentSource.oneOf as JsonObject[]).slice(1),
   ];
 
-  for (const branch of projected.oneOf as JsonObject[]) {
-    const properties = branch.properties as JsonObject;
-    const operation = (properties.operation as JsonObject).const;
-    if (operation !== "attachments.replaceFile") continue;
+  const properties = projected.properties as JsonObject;
+  if (operation === "attachments.create" || operation === "attachments.replaceFile") {
     properties.source = { $ref: "#/$defs/bridgeUploadSource" };
   }
   return projected;
@@ -54,92 +54,45 @@ function renderedContract(contract: JsonObject) {
   const capabilities = contract.capabilities as Record<string, JsonObject>;
   capabilities["library.get_note_detail"].outputSchema =
     HOST_BRIDGE_NOTE_DETAIL_OUTPUT_SCHEMA;
-  const set = (
-    name: string,
-    inputSchema: JsonObject,
-    outputSchema: JsonObject,
-  ) => {
-    const existing = capabilities[name];
-    if (!existing) throw new Error(`Missing capability ${name}`);
-    capabilities[name] = { ...existing, inputSchema, outputSchema };
-  };
-  set(
-    "mutation.execute",
-    bridgeMutationInput(MUTATION_EXECUTE_INPUT_SCHEMA),
-    MUTATION_EXECUTE_OUTPUT_SCHEMA,
-  );
-  set(
-    "mutation.preview",
-    bridgeMutationInput(MUTATION_PREVIEW_INPUT_SCHEMA),
-    MUTATION_PREVIEW_OUTPUT_SCHEMA,
-  );
-  set(
-    "mutation.get_operation",
-    MUTATION_GET_OPERATION_INPUT_SCHEMA,
-    MUTATION_GET_OPERATION_OUTPUT_SCHEMA,
-  );
-  return contract;
-}
-
-function capabilityObjectRange(source: string, name: string) {
-  const marker = `"${name}":`;
-  const markerIndex = source.indexOf(marker);
-  if (markerIndex < 0) throw new Error(`Missing capability ${name}`);
-  const start = source.indexOf("{", markerIndex + marker.length);
-  if (start < 0) throw new Error(`Capability ${name} has no object value`);
-  let depth = 0;
-  let quoted = false;
-  let escaped = false;
-  for (let index = start; index < source.length; index += 1) {
-    const character = source[index];
-    if (quoted) {
-      if (escaped) escaped = false;
-      else if (character === "\\") escaped = true;
-      else if (character === '"') quoted = false;
-      continue;
-    }
-    if (character === '"') quoted = true;
-    else if (character === "{") depth += 1;
-    else if (character === "}") {
-      depth -= 1;
-      if (depth === 0) return { start, end: index + 1 };
-    }
+  const executeEntry =
+    capabilities["mutation.execute"] || capabilities["item.create"];
+  if (!executeEntry) {
+    throw new Error("Missing canonical mutation template capabilities");
   }
-  throw new Error(`Capability ${name} has an unclosed object value`);
-}
-
-async function formatCapability(entry: JsonObject) {
-  return (await format(JSON.stringify(entry), { parser: "json" }))
-    .trimEnd()
-    .split("\n")
-    .map((line, index) => (index === 0 ? line : `    ${line}`))
-    .join("\n");
+  delete capabilities["mutation.execute"];
+  delete capabilities["mutation.preview"];
+  for (const operation of Object.keys(MUTATION_PUBLIC_INPUT_SCHEMAS_BY_OPERATION)) {
+    capabilities[operation] = {
+      ...executeEntry,
+      summary: `Execute ${operation} after Zotero-side approval; set dryRun for an effect-free preview.`,
+      inputSchema: bridgeMutationInput(
+        MUTATION_PUBLIC_INPUT_SCHEMAS_BY_OPERATION[operation] as JsonObject,
+        operation,
+      ),
+      outputSchema: {
+        $schema: "https://json-schema.org/draft/2020-12/schema",
+        oneOf: [
+          MUTATION_PUBLIC_PREVIEW_OUTPUT_SCHEMAS_BY_OPERATION[operation],
+          MUTATION_PUBLIC_EXECUTION_OUTPUT_SCHEMAS_BY_OPERATION[operation],
+        ],
+        $defs:
+          MUTATION_PUBLIC_EXECUTION_OUTPUT_SCHEMAS_BY_OPERATION[operation].$defs,
+      },
+      effect: "state-change",
+      approval: executeEntry.approval,
+    };
+  }
+  capabilities["mutation.get_operation"] = {
+    ...capabilities["mutation.get_operation"],
+    inputSchema: MUTATION_GET_OPERATION_INPUT_SCHEMA,
+    outputSchema: MUTATION_GET_OPERATION_OUTPUT_SCHEMA,
+  };
+  return contract;
 }
 
 async function renderMutationCapabilities(source: string) {
   const contract = renderedContract(JSON.parse(source) as JsonObject);
-  const capabilities = contract.capabilities as Record<string, JsonObject>;
-  let rendered = source;
-  const names = [
-    "library.get_note_detail",
-    "mutation.execute",
-    "mutation.preview",
-    "mutation.get_operation",
-  ];
-  const replacements = await Promise.all(
-    names.map(async (name) => ({
-      range: capabilityObjectRange(source, name),
-      entry: await formatCapability(capabilities[name]),
-    })),
-  );
-  replacements.sort((left, right) => right.range.start - left.range.start);
-  for (const replacement of replacements) {
-    rendered =
-      rendered.slice(0, replacement.range.start) +
-      replacement.entry +
-      rendered.slice(replacement.range.end);
-  }
-  return format(rendered, {
+  return format(JSON.stringify(contract), {
     parser: "json",
     printWidth: 80,
     tabWidth: 2,

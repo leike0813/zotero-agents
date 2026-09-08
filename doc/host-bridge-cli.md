@@ -87,9 +87,36 @@ This section is generated from the executable Host Bridge capability and CLI com
 | `paper_artifacts.read` | paper_artifacts | `none` | `object` | `synthesis artifact read` | response:selector-bounded, mcp-mirror |
 | `paper_artifacts.resolve_topic_digest` | paper_artifacts | `none` | `object` | `synthesis artifact resolve-topic-digest` | response:selector-bounded, mcp-mirror |
 | `insights.get_attention_queue` | insights | `none` | `object` | `synthesis insight attention-queue` | response:limit-bounded, mcp-mirror |
-| `mutation.execute` | mutation | `zotero-ui-required` | `object required` | `mutation apply`, `mutation collection add-items`, `mutation collection create`, `mutation collection remove-items`, `mutation item attach-file`, `mutation item update`, `mutation literature-ingest`, `mutation note create`, `mutation note update`, `mutation note upsert-payload`, `mutation tag add`, `mutation tag remove` | mcp-mirror |
+| `attachments.create` | mutation | `zotero-ui-required` | `object required` | `mutation item attach-file` | mcp-mirror |
+| `attachments.move` | mutation | `zotero-ui-required` | `object required` |  | mcp-mirror |
+| `attachments.remove` | mutation | `zotero-ui-required` | `object required` |  | mcp-mirror |
+| `attachments.replaceFile` | mutation | `zotero-ui-required` | `object required` |  | mcp-mirror |
+| `attachments.updateMetadata` | mutation | `zotero-ui-required` | `object required` |  | mcp-mirror |
+| `collection.create` | mutation | `zotero-ui-required` | `object required` | `mutation collection create` | mcp-mirror |
+| `collection.remove` | mutation | `zotero-ui-required` | `object required` |  | mcp-mirror |
+| `collection.update` | mutation | `zotero-ui-required` | `object required` |  | mcp-mirror |
+| `collection.updateMembership` | mutation | `zotero-ui-required` | `object required` | `mutation collection add-items`, `mutation collection remove-items` | mcp-mirror |
+| `item.addRelated` | mutation | `zotero-ui-required` | `object required` |  | mcp-mirror |
+| `item.changeType` | mutation | `zotero-ui-required` | `object required` |  | mcp-mirror |
+| `item.create` | mutation | `zotero-ui-required` | `object required` |  | mcp-mirror |
+| `item.remove` | mutation | `zotero-ui-required` | `object required` |  | mcp-mirror |
+| `item.removeRelated` | mutation | `zotero-ui-required` | `object required` |  | mcp-mirror |
+| `item.updateMetadata` | mutation | `zotero-ui-required` | `object required` | `mutation item update` | mcp-mirror |
+| `item.updateTags` | mutation | `zotero-ui-required` | `object required` | `mutation tag add`, `mutation tag remove` | mcp-mirror |
+| `literature_artifact.upsert_citation_analysis` | mutation | `zotero-ui-required` | `object required` |  | mcp-mirror |
+| `literature_artifact.upsert_digest` | mutation | `zotero-ui-required` | `object required` |  | mcp-mirror |
+| `literature_artifact.upsert_references` | mutation | `zotero-ui-required` | `object required` |  | mcp-mirror |
+| `literature_artifact.upsert_score` | mutation | `zotero-ui-required` | `object required` |  | mcp-mirror |
+| `literature.ingest` | mutation | `zotero-ui-required` | `object required` | `mutation literature-ingest` | mcp-mirror |
+| `managed_note.write_conversation` | mutation | `zotero-ui-required` | `object required` |  | mcp-mirror |
+| `managed_note.write_custom` | mutation | `zotero-ui-required` | `object required` |  | mcp-mirror |
 | `mutation.get_operation` | mutation | `none` | `object required` | `mutation get-operation` | mcp-mirror |
-| `mutation.preview` | mutation | `none` | `object` | `mutation preview` | mcp-mirror |
+| `notes.create` | mutation | `zotero-ui-required` | `object required` | `mutation note create` | mcp-mirror |
+| `notes.remove` | mutation | `zotero-ui-required` | `object required` |  | mcp-mirror |
+| `notes.updateContent` | mutation | `zotero-ui-required` | `object required` | `mutation note update` | mcp-mirror |
+| `notes.upsertPayload` | mutation | `zotero-ui-required` | `object required` | `mutation note upsert-payload` | mcp-mirror |
+| `statusTags.transition` | mutation | `zotero-ui-required` | `object required` |  | mcp-mirror |
+| `trash.setItemsState` | mutation | `zotero-ui-required` | `object required` |  | mcp-mirror |
 | `workflow_products.remove` | mutation | `zotero-ui-required` | `object required` | `product remove` | mcp-mirror |
 | `diagnostic.get_status` | diagnostic | `none` | `object` | `raw call only` | raw-only, mcp-mirror |
 | `synthesis.operation.get` | diagnostic | `none` | `object` |  | mcp-mirror |
@@ -186,20 +213,18 @@ This section is generated from the executable Host Bridge capability and CLI com
 | `run skill recent` | `GET /bridge/v2/skill-runs/recent` | endpoint | - |
 | `run skill reply` | `POST /bridge/v2/skill-runs/{skillRunId}/reply` | endpoint | - |
 | `run workflow recent` | `GET /bridge/v2/workflows/runs` | endpoint | - |
-| `mutation apply` | `mutation.execute` | capability | - |
-| `mutation collection add-items` | `mutation.execute` | capability | - |
-| `mutation collection create` | `mutation.execute` | capability | - |
-| `mutation collection remove-items` | `mutation.execute` | capability | - |
+| `mutation collection add-items` | `collection.updateMembership` | capability | - |
+| `mutation collection create` | `collection.create` | capability | - |
+| `mutation collection remove-items` | `collection.updateMembership` | capability | - |
 | `mutation get-operation` | `mutation.get_operation` | capability | - |
-| `mutation item attach-file` | `mutation.execute` | capability | - |
-| `mutation item update` | `mutation.execute` | capability | - |
-| `mutation literature-ingest` | `mutation.execute` | capability | - |
-| `mutation note create` | `mutation.execute` | capability | - |
-| `mutation note update` | `mutation.execute` | capability | - |
-| `mutation note upsert-payload` | `mutation.execute` | capability | - |
-| `mutation preview` | `mutation.preview` | capability | - |
-| `mutation tag add` | `mutation.execute` | capability | - |
-| `mutation tag remove` | `mutation.execute` | capability | - |
+| `mutation item attach-file` | `attachments.create` | capability | - |
+| `mutation item update` | `item.updateMetadata` | capability | - |
+| `mutation literature-ingest` | `literature.ingest` | capability | - |
+| `mutation note create` | `notes.create` | capability | - |
+| `mutation note update` | `notes.updateContent` | capability | - |
+| `mutation note upsert-payload` | `notes.upsertPayload` | capability | - |
+| `mutation tag add` | `item.updateTags` | capability | - |
+| `mutation tag remove` | `item.updateTags` | capability | - |
 | `file download` | `GET /bridge/v2/files/{fileId}` | endpoint | - |
 | `file upload` | `POST /bridge/v2/files/upload` | endpoint | - |
 | `product download` | `workflow_products.export` | capability | - |
@@ -659,8 +684,8 @@ zotero-bridge file download <fileId> --output <path> [--force]
   `citation_graph.rank_library_papers`
 - `synthesis insight attention-queue` -> `insights.get_attention_queue`
 - `synthesis artifact export-filtered` -> `paper_artifacts.export_filtered`
-- `mutation literature-ingest` -> `mutation.execute` with operation `literature.ingest`
-- raw `call mutation.execute` with operation `note.upsertPayload` -> upsert one
+- `mutation literature-ingest` -> `literature.ingest`
+- raw `call notes.upsertPayload` -> upsert one
   embedded workflow payload attachment on a Zotero note
 
 这些命令不会直接读取 Zotero SQLite、storage 目录或本地文件路径。读命令只通过
@@ -703,11 +728,12 @@ name。
 - `library.list_note_payloads`
 - `library.get_note_payload`
 - `library.get_item_attachments`
-- `mutation.preview`
-- `mutation.execute`
+- canonical mutation capabilities (for example `literature.ingest`,
+  `notes.upsertPayload`, and `attachments.create`)
 - `diagnostic.get_status`
 
-其中 `mutation.execute` 需要 Zotero-side approval。
+Canonical mutation execution requires Zotero-side approval; pass `dryRun: true` for
+an authority-free preview.
 
 ### 5.4 Workflow 命令
 
@@ -869,7 +895,6 @@ Host Bridge 根据 capability 或 operation metadata 决定是否需要审批，
 - `bridge status`
 - `bridge manifest`
 - context/library 只读 capability
-- `mutation.preview`
 - `diagnostic.get_status`
 - `workflow list`
 - `workflow agent-run`
@@ -882,8 +907,7 @@ Host Bridge 根据 capability 或 operation metadata 决定是否需要审批，
 默认需要 Zotero UI 审批：
 
 - `workflow submit`
-- `mutation.execute`
-- `mutation literature-ingest`
+- canonical mutation commands (for example `mutation literature-ingest`)
 
 当 Zotero 端全局开启 `hostBridgeDisableWriteApproval` 时，Host Bridge 写入、
 workflow submit 和危险能力审批会被跳过。该选项只应在可信、临时调试会话中
@@ -1632,9 +1656,8 @@ Authorization: Bearer <token>
 Content-Type: application/json
 
 {
-  "capability": "mutation.execute",
+  "capability": "literature.ingest",
   "input": {
-    "operation": "literature.ingest",
     "paper": {},
     "collection": {}
   }
@@ -1658,7 +1681,6 @@ Content-Type: application/json
 
 ```json
 {
-  "operation": "note.upsertPayload",
   "note": { "libraryId": 1, "key": "NOTEKEY" },
   "noteKind": "digest",
   "payloadType": "literature-matching-metadata-json",
@@ -1674,16 +1696,16 @@ Content-Type: application/json
 ```
 
 成功 `data` 是 Host Bridge capability envelope，内部包含
-`mutation.execute` 结果：
+`notes.upsertPayload` 结果：
 
 ```json
 {
-  "capability": "mutation.execute",
+  "capability": "notes.upsertPayload",
   "approval": "zotero-ui-required",
   "data": {
     "ok": true,
-    "operation": "literature.ingest",
-    "summary": "Ingest one paper with best-effort PDF attachment with missing-PDF landing link attachment.",
+    "operation": "notes.upsertPayload",
+    "summary": "Upsert one workflow payload attachment on a Zotero note.",
     "warnings": [],
     "requiresConfirmation": true,
     "result": {

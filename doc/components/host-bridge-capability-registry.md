@@ -111,7 +111,7 @@ dispatcher.
 | `items` | 1 | `items.export_research_bundle` |
 | `library` | 13 | `library.export_annotations`, `library.get_item_attachments`, `library.get_item_detail`, `library.get_item_notes`, `library.get_note_detail`, `library.get_note_payload`, `library.list_annotations`, `library.list_items`, `library.list_note_payloads`, `library.list_saved_searches`, `library.readiness_audit`, `library.search_items`, `library.sync_snapshot` |
 | `library_index` | 1 | `library_index.get` |
-| `mutation` | 4 | `mutation.execute`, `mutation.get_operation`, `mutation.preview`, `workflow_products.remove` |
+| `mutation` | 31 | `attachments.create`, `attachments.move`, `attachments.remove`, `attachments.replaceFile`, `attachments.updateMetadata`, `collection.create`, `collection.remove`, `collection.update`, `collection.updateMembership`, `item.addRelated`, `item.changeType`, `item.create`, `item.remove`, `item.removeRelated`, `item.updateMetadata`, `item.updateTags`, `literature.ingest`, `literature_artifact.upsert_citation_analysis`, `literature_artifact.upsert_digest`, `literature_artifact.upsert_references`, `literature_artifact.upsert_score`, `managed_note.write_conversation`, `managed_note.write_custom`, `mutation.get_operation`, `notes.create`, `notes.remove`, `notes.updateContent`, `notes.upsertPayload`, `statusTags.transition`, `trash.setItemsState`, `workflow_products.remove` |
 | `paper_artifacts` | 4 | `paper_artifacts.export_filtered`, `paper_artifacts.get_manifest`, `paper_artifacts.read`, `paper_artifacts.resolve_topic_digest` |
 | `reference_index` | 2 | `reference_index.get`, `reference_sidecar.refresh` |
 | `resolvers` | 1 | `resolvers.resolve` |

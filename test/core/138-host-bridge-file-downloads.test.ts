@@ -431,9 +431,10 @@ describe("host bridge file downloads", function () {
         },
       },
     ]) {
+      const { operation, ...typedInput } = input;
       const result = await executeHostBridgeCapability(
-        "mutation.preview",
-        input,
+        operation,
+        { ...typedInput, dryRun: true },
         {
           connectionMode: "local",
           getStatus: () => ({}) as HostBridgeStatusSnapshot,
@@ -441,7 +442,7 @@ describe("host bridge file downloads", function () {
         },
       );
       assert.deepInclude(result as Record<string, unknown>, {
-        operation: input.operation,
+        operation,
       });
     }
 

@@ -162,7 +162,7 @@ fn semantic_input_failure_reports_the_derived_command_schema() {
 }
 
 #[test]
-fn raw_mutation_execute_rejects_conflicting_operation_identity_before_connection() {
+fn removed_mutation_execute_capability_is_not_exposed() {
     let (code, output, stdout) = run_executable(&[
         "--operation-id",
         "from-flag",
@@ -173,9 +173,7 @@ fn raw_mutation_execute_rejects_conflicting_operation_identity_before_connection
     ]);
     assert_eq!(code, 7);
     assert_eq!(stdout.lines().count(), 1);
-    assert_eq!(output["error"]["code"], "operation_id_conflict");
-    assert_eq!(output["error"]["details"]["inputOperationId"], "from-input");
-    assert_eq!(output["error"]["details"]["flagOperationId"], "from-flag");
+    assert_eq!(output["error"]["code"], "capability_not_found");
 }
 
 #[test]

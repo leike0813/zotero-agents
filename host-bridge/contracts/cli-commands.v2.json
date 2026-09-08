@@ -3426,84 +3426,6 @@
       "pagination": "cursor",
       "payloadSchemaSource": "target-capability"
     },
-    "mutation apply": {
-      "resultSchemaSource": "target-capability-envelope",
-      "inputs": {
-        "input": {
-          "token": "--input",
-          "required": true,
-          "requiredWhen": [],
-          "examples": [
-            {
-              "kind": "shape-only",
-              "value": {
-                "operation": "item.updateTags",
-                "operationId": "caller-operation-id",
-                "itemRef": {
-                  "libraryId": 1,
-                  "key": "ABC123"
-                },
-                "add": [
-                  "topic:example"
-                ],
-                "remove": []
-              },
-              "prerequisites": [
-                "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
-              ],
-              "description": "Minimal JSON shape for --input."
-            }
-          ],
-          "schemaSource": "target-capability"
-        }
-      },
-      "outputBoundary": {
-        "strategy": "fixed"
-      },
-      "target": {
-        "kind": "capability",
-        "capability": "mutation.execute",
-        "method": "POST",
-        "path": "/bridge/v2/call"
-      },
-      "binding": "passthrough",
-      "approval": "zotero-ui-required",
-      "effect": "state-change",
-      "category": "write",
-      "danger": "review",
-      "effects": [
-        {
-          "kind": "zotero-library",
-          "stateChanged": true,
-          "description": "May change zotero library state."
-        }
-      ],
-      "approvalContract": {
-        "kind": "zotero-ui-required",
-        "timing": "before-command",
-        "scope": "Zotero UI approval for the described Zotero-managed effect."
-      },
-      "handleTransitions": [],
-      "recovery": [
-        {
-          "when": "The operation fails or completion is uncertain.",
-          "stateCheck": "none",
-          "requiresHandles": [],
-          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-          "nextCommand": "surface describe"
-        }
-      ],
-      "operationalAliases": [
-        "mutation apply",
-        "mutation",
-        "apply",
-        "input",
-        "JSON_OR_FILE"
-      ],
-      "hiddenFromIntentSearch": false,
-      "pagination": "none",
-      "payloadSchemaSource": "target-capability"
-    },
     "mutation get-operation": {
       "resultSchemaSource": "target-capability-envelope",
       "inputs": {
@@ -3597,14 +3519,13 @@
       },
       "target": {
         "kind": "capability",
-        "capability": "mutation.execute",
+        "capability": "collection.updateMembership",
         "method": "POST",
         "path": "/bridge/v2/call"
       },
       "binding": "object",
       "composition": {
         "constants": {
-          "operation": "collection.updateMembership",
           "remove": []
         },
         "mappings": [
@@ -3691,7 +3612,7 @@
       },
       "target": {
         "kind": "capability",
-        "capability": "mutation.execute",
+        "capability": "collection.create",
         "method": "POST",
         "path": "/bridge/v2/call"
       },
@@ -3700,10 +3621,8 @@
         "base": {
           "argument": "input"
         },
-        "constants": {
-          "operation": "collection.create"
-        },
-        "mappings": []
+        "mappings": [],
+        "constants": {}
       },
       "approval": "zotero-ui-required",
       "effect": "state-change",
@@ -3751,14 +3670,13 @@
       },
       "target": {
         "kind": "capability",
-        "capability": "mutation.execute",
+        "capability": "collection.updateMembership",
         "method": "POST",
         "path": "/bridge/v2/call"
       },
       "binding": "object",
       "composition": {
         "constants": {
-          "operation": "collection.updateMembership",
           "add": []
         },
         "mappings": [
@@ -3823,15 +3741,12 @@
       },
       "target": {
         "kind": "capability",
-        "capability": "mutation.execute",
+        "capability": "attachments.create",
         "method": "POST",
         "path": "/bridge/v2/call"
       },
       "binding": "object",
       "composition": {
-        "constants": {
-          "operation": "attachments.create"
-        },
         "mappings": [
           {
             "argument": "item",
@@ -3851,7 +3766,8 @@
             "transform": "identity",
             "required": false
           }
-        ]
+        ],
+        "constants": {}
       },
       "approval": "zotero-ui-required",
       "effect": "state-change",
@@ -3943,15 +3859,12 @@
       },
       "target": {
         "kind": "capability",
-        "capability": "mutation.execute",
+        "capability": "item.updateMetadata",
         "method": "POST",
         "path": "/bridge/v2/call"
       },
       "binding": "object",
       "composition": {
-        "constants": {
-          "operation": "item.updateMetadata"
-        },
         "mappings": [
           {
             "argument": "item",
@@ -3965,7 +3878,8 @@
             "transform": "identity",
             "required": true
           }
-        ]
+        ],
+        "constants": {}
       },
       "approval": "zotero-ui-required",
       "effect": "state-change",
@@ -4044,7 +3958,7 @@
       },
       "target": {
         "kind": "capability",
-        "capability": "mutation.execute",
+        "capability": "literature.ingest",
         "method": "POST",
         "path": "/bridge/v2/call"
       },
@@ -4053,10 +3967,8 @@
         "base": {
           "argument": "input"
         },
-        "constants": {
-          "operation": "literature.ingest"
-        },
-        "mappings": []
+        "mappings": [],
+        "constants": {}
       },
       "approval": "zotero-ui-required",
       "effect": "state-change",
@@ -4125,7 +4037,7 @@
       },
       "target": {
         "kind": "capability",
-        "capability": "mutation.execute",
+        "capability": "notes.create",
         "method": "POST",
         "path": "/bridge/v2/call"
       },
@@ -4134,9 +4046,6 @@
         "base": {
           "argument": "input"
         },
-        "constants": {
-          "operation": "notes.create"
-        },
         "mappings": [
           {
             "argument": "item",
@@ -4144,7 +4053,8 @@
             "transform": "identity",
             "required": true
           }
-        ]
+        ],
+        "constants": {}
       },
       "approval": "zotero-ui-required",
       "effect": "state-change",
@@ -4216,7 +4126,7 @@
       },
       "target": {
         "kind": "capability",
-        "capability": "mutation.execute",
+        "capability": "notes.updateContent",
         "method": "POST",
         "path": "/bridge/v2/call"
       },
@@ -4225,9 +4135,6 @@
         "base": {
           "argument": "input"
         },
-        "constants": {
-          "operation": "notes.updateContent"
-        },
         "mappings": [
           {
             "argument": "note",
@@ -4235,7 +4142,8 @@
             "transform": "identity",
             "required": true
           }
-        ]
+        ],
+        "constants": {}
       },
       "approval": "zotero-ui-required",
       "effect": "state-change",
@@ -4309,7 +4217,7 @@
       },
       "target": {
         "kind": "capability",
-        "capability": "mutation.execute",
+        "capability": "notes.upsertPayload",
         "method": "POST",
         "path": "/bridge/v2/call"
       },
@@ -4318,9 +4226,6 @@
         "base": {
           "argument": "input"
         },
-        "constants": {
-          "operation": "notes.upsertPayload"
-        },
         "mappings": [
           {
             "argument": "note",
@@ -4328,7 +4233,8 @@
             "transform": "identity",
             "required": true
           }
-        ]
+        ],
+        "constants": {}
       },
       "approval": "zotero-ui-required",
       "effect": "state-change",
@@ -4369,83 +4275,6 @@
       "pagination": "none",
       "payloadSchemaSource": "target-capability"
     },
-    "mutation preview": {
-      "resultSchemaSource": "target-capability-envelope",
-      "inputs": {
-        "input": {
-          "token": "--input",
-          "required": true,
-          "requiredWhen": [],
-          "examples": [
-            {
-              "kind": "shape-only",
-              "value": {
-                "operation": "item.updateTags",
-                "itemRef": {
-                  "libraryId": 1,
-                  "key": "ABC123"
-                },
-                "add": [
-                  "topic:example"
-                ],
-                "remove": []
-              },
-              "prerequisites": [
-                "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
-              ],
-              "description": "Minimal JSON shape for --input."
-            }
-          ],
-          "schemaSource": "target-capability"
-        }
-      },
-      "outputBoundary": {
-        "strategy": "fixed"
-      },
-      "target": {
-        "kind": "capability",
-        "capability": "mutation.preview",
-        "method": "POST",
-        "path": "/bridge/v2/call"
-      },
-      "binding": "passthrough",
-      "approval": "none",
-      "effect": "read",
-      "category": "read",
-      "danger": "none",
-      "effects": [
-        {
-          "kind": "none",
-          "stateChanged": false,
-          "description": "Reads state without changing Zotero-managed data."
-        }
-      ],
-      "approvalContract": {
-        "kind": "none",
-        "timing": "none",
-        "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-      },
-      "handleTransitions": [],
-      "recovery": [
-        {
-          "when": "The read fails or returns incomplete evidence.",
-          "stateCheck": "none",
-          "requiresHandles": [],
-          "action": "Inspect the error and retry only when retryable is true.",
-          "nextCommand": "surface describe"
-        }
-      ],
-      "operationalAliases": [
-        "mutation preview",
-        "mutation",
-        "preview",
-        "input",
-        "JSON_OR_FILE"
-      ],
-      "hiddenFromIntentSearch": false,
-      "pagination": "none",
-      "payloadSchemaSource": "target-capability"
-    },
     "mutation tag add": {
       "resultSchemaSource": "target-capability-envelope",
       "inputs": {},
@@ -4454,14 +4283,13 @@
       },
       "target": {
         "kind": "capability",
-        "capability": "mutation.execute",
+        "capability": "item.updateTags",
         "method": "POST",
         "path": "/bridge/v2/call"
       },
       "binding": "object",
       "composition": {
         "constants": {
-          "operation": "item.updateTags",
           "remove": []
         },
         "mappings": [
@@ -4527,14 +4355,13 @@
       },
       "target": {
         "kind": "capability",
-        "capability": "mutation.execute",
+        "capability": "item.updateTags",
         "method": "POST",
         "path": "/bridge/v2/call"
       },
       "binding": "object",
       "composition": {
         "constants": {
-          "operation": "item.updateTags",
           "add": []
         },
         "mappings": [
@@ -12089,7 +11916,10 @@
           "examples": [
             {
               "kind": "shape-only",
-              "value": { "view": "library", "libraryId": 1 },
+              "value": {
+                "view": "library",
+                "libraryId": 1
+              },
               "prerequisites": []
             }
           ]
@@ -12139,7 +11969,10 @@
           "examples": [
             {
               "kind": "shape-only",
-              "value": { "libraryId": 1, "key": "ABCDEFGH" },
+              "value": {
+                "libraryId": 1,
+                "key": "ABCDEFGH"
+              },
               "prerequisites": []
             }
           ]
@@ -12189,7 +12022,10 @@
           "examples": [
             {
               "kind": "shape-only",
-              "value": { "libraryId": 1, "key": "ABCDEFGH" },
+              "value": {
+                "libraryId": 1,
+                "key": "ABCDEFGH"
+              },
               "prerequisites": []
             }
           ]
@@ -12239,7 +12075,14 @@
           "examples": [
             {
               "kind": "shape-only",
-              "value": { "itemRefs": [{ "libraryId": 1, "key": "ABCDEFGH" }] },
+              "value": {
+                "itemRefs": [
+                  {
+                    "libraryId": 1,
+                    "key": "ABCDEFGH"
+                  }
+                ]
+              },
               "prerequisites": []
             }
           ]
@@ -12289,7 +12132,10 @@
           "examples": [
             {
               "kind": "shape-only",
-              "value": { "libraryId": 1, "key": "ABCDEFGH" },
+              "value": {
+                "libraryId": 1,
+                "key": "ABCDEFGH"
+              },
               "prerequisites": []
             }
           ]
@@ -12340,8 +12186,14 @@
             {
               "kind": "shape-only",
               "value": {
-                "target": { "libraryId": 1, "key": "ABCDEFGH" },
-                "location": { "kind": "page", "index": 0 }
+                "target": {
+                  "libraryId": 1,
+                  "key": "ABCDEFGH"
+                },
+                "location": {
+                  "kind": "page",
+                  "index": 0
+                }
               },
               "prerequisites": []
             }

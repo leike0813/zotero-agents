@@ -140,3 +140,10 @@ After approval wait, Host Bridge SHALL request fresh private preflight before th
 - **WHEN** reevaluation yields a different domain plan digest after approval
 - **THEN** the previous approval SHALL not authorize the mutation
 - **AND** Host Bridge SHALL show a new approval for the changed scope.
+
+### Requirement: Typed mutation approvals describe prepared actions
+Typed execute projections SHALL use the existing canonical preflight, approval, and post-approval revalidation flow. Typed preview projections SHALL not create approval requests.
+
+#### Scenario: Typed execute requires approval
+- **WHEN** a typed mutation execute request reaches an approval boundary
+- **THEN** the prompt describes the canonical prepared action without raw JSON, paths, leases, or private tokens.

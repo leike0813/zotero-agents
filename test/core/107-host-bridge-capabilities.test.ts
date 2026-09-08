@@ -391,6 +391,20 @@ async function callBridgeCapability(args: {
   connectionMode?: "local" | "remote";
   peerHost?: string;
 }) {
+  const inputObject = args.input && typeof args.input === "object" && !Array.isArray(args.input)
+    ? (args.input as Record<string, unknown>)
+    : undefined;
+  const capability =
+    (args.capability === "mutation.execute" || args.capability === "mutation.preview") &&
+    typeof inputObject?.operation === "string"
+      ? inputObject.operation
+      : args.capability;
+  const input = capability !== args.capability && inputObject
+    ? {
+        ...Object.fromEntries(Object.entries(inputObject).filter(([key]) => key !== "operation")),
+        ...(args.capability === "mutation.preview" ? { dryRun: true } : {}),
+      }
+    : args.input;
   const headers: Record<string, string> = {};
   if (args.token) {
     headers.authorization = `Bearer ${args.token}`;
@@ -402,28 +416,26 @@ async function callBridgeCapability(args: {
     headers["x-zotero-bridge-connection-mode"] = args.connectionMode;
   }
   if (
-    args.capability === "mutation.execute" &&
-    args.input &&
-    typeof args.input === "object" &&
-    !Array.isArray(args.input) &&
-    typeof (args.input as Record<string, unknown>).operationId === "string"
+    capability !== "mutation.preview" &&
+    capability !== "mutation.execute" &&
+    input && typeof input === "object" && !Array.isArray(input) &&
+    typeof (input as Record<string, unknown>).operationId === "string"
   ) {
-    headers["x-zotero-bridge-operation-id"] = (
-      args.input as Record<string, string>
-    ).operationId;
+    headers["x-zotero-bridge-operation-id"] = (input as Record<string, string>).operationId;
   }
-  return parseRawHttpResponse(
+  const result = parseRawHttpResponse(
     await handleHostBridgeHttpRequestForTests({
       method: "POST",
       path: "/bridge/v2/call",
       headers,
       body: JSON.stringify({
-        capability: args.capability,
-        input: args.input,
+        capability,
+        input,
       }),
       peerHost: args.peerHost,
     }),
   );
+  return result;
 }
 
 async function callBridgeCapabilityRaw(args: {
@@ -1897,7 +1909,7 @@ describe("host bridge capability calls", function () {
       }),
     );
     const mutationExecute = manifest.json.result.capabilities.find(
-      (entry: { name?: string }) => entry.name === "mutation.execute",
+      (entry: { name?: string }) => entry.name === "item.updateMetadata",
     );
     assert.strictEqual(mutationExecute.approval, "none");
 
@@ -2493,6 +2505,23 @@ describe("host bridge capability calls", function () {
       "relativePath",
     ]);
     assert.deepEqual(readAsset.inputSchema.required, ["productId"]);
+  });
+
+  it("exposes each public mutation as an independent capability", function () {
+    const names = listHostBridgeCapabilities().map((entry) => entry.name);
+    const operations = [
+      "item.create", "item.updateMetadata", "item.changeType", "item.remove", "item.updateTags",
+      "item.addRelated", "item.removeRelated", "collection.create", "collection.update",
+      "collection.updateMembership", "collection.remove", "notes.create", "notes.updateContent",
+      "notes.remove", "notes.upsertPayload", "attachments.create", "attachments.updateMetadata",
+      "attachments.replaceFile", "attachments.move", "attachments.remove", "statusTags.transition",
+      "trash.setItemsState", "literature.ingest", "managed_note.write_custom", "managed_note.write_conversation",
+      "literature_artifact.upsert_digest", "literature_artifact.upsert_references",
+      "literature_artifact.upsert_citation_analysis", "literature_artifact.upsert_score",
+    ];
+    assert.includeMembers(names, operations);
+    assert.notInclude(names, "mutation.preview");
+    assert.notInclude(names, "mutation.execute");
   });
 
   it("reads and exports Product assets through logical relative paths", async function () {
