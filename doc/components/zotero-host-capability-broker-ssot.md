@@ -153,6 +153,8 @@ Mutation capabilities include note creation, tag changes, collection membership 
 
 `literature.ingest` requires bibliographic item creation/reuse and requested collection membership to complete. Existing matches preserve curated metadata. Required-effect failure rolls back only changes made by this invocation. PDF acquisition and conditional landing-URL attachment are optional enrichment: clean failure is reported separately, while uncertain or residual writes produce unknown or repair_required evidence. Landing creation requires `attachLandingUrlOnMissingPdf` and no PDF. Identity lookup is bounded and does not materialize the complete library.
 
+Identity lookup compiles the existing native Search conditions and UNIONs their results with a source-side LIMIT of 26. The ceiling is 25 unique candidates across all conditions; the 26th is an overflow sentinel, not a truncated match set. Candidate hydration must be complete. SQL compilation and preparation yield through short Host slices; the final bounded query, prepared identity/revision check and metadata creation share one Host admission and native transaction. A newly appeared or changed match invalidates the prepared plan rather than silently changing creation into reuse. Collection membership and optional enrichment retain their existing lifecycle. This serializes Broker callers and native transaction owners, not unrelated bare writes on Zotero's shared database connection; it does not claim to exclude all native, Sync or user writers.
+
 Every write has effect-free preparation with private revision/state and file evidence. Public preview exposes safe plan facts and `domainPlanDigest`. Approval wait triggers preparation again; changed digests require renewed approval. Execute revalidates inside the admitted native slice before effects, without silently refreshing a stale plan.
 
 `zoteroHostMutationAuthority.ts` owns durable admission through pluginStateStore SQLite. Caller scope plus operationId binds operation kind and normalized semantic digest; only the insert winner executes. Replay checks stored identity before resource acquisition or preflight. Success is returned only after terminal evidence is durable. Interrupted started records and post-effect evidence failures become unknown. Known terminal evidence remains for 30 days; unknown/repair_required is retained. Expiry removes evidence but retains an identity tombstone permanently. Observation returns running, settled or unavailable and propagates storage failure.
@@ -166,6 +168,12 @@ Workflow file services may move binary sidecar artifacts such as representative-
 Diagnostics/logging capabilities should remain separate from user data tools. Diagnostic bundles may reference broker state, but should continue redacting secrets and avoiding raw host objects.
 
 UI/dialog/editor capabilities are host interactions, not agent defaults. They should be exposed to workflow hooks deliberately and to MCP only after a clear interaction model exists.
+
+## Navigation Boundary
+
+Navigation uses the request-admission window resolver, revalidated before UI effects. The seven interactive navigation capabilities require no per-call approval; automated and invalid scopes are rejected by the transport adapter. Results describe exact selection or native dispatch, never durable mutation completion or OS foreground placement. Cancellation after effects begin does not roll back UI state or convert a dispatched result to effect-free cancellation.
+
+Exact Reader locations reuse the captured window's built-in Reader tab or initialize a window-owned tab through the native existing-tab opening path. Private tab identity is checked across main windows before opening; native global reuse is disabled. Initialization and the normalized location command must complete before reporting dispatch. A focus change during native loading cannot authorize a replacement tab in another window. Precreating a tab is already a UI effect: subsequent failure can leave that tab present, does not establish location dispatch, and does not authorize automatic replay or UI rollback. This is an internal Zotero compatibility seam, verified against the pinned 7/9/10 hosts, not a public caller-supplied window or tab identifier.
 
 ## Library Page Query Boundary
 
@@ -191,13 +199,13 @@ MCP is an adapter boundary:
 - Pass that broker to the Host Bridge handler selected by the canonical capability ID.
 - Validate input and output against `host-bridge/contracts/capabilities.v2.json`.
 - Apply MCP transport formatting and permission interaction outside the broker.
-- Keep agent-facing IDs identical to the Host Bridge IDs, such as `context.get_current_view`, `library.list_items`, `mutation.preview`, and `mutation.execute`.
+- Keep agent-facing IDs identical to the Host Bridge IDs, such as `context.get_current_view`, `library.list_items`, `item.updateMetadata`, and `mutation.get_operation`.
 
-Read capabilities must be bounded, paged, or chunked where their natural result can grow. Write calls first execute `mutation.preview`; `mutation.execute` runs only after the adapter's approval policy succeeds. The broker does not know whether its caller is MCP, Host Bridge, a workflow, or a specific agent backend.
+Read capabilities must be bounded, paged, or chunked where their natural result can grow. Each write operation exposes its own input/result schema; `dryRun: true` selects effect-free Broker preview. Execution uses the same canonical preflight and authority after the adapter's approval policy succeeds. The broker does not know whether its caller is MCP, Host Bridge, a workflow, or a specific agent backend.
 
 ## Attachment Locality Contract
 
-The canonical broker is process-local and may return an attachment DTO containing `path` to trusted in-process callers. Host Bridge is the sole remote-locality adapter. Both `library.get_item_attachments` and attachment results nested under `mutation.execute` use the same projection:
+The canonical broker is process-local and may return an attachment DTO containing `path` to trusted in-process callers. Host Bridge is the sole remote-locality adapter. Both `library.get_item_attachments` and attachment results from operation-specific mutations use the same projection:
 
 - Remove `path` before output validation and serialization.
 - Register readable local files with the Host Bridge file registry.

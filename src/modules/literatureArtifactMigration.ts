@@ -40,7 +40,7 @@ import {
 } from "./pluginStateStore";
 
 export const LITERATURE_ARTIFACT_MIGRATION_ID = "literature-artifacts" as const;
-export const LITERATURE_ARTIFACT_MIGRATION_DEFINITION_VERSION = 1 as const;
+export const LITERATURE_ARTIFACT_MIGRATION_DEFINITION_VERSION = 2 as const;
 
 export type LiteratureArtifactMigrationClassification =
   | "ready"
@@ -1253,7 +1253,7 @@ function rawReferenceKey(reference: SourceReference): string {
 }
 
 function matchingKeys(reference: SourceReference): string[] {
-  return ["DOI", "url", "ISBN", "ISSN", "citekey"]
+  return ["DOI"]
     .map((key) => {
       const value = reference.matching[key as keyof typeof reference.matching];
       return value ? `${key}:${normalizeMatchingValue(key, value)}` : "";
@@ -1332,7 +1332,11 @@ function makeSourceReference(
 function matchReference(
   value: unknown,
   references: SourceReference[],
-): { reference: SourceReference | null; ambiguous: boolean } {
+): {
+  reference: SourceReference | null;
+  ambiguous: boolean;
+  conflicting?: boolean;
+} {
   const row = object(value);
   if (!row) return { reference: null, ambiguous: false };
   const explicitId = pickCanonicalId(row);
@@ -1340,29 +1344,79 @@ function matchReference(
     const exact = references.filter(
       (reference) => reference.sourceReferenceId === explicitId,
     );
-    if (exact.length === 1) return { reference: exact[0], ambiguous: false };
+    if (exact.length === 1) {
+      const conflicting = referenceFactsConflict(row, exact[0]!);
+      return {
+        reference: conflicting ? null : exact[0]!,
+        ambiguous: false,
+        conflicting,
+      };
+    }
     if (exact.length > 1) return { reference: null, ambiguous: true };
   }
-  const candidate = makeSourceReference(row, () => "unused", []);
-  if (!candidate) return { reference: null, ambiguous: false };
-  const candidateKeys = new Set(matchingKeys(candidate));
-  let matches = references.filter((reference) =>
-    [...candidateKeys].some((key) => matchingKeys(reference).includes(key)),
-  );
-  if (!matches.length && rawReferenceKey(candidate)) {
+  const doi = normalizeMatching(row).DOI;
+  const raw = firstText(
+    object(row.extraction)?.raw,
+    row.raw,
+    row.rawText,
+    row.rawCitation,
+  ).toLowerCase();
+  let matches = doi
+    ? references.filter(
+        (reference) =>
+          normalizeMatchingValue("DOI", reference.matching.DOI || "") === doi,
+      )
+    : [];
+  if (!matches.length && raw) {
     matches = references.filter(
-      (reference) => rawReferenceKey(reference) === rawReferenceKey(candidate),
+      (reference) => rawReferenceKey(reference) === raw,
     );
   }
   if (!matches.length) {
-    matches = references.filter(
-      (reference) => referenceTuple(reference) === referenceTuple(candidate),
-    );
+    const candidate = makeSourceReference(row, () => "unused", []);
+    if (candidate)
+      matches = references.filter(
+        (reference) => referenceTuple(reference) === referenceTuple(candidate),
+      );
   }
+  const conflicting =
+    matches.length === 1 && referenceFactsConflict(row, matches[0]!);
   return {
-    reference: matches.length === 1 ? matches[0] : null,
+    reference: matches.length === 1 && !conflicting ? matches[0] : null,
     ambiguous: matches.length > 1,
+    conflicting,
   };
+}
+
+function referenceFactsConflict(
+  row: Record<string, unknown>,
+  reference: SourceReference,
+): boolean {
+  const bibliography = object(row.bibliography) || row;
+  const title = firstText(bibliography.title, row.title);
+  const year = strictYear(bibliography.year ?? row.year);
+  const authors = normalizeAuthors(
+    bibliography.authors ?? row.authors ?? row.author,
+  );
+  const doi = normalizeMatching(row).DOI;
+  return Boolean(
+    (title &&
+      text(title).toLowerCase() !==
+        text(reference.bibliography.title).toLowerCase()) ||
+    (year !== undefined &&
+      year !== null &&
+      reference.bibliography.year !== null &&
+      year !== reference.bibliography.year) ||
+    (authors.length &&
+      reference.bibliography.authors.length &&
+      authors.map((author) => text(author).toLowerCase()).join(";") !==
+        reference.bibliography.authors
+          .map((author) => text(author).toLowerCase())
+          .join(";")) ||
+    (doi &&
+      reference.matching.DOI &&
+      doi !== normalizeMatchingValue("DOI", reference.matching.DOI)),
+  );
 }
 
 const CITATION_FUNCTION_SET = new Set<CitationFunction>([
@@ -1427,6 +1481,7 @@ function normalizeCitation(
   citation: CitationAnalysisArtifact;
   unresolved: number;
   ambiguous: boolean;
+  conflicting: boolean;
 } {
   const metaRow = object(value.meta) || {};
   const scopeRow = object(metaRow.scope) || {};
@@ -1438,11 +1493,13 @@ function normalizeCitation(
   const unresolved: CitationUnresolvedMention[] = [];
   const items: CitationItem[] = [];
   let ambiguous = false;
+  let conflicting = false;
   let mentionIndex = 0;
   for (const rawItem of rawItems) {
     const item = object(rawItem) || {};
     const matched = matchReference(item, references);
     if (matched.ambiguous) ambiguous = true;
+    if (matched.conflicting) conflicting = true;
     const mentions = list(item.mentions).map((mention) =>
       normalizeMention(mention, mentionIndex++, mentionIdFactory),
     );
@@ -1579,20 +1636,7 @@ function normalizeCitation(
     items,
     unresolved,
   };
-  return { citation, unresolved: unresolved.length, ambiguous };
-}
-
-function sourceReferenceEquivalent(
-  left: SourceReference,
-  right: SourceReference,
-): boolean {
-  const matching = matchingKeys(left);
-  if (
-    matching.length &&
-    matching.some((key) => matchingKeys(right).includes(key))
-  )
-    return true;
-  return referenceTuple(left) === referenceTuple(right);
+  return { citation, unresolved: unresolved.length, ambiguous, conflicting };
 }
 
 function stableCitationBasis(
@@ -1751,23 +1795,20 @@ function classifyConversion(
     : [];
   let recoveredCount = 0;
   for (const snapshot of snapshots) {
-    const recovered = makeSourceReference(snapshot, idFactory, diagnostics);
-    if (!recovered) {
+    const matched = matchReference(snapshot, [...references, ...existing]);
+    if (matched.conflicting) {
+      reasons.add("conflicting_evidence");
+      continue;
+    }
+    if (matched.ambiguous) {
+      reasons.add("ambiguous_linkage");
       reasons.add("unresolved_linkage");
       continue;
     }
-    const equivalent = [...references, ...existing].find((reference) =>
-      sourceReferenceEquivalent(reference, recovered),
-    );
-    if (equivalent) {
-      if (
-        referenceTuple(equivalent) !== referenceTuple(recovered) &&
-        matchingKeys(equivalent).some((key) =>
-          matchingKeys(recovered).includes(key),
-        )
-      ) {
-        reasons.add("conflicting_evidence");
-      }
+    if (matched.reference) continue;
+    const recovered = makeSourceReference(snapshot, idFactory, diagnostics);
+    if (!recovered) {
+      reasons.add("unresolved_linkage");
       continue;
     }
     references.push(recovered);
@@ -1783,6 +1824,7 @@ function classifyConversion(
       )
     : null;
   if (citationResult?.ambiguous) reasons.add("ambiguous_linkage");
+  if (citationResult?.conflicting) reasons.add("conflicting_evidence");
   if ((citationResult?.unresolved || 0) > 0) reasons.add("unresolved_linkage");
   if (citationValue && !references.length && !citationHasExistingBasis)
     reasons.add("citation_only");

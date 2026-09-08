@@ -82,6 +82,10 @@ export type WorkflowHostErrorDetailsByCode = {
   };
   unsupported_operation: {
     memberOrOperation: string;
+    reason?:
+      | "location_unsupported"
+      | "target_kind_unsupported"
+      | "view_unsupported";
   };
   interaction_required: {
     member: WorkflowInteractionMember;
@@ -204,7 +208,7 @@ const DETAIL_KEYS = {
   invalid_request: new Set(["reason", "field", "operation"]),
   invalid_ref: new Set(["kind", "reason"]),
   not_found: new Set(["kind", "opaqueKey"]),
-  unsupported_operation: new Set(["memberOrOperation"]),
+  unsupported_operation: new Set(["memberOrOperation", "reason"]),
   interaction_required: new Set(["member"]),
   permission_denied: new Set(["reason", "kind"]),
   resource_limited: new Set(["resource", "limit", "observed"]),
@@ -479,6 +483,17 @@ export function assertWorkflowHostErrorDetails<
     case "unsupported_operation":
       if (typeof details.memberOrOperation !== "string") {
         throw new TypeError("Workflow Host operation token must be a string");
+      }
+      if (details.reason !== undefined) {
+        assertEnum(
+          details.reason,
+          new Set([
+            "location_unsupported",
+            "target_kind_unsupported",
+            "view_unsupported",
+          ]),
+          "reason",
+        );
       }
       return;
     case "interaction_required":

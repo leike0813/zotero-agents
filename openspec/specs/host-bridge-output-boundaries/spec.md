@@ -177,7 +177,7 @@ A bridge-download descriptor SHALL prove only that the requested archive was pre
 Host Bridge capability and MCP results SHALL not expose host-local attachment paths. Attachment reads and canonical mutation receipts or attempts SHALL use the same remote projection and return an opaque broker-issued file descriptor when available. They SHALL not expose prepared-file paths, upload handles, leases, public tokens, caller revisions, or raw Host objects.
 
 #### Scenario: Canonical mutation creates or changes an attachment
-- **WHEN** mutation.execute returns attachment facts in a receipt or attempt
+- **WHEN** an operation-specific mutation returns attachment facts in a receipt or attempt
 - **THEN** every attachment summary SHALL omit host-local and prepared-file paths
 - **AND** available content SHALL be represented only through remote-safe descriptors.
 
@@ -187,7 +187,7 @@ Host Bridge capability and MCP results SHALL not expose host-local attachment pa
 - **AND** available content SHALL be represented by an opaque file descriptor or structured unavailable state.
 
 #### Scenario: Mutation creates an attachment
-- **WHEN** mutation.execute successfully creates an attachment
+- **WHEN** an operation-specific mutation successfully creates an attachment
 - **THEN** every attachment summary in the canonical evidence SHALL omit host-local paths
 - **AND** it SHALL use the same remote-safe descriptor projection.
 

@@ -114,15 +114,30 @@ This command has no separate field-mapping program. Its binding mode is executab
       "additionalProperties": false,
       "properties": {
         "outcome": {
-          "const": "saved_search_selected"
+          "const": "selected"
         },
-        "ref": {
+        "target": {
+          "additionalProperties": false,
+          "properties": {
+            "key": {
+              "pattern": "^[A-Z0-9]{8}$",
+              "type": "string"
+            },
+            "libraryId": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "libraryId",
+            "key"
+          ],
           "type": "object"
         }
       },
       "required": [
         "outcome",
-        "ref"
+        "target"
       ],
       "type": "object"
     }
@@ -300,15 +315,30 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "additionalProperties": false,
         "properties": {
           "outcome": {
-            "const": "saved_search_selected"
+            "const": "selected"
           },
-          "ref": {
+          "target": {
+            "additionalProperties": false,
+            "properties": {
+              "key": {
+                "pattern": "^[A-Z0-9]{8}$",
+                "type": "string"
+              },
+              "libraryId": {
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "libraryId",
+              "key"
+            ],
             "type": "object"
           }
         },
         "required": [
           "outcome",
-          "ref"
+          "target"
         ],
         "type": "object"
       }

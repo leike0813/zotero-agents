@@ -51,17 +51,33 @@ Required: `false`.
 {
   "additionalProperties": false,
   "properties": {
-    "itemRefs": {
+    "items": {
       "items": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "pattern": "^[A-Z0-9]{8}$",
+            "type": "string"
+          },
+          "libraryId": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "libraryId",
+          "key"
+        ],
         "type": "object"
       },
       "maxItems": 100,
       "minItems": 1,
-      "type": "array"
+      "type": "array",
+      "uniqueItems": true
     }
   },
   "required": [
-    "itemRefs"
+    "items"
   ],
   "type": "object"
 }
@@ -73,17 +89,33 @@ Required: `false`.
 {
   "additionalProperties": false,
   "properties": {
-    "itemRefs": {
+    "items": {
       "items": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "pattern": "^[A-Z0-9]{8}$",
+            "type": "string"
+          },
+          "libraryId": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "libraryId",
+          "key"
+        ],
         "type": "object"
       },
       "maxItems": 100,
       "minItems": 1,
-      "type": "array"
+      "type": "array",
+      "uniqueItems": true
     }
   },
   "required": [
-    "itemRefs"
+    "items"
   ],
   "type": "object"
 }
@@ -111,16 +143,37 @@ This command has no separate field-mapping program. Its binding mode is executab
     "data": {
       "additionalProperties": false,
       "properties": {
-        "items": {
-          "type": "array"
-        },
         "outcome": {
-          "const": "items_revealed"
+          "const": "revealed"
+        },
+        "targets": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "key": {
+                "pattern": "^[A-Z0-9]{8}$",
+                "type": "string"
+              },
+              "libraryId": {
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "libraryId",
+              "key"
+            ],
+            "type": "object"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
         }
       },
       "required": [
         "outcome",
-        "items"
+        "targets"
       ],
       "type": "object"
     }
@@ -141,7 +194,7 @@ This command has no separate field-mapping program. Its binding mode is executab
 Governed shape-only example for --input.
 
 ```console
-zotero-bridge navigation reveal-items --input '{"itemRefs":[{"key":"ABCDEFGH","libraryId":1}]}'
+zotero-bridge navigation reveal-items --input '{"items":[{"key":"ABCDEFGH","libraryId":1}]}'
 ```
 
 ## Complete command descriptor
@@ -211,7 +264,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
           "kind": "shape-only",
           "prerequisites": [],
           "value": {
-            "itemRefs": [
+            "items": [
               {
                 "key": "ABCDEFGH",
                 "libraryId": 1
@@ -225,17 +278,33 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "schema": {
         "additionalProperties": false,
         "properties": {
-          "itemRefs": {
+          "items": {
             "items": {
+              "additionalProperties": false,
+              "properties": {
+                "key": {
+                  "pattern": "^[A-Z0-9]{8}$",
+                  "type": "string"
+                },
+                "libraryId": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "libraryId",
+                "key"
+              ],
               "type": "object"
             },
             "maxItems": 100,
             "minItems": 1,
-            "type": "array"
+            "type": "array",
+            "uniqueItems": true
           }
         },
         "required": [
-          "itemRefs"
+          "items"
         ],
         "type": "object"
       },
@@ -264,17 +333,33 @@ This closed descriptor is the machine-readable command contract returned by `sur
   "payloadSchema": {
     "additionalProperties": false,
     "properties": {
-      "itemRefs": {
+      "items": {
         "items": {
+          "additionalProperties": false,
+          "properties": {
+            "key": {
+              "pattern": "^[A-Z0-9]{8}$",
+              "type": "string"
+            },
+            "libraryId": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "libraryId",
+            "key"
+          ],
           "type": "object"
         },
         "maxItems": 100,
         "minItems": 1,
-        "type": "array"
+        "type": "array",
+        "uniqueItems": true
       }
     },
     "required": [
-      "itemRefs"
+      "items"
     ],
     "type": "object"
   },
@@ -299,16 +384,37 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "data": {
         "additionalProperties": false,
         "properties": {
-          "items": {
-            "type": "array"
-          },
           "outcome": {
-            "const": "items_revealed"
+            "const": "revealed"
+          },
+          "targets": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "key": {
+                  "pattern": "^[A-Z0-9]{8}$",
+                  "type": "string"
+                },
+                "libraryId": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "libraryId",
+                "key"
+              ],
+              "type": "object"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
           }
         },
         "required": [
           "outcome",
-          "items"
+          "targets"
         ],
         "type": "object"
       }

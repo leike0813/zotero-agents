@@ -71,7 +71,6 @@ import type {
   MetadataTranslationEvidenceDto,
   NavigationSelectionInputDto,
   NavigationResult,
-  NavigationResultDto,
   NavigationLibraryViewRef,
   ReaderLocation,
   NoteDetailDto,
@@ -547,7 +546,7 @@ export interface ZoteroHostCapabilityBroker {
       control?: WorkflowCallControl,
     ): Promise<NavigationResult>;
     openReaderLocation(
-      input: { target: ZoteroHostItemRefInput; location: ReaderLocation },
+      input: ReaderLocation,
       control?: WorkflowCallControl,
     ): Promise<NavigationResult>;
   };
@@ -4075,7 +4074,7 @@ async function createMetadataPaperItem(
     setItemFieldIfPresent(item, field, value);
   }
   setItemCreators(item, paper.creators);
-  await item.saveTx();
+  await item.save();
   return item;
 }
 
@@ -4174,6 +4173,7 @@ async function importDownloadedStoredUrlAttachment(args: {
   metadata?: StoredAttachmentMetadata;
   control?: WorkflowCallControl;
   beforeEffect?: CanonicalMutationEffectGuard;
+  beforeFirstEffect?: () => Promise<void>;
   writtenEntities?: readonly MutationEntityRef[];
 }): Promise<Zotero.Item> {
   const downloaded =
@@ -4210,6 +4210,7 @@ async function importDownloadedStoredUrlAttachment(args: {
     });
     await cleanupDownloaded();
     const resolved = await files.resolveStoredAttachment(prepared);
+    await args.beforeFirstEffect?.();
     return nativeMutations.attachments.importStoredAttachment({
       prepared: resolved,
       parent: args.parent,
@@ -4236,6 +4237,7 @@ async function attachPdfBestEffort(
   paper: ReturnType<typeof normalizeLiteratureIngestPaper>,
   control?: WorkflowCallControl,
   beforeEffect?: CanonicalMutationEffectGuard,
+  beforeFirstEffect?: () => Promise<void>,
 ) {
   if (!paper.pdfUrl) {
     return {
@@ -4258,6 +4260,7 @@ async function attachPdfBestEffort(
       },
       control,
       beforeEffect,
+      beforeFirstEffect,
       writtenEntities: [{ kind: "item", ref: canonicalItemRef(item) }],
     });
     return {
@@ -4323,6 +4326,7 @@ async function attachLandingUrlWhenMissingPdf(
   hasPdfAttachment: boolean,
   control?: WorkflowCallControl,
   beforeEffect?: CanonicalMutationEffectGuard,
+  beforeFirstEffect?: () => Promise<void>,
 ) {
   if (!paper.attachLandingUrlOnMissingPdf) {
     return {
@@ -4339,6 +4343,7 @@ async function attachLandingUrlWhenMissingPdf(
     };
   }
   try {
+    await beforeFirstEffect?.();
     const attachment =
       await nativeMutations.attachments.createLinkedUrlAttachment({
         parent: item,
@@ -4393,16 +4398,46 @@ function normalizeCanonicalLiteratureIngestPaper(
 async function findCanonicalIngestIdentityMatch(
   paper: ReturnType<typeof normalizeLiteratureIngestPaper>,
   libraryId: number,
+  control: WorkflowCallControl = {},
 ) {
-  const Search = (
-    resolveZotero() as unknown as {
-      Search?: new () => {
-        libraryID?: number;
-        addCondition?: (field: string, operator: string, value: string) => void;
-        search?: () => Promise<unknown>;
-      };
-    }
-  ).Search;
+  const query = await buildCanonicalIngestIdentityQuery(
+    paper,
+    libraryId,
+    control,
+  );
+  return withZoteroHostSlice(control, () =>
+    findCanonicalIngestIdentityMatchInHost(paper, libraryId, query),
+  );
+}
+
+type CanonicalIngestIdentityQuery = Readonly<{
+  sql: string;
+  params: unknown[];
+}>;
+
+async function buildCanonicalIngestIdentityQuery(
+  paper: ReturnType<typeof normalizeLiteratureIngestPaper>,
+  libraryId: number,
+  control: WorkflowCallControl = {},
+) {
+  const Search = await withZoteroHostSlice(
+    control,
+    () =>
+      (
+        resolveZotero() as unknown as {
+          Search?: new () => {
+            libraryID?: number;
+            addCondition?: (
+              field: string,
+              operator: string,
+              value: string,
+            ) => void;
+            getSQL?: () => Promise<unknown>;
+            getSQLParams?: () => Promise<unknown>;
+          };
+        }
+      ).Search,
+  );
   if (typeof Search !== "function") {
     throw new MutationAuthorityExecutionError(
       "failed",
@@ -4421,58 +4456,149 @@ async function findCanonicalIngestIdentityMatch(
     paper.pmid ? ["extra", "contains", paper.pmid] : null,
     paper.title ? ["title", "is", paper.title] : null,
   ].filter((entry): entry is [string, string, string] => Boolean(entry));
-  const matches = new Map<string, Zotero.Item>();
+  const queries: string[] = [];
+  const params: unknown[] = [];
   for (const [field, operator, value] of candidates) {
-    const search = new Search();
+    const compiled = await withZoteroHostSlice(control, async () => {
+      const search = new Search();
+      if (
+        typeof search.addCondition !== "function" ||
+        typeof search.getSQL !== "function" ||
+        typeof search.getSQLParams !== "function"
+      ) {
+        throw new MutationAuthorityExecutionError(
+          "failed",
+          "unavailable",
+          "read",
+          "retry_same_operation",
+          { reason: "capability", kind: "item" },
+          "bounded Zotero identity search is unavailable",
+        );
+      }
+      search.libraryID = libraryId;
+      search.addCondition(field, operator, value);
+      return {
+        sql: await search.getSQL(),
+        params: await search.getSQLParams(),
+      };
+    });
     if (
-      typeof search.addCondition !== "function" ||
-      typeof search.search !== "function"
+      typeof compiled.sql !== "string" ||
+      !compiled.sql.trim() ||
+      (compiled.params !== false && !Array.isArray(compiled.params))
     ) {
-      throw new MutationAuthorityExecutionError(
-        "failed",
-        "unavailable",
-        "read",
-        "retry_same_operation",
-        { reason: "capability", kind: "item" },
-        "bounded Zotero identity search is unavailable",
-      );
-    }
-    search.libraryID = libraryId;
-    search.addCondition(field, operator, value);
-    const ids = await search.search();
-    if (!Array.isArray(ids)) {
       throw new MutationAuthorityExecutionError(
         "failed",
         "execution_failed",
         "read",
         "retry_same_operation",
         { phase: "read", recovery: "retry_same_operation" },
-        "bounded Zotero identity search returned an invalid result",
+        "bounded Zotero identity search returned an invalid query",
       );
     }
-    if (ids.length > 25) {
-      throw new MutationAuthorityExecutionError(
-        "failed",
-        "resource_limited",
-        "read",
-        "refresh_and_retry_new_operation",
-        { resource: "items", limit: 25, observed: ids.length },
-        "bounded Zotero identity search returned too many candidates",
-      );
-    }
-    for (const id of ids) {
-      const item = resolveZotero().Items.get(Number(id));
-      if (
-        item &&
-        normalizeLibraryId(item.libraryID) === libraryId &&
-        !item.isNote?.() &&
-        !item.isAttachment?.() &&
-        !(item as { isAnnotation?: () => boolean }).isAnnotation?.() &&
-        !(item as { deleted?: unknown }).deleted &&
-        itemMatchesIngestPaper(item, paper)
-      ) {
-        matches.set(`${item.libraryID}:${item.key}`, item);
-      }
+    queries.push(compiled.sql);
+    if (Array.isArray(compiled.params)) params.push(...compiled.params);
+  }
+  return {
+    sql: `SELECT itemID FROM (${queries.join(" UNION ")}) LIMIT ?`,
+    params: [...params, 26],
+  } satisfies CanonicalIngestIdentityQuery;
+}
+
+async function findCanonicalIngestIdentityMatchInHost(
+  paper: ReturnType<typeof normalizeLiteratureIngestPaper>,
+  libraryId: number,
+  query: CanonicalIngestIdentityQuery,
+) {
+  const zotero = resolveZotero() as unknown as {
+    DB?: {
+      columnQueryAsync?: (
+        sql: string,
+        params: unknown[],
+        options?: { noCache?: boolean },
+      ) => Promise<unknown>;
+    };
+    Items: typeof Zotero.Items & {
+      getAsync?: (ids: number[]) => Promise<Zotero.Item[]>;
+    };
+  };
+  const columnQueryAsync = zotero.DB?.columnQueryAsync;
+  if (typeof columnQueryAsync !== "function") {
+    throw new MutationAuthorityExecutionError(
+      "failed",
+      "unavailable",
+      "read",
+      "retry_same_operation",
+      { reason: "capability", kind: "item" },
+      "bounded Zotero identity query is unavailable",
+    );
+  }
+  const ids = await columnQueryAsync.call(zotero.DB, query.sql, query.params, {
+    noCache: true,
+  });
+  if (!Array.isArray(ids)) {
+    throw new MutationAuthorityExecutionError(
+      "failed",
+      "execution_failed",
+      "read",
+      "retry_same_operation",
+      { phase: "read", recovery: "retry_same_operation" },
+      "bounded Zotero identity search returned an invalid result",
+    );
+  }
+  if (ids.length > 25) {
+    throw new MutationAuthorityExecutionError(
+      "failed",
+      "resource_limited",
+      "read",
+      "refresh_and_retry_new_operation",
+      { resource: "items", limit: 25, observed: ids.length },
+      "bounded Zotero identity search returned too many candidates",
+    );
+  }
+  if (typeof zotero.Items.getAsync !== "function") {
+    throw new MutationAuthorityExecutionError(
+      "failed",
+      "unavailable",
+      "read",
+      "retry_same_operation",
+      { reason: "capability", kind: "item" },
+      "bounded Zotero identity hydration is unavailable",
+    );
+  }
+  const items = await zotero.Items.getAsync(ids.map(Number));
+  if (
+    !Array.isArray(items) ||
+    items.length !== ids.length ||
+    ids.some((id) => !items.some((item) => Number(item.id) === Number(id)))
+  ) {
+    throw new MutationAuthorityExecutionError(
+      "failed",
+      "execution_failed",
+      "read",
+      "retry_same_operation",
+      { phase: "read", recovery: "retry_same_operation" },
+      "bounded Zotero identity hydration was incomplete",
+    );
+  }
+  const matches = new Map<
+    string,
+    NonNullable<CanonicalLiteratureIngestPrepared["existing"]>
+  >();
+  for (const item of items) {
+    if (
+      normalizeLibraryId(item.libraryID) === libraryId &&
+      !item.isNote?.() &&
+      !item.isAttachment?.() &&
+      !(item as { isAnnotation?: () => boolean }).isAnnotation?.() &&
+      !(item as { deleted?: unknown }).deleted &&
+      itemMatchesIngestPaper(item, paper)
+    ) {
+      const match = {
+        ref: canonicalItemRef(item),
+        version: canonicalItemVersion(item),
+      };
+      matches.set(`${match.ref.libraryId}:${match.ref.key}`, match);
     }
   }
   if (matches.size > 1) {
@@ -4485,16 +4611,24 @@ async function findCanonicalIngestIdentityMatch(
       "literature identity resolves to multiple items",
     );
   }
-  return matches.values().next().value as Zotero.Item | undefined;
+  return matches.values().next().value;
 }
 
 async function prepareCanonicalLiteratureIngest(
   request: Pick<LiteratureIngestRequestDto, "collectionRef" | "paper">,
+  control: WorkflowCallControl = {},
 ): Promise<CanonicalLiteratureIngestPrepared> {
   const collectionRef = canonicalCollectionRef(request.collectionRef);
-  const collection = resolveCollection(collectionRef);
-  if (!collection) throw notFoundError("collection", collectionRef);
-  const collectionVersion = canonicalCollectionVersion(collection);
+  const collectionFacts = await withZoteroHostSlice(control, () => {
+    const collection = resolveCollection(collectionRef);
+    if (!collection) throw notFoundError("collection", collectionRef);
+    return {
+      version: canonicalCollectionVersion(collection),
+      libraryId: normalizeLibraryId(
+        (collection as { libraryID?: unknown }).libraryID,
+      ),
+    };
+  });
   let paper: ReturnType<typeof normalizeLiteratureIngestPaper>;
   try {
     paper = normalizeCanonicalLiteratureIngestPaper(request.paper);
@@ -4511,25 +4645,20 @@ async function prepareCanonicalLiteratureIngest(
         : "literature ingest request is invalid",
     );
   }
-  const libraryId = normalizeLibraryId(
-    (collection as { libraryID?: unknown }).libraryID,
+  const existing = await findCanonicalIngestIdentityMatch(
+    paper,
+    collectionFacts.libraryId,
+    control,
   );
-  const existingItem = await findCanonicalIngestIdentityMatch(paper, libraryId);
-  const existing = existingItem
-    ? {
-        ref: canonicalItemRef(existingItem),
-        version: canonicalItemVersion(existingItem),
-      }
-    : null;
   return {
     paper,
     collectionRef,
-    collectionVersion,
-    existing,
+    collectionVersion: collectionFacts.version,
+    existing: existing || null,
     observations: [
       {
         entity: { kind: "collection", ref: collectionRef },
-        version: collectionVersion,
+        version: collectionFacts.version,
       },
       ...(existing
         ? [
@@ -4546,8 +4675,9 @@ async function prepareCanonicalLiteratureIngest(
 async function revalidateCanonicalLiteratureIngest(
   prepared: CanonicalLiteratureIngestPrepared,
   request: Pick<LiteratureIngestRequestDto, "collectionRef" | "paper">,
+  control: WorkflowCallControl = {},
 ) {
-  const current = await prepareCanonicalLiteratureIngest(request);
+  const current = await prepareCanonicalLiteratureIngest(request, control);
   if (
     hashSynthesisContractCanonicalJson(current.observations) !==
       hashSynthesisContractCanonicalJson(prepared.observations) ||
@@ -4584,17 +4714,23 @@ async function executeCanonicalLiteratureIngest(
       control,
       async preflight() {
         if (!prepared) {
-          prepared = await withZoteroHostSlice(control, () =>
-            prepareCanonicalLiteratureIngest(request),
-          );
+          prepared = await prepareCanonicalLiteratureIngest(request, control);
         }
       },
       async execute() {
         if (!prepared) throw preparedMutationStaleError();
-        await withZoteroHostSlice(control, async () => {
-          await beforeEffect?.("read");
-          return revalidateCanonicalLiteratureIngest(prepared!, request);
-        });
+        let firstEffectChecked = false;
+        const beforeFirstEffect = async () => {
+          if (firstEffectChecked) return;
+          if (beforeEffect) await beforeEffect("read");
+          else
+            await revalidateCanonicalLiteratureIngest(
+              prepared!,
+              request,
+              control,
+            );
+          firstEffectChecked = true;
+        };
         const collection = await withZoteroHostSlice(control, () => {
           const value = resolveCollection(prepared!.collectionRef);
           if (!value)
@@ -4606,32 +4742,78 @@ async function executeCanonicalLiteratureIngest(
         let membershipAdded = false;
         let before: ReturnType<typeof canonicalItemVersion> | null = null;
         try {
-          if (prepared.existing) {
-            item = await withZoteroHostSlice(control, () =>
-              requireItem(prepared!.existing!.ref, "existing literature item"),
-            );
-            before = prepared.existing.version;
-          } else {
-            item = await withZoteroHostSlice(control, async () => {
-              await beforeEffect?.("effect");
-              const createdItem = await createMetadataPaperItem(
+          await beforeFirstEffect();
+          const identityQuery = await buildCanonicalIngestIdentityQuery(
+            prepared.paper,
+            normalizeLibraryId(
+              (collection as { libraryID?: unknown }).libraryID,
+            ),
+            control,
+          );
+          await withZoteroHostSlice(control, async () => {
+            const db = (
+              resolveZotero() as unknown as {
+                DB?: {
+                  executeTransaction?: <T>(run: () => Promise<T>) => Promise<T>;
+                };
+              }
+            ).DB;
+            if (typeof db?.executeTransaction !== "function") {
+              throw new MutationAuthorityExecutionError(
+                "failed",
+                "unavailable",
+                "read",
+                "retry_same_operation",
+                { reason: "capability", kind: "item" },
+                "Zotero transaction support is unavailable",
+              );
+            }
+            const finalIdentity = await db.executeTransaction(async () => {
+              const current = await findCanonicalIngestIdentityMatchInHost(
                 prepared!.paper,
                 normalizeLibraryId(
                   (collection as { libraryID?: unknown }).libraryID,
                 ),
+                identityQuery,
               );
-              beforeEffect?.markWritten([
-                { kind: "item", ref: canonicalItemRef(createdItem) },
-              ]);
-              return createdItem;
+              if (
+                hashSynthesisContractCanonicalJson(current || null) !==
+                hashSynthesisContractCanonicalJson(prepared!.existing || null)
+              ) {
+                throw preparedMutationStaleError();
+              }
+              if (current) {
+                return {
+                  item: requireItem(current.ref, "existing literature item"),
+                  created: false,
+                };
+              }
+              await beforeEffect?.("effect");
+              return {
+                item: await createMetadataPaperItem(
+                  prepared!.paper,
+                  normalizeLibraryId(
+                    (collection as { libraryID?: unknown }).libraryID,
+                  ),
+                ),
+                created: true,
+              };
             });
-            created = true;
-          }
+            item = finalIdentity.item;
+            created = finalIdentity.created;
+            before = prepared!.existing?.version || null;
+            if (created) {
+              beforeEffect?.markWritten([
+                { kind: "item", ref: canonicalItemRef(item) },
+              ]);
+            }
+          });
           const collectionId = Number((collection as { id?: unknown }).id);
           const isMember = await withZoteroHostSlice(control, () =>
             item.getCollections().includes(collectionId),
           );
           if (!isMember) {
+            await beforeFirstEffect();
             await withZoteroHostSlice(control, async () => {
               await beforeEffect?.("effect");
               await brokerMutationPrimitives.collection.add(item, collection);
@@ -4648,6 +4830,13 @@ async function executeCanonicalLiteratureIngest(
           if (!confirmed)
             throw new Error("required collection membership was not confirmed");
         } catch (primary) {
+          if (
+            primary instanceof MutationAuthorityExecutionError &&
+            !created &&
+            !membershipAdded
+          ) {
+            throw primary;
+          }
           const residualRefs: MutationEntityRef[] = [];
           if (membershipAdded && !created) {
             try {
@@ -4686,87 +4875,102 @@ async function executeCanonicalLiteratureIngest(
             residualRefs,
           );
         }
-        const enrichment: LiteratureIngestEnrichmentOutcomeDto[] = [];
-        const pdf = await attachPdfBestEffort(
-          item!,
-          prepared!.paper,
-          control,
-          beforeEffect,
-        );
-        enrichment.push(
-          pdf.status === "attached"
-            ? { kind: "pdf", outcome: "attached" }
-            : pdf.status === "failed"
-              ? {
-                  kind: "pdf",
-                  outcome: "failed",
-                  code: pdf.error?.code || "attachment_failed",
-                }
-              : { kind: "pdf", outcome: "skipped" },
-        );
-        const hasPdf = await withZoteroHostSlice(control, async () => {
-          await beforeEffect?.("read");
-          return itemHasPdfAttachment(item!);
-        });
-        const landing = await attachLandingUrlWhenMissingPdf(
-          item!,
-          prepared!.paper,
-          hasPdf,
-          control,
-          beforeEffect,
-        );
-        if (landing.status) {
+        try {
+          const enrichment: LiteratureIngestEnrichmentOutcomeDto[] = [];
+          const pdf = await attachPdfBestEffort(
+            item!,
+            prepared!.paper,
+            control,
+            beforeEffect,
+            beforeFirstEffect,
+          );
           enrichment.push(
-            landing.status === "attached"
-              ? { kind: "landing", outcome: "attached" }
-              : landing.status === "failed"
+            pdf.status === "attached"
+              ? { kind: "pdf", outcome: "attached" }
+              : pdf.status === "failed"
                 ? {
-                    kind: "landing",
+                    kind: "pdf",
                     outcome: "failed",
-                    code: landing.error?.code || "landing_attachment_failed",
+                    code: pdf.error?.code || "attachment_failed",
                   }
-                : { kind: "landing", outcome: "skipped" },
+                : { kind: "pdf", outcome: "skipped" },
+          );
+          const hasPdf = await withZoteroHostSlice(control, () =>
+            itemHasPdfAttachment(item!),
+          );
+          const landing = await attachLandingUrlWhenMissingPdf(
+            item!,
+            prepared!.paper,
+            hasPdf,
+            control,
+            beforeEffect,
+            beforeFirstEffect,
+          );
+          if (landing.status) {
+            enrichment.push(
+              landing.status === "attached"
+                ? { kind: "landing", outcome: "attached" }
+                : landing.status === "failed"
+                  ? {
+                      kind: "landing",
+                      outcome: "failed",
+                      code: landing.error?.code || "landing_attachment_failed",
+                    }
+                  : { kind: "landing", outcome: "skipped" },
+            );
+          }
+          await beforeFirstEffect();
+          return await withZoteroHostSlice(control, () => {
+            const finalItem = requireItem(
+              canonicalItemRef(item!),
+              "ingested literature item",
+            );
+            const after = canonicalItemVersion(finalItem);
+            return {
+              outcome:
+                created || membershipAdded
+                  ? ("committed" as const)
+                  : ("unchanged" as const),
+              changes: [
+                {
+                  entity: {
+                    kind: "item" as const,
+                    ref: canonicalItemRef(finalItem),
+                  },
+                  effect: created
+                    ? ("created" as const)
+                    : membershipAdded
+                      ? ("updated" as const)
+                      : ("unchanged" as const),
+                  before: created ? null : before,
+                  after,
+                },
+              ],
+              result: {
+                item: canonicalMutationItemResult(finalItem),
+                collectionRef: prepared!.collectionRef,
+                itemOutcome: created
+                  ? ("created" as const)
+                  : ("existing" as const),
+                collectionOutcome: membershipAdded
+                  ? ("added" as const)
+                  : ("already_present" as const),
+                enrichment,
+              },
+            };
+          });
+        } catch (error) {
+          if (error instanceof MutationAuthorityExecutionError) throw error;
+          throw new MutationAuthorityExecutionError(
+            "unknown",
+            "execution_failed",
+            "verification",
+            "reconcile",
+            { phase: "verification", recovery: "reconcile" },
+            "Literature ingest completed its required effects but verification failed",
+            [{ kind: "item", ref: canonicalItemRef(item!) }],
           );
         }
-        return withZoteroHostSlice(control, () => {
-          const finalItem = requireItem(
-            canonicalItemRef(item!),
-            "ingested literature item",
-          );
-          const after = canonicalItemVersion(finalItem);
-          return {
-            outcome:
-              created || membershipAdded
-                ? ("committed" as const)
-                : ("unchanged" as const),
-            changes: [
-              {
-                entity: {
-                  kind: "item" as const,
-                  ref: canonicalItemRef(finalItem),
-                },
-                effect: created
-                  ? ("created" as const)
-                  : membershipAdded
-                    ? ("updated" as const)
-                    : ("unchanged" as const),
-                before: created ? null : before,
-                after,
-              },
-            ],
-            result: {
-              item: canonicalMutationItemResult(finalItem),
-              collectionRef: prepared!.collectionRef,
-              itemOutcome: created
-                ? ("created" as const)
-                : ("existing" as const),
-              collectionOutcome: membershipAdded
-                ? ("added" as const)
-                : ("already_present" as const),
-              enrichment,
-            },
-          };
-        });
       },
     });
   } catch (error) {
@@ -8786,9 +8990,7 @@ async function preflightCanonicalMutationDomain(
     return;
   }
   if (input.operation === "literature.ingest") {
-    await withZoteroHostSlice(control, () =>
-      prepareCanonicalLiteratureIngest(input),
-    );
+    await prepareCanonicalLiteratureIngest(input, control);
     return;
   }
   if (input.operation === "statusTags.transition") {
@@ -9143,10 +9345,9 @@ function createCanonicalMutationControl(): ZoteroHostCanonicalMutationControl {
           : undefined;
       const ingestPrepared =
         args.input.operation === "literature.ingest"
-          ? await withZoteroHostSlice(args.control, () =>
-              prepareCanonicalLiteratureIngest(
-                args.input as LiteratureIngestRequestDto,
-              ),
+          ? await prepareCanonicalLiteratureIngest(
+              args.input as LiteratureIngestRequestDto,
+              args.control,
             )
           : undefined;
       if (!destructivePrepared && !trashPrepared && !ingestPrepared) {
@@ -9282,7 +9483,7 @@ function createCanonicalMutationControl(): ZoteroHostCanonicalMutationControl {
         let expectedObservations = record.observations;
         const removedEntities = new Set<string>();
         let destructiveEffectStarted = false;
-        let ingestEffectStarted = false;
+        let ingestRevalidated = false;
         const refreshExpectedEntities = (
           entities: readonly MutationEntityRef[],
         ) => {
@@ -9324,18 +9525,19 @@ function createCanonicalMutationControl(): ZoteroHostCanonicalMutationControl {
             return;
           }
           if (record.ingestPrepared) {
-            if (!ingestEffectStarted) {
+            if (!ingestRevalidated) {
               await revalidateCanonicalLiteratureIngest(
                 record.ingestPrepared,
                 args.input as LiteratureIngestRequestDto,
+                args.control,
               );
-              if (phase === "effect") ingestEffectStarted = true;
-            } else {
-              assertPreparedMutationEntityObservations(
-                expectedObservations,
-                removedEntities,
-              );
+              ingestRevalidated = true;
+              return;
             }
+            assertPreparedMutationEntityObservations(
+              expectedObservations,
+              removedEntities,
+            );
             return;
           }
           if (!record.trashPrepared) {
@@ -14423,9 +14625,7 @@ async function previewCanonicalMutation(
     };
   }
   if (request.operation === "literature.ingest") {
-    const prepared = await withZoteroHostSlice({}, () =>
-      prepareCanonicalLiteratureIngest(request),
-    );
+    const prepared = await prepareCanonicalLiteratureIngest(request);
     const plan = publicCanonicalLiteratureIngestPlan(prepared);
     const changes = await withZoteroHostSlice({}, () => {
       const item = prepared.existing
@@ -16014,24 +16214,24 @@ function resolveZoteroPane() {
   return { win, pane };
 }
 
-function resolveNavigationPane(
-  control: WorkflowCallControl = {},
-  selectionWindow?: () => _ZoteroTypes.MainWindow,
-) {
-  const win =
-    control.target?.resolveAndValidate?.() ||
-    selectionWindow?.() ||
-    (globalThis as any).Zotero?.getMainWindow?.() ||
-    (globalThis as any).window;
+function resolveNavigationPane(control: WorkflowCallControl = {}) {
+  const win = control.target?.resolveAndValidate?.();
+  throwIfWorkflowCallCanceled(control);
   const pane = win?.ZoteroPane;
-  if (!win || !pane) {
+  if (!win || win.closed || !pane) {
     throw navigationUnavailableError("Zotero pane navigation is unavailable");
   }
   return { win, pane };
 }
 
 function assertNavigationObject(value: unknown, keys: readonly string[]) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    (Object.getPrototypeOf(value) !== Object.prototype &&
+      Object.getPrototypeOf(value) !== null)
+  ) {
     throw capabilityError(
       "invalid_request",
       "navigation input must be an object",
@@ -16099,27 +16299,110 @@ function assertLibraryViewRef(
   }
 }
 
-function navigationWindow(
-  control: WorkflowCallControl = {},
-  selectionWindow?: () => _ZoteroTypes.MainWindow,
-) {
-  return resolveNavigationPane(control, selectionWindow);
+function navigationWindow(control: WorkflowCallControl = {}) {
+  throwIfWorkflowCallCanceled(control);
+  return resolveNavigationPane(control);
 }
 
 async function focusZotero(
   control: WorkflowCallControl = {},
 ): Promise<NavigationResult> {
   throwIfWorkflowCallCanceled(control);
-  const win =
-    control.target?.resolveAndValidate?.() ||
-    (globalThis as any).Zotero?.getMainWindow?.() ||
-    (globalThis as any).window;
-  if (!win) {
-    throw navigationUnavailableError("Zotero window focus is unavailable");
-  }
+  const { win } = navigationWindow(control);
+  win.restore?.();
   win.focus?.();
-  throwIfWorkflowCallCanceled(control);
-  return { outcome: "focused" };
+  return { outcome: "focus_dispatched" };
+}
+
+async function runNavigationAdapter<T>(operation: () => T | Promise<T>) {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof ZoteroHostCapabilityError) throw error;
+    throw capabilityError("execution_failed", "Zotero navigation failed", {
+      phase: "adapter",
+      recovery: "none",
+    });
+  }
+}
+
+async function activateNavigationLibraryPane(win: any) {
+  if (typeof win?.Zotero_Tabs?.select !== "function") {
+    throw navigationUnavailableError("Zotero Library tab is unavailable");
+  }
+  await win.Zotero_Tabs.select("zotero-pane", false);
+}
+
+async function restoreAndFocusNavigationWindow(win: any) {
+  win.restore?.();
+  win.focus?.();
+}
+
+async function selectNavigationTreeRow(
+  tree: any,
+  rowId: string,
+  allowFilterClear: boolean,
+) {
+  if (typeof tree?.selectByID !== "function") {
+    throw navigationUnavailableError("Zotero collection tree is unavailable");
+  }
+  let selected = await tree.selectByID(rowId);
+  if (
+    selected === false &&
+    allowFilterClear &&
+    typeof tree.setFilter === "function"
+  ) {
+    await tree.setFilter("");
+    selected = await tree.selectByID(rowId);
+  }
+  if (selected === false) {
+    throw navigationUnavailableError(
+      "Zotero collection-tree target is unavailable",
+    );
+  }
+}
+
+function assertNavigationTreeSelection(
+  win: any,
+  matches: (row: any) => boolean,
+) {
+  const rows = resolveSelectedLibraryTreeRows(win);
+  if (rows.length !== 1 || !matches(rows[0])) {
+    throw navigationUnavailableError(
+      "Zotero navigation selection did not settle",
+    );
+  }
+}
+
+function rowLibraryId(row: any) {
+  return normalizeLibraryId(row?.ref?.libraryID ?? row?.ref?.libraryId);
+}
+
+function matchesLibraryViewRow(row: any, target: NavigationLibraryViewRef) {
+  if (rowLibraryId(row) !== target.libraryId) return false;
+  if (target.view === "library") {
+    return selectedRowFlag(row, "isLibrary") || selectedRowFlag(row, "isGroup");
+  }
+  const method: Record<NavigationLibraryViewRef["view"], string> = {
+    library: "isLibrary",
+    trash: "isTrash",
+    duplicates: "isDuplicates",
+    unfiled: "isUnfiled",
+    retracted: "isRetracted",
+    publications: "isPublications",
+  };
+  return selectedRowFlag(row, method[target.view]);
+}
+
+function viewUnsupportedError() {
+  return new ZoteroHostCapabilityError(
+    "unsupported_operation",
+    "Zotero library view is unsupported",
+    {
+      memberOrOperation: "navigation.selectLibraryView",
+      reason: "view_unsupported",
+    },
+  );
 }
 
 async function selectLibraryView(
@@ -16139,13 +16422,23 @@ async function selectLibraryView(
     publications: "P",
   };
   const id = `${idPrefix[view.view]}${view.libraryId}`;
-  if (typeof tree?.selectByID === "function") await tree.selectByID(id);
-  else if (typeof pane.selectLibrary === "function")
-    await pane.selectLibrary(view.libraryId, view.view);
-  else
-    throw navigationUnavailableError("Zotero pane cannot select library view");
-  win.focus?.();
-  return { outcome: "library_view_selected", view };
+  if (
+    !resolveZotero().Libraries?.get?.(view.libraryId) ||
+    typeof tree?.selectByID !== "function"
+  ) {
+    throw viewUnsupportedError();
+  }
+  await activateNavigationLibraryPane(win);
+  if (
+    ["retracted", "publications"].includes(view.view) &&
+    typeof tree.expandLibrary === "function"
+  ) {
+    await tree.expandLibrary(view.libraryId);
+  }
+  await selectNavigationTreeRow(tree, id, false);
+  assertNavigationTreeSelection(win, (row) => matchesLibraryViewRow(row, view));
+  await restoreAndFocusNavigationWindow(win);
+  return { outcome: "selected", target: view };
 }
 
 async function selectSavedSearch(
@@ -16161,13 +16454,22 @@ async function selectSavedSearch(
   const { win, pane } = navigationWindow(control);
   const tree = pane.collectionsView || pane.collectionsTree;
   const id = (search as any).id || (search as any).searchID;
-  if (typeof tree?.selectByID !== "function" || !id)
+  if (!id || typeof tree?.selectByID !== "function")
     throw navigationUnavailableError(
       "Zotero pane cannot select saved searches",
     );
-  await tree.selectByID(`S${id}`);
-  win.focus?.();
-  return { outcome: "saved_search_selected", ref };
+  await activateNavigationLibraryPane(win);
+  await selectNavigationTreeRow(tree, `S${id}`, true);
+  assertNavigationTreeSelection(win, (row) => {
+    if (!selectedRowFlag(row, "isSearch")) return false;
+    const selected = row?.ref;
+    return (
+      normalizeLibraryId(selected?.libraryID ?? selected?.libraryId) ===
+        ref.libraryId && trimText(selected?.key) === ref.key
+    );
+  });
+  await restoreAndFocusNavigationWindow(win);
+  return { outcome: "selected", target: ref };
 }
 
 async function selectCollectionCanonical(
@@ -16178,51 +16480,72 @@ async function selectCollectionCanonical(
   throwIfWorkflowCallCanceled(control);
   const collection = resolveCollection(ref);
   if (!collection) throw notFoundError("collection", ref);
-  const target = navigationWindow(control);
-  const { win } = target;
-  await selectZoteroCollection(collection, target);
-  win.focus?.();
-  return {
-    outcome: "collection_selected",
-    ref: canonicalCollectionRef(collection),
-  };
+  const { win, pane } = navigationWindow(control);
+  const tree = pane.collectionsView || pane.collectionsTree;
+  const collectionId = parsePositiveInteger((collection as any).id);
+  if (!collectionId || typeof tree?.selectByID !== "function")
+    throw navigationUnavailableError("Zotero collection has no native id");
+  await activateNavigationLibraryPane(win);
+  await selectNavigationTreeRow(tree, `C${collectionId}`, true);
+  const target = canonicalCollectionRef(collection);
+  assertNavigationTreeSelection(win, (row) => {
+    if (!selectedRowFlag(row, "isCollection")) return false;
+    const selected = row?.ref;
+    return (
+      normalizeLibraryId(selected?.libraryID ?? selected?.libraryId) ===
+        target.libraryId && trimText(selected?.key) === target.key
+    );
+  });
+  await restoreAndFocusNavigationWindow(win);
+  return { outcome: "selected", target };
 }
 
 async function revealItems(
   input: NavigationSelectionInputDto,
   control: WorkflowCallControl = {},
 ): Promise<NavigationResult> {
-  assertNavigationObject(input, ["itemRefs"]);
+  assertNavigationObject(input, ["items"]);
   if (
-    !Array.isArray(input.itemRefs) ||
-    input.itemRefs.length < 1 ||
-    input.itemRefs.length > 100
+    !Array.isArray(input.items) ||
+    input.items.length < 1 ||
+    input.items.length > 100
   ) {
     throw capabilityError(
       "invalid_request",
       "items must contain 1 to 100 refs",
-      { reason: "invalid_value", field: "itemRefs" },
+      { reason: "invalid_value", field: "items" },
     );
   }
   throwIfWorkflowCallCanceled(control);
   const items: Zotero.Item[] = [];
   const seen = new Set<string>();
   let libraryId = 0;
-  for (const ref of input.itemRefs) {
+  for (const ref of input.items) {
     const item = requireItem(ref);
+    const kind = canonicalItemKind(item);
+    if (!["regular", "note", "attachment"].includes(kind)) {
+      throw new ZoteroHostCapabilityError(
+        "unsupported_operation",
+        "item kind cannot be revealed",
+        {
+          memberOrOperation: "navigation.revealItems",
+          reason: "target_kind_unsupported",
+        },
+      );
+    }
     const normalized = canonicalItemRef(item);
     const id = `${normalized.libraryId}:${normalized.key}`;
     if (seen.has(id))
       throw capabilityError("invalid_request", "duplicate item ref", {
         reason: "duplicate_value",
-        field: "itemRefs",
+        field: "items",
       });
     seen.add(id);
     if (!libraryId) libraryId = normalized.libraryId;
     if (libraryId !== normalized.libraryId)
       throw capabilityError("invalid_request", "items must share a library", {
         reason: "invalid_combination",
-        field: "itemRefs",
+        field: "items",
       });
     const deleted = Boolean(
       (item as any).isDeleted?.() ?? (item as any).deleted,
@@ -16235,16 +16558,67 @@ async function revealItems(
       throw capabilityError(
         "invalid_request",
         "items must share active state",
-        { reason: "invalid_combination", field: "itemRefs" },
+        { reason: "invalid_combination", field: "items" },
       );
     }
     items.push(item);
   }
   const { win, pane } = navigationWindow(control);
-  if (typeof pane.viewItems === "function") await pane.viewItems(items);
-  else await selectZoteroItems(items, { win, pane });
-  win.focus?.();
-  return { outcome: "items_revealed", items: items.map(canonicalItemRef) };
+  const tree = pane.collectionsView || pane.collectionsTree;
+  if (
+    typeof tree?.selectByID !== "function" ||
+    typeof (pane.itemsView || tree.itemTreeView)?.selectItems !== "function"
+  ) {
+    throw navigationUnavailableError("Zotero pane cannot select items");
+  }
+  const itemIds = items.map((item) => parsePositiveInteger((item as any).id));
+  if (itemIds.some((id) => !id)) {
+    throw navigationUnavailableError("Zotero item has no native id");
+  }
+  await activateNavigationLibraryPane(win);
+  let itemTree: any = pane.itemsView || tree.itemTreeView;
+  let selected = await itemTree.selectItems(itemIds);
+  if (selected !== itemIds.length) {
+    if (typeof itemTree?.setFilter === "function") {
+      await itemTree.setFilter("search", "");
+      await itemTree.setFilter("tags", []);
+      selected = await itemTree.selectItems(itemIds);
+    }
+  }
+  if (selected !== itemIds.length) {
+    const deleted = Boolean(
+      (items[0] as any).isDeleted?.() ?? (items[0] as any).deleted,
+    );
+    await selectNavigationTreeRow(
+      tree,
+      `${deleted ? "T" : "L"}${libraryId}`,
+      false,
+    );
+    itemTree = pane.itemsView || tree.itemTreeView;
+    if (typeof itemTree?.selectItems !== "function") {
+      throw navigationUnavailableError("Zotero pane cannot select items");
+    }
+    selected = await itemTree.selectItems(itemIds);
+  }
+  if (selected !== itemIds.length) {
+    throw navigationUnavailableError("Zotero items are not jointly visible");
+  }
+  const selectedIds =
+    typeof pane.getSelectedItems === "function"
+      ? pane.getSelectedItems(true)
+      : (pane.itemsView as any)?.getSelectedItems?.(true);
+  const expectedIds = new Set(itemIds);
+  if (
+    !Array.isArray(selectedIds) ||
+    selectedIds.length !== expectedIds.size ||
+    selectedIds.some(
+      (id: unknown) => !expectedIds.has(parsePositiveInteger(id)),
+    )
+  ) {
+    throw navigationUnavailableError("Zotero item selection did not settle");
+  }
+  await restoreAndFocusNavigationWindow(win);
+  return { outcome: "revealed", targets: items.map(canonicalItemRef) };
 }
 
 async function openCanonicalItem(
@@ -16256,129 +16630,289 @@ async function openCanonicalItem(
   const { win, pane } = navigationWindow(control);
   if (typeof pane.viewItems !== "function")
     throw navigationUnavailableError("Zotero pane cannot open items");
+  await activateNavigationLibraryPane(win);
   await pane.viewItems([item]);
-  win.focus?.();
-  return { outcome: "item_opened", ref: canonicalItemRef(item) };
+  await restoreAndFocusNavigationWindow(win);
+  return { outcome: "dispatched", target: canonicalItemRef(item) };
 }
 
 async function openReaderLocation(
-  input: { target: ZoteroHostItemRefInput; location: ReaderLocation },
+  location: ReaderLocation,
   control: WorkflowCallControl = {},
 ): Promise<NavigationResult> {
-  assertNavigationObject(input, ["location", "target"]);
-  assertPortableRef(input.target, "item");
-  const location = input.location;
   if (!location || typeof location !== "object")
     throw capabilityError("invalid_request", "reader location is invalid", {
       reason: "invalid_type",
       field: "location",
     });
-  const item = requireItem(input.target);
-  const itemKind = canonicalItemKind(item);
-  if (
-    location.kind !== "page" &&
-    location.kind !== "annotation" &&
-    location.kind !== "epub"
-  ) {
-    throw capabilityError(
-      "invalid_request",
-      "reader location kind is invalid",
-      { reason: "invalid_value", field: "location" },
-    );
-  }
-  if (itemKind !== "attachment") {
-    throw invalidRefError(
-      "item",
-      "wrong_kind",
-      "reader locations require an attachment",
-    );
-  }
-  const reader = (globalThis as any).Zotero?.Reader;
-  const { win } = navigationWindow(control);
-  if (!reader?.open)
-    throw new ZoteroHostCapabilityError(
-      "unsupported_operation",
-      "Reader location is unsupported",
-      {
-        memberOrOperation: "navigation.openReaderLocation",
-        reason: "location_unsupported",
-      } as any,
-    );
-  if (
-    location.kind === "page" &&
-    (!Number.isSafeInteger(location.pageIndex) || location.pageIndex < 0)
-  )
-    throw capabilityError("invalid_request", "page index is invalid", {
-      reason: "invalid_value",
-      field: "location",
-    });
-  if (
-    location.kind === "epub" &&
-    (typeof location.cfi !== "string" ||
-      !location.cfi ||
-      location.cfi.length > 4096)
-  )
-    throw capabilityError("invalid_request", "EPUB CFI is invalid", {
-      reason: "invalid_value",
-      field: "location",
-    });
-  if (
-    location.kind === "annotation" &&
-    (typeof location.annotationKey !== "string" ||
-      !ZOTERO_OBJECT_KEY_PATTERN.test(location.annotationKey))
-  )
-    throw capabilityError("invalid_request", "annotation key is invalid", {
-      reason: "invalid_value",
-      field: "location",
-    });
+  const zotero = resolveZotero();
+  let item: Zotero.Item;
+  let nativeLocation: Record<string, unknown>;
   if (location.kind === "page") {
-    const pageCount = Number((item as any).getField?.("pageCount") || 0);
-    if (
-      Number.isSafeInteger(pageCount) &&
-      pageCount > 0 &&
-      location.pageIndex >= pageCount
-    ) {
-      throw capabilityError("invalid_request", "page index is out of bounds", {
-        reason: "invalid_value",
-        field: "location",
-      });
-    }
-  }
-  if (location.kind === "annotation") {
-    const annotation = resolveZotero().Items.getByLibraryAndKey?.(
-      input.target.libraryId,
-      location.annotationKey,
-    );
-    const parentId = parsePositiveInteger(
-      (annotation as any)?.parentItemID ?? (annotation as any)?.parentID,
-    );
-    if (
-      !annotation ||
-      canonicalItemKind(annotation) !== "annotation" ||
-      parentId !== Number((item as any).id)
-    ) {
+    assertNavigationObject(location, ["attachment", "kind", "pageIndex"]);
+    assertPortableRef(location.attachment, "item");
+    item = requireItem(location.attachment);
+    if (!item.isPDFAttachment?.()) {
       throw invalidRefError(
         "item",
         "wrong_kind",
-        "annotation is not a child of the target attachment",
+        "page locations require a PDF attachment",
       );
     }
-  }
-  const tab = await reader.open(Number((item as any).id), location);
-  if (!tab || (tab.ownerGlobal && tab.ownerGlobal !== win))
-    throw new ZoteroHostCapabilityError(
-      "unsupported_operation",
-      "Reader location is unsupported",
-      {
-        memberOrOperation: "navigation.openReaderLocation",
-        reason: "location_unsupported",
-      } as any,
+    if (!Number.isSafeInteger(location.pageIndex) || location.pageIndex < 0)
+      throw capabilityError("invalid_request", "page index is invalid", {
+        reason: "invalid_value",
+        field: "pageIndex",
+      });
+    nativeLocation = { pageIndex: location.pageIndex };
+  } else if (location.kind === "annotation") {
+    assertNavigationObject(location, ["annotation", "kind"]);
+    assertPortableRef(location.annotation, "item");
+    const annotation = requireItem(location.annotation);
+    if (canonicalItemKind(annotation) !== "annotation") {
+      throw invalidRefError(
+        "item",
+        "wrong_kind",
+        "annotation ref does not identify an annotation",
+      );
+    }
+    const parentId = parsePositiveInteger(
+      (annotation as any).parentItemID ?? (annotation as any).parentID,
     );
+    item = zotero.Items.get(parentId);
+    if (!item || canonicalItemKind(item) !== "attachment") {
+      throw invalidRefError(
+        "item",
+        "wrong_kind",
+        "annotation has no supported parent attachment",
+      );
+    }
+    nativeLocation = { annotationID: trimText((annotation as any).key) };
+  } else if (location.kind === "epub") {
+    assertNavigationObject(location, ["attachment", "cfi", "kind"]);
+    assertPortableRef(location.attachment, "item");
+    item = requireItem(location.attachment);
+    if (!item.isEPUBAttachment?.()) {
+      throw invalidRefError(
+        "item",
+        "wrong_kind",
+        "EPUB locations require an EPUB attachment",
+      );
+    }
+    if (
+      typeof location.cfi !== "string" ||
+      !location.cfi ||
+      location.cfi.length > 4096
+    )
+      throw capabilityError("invalid_request", "EPUB CFI is invalid", {
+        reason: "invalid_value",
+        field: "cfi",
+      });
+    nativeLocation = {
+      position: {
+        type: "FragmentSelector",
+        conformsTo: "http://www.idpf.org/epub/linking/cfi/epub-cfi.html",
+        value: location.cfi,
+      },
+    };
+  } else {
+    throw capabilityError(
+      "invalid_request",
+      "reader location kind is invalid",
+      { reason: "invalid_value", field: "kind" },
+    );
+  }
+
+  const readerApi = zotero.Reader as any;
+  const itemId = parsePositiveInteger((item as any).id);
+  const { win } = navigationWindow(control);
+  const tabs = win?.Zotero_Tabs as any;
+  if (
+    !itemId ||
+    typeof readerApi?.getByTabID !== "function" ||
+    typeof tabs?.getTabIDByItemID !== "function" ||
+    typeof tabs?.select !== "function"
+  ) {
+    throw readerLocationUnsupported();
+  }
+
+  let tabId = tabs.getTabIDByItemID(itemId);
+  let readerInstance = tabId ? readerApi.getByTabID(tabId) : undefined;
+  let effectStarted = false;
+  if (!readerInstance) {
+    const library = zotero.Libraries?.get?.(
+      normalizeLibraryId((item as any).libraryID),
+    ) as any;
+    await library?.waitForDataLoad?.("item");
+    const exact = navigationWindow(control);
+    if (exact.win !== win) throw readerLocationUnsupported();
+    tabId = tabs.getTabIDByItemID(itemId);
+    readerInstance = tabId ? readerApi.getByTabID(tabId) : undefined;
+    if (!readerInstance) {
+      if (
+        typeof readerApi.open !== "function" ||
+        typeof tabs.add !== "function" ||
+        typeof tabs.markAsLoaded !== "function" ||
+        typeof tabs._getTab !== "function" ||
+        typeof zotero.getMainWindow !== "function" ||
+        typeof zotero.getMainWindows !== "function"
+      ) {
+        throw readerLocationUnsupported();
+      }
+      const windows = zotero.getMainWindows();
+      if (
+        !Array.isArray(windows) ||
+        !windows.includes(win) ||
+        windows.some(
+          (candidate: any) =>
+            typeof candidate?.Zotero_Tabs?._getTab !== "function" ||
+            typeof candidate?.document?.getElementById !== "function",
+        )
+      ) {
+        throw readerLocationUnsupported();
+      }
+      const owns = (candidate: any, id: string) =>
+        candidate.Zotero_Tabs._getTab(id)?.tab ||
+        candidate.document.getElementById(id);
+      if (
+        tabId &&
+        windows.some(
+          (candidate: any) => candidate !== win && owns(candidate, tabId!),
+        )
+      ) {
+        throw readerLocationUnsupported();
+      }
+      let reserved: any;
+      if (tabId) {
+        reserved = tabs._getTab(tabId)?.tab;
+        const state =
+          typeof tabs.parseTabType === "function"
+            ? tabs.parseTabType(reserved?.type)
+            : {
+                tabContentType: reserved?.type?.split("-")[0],
+                tabState: reserved?.type?.split("-")[1],
+              };
+        if (
+          state?.tabContentType !== "reader" ||
+          state?.tabState !== "unloaded" ||
+          !win.document.getElementById(tabId)
+        ) {
+          throw readerLocationUnsupported();
+        }
+      } else {
+        const windowCrypto = (win as { crypto?: Crypto }).crypto;
+        const nativeUuid = (
+          globalThis as {
+            Services?: {
+              uuid?: { generateUUID?: () => { toString(): string } };
+            };
+          }
+        ).Services?.uuid;
+        const randomUUID =
+          typeof windowCrypto?.randomUUID === "function"
+            ? () => windowCrypto.randomUUID()
+            : typeof nativeUuid?.generateUUID === "function"
+              ? () => nativeUuid.generateUUID!().toString().replace(/[{}]/g, "")
+              : undefined;
+        if (!randomUUID) {
+          throw readerLocationUnsupported();
+        }
+        for (let attempts = 0; attempts < 8; attempts++) {
+          const candidate = `zotero-agents-reader-${randomUUID()}`;
+          if (
+            !windows.some((candidateWindow: any) =>
+              owns(candidateWindow, candidate),
+            )
+          ) {
+            tabId = candidate;
+            break;
+          }
+        }
+        if (!tabId) throw readerLocationUnsupported();
+      }
+
+      if (navigationWindow(control).win !== win) {
+        throw readerLocationUnsupported();
+      }
+      effectStarted = true;
+      win.restore?.();
+      win.focus?.();
+      if (win.closed || zotero.getMainWindow() !== win) {
+        throw readerLocationUnsupported();
+      }
+      if (!reserved) {
+        const owned = tabs.add({
+          id: tabId,
+          type:
+            typeof tabs.parseTabType === "function"
+              ? "reader-loading"
+              : "reader-unloaded",
+          title:
+            (item as any).getDisplayTitle?.() ||
+            (item as any).getField?.("title") ||
+            "",
+          data: { itemID: itemId },
+          select: false,
+          preventJumpback: true,
+        });
+        if (
+          owned?.id !== tabId ||
+          owned?.container?.ownerDocument !== win.document ||
+          !owned.container.isConnected
+        ) {
+          throw readerLocationUnsupported();
+        }
+        reserved = tabs._getTab(tabId)?.tab;
+        if (!reserved) throw readerLocationUnsupported();
+      }
+      reserved.type = "reader-loading";
+      // Focus/tab reservation is already a UI effect. Leave the target-window
+      // tab in place on later failure; do not report cancellation or replay.
+      readerInstance = await readerApi.open(itemId, nativeLocation, {
+        tabID: tabId,
+        allowDuplicate: true,
+        openInBackground: true,
+        preventJumpback: true,
+      });
+      readerInstance ||= readerApi.getByTabID(tabId);
+    }
+  }
+  if (
+    !readerInstance ||
+    readerInstance._window !== win ||
+    readerInstance.tabID !== tabId ||
+    typeof readerInstance.navigate !== "function" ||
+    !readerInstance._initPromise
+  ) {
+    throw readerLocationUnsupported();
+  }
+  await readerInstance._initPromise;
+  if (!effectStarted) {
+    const exact = navigationWindow(control);
+    if (exact.win !== win) throw readerLocationUnsupported();
+  } else if (win.closed || control.target?.resolveAndValidate?.() !== win) {
+    throw readerLocationUnsupported();
+  }
+  if (effectStarted) tabs.markAsLoaded(tabId);
+  await tabs.select(tabId, true);
+  await readerInstance.navigate(nativeLocation);
+  await restoreAndFocusNavigationWindow(win);
   return {
     outcome: "reader_location_dispatched",
     target: canonicalItemRef(item),
     location,
   };
+}
+
+function readerLocationUnsupported() {
+  return new ZoteroHostCapabilityError(
+    "unsupported_operation",
+    "Reader location is unsupported",
+    {
+      memberOrOperation: "navigation.openReaderLocation",
+      reason: "location_unsupported",
+    },
+  );
 }
 
 async function selectZoteroItems(
@@ -16441,15 +16975,20 @@ export function createZoteroHostCapabilityBroker(
         getSelectedItems(request, control, selectionWindow?.()),
     },
     navigation: {
-      focusZotero: (control) => focusZotero(control),
-      selectLibraryView: (view, control) => selectLibraryView(view, control),
+      focusZotero: (control) =>
+        runNavigationAdapter(() => focusZotero(control)),
+      selectLibraryView: (view, control) =>
+        runNavigationAdapter(() => selectLibraryView(view, control)),
       selectCollection: (ref, control) =>
-        selectCollectionCanonical(ref, control),
-      selectSavedSearch: (ref, control) => selectSavedSearch(ref, control),
-      revealItems: (input, control) => revealItems(input, control),
-      openItem: (ref, control) => openCanonicalItem(ref, control),
+        runNavigationAdapter(() => selectCollectionCanonical(ref, control)),
+      selectSavedSearch: (ref, control) =>
+        runNavigationAdapter(() => selectSavedSearch(ref, control)),
+      revealItems: (input, control) =>
+        runNavigationAdapter(() => revealItems(input, control)),
+      openItem: (ref, control) =>
+        runNavigationAdapter(() => openCanonicalItem(ref, control)),
       openReaderLocation: (input, control) =>
-        openReaderLocation(input, control),
+        runNavigationAdapter(() => openReaderLocation(input, control)),
     },
     library: {
       listItems: listLibraryItems,

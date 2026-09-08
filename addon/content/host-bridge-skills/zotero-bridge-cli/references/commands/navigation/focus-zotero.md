@@ -88,7 +88,7 @@ This command has no separate field-mapping program. Its binding mode is executab
       "additionalProperties": false,
       "properties": {
         "outcome": {
-          "const": "focused"
+          "const": "focus_dispatched"
         }
       },
       "required": [
@@ -241,7 +241,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "additionalProperties": false,
         "properties": {
           "outcome": {
-            "const": "focused"
+            "const": "focus_dispatched"
           }
         },
         "required": [

@@ -1,6 +1,6 @@
 {
   "cliSchema": "zotero-bridge.cli.v5",
-  "commandCatalogChecksum": "351370aea6695c3a3956305396ad56fd736b28eb20d1e42d23ec9601bfb0ff8f",
+  "commandCatalogChecksum": "946c582cf0f6d589b868be947a510ed685c08ed1c1e2c06030388cfe13df1bba",
   "commands": [
     {
       "approvalContract": {
@@ -37987,7 +37987,7 @@
             "additionalProperties": false,
             "properties": {
               "outcome": {
-                "const": "focused"
+                "const": "focus_dispatched"
               }
             },
             "required": [
@@ -38160,15 +38160,30 @@
             "additionalProperties": false,
             "properties": {
               "outcome": {
-                "const": "item_opened"
+                "const": "dispatched"
               },
-              "ref": {
+              "target": {
+                "additionalProperties": false,
+                "properties": {
+                  "key": {
+                    "pattern": "^[A-Z0-9]{8}$",
+                    "type": "string"
+                  },
+                  "libraryId": {
+                    "minimum": 1,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "libraryId",
+                  "key"
+                ],
                 "type": "object"
               }
             },
             "required": [
               "outcome",
-              "ref"
+              "target"
             ],
             "type": "object"
           }
@@ -38250,32 +38265,95 @@
               "kind": "shape-only",
               "prerequisites": [],
               "value": {
-                "location": {
-                  "index": 0,
-                  "kind": "page"
-                },
-                "target": {
+                "attachment": {
                   "key": "ABCDEFGH",
                   "libraryId": 1
-                }
+                },
+                "kind": "page",
+                "pageIndex": 0
               }
             }
           ],
           "required": false,
           "requiredWhen": [],
           "schema": {
-            "additionalProperties": false,
-            "properties": {
-              "location": {
-                "type": "object"
-              },
-              "target": {
+            "$defs": {
+              "itemRef": {
+                "additionalProperties": false,
+                "properties": {
+                  "key": {
+                    "pattern": "^[A-Z0-9]{8}$",
+                    "type": "string"
+                  },
+                  "libraryId": {
+                    "minimum": 1,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "libraryId",
+                  "key"
+                ],
                 "type": "object"
               }
             },
-            "required": [
-              "target",
-              "location"
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "attachment": {
+                    "$ref": "#/$defs/itemRef"
+                  },
+                  "kind": {
+                    "const": "page"
+                  },
+                  "pageIndex": {
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "attachment",
+                  "pageIndex"
+                ]
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "annotation": {
+                    "$ref": "#/$defs/itemRef"
+                  },
+                  "kind": {
+                    "const": "annotation"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "annotation"
+                ]
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "attachment": {
+                    "$ref": "#/$defs/itemRef"
+                  },
+                  "cfi": {
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "kind": {
+                    "const": "epub"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "attachment",
+                  "cfi"
+                ]
+              }
             ],
             "type": "object"
           },
@@ -38302,18 +38380,83 @@
       },
       "pagination": "none",
       "payloadSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "location": {
-            "type": "object"
-          },
-          "target": {
+        "$defs": {
+          "itemRef": {
+            "additionalProperties": false,
+            "properties": {
+              "key": {
+                "pattern": "^[A-Z0-9]{8}$",
+                "type": "string"
+              },
+              "libraryId": {
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "libraryId",
+              "key"
+            ],
             "type": "object"
           }
         },
-        "required": [
-          "target",
-          "location"
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "attachment": {
+                "$ref": "#/$defs/itemRef"
+              },
+              "kind": {
+                "const": "page"
+              },
+              "pageIndex": {
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "attachment",
+              "pageIndex"
+            ]
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "annotation": {
+                "$ref": "#/$defs/itemRef"
+              },
+              "kind": {
+                "const": "annotation"
+              }
+            },
+            "required": [
+              "kind",
+              "annotation"
+            ]
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "attachment": {
+                "$ref": "#/$defs/itemRef"
+              },
+              "cfi": {
+                "maxLength": 4096,
+                "minLength": 1,
+                "type": "string"
+              },
+              "kind": {
+                "const": "epub"
+              }
+            },
+            "required": [
+              "kind",
+              "attachment",
+              "cfi"
+            ]
+          }
         ],
         "type": "object"
       },
@@ -38336,16 +38479,97 @@
             "const": "navigation.open_reader_location"
           },
           "data": {
+            "$defs": {
+              "itemRef": {
+                "additionalProperties": false,
+                "properties": {
+                  "key": {
+                    "pattern": "^[A-Z0-9]{8}$",
+                    "type": "string"
+                  },
+                  "libraryId": {
+                    "minimum": 1,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "libraryId",
+                  "key"
+                ],
+                "type": "object"
+              },
+              "readerLocation": {
+                "oneOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "attachment": {
+                        "$ref": "#/$defs/itemRef"
+                      },
+                      "kind": {
+                        "const": "page"
+                      },
+                      "pageIndex": {
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "attachment",
+                      "pageIndex"
+                    ]
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "annotation": {
+                        "$ref": "#/$defs/itemRef"
+                      },
+                      "kind": {
+                        "const": "annotation"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "annotation"
+                    ]
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "attachment": {
+                        "$ref": "#/$defs/itemRef"
+                      },
+                      "cfi": {
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "kind": {
+                        "const": "epub"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "attachment",
+                      "cfi"
+                    ]
+                  }
+                ],
+                "type": "object"
+              }
+            },
             "additionalProperties": false,
             "properties": {
               "location": {
-                "type": "object"
+                "$ref": "#/$defs/readerLocation"
               },
               "outcome": {
                 "const": "reader_location_dispatched"
               },
               "target": {
-                "type": "object"
+                "$ref": "#/$defs/itemRef"
               }
             },
             "required": [
@@ -38433,7 +38657,7 @@
               "kind": "shape-only",
               "prerequisites": [],
               "value": {
-                "itemRefs": [
+                "items": [
                   {
                     "key": "ABCDEFGH",
                     "libraryId": 1
@@ -38447,17 +38671,33 @@
           "schema": {
             "additionalProperties": false,
             "properties": {
-              "itemRefs": {
+              "items": {
                 "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "key": {
+                      "pattern": "^[A-Z0-9]{8}$",
+                      "type": "string"
+                    },
+                    "libraryId": {
+                      "minimum": 1,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "libraryId",
+                    "key"
+                  ],
                   "type": "object"
                 },
                 "maxItems": 100,
                 "minItems": 1,
-                "type": "array"
+                "type": "array",
+                "uniqueItems": true
               }
             },
             "required": [
-              "itemRefs"
+              "items"
             ],
             "type": "object"
           },
@@ -38486,17 +38726,33 @@
       "payloadSchema": {
         "additionalProperties": false,
         "properties": {
-          "itemRefs": {
+          "items": {
             "items": {
+              "additionalProperties": false,
+              "properties": {
+                "key": {
+                  "pattern": "^[A-Z0-9]{8}$",
+                  "type": "string"
+                },
+                "libraryId": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "libraryId",
+                "key"
+              ],
               "type": "object"
             },
             "maxItems": 100,
             "minItems": 1,
-            "type": "array"
+            "type": "array",
+            "uniqueItems": true
           }
         },
         "required": [
-          "itemRefs"
+          "items"
         ],
         "type": "object"
       },
@@ -38521,16 +38777,37 @@
           "data": {
             "additionalProperties": false,
             "properties": {
-              "items": {
-                "type": "array"
-              },
               "outcome": {
-                "const": "items_revealed"
+                "const": "revealed"
+              },
+              "targets": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "key": {
+                      "pattern": "^[A-Z0-9]{8}$",
+                      "type": "string"
+                    },
+                    "libraryId": {
+                      "minimum": 1,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "libraryId",
+                    "key"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 100,
+                "minItems": 1,
+                "type": "array",
+                "uniqueItems": true
               }
             },
             "required": [
               "outcome",
-              "items"
+              "targets"
             ],
             "type": "object"
           }
@@ -38699,15 +38976,30 @@
             "additionalProperties": false,
             "properties": {
               "outcome": {
-                "const": "collection_selected"
+                "const": "selected"
               },
-              "ref": {
+              "target": {
+                "additionalProperties": false,
+                "properties": {
+                  "key": {
+                    "pattern": "^[A-Z0-9]{8}$",
+                    "type": "string"
+                  },
+                  "libraryId": {
+                    "minimum": 1,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "libraryId",
+                  "key"
+                ],
                 "type": "object"
               }
             },
             "required": [
               "outcome",
-              "ref"
+              "target"
             ],
             "type": "object"
           }
@@ -38890,15 +39182,37 @@
             "additionalProperties": false,
             "properties": {
               "outcome": {
-                "const": "library_view_selected"
+                "const": "selected"
               },
-              "view": {
+              "target": {
+                "additionalProperties": false,
+                "properties": {
+                  "libraryId": {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "view": {
+                    "enum": [
+                      "library",
+                      "trash",
+                      "duplicates",
+                      "unfiled",
+                      "retracted",
+                      "publications"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "view",
+                  "libraryId"
+                ],
                 "type": "object"
               }
             },
             "required": [
               "outcome",
-              "view"
+              "target"
             ],
             "type": "object"
           }
@@ -39067,15 +39381,30 @@
             "additionalProperties": false,
             "properties": {
               "outcome": {
-                "const": "saved_search_selected"
+                "const": "selected"
               },
-              "ref": {
+              "target": {
+                "additionalProperties": false,
+                "properties": {
+                  "key": {
+                    "pattern": "^[A-Z0-9]{8}$",
+                    "type": "string"
+                  },
+                  "libraryId": {
+                    "minimum": 1,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "libraryId",
+                  "key"
+                ],
                 "type": "object"
               }
             },
             "required": [
               "outcome",
-              "ref"
+              "target"
             ],
             "type": "object"
           }

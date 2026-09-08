@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { withMockCanonicalIngestIdentityDatabase } from "../helpers/canonicalIngestIdentityDatabase";
 import { brokerMutationPrimitives } from "../../src/modules/zoteroHostBrokerPrimitives";
 import { nativeFixtureMutations } from "../helpers/nativeFixtureMutations";
 import {
@@ -844,24 +845,29 @@ describe("zotero host broker capability api", function () {
   it("previews canonical literature ingest with bounded identity facts and required collection intent", async function () {
     const collection = await createCollection("Canonical Ingest Preview");
     const broker = createZoteroHostCapabilityBroker();
-    const preview = await (broker.mutations.preview as any)(
-      {
-        operation: "literature.ingest",
-        collectionRef: { libraryId: collection.libraryID, key: collection.key },
-        paper: {
-          itemType: "journalArticle",
-          fields: {
-            title: "Bounded Ingest Preview",
-            publicationTitle: "Broker Journal",
+    const preview = await withMockCanonicalIngestIdentityDatabase(() =>
+      (broker.mutations.preview as any)(
+        {
+          operation: "literature.ingest",
+          collectionRef: {
+            libraryId: collection.libraryID,
+            key: collection.key,
           },
-          creators: [
-            { firstName: "Ada", lastName: "Lovelace", creatorType: "author" },
-          ],
-          identifiers: { doi: "10.1000/bounded-preview" },
-          pdfUrl: "https://example.test/bounded-preview.pdf",
+          paper: {
+            itemType: "journalArticle",
+            fields: {
+              title: "Bounded Ingest Preview",
+              publicationTitle: "Broker Journal",
+            },
+            creators: [
+              { firstName: "Ada", lastName: "Lovelace", creatorType: "author" },
+            ],
+            identifiers: { doi: "10.1000/bounded-preview" },
+            pdfUrl: "https://example.test/bounded-preview.pdf",
+          },
         },
-      },
-      { ownerId: "canonical-ingest-preview" },
+        { ownerId: "canonical-ingest-preview" },
+      ),
     );
 
     assert.strictEqual(preview.operation, "literature.ingest");
@@ -876,6 +882,439 @@ describe("zotero host broker capability api", function () {
     assert.notProperty(preview.plan, "collectionVersion");
     assert.notProperty(preview.plan, "existingVersion");
     assertStrictJsonValue(preview);
+  });
+
+  it("rejects more than 25 unique literature identity candidates from one bounded query", async function () {
+    const collection = await createCollection("Bounded canonical ingest");
+    const previousSearch = (Zotero as any).Search;
+    const previousDb = Object.getOwnPropertyDescriptor(Zotero, "DB");
+    const queries: Array<{ sql: string; params: unknown[] }> = [];
+    let conditionIndex = 0;
+    (Zotero as any).Search = class {
+      libraryID?: number;
+      private index = conditionIndex++;
+
+      addCondition() {}
+
+      async getSQL() {
+        return `SELECT itemID FROM identity_candidates_${this.index} WHERE value=?`;
+      }
+
+      async getSQLParams() {
+        return [`candidate-${this.index}`];
+      }
+    };
+    Object.defineProperty(Zotero, "DB", {
+      configurable: true,
+      value: {
+        async columnQueryAsync(sql: string, params: unknown[]) {
+          queries.push({ sql, params });
+          return Array.from({ length: 26 }, (_, index) => index + 1);
+        },
+      },
+    });
+    try {
+      let error: unknown;
+      try {
+        await createZoteroHostCapabilityBroker().mutations.preview(
+          {
+            operation: "literature.ingest",
+            collectionRef: {
+              libraryId: collection.libraryID,
+              key: collection.key,
+            },
+            paper: {
+              itemType: "journalArticle",
+              fields: { title: "Bounded canonical ingest" },
+              creators: [],
+              identifiers: { doi: "10.1000/bounded-canonical-ingest" },
+            },
+          },
+          { ownerId: "bounded-canonical-ingest" },
+        );
+        assert.fail("expected bounded identity lookup to fail");
+      } catch (caught) {
+        error = caught;
+      }
+
+      assert.strictEqual((error as { code?: string }).code, "resource_limited");
+      assert.deepEqual((error as { details?: unknown }).details, {
+        resource: "items",
+        limit: 25,
+        observed: 26,
+      });
+      assert.lengthOf(queries, 1);
+      assert.include(queries[0].sql, " UNION ");
+      assert.match(queries[0].sql, /LIMIT \?$/);
+      assert.deepEqual(queries[0].params, ["candidate-0", "candidate-1", 26]);
+    } finally {
+      (Zotero as any).Search = previousSearch;
+      if (previousDb) Object.defineProperty(Zotero, "DB", previousDb);
+      else Reflect.deleteProperty(Zotero, "DB");
+    }
+  });
+
+  it("releases Host admission before executing the combined ingest identity query", async function () {
+    await createParentItem("Concurrent ingest identity read");
+    const collection = await createCollection("Concurrent ingest preview");
+    const base = createMockZoteroLibraryPageQueryAdapter();
+    let libraryNativeEntries = 0;
+    setZoteroLibraryPageQueryAdapterForTests({
+      async queryAsync(sql, params, context) {
+        libraryNativeEntries += 1;
+        return base.queryAsync(sql, params, context);
+      },
+      hydrateItems: base.hydrateItems,
+    });
+    const previousSearch = (Zotero as any).Search;
+    const previousDb = Object.getOwnPropertyDescriptor(Zotero, "DB");
+    let releaseFirst!: () => void;
+    let firstEntered!: () => void;
+    const firstEntry = new Promise<void>((resolve) => {
+      firstEntered = resolve;
+    });
+    const firstWait = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let queryCount = 0;
+    let libraryEntriesBeforeCombined = 0;
+    class IdentitySearch {
+      libraryID?: number;
+      addCondition() {}
+
+      async getSQL() {
+        queryCount += 1;
+        if (queryCount === 1) {
+          firstEntered();
+          await firstWait;
+        }
+        return `SELECT itemID FROM concurrent_identity_${queryCount}`;
+      }
+
+      async getSQLParams() {
+        return false;
+      }
+    }
+    (Zotero as any).Search = IdentitySearch;
+    Object.defineProperty(Zotero, "DB", {
+      configurable: true,
+      value: {
+        async columnQueryAsync() {
+          libraryEntriesBeforeCombined = libraryNativeEntries;
+          return [];
+        },
+      },
+    });
+    try {
+      const preview = createZoteroHostCapabilityBroker().mutations.preview(
+        {
+          operation: "literature.ingest",
+          collectionRef: {
+            libraryId: collection.libraryID,
+            key: collection.key,
+          },
+          paper: {
+            itemType: "journalArticle",
+            fields: { title: "Concurrent ingest identity" },
+            creators: [],
+            identifiers: { doi: "10.1000/concurrent-ingest" },
+          },
+        },
+        { ownerId: "concurrent-ingest-preview" },
+      );
+      await firstEntry;
+      const page = createZoteroHostCapabilityBroker().library.listItems({
+        limit: 1,
+      });
+      await Zotero.Promise.delay(0);
+      releaseFirst();
+      await Promise.all([preview, page]);
+
+      assert.isAbove(libraryEntriesBeforeCombined, 0);
+      assert.strictEqual(queryCount, 2);
+    } finally {
+      releaseFirst();
+      (Zotero as any).Search = previousSearch;
+      if (previousDb) Object.defineProperty(Zotero, "DB", previousDb);
+      else Reflect.deleteProperty(Zotero, "DB");
+    }
+  });
+
+  it("stops canonical ingest identity queries after active cancellation settles", async function () {
+    const collection = await createCollection("Canceled ingest preparation");
+    const previousSearch = (Zotero as any).Search;
+    const previousDb = Object.getOwnPropertyDescriptor(Zotero, "DB");
+    let releaseFirst!: () => void;
+    let firstEntered!: () => void;
+    const firstEntry = new Promise<void>((resolve) => {
+      firstEntered = resolve;
+    });
+    const firstWait = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let queryCount = 0;
+    class IdentitySearch {
+      libraryID?: number;
+      addCondition() {}
+
+      async getSQL() {
+        queryCount += 1;
+        if (queryCount === 1) {
+          firstEntered();
+          await firstWait;
+        }
+        return `SELECT itemID FROM canceled_identity_${queryCount}`;
+      }
+
+      async getSQLParams() {
+        return false;
+      }
+    }
+    (Zotero as any).Search = IdentitySearch;
+    Object.defineProperty(Zotero, "DB", {
+      configurable: true,
+      value: {
+        async columnQueryAsync() {
+          return [];
+        },
+      },
+    });
+    const controller = new AbortController();
+    try {
+      const trusted = getZoteroHostCanonicalMutationControl(
+        createZoteroHostCapabilityBroker(),
+      );
+      const preparation = trusted.prepare({
+        input: {
+          operation: "literature.ingest",
+          operationId: "canceled-ingest-identity-preparation",
+          collectionRef: {
+            libraryId: collection.libraryID,
+            key: collection.key,
+          },
+          paper: {
+            itemType: "journalArticle",
+            fields: { title: "Canceled ingest identity" },
+            creators: [],
+            identifiers: { doi: "10.1000/canceled-ingest" },
+          },
+        },
+        scope: { ownerId: "canceled-ingest-preparation" },
+        control: { signal: controller.signal },
+      });
+      await firstEntry;
+      controller.abort();
+      releaseFirst();
+
+      await expectBrokerError(preparation, "canceled");
+      assert.strictEqual(queryCount, 1);
+    } finally {
+      releaseFirst();
+      (Zotero as any).Search = previousSearch;
+      if (previousDb) Object.defineProperty(Zotero, "DB", previousDb);
+      else Reflect.deleteProperty(Zotero, "DB");
+    }
+  });
+
+  it("executes canonical ingest after sliced identity revalidation", async function () {
+    const collection = await createCollection("Sliced ingest execution");
+    const execution = await withMockCanonicalIngestIdentityDatabase(() =>
+      createZoteroHostCapabilityBroker().mutations.execute(
+        {
+          operation: "literature.ingest",
+          operationId: "sliced-ingest-revalidation",
+          collectionRef: {
+            libraryId: collection.libraryID,
+            key: collection.key,
+          },
+          paper: {
+            itemType: "journalArticle",
+            fields: { title: "Sliced ingest revalidation" },
+            creators: [],
+            identifiers: { doi: "10.1000/sliced-revalidation" },
+          },
+        },
+        { ownerId: "sliced-ingest-revalidation" },
+      ),
+    );
+
+    assert.strictEqual(execution.outcome, "committed");
+    assert.strictEqual(
+      execution.result.item.title,
+      "Sliced ingest revalidation",
+    );
+  });
+
+  it("rejects a newly appeared ingest identity from the final create transaction", async function () {
+    const collection = await createCollection("Final identity transaction");
+    const previousSearch = (Zotero as any).Search;
+    const previousDb = Object.getOwnPropertyDescriptor(Zotero, "DB");
+    let currentIds: number[] = [];
+    let transactionCount = 0;
+    (Zotero as any).Search = class {
+      libraryID?: number;
+      addCondition() {}
+      async getSQL() {
+        return "SELECT itemID FROM identity_candidates";
+      }
+      async getSQLParams() {
+        return false;
+      }
+    };
+    Object.defineProperty(Zotero, "DB", {
+      configurable: true,
+      value: {
+        async columnQueryAsync() {
+          return currentIds;
+        },
+        async executeTransaction(run: () => Promise<unknown>) {
+          transactionCount += 1;
+          currentIds = [concurrent!.id];
+          return run();
+        },
+      },
+    });
+    let concurrent: Zotero.Item | undefined;
+    try {
+      const broker = createZoteroHostCapabilityBroker();
+      const trusted = getZoteroHostCanonicalMutationControl(broker);
+      const scope = { ownerId: "final-identity-transaction" };
+      const input = {
+        operation: "literature.ingest" as const,
+        operationId: "final-identity-transaction",
+        collectionRef: {
+          libraryId: collection.libraryID,
+          key: collection.key,
+        },
+        paper: {
+          itemType: "journalArticle",
+          fields: { title: "Final identity transaction" },
+          creators: [],
+          identifiers: { doi: "10.1000/final-identity-transaction" },
+        },
+      };
+      const preparation = await trusted.prepare({ input, scope });
+      assert.strictEqual(preparation.state, "prepared");
+      if (preparation.state !== "prepared") assert.fail("expected preparation");
+
+      concurrent = await createParentItem("Final identity transaction");
+      concurrent.setField("DOI", "10.1000/final-identity-transaction");
+      await concurrent.saveTx();
+      const itemCount = (
+        await (Zotero.Items as any).getAll(collection.libraryID)
+      ).length;
+
+      const execution = await trusted.execute({
+        input,
+        scope,
+        prepared: preparation.prepared,
+      });
+
+      assert.strictEqual(execution.outcome, "failed");
+      if (execution.outcome !== "failed") assert.fail("expected conflict");
+      assert.strictEqual(execution.attempt.error.code, "conflict");
+      assert.lengthOf(
+        await (Zotero.Items as any).getAll(collection.libraryID),
+        itemCount,
+      );
+    } finally {
+      (Zotero as any).Search = previousSearch;
+      if (previousDb) Object.defineProperty(Zotero, "DB", previousDb);
+      else Reflect.deleteProperty(Zotero, "DB");
+    }
+  });
+
+  it("reports a committed ingest item when cancellation wins after the create transaction", async function () {
+    const collection = await createCollection(
+      "Post-commit ingest cancellation",
+    );
+    const controller = new AbortController();
+    const before = (await (Zotero.Items as any).getAll(collection.libraryID))
+      .length;
+
+    const execution = await withMockCanonicalIngestIdentityDatabase(
+      () =>
+        createZoteroHostCapabilityBroker().mutations.execute(
+          {
+            operation: "literature.ingest",
+            operationId: "post-commit-ingest-cancellation",
+            collectionRef: {
+              libraryId: collection.libraryID,
+              key: collection.key,
+            },
+            paper: {
+              itemType: "journalArticle",
+              fields: { title: "Post-commit ingest cancellation" },
+              creators: [],
+              identifiers: { doi: "10.1000/post-commit-ingest-cancellation" },
+            },
+          },
+          { ownerId: "post-commit-ingest-cancellation" },
+          { signal: controller.signal },
+        ),
+      { afterTransactionWork: () => controller.abort() },
+    );
+
+    assert.strictEqual(execution.outcome, "repair_required");
+    if (execution.outcome !== "repair_required") {
+      assert.fail("expected a repair-required outcome");
+    }
+    assert.lengthOf(execution.attempt.residualRefs, 1);
+    assert.lengthOf(
+      await (Zotero.Items as any).getAll(collection.libraryID),
+      before + 1,
+    );
+  });
+
+  it("reports an unknown ingest result when cancellation interrupts post-create verification", async function () {
+    const collection = await createCollection(
+      "Post-create ingest verification",
+    );
+    const controller = new AbortController();
+    const before = (await (Zotero.Items as any).getAll(collection.libraryID))
+      .length;
+
+    const originalDownload = Zotero.HTTP.download;
+    Zotero.HTTP.download = async () => {
+      controller.abort();
+      throw new Error("download interrupted");
+    };
+    try {
+      const execution = await withMockCanonicalIngestIdentityDatabase(() =>
+        createZoteroHostCapabilityBroker().mutations.execute(
+          {
+            operation: "literature.ingest",
+            operationId: "post-create-ingest-verification",
+            collectionRef: {
+              libraryId: collection.libraryID,
+              key: collection.key,
+            },
+            paper: {
+              itemType: "journalArticle",
+              fields: { title: "Post-create ingest verification" },
+              creators: [],
+              identifiers: { doi: "10.1000/post-create-ingest-verification" },
+              pdfUrl: "https://example.test/cancel-enrichment.pdf",
+            },
+          },
+          { ownerId: "post-create-ingest-verification" },
+          { signal: controller.signal },
+        ),
+      );
+
+      assert.strictEqual(execution.outcome, "unknown");
+      if (execution.outcome !== "unknown") {
+        assert.fail("expected an unknown outcome");
+      }
+      assert.strictEqual(execution.attempt.error.code, "execution_failed");
+      assert.lengthOf(execution.attempt.affectedRefs, 1);
+      assert.lengthOf(
+        await (Zotero.Items as any).getAll(collection.libraryID),
+        before + 1,
+      );
+    } finally {
+      Zotero.HTTP.download = originalDownload;
+    }
   });
 
   it("rejects a prepared mutation when its observed target changes before execution", async function () {
@@ -4913,6 +5352,276 @@ describe("zotero host broker capability api", function () {
     );
   });
 
+  it("fails navigation closed when the captured window is missing or invalid", async function () {
+    let effects = 0;
+    const previous = (Zotero as any).getMainWindow;
+    (Zotero as any).getMainWindow = () => ({
+      focus() {
+        effects++;
+      },
+      ZoteroPane: {},
+    });
+    try {
+      const broker = createZoteroHostCapabilityBroker();
+      await expectBrokerError(broker.navigation.focusZotero(), "unavailable");
+      await expectBrokerError(
+        broker.navigation.focusZotero({
+          target: { resolveAndValidate: () => null },
+        }),
+        "unavailable",
+      );
+      assert.equal(effects, 0);
+    } finally {
+      (Zotero as any).getMainWindow = previous;
+    }
+  });
+
+  it("rejects cancellation during target resolution before any navigation effect", async function () {
+    const controller = new AbortController();
+    let effects = 0;
+    const win = {
+      ZoteroPane: {},
+      restore() {
+        effects++;
+      },
+      focus() {
+        effects++;
+      },
+    };
+    await expectBrokerError(
+      createZoteroHostCapabilityBroker().navigation.focusZotero({
+        signal: controller.signal,
+        target: {
+          resolveAndValidate() {
+            controller.abort();
+            return win as any;
+          },
+        },
+      }),
+      "canceled",
+    );
+    assert.equal(effects, 0);
+  });
+
+  it("rejects non-JSON navigation objects before resolving a window", async function () {
+    let resolutions = 0;
+    class LibraryView {
+      view = "library" as const;
+      libraryId = Zotero.Libraries.userLibraryID;
+    }
+    await expectBrokerError(
+      createZoteroHostCapabilityBroker().navigation.selectLibraryView(
+        new LibraryView(),
+        {
+          target: {
+            resolveAndValidate() {
+              resolutions++;
+              return null;
+            },
+          },
+        },
+      ),
+      "invalid_request",
+    );
+    assert.equal(resolutions, 0);
+  });
+
+  it("keeps the focus dispatch result when cancellation follows the effect", async function () {
+    const controller = new AbortController();
+    const win = {
+      ZoteroPane: {},
+      crypto: { randomUUID: () => "00000000-0000-4000-8000-000000000001" },
+      restore() {},
+      focus() {
+        controller.abort();
+      },
+    };
+    const result =
+      await createZoteroHostCapabilityBroker().navigation.focusZotero({
+        signal: controller.signal,
+        target: { resolveAndValidate: () => win as any },
+      });
+    assert.deepEqual(result, { outcome: "focus_dispatched" });
+  });
+
+  it("binds loaded and concurrent cold Reader locations to the captured window", async function () {
+    const attachment = new Zotero.Item("attachment");
+    attachment.attachmentContentType = "application/pdf";
+    await attachment.saveTx();
+    const previous = (Zotero as any).Reader;
+    const previousGetMainWindow = (Zotero as any).getMainWindow;
+    const previousGetMainWindows = (Zotero as any).getMainWindows;
+    const commands: unknown[] = [];
+    let selected = 0;
+    let opened = 0;
+    let marked = 0;
+    let added = 0;
+    let tab: string | undefined = "reader-tab";
+    const controller = new AbortController();
+    let abortOnOpen: AbortController | undefined;
+    let enteredOpen: (() => void) | undefined;
+    let openGate: Promise<void> | undefined;
+    let releaseOpen: (() => void) | undefined;
+    let abortOnUuid: AbortController | undefined;
+    let focusEffects = 0;
+    const readers = new Map<string, any>();
+    const tabs = new Map<string, { id: string; type: string }>();
+    const document = {
+      getElementById: (id: string) => (tabs.has(id) ? { id } : null),
+    };
+    const win = {
+      ZoteroPane: {},
+      crypto: {
+        randomUUID: () => {
+          abortOnUuid?.abort();
+          return "00000000-0000-4000-8000-000000000001";
+        },
+      },
+      restore() {
+        focusEffects++;
+      },
+      focus() {
+        focusEffects++;
+      },
+      document,
+      Zotero_Tabs: {
+        getTabIDByItemID: () => tab,
+        _getTab: (id: string) => ({ tab: tabs.get(id) }),
+        add(options: { id: string; type: string }) {
+          added++;
+          tab = options.id;
+          tabs.set(options.id, { id: options.id, type: options.type });
+          return {
+            id: options.id,
+            container: {
+              id: options.id,
+              ownerDocument: document,
+              isConnected: true,
+            },
+          };
+        },
+        markAsLoaded(id: string) {
+          marked++;
+          tabs.get(id)!.type = "reader";
+        },
+        select() {
+          selected++;
+        },
+      },
+    };
+    (Zotero as any).Reader = {
+      open: async (_itemId: number, _location: unknown, options: any) => {
+        opened++;
+        assert.strictEqual(tabs.get(options.tabID)?.type, "reader-loading");
+        abortOnOpen?.abort();
+        enteredOpen?.();
+        await openGate;
+        const reader = {
+          _window: win,
+          tabID: options.tabID,
+          _initPromise: Promise.resolve(),
+          navigate: async (location: unknown) => commands.push(location),
+        };
+        readers.set(options.tabID, reader);
+        return reader;
+      },
+      getByTabID: (id: string) =>
+        readers.get(id) ||
+        (id === "reader-tab"
+          ? {
+              _window: win,
+              tabID: id,
+              _initPromise: Promise.resolve(),
+              navigate: async (location: unknown) => commands.push(location),
+            }
+          : undefined),
+    };
+    (Zotero as any).getMainWindow = () => win;
+    (Zotero as any).getMainWindows = () => [win];
+    const target = { resolveAndValidate: () => win as any };
+    const location = {
+      kind: "page" as const,
+      attachment: { libraryId: attachment.libraryID, key: attachment.key },
+      pageIndex: 0,
+    };
+    try {
+      const broker = createZoteroHostCapabilityBroker();
+      assert.deepEqual(
+        await broker.navigation.openReaderLocation(location, {
+          target,
+          signal: controller.signal,
+        }),
+        {
+          outcome: "reader_location_dispatched",
+          target: location.attachment,
+          location,
+        },
+      );
+      assert.deepEqual(commands, [{ pageIndex: 0 }]);
+      tab = undefined;
+      const coldControl = new AbortController();
+      abortOnOpen = coldControl;
+      assert.deepEqual(
+        await broker.navigation.openReaderLocation(location, {
+          target,
+          signal: coldControl.signal,
+        }),
+        {
+          outcome: "reader_location_dispatched",
+          target: location.attachment,
+          location,
+        },
+      );
+      assert.equal(added, 1);
+      assert.equal(opened, 1);
+      assert.equal(marked, 1);
+      assert.equal(selected, 2);
+      assert.lengthOf(commands, 2);
+
+      tab = undefined;
+      tabs.clear();
+      readers.clear();
+      abortOnOpen = undefined;
+      const entered = new Promise<void>((resolve) => {
+        enteredOpen = resolve;
+      });
+      openGate = new Promise<void>((resolve) => {
+        releaseOpen = resolve;
+      });
+      const first = broker.navigation.openReaderLocation(location, { target });
+      await entered;
+      await expectBrokerError(
+        broker.navigation.openReaderLocation(location, { target }),
+        "unsupported_operation",
+      );
+      assert.equal(added, 2);
+      assert.equal(opened, 2);
+      releaseOpen();
+      assert.strictEqual((await first).outcome, "reader_location_dispatched");
+
+      tab = undefined;
+      tabs.clear();
+      readers.clear();
+      openGate = undefined;
+      const canceledBeforeEffect = new AbortController();
+      abortOnUuid = canceledBeforeEffect;
+      const effectsBeforeCanceledCall = focusEffects + added;
+      await expectBrokerError(
+        broker.navigation.openReaderLocation(location, {
+          target,
+          signal: canceledBeforeEffect.signal,
+        }),
+        "canceled",
+      );
+      assert.equal(focusEffects + added, effectsBeforeCanceledCall);
+    } finally {
+      releaseOpen?.();
+      (Zotero as any).Reader = previous;
+      (Zotero as any).getMainWindow = previousGetMainWindow;
+      (Zotero as any).getMainWindows = previousGetMainWindows;
+    }
+  });
+
   it("normalizes selection and navigation while rejecting unsafe interaction", async function () {
     const parent = await createParentItem("Navigation Parent");
     const note = await nativeFixtureMutations.parent.addNote(parent, {
@@ -4923,20 +5632,58 @@ describe("zotero host broker capability api", function () {
     await attachment.saveTx();
     const collection = await createCollection("Navigation Collection");
     const selectedIds: number[][] = [];
+    let selectedItems = [note, attachment];
+    let row: any = {
+      id: `L${parent.libraryID}`,
+      isLibrary: () => true,
+      ref: { libraryID: parent.libraryID },
+    };
+    let libraryTab = false;
+    let openedItems = 0;
     const previousGetMainWindow = (Zotero as any).getMainWindow;
-    (Zotero as any).getMainWindow = () => ({
+    const navigationWin = {
+      restore() {},
       focus() {},
-      ZoteroPane: {
-        getSelectedItems: () => [note, attachment],
-        async selectItem(id: number) {
-          selectedIds.push([id]);
+      Zotero_Tabs: {
+        select(id: string) {
+          libraryTab = id === "zotero-pane";
         },
-        async selectItems(ids: number[]) {
-          selectedIds.push([...ids]);
-        },
-        async selectCollection() {},
       },
-    });
+      ZoteroPane: {
+        getSelectedItems: (idsOnly = false) =>
+          idsOnly ? selectedItems.map((item) => item.id) : selectedItems,
+        getCollectionTreeRow: () => row,
+        collectionsView: {
+          get selectedTreeRow() {
+            return row;
+          },
+          async selectByID(id: string) {
+            row = {
+              id,
+              ref: collection,
+              isCollection: () => id.startsWith("C"),
+              isLibrary: () => id.startsWith("L"),
+            };
+            return true;
+          },
+        },
+        itemsView: {
+          async selectItems(ids: number[]) {
+            assert.isTrue(libraryTab);
+            selectedIds.push([...ids]);
+            selectedItems = ids.map((id) => Zotero.Items.get(id));
+            return ids.length;
+          },
+        },
+        async viewItems() {
+          openedItems++;
+        },
+      },
+    };
+    (Zotero as any).getMainWindow = () => navigationWin;
+    const control = {
+      target: { resolveAndValidate: () => navigationWin as any },
+    };
 
     try {
       const broker = createZoteroHostCapabilityBroker();
@@ -4957,23 +5704,53 @@ describe("zotero host broker capability api", function () {
       assert.isFalse(snapshot.hasMore);
       assert.isNull(snapshot.nextCursor);
 
-      const opened = await broker.navigation.revealItems({
-        itemRefs: [parentRef, noteRef],
+      const opened = await broker.navigation.revealItems(
+        {
+          items: [parentRef, noteRef],
+        },
+        control,
+      );
+      assert.deepEqual(opened, {
+        outcome: "revealed",
+        targets: [parentRef, noteRef],
       });
-      assert.deepEqual(opened, { outcome: "items_revealed", items: [parentRef, noteRef] });
       assert.deepEqual(selectedIds.at(-1), [parent.id, note.id]);
+      assert.equal(openedItems, 0);
 
-      const collectionResult = await broker.navigation.selectCollection({
-        libraryId: collection.libraryID,
-        key: collection.key,
-      });
-      assert.strictEqual(collectionResult.outcome, "collection_selected");
+      const readSelection = navigationWin.ZoteroPane.getSelectedItems;
+      navigationWin.ZoteroPane.getSelectedItems = (idsOnly = false) =>
+        idsOnly ? [attachment.id] : [attachment];
+      await expectBrokerError(
+        broker.navigation.revealItems({ items: [parentRef, noteRef] }, control),
+        "unavailable",
+      );
+      navigationWin.ZoteroPane.getSelectedItems = readSelection;
+
+      const collectionResult = await broker.navigation.selectCollection(
+        {
+          libraryId: collection.libraryID,
+          key: collection.key,
+        },
+        control,
+      );
+      assert.strictEqual(collectionResult.outcome, "selected");
 
       for (const startOperation of [
         () =>
-          broker.navigation.revealItems({ itemRefs: [parentRef, parentRef] }),
-        () => broker.navigation.selectCollection({ libraryId: parent.libraryID, key: "BAD" } as any),
-        () => broker.navigation.selectLibraryView({ view: "bad" as any, libraryId: parent.libraryID }),
+          broker.navigation.revealItems(
+            { items: [parentRef, parentRef] },
+            control,
+          ),
+        () =>
+          broker.navigation.selectCollection({
+            libraryId: parent.libraryID,
+            key: "BAD",
+          } as any),
+        () =>
+          broker.navigation.selectLibraryView({
+            view: "bad" as any,
+            libraryId: parent.libraryID,
+          }),
       ]) {
         try {
           await startOperation();

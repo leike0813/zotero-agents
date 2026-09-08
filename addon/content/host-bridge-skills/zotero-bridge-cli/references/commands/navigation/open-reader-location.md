@@ -49,18 +49,83 @@ Required: `false`.
 
 ```json
 {
-  "additionalProperties": false,
-  "properties": {
-    "location": {
-      "type": "object"
-    },
-    "target": {
+  "$defs": {
+    "itemRef": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "pattern": "^[A-Z0-9]{8}$",
+          "type": "string"
+        },
+        "libraryId": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "libraryId",
+        "key"
+      ],
       "type": "object"
     }
   },
-  "required": [
-    "target",
-    "location"
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "attachment": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "kind": {
+          "const": "page"
+        },
+        "pageIndex": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "attachment",
+        "pageIndex"
+      ]
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "annotation": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "kind": {
+          "const": "annotation"
+        }
+      },
+      "required": [
+        "kind",
+        "annotation"
+      ]
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "attachment": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "cfi": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "kind": {
+          "const": "epub"
+        }
+      },
+      "required": [
+        "kind",
+        "attachment",
+        "cfi"
+      ]
+    }
   ],
   "type": "object"
 }
@@ -70,18 +135,83 @@ Required: `false`.
 
 ```json
 {
-  "additionalProperties": false,
-  "properties": {
-    "location": {
-      "type": "object"
-    },
-    "target": {
+  "$defs": {
+    "itemRef": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "pattern": "^[A-Z0-9]{8}$",
+          "type": "string"
+        },
+        "libraryId": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "libraryId",
+        "key"
+      ],
       "type": "object"
     }
   },
-  "required": [
-    "target",
-    "location"
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "attachment": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "kind": {
+          "const": "page"
+        },
+        "pageIndex": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "attachment",
+        "pageIndex"
+      ]
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "annotation": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "kind": {
+          "const": "annotation"
+        }
+      },
+      "required": [
+        "kind",
+        "annotation"
+      ]
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "attachment": {
+          "$ref": "#/$defs/itemRef"
+        },
+        "cfi": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "kind": {
+          "const": "epub"
+        }
+      },
+      "required": [
+        "kind",
+        "attachment",
+        "cfi"
+      ]
+    }
   ],
   "type": "object"
 }
@@ -107,16 +237,97 @@ This command has no separate field-mapping program. Its binding mode is executab
       "const": "navigation.open_reader_location"
     },
     "data": {
+      "$defs": {
+        "itemRef": {
+          "additionalProperties": false,
+          "properties": {
+            "key": {
+              "pattern": "^[A-Z0-9]{8}$",
+              "type": "string"
+            },
+            "libraryId": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "libraryId",
+            "key"
+          ],
+          "type": "object"
+        },
+        "readerLocation": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "attachment": {
+                  "$ref": "#/$defs/itemRef"
+                },
+                "kind": {
+                  "const": "page"
+                },
+                "pageIndex": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "kind",
+                "attachment",
+                "pageIndex"
+              ]
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "annotation": {
+                  "$ref": "#/$defs/itemRef"
+                },
+                "kind": {
+                  "const": "annotation"
+                }
+              },
+              "required": [
+                "kind",
+                "annotation"
+              ]
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "attachment": {
+                  "$ref": "#/$defs/itemRef"
+                },
+                "cfi": {
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "kind": {
+                  "const": "epub"
+                }
+              },
+              "required": [
+                "kind",
+                "attachment",
+                "cfi"
+              ]
+            }
+          ],
+          "type": "object"
+        }
+      },
       "additionalProperties": false,
       "properties": {
         "location": {
-          "type": "object"
+          "$ref": "#/$defs/readerLocation"
         },
         "outcome": {
           "const": "reader_location_dispatched"
         },
         "target": {
-          "type": "object"
+          "$ref": "#/$defs/itemRef"
         }
       },
       "required": [
@@ -143,7 +354,7 @@ This command has no separate field-mapping program. Its binding mode is executab
 Governed shape-only example for --input.
 
 ```console
-zotero-bridge navigation open-reader-location --input '{"location":{"index":0,"kind":"page"},"target":{"key":"ABCDEFGH","libraryId":1}}'
+zotero-bridge navigation open-reader-location --input '{"attachment":{"key":"ABCDEFGH","libraryId":1},"kind":"page","pageIndex":0}'
 ```
 
 ## Complete command descriptor
@@ -213,32 +424,95 @@ This closed descriptor is the machine-readable command contract returned by `sur
           "kind": "shape-only",
           "prerequisites": [],
           "value": {
-            "location": {
-              "index": 0,
-              "kind": "page"
-            },
-            "target": {
+            "attachment": {
               "key": "ABCDEFGH",
               "libraryId": 1
-            }
+            },
+            "kind": "page",
+            "pageIndex": 0
           }
         }
       ],
       "required": false,
       "requiredWhen": [],
       "schema": {
-        "additionalProperties": false,
-        "properties": {
-          "location": {
-            "type": "object"
-          },
-          "target": {
+        "$defs": {
+          "itemRef": {
+            "additionalProperties": false,
+            "properties": {
+              "key": {
+                "pattern": "^[A-Z0-9]{8}$",
+                "type": "string"
+              },
+              "libraryId": {
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "libraryId",
+              "key"
+            ],
             "type": "object"
           }
         },
-        "required": [
-          "target",
-          "location"
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "attachment": {
+                "$ref": "#/$defs/itemRef"
+              },
+              "kind": {
+                "const": "page"
+              },
+              "pageIndex": {
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "attachment",
+              "pageIndex"
+            ]
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "annotation": {
+                "$ref": "#/$defs/itemRef"
+              },
+              "kind": {
+                "const": "annotation"
+              }
+            },
+            "required": [
+              "kind",
+              "annotation"
+            ]
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "attachment": {
+                "$ref": "#/$defs/itemRef"
+              },
+              "cfi": {
+                "maxLength": 4096,
+                "minLength": 1,
+                "type": "string"
+              },
+              "kind": {
+                "const": "epub"
+              }
+            },
+            "required": [
+              "kind",
+              "attachment",
+              "cfi"
+            ]
+          }
         ],
         "type": "object"
       },
@@ -265,18 +539,83 @@ This closed descriptor is the machine-readable command contract returned by `sur
   },
   "pagination": "none",
   "payloadSchema": {
-    "additionalProperties": false,
-    "properties": {
-      "location": {
-        "type": "object"
-      },
-      "target": {
+    "$defs": {
+      "itemRef": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "pattern": "^[A-Z0-9]{8}$",
+            "type": "string"
+          },
+          "libraryId": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "libraryId",
+          "key"
+        ],
         "type": "object"
       }
     },
-    "required": [
-      "target",
-      "location"
+    "oneOf": [
+      {
+        "additionalProperties": false,
+        "properties": {
+          "attachment": {
+            "$ref": "#/$defs/itemRef"
+          },
+          "kind": {
+            "const": "page"
+          },
+          "pageIndex": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "attachment",
+          "pageIndex"
+        ]
+      },
+      {
+        "additionalProperties": false,
+        "properties": {
+          "annotation": {
+            "$ref": "#/$defs/itemRef"
+          },
+          "kind": {
+            "const": "annotation"
+          }
+        },
+        "required": [
+          "kind",
+          "annotation"
+        ]
+      },
+      {
+        "additionalProperties": false,
+        "properties": {
+          "attachment": {
+            "$ref": "#/$defs/itemRef"
+          },
+          "cfi": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "const": "epub"
+          }
+        },
+        "required": [
+          "kind",
+          "attachment",
+          "cfi"
+        ]
+      }
     ],
     "type": "object"
   },
@@ -299,16 +638,97 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "const": "navigation.open_reader_location"
       },
       "data": {
+        "$defs": {
+          "itemRef": {
+            "additionalProperties": false,
+            "properties": {
+              "key": {
+                "pattern": "^[A-Z0-9]{8}$",
+                "type": "string"
+              },
+              "libraryId": {
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "libraryId",
+              "key"
+            ],
+            "type": "object"
+          },
+          "readerLocation": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "attachment": {
+                    "$ref": "#/$defs/itemRef"
+                  },
+                  "kind": {
+                    "const": "page"
+                  },
+                  "pageIndex": {
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "attachment",
+                  "pageIndex"
+                ]
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "annotation": {
+                    "$ref": "#/$defs/itemRef"
+                  },
+                  "kind": {
+                    "const": "annotation"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "annotation"
+                ]
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "attachment": {
+                    "$ref": "#/$defs/itemRef"
+                  },
+                  "cfi": {
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "kind": {
+                    "const": "epub"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "attachment",
+                  "cfi"
+                ]
+              }
+            ],
+            "type": "object"
+          }
+        },
         "additionalProperties": false,
         "properties": {
           "location": {
-            "type": "object"
+            "$ref": "#/$defs/readerLocation"
           },
           "outcome": {
             "const": "reader_location_dispatched"
           },
           "target": {
-            "type": "object"
+            "$ref": "#/$defs/itemRef"
           }
         },
         "required": [

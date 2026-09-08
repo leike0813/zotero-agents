@@ -18,10 +18,10 @@ user-facing text rather than raw machine payloads.
 
 ### Requirement: Host Bridge capability approvals are human-readable
 
-Capability approvals SHALL describe the canonical prepared action using a short target and effect summary. The approval SHALL omit raw JSON, prepared-plan tokens, file leases, caller revisions, local paths, and storage details. mutation.preview and mutation.get_operation SHALL not create approval requests.
+Capability approvals SHALL describe the canonical prepared action using a short target and effect summary. The approval SHALL omit raw JSON, prepared-plan tokens, file leases, caller revisions, local paths, and storage details. Operation-specific calls with `dryRun: true` and mutation.get_operation SHALL not create approval requests.
 
 #### Scenario: Mutation execute requires approval
-- **WHEN** a Host Bridge mutation.execute request requires Zotero approval
+- **WHEN** an operation-specific Host Bridge mutation request with `dryRun` false or omitted requires Zotero approval
 - **THEN** the approval request SHALL describe the canonical mutation action and a short prepared target summary
 - **AND** it SHALL not include raw JSON request dumps or private prepared evidence.
 

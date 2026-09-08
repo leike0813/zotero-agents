@@ -12076,7 +12076,7 @@
             {
               "kind": "shape-only",
               "value": {
-                "itemRefs": [
+                "items": [
                   {
                     "libraryId": 1,
                     "key": "ABCDEFGH"
@@ -12186,14 +12186,12 @@
             {
               "kind": "shape-only",
               "value": {
-                "target": {
+                "kind": "page",
+                "attachment": {
                   "libraryId": 1,
                   "key": "ABCDEFGH"
                 },
-                "location": {
-                  "kind": "page",
-                  "index": 0
-                }
+                "pageIndex": 0
               },
               "prerequisites": []
             }

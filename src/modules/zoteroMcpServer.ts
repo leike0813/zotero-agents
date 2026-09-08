@@ -1618,6 +1618,7 @@ function firstJsonRpcIdFromRaw(rawRequest: string): ZoteroMcpJsonRpcId {
 }
 
 function createMcpRequestControl(externalSignal?: CancellationSignal) {
+  const capturedWindow = Zotero.getMainWindow?.();
   const controller = createCancellationController();
   const onExternalAbort = () => controller.abort();
   if (externalSignal) {
@@ -1629,6 +1630,12 @@ function createMcpRequestControl(externalSignal?: CancellationSignal) {
   return {
     control: {
       signal: controller.signal,
+      target: {
+        resolveAndValidate: () =>
+          capturedWindow && !capturedWindow.closed && capturedWindow.ZoteroPane
+            ? capturedWindow
+            : null,
+      },
     } satisfies WorkflowCallControl,
     abort: controller.abort,
     cleanup() {

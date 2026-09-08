@@ -97,6 +97,28 @@ fn item_search_schema_owns_query_and_rejects_text() {
 }
 
 #[test]
+fn navigation_schema_exposes_canonical_items_and_direct_reader_location() {
+    let (code, reveal, _) = run(&["navigation", "reveal-items", "--schema"]);
+    assert_eq!(code, 0);
+    let reveal_schema = &reveal["data"]["inputs"]["input"]["schema"];
+    assert!(reveal_schema["properties"]["items"].is_object());
+    assert!(reveal_schema["properties"]["itemRefs"].is_null());
+    assert_eq!(reveal_schema["required"], serde_json::json!(["items"]));
+
+    let (code, reader, _) = run(&["navigation", "open-reader-location", "--schema"]);
+    assert_eq!(code, 0);
+    let reader_schema = &reader["data"]["inputs"]["input"]["schema"];
+    assert!(reader_schema["oneOf"].is_array());
+    assert!(reader_schema["properties"]["target"].is_null());
+    assert!(reader_schema["properties"]["location"].is_null());
+    let serialized = serde_json::to_string(reader_schema).unwrap();
+    assert!(serialized.contains("attachment"));
+    assert!(serialized.contains("pageIndex"));
+    assert!(serialized.contains("annotation"));
+    assert!(serialized.contains("cfi"));
+}
+
+#[test]
 fn item_search_rejects_legacy_text_with_structured_contract_error() {
     let (code, output, stdout) = run_executable(&[
         "library",

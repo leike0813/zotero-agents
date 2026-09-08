@@ -30,7 +30,11 @@ import {
   listHostBridgeCapabilities,
 } from "../../src/modules/hostBridgeCapabilityRegistry";
 import { createFailClosedZoteroHostCapabilityBroker } from "../helpers/zoteroHostCapabilityBrokerHarness";
-import { validateHostBridgeCapabilityOutput } from "../../src/modules/hostBridgeCapabilityContract";
+import { withMockCanonicalIngestIdentityDatabase } from "../helpers/canonicalIngestIdentityDatabase";
+import {
+  validateHostBridgeCapabilityInput,
+  validateHostBridgeCapabilityOutput,
+} from "../../src/modules/hostBridgeCapabilityContract";
 import type { HostBridgeStatusSnapshot } from "../../src/modules/hostBridgeProtocol";
 import {
   resetAcpSkillRunsForTests,
@@ -60,6 +64,106 @@ import { renderPayloadBlock } from "../../src/modules/notePayloadCodec";
 import { hashSynthesisContractCanonicalJson } from "../../packages/synthesis-contracts/src/index";
 
 const CONTRACT_HASH = `sha256:${"a".repeat(64)}`;
+
+describe("Host Bridge navigation contract", function () {
+  const item = { libraryId: 1, key: "ITEM0001" };
+  const collection = { libraryId: 1, key: "COLL0001" };
+  const savedSearch = { libraryId: 1, key: "SEARCH01" };
+  const libraryView = { libraryId: 1, view: "library" };
+
+  it("accepts the canonical direct inputs and success receipts", function () {
+    const cases = [
+      ["navigation.focus_zotero", {}, { outcome: "focus_dispatched" }],
+      [
+        "navigation.select_library_view",
+        libraryView,
+        { outcome: "selected", target: libraryView },
+      ],
+      [
+        "navigation.select_collection",
+        collection,
+        { outcome: "selected", target: collection },
+      ],
+      [
+        "navigation.select_saved_search",
+        savedSearch,
+        { outcome: "selected", target: savedSearch },
+      ],
+      [
+        "navigation.reveal_items",
+        { items: [item] },
+        { outcome: "revealed", targets: [item] },
+      ],
+      ["navigation.open_item", item, { outcome: "dispatched", target: item }],
+      [
+        "navigation.open_reader_location",
+        { kind: "page", attachment: item, pageIndex: 0 },
+        {
+          outcome: "reader_location_dispatched",
+          target: item,
+          location: { kind: "page", attachment: item, pageIndex: 0 },
+        },
+      ],
+    ] as const;
+
+    for (const [capability, input, output] of cases) {
+      assert.deepEqual(
+        validateHostBridgeCapabilityInput(capability, input),
+        [],
+        `${capability} input`,
+      );
+      assert.deepEqual(
+        validateHostBridgeCapabilityOutput(capability, output),
+        [],
+        `${capability} output`,
+      );
+    }
+  });
+
+  it("rejects legacy wrappers, field names, and outcomes", function () {
+    const invalidCases = [
+      ["navigation.focus_zotero", "output", { outcome: "focused" }],
+      [
+        "navigation.select_library_view",
+        "output",
+        { outcome: "library_view_selected", view: libraryView },
+      ],
+      [
+        "navigation.select_collection",
+        "output",
+        { outcome: "collection_selected", ref: collection },
+      ],
+      [
+        "navigation.select_saved_search",
+        "output",
+        { outcome: "saved_search_selected", ref: savedSearch },
+      ],
+      ["navigation.reveal_items", "input", { itemRefs: [item] }],
+      [
+        "navigation.reveal_items",
+        "output",
+        { outcome: "items_revealed", items: [item] },
+      ],
+      ["navigation.open_item", "output", { outcome: "item_opened", ref: item }],
+      [
+        "navigation.open_reader_location",
+        "input",
+        {
+          target: item,
+          location: { kind: "page", pageIndex: 0 },
+        },
+      ],
+    ] as const;
+
+    for (const [capability, direction, value] of invalidCases) {
+      const violations =
+        direction === "input"
+          ? validateHostBridgeCapabilityInput(capability, value)
+          : validateHostBridgeCapabilityOutput(capability, value);
+      assert.isNotEmpty(violations, `${capability} ${direction}`);
+    }
+  });
+});
 
 function createMockZoteroSourcePageQueryAdapter(): ZoteroLibrarySourcePageQueryAdapter {
   return {
@@ -391,20 +495,25 @@ async function callBridgeCapability(args: {
   connectionMode?: "local" | "remote";
   peerHost?: string;
 }) {
-  const inputObject = args.input && typeof args.input === "object" && !Array.isArray(args.input)
-    ? (args.input as Record<string, unknown>)
-    : undefined;
+  const inputObject =
+    args.input && typeof args.input === "object" && !Array.isArray(args.input)
+      ? (args.input as Record<string, unknown>)
+      : undefined;
   const capability =
-    (args.capability === "mutation.execute" || args.capability === "mutation.preview") &&
+    (args.capability === "mutation.execute" ||
+      args.capability === "mutation.preview") &&
     typeof inputObject?.operation === "string"
       ? inputObject.operation
       : args.capability;
-  const input = capability !== args.capability && inputObject
-    ? {
-        ...Object.fromEntries(Object.entries(inputObject).filter(([key]) => key !== "operation")),
-        ...(args.capability === "mutation.preview" ? { dryRun: true } : {}),
-      }
-    : args.input;
+  const input =
+    capability !== args.capability && inputObject
+      ? {
+          ...Object.fromEntries(
+            Object.entries(inputObject).filter(([key]) => key !== "operation"),
+          ),
+          ...(args.capability === "mutation.preview" ? { dryRun: true } : {}),
+        }
+      : args.input;
   const headers: Record<string, string> = {};
   if (args.token) {
     headers.authorization = `Bearer ${args.token}`;
@@ -418,10 +527,14 @@ async function callBridgeCapability(args: {
   if (
     capability !== "mutation.preview" &&
     capability !== "mutation.execute" &&
-    input && typeof input === "object" && !Array.isArray(input) &&
+    input &&
+    typeof input === "object" &&
+    !Array.isArray(input) &&
     typeof (input as Record<string, unknown>).operationId === "string"
   ) {
-    headers["x-zotero-bridge-operation-id"] = (input as Record<string, string>).operationId;
+    headers["x-zotero-bridge-operation-id"] = (
+      input as Record<string, string>
+    ).operationId;
   }
   const result = parseRawHttpResponse(
     await handleHostBridgeHttpRequestForTests({
@@ -1425,7 +1538,7 @@ describe("host bridge capability calls", function () {
     const manifest = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
         method: "GET",
-        path: "/bridge/v2/manifest",
+        path: "/bridge/v2/manifest?limit=100",
         headers: {
           authorization: `Bearer ${token}`,
         },
@@ -1764,22 +1877,27 @@ describe("host bridge capability calls", function () {
     const token = configureHostBridgeServerForTests({ token: "ingest-token" });
     const collection = await createCollection("Bridge Literature Ingest");
 
-    const canonical = await callBridgeCapability({
-      token,
-      capability: "mutation.preview",
-      input: {
-        operation: "literature.ingest",
-        collectionRef: { libraryId: collection.libraryID, key: collection.key },
-        paper: {
-          itemType: "document",
-          fields: { title: "Bridge Literature Ingest" },
-          creators: [],
-          identifiers: {},
-          landingUrl: "https://example.test/bridge-literature-ingest",
-          attachLandingUrlOnMissingPdf: true,
+    const canonical = await withMockCanonicalIngestIdentityDatabase(() =>
+      callBridgeCapability({
+        token,
+        capability: "mutation.preview",
+        input: {
+          operation: "literature.ingest",
+          collectionRef: {
+            libraryId: collection.libraryID,
+            key: collection.key,
+          },
+          paper: {
+            itemType: "document",
+            fields: { title: "Bridge Literature Ingest" },
+            creators: [],
+            identifiers: {},
+            landingUrl: "https://example.test/bridge-literature-ingest",
+            attachLandingUrlOnMissingPdf: true,
+          },
         },
-      },
-    });
+      }),
+    );
     assert.strictEqual(canonical.status, 200);
     assert.deepInclude(canonical.json.result.data, {
       operation: "literature.ingest",
@@ -2510,14 +2628,35 @@ describe("host bridge capability calls", function () {
   it("exposes each public mutation as an independent capability", function () {
     const names = listHostBridgeCapabilities().map((entry) => entry.name);
     const operations = [
-      "item.create", "item.updateMetadata", "item.changeType", "item.remove", "item.updateTags",
-      "item.addRelated", "item.removeRelated", "collection.create", "collection.update",
-      "collection.updateMembership", "collection.remove", "notes.create", "notes.updateContent",
-      "notes.remove", "notes.upsertPayload", "attachments.create", "attachments.updateMetadata",
-      "attachments.replaceFile", "attachments.move", "attachments.remove", "statusTags.transition",
-      "trash.setItemsState", "literature.ingest", "managed_note.write_custom", "managed_note.write_conversation",
-      "literature_artifact.upsert_digest", "literature_artifact.upsert_references",
-      "literature_artifact.upsert_citation_analysis", "literature_artifact.upsert_score",
+      "item.create",
+      "item.updateMetadata",
+      "item.changeType",
+      "item.remove",
+      "item.updateTags",
+      "item.addRelated",
+      "item.removeRelated",
+      "collection.create",
+      "collection.update",
+      "collection.updateMembership",
+      "collection.remove",
+      "notes.create",
+      "notes.updateContent",
+      "notes.remove",
+      "notes.upsertPayload",
+      "attachments.create",
+      "attachments.updateMetadata",
+      "attachments.replaceFile",
+      "attachments.move",
+      "attachments.remove",
+      "statusTags.transition",
+      "trash.setItemsState",
+      "literature.ingest",
+      "managed_note.write_custom",
+      "managed_note.write_conversation",
+      "literature_artifact.upsert_digest",
+      "literature_artifact.upsert_references",
+      "literature_artifact.upsert_citation_analysis",
+      "literature_artifact.upsert_score",
     ];
     assert.includeMembers(names, operations);
     assert.notInclude(names, "mutation.preview");

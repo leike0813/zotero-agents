@@ -1,0 +1,290 @@
+{
+  "schema": "issue39.native-spike.v1",
+  "platform": "linux-x64",
+  "sourceCommit": "9a28d7333610a584d68b32e9002ed0419517826f",
+  "productionSourceUnchangedBySpike": true,
+  "runs": [
+    {
+      "runRoot": "/tmp/issue39-native-spikes/zotero-7-linux-x64-ffcd2726-c0a8-46b4-b53b-ac5403e48fd7",
+      "targetId": "zotero-7-linux-x64",
+      "binary": "/tmp/issue39-native-spikes/zotero-7-linux-x64-ffcd2726-c0a8-46b4-b53b-ac5403e48fd7/host/Zotero_linux-x86_64/zotero",
+      "result": {
+        "exitCode": 0,
+        "signal": null,
+        "timedOut": false,
+        "graceful": false,
+        "forced": false,
+        "durationMs": 19662
+      },
+      "evidence": [
+        {
+          "spike": "issue39",
+          "version": "7.0.32",
+          "name": "owned-tab-cold-open",
+          "facts": {
+            "windowMatches": true,
+            "tabMatches": true,
+            "readerRegistered": true,
+            "otherWindowTab": null
+          }
+        },
+        {
+          "spike": "issue39",
+          "version": "7.0.32",
+          "name": "owned-tab-wrong-window",
+          "facts": {
+            "changedDuringAwait": true,
+            "rejected": true,
+            "wrongWindowTabsAdded": 0,
+            "registered": false,
+            "ownedTabStillPresent": true
+          }
+        },
+        {
+          "spike": "issue39",
+          "version": "7.0.32",
+          "name": "bounded-native-search",
+          "facts": {
+            "all": 32,
+            "bounded": 26,
+            "sql": "SELECT COALESCE(IA.parentItemID, itemID) AS itemID FROM items LEFT JOIN itemAnnotations IA USING (itemID) WHERE (itemID NOT  IN (SELECT itemID FROM deletedItems UNION SELECT itemID FROM itemNotes WHERE parentItemID IS NOT NULL AND parentItemID IN (SELECT itemID FROM deletedItems) UNION SELECT itemID FROM itemAttachments WHERE parentItemID IS NOT NULL AND parentItemID IN (SELECT itemID FROM deletedItems)UNION SELECT itemID FROM itemAnnotations WHERE parentItemID IN (SELECT itemID FROM deletedItems)UNION SELECT itemID FROM itemAnnotations WHERE parentItemID IN (SELECT itemID FROM itemAttachments WHERE parentItemID IN (SELECT itemID FROM deletedItems)))) AND (itemID IN (SELECT itemID FROM items WHERE libraryID=?)) AND itemID IN (SELECT itemID FROM itemData WHERE (fieldID IN (?,?,?,?) AND valueID IN (SELECT valueID FROM itemDataValues WHERE value=?)))",
+            "params": [
+              1,
+              1,
+              54,
+              72,
+              116,
+              "ISSUE39-SPIKE-1788872196245"
+            ]
+          }
+        },
+        {
+          "spike": "issue39",
+          "version": "7.0.32",
+          "name": "bounded-union-native-search",
+          "facts": {
+            "count": 26,
+            "unique": 26
+          }
+        },
+        {
+          "spike": "issue39",
+          "version": "7.0.32",
+          "name": "native-transaction-identity",
+          "facts": {
+            "events": [
+              "A:entered",
+              "A:observed:0",
+              "A:created",
+              "A:committed",
+              "B:entered",
+              "B:observed:1",
+              "B:committed"
+            ],
+            "count": 1
+          }
+        },
+        {
+          "spike": "issue39",
+          "version": "7.0.32",
+          "name": "transaction-intrusion-negative-control",
+          "facts": {
+            "intrusion": [
+              "owner:entered",
+              "unowned-save:done",
+              "owner:leaving"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "runRoot": "/tmp/issue39-native-spikes/zotero-9-linux-x64-863af552-ee52-4ed8-b90e-508ded9df172",
+      "targetId": "zotero-9-linux-x64",
+      "binary": "/tmp/issue39-native-spikes/zotero-9-linux-x64-863af552-ee52-4ed8-b90e-508ded9df172/host/Zotero_linux-x86_64/zotero",
+      "result": {
+        "exitCode": 0,
+        "signal": null,
+        "timedOut": false,
+        "graceful": false,
+        "forced": false,
+        "durationMs": 19693
+      },
+      "evidence": [
+        {
+          "spike": "issue39",
+          "version": "9.0.6",
+          "name": "owned-tab-cold-open",
+          "facts": {
+            "windowMatches": true,
+            "tabMatches": true,
+            "readerRegistered": true,
+            "otherWindowTab": null
+          }
+        },
+        {
+          "spike": "issue39",
+          "version": "9.0.6",
+          "name": "owned-tab-wrong-window",
+          "facts": {
+            "changedDuringAwait": true,
+            "rejected": true,
+            "wrongWindowTabsAdded": 0,
+            "registered": false,
+            "ownedTabStillPresent": true
+          }
+        },
+        {
+          "spike": "issue39",
+          "version": "9.0.6",
+          "name": "bounded-native-search",
+          "facts": {
+            "all": 32,
+            "bounded": 26,
+            "sql": "SELECT itemID FROM items WHERE (itemID NOT  IN (SELECT itemID FROM deletedItems UNION SELECT itemID FROM itemNotes WHERE parentItemID IS NOT NULL AND parentItemID IN (SELECT itemID FROM deletedItems) UNION SELECT itemID FROM itemAttachments WHERE parentItemID IS NOT NULL AND parentItemID IN (SELECT itemID FROM deletedItems)UNION SELECT itemID FROM itemAnnotations WHERE parentItemID IN (SELECT itemID FROM deletedItems)UNION SELECT itemID FROM itemAnnotations WHERE parentItemID IN (SELECT itemID FROM itemAttachments WHERE parentItemID IN (SELECT itemID FROM deletedItems)))) AND (itemID IN (SELECT itemID FROM items WHERE libraryID=?)) AND itemID IN (SELECT itemID FROM itemData WHERE (fieldID IN (?,?,?,?) AND valueID IN (SELECT valueID FROM itemDataValues WHERE value=?)))",
+            "params": [
+              1,
+              1,
+              54,
+              72,
+              116,
+              "ISSUE39-SPIKE-1788872218161"
+            ]
+          }
+        },
+        {
+          "spike": "issue39",
+          "version": "9.0.6",
+          "name": "bounded-union-native-search",
+          "facts": {
+            "count": 26,
+            "unique": 26
+          }
+        },
+        {
+          "spike": "issue39",
+          "version": "9.0.6",
+          "name": "native-transaction-identity",
+          "facts": {
+            "events": [
+              "A:entered",
+              "A:observed:0",
+              "A:created",
+              "A:committed",
+              "B:entered",
+              "B:observed:1",
+              "B:committed"
+            ],
+            "count": 1
+          }
+        },
+        {
+          "spike": "issue39",
+          "version": "9.0.6",
+          "name": "transaction-intrusion-negative-control",
+          "facts": {
+            "intrusion": [
+              "owner:entered",
+              "unowned-save:done",
+              "owner:leaving"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "runRoot": "/tmp/issue39-native-spikes/zotero-10-linux-x64-7b1cc9b5-1b7c-458c-80a5-6d7a6008e07e",
+      "targetId": "zotero-10-linux-x64",
+      "binary": "/tmp/issue39-native-spikes/zotero-10-linux-x64-7b1cc9b5-1b7c-458c-80a5-6d7a6008e07e/host/Zotero_linux-x86_64/zotero",
+      "result": {
+        "exitCode": 0,
+        "signal": null,
+        "timedOut": false,
+        "graceful": false,
+        "forced": false,
+        "durationMs": 19626
+      },
+      "evidence": [
+        {
+          "spike": "issue39",
+          "version": "10.0.1",
+          "name": "owned-tab-cold-open",
+          "facts": {
+            "windowMatches": true,
+            "tabMatches": true,
+            "readerRegistered": true,
+            "otherWindowTab": null
+          }
+        },
+        {
+          "spike": "issue39",
+          "version": "10.0.1",
+          "name": "owned-tab-wrong-window",
+          "facts": {
+            "changedDuringAwait": true,
+            "rejected": true,
+            "wrongWindowTabsAdded": 0,
+            "registered": false,
+            "ownedTabStillPresent": true
+          }
+        },
+        {
+          "spike": "issue39",
+          "version": "10.0.1",
+          "name": "bounded-native-search",
+          "facts": {
+            "all": 32,
+            "bounded": 26,
+            "sql": "SELECT itemID FROM items WHERE (itemID NOT  IN (SELECT itemID FROM deletedItems UNION SELECT itemID FROM itemNotes WHERE parentItemID IS NOT NULL AND parentItemID IN (SELECT itemID FROM deletedItems) UNION SELECT itemID FROM itemAttachments WHERE parentItemID IS NOT NULL AND parentItemID IN (SELECT itemID FROM deletedItems)UNION SELECT itemID FROM itemAnnotations WHERE parentItemID IN (SELECT itemID FROM deletedItems)UNION SELECT itemID FROM itemAnnotations WHERE parentItemID IN (SELECT itemID FROM itemAttachments WHERE parentItemID IN (SELECT itemID FROM deletedItems)))) AND (itemID IN (SELECT itemID FROM items WHERE libraryID=?)) AND itemID IN (SELECT itemID FROM itemData WHERE (fieldID IN (?,?,?,?) AND valueID IN (SELECT valueID FROM itemDataValues WHERE value=?)))",
+            "params": [
+              1,
+              1,
+              54,
+              72,
+              116,
+              "ISSUE39-SPIKE-1788872239994"
+            ]
+          }
+        },
+        {
+          "spike": "issue39",
+          "version": "10.0.1",
+          "name": "bounded-union-native-search",
+          "facts": {
+            "count": 26,
+            "unique": 26
+          }
+        },
+        {
+          "spike": "issue39",
+          "version": "10.0.1",
+          "name": "native-transaction-identity",
+          "facts": {
+            "events": [
+              "A:entered",
+              "A:observed:0",
+              "A:created",
+              "A:committed",
+              "B:entered",
+              "B:observed:1",
+              "B:committed"
+            ],
+            "count": 1
+          }
+        },
+        {
+          "spike": "issue39",
+          "version": "10.0.1",
+          "name": "transaction-intrusion-negative-control",
+          "facts": {
+            "intrusion": [
+              "owner:entered",
+              "unowned-save:done",
+              "owner:leaving"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

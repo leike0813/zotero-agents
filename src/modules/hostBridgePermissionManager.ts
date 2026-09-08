@@ -10,6 +10,13 @@ import {
 import { getPref } from "../utils/prefs";
 
 const NO_APPROVAL_CAPABILITIES = new Set([
+  "navigation.focus_zotero",
+  "navigation.select_library_view",
+  "navigation.select_collection",
+  "navigation.select_saved_search",
+  "navigation.reveal_items",
+  "navigation.open_item",
+  "navigation.open_reader_location",
   "context.get_current_view",
   "context.get_selected_items",
   "library.search_items",

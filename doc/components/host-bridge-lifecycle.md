@@ -341,7 +341,7 @@ Routes by capability name:
 
 | Capability | Prompt Builder |
 |------------|---------------|
-| `mutation.execute` | `buildMutationApprovalPrompt(input)` |
+| Operation-specific canonical mutation execution | `buildMutationApprovalPrompt(input)` |
 | `debug.zotero.eval` | `buildDebugZoteroEvalApprovalPrompt(input)` |
 | Any other | Generic "Approve Host Bridge action?" with capability name and summary |
 

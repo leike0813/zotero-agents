@@ -217,7 +217,7 @@ Context selection get SHALL accept limit/cursor and describe the exact Broker pa
 
 ### Requirement: CLI SHALL execute and observe canonical mutations through their dedicated namespace
 
-The CLI SHALL build canonical mutation DTOs for effect-free mutation.preview and mutation.execute across the closed 23-operation canonical mutation union, generating one valid operation id for each new execute intent and reusing that exact id only to retry or observe the same intent. It SHALL expose mutation get-operation as a read-only command mapped to mutation.get_operation. Observation output SHALL contain only running, settled(result), or unavailable and SHALL omit request payloads, timestamps, scope, and identity-binding details. Canonical mutation identity is shared with Bridge and inbound MCP but is independent of generic HTTP operation commands, request IDs, connections, and scope headers.
+The CLI SHALL expose semantic mutation commands with independent operation-specific contracts. `--dry-run` SHALL select effect-free Broker preview; execution SHALL generate one valid operation id for each new intent and reuse that exact id only to retry or observe the same intent. It SHALL expose mutation get-operation as a read-only command mapped to mutation.get_operation. Observation output SHALL contain only running, settled(result), or unavailable and SHALL omit request payloads, timestamps, scope, and identity-binding details. Canonical mutation identity is shared with Bridge and inbound MCP but is independent of generic HTTP operation commands, request IDs, connections, and scope headers.
 
 #### Scenario: CLI observes a mutation
 - **WHEN** a caller invokes zotero-bridge mutation get-operation with a canonical operation id

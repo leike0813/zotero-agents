@@ -42,7 +42,7 @@ This section is generated from the executable Host Bridge capability and CLI com
 | `context.get_selected_items` | context | `none` | `object` |  | response:paged, mcp-mirror |
 | `navigation.focus_zotero` | context | `none` | `object` | `navigation focus-zotero` | response:limit-bounded, mcp-mirror |
 | `navigation.open_item` | context | `none` | `object required` | `navigation open-item` | response:limit-bounded, mcp-mirror |
-| `navigation.open_reader_location` | context | `none` | `object required` | `navigation open-reader-location` | response:limit-bounded, mcp-mirror |
+| `navigation.open_reader_location` | context | `none` | `object` | `navigation open-reader-location` | response:limit-bounded, mcp-mirror |
 | `navigation.reveal_items` | context | `none` | `object required` | `navigation reveal-items` | response:selector-bounded, mcp-mirror |
 | `navigation.select_collection` | context | `none` | `object required` | `navigation select-collection` | response:limit-bounded, mcp-mirror |
 | `navigation.select_library_view` | context | `none` | `object required` | `navigation select-library-view` | response:limit-bounded, mcp-mirror |

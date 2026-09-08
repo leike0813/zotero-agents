@@ -10,7 +10,7 @@ TBD - created by syncing change repair-host-bridge-semantic-release-contracts. U
 Host Bridge SHALL retain generic HTTP operation history only for routes that explicitly use it. Canonical Zotero mutation identity, admission, receipt, attempt, and observation SHALL be owned by the Broker under a stable caller namespace shared by Bridge, inbound MCP, and CLI. HTTP request IDs, connections, and scope headers SHALL not participate in canonical mutation identity.
 
 #### Scenario: Canonical mutation is submitted
-- **WHEN** a client submits mutation.execute with an operation identity
+- **WHEN** a client submits an operation-specific mutation for execution with an operation identity
 - **THEN** Host Bridge SHALL delegate identity binding and duplicate admission to the Broker
 - **AND** HTTP request identity and scope header SHALL not form part of that mutation identity.
 

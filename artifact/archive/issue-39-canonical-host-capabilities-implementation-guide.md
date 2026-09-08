@@ -1,6 +1,6 @@
 # Issue #39：Zotero Host 能力合同统一——实施指导与计划
 
-> 状态：读取、选择和 canonical mutation 三个 change 已于 2026-09-06 归档；工件与导航尚未创建。新增的 agent-facing mutation projection follow-up 现在只创建并冻结计划，待其余原始 change 完成后作为 #39 最后一个实现 change 执行；该 follow-up 尚未创建 change 工件或实施代码。
+> 状态（2026-09-08）：六个 change 均已归档。对 `4e1cb8ac…9a28d733` 的审阅修复及原生 spike 后获批的 Reader/ingest 实现已落入本地工作区，组合测试 248 项通过；Reader 冷打开使用目标窗口 tab 绑定，ingest 的有界最终 identity 检查与 metadata create 共用原生事务。三版原生验收及具体保证边界见 [审阅修复记录](issue-39-review-repairs.md)。预构建/发布集仍未闭合，中文镜像翻译按用户要求排除。本文件后文的实施时序记录不构成当前完成证据；整组验收与正式发布仍按第 16 节判定。
 > 整理日期：2026-09-06。
 > 目标版本：v0.9.0；#39 作为总任务，五个原始 OpenSpec change 与一个收尾 projection change 的清单和依赖见第 14 节。
 > 代码审计基线：`4fb76b73f3ec9744e905c39e45d0b86ac03b34ed`。开始审计时工作区干净；该 SHA 是本次只读审计基线，实施前须重新固定开发基线。

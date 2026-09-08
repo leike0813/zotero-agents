@@ -55,22 +55,32 @@ export type PortableSavedSearchRef = Readonly<{
 }>;
 
 export type NavigationLibraryViewRef = Readonly<{
-  view: "library" | "trash" | "duplicates" | "unfiled" | "retracted" | "publications";
+  view:
+    | "library"
+    | "trash"
+    | "duplicates"
+    | "unfiled"
+    | "retracted"
+    | "publications";
   libraryId: number;
 }>;
 
 export type ReaderLocation =
-  | Readonly<{ kind: "page"; pageIndex: number }>
-  | Readonly<{ kind: "annotation"; annotationKey: string }>
-  | Readonly<{ kind: "epub"; cfi: string }>;
+  | Readonly<{ kind: "page"; attachment: PortableItemRef; pageIndex: number }>
+  | Readonly<{ kind: "annotation"; annotation: PortableItemRef }>
+  | Readonly<{ kind: "epub"; attachment: PortableItemRef; cfi: string }>;
 
 export type NavigationResult =
-  | Readonly<{ outcome: "focused" }>
-  | Readonly<{ outcome: "library_view_selected"; view: NavigationLibraryViewRef }>
-  | Readonly<{ outcome: "collection_selected"; ref: PortableCollectionRef }>
-  | Readonly<{ outcome: "saved_search_selected"; ref: PortableSavedSearchRef }>
-  | Readonly<{ outcome: "items_revealed"; items: PortableItemRef[] }>
-  | Readonly<{ outcome: "item_opened"; ref: PortableItemRef }>
+  | Readonly<{ outcome: "focus_dispatched" }>
+  | Readonly<{
+      outcome: "selected";
+      target:
+        | NavigationLibraryViewRef
+        | PortableCollectionRef
+        | PortableSavedSearchRef;
+    }>
+  | Readonly<{ outcome: "revealed"; targets: PortableItemRef[] }>
+  | Readonly<{ outcome: "dispatched"; target: PortableItemRef }>
   | Readonly<{
       outcome: "reader_location_dispatched";
       target: PortableItemRef;
@@ -530,7 +540,10 @@ export type MaterializedAttachmentDto = {
 };
 
 export type MaterializedNoteDto = {
-  managedArtifact?: Pick<ManagedNoteDetailDto, "noteKind" | "payload" | "provenance">;
+  managedArtifact?: Pick<
+    ManagedNoteDetailDto,
+    "noteKind" | "payload" | "provenance"
+  >;
   source: { ref: PortableItemRef; revision: string };
   content: {
     format: "html" | "text";
@@ -874,16 +887,7 @@ export type CurrentViewDto = {
 };
 
 export type NavigationSelectionInputDto = {
-  itemRefs: PortableItemRef[];
-};
-
-export type NavigationResultDto = {
-  openedAt: string;
-  target:
-    | { kind: "item"; ref: PortableItemRef }
-    | { kind: "note"; ref: PortableItemRef }
-    | { kind: "collection"; ref: PortableCollectionRef }
-    | { kind: "selection"; refs: PortableItemRef[] };
+  items: PortableItemRef[];
 };
 
 export type WorkflowCallControl = Readonly<{
@@ -1103,7 +1107,7 @@ export type RelatedItemMutationResultDto = JsonObject & {
   relations: Array<{
     relatedRef: PortableItemRef;
     outcome: RelatedItemMutationOutcome;
-  }> ;
+  }>;
   sourceRevision: string;
 };
 
@@ -1615,7 +1619,7 @@ export type AttachmentContentManifestDto = Readonly<{
     relativePath: string;
     sizeBytes: number;
     sha256: string;
-  }> ;
+  }>;
   companions: ReadonlyArray<
     Readonly<{
       relativePath: string;
@@ -2428,7 +2432,9 @@ export type WorkflowHostApiV12 = Readonly<{
     applyAnalysis(
       input: LiteratureArtifactApplyAnalysisRequestDto,
       control?: WorkflowCallControl,
-    ): Promise<MutationExecutionResult<LiteratureArtifactApplyAnalysisResultDto>>;
+    ): Promise<
+      MutationExecutionResult<LiteratureArtifactApplyAnalysisResultDto>
+    >;
   }>;
   notes: Readonly<{
     create(

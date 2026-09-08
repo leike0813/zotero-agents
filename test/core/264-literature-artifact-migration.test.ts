@@ -74,6 +74,145 @@ describe("literature artifact migration", function () {
     );
   });
 
+  for (const field of ["url", "ISBN", "ISSN", "citekey"]) {
+    it(`does not link different papers by shared ${field}`, function () {
+      const plan = classifyLegacyArtifactSet({
+        libraryId: 1,
+        parentRef: { libraryId: 1, key: "PARENT" },
+        references: [
+          {
+            sourceReferenceId: "REF-A",
+            title: "Alpha",
+            year: 2020,
+            authors: ["Alice"],
+            [field]: "shared-value",
+          },
+        ],
+        citation: {
+          items: [
+            {
+              title: "Beta",
+              year: 2021,
+              authors: ["Bob"],
+              [field]: "shared-value",
+              mentions: [{ rawCitation: "Beta (2021)" }],
+            },
+          ],
+        },
+      });
+      assert.equal(plan.classification, "review_required");
+      assert.include(plan.reasonCodes, "unresolved_linkage");
+      assert.isEmpty(plan.citation?.items);
+    });
+  }
+
+  it("blocks explicit identity whose supplied bibliographic facts conflict", function () {
+    const plan = classifyLegacyArtifactSet({
+      libraryId: 1,
+      parentRef: { libraryId: 1, key: "PARENT" },
+      references: [
+        {
+          sourceReferenceId: "REF-A",
+          title: "Alpha",
+          year: 2020,
+          authors: ["Alice"],
+          DOI: "10.1234/alpha",
+        },
+      ],
+      citation: {
+        items: [
+          {
+            sourceReferenceId: "REF-A",
+            title: "Beta",
+            year: 2021,
+            authors: ["Bob"],
+            DOI: "10.1234/beta",
+            mentions: [{ rawCitation: "Beta" }],
+          },
+        ],
+      },
+    });
+    assert.equal(plan.classification, "blocked");
+    assert.include(plan.reasonCodes, "conflicting_evidence");
+  });
+
+  it("preserves an explicit identity when no contradicting facts are supplied", function () {
+    const plan = classifyLegacyArtifactSet({
+      libraryId: 1,
+      parentRef: { libraryId: 1, key: "PARENT" },
+      references: [
+        {
+          sourceReferenceId: "REF-A",
+          title: "Alpha",
+          year: 2020,
+          authors: ["Alice"],
+        },
+      ],
+      citation: {
+        items: [
+          { sourceReferenceId: "REF-A", mentions: [{ rawCitation: "Alpha" }] },
+        ],
+      },
+    });
+    assert.equal(plan.classification, "ready");
+    assert.equal(plan.citation?.items[0]?.sourceReferenceId, "REF-A");
+  });
+
+  for (const evidence of [
+    { DOI: "https://doi.org/10.1234/ALPHA" },
+    { raw: "Alpha (2020)" },
+  ]) {
+    it(`links citation-only ${Object.keys(evidence)[0]} evidence without requiring a full snapshot`, function () {
+      const plan = classifyLegacyArtifactSet({
+        libraryId: 1,
+        parentRef: { libraryId: 1, key: "PARENT" },
+        references: [
+          {
+            sourceReferenceId: "REF-A",
+            title: "Alpha",
+            year: 2020,
+            authors: ["Alice"],
+            DOI: "10.1234/alpha",
+            raw: "Alpha (2020)",
+          },
+        ],
+        citation: {
+          items: [{ ...evidence, mentions: [{ rawCitation: "Alpha" }] }],
+        },
+      });
+      assert.equal(plan.classification, "ready");
+      assert.equal(plan.citation?.items[0]?.sourceReferenceId, "REF-A");
+    });
+  }
+
+  it("blocks a conflicting snapshot with the same raw reference instead of recovering a duplicate", function () {
+    const plan = classifyLegacyArtifactSet({
+      libraryId: 1,
+      parentRef: { libraryId: 1, key: "PARENT" },
+      references: [
+        {
+          title: "Alpha",
+          year: 2020,
+          authors: ["Alice"],
+          raw: "Shared citation",
+        },
+      ],
+      citation: {
+        snapshots: [
+          {
+            title: "Beta",
+            year: 2021,
+            authors: ["Bob"],
+            raw: "Shared citation",
+          },
+        ],
+      },
+    });
+    assert.equal(plan.classification, "blocked");
+    assert.include(plan.reasonCodes, "conflicting_evidence");
+    assert.equal(plan.recoveredCount, 0);
+  });
+
   it("recovers a sufficient citation snapshot with a fresh id and review evidence", function () {
     const input: LegacyArtifactSetInput = {
       libraryId: 1,

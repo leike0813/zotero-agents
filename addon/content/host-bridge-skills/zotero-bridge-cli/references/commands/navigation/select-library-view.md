@@ -128,15 +128,37 @@ This command has no separate field-mapping program. Its binding mode is executab
       "additionalProperties": false,
       "properties": {
         "outcome": {
-          "const": "library_view_selected"
+          "const": "selected"
         },
-        "view": {
+        "target": {
+          "additionalProperties": false,
+          "properties": {
+            "libraryId": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "view": {
+              "enum": [
+                "library",
+                "trash",
+                "duplicates",
+                "unfiled",
+                "retracted",
+                "publications"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "view",
+            "libraryId"
+          ],
           "type": "object"
         }
       },
       "required": [
         "outcome",
-        "view"
+        "target"
       ],
       "type": "object"
     }
@@ -328,15 +350,37 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "additionalProperties": false,
         "properties": {
           "outcome": {
-            "const": "library_view_selected"
+            "const": "selected"
           },
-          "view": {
+          "target": {
+            "additionalProperties": false,
+            "properties": {
+              "libraryId": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "view": {
+                "enum": [
+                  "library",
+                  "trash",
+                  "duplicates",
+                  "unfiled",
+                  "retracted",
+                  "publications"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "view",
+              "libraryId"
+            ],
             "type": "object"
           }
         },
         "required": [
           "outcome",
-          "view"
+          "target"
         ],
         "type": "object"
       }

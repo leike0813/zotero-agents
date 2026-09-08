@@ -224,6 +224,9 @@
 
 # Zotero Host Capability Broker硬约束
 
+- 七项 navigation 必须使用 request admission 捕获的可信窗口，effect 前重新验证；缺失/失效即失败，不能退回 ambient window。Library selection 验证 exact target，Reader location 只向 captured window 的 built-in tab 提交。effect 开始后的取消不回滚、不报告无副作用取消、不自动重放；interactive scope 免逐次审批，automated/invalid scope 在审批路由前拒绝。
+- Reader 冷初始化使用 captured window 自有 tab 与原生 existing-tab 路径；tab identity 仅属私有兼容实现，打开前跨主窗口校验唯一性并禁用全局 Reader 复用。预建 tab 已是 UI effect，初始化失败不得自动重试或关闭别窗 tab 来补偿。
+- Ingest identity 候选由原生 Search 编译 SQL 合并去重后在源端 LIMIT 26，超过 25 整体拒绝。最终 identity/revision 检查与 metadata create 共用一个 Host slice 和原生 transaction；已审批 identity 变化必须 stale/conflict，不能隐式改成复用。网络、文件准备与审批保持槽外，事务内不得嵌套 saveTx；该保证不覆盖绕过 Broker/原生事务的裸宿主 writer。
 - Canonical mutation 的 scope/operationId/kind/semantic digest admission 与终态证据由 `zoteroHostMutationAuthority.ts` 和 `pluginStateStore.ts` 的 SQLite 记录持有；仅 durable insert winner 执行。重放先于资源准备，重启遗留 started 归 unknown，普通终态证据保留 30 天后只清 evidence，永久保留 identity binding；unknown/repair_required 不按龄删除。
 - 所有写入先做无副作用 preflight，私有 prepared plan 绑定范围、revision/state 和文件事实；审批等待后重新准备，digest 变化须重新审批，native slice 写入前再校验。公共 DTO 不接受 expectedRevision/token/path/fileId 写入授权；Bridge 文件 handle 仅在 adapter 转为私有 prepared-file。
 - Bridge/MCP/CLI 共用 profile-local host-bridge mutation scope，通过 `mutation.get_operation` 观察 canonical 证据；通用 HTTP operation store 不得抢占或重放 canonical mutation。Workflow 仅显式投影 `mutations.getOperation`，不得暴露 handlers 或 native mutation executor。
@@ -238,7 +241,7 @@
 - broker 公共输入只接受 portable JSON refs，公共 DTO 只允许 strict JSON 值；raw `Zotero.Item` / `Zotero.Collection` 仅可由 `src/workflows/hostApi.ts` 在 Workflow Host API v12 adapter 内归一化。
 - `WorkflowHostApi` 必须通过 member-level `Pick` 和显式对象字面量投影 broker；不得传播整个 broker domain，不得使用 spread、proxy、运行时 capability catalog 或隐式成员继承。
 - broker 不负责 authorization、permission、exposure、noninteractive policy、transport 或 remote locality；这些规则属于 Host Bridge/MCP adapter。
-- Host Bridge 是 attachment remote locality 的唯一 adapter。`library.get_item_attachments` 与 `mutation.execute` 的 attachment 输出必须共用同一投影，删除本地 `path`，只返回 opaque file handle 或 unavailable；MCP 必须复用 Host Bridge handler，不得另建路径策略。
+- Host Bridge 是 attachment remote locality 的唯一 adapter。`library.get_item_attachments` 与 operation-specific mutation 的 attachment 输出必须共用同一投影，删除本地 `path`，只返回 opaque file handle 或 unavailable；MCP 必须复用 Host Bridge handler，不得另建路径策略。
 - broker 失败统一使用 `ZoteroHostCapabilityError` 的稳定 `code`、`retryable` 和 strict-JSON `details`；不得把 raw ref、native cause 或宿主对象放入错误详情。
 - broker 测试替身必须完整且 fail-closed；不得用 partial object、`as any` 或默认真实 Zotero runtime 掩盖未配置能力。
 - Broker 普通列表读取必须从源头分页，默认 25、最大 100，仅物化当前页；单个目标读取失败必须使整页失败。payload 扫描保留全部候选，`total: null` 和空非末页不能作为完成依据。
