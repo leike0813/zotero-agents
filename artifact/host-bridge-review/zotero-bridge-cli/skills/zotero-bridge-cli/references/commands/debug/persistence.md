@@ -8,24 +8,24 @@
 zotero-bridge debug persistence [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] [--input <JSON_OR_FILE>]
 ```
 
-全局选项可以出现在 leaf 命令之前或之后。使用 `--schema` 可以检查原始的结构化输入 schema，而无需加载 profile 或连接 Zotero。
+全局选项可以出现在叶子命令之前或之后。使用 `--schema` 在不加载 profile 或连接 Zotero 的情况下检查原始结构化输入 schema。
 
 ## 全局参数
 
 | Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| --endpoint | endpoint | option | no | — | ENDPOINT | no | ZOTERO_BRIDGE_ENDPOINT | — | Zotero Bridge 服务的端点基址。若省略，CLI 会读取 ZOTERO_BRIDGE_ENDPOINT 或 profile 文件。CLI 不会随意猜测 bridge 端口。 |
-| --operation-id | operation_id | option | no | — | ID | no | ZOTERO_BRIDGE_OPERATION_ID | — | 用于一次会改变 Zotero 状态的请求的不透明幂等性 id |
-| --profile | profile | option | no | — | PATH | no | ZOTERO_BRIDGE_PROFILE | — | Zotero Bridge 连接 profile JSON 文件的路径。若省略，CLI 会尝试使用 Zotero Agents 的 well-known profile。ACP 运行 profile 通常引用 tokenEnv；本地的 well-known profile 可能包含由用户级文件权限保护的 bearer token。 |
-| --schema | schema | option | no | — | SCHEMA; values: true, false | no | — | — | 为一个规范化的 leaf 命令打印版本化的原始 JSON Schema 和受管控的示例。Schema 模式为离线模式，不会加载 profile、读取 Zotero Bridge 配置，也不会连接 Zotero。 |
+| --endpoint | endpoint | option | no | — | ENDPOINT | no | ZOTERO_BRIDGE_ENDPOINT | — | Zotero Bridge 服务端点的基础 URL。如果省略，CLI 会读取 ZOTERO_BRIDGE_ENDPOINT 或 profile 文件。CLI 不会猜测任意的 bridge 端口。 |
+| --operation-id | operation_id | option | no | — | ID | no | ZOTERO_BRIDGE_OPERATION_ID | — | 用于变更 Zotero 状态的不透明幂等性 ID |
+| --profile | profile | option | no | — | PATH | no | ZOTERO_BRIDGE_PROFILE | — | Zotero Bridge 连接 profile JSON 文件的路径。如果省略，CLI 会尝试使用 Zotero Agents 的已知 profile。ACP 运行 profile 通常引用 tokenEnv；本地已知 profile 可能包含受用户级文件权限保护的 bearer token。 |
+| --schema | schema | option | no | — | SCHEMA; values: true, false | no | — | — | 打印一个规范叶子命令的版本化原始 JSON Schema 和受治理的示例。Schema 模式是离线的，不会加载 profile、读取 Zotero Bridge 配置或连接 Zotero。 |
 
 ## 本地选项与位置参数
 
 | Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| --input | input | option | no | — | JSON_OR_FILE | no | — | — | Debug capability input as inline JSON, a file path, @file, or '-' for stdin |
+| --input | input | option | no | — | JSON_OR_FILE | no | — | — | 以 inline JSON、文件路径、@file 或 '-'（表示 stdin）形式提供调试 capability 输入 |
 
-## 调用 schema
+## 调用 Schema
 
 ```json
 {
@@ -41,11 +41,11 @@ zotero-bridge debug persistence [--endpoint <ENDPOINT>] [--operation-id <ID>] [-
 }
 ```
 
-## 结构化输入 schema
+## 结构化输入 Schema
 
 ### `--input` (input)
 
-必需：`false`。
+Required: `false`.
 
 ```json
 {
@@ -55,7 +55,7 @@ zotero-bridge debug persistence [--endpoint <ENDPOINT>] [--operation-id <ID>] [-
 }
 ```
 
-## 组合 payload schema
+## 组合 Payload Schema
 
 ```json
 {
@@ -67,11 +67,11 @@ zotero-bridge debug persistence [--endpoint <ENDPOINT>] [--operation-id <ID>] [-
 
 ## Payload 组合
 
-此命令没有单独的字段映射程序。其 binding 模式可直接执行：passthrough 使用唯一的结构化源，而 `none` 和 `raw` 保持其声明的封闭行为。
+本命令没有单独的字段映射程序。其绑定模式是直接可执行的：passthrough 使用唯一的结构化源，而 `none` 与 `raw` 保持其声明的封闭行为。
 
 `composition`: `null`.
 
-## 结果 schema
+## 结果 Schema
 
 ```json
 {
@@ -102,9 +102,9 @@ zotero-bridge debug persistence [--endpoint <ENDPOINT>] [--operation-id <ID>] [-
 
 ## 示例
 
-### input: shape-only 示例
+### input: shape-only
 
---input 的最小 JSON 形式。
+--input 的最小 JSON 形状。
 
 ```console
 zotero-bridge debug persistence --input '{}'
@@ -112,11 +112,11 @@ zotero-bridge debug persistence --input '{}'
 
 前置条件：
 
-- 执行前，请将示例中的标识符和值替换为对所选 Zotero library、workflow、provider 或 capability 有效的输入。
+- 在执行前，将示例标识符和值替换为对所选 Zotero 库、workflow、provider 或 capability 有效的输入。
 
 ## 完整命令描述符
 
-此封闭描述符是 `surface describe` 返回的机器可读命令契约；此处包含它是为了让该卡片在无需加载其他命令参考的情况下仍可独立审计。
+此封闭描述符是由 `surface describe` 返回的机器可读命令契约；将其放在这里，以便本卡片可在不加载其他命令参考的情况下独立审计。
 
 ```json
 {
@@ -269,27 +269,27 @@ zotero-bridge debug persistence --input '{}'
 
 ## 参数失败与恢复契约
 
-Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+参数失败以单一 JSON 错误信封返回。先检查 `error.code`，然后要求 `error.details.schema` 为 `host-bridge.argument-error.v1`，再使用结构化边界字段。保留规范命令、已脱敏输入以及任何已返回的类型化 handle；切勿在证据中包含完整的原始 payload。
 
-- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
-- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
-- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
-- `command_input` reports schema violations for a structured input. Inspect the bounded `violations`, then run this exact leaf with `--schema` and correct the declared field or type; do not invent an alias.
-- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
-- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
-- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
+- `argv` 报告缺失、未知、冲突或无效的 CLI 参数。从本卡片的参数表或活动命令帮助重建 argv。
+- `json_source` 报告无法读取的 stdin 或文件源。请修正此源，而不要将值移动到其他绑定。
+- `json_syntax` 报告无效的 JSON，并提供安全的行列上下文。在解读域字段之前先修复语法。
+- `command_input` 报告结构化输入的 schema 违规。检查受限的 `violations`，然后用 `--schema` 运行此精确叶子并修正声明的字段或类型；不要发明别名。
+- `payload_contract` 表示 CLI 组合的 capability payload 在网络 I/O 之前违反了可执行契约。将其视为实现缺陷；不要用原始传输绕过语义命令。
+- `command_result` 表示 Host 响应或本地结果未通过其可执行结果 schema。不要将其接受或报告为成功证据。
+- 违规数组已脱敏、按确定性顺序排序，并最多八个。当 `truncated` 为 true 时，请修正已报告的违规并重新验证，而不是请求机密或完整 payload 披露。
 
-## 运行契约
+## 操作契约
 
-- Canonical argv path: `debug` `persistence`.
-- Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
-- Pagination: `none`.
-- Category: `debug`; danger: `none`.
-- Structured binding mode: `passthrough`.
-- Intent visibility: `hidden`.
-- Operational aliases: `debug persistence`, `debug`, `persistence`, `input`, `JSON_OR_FILE`.
+- 规范 argv 路径：`debug` `persistence`.
+- 输出边界：`fixed`; 受治理细节：{"strategy":"fixed"}.
+- 分页：`none`.
+- 类别：`debug`; 危险：`none`.
+- 结构化绑定模式：`passthrough`.
+- 意图可见性：`hidden`.
+- 操作别名：`debug persistence`, `debug`, `persistence`, `input`, `JSON_OR_FILE`.
 
-### 影响
+### Effects
 
 ```json
 [
@@ -301,7 +301,7 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 ]
 ```
 
-### 审批
+### Approval
 
 ```json
 {
@@ -311,14 +311,14 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 }
 ```
 
-### Handle 转换
+### Handle transitions
 
 ```json
 [
 ]
 ```
 
-### 恢复
+### Recovery
 
 ```json
 [
@@ -332,7 +332,7 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 ]
 ```
 
-### 目标
+### Targets
 
 ```json
 [

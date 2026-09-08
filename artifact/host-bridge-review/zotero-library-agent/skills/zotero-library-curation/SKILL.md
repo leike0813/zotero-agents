@@ -1,193 +1,193 @@
 ---
 name: zotero-library-curation
-description: 规划并应用经过批准的、有限范围的 Zotero 文献库维护。当用户要求修正元数据、标签、收藏、笔记、链接、就绪状态或其他显式文献库状态时使用。
+description：规划并应用经批准的、有界的 Zotero 库维护。当用户请求修正元数据、tags、collections、notes、链接、就绪度或其他显式库状态时使用。
 ---
 
-# Zotero Library Curation
+# Zotero 库策展
 
-## Goal
+## 目标
 
-Safely inspect, propose, apply, and live-verify a bounded change to Zotero metadata, tags, collections, notes, links, files, readiness, Products, or other explicitly requested library state.
+安全地检查、提议、应用并实时验证对 Zotero 元数据、tags、collections、notes、链接、文件、就绪状态、Products 或其他显式请求的库状态的有界变更。
 
-## Inputs
+## 输入
 
-- Explicit target objects or a bounded live query that can resolve them.
-- Current values, desired state, correction evidence, expected side effects, and batch boundary.
-- Current authority for each mutation, workflow, upload/attachment, removal, merge, or apply-back.
+- 显式目标对象或能解析它们的有界实时查询。
+- 当前值、期望状态、修正证据、预期副作用与批次边界。
+- 对每个 mutation、workflow、上传/attachment、移除、合并或 apply-back 的当前权限。
 
-## Natural-language intake
+## 自然语言输入
 
-Treat “organize,” “clean up,” “fix,” “tag,” “merge,” “save,” and “put this in Zotero” as requests for a reviewed desired state, not immediate permission to write.
+把 "organize"（整理）、"clean up"（清理）、"fix"（修复）、"tag"（加标签）、"merge"（合并）、"save"（保存）与 "put this in Zotero"（把这放进 Zotero）视为对经审阅的期望状态的请求，而非立即写入许可。
 
-| User wording | Candidate change | Material clarification |
+| 用户措辞 | 候选更改 | 实质澄清 |
 | --- | --- | --- |
-| “Clean up these tags” | Tag normalization proposal | Target set, controlled vocabulary, add/remove policy, and batch size |
-| “Fix the metadata” | Field correction proposal | Exact fields, correction evidence, conflict policy, and edition/version identity |
-| “Put these papers in my project collection” | Collection membership mutation | Target collection, resolved items, existing membership, and removal expectations |
-| “Merge the duplicates” | Destructive duplicate decision | Survivor, children, notes, attachments, relations, and irreversible consequences |
-| “Save this analysis as a note” | Artifact-to-note write | Verified artifact, target parent, note role, replacement policy, and authority |
-| “Attach this file” | Upload then attachment mutation | Local file verification, target parent, attachment metadata, and overwrite behavior |
-| “Apply the workflow result” | Workflow apply-back | Typed request/result mapping, validation, approval, and durable receipt |
-| “Repair the readiness issue” | Diagnosis followed by proposal | Exact readiness category and separately reviewed remediation |
+| “清理这些 tags” | tag 规范化 proposal | 目标集合、受控词表、添加/移除策略与批大小 |
+| “修复元数据” | 字段修正 proposal | 确切字段、修正证据、冲突策略与版本/版次身份 |
+| “把这几篇论文放进我的 project collection” | collection 成员关系变更 | 目标 collection、已解析 items、既有成员关系与移除预期 |
+| "Merge the duplicates"（合并重复项） | 破坏性重复决策 | 幸存者、子项、notes、attachments、关系与不可逆后果 |
+| “把这份分析保存为 note” | artifact 到 note 的写入 | 已验证 artifact、目标父级、note 角色、替换策略与 authority |
+| “附加此文件” | 上传后接 attachment 变更 | 本地文件校验、目标父项、attachment 元数据与覆盖行为 |
+| “应用 workflow 结果” | workflow apply-back | 类型化请求/结果映射、验证、approval 与持久 receipt |
+| “修复就绪问题” | 先诊断后提案 | 确切就绪类别与单独审阅的补救措施 |
 
-Capture:
+捕获：
 
-- exact target refs or a bounded live query;
-- current values and desired values;
-- evidence supporting each correction;
-- affected child objects, relations, files, Products, notes, and collection memberships;
-- destructive or irreversible consequences;
-- smallest reviewable batch;
-- direct mutation, generic preview/apply, workflow, file upload, or apply-back path;
-- post-write live verification.
+- 确切的目标 refs 或有界的实时查询；
+- 当前值与期望值；
+- 支撑每个修正的证据；
+- 受影响的子对象、关系、文件、Products、notes 与 collection 成员关系；
+- 破坏性或不可逆后果；
+- 最小的可审阅批次；
+- 直接 mutation、通用 preview/apply、workflow、file upload 或 apply-back 路径；
+- 写后实时验证。
 
-Ask when:
+在以下情况询问：
 
-- target identity is ambiguous;
-- “clean,” “fix,” or “organize” admits several materially different desired states;
-- a correction source conflicts with curated metadata;
-- merge, delete, overwrite, relink, or attachment replacement is possible;
-- a generated artifact must be mapped to a Zotero object;
-- batch scope or approval effect is unclear;
-- a partial prior operation may already have changed state.
+- 目标身份有歧义；
+- "clean"、"fix" 或 "organize" 承认多种实质不同的期望状态；
+- 修正源与策展元数据冲突；
+- merge、delete、overwrite、relink 或 attachment 替换可能发生；
+- 生成的 artifact 必须映射到 Zotero 对象；
+- 批次范围或 approval 影响不清楚；
+- 先前部分操作可能已改变状态。
 
-Safe defaults:
+安全默认值：
 
-- inspect and propose without writing;
-- preserve existing values not explicitly targeted;
-- split heterogeneous or destructive changes into smaller batches;
-- treat readiness and diagnostics as observations, not remediation authority;
-- require live post-write verification.
+- 只检查与提议，不写入；
+- 保留未被显式针对的现有值；
+- 把异构或破坏性变更拆成更小批次；
+- 把 readiness 与 diagnostics 当作观察，而非补救权限；
+- 要求实时写后验证。
 
-There is no safe default for target identity, duplicate survivor, destructive effect, metadata overwrite, collection removal, uploaded-file consumption, workflow submission, or apply-back.
+目标身份、重复项保留记录、破坏性影响、元数据覆盖、collection 移除、上传文件消耗、workflow 提交或 apply-back 都没有安全默认。
 
-## Workflow
+## 工作流
 
-### Resolve target and proposal
+### 解析目标与提案
 
-1. Resolve every live target and inspect only the current fields, memberships, notes, payloads, attachments, Products, relations, or readiness facts relevant to the requested change.
-2. State the desired state and correction evidence. Expose conflicts, alternatives, affected children or related records, and consequences that would make a target ambiguous or destructive.
-3. Build the smallest reviewable proposal with per-target before/after state, exact effect, correction source, expected side effects, artifact/file flow, and batch boundary.
+1. 解析每个实时目标，只检查与请求变更相关的当前字段、成员关系、notes、payloads、attachments、Products、关系或就绪事实。
+2. 说明期望状态与修正证据。暴露会使目标含混或具破坏性的冲突、替代项、受影响的子级或相关记录及后果。
+3. 构建最小可审阅提案，含逐目标变更前后状态、确切影响、更正来源、预期副作用、artifact/file 流向与批次边界。
 
-### Choose and authorize the write
+### 选择并授权写入
 
-4. Use a direct semantic mutation when the target and effect are concrete; use generic preview/apply for a reviewed payload; use a workflow only while classification, generation, provider execution, or reusable multi-step business logic remains.
-5. For file writeback, verify the local artifact, upload it, preserve the issued `fileId`, attach it to the resolved parent through the approved mutation, and keep each identity separate.
-6. Present the exact proposal at the current Zotero-side authority boundary. Execute the approved scope once and preserve the preview, operation/workflow handle, approval outcome, file/Product facts, and apply-back receipt.
+4. 当目标与效果具体时使用直接语义 mutation；对经审查的 payload 使用通用 preview/apply；仅当仍需分类、生成、provider 执行或可复用多步业务逻辑时才使用 workflow。
+5. 对于文件回写，验证本地 artifact，上传它，保留签发的 `fileId`，通过已批准的 mutation 将其附加到已解析的父级，并保持每个身份分开。
+6. 在当前 Zotero 侧授权边界呈现确切提案。只执行一次已批准的范围，并保留预览、operation/workflow handle、approval 结果、file/Product 事实与 apply-back receipt。
 
-### Verify and recover outcomes
+### 核实并恢复结果
 
-7. Re-read every affected live object and compare it with the approved proposal. Classify completed, unchanged, partial, denied, failed, unattempted, and unverified outcomes separately.
-8. For partial or uncertain state, use the durable receipt and live target to calculate only the residual delta. Do not replay verified successes or begin a compensating write without a new reviewed proposal.
-9. Return `zotero-library-task.result.v1` with before/after identity evidence, durable receipts, remaining delta, and any artifact produced for review.
+7. 重新读取每个受影响的实时对象，并与已批准的提案比较。分别归类 completed、unchanged、partial、denied、failed、unattempted 与 unverified 结果。
+8. 对于部分或不确定状态，使用持久 receipt 与实时目标只计算残余 delta。不要重放已验证的成功，也不要在没有新的经审查 proposal 时开始补偿性写入。
+9. 返回 `zotero-library-task.result.v1`，含前后身份证据、持久 receipt、剩余 delta 与为审查产生的任何 artifact。
 
-### Make the proposal reviewable
+### 使提议可审查
 
-Every proposal row must identify:
+每个提案行必须指明：
 
-- target Zotero ref and current live value;
-- desired value;
-- evidence or user instruction supporting the change;
-- semantic operation and expected effect;
-- related children or objects that may change;
-- whether the effect is destructive or difficult to reverse;
-- approval scope;
-- expected live verification read;
-- recovery handle or receipt.
+- 目标 Zotero ref 与当前实时值；
+- 期望值；
+- 支持更改的证据或用户指示；
+- 语义 operation 与预期影响；
+- 可能更改的相关子级或对象；
+- 影响是否具破坏性或难以逆转；
+- approval 范围；
+- 期望的实时核实读取；
+- 恢复 handle 或 receipt。
 
-Group rows only when they share the same change rule, evidence source, authority boundary, and recovery behavior. Split metadata corrections, tag normalization, collection changes, attachment writes, merges, removals, and apply-back into separate batches when their consequences differ.
+仅当行共享相同的变更规则、证据来源、权限边界与恢复行为时才分组。当后果不同时，把元数据修正、tag 规范化、collection 变更、attachment 写入、合并、移除与 apply-back 拆成独立批次。
 
-After execution:
+执行后：
 
-1. Re-read each target.
-2. Compare actual state with the approved row.
-3. Mark each target completed, unchanged by design, denied, failed, unattempted, or unverified.
-4. Preserve the durable operation or apply-back receipt.
-5. Calculate only the residual delta.
-6. Present any compensating change as a new proposal.
+1. 重读每个目标。
+2. 将实际状态与已批准行比较。
+3. 将每个目标标记为已完成、按设计未变更、被拒绝、失败、未尝试或未验证。
+- 4. 保留持久 operation 或 apply-back receipt。
+- 5. 仅计算残余 delta。
+6. 把任何补偿性变更作为新提案呈现。
 
-An accepted request, preview, operation start, uploaded file, terminal workflow, or Product artifact is not live write verification.
+已接受的请求、preview、operation 启动、上传文件、终态 workflow 或 Product artifact 都不是实时的写入验证。
 
-### Curation completion checklist
+### 策展完成清单
 
-Target:
+目标：
 
-- Each target ref was resolved live.
-- Child, parent, Product, artifact, file, run, and operation identities remain distinct.
-- The proposal contains only the fields or relations requested.
-- Current values are preserved for comparison and recovery.
+- 每个目标 ref 都已实时解析。
+- Child、parent、Product、artifact、file、run 与 operation identity 保持不同。
+- 提案只含所请求的字段或关系。
+- 保留当前值以供比较与恢复。
 
-Desired state:
+期望状态：
 
-- Each proposed value has user instruction or correction evidence.
-- Conflicts and alternatives are visible.
-- Destructive effects and affected children are explicit.
-- Heterogeneous changes are split into independent batches.
+- 每个拟议值都有用户指令或纠正证据。
+- 冲突与替代方案可见。
+- 破坏性效果与受影响的子级是显式的。
+- 异构变更被拆分为独立批次。
 
-Authority:
+授权：
 
-- The exact current proposal was shown at the correct approval boundary.
-- A prior preview, approval, or workflow does not authorize this new effect.
-- Uploaded bytes are not consumed outside their declared next step.
-- Apply-back uses the complete typed request-to-result mapping.
+- 确切的当前提议已在正确的 approval 边界显示。
+- 先前的 preview、approval 或 workflow 不授权这一新效果。
+- 上传的字节不会在其声明的下一步之外被消耗。
+- apply-back 使用完整的类型化请求到结果映射。
 
-Verification:
+验证：
 
-- Every affected live object was re-read.
-- Actual and approved states were compared per target.
-- Durable receipts and handle consumption are preserved.
-- Partial or unknown outcomes produce only a residual delta.
+- 每个受影响的实时对象已重新读取。
+- 实际状态与批准状态按目标逐一比较。
+- 持久 receipts 与 handle 消耗被保留。
+- 部分或未知结果只产生残余 delta。
 
-Near misses:
+接近命中：
 
-- A title match is not a mutation target.
-- A provider correction is not automatically authoritative.
-- Upload success is not attachment success.
-- Workflow termination is not apply-back completion.
-- Readiness diagnosis is not remediation authority.
-- A compensating write requires a new proposal.
-- An unknown prior write must not be repeated.
+- 标题匹配不是 mutation 目标。
+- provider 修正不自动成为权威。
+- 上传成功不等于 attachment 成功。
+- workflow 终止不是 apply-back 完成。
+- 就绪诊断不是补救授权。
+- 补偿性写入需要新提案。
+- 未知的先前写入不得重复。
 
-If verification cannot establish the outcome, do not label the target completed. Preserve the receipt, report unknown state, and stop before any retry.
+若验证无法确定结果，不要把目标标为已完成。保留 receipt、报告未知状态，并在任何重试前停止。
 
-## Hard constraints
+## 硬性约束
 
-- Never mutate based on a title match, stale cache, generated report, or unverified imported metadata.
-- Do not delete, merge, relink, overwrite, submit, or apply back without explicit current authority and any approval shown in Zotero.
-- Make no scheduled, bulk, or unattended maintenance changes.
-- Report partial application and verification failures; do not claim success from an accepted request alone.
-- Do not use navigation, raw capability calls, local database access, or a workflow as a way around mutation validation and approval.
-- Do not exchange local paths, uploaded `fileId` values, Product IDs, workflow artifacts, attachment refs, or operation handles.
-- Do not repeat an uncertain write until its durable receipt and current target state are known.
-- Do not convert a diagnostic readiness or attention result into remediation without a separately reviewed change.
+- 绝不基于标题匹配、过期 cache、生成的报告或未验证的导入元数据进行 mutation。
+- 未经明确的当前权限及 Zotero 中显示的任何 approval，不要删除、合并、relink、覆盖、提交或 apply back。
+- 不做计划的、批量的或不看护的 maintenance 变更。
+- 报告部分应用与验证失败；不要仅凭已接受的请求声称成功。
+- 不要把导航、原始 capability 调用、本地数据库访问或 workflow 当作绕过变更校验与 approval 的方式。
+- 不要交换本地路径、已上传的 `fileId` 值、Product ID、workflow artifact、attachment 引用或 operation handle。
+- 在持久 receipt 与当前目标状态已知之前，不要重复不确定的写入。
+- 未经单独审阅的变更，不要把诊断就绪度或 attention 结果转化为补救。
 
-## LLM And Tool Responsibilities
+## LLM 与工具职责
 
-The LLM owns target interpretation, desired-state reasoning, correction evidence, batching, mutation/workflow choice, authority checks, and outcome explanation. The bundled CLI and runner own exact argv, live reads, previews, mutations, uploads/downloads, approvals, handles, receipts, and result-schema validation. Do not invent handles, previews, applied changes, file delivery, or verified state.
+LLM 拥有目标解读、期望状态推理、修正证据、批处理、mutation/workflow 选择、权限检查与结果说明。捆绑的 CLI 与 runner 拥有精确 argv、实时读取、previews、mutations、上传/下载、approvals、handles、receipts 与结果 schema 校验。不要臆造 handles、previews、已应用变更、文件交付或已核实状态。
 
-## Result contract
+## 结果契约
 
-Return one business JSON object matching `assets/output.schema.json`.
+返回与 `assets/output.schema.json` 匹配的一个业务 JSON 对象。
 
-Required:
+必需：
 
-- `schema`: `zotero-library-task.result.v1`.
-- `status`: `completed`, `canceled`, or `failed`.
-- `summary`: describe the reviewed target scope, requested desired state, applied and verified outcomes, and remaining delta.
+- `schema`：`zotero-library-task.result.v1`。
+- `status`：`completed`、`canceled` 或 `failed`。
+- `summary`：描述已审查的目标范围、请求的期望状态、已应用与已验证结果及剩余 delta。
 
-Optional:
+可选：
 
-- `evidence` is an optional array; each entry requires `kind` and `ref`; use it for target refs, before/after reads, previews, operation receipts, approval outcomes, uploaded files, workflow runs, Products, or apply-back receipts.
-- `artifacts` is an optional array; each entry requires an existing `path` and `role`, such as `change-proposal`, `conflict-report`, or `residual-delta`; add `mediaType` when known.
-- `diagnostics` is an optional array; each entry requires `code` and `message` for conflicts, denied authority, partial execution, unknown state, destructive ambiguity, or failed verification.
+- `evidence` 是可选数组；每个条目要求 `kind` 与 `ref`；用于目标 refs、前后读取、previews、operation receipts、approval 结果、上传文件、workflow runs、Products 或 apply-back receipts。
+- `artifacts` 是可选数组；每个条目要求现有的 `path` 与 `role`，如 `change-proposal`、`conflict-report` 或 `residual-delta`；已知时添加 `mediaType`。
+- `diagnostics` 是可选数组；每个条目在冲突、被拒授权、部分执行、未知状态、破坏性歧义或验证失败时需要 `code` 与 `message`。
 
-Status rules:
+状态规则：
 
-- `completed`: every requested target is live-verified in the desired state or explicitly unchanged by the approved design.
-- `canceled`: target, desired state, correction choice, batch scope, destructive decision, or current authority is missing.
-- `failed`: an attempted operation cannot complete, or its outcome cannot be established well enough to satisfy the overall request.
+- `completed`：每个请求的目标都已在期望状态实时核实，或按已批准设计显式不变。
+- `canceled`：目标、期望状态、修正选择、批次范围、破坏性决策或当前权限缺失。
+- `failed`：尝试的 operation 无法完成，或其结果无法充分确立以满足整体请求。
 
-Minimal result:
+最小结果：
 
 ```json
 {
@@ -197,18 +197,18 @@ Minimal result:
 }
 ```
 
-Do not invent `partial`. If a batch partly applies, use `failed`, preserve successful before/after evidence and receipts, and describe only the residual delta. Never report the whole batch as successful.
+不要发明 `partial`。若批次部分应用，使用 `failed`、保留成功的变更前后证据与 receipts，并只描述剩余差异。绝不把整个批次报告为成功。
 
-The Runner's `__SKILL_DONE__` marker is transport metadata and is removed before Schema validation. It must not appear in the business object or result file. Emit exactly one JSON object without Markdown framing.
+Runner 的 `__SKILL_DONE__` 标记是传输元数据，在 Schema 验证前移除。它不得出现在业务对象或结果文件中。发出恰好一个 JSON 对象，无 Markdown 框架。
 
-## Completion
+## 完成
 
-Return one final `zotero-library-task.result.v1` object with required `schema`, `status`, and `summary`. Use `completed` only when every requested target is either live-verified in the desired state or explicitly reported unchanged by design. Use `canceled` when identity, desired state, correction choice, batch, or authority is missing, and `failed` when an attempted operation cannot complete or its outcome cannot be established.
+返回一个最终的 `zotero-library-task.result.v1` 对象，含必需的 `schema`、`status` 与 `summary`。仅当每个请求的目标都已在期望状态中实时验证或被明确报告为按设计未变更时，才使用 `completed`。当身份、期望状态、纠正选择、批次或 authority 缺失时使用 `canceled`；当尝试的 operation 无法完成或其结果无法确立时使用 `failed`。
 
-## Failure handling
+## 失败处理
 
-Keep preview, operation/apply receipt, uploaded-file facts, affected refs, pre-change evidence, and structured diagnostics. For unknown state, inspect the operation and re-read targets. For partial application, calculate the remaining delta without replaying successful changes. Stop after denial, conflict, or a newly discovered destructive effect; present the exact current state before any compensating mutation.
+保留 preview、operation/apply receipt、已上传文件事实、受影响的 ref、变更前证据与结构化诊断。对于未知状态，检查 operation 并重新读取目标。对于部分应用，在不重放已成功变更的情况下计算剩余 delta。在拒绝、冲突或新发现的破坏性效果后停止；在任何补偿性变更之前呈现确切当前状态。
 
-## References
+## 参考
 
-Consult [the comprehensive curation playbook](references/playbook.md) when the task needs a change-type decision matrix, note/payload/file/Product identity flow, destructive-change review, heterogeneous batching, operation-receipt interpretation, partial execution analysis, or residual-delta recovery.
+当任务需要变更类型决策矩阵、note/payload/file/Product identity 流程、破坏性变更审阅、异构批处理、operation-receipt 解读、部分执行分析或残余 delta 恢复时，查阅 [comprehensive curation playbook](references/playbook.md)。

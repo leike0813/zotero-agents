@@ -1,184 +1,184 @@
 ---
 name: zotero-library-agent
-description: 路由并协调有限范围的 Zotero 文献库研究任务。当请求跨越或在文献库查询、获取、分析、综合、遴选之间需要选择时使用。
+description: 路由并协调有界的 Zotero 库研究任务。当请求跨越，或需要在库查询、获取、分析、综合或整理之间做出选择时使用。
 ---
 
 # Zotero Library Agent
 
-## Goal
+## 目标
 
-将一个有限范围的 Zotero 研究请求路由到最小可胜任的任务 Skill，或协调任务 Skill 的显式序列，同时在各边界之间保留身份、证据、权限与恢复能力。返回一条真实可信的任务结果；不要成为常驻服务，也不要复刻 CLI 机制。
+将有界的 Zotero 研究请求路由到能力最小的任务 Skill，或在跨边界时保持身份、证据、授权和可恢复性的同时，编排一组明确的任务 Skill 序列。返回一个真实的任务结果；不要成为常驻服务或复刻 CLI 机制。
 
-## Inputs
+## 输入
 
-- 用户的研究目标、纳入边界、期望交付物与新鲜度要求。
-- 任何提供的当前上下文短语、Zotero 对象、收藏、主题、工作流、Product、产物、文件、操作或运行句柄。
-- 可用的源材料与当前权限，用于获取、工作流提交、变更或回写。
+- 用户的研究目标、纳入边界、期望交付物和新鲜度要求。
+- 任何提供的当前上下文短语、Zotero 对象、collection、topic、workflow、Product、artifact、文件、operation 或 run handle。
+- 用于获取、workflow 提交、变更或 apply-back 的可用素材和当前授权。
 
-## Natural-language intake
+## 自然语言接收
 
-假定用户把 Zotero 视作一个研究文献库，而不是本插件的命令或工作流模型。在选择任务之前先翻译他们的措辞。
+假定用户熟悉的是作为研究库的 Zotero，而不是本插件的命令或 workflow 模型。在选择任务之前翻译用户的措辞。
 
 捕获以下六个槽位：
 
-| Slot | What to establish | Safe default |
+| 槽位 | 待确认内容 | 安全默认值 |
 | --- | --- | --- |
-| Outcome | The question to answer or deliverable to produce | No default when several outcomes are plausible |
-| Subject scope | Current selection, named items, collection, library query, topic, or external field | Current selection only when the user explicitly uses deictic language and a live selection exists |
-| Freshness | Current library state, a dated snapshot, or historical material | Current live Zotero state |
-| Evidence depth | Metadata, abstract, notes, available full text, or workflow-produced analysis | Use the strongest available source but disclose any shortfall |
-| Deliverable | Conversation answer, candidate report, analysis artifact, synthesis export, or Zotero change | Conversation answer for a read-only question |
-| State change | None, acquisition, workflow submission, mutation, maintenance, or apply-back | None |
+| 成果（Outcome） | 要回答的问题或要产出的交付物 | 当存在多个可能结果时无默认值 |
+| 主题范围（Subject scope） | 当前选择、命名条目、collection、库查询、topic 或外部字段 | 仅当用户明确使用指示语且存在实时选择时，使用当前选择 |
+| 新鲜度（Freshness） | 当前库状态、带日期的快照或历史素材 | 当前实时 Zotero 状态 |
+| 证据深度（Evidence depth） | 元数据、摘要、笔记、可用全文，或由 workflow 产生的分析 | 使用可用的最强来源，但披露任何不足 |
+| 交付物（Deliverable） | 对话回答、候选报告、分析 artifact、synthesis 导出或 Zotero 变更 | 只读问题的对话回答 |
+| 状态变更（State change） | 无、获取、workflow 提交、变更、维护或 apply-back | 无 |
 
-当缺失的答案会改变候选纳入、证据声明、工作流/提供方成本、目标文献库状态、破坏性效果或审批范围时，应当提问。否则使用安全默认值并在可见计划或最终摘要中声明。
+当缺失的答案会改变候选纳入、证据声明、workflow/provider 成本、目标库状态、破坏性影响或授权范围时，应当提问。否则使用安全默认值，并在可见的计划或最终摘要中予以说明。
 
-按以下方式解读常见请求：
+常见请求的解读方式如下：
 
-| User wording | Initial route | Material question or boundary |
+| 用户措辞 | 初始路由 | 实质问题或边界 |
 | --- | --- | --- |
-| “What papers do I have about X?” | Query | Bound the library/collection and complete paging before a negative claim |
-| “Tell me what this paper says” | Query or analysis | Resolve the current selection; choose analysis when interpretation beyond a bounded answer is required |
-| “Find recent work on X” | Acquisition | Establish date window, result bound, sources, and candidate-only versus import |
-| “Find papers and summarize them” | Acquisition → analysis | Verify the acquired or selected source set before analysis |
-| “Compare these methods” | Analysis | Resolve sources, comparison dimensions, and acceptable evidence depth |
-| “What does the literature say overall?” | Synthesis | Bound the source set, research question, model, and freshness |
-| “Download these papers as a research bundle” | Synthesis direct delivery | Require stable Zotero item refs; if the wording names titles or an ambiguous live selection, use Query to resolve identity first |
-| “Download these topics as one research bundle” | Synthesis direct delivery | Require one or more stable Topic IDs and verify each current report before delivery |
-| “Put this report into Zotero” | Curation | Verify the artifact and target; stop at the write authority boundary |
-| “Clean up duplicates and tags” | Curation | Convert “clean up” into a reviewable proposal and separate destructive choices |
-| “Use the deep-reading workflow” | Analysis with workflow candidate | Confirm live availability, selection input, options, provider, and submission authority |
-| “Keep watching this topic” | Outside Generic | Return the finite result and route persistent supervision to a hosted facet |
+| "我有哪些关于 X 的论文？" | 查询 | 在做出否定性结论前，先界定 library/collection 并完成分页 |
+| "告诉我这篇论文讲什么" | 查询或分析 | 解析当前选择；当需要超出有界答案的解读时选择分析 |
+| "查找 X 的近期工作" | 获取 | 确认时间窗口、结果上限、来源，以及仅候选还是导入 |
+| "查找论文并对它们进行总结" | 获取 → 分析 | 在分析前核对已获取或选定的来源集合 |
+| "比较这些方法" | 分析 | 确认来源、比较维度与可接受的证据深度 |
+| "文献总体上怎么说？" | 综合 | 界定来源集合、研究问题、模型与新鲜度 |
+| "把这些论文下载为研究包" | 综合直接交付 | 要求稳定的 Zotero item refs；若措辞给出的是标题或模糊的实时选择，先使用查询解析身份 |
+| "把这些 topic 作为一个研究包下载" | 综合直接交付 | 要求一个或多个稳定的 Topic ID，并在交付前核对每个当前报告 |
+| "把这份报告放到 Zotero 中" | 整理 | 核对 artifact 和目标；在写入授权边界处停止 |
+| "清理重复和标签" | 整理 | 将"清理"转化为可审查的提案，并将破坏性选择分离 |
+| "使用 deep-reading workflow" | 带 workflow 候选的分析 | 确认实时可用性、选择输入、选项、provider 与提交授权 |
+| "持续关注这个 topic" | 不属于通用（Generic） | 返回有限结果，并将持久性监管路由到托管端 |
 
-相近的匹配不会抹除任务边界。搜索现有文献库是查询，搜索外部来源是获取。解释一篇论文是分析；在有限来源集之间关联论断才是综合。提出拟议的修正仍然是遴选，即便写入尚未获得批准。
+近似匹配不会抹去任务边界。在已有库中搜索属于查询，而在外部来源中搜索属于获取。解释一篇论文属于分析；在有界来源集合之间关联主张属于综合。即使在写入尚未批准之前，产生一个建议性更正仍然属于整理。
 
-对于只读任务，在材料身份和范围已知后再开始。对于获取、提交、变更、维护或回写，在首次状态变更调用之前先展示拟议的效果并停在当前权限边界。
+对于只读任务，在确认物质身份与范围后开始。对于获取、提交、变更、维护或 apply-back，应展示预期效果并在第一次状态变更调用之前停在当前授权处。
 
-## Workflow
+## 工作流
 
-### Bound and route the request
+### 界定并路由请求
 
-1. Translate the request into one bounded outcome, source or candidate scope, required freshness, expected deliverable, and any requested Zotero state change. Ask only when a missing choice would materially alter those dimensions.
-2. Route by outcome: query retrieves and answers; acquisition finds or obtains sources; analysis extracts or interprets; synthesis relates sources and derived models; curation changes explicit library state.
-3. Select one task Skill when its completion condition satisfies the whole request. Compose multiple Skills only when one stage's verified result is a declared input to the next.
+1. 将请求翻译为一个有界成果、来源或候选范围、所需新鲜度、期望交付物以及任何请求的 Zotero 状态变更。仅当缺失的选择会实质改变这些维度时才提问。
+2. 按成果路由：查询用于检索并回答；获取用于发现或获取来源；分析用于抽取或解读；综合用于关联来源与衍生模型；整理用于变更显式库状态。
+3. 当某个任务 Skill 的完成条件可满足整个请求时，选用单一任务 Skill。仅当一个阶段的经验证结果是下一阶段的已声明输入时才组合多个 Skill。
 
-Direct paper-bundle and Topic-bundle delivery is an independent read-only Synthesis branch. When stable item refs or Topic IDs are already known, route straight to Synthesis; do not insert acquisition, literature analysis, Topic maintenance, or the Product-producing Research Bundle workflow. When identity is ambiguous, Query resolves the bounded candidates and hands only verified Zotero refs or Topic IDs to Synthesis. Missing source text, digest, or analysis artifacts remain bundle diagnostics unless the user separately asks to generate or repair them.
+直接的论文包与 Topic 包交付是一个独立的只读综合分支。当稳定的 item refs 或 Topic ID 已已知晓时，直接路由到综合；不要插入获取、文献分析、Topic 维护或产出 Product 的 Research Bundle workflow。当身份模糊时，查询解析有界候选，并将经验证的 Zotero refs 或 Topic ID 交给综合。缺失的源文本、摘要或分析 artifact 仍属于包诊断信息，除非用户另行要求生成或修复。
 
-### Compose and execute stages
+### 编排并执行各阶段
 
-4. For multi-stage work, declare the ordered task owners, each stage's bounded outcome, the stable identities and evidence crossing each boundary, and the completion evidence required before continuing.
-5. When a workflow may execute a stage, read its live description and choose Zotero-managed execution or self-owned agent execution only when that mode is supported. Keep workflow options and provider profiles in their separate validation contracts.
-   For Zotero-managed execution, let the plugin's native workflow queue own bounded admission. Preserve the returned `submissionId` when admission is queued, inspect its unit projection until real run identities appear, and carry those task/run handles into the owning task Skill without constructing an agent-side plan-entry queue.
-6. Stop at every new authority boundary. A read, candidate report, local validation, prior approval, or completed predecessor task does not authorize submission, acquisition, mutation, maintenance, or apply-back.
-7. Require every stage to return `zotero-library-task.result.v1`. Carry only successful source subjects, source-oriented evidence, declared artifacts, structured diagnostics, and typed handles required by the next stage; keep excluded or failed subjects visible.
+4. 对于多阶段工作，声明有序的任务所有者、各阶段的有界成果、跨边界传递的稳定身份与证据，以及继续执行前所需的完成证据。
+5. 当某个 workflow 可能执行某个阶段时，读取其实时描述，且仅在该模式受支持时才选择 Zotero 托管执行或自管 agent 执行。将 workflow 选项与 provider profile 保留在其各自的校验契约中。
+   对于 Zotero 托管执行，让插件原生的 workflow 队列拥有有界准入。当准入被排队时保留返回的 `submissionId`，检查其单元投影直到出现真实的 run identity，并在不构造 agent 端的计划项队列的前提下将这些 task/run handle 带入所属任务 Skill。
+6. 在每一个新的授权边界处停下。读取、候选报告、本地校验、既有批准或已完成的先行任务，都不授权提交、获取、变更、维护或 apply-back。
+7. 要求每个阶段返回 `zotero-library-task.result.v1`。仅传递成功的来源主体、面向来源的证据、已声明的 artifacts、结构化诊断与下一阶段所需的类型化 handle；让被排除或失败的主体保持可见。
 
-### Verify and return
+### 验证并返回
 
-8. After an operation intended to change Zotero, inspect its durable receipt and re-read the affected live object before declaring the stage complete. A terminal run is not output verification.
-9. If a later stage fails, resume at the first stage missing stable completion evidence. Do not replay an accepted acquisition, submission, mutation, maintenance operation, or apply-back.
-10. Consult the bundled `zotero-bridge-cli` Skill for exact argv, input channels, pagination, file transfer, effects, approvals, handles, and recovery. Never reconstruct its command catalog here.
+8. 在一次意图变更 Zotero 的操作之后，检查其持久收据并重读受影响的实时对象，然后才宣告该阶段完成。终态运行不是输出验证。
+9. 若后续阶段失败，从首个缺少稳定完成证据的阶段恢复。不要重放已接受的获取、提交、变更、维护操作或 apply-back。
+10. 查阅打包的 `zotero-bridge-cli` Skill 以获得精确的 argv、输入通道、分页、文件传输、效果、批准、handle 与恢复说明。不要在此复刻其命令目录。
 
-For direct bundle delivery, local completion requires the requested destination, `manifest.json`, and the declared paper/topic inventory to exist. Remote completion requires a returned bridge file handle, successful download, and byte verification from the delivery descriptor; the handle alone is not the delivered bundle. If an item or Topic selector cannot resolve, stop the entire request at that selector boundary. If the manifest reports missing optional content, return the bundle with those diagnostics and do not silently start a repair workflow.
+对于直接包交付，本地完成要求所请求的目的地、`manifest.json` 与已声明的论文/Topic 清单存在。远程完成要求返回的桥接文件 handle、成功下载以及来自交付描述符的字节校验；仅有 handle 并不等于已交付的包。若某个 item 或 Topic 选择器无法解析，则在该选择器边界处停止整个请求。若清单报告缺失可选内容，则返回带有这些诊断的包，并不静默启动修复 workflow。
 
-### Present a visible multi-stage plan
+### 展示可见的多阶段计划
 
-Before executing a composed request, show a compact plan with one row per stage:
+在执行组合请求之前，按每个阶段一行展示紧凑的计划：
 
-| Field | Required content |
+| 字段 | 必填内容 |
 | --- | --- |
-| Stage | Ordered number and bounded outcome |
-| Owner | Exactly one of the five task Skills |
-| Input evidence | Stable refs, source depth, artifacts, Products, or handles accepted from the prior stage |
-| Output evidence | What must exist and be inspected before the next stage starts |
-| New authority | Any acquisition, submission, mutation, maintenance, or apply-back decision introduced here |
-| Resume point | The first missing completion fact if the stage stops |
+| 阶段（Stage） | 有序编号与有界成果 |
+| 所有者（Owner） | 五个任务 Skill 中的恰好一个 |
+| 输入证据 | 来自前一阶段的稳定 refs、来源深度、artifacts、Products 或 handles |
+| 输出证据 | 在下一阶段开始之前必须存在并经过检查的内容 |
+| 新增授权 | 在此引入的任何获取、提交、变更、维护或 apply-back 决策 |
+| 恢复点（Resume point） | 若阶段停止时首个缺失的完成事实 |
 
-Do not hide a write inside a read-oriented stage. “Find, summarize, then add to collection” is three stages: acquisition prepares or imports a verified set, analysis produces source-grounded findings, and curation proposes the collection change. Each stage returns its own result evidence even when the user asked in one sentence.
+不要把写入隐藏在面向读取的阶段中。"查找、总结、然后加入 collection"是三个阶段：获取准备或导入一个经验证的集合，分析产出基于来源的发现，整理提出 collection 变更。即使用户在单句中提出，每个阶段也返回各自的结果证据。
 
-Update the plan only when live evidence changes the route. Tell the user when a stage is skipped, narrowed, split into batches, or stopped at a decision boundary. A later stage may consume only verified outputs, never the coordinator's expectation of what an earlier stage should produce.
+仅在实时证据改变路由时更新计划。当某个阶段被跳过、收窄、拆分为批次或停在决策边界时，应告知用户。后续阶段仅可消费已验证的输出，绝不可消费协调者对前一阶段应当产出内容的预期。
 
-### Check every route boundary
+### 检查每条路由边界
 
-Before dispatching one task, confirm:
+在派发单个任务前，确认：
 
-- its declared completion condition satisfies the current stage;
-- the target source, object, collection, topic, or workflow identity is stable;
-- the task receives only the evidence and handles it understands;
-- any user default has been disclosed;
-- the next authority boundary is visible;
-- failure can return without forcing a later task to guess.
+- 其已声明的完成条件满足当前阶段；
+- 目标来源、对象、collection、topic 或 workflow 身份稳定；
+- 该任务仅接收其理解的证据与 handles；
+- 任何用户默认值已被披露；
+- 下一个授权边界可见；
+- 失败能够在不迫使后续任务猜测的情况下返回。
 
-Before accepting one task result, confirm:
+在接受单个任务结果前，确认：
 
-- the result matches `zotero-library-task.result.v1`;
-- `completed` is supported by task-specific evidence;
-- declared artifacts exist;
-- evidence refs retain their original kinds;
-- diagnostics expose missing subjects or uncertainty;
-- any Zotero change has a durable receipt and live verification.
+- 结果匹配 `zotero-library-task.result.v1`；
+- `completed` 得到任务特定证据的支持；
+- 已声明的 artifacts 存在；
+- 证据 refs 保留其原有种类；
+- 诊断暴露缺失的主体或不确定性；
+- 任何 Zotero 变更具有持久收据与实时校验。
 
-Before starting the next stage, confirm:
+在开始下一阶段前，确认：
 
-- the predecessor's output is the successor's declared input;
-- failed, excluded, unavailable, or unattempted subjects remain visible;
-- no consumed or unknown handle will be reused;
-- the planned scope has not expanded;
-- the new stage does not silently introduce acquisition, submission, mutation, maintenance, or apply-back.
+- 前驱的输出是后继的已声明输入；
+- 失败的、被排除的、不可用的或未尝试的主体保持可见；
+- 任何被消费或未知的 handle 不会被复用；
+- 计划范围未扩大；
+- 新阶段未静默引入获取、提交、变更、维护或 apply-back。
 
-Do not dispatch both analysis and synthesis over an unresolved candidate set merely to save time. Do not let curation begin from an unverified local artifact. Do not let hosted monitoring replace the finite task's responsibility to return a bounded result.
+不要仅为了节省时间而在未解析的候选集合上同时调度分析与综合。不要让整理从一个未经验证的本地 artifact 开始。不要让托管监控替代有限任务返回有界结果的职责。
 
-### Stop or reroute correctly
+### 正确地停止或重路由
 
-- Missing live identity: return to query/context resolution.
-- Missing external sources: use acquisition only if the user requested discovery.
-- Missing source depth: ask whether a weaker bounded analysis is acceptable.
-- Multiple plausible synthesis models: explain the distinct questions they answer and obtain a choice.
-- Requested Zotero write after a read-only result: add a curation stage with new authority.
-- Persistent watch or scheduled maintenance: finish the finite task and hand off to the hosted facet.
-- Unsupported workflow or provider contract: retain the research task and choose a supported direct path only if it still satisfies the request.
+- 缺失实时身份：返回到查询/上下文解析。
+- 缺失外部来源：仅当用户请求发现时才使用获取。
+- 缺失来源深度：询问是否接受较弱的有界分析。
+- 多个可信的综合模型：解释它们各自回答的不同问题并取得选择。
+- 在只读结果之后的 Zotero 写入请求：增加带有新授权的整理阶段。
+- 持续观察或计划性维护：完成有限任务并交接给托管端。
+- 不支持的 workflow 或 provider 契约：保留研究任务，且仅在仍满足请求的受支持直接路径下选用。
 
-## Hard constraints
+## 硬约束
 
-- Resolve current Zotero facts with live Zotero reads; titles, cached summaries, and prior task results are not identity proof.
-- Keep every action bounded to the current request. Do not schedule, poll indefinitely, or create unattended maintenance work.
-- If a scope change would materially change the candidate set or conclusion, obtain a current user decision before continuing.
-- Do not write Zotero data, submit a workflow, or apply agent output without the current request and any approval shown in Zotero.
-- Treat a task's structured `failed` or `canceled` result as a boundary. Do not invent a successful successor result.
-- Never expose credentials, bearer tokens, local database paths, or private attachment contents in the task result.
-- Do not treat workflow termination as proof that expected Products, artifacts, item changes, or synthesis state exist.
-- Do not pass a local path where a file handle, Product ID, workflow artifact, Zotero ref, or run handle is required.
-- Do not monitor a self-owned `agentRunId` through the Zotero-managed run plane or use a `workflowRunId` for agent apply-back.
-- Do not model `submissionId`, `queueId`, and `workflowRunId` as aliases. A native queued submission is monitored through its submission projection; only an admitted unit with a real run handle enters the Zotero-managed run plane.
-- Do not create a coordinator-owned workflow queue, reservation table, replay loop, or unattended batch scheduler. The coordinator may choose an explicitly bounded concurrency value for the current authorized submission, while Zotero owns pending-unit ordering, admission, and pending cancellation.
-- Treat Host-issued full-snapshot completion evidence as proof of one captured complete set only. An active, interrupted, expired, or restarted snapshot cannot establish whole-library absence or authorize replacement of a cached generation, and a completed snapshot does not replace a later live read when current state controls the answer or a write.
+- 用实时 Zotero 读取解析当前 Zotero 事实；标题、缓存的摘要与既有的任务结果都不构成身份证明。
+- 每个动作都受限于当前请求。不要安排、无限轮询或创建无人值守的维护工作。
+- 若范围变更会实质改变候选集合或结论，应在继续之前获得用户的当前决定。
+- 在没有当前请求与 Zotero 中所示的任何批准的情况下，不要写入 Zotero 数据、提交 workflow 或 apply agent 输出。
+- 将任务的结构化 `failed` 或 `canceled` 结果视为边界。不要捏造一个成功的后继结果。
+- 不要在任务结果中暴露凭据、bearer token、本地数据库路径或私有附件内容。
+- 不要把 workflow 终止当作期望的 Products、artifacts、item 变更或 synthesis 状态存在的证据。
+- 不要在需要 file handle、Product ID、workflow artifact、Zotero ref 或 run handle 的位置传入本地路径。
+- 不要通过 Zotero 托管的运行平面监控自管的 `agentRunId`，或把 `workflowRunId` 用于 agent apply-back。
+- 不要把 `submissionId`、`queueId` 和 `workflowRunId` 视为别名。原生的排队提交通过其提交投影监控；只有具备真实 run handle 的已准入单元才进入 Zotero 托管运行平面。
+- 不要创建由协调者拥有的 workflow 队列、保留表、重放循环或无人值守的批处理调度器。协调者可对当前已授权的提交选择一个明确有界的并发值，而 Zotero 拥有 pending 单元排序、准入和 pending 取消。
+- 将 Host 颁发的全量快照完成证据视为仅对一个已捕获完整集合的证明。活动的、中断的、已过期的或重新启动的快照不能确立整库缺失或授权替换某个缓存代次；而已完成的快照也不能在当前状态控制答案或写入时替代后来的实时读取。
 
-## LLM And Tool Responsibilities
+## LLM 与工具职责
 
-The LLM owns task routing, scope, evidence sufficiency, workflow-mode judgment, interpretation, authority checks, and cross-task handoffs. Task Skills own their domain decisions. The bundled CLI and runner own exact argv, service calls, archive inspection, handle transport, approval exchange, and result-schema validation. Do not invent handles, receipts, command results, or successful Zotero state.
+LLM 拥有任务路由、范围、证据充分性、workflow 模式判断、解读、授权检查与跨任务交接。任务 Skill 拥有其领域决策。打包的 CLI 与 runner 拥有精确的 argv、服务调用、归档检查、handle 传输、批准交换与结果 schema 校验。不要捏造 handles、收据、命令结果或成功的 Zotero 状态。
 
-## Result contract
+## 结果契约
 
-The final business payload is one JSON object validated against `assets/output.schema.json`. The Agent constructs the semantic values; the Runner removes its transport marker and validates the remaining object.
+最终业务负载是一个针对 `assets/output.schema.json` 校验的 JSON 对象。Agent 构造语义值；Runner 移除其传输标记并校验剩余对象。
 
-Required fields:
+必填字段：
 
-- `schema`: exactly `zotero-library-task.result.v1`.
-- `status`: exactly `completed`, `canceled`, or `failed`.
-- `summary`: a non-empty truthful statement of the bounded outcome, material scope, and limitations.
+- `schema`：精确为 `zotero-library-task.result.v1`。
+- `status`：精确为 `completed`、`canceled` 或 `failed`。
+- `summary`：关于有界成果、实质范围与局限性的非空、真实的陈述。
 
-Optional arrays:
+可选数组：
 
-- `evidence`: each entry requires `kind` and `ref`; add `locator` and `description` only when known.
-- `artifacts`: each entry requires an existing agent-accessible `path` and its `role`; add `mediaType` when known.
-- `diagnostics`: each entry requires a stable `code` and concise `message`.
+- `evidence`：每条目需要 `kind` 与 `ref`；仅在已知时附加 `locator` 与 `description`。
+- `artifacts`：每条目需要一个 agent 可访问的 `path` 与其 `role`；已知时附加 `mediaType`。
+- `diagnostics`：每条目需要一个稳定的 `code` 与简洁的 `message`。
 
-Status selection:
+状态选择：
 
-- Use `completed` only when every requested stage has its declared evidence. A complete bounded search with no matches can be completed; an incomplete search cannot.
-- Use `canceled` when a material user decision, identity, required input, or current authority is missing and execution stops safely.
-- Use `failed` when an attempted objective cannot complete. If some subjects succeeded, preserve them in evidence or artifacts and explain the incomplete overall objective.
-- Do not invent `partial`, `success`, `blocked`, or another status.
+- 仅当每个被请求的阶段都具备其已声明的证据时才使用 `completed`。一个有界搜索完整但无匹配可以 completed；不完整的搜索则不能。
+- 当缺少关键的用户决定、身份、所需输入或当前授权且执行安全停止时，使用 `canceled`。
+- 当一次尝试的目标无法完成时使用 `failed`。若部分主体成功，应在 evidence 或 artifacts 中保留它们，并解释整体目标的不完整部分。
+- 不要捏造 `partial`、`success`、`blocked` 或其他状态。
 
-Minimal valid result:
+最小合法结果：
 
 ```json
 {
@@ -188,19 +188,19 @@ Minimal valid result:
 }
 ```
 
-Runner transport is separate. `__SKILL_DONE__: false` means a concrete user decision is pending. The final Runner branch uses `__SKILL_DONE__: true`, but `__SKILL_DONE__` is removed before Schema validation and must not appear inside the business result or result file. Emit no Markdown fence, preface, suffix, or second JSON object.
+Runner 传输是独立的。`__SKILL_DONE__: false` 表示一个具体的用户决定正在等待。最终的 Runner 分支使用 `__SKILL_DONE__: true`，但 `__SKILL_DONE__` 会在 Schema 校验之前被移除，且不得出现在业务结果或结果文件内部。不要发出 Markdown 代码块、前言、后缀或第二个 JSON 对象。
 
-Read `assets/output.schema.json` when exact machine validation, nested field restrictions, or the three annotated examples are needed. Do not declare a planned or missing artifact, expose private paths, or copy a typed handle into the wrong evidence kind.
+当需要精确的机器校验、嵌套字段限制或三个带注释的示例时，读取 `assets/output.schema.json`。不要声明一个计划中的或缺失的 artifact，不要暴露私有路径，也不要将类型化的 handle 复制到错误的 evidence kind。
 
-## Completion
+## 完成
 
-Return one final `zotero-library-task.result.v1` object. It requires `schema`, `status`, and `summary`: `completed` means every requested stage met its own evidence-based completion condition; `canceled` means a required decision, identity, input, or authority is missing; `failed` means an attempted stage cannot complete safely. Include relevant inline `evidence`, declared `artifacts`, and structured `diagnostics`. Use the runner pending envelope only while a concrete user decision is required.
+返回一个最终的 `zotero-library-task.result.v1` 对象。它需要 `schema`、`status` 与 `summary`：`completed` 表示每个被请求的阶段都已满足其自身的基于证据的完成条件；`canceled` 表示所需的决定、身份、输入或授权缺失；`failed` 表示尝试的阶段无法安全完成。包含相关的内联 `evidence`、已声明的 `artifacts` 与结构化的 `diagnostics`。仅在需要具体的用户决定时使用 runner pending 信封。
 
-## Failure handling
+## 失败处理
 
-Preserve the last completed stage, stable source refs, structured errors, operation receipts, and typed handles. Resume at the first stage whose required evidence is absent; do not replay an earlier acquisition, submission, mutation, maintenance operation, or apply-back merely because a later stage failed. Return `canceled` for a missing current decision and `failed` after the declared recovery path cannot complete.
+保留最后完成的阶段、稳定的来源 refs、结构化错误、操作收据与类型化的 handles。从首个缺少所需证据的阶段恢复；不要因为后续阶段失败而重放先前的获取、提交、变更、维护操作或 apply-back。当缺少当前决定时返回 `canceled`；当声明的恢复路径无法完成时返回 `failed`。
 
-## Routing
+## 路由
 
 - Query: `zotero-library-query`
 - Acquisition: `zotero-literature-acquisition`
@@ -208,7 +208,7 @@ Preserve the last completed stage, stable source refs, structured errors, operat
 - Synthesis: `zotero-research-synthesis`
 - Curation: `zotero-library-curation`
 
-## References
+## 参考
 
-- Consult [the research task model](references/research-task-model.md) when a request spans task domains, requires a Zotero-managed versus self-owned execution decision, transfers Products/files/artifacts across stages, or needs multi-stage recovery.
-- Consult [the built-in workflow catalog](references/workflow-catalog.md) when selecting among workflows shipped with the Zotero plugin or explaining a built-in workflow's declared selection, options, provider, and result contract. Confirm availability and the actual contract through live workflow commands.
+- 当请求跨越任务领域、需要 Zotero 托管与自管执行的决策、跨阶段传输 Products/文件/artifacts 或需要多阶段恢复时，查阅 [the research task model](references/research-task-model.md)。
+- 当在 Zotero 插件附带的工作流之间进行选择，或解释某个内置 workflow 的已声明选择、选项、provider 与结果契约时，查阅 [the built-in workflow catalog](references/workflow-catalog.md)。通过实时 workflow 命令确认可用性与实际契约。

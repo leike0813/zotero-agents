@@ -1,6 +1,6 @@
 # `zotero-bridge library item attachments`
 
-列出一个 Zotero item 的子附件
+列出一个 Zotero 条目的子附件
 
 ## 用法
 
@@ -8,28 +8,28 @@
 zotero-bridge library item attachments [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] [--key <KEY>] [--id <ID>] [--library-id <LIBRARY_ID>] [--cursor <CURSOR>] [--limit <LIMIT>]
 ```
 
-全局选项可以出现在 leaf 命令之前或之后。此 leaf 没有结构化 JSON 输入。`--schema` 会返回 `command_input_schema_unavailable`；请使用命令帮助或 `surface describe` 来检查调用契约。
+全局选项可以出现在叶子命令之前或之后。该叶子命令没有结构化 JSON 输入。`--schema` 返回 `command_input_schema_unavailable`；请使用命令帮助或 `surface describe` 来检查调用契约。
 
 ## 全局参数
 
 | Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| --endpoint | endpoint | option | no | — | ENDPOINT | no | ZOTERO_BRIDGE_ENDPOINT | — | Zotero Bridge 服务的端点基址。若省略，CLI 会读取 ZOTERO_BRIDGE_ENDPOINT 或 profile 文件。CLI 不会随意猜测 bridge 端口。 |
-| --operation-id | operation_id | option | no | — | ID | no | ZOTERO_BRIDGE_OPERATION_ID | — | 用于一次会改变 Zotero 状态的请求的不透明幂等性 id |
-| --profile | profile | option | no | — | PATH | no | ZOTERO_BRIDGE_PROFILE | — | Zotero Bridge 连接 profile JSON 文件的路径。若省略，CLI 会尝试使用 Zotero Agents 的 well-known profile。ACP 运行 profile 通常引用 tokenEnv；本地的 well-known profile 可能包含由用户级文件权限保护的 bearer token。 |
-| --schema | schema | option | no | — | SCHEMA; values: true, false | no | — | — | 为一个规范化的 leaf 命令打印版本化的原始 JSON Schema 和受管控的示例。Schema 模式为离线模式，不会加载 profile、读取 Zotero Bridge 配置，也不会连接 Zotero。 |
+| --endpoint | endpoint | option | no | — | ENDPOINT | no | ZOTERO_BRIDGE_ENDPOINT | — | Zotero Bridge 服务端点的基础 URL。如果省略，CLI 会读取 ZOTERO_BRIDGE_ENDPOINT 或 profile 文件。CLI 不会猜测任意的 bridge 端口。 |
+| --operation-id | operation_id | option | no | — | ID | no | ZOTERO_BRIDGE_OPERATION_ID | — | 用于变更 Zotero 状态的不透明幂等性 ID |
+| --profile | profile | option | no | — | PATH | no | ZOTERO_BRIDGE_PROFILE | — | Zotero Bridge 连接 profile JSON 文件的路径。如果省略，CLI 会尝试使用 Zotero Agents 的已知 profile。ACP 运行 profile 通常引用 tokenEnv；本地已知 profile 可能包含受用户级文件权限保护的 bearer token。 |
+| --schema | schema | option | no | — | SCHEMA; values: true, false | no | — | — | 打印一个规范叶子命令的版本化原始 JSON Schema 和受治理的示例。Schema 模式是离线的，不会加载 profile、读取 Zotero Bridge 配置或连接 Zotero。 |
 
 ## 本地选项与位置参数
 
 | Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| --key | key | option | no | — | KEY | no | — | id | Zotero item key |
-| --id | id | option | no | — | ID | no | — | key | Zotero item numeric id |
-| --library-id | library_id | option | no | — | LIBRARY_ID | no | — | — | Zotero library id for key lookup |
-| --cursor | cursor | option | no | — | CURSOR | no | — | — | Opaque continuation cursor |
-| --limit | limit | option | no | — | LIMIT | no | — | — | Maximum number of entries (1-100) |
+| --key | key | option | no | — | KEY | no | — | id | Zotero 条目 key |
+| --id | id | option | no | — | ID | no | — | key | Zotero 条目数字 ID |
+| --library-id | library_id | option | no | — | LIBRARY_ID | no | — | — | 用于 key 查询的 Zotero library ID |
+| --cursor | cursor | option | no | — | CURSOR | no | — | — | 不透明的分页游标 |
+| --limit | limit | option | no | — | LIMIT | no | — | — | 最大条目数 (1-100) |
 
-## 调用 schema
+## 调用 Schema
 
 ```json
 {
@@ -85,11 +85,11 @@ zotero-bridge library item attachments [--endpoint <ENDPOINT>] [--operation-id <
 }
 ```
 
-## 结构化输入 schema
+## 结构化输入 Schema
 
-此命令没有结构化 JSON 输入参数。
+本命令没有结构化 JSON 输入参数。
 
-## 组合 payload schema
+## 组合 Payload Schema
 
 ```json
 {
@@ -129,7 +129,7 @@ zotero-bridge library item attachments [--endpoint <ENDPOINT>] [--operation-id <
 
 ## Payload 组合
 
-The executable command contract owns the base source, fixed values, field mappings, and closed transforms shown below. Command handlers only provide values under the referenced Clap argument IDs.
+可执行命令契约拥有如下展示的基础源、固定值、字段映射和封闭变换。命令处理器仅在所引用的 Clap 参数 ID 下提供值。
 
 ```json
 {
@@ -169,7 +169,7 @@ The executable command contract owns the base source, fixed values, field mappin
 }
 ```
 
-## 结果 schema
+## 结果 Schema
 
 ```json
 {
@@ -257,11 +257,11 @@ The executable command contract owns the base source, fixed values, field mappin
 
 ## 示例
 
-没有适用的结构化输入示例。执行前，请根据参数表构建 argv，并使用 `surface describe` 确认命令。
+没有适用的结构化输入示例。请根据参数表构建 argv，并在执行前通过 `surface describe` 确认命令。
 
 ## 完整命令描述符
 
-此封闭描述符是 `surface describe` 返回的机器可读命令契约；此处包含它是为了让该卡片在无需加载其他命令参考的情况下仍可独立审计。
+此封闭描述符是由 `surface describe` 返回的机器可读命令契约；将其放在这里，以便本卡片可在不加载其他命令参考的情况下独立审计。
 
 ```json
 {
@@ -685,27 +685,27 @@ The executable command contract owns the base source, fixed values, field mappin
 
 ## 参数失败与恢复契约
 
-Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+参数失败以单个 JSON 错误信封返回。检查 `error.code`，然后要求 `error.details.schema` 为 `host-bridge.argument-error.v1`，然后再使用结构化边界字段。保留规范命令、净化输入以及任何已返回的类型化 handle；切勿在证据中包含完整的原始 payload。
 
-- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
-- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
-- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
-- This leaf has no structured JSON input, so `command_input` is not an expected invocation boundary. Use `surface describe` for its scalar and positional contract.
-- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
-- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
-- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
+- `argv` 报告缺失、未知、冲突或无效的 CLI 参数。请根据本卡片的参数表或活动命令帮助重建 argv。
+- `json_source` 报告无法读取的 stdin 或文件源。请在不将值移动到不同绑定的情况下更正该源。
+- `json_syntax` 报告无效 JSON，并附带安全的行列上下文。请在解释领域字段之前修复语法。
+- 此叶子命令没有结构化 JSON 输入，因此 `command_input` 不是预期的调用边界。请使用 `surface describe` 来查看其标量和位置参数契约。
+- `payload_contract` 表示 CLI 组合的能力 payload 在网络 I/O 之前违反了可执行契约。请将其视为实现缺陷；不要绕过语义命令使用原始传输。
+- `command_result` 表示 Host 响应或本地结果未通过其可执行结果 Schema。请勿将其接受或报告为成功证据。
+- 违规数组经过脱敏、按确定性排序，并最多保留八项。当 `truncated` 为 true 时，请更正报告的违规并重新验证，而不是请求秘密或完整 payload 披露。
 
-## 运行契约
+## 操作契约
 
-- Canonical argv path: `library` `item` `attachments`.
-- Output boundary: `cursor`; governed details: {"continuation":["data.nextCursor","data.hasMore","data.returned","data.total","data.limit"],"cursorInput":"cursor","defaultLimit":25,"maxLimit":100,"section":"data.attachments","strategy":"cursor"}.
-- Pagination: `cursor`.
-- Category: `read`; danger: `none`.
-- Structured binding mode: `object`.
-- Intent visibility: `visible`.
-- Operational aliases: `library item attachments`, `library`, `item`, `attachments`, `key`, `KEY`, `id`, `ID`, `library_id`, `library-id`, `LIBRARY_ID`, `cursor`, `CURSOR`, `limit`, `LIMIT`.
+- 规范 argv 路径：`library` `item` `attachments`。
+- 输出边界：`cursor`；受治理的细节：{"continuation":["data.nextCursor","data.hasMore","data.returned","data.total","data.limit"],"cursorInput":"cursor","defaultLimit":25,"maxLimit":100,"section":"data.attachments","strategy":"cursor"}。
+- 分页：`cursor`。
+- 类别：`read`；危险：`none`。
+- 结构化绑定模式：`object`。
+- Intent 可见性：`visible`。
+- 操作别名：`library item attachments`、`library`、`item`、`attachments`、`key`、`KEY`、`id`、`ID`、`library_id`、`library-id`、`LIBRARY_ID`、`cursor`、`CURSOR`、`limit`、`LIMIT`。
 
-### 影响
+### Effects
 
 ```json
 [
@@ -717,7 +717,7 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 ]
 ```
 
-### 审批
+### Approval
 
 ```json
 {
@@ -727,14 +727,14 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 }
 ```
 
-### Handle 转换
+### Handle transitions
 
 ```json
 [
 ]
 ```
 
-### 恢复
+### Recovery
 
 ```json
 [
@@ -748,7 +748,7 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 ]
 ```
 
-### 目标
+### Targets
 
 ```json
 [

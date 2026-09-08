@@ -1,6 +1,6 @@
 # `zotero-bridge workflow submission get`
 
-读取一个活跃的 Zotero 托管 workflow 提交
+读取一个活动的 Zotero 受管理 workflow submission
 
 ## 用法
 
@@ -8,24 +8,24 @@
 zotero-bridge workflow submission get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] SUBMISSION_ID <SUBMISSION_ID> [--cursor <CURSOR>] [--limit <LIMIT>]
 ```
 
-全局选项可以出现在 leaf 命令之前或之后。此 leaf 没有结构化 JSON 输入。`--schema` 会返回 `command_input_schema_unavailable`；请使用命令帮助或 `surface describe` 来检查调用契约。
+全局选项可出现在叶命令之前或之后。此叶命令没有结构化 JSON 输入。`--schema` 返回 `command_input_schema_unavailable`；请使用命令帮助或 `surface describe` 检查调用契约。
 
 ## 全局参数
 
 | Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| --endpoint | endpoint | option | no | — | ENDPOINT | no | ZOTERO_BRIDGE_ENDPOINT | — | Zotero Bridge 服务的端点基址。若省略，CLI 会读取 ZOTERO_BRIDGE_ENDPOINT 或 profile 文件。CLI 不会随意猜测 bridge 端口。 |
-| --operation-id | operation_id | option | no | — | ID | no | ZOTERO_BRIDGE_OPERATION_ID | — | 用于一次会改变 Zotero 状态的请求的不透明幂等性 id |
-| --profile | profile | option | no | — | PATH | no | ZOTERO_BRIDGE_PROFILE | — | Zotero Bridge 连接 profile JSON 文件的路径。若省略，CLI 会尝试使用 Zotero Agents 的 well-known profile。ACP 运行 profile 通常引用 tokenEnv；本地的 well-known profile 可能包含由用户级文件权限保护的 bearer token。 |
-| --schema | schema | option | no | — | SCHEMA; values: true, false | no | — | — | 为一个规范化的 leaf 命令打印版本化的原始 JSON Schema 和受管控的示例。Schema 模式为离线模式，不会加载 profile、读取 Zotero Bridge 配置，也不会连接 Zotero。 |
+| --endpoint | endpoint | option | no | — | ENDPOINT | no | ZOTERO_BRIDGE_ENDPOINT | — | Zotero Bridge 服务端点基础 URL。若省略，CLI 读取 ZOTERO_BRIDGE_ENDPOINT 或 profile 文件。CLI 不会猜测随机的 bridge 端口。 |
+| --operation-id | operation_id | option | no | — | ID | no | ZOTERO_BRIDGE_OPERATION_ID | — | 用于改变状态的 Zotero 请求的不透明 idempotency id |
+| --profile | profile | option | no | — | PATH | no | ZOTERO_BRIDGE_PROFILE | — | Zotero Bridge connection-profile JSON 文件的路径。若省略，CLI 会尝试 Zotero Agents 的 well-known profile。ACP run profile 通常引用 tokenEnv；本地 well-known profile 可能包含受用户级文件权限保护的 bearer token。 |
+| --schema | schema | option | no | — | SCHEMA; values: true, false | no | — | — | 打印一个规范叶命令的带版本原始 JSON Schema 与受管辖示例。Schema 模式为离线模式，不加载 profile、不读取 Zotero Bridge 配置，也不连接 Zotero。 |
 
-## 本地选项与位置参数
+## 局部选项与位置参数
 
 | Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| SUBMISSION_ID | submission_id | positional | yes | — | SUBMISSION_ID | no | — | — | Opaque submission id returned by workflow submit |
-| --cursor | cursor | option | no | — | CURSOR | no | — | — | Opaque continuation cursor for submission units |
-| --limit | limit | option | no | — | LIMIT | no | — | — | Maximum number of submission units (1-100) |
+| SUBMISSION_ID | submission_id | positional | yes | — | SUBMISSION_ID | no | — | — | 由 workflow submit 返回的不透明 submission id |
+| --cursor | cursor | option | no | — | CURSOR | no | — | — | 提交 units 的不透明续接 cursor |
+| --limit | limit | option | no | — | LIMIT | no | — | — | 最大提交单元数（1-100） |
 
 ## 调用 schema
 
@@ -58,7 +58,7 @@ zotero-bridge workflow submission get [--endpoint <ENDPOINT>] [--operation-id <I
 
 此命令没有结构化 JSON 输入参数。
 
-## 组合 payload schema
+## 组合载荷 schema
 
 ```json
 {
@@ -74,11 +74,11 @@ zotero-bridge workflow submission get [--endpoint <ENDPOINT>] [--operation-id <I
 }
 ```
 
-## Payload 组合
+## 载荷组合
 
-此命令没有单独的字段映射程序。其 binding 模式可直接执行：passthrough 使用唯一的结构化源，而 `none` 和 `raw` 保持其声明的封闭行为。
+此命令没有独立的字段映射程序。其绑定模式为直接可执行：passthrough 使用唯一的结构化来源，而 `none` 与 `raw` 保持其声明的封闭行为。
 
-`composition`: `null`.
+`composition`：`null`。
 
 ## 结果 schema
 
@@ -160,11 +160,11 @@ zotero-bridge workflow submission get [--endpoint <ENDPOINT>] [--operation-id <I
 
 ## 示例
 
-没有适用的结构化输入示例。执行前，请根据参数表构建 argv，并使用 `surface describe` 确认命令。
+没有适用的结构化输入示例。请依据参数表构建 argv，并在执行前用 `surface describe` 确认命令。
 
 ## 完整命令描述符
 
-此封闭描述符是 `surface describe` 返回的机器可读命令契约；此处包含它是为了让该卡片在无需加载其他命令参考的情况下仍可独立审计。
+此封闭描述符是 `surface describe` 返回的机器可读命令契约；此处包含它，以便在不加载另一份命令参考的情况下，本卡片仍可独立审计。
 
 ```json
 {
@@ -442,27 +442,27 @@ zotero-bridge workflow submission get [--endpoint <ENDPOINT>] [--operation-id <I
 
 ## 参数失败与恢复契约
 
-Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+参数失败以单个 JSON 错误信封返回。先检查 `error.code`，然后要求 `error.details.schema` 为 `host-bridge.argument-error.v1`，再使用结构化边界字段。保留规范命令、已净化的输入以及任何已返回的类型化句柄；绝不在证据中包含完整的原始载荷。
 
-- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
-- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
-- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
-- This leaf has no structured JSON input, so `command_input` is not an expected invocation boundary. Use `surface describe` for its scalar and positional contract.
-- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
-- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
-- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
+- `argv` 报告缺失、未知、冲突或无效的 CLI 参数。请依据本卡片的参数表或当前命令帮助重建 argv。
+- `json_source` 报告 stdin 或文件源不可读。请修正该源，而不要将值挪到另一个绑定。
+- `json_syntax` 以安全行列上下文报告无效 JSON。在解读领域字段前先修复语法。
+- 此叶命令没有结构化 JSON 输入，因此 `command_input` 不是预期的调用边界。请使用 `surface describe` 了解其标量与位置参数契约。
+- `payload_contract` 表示 CLI 组合出的 capability 载荷在网络 I/O 之前违反了可执行契约。将其视为实现缺陷；不要用原始传输绕过语义命令。
+- `command_result` 表示 Host 响应或本地结果未通过其可执行结果 schema。不得将其作为成功证据接受或报告。
+- 违规数组经过脱敏、确定性排序，并最多保留八项。当 `truncated` 为 true 时，应修正所报告的违规并重新校验，而不是要求披露秘密或完整载荷。
 
-## 运行契约
+## 操作契约
 
-- Canonical argv path: `workflow` `submission` `get`.
-- Output boundary: `cursor`; governed details: {"continuation":["nextCursor","hasMore","returned","total","limit"],"cursorInput":"cursor","defaultLimit":25,"maxLimit":100,"section":"units","strategy":"cursor"}.
-- Pagination: `cursor`.
-- Category: `read`; danger: `none`.
-- Structured binding mode: `none`.
-- Intent visibility: `visible`.
-- Operational aliases: `workflow submission get`, `workflow`, `submission`, `get`, `submission_id`, `SUBMISSION_ID`, `cursor`, `CURSOR`, `limit`, `LIMIT`.
+- 规范 argv 路径：`workflow` `submission` `get`。
+- 输出边界：`cursor`；受管辖详情：{"continuation":["nextCursor","hasMore","returned","total","limit"],"cursorInput":"cursor","defaultLimit":25,"maxLimit":100,"section":"units","strategy":"cursor"}。
+- 分页：`cursor`。
+- 类别：`read`；危险级别：`none`。
+- 结构化绑定模式：`none`。
+- 意图可见性：`visible`。
+- 操作别名：`workflow submission get`、`workflow`、`submission`、`get`、`submission_id`、`SUBMISSION_ID`、`cursor`、`CURSOR`、`limit`、`LIMIT`。
 
-### 影响
+### 效果
 
 ```json
 [
@@ -484,7 +484,7 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 }
 ```
 
-### Handle 转换
+### 句柄转换
 
 ```json
 [

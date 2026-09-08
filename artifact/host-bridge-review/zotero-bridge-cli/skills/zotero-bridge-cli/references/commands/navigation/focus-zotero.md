@@ -2,28 +2,28 @@
 
 navigation focus-zotero
 
-## Usage
+## 用法
 
 ```console
 zotero-bridge navigation focus-zotero [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] [--input <JSON_OR_FILE>]
 ```
 
-The global options may appear before or after the leaf command. Use `--schema` to inspect raw structured-input schemas without loading a profile or connecting to Zotero.
+全局选项可以出现在 leaf 命令之前或之后。使用 `--schema` 可在加载 profile 或连接 Zotero 之前查看原始的 structured-input schemas。
 
-## Global parameters
-
-| Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| --endpoint | endpoint | option | no | — | ENDPOINT | no | ZOTERO_BRIDGE_ENDPOINT | — | Zotero Bridge service endpoint base URL. If omitted, the CLI reads ZOTERO_BRIDGE_ENDPOINT or a profile file. The CLI does not guess random bridge ports. |
-| --operation-id | operation_id | option | no | — | ID | no | ZOTERO_BRIDGE_OPERATION_ID | — | Opaque idempotency id for a state-changing Zotero request |
-| --profile | profile | option | no | — | PATH | no | ZOTERO_BRIDGE_PROFILE | — | Path to a Zotero Bridge connection-profile JSON file. If omitted, the CLI tries the Zotero Agents well-known profile. ACP run profiles usually reference tokenEnv; the local well-known profile may contain a bearer token protected by user-level file permissions. |
-| --schema | schema | option | no | — | SCHEMA; values: true, false | no | — | — | Print the versioned raw JSON Schemas and governed examples for one canonical leaf command. Schema mode is offline and does not load a profile, read Zotero Bridge configuration, or connect to Zotero. |
-
-## Local options and positionals
+## 全局参数
 
 | Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| --input | input | option | no | — | JSON_OR_FILE | no | — | — | Navigation input JSON |
+| --endpoint | endpoint | option | no | — | ENDPOINT | no | ZOTERO_BRIDGE_ENDPOINT | — | Zotero Bridge 服务的 endpoint 基础 URL。如果省略,CLI 将读取 ZOTERO_BRIDGE_ENDPOINT 或 profile 文件。CLI 不会猜测任何随机的 bridge 端口。 |
+| --operation-id | operation_id | option | no | — | ID | no | ZOTERO_BRIDGE_OPERATION_ID | — | 用于状态变更的 Zotero 请求的不透明幂等性 id |
+| --profile | profile | option | no | — | PATH | no | ZOTERO_BRIDGE_PROFILE | — | Zotero Bridge 连接 profile JSON 文件的路径。如果省略,CLI 将尝试使用 Zotero Agents 的 well-known profile。ACP run profile 通常引用 tokenEnv;本地 well-known profile 可能包含由用户级文件权限保护的 bearer token。 |
+| --schema | schema | option | no | — | SCHEMA; values: true, false | no | — | — | 打印某个规范 leaf 命令的版本化原始 JSON Schema 与受管示例。Schema 模式处于离线状态,不会加载 profile、读取 Zotero Bridge 配置,也不会连接 Zotero。 |
+
+## 本地选项与位置参数
+
+| Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| --input | input | option | no | — | JSON_OR_FILE | no | — | — | Navigation 输入 JSON |
 
 ## Invocation schema
 
@@ -49,6 +49,8 @@ Required: `false`.
 
 ```json
 {
+  "additionalProperties": false,
+  "properties": {},
   "type": "object"
 }
 ```
@@ -73,12 +75,38 @@ This command has no separate field-mapping program. Its binding mode is executab
 
 ```json
 {
-  "additionalProperties": true,
+  "additionalProperties": false,
+  "properties": {
+    "approval": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "capability": {
+      "const": "navigation.focus_zotero"
+    },
+    "data": {
+      "additionalProperties": false,
+      "properties": {
+        "outcome": {
+          "const": "focus_dispatched"
+        }
+      },
+      "required": [
+        "outcome"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "capability",
+    "approval",
+    "data"
+  ],
   "type": "object"
 }
 ```
 
-## Examples
+## 示例
 
 ### input: shape-only
 
@@ -88,7 +116,7 @@ Governed shape-only example for --input.
 zotero-bridge navigation focus-zotero --input '{}'
 ```
 
-## Complete command descriptor
+## 完整命令描述符
 
 This closed descriptor is the machine-readable command contract returned by `surface describe`; it is included here so the card remains independently auditable without loading another command reference.
 
@@ -160,9 +188,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "required": false,
       "requiredWhen": [],
       "schema": {
+        "additionalProperties": false,
+        "properties": {},
         "type": "object"
       },
-      "schemaSource": "inline",
+      "schemaSource": "target-capability",
       "token": "--input"
     }
   },
@@ -198,7 +228,33 @@ This closed descriptor is the machine-readable command contract returned by `sur
     }
   ],
   "resultSchema": {
-    "additionalProperties": true,
+    "additionalProperties": false,
+    "properties": {
+      "approval": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "capability": {
+        "const": "navigation.focus_zotero"
+      },
+      "data": {
+        "additionalProperties": false,
+        "properties": {
+          "outcome": {
+            "const": "focus_dispatched"
+          }
+        },
+        "required": [
+          "outcome"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "capability",
+      "approval",
+      "data"
+    ],
     "type": "object"
   },
   "summary": "navigation focus-zotero",
@@ -211,7 +267,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 }
 ```
 
-## Parameter failure and recovery contract
+## 参数失败与恢复契约
 
 Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
 

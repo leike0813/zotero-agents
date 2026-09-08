@@ -1,38 +1,38 @@
 # `zotero-bridge mutation get-operation`
 
-Read canonical mutation evidence
+读取规范 mutation 证据
 
-## Usage
+## 用法
 
 ```console
 zotero-bridge mutation get-operation [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] OPERATION_ID <OPERATION_ID>
 ```
 
-The global options may appear before or after the leaf command. Use `--schema` to inspect raw structured-input schemas without loading a profile or connecting to Zotero.
+全局选项可出现在叶命令之前或之后。使用 `--schema` 检查原始结构化输入 schema，而无需加载 profile 或连接 Zotero。
 
-## Global parameters
-
-| Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| --endpoint | endpoint | option | no | — | ENDPOINT | no | ZOTERO_BRIDGE_ENDPOINT | — | Zotero Bridge service endpoint base URL. If omitted, the CLI reads ZOTERO_BRIDGE_ENDPOINT or a profile file. The CLI does not guess random bridge ports. |
-| --operation-id | operation_id | option | no | — | ID | no | ZOTERO_BRIDGE_OPERATION_ID | — | Opaque idempotency id for a state-changing Zotero request |
-| --profile | profile | option | no | — | PATH | no | ZOTERO_BRIDGE_PROFILE | — | Path to a Zotero Bridge connection-profile JSON file. If omitted, the CLI tries the Zotero Agents well-known profile. ACP run profiles usually reference tokenEnv; the local well-known profile may contain a bearer token protected by user-level file permissions. |
-| --schema | schema | option | no | — | SCHEMA; values: true, false | no | — | — | Print the versioned raw JSON Schemas and governed examples for one canonical leaf command. Schema mode is offline and does not load a profile, read Zotero Bridge configuration, or connect to Zotero. |
-
-## Local options and positionals
+## 全局参数
 
 | Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| OPERATION_ID | operation_id | positional | yes | — | OPERATION_ID | no | — | — | Canonical mutation operation id returned by or supplied to mutation.execute |
+| --endpoint | endpoint | option | no | — | ENDPOINT | no | ZOTERO_BRIDGE_ENDPOINT | — | Zotero Bridge 服务端点基础 URL。若省略，CLI 读取 ZOTERO_BRIDGE_ENDPOINT 或 profile 文件。CLI 不会猜测随机的 bridge 端口。 |
+| --operation-id | operation_id | option | no | — | ID | no | ZOTERO_BRIDGE_OPERATION_ID | — | 用于改变状态的 Zotero 请求的不透明 idempotency id |
+| --profile | profile | option | no | — | PATH | no | ZOTERO_BRIDGE_PROFILE | — | Zotero Bridge connection-profile JSON 文件的路径。若省略，CLI 会尝试 Zotero Agents 的 well-known profile。ACP run profile 通常引用 tokenEnv；本地 well-known profile 可能包含受用户级文件权限保护的 bearer token。 |
+| --schema | schema | option | no | — | SCHEMA; values: true, false | no | — | — | 打印一个规范叶命令的带版本原始 JSON Schema 与受管辖示例。Schema 模式为离线模式，不加载 profile、不读取 Zotero Bridge 配置，也不连接 Zotero。 |
 
-## Invocation schema
+## 局部选项与位置参数
+
+| Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| OPERATION_ID | operation_id | positional | yes | — | OPERATION_ID | no | — | — | 规范 mutation operation id，由语义 mutation 返回或提供给它 |
+
+## 调用 schema
 
 ```json
 {
   "additionalProperties": false,
   "properties": {
     "operation_id": {
-      "description": "Canonical mutation operation id returned by or supplied to mutation.execute",
+      "description": "Canonical mutation operation id returned by or supplied to a semantic mutation",
       "position": 1,
       "type": "string"
     }
@@ -44,11 +44,11 @@ The global options may appear before or after the leaf command. Use `--schema` t
 }
 ```
 
-## Structured input schemas
+## 结构化输入 schema
 
-### `operation_id` (operation_id)
+### `operation_id`（operation_id）
 
-Required: `true`.
+必需：`true`。
 
 ```json
 {
@@ -58,7 +58,7 @@ Required: `true`.
 }
 ```
 
-## Composed payload schema
+## 组合载荷 schema
 
 ```json
 {
@@ -77,9 +77,9 @@ Required: `true`.
 }
 ```
 
-## Payload composition
+## 载荷组合
 
-The executable command contract owns the base source, fixed values, field mappings, and closed transforms shown below. Command handlers only provide values under the referenced Clap argument IDs.
+可执行命令契约拥有下方所示的基准源、固定值、字段映射与封闭转换。命令处理器只在所引用的 Clap 参数 ID 下提供值。
 
 ```json
 {
@@ -95,7 +95,7 @@ The executable command contract owns the base source, fixed values, field mappin
 }
 ```
 
-## Result schema
+## 结果 schema
 
 ```json
 {
@@ -3709,23 +3709,23 @@ The executable command contract owns the base source, fixed values, field mappin
 }
 ```
 
-## Examples
+## 示例
 
-### operation_id: shape-only
+### operation_id：仅形状
 
-Governed shape-only example for operation_id.
+受管辖的仅形状示例：operation_id。
 
 ```console
 zotero-bridge mutation get-operation operation_id 'mutation-001'
 ```
 
-Prerequisites:
+前置条件：
 
-- Use the operation id selected for the canonical mutation intent.
+- 使用为规范 mutation 意图选择的 operation id。
 
-## Complete command descriptor
+## 完整命令描述符
 
-This closed descriptor is the machine-readable command contract returned by `surface describe`; it is included here so the card remains independently auditable without loading another command reference.
+此封闭描述符是 `surface describe` 返回的机器可读命令契约；此处包含它，以便在不加载另一份命令参考的情况下，本卡片仍可独立审计。
 
 ```json
 {
@@ -3740,7 +3740,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "conflictsWith": [],
       "defaultValues": [],
       "global": false,
-      "help": "Canonical mutation operation id returned by or supplied to mutation.execute",
+      "help": "Canonical mutation operation id returned by or supplied to a semantic mutation",
       "id": "operation_id",
       "kind": "positional",
       "position": 1,
@@ -3829,7 +3829,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "additionalProperties": false,
     "properties": {
       "operation_id": {
-        "description": "Canonical mutation operation id returned by or supplied to mutation.execute",
+        "description": "Canonical mutation operation id returned by or supplied to a semantic mutation",
         "position": 1,
         "type": "string"
       }
@@ -7492,29 +7492,29 @@ This closed descriptor is the machine-readable command contract returned by `sur
 }
 ```
 
-## Parameter failure and recovery contract
+## 参数失败与恢复契约
 
-Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+参数失败以单个 JSON 错误信封返回。先检查 `error.code`，然后要求 `error.details.schema` 为 `host-bridge.argument-error.v1`，再使用结构化边界字段。保留规范命令、已净化的输入以及任何已返回的类型化句柄；绝不在证据中包含完整的原始载荷。
 
-- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
-- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
-- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
-- `command_input` reports schema violations for a structured input. Inspect the bounded `violations`, then run this exact leaf with `--schema` and correct the declared field or type; do not invent an alias.
-- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
-- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
-- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
+- `argv` 报告缺失、未知、冲突或无效的 CLI 参数。请依据本卡片的参数表或当前命令帮助重建 argv。
+- `json_source` 报告 stdin 或文件源不可读。请修正该源，而不要将值挪到另一个绑定。
+- `json_syntax` 以安全行列上下文报告无效 JSON。在解读领域字段前先修复语法。
+- `command_input` 报告结构化输入的 schema 违规。检查有界的 `violations`，然后用 `--schema` 运行此精确叶命令并修正所声明的字段或类型；不要自行发明别名。
+- `payload_contract` 表示 CLI 组合出的 capability 载荷在网络 I/O 之前违反了可执行契约。将其视为实现缺陷；不要用原始传输绕过语义命令。
+- `command_result` 表示 Host 响应或本地结果未通过其可执行结果 schema。不得将其作为成功证据接受或报告。
+- 违规数组经过脱敏、确定性排序，并最多保留八项。当 `truncated` 为 true 时，应修正所报告的违规并重新校验，而不是要求披露秘密或完整载荷。
 
-## Operational contract
+## 操作契约
 
-- Canonical argv path: `mutation` `get-operation`.
-- Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
-- Pagination: `none`.
-- Category: `read`; danger: `none`.
-- Structured binding mode: `object`.
-- Intent visibility: `visible`.
-- Operational aliases: `mutation get-operation`, `mutation`, `get-operation`, `operation_id`, `OPERATION_ID`.
+- 规范 argv 路径：`mutation` `get-operation`。
+- 输出边界：`fixed`；受管辖细节：{"strategy":"fixed"}。
+- 分页：`none`。
+- 类别：`read`；危险级别：`none`。
+- 结构化绑定模式：`object`。
+- 意图可见性：`visible`。
+- 操作别名：`mutation get-operation`、`mutation`、`get-operation`、`operation_id`、`OPERATION_ID`。
 
-### Effects
+### 效果
 
 ```json
 [
@@ -7526,7 +7526,7 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 ]
 ```
 
-### Approval
+### 审批
 
 ```json
 {
@@ -7536,7 +7536,7 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 }
 ```
 
-### Handle transitions
+### 句柄转换
 
 ```json
 [
@@ -7550,7 +7550,7 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 ]
 ```
 
-### Recovery
+### 恢复
 
 ```json
 [
@@ -7564,7 +7564,7 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 ]
 ```
 
-### Targets
+### 目标
 
 ```json
 [

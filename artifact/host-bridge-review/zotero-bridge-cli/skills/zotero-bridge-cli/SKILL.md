@@ -1,319 +1,331 @@
 ---
 name: zotero-bridge-cli
-description: Operate Zotero Bridge CLI for exact Zotero library, workflow, and Synthesis access. Use when an agent needs low-level Zotero operations, command discovery, or structured recovery.
+description: 操作 Zotero Bridge CLI 以实现精确的 Zotero 库、workflow 与 Synthesis 访问。当 agent 需要底层 Zotero operation、命令发现或结构化恢复时使用。
 license: AGPL-3.0-or-later
 ---
 
 # Zotero Bridge CLI
 
-## Goal
+## 目标
 
-Use the installed `zotero-bridge` CLI safely and deterministically for Zotero library, workflow, file, run, and Synthesis operations. This Skill is the complete mechanism contract: it owns executable selection, connection setup, command discovery, exact invocation, effects and approval interpretation, typed handles, output evidence, and recovery. It does not choose or compose research goals.
+安全且确定性地使用已安装的 `zotero-bridge` CLI 进行 Zotero 库、workflow、file、run 与 Synthesis operations。本 Skill 是完整的机制契约：它拥有可执行文件选择、连接设置、命令发现、精确调用、effects 与 approval 解释、类型化句柄、输出证据与恢复。它不选择或组合研究目标。
 
-## Inputs
+## 输入
 
-- A requested CLI operation or an already selected canonical command.
-- A run-local CLI shim, an installed `zotero-bridge` executable, or the bundled installer when neither is available.
-- The active release envelope and connection profile, including supplied endpoint, scope, mode, and secret environment values.
-- The selected canonical command's inputs, including JSON payloads, object refs, opaque handles, cursors, provider profiles, workflow options, and output destinations.
+- 请求的 CLI 操作或已选择的规范命令。
+- run 本地 CLI shim、已安装的 `zotero-bridge` 可执行文件，或两者皆无时用捆绑安装程序。
+- 活动发布 envelope 与连接 profile，包括提供的端点、范围、模式与机密环境值。
+- 所选规范命令的输入，包括 JSON payloads、对象 refs、不透明句柄、cursors、provider profiles、workflow 选项与输出目的地。
 
-## Workflow
+## 工作流
 
-1. Select one executable and one connection profile using the rules below. Keep the binary, embedded contract, profile, and release envelope in one release set.
-2. Run `zotero-bridge surface identity`. Compare `protocol`, `cliSchema`, `version`, `buildFingerprint`, and `commandCatalogChecksum` with the active release envelope; stop on any mismatch.
-3. If the canonical operation is unknown, read the command catalog, select the closest task family, and use `surface search --intent '<operational terms>'` only to narrow the candidates. Run `surface describe '<canonical command>'` before execution and read only the generated command-surface reference that owns the command's first token.
-4. Resolve live identity and readiness from the outside in: service health, authenticated manifest/profile, backend readiness when relevant, then the domain object or workflow contract.
-5. Prepare only the inputs declared by the command descriptor. Keep workflow options, provider profile, selection, payload, opaque handles, and output path in their distinct bindings.
-6. Inspect effects, approval timing, typed handle transitions, pagination, targets, and recovery before the call. Present any requested Zotero-side approval without treating valid input as authorization.
-7. Execute one canonical command. Treat stdout as one JSON envelope and preserve its identifiers, cursors, checksums, receipts, paths, and structured error fields.
-8. Complete any paging, file delivery, workflow control, or receipt check using the returned contract. Verify live Zotero state after a requested change rather than inferring success from submission or terminal execution alone.
-9. Return the valid result and its evidence, or classify the failure and take only a declared safe next action.
+1. 按下列规则选择一个可执行文件与一个连接 profile。让 binary、内嵌契约、profile 与 release envelope 属于同一个 release set。
+2. 运行 `zotero-bridge surface identity`。把 `protocol`、`cliSchema`、`version`、`buildFingerprint` 与 `commandCatalogChecksum` 同活跃 release envelope 比较；任何失配即停止。
+3. 若规范 operation 未知，读取 command catalog，选择最接近的任务族，并仅用 `surface search --intent '<operational terms>'` 收窄候选。执行前运行 `surface describe '<canonical command>'`，只读取拥有该命令首个 token 的生成命令面引用。
+4. 由外向内解析实时身份与就绪状态：service 健康、经过认证的 manifest/profile、相关时的 backend 就绪，然后是域对象或 workflow 契约。
+5. 只准备命令描述符声明的输入。将 workflow 选项、provider profile、selection、payload、不透明 handle 与输出路径保留在各自独立的绑定中。
+6. 调用前检查效果、approval 时机、类型化句柄转换、分页、目标与恢复。在有效输入不能当作授权的情况下展示任何被请求的 Zotero 侧 approval。
+7. 执行一条规范命令。将 stdout 视为一个 JSON 信封，并保留其标识符、cursor、校验和、receipt、路径与结构化错误字段。
+8. 使用返回的契约完成任何分页、文件投递、workflow 控制或 receipt 检查。请求的更改后验证实时 Zotero 状态，而非仅从提交或终态执行推断成功。
+9. 返回有效结果及其证据，或将失败分类并仅采取声明的安全下一步。
 
-## Executable and profile selection
+## 可执行文件与 profile 选择
 
-Prefer a run-local shim supplied with the current workspace. Otherwise use the installed executable. Use the bundled installer only when neither exists. Never combine a binary, profile, embedded descriptor, asset, or release envelope from different release sets; a matching version string is insufficient identity evidence.
+优先使用当前 workspace 随附的 run 本地 shim。否则使用已安装的可执行文件。两者都不存在时才使用捆绑安装器。绝不组合来自不同 release sets 的 binary、profile、内嵌 descriptor、asset 或 release envelope；匹配的版本字符串不是充分的身份证据。
 
-Preserve supplied `ZOTERO_BRIDGE_PROFILE`, `ZOTERO_BRIDGE_ENDPOINT`, `ZOTERO_BRIDGE_SCOPE`, and `ZOTERO_BRIDGE_CONNECTION_MODE`. Use `ZOTERO_BRIDGE_HOST_PROFILE` or `ZOTERO_BRIDGE_HOST_HOME` only when the packaged installer needs to select the Zotero-side connection profile. `ZOTERO_BRIDGE_TOKEN` is secret input: never print, persist, place in argv, or include it in evidence.
+保留提供的 `ZOTERO_BRIDGE_PROFILE`、`ZOTERO_BRIDGE_ENDPOINT`、`ZOTERO_BRIDGE_SCOPE` 与 `ZOTERO_BRIDGE_CONNECTION_MODE`。仅当打包安装程序需要选择 Zotero 侧连接 profile 时使用 `ZOTERO_BRIDGE_HOST_PROFILE` 或 `ZOTERO_BRIDGE_HOST_HOME`。`ZOTERO_BRIDGE_TOKEN` 是机密输入：绝不打印、持久化、放入 argv 或包含进证据。
 
-Offline `surface` commands describe the embedded contract. They do not prove that Zotero, the Zotero Bridge service, or a configured backend is reachable. For live failures, diagnose in this order:
+离线 `surface` 命令描述内嵌契约。它们不证明 Zotero、Zotero Bridge 服务或已配置 backend 可达。对实时失败，按此顺序诊断：
 
-1. `bridge status` for service health;
-2. `bridge profile inspect` and `bridge profile diagnose` for redacted connection facts;
-3. `bridge manifest` for the authenticated service contract;
-4. `bridge backend list` or `bridge backend status` for provider readiness;
-5. the selected domain read, workflow description, run status, or durable operation receipt.
+1. `bridge status` 检查服务健康；
+2. `bridge profile inspect` 与 `bridge profile diagnose` 获取脱敏连接事实；
+- 3. 认证服务契约用 `bridge manifest`；
+4. `bridge backend list` 或 `bridge backend status` 检查 provider 就绪；
+5. 所选域读取、workflow 描述、run 状态或持久 operation receipt。
 
-## Parameter semantics and placement
+## 参数语义与位置
 
-Only `--endpoint`, `--profile`, `--operation-id`, and `--schema` are global CLI options. They may appear before or after the canonical leaf command. Every other option is leaf-local and must be present in that command's `surface describe` result or generated command card before use.
+只有 `--endpoint`、`--profile`、`--operation-id` 与 `--schema` 是全局 CLI 选项。它们可以出现在规范叶命令之前或之后。所有其他选项都是叶本地的，使用前必须出现在该命令的 `surface describe` 结果或生成的命令卡片中。
 
-Use the global options at these boundaries:
+在这些边界使用全局选项：
 
-- `--endpoint` selects the Zotero Bridge service endpoint for this invocation. An explicit value overrides `ZOTERO_BRIDGE_ENDPOINT`, which overrides the selected profile endpoint. Do not guess a port when none of those sources resolves an endpoint.
-- `--profile` selects the connection-profile JSON file. An explicit value or `ZOTERO_BRIDGE_PROFILE` overrides the well-known profile. Keep the connection profile separate from a workflow provider profile.
-- `--operation-id` supplies the idempotency identity for one state-changing request. Use a stable value when the same uncertain operation may need durable recovery; do not treat it as a workflow, run, Product, or receipt handle. Ordinary reads do not need an agent-supplied operation id.
-- `--schema` performs an offline structured-input schema lookup for one canonical leaf. Use it only when the selected command declares at least one structured JSON input. A leaf without structured input returns `command_input_schema_unavailable`; use command help or `surface describe` instead.
+- `--endpoint` 为本次调用选择 Zotero Bridge 服务端点。显式值覆盖 `ZOTERO_BRIDGE_ENDPOINT`，后者覆盖所选 profile 端点。这些来源都无法解析端点时，不要猜测端口。
+- `--profile` 选择 connection-profile JSON 文件。显式值或 `ZOTERO_BRIDGE_PROFILE` 覆盖 well-known profile。保持连接 profile 与 workflow provider profile 分离。
+- `--operation-id` 为一次改变状态的请求提供幂等身份。当同一不确定操作可能需要持久恢复时使用稳定值；不要把它当作 workflow、run、Product 或 receipt 句柄。普通读取不需要 agent 提供的 operation id。
+- `--schema` 为一条规范叶命令执行离线的结构化输入 schema 查找。仅在所选命令声明至少一个结构化 JSON 输入时使用它。没有结构化输入的叶命令返回 `command_input_schema_unavailable`；改用命令帮助或 `surface describe`。
 
-Every successful command and every structured failure already writes exactly one JSON envelope to stdout. Do not add `--json` to `bridge status`, workflow commands, or another ordinary leaf. `--json` is a leaf-local option accepted only by `surface identity`, `surface describe`, and `surface search`, where it is unnecessary for obtaining the JSON envelope.
+每个成功命令与每个结构化失败都已向 stdout 写入恰好一个 JSON envelope。`--json` 不得添加到 `bridge status`、workflow 命令或其他普通叶命令。`--json` 是仅由 `surface identity`、`surface describe` 与 `surface search` 接受的叶本地选项，而在这些命令上它对于获取 JSON envelope 并非必需。
 
-`--query` and `--input` both transport JSON but express different command contracts:
+`--query` 与 `--input` 都传输 JSON，但表达不同的命令契约：
 
-- `--query` is the canonical binding for a read-only query, selector, filter, or pagination object. When the descriptor marks it optional, omission means `{}`. Some query parsers accept `--input` as an alias, but construct and document the invocation with `--query`.
-- `--input` is the canonical binding for a command-owned input payload, including raw capability calls and many mutation, maintenance, or debug operations. The name alone does not prove that an operation changes state; effects and approval still come from the descriptor.
+- `--query` 是只读查询、selector、筛选器或分页对象的规范绑定。描述符将其标为可选时，省略即 `{}`。某些查询解析器接受 `--input` 作为别名，但请用 `--query` 构造并记录调用。
+- `--input` 是命令自有输入 payload 的规范绑定，包括原始 capability 调用以及许多 mutation、maintenance 或 debug operation。仅凭名称不能证明 operation 改变状态；效果与 approval 仍来自描述符。
 
-For either binding, use inline JSON for a short reviewed value, `@file` for an intentional JSON file, or `-` for stdin. A bare existing path is also read as a JSON file, so prefer `@file` when file interpretation matters. Do not move a payload from `--query` to `--input`, or the reverse, merely because the transport syntax is the same.
+对于任一绑定，短的已审阅值使用内联 JSON，有意的 JSON 文件使用 `@file`，stdin 使用 `-`。裸的现有路径也会被当作 JSON 文件读取，因此在文件解释很重要时优先用 `@file`。不要仅仅因为传输语法相同就把 payload 从 `--query` 移到 `--input`，或反向移动。
 
-Parameter failures use `details.schema: host-bridge.argument-error.v1` and identify the failed boundary in `details.phase`. Treat `argv`, `json_source`, `json_syntax`, `command_input`, `payload_composition`, `payload_contract`, and `command_result` as distinct failures. For `argv`, correct only the named missing, unknown, conflicting, or invalid argument from command help or `surface describe`. For `json_source` and `json_syntax`, repair the selected stdin, file, or inline JSON source before consulting a domain schema. For `command_input`, inspect `argumentId` and the bounded violations, then run the same leaf with `--schema`; an undeclared property is not permission to rename or translate it. For `payload_composition`, correct only the named CLI argument when the violation identifies a transformable value such as an object ref or file id; if the declared composition itself is missing or incompatible, stop and report command-contract drift. A `payload_contract` failure means the composed payload and capability contract disagree before network I/O. A `command_result` failure means the local result or Host response failed its executable contract and must not be accepted as success. All three report `stateChange: "unchanged"` when the failure was proven local; otherwise preserve the returned state. Violation entries are redacted and capped; when `truncated` is true, fix the reported set and validate again rather than requesting raw payload disclosure.
+参数失败使用 `details.schema: host-bridge.argument-error.v1`，并在 `details.phase` 中标明失败的边界。将 `argv`、`json_source`、`json_syntax`、`command_input`、`payload_composition`、`payload_contract` 与 `command_result` 视为不同的失败。对于 `argv`，仅依据命令帮助或 `surface describe` 修正所指名的缺失、未知、冲突或无效参数。对于 `json_source` 与 `json_syntax`，先修复所选的 stdin、文件或内联 JSON 源，再查阅领域 schema。对于 `command_input`，检查 `argumentId` 与有界的 violations，然后用 `--schema` 运行同一叶命令；未声明的属性不是重命名或改写它的许可。对于 `payload_composition`，当违规指明可转换的值（如对象 ref 或 file id）时，仅修正所指名的 CLI 参数；若声明的组合本身缺失或不兼容，停下来报告 command-contract 漂移。`payload_contract` 失败表示组合出的 payload 与 capability 契约在网络 I/O 前不一致。`command_result` 失败表示本地结果或 Host 响应未通过其可执行契约，不得作为成功接受。失败被证明为本地时，三者都报告 `stateChange: "unchanged"`；否则保留返回的状态。违规条目经脱敏并有上限；当 `truncated` 为 true 时，修正所报告集合并重新校验，而不是要求披露原始 payload。
 
-There is no global result-output option. `file download --output`, `product download --output-dir` and its local alias, and `workflow agent-run --output-dir` have different destination and overwrite contracts. Use an output option only when the selected leaf descriptor declares it.
+不存在全局的结果输出选项。`file download --output`、`product download --output-dir` 及其本地别名、`workflow agent-run --output-dir` 的目标与覆盖契约各不相同。仅当所选叶命令描述符声明输出选项时才使用它。
 
-Workflow external resources use opaque bridge handles rather than picker or path arguments. Read `supportedInvocationModes` and `resourceRequirements` from live workflow discovery before preparing the invocation. For each declared input slot, run `file upload` on agent-accessible bytes, preserve the returned `fileId`, and bind it with repeatable `--input-resource <slot>=<fileId>` flags in upload order. For each declared output slot that the caller needs, pass `--output-resource <slot>=bridge-download`. Use the same bindings for `workflow validate` and `workflow submit`; do not substitute the upload source path, invent a Host path, or name these bindings after a GUI picker.
+Workflow 外部资源使用不透明的 bridge 句柄，而非 picker 或路径参数。准备调用前，从实时 workflow 发现中读取 `supportedInvocationModes` 与 `resourceRequirements`。对每个声明的输入槽位，对 agent 可访问的字节运行 `file upload`，保留返回的 `fileId`，并按上传顺序以可重复的 `--input-resource <slot>=<fileId>` 标志绑定它。对调用方需要的每个输出槽位，传入 `--output-resource <slot>=bridge-download`。对 `workflow validate` 与 `workflow submit` 使用相同的绑定；不要替换上传源路径、臆造 Host 路径，也不要以 GUI picker 命名这些绑定。
 
-## Command discovery and invocation
+## 命令发现与调用
 
-Use `surface search` to discover operations, not to decide a research task. `surface describe` is authoritative for argv bindings, invocation and payload schemas, result shape, pagination, effects, approval scope, handle transitions, recovery, and targets. Use raw `call` only for an advanced diagnostic capability that has no canonical semantic command.
+使用 `surface search` 发现 operation，而不是用它决定研究任务。`surface describe` 对 argv 绑定、invocation 与 payload schema、结果形态、分页、效果、approval 范围、handle 转换、恢复与目标具有权威性。只对没有规范语义命令的高级诊断 capability 使用原始 `call`。
 
-## Output boundary and continuation discipline
+## 输出边界与续接纪律
 
-Every canonical command declares exactly one `outputBoundary.strategy` in its descriptor: `fixed`, `cursor`, `offset`, `limit`, `file`, or `raw`. Read that object before execution and treat its default, maximum, section, continuation, truncation, and file fields as part of the result contract. Do not infer boundedness from a short first response, a capability category, or an older command example.
+每个规范命令在其描述符中声明恰好一个 `outputBoundary.strategy`：`fixed`、`cursor`、`offset`、`limit`、`file` 或 `raw`。执行前读取该对象，并将其 default、maximum、section、continuation、truncation 与 file 字段视为结果契约的一部分。不要从简短的首个响应、capability 类别或较旧的命令示例推断有界性。
 
-For a `cursor` result, preserve the original canonical command and all normalized selectors and filters. Read the declared domain array, record `returned`, `total`, `limit`, `hasMore`, and `nextCursor`, and continue only by passing that opaque cursor back to the same command with the same criteria. A cursor is not an item id, timestamp, array offset, or reusable cross-command token. Never decode it to construct a new cursor, substitute a cursor from another section, or silently restart when continuation fails.
+对于 `cursor` 结果，保留原始规范命令与所有规范化选择器及筛选。读取声明的域数组，记录 `returned`、`total`、`limit`、`hasMore` 与 `nextCursor`，并且只通过将该不透明 cursor 以相同条件传回同一命令来继续。cursor 不是 item id、时间戳、数组偏移或可跨命令复用的 token。绝不解码它来构造新 cursor、替换来自另一部分的 cursor，或在续接失败时静默重启。
 
-When `hasMore` is true, a missing `nextCursor` is an incomplete response and blocks completion. When `hasMore` is false, require an empty continuation and stop. For identity-based lists, merge pages by stable domain identity, reject duplicates, and compare the final number of unique rows with the available `total` when that total describes the same filtered collection. For a response with several paged arrays, follow only the cursor under `pagination.<section>` that owns the array being consumed; do not advance unrelated sections implicitly.
+当 `hasMore` 为 true 而 `nextCursor` 缺失时，这是一个不完整响应，会阻塞完成。当 `hasMore` 为 false 时，要求 continuation 为空并停止。对于基于身份的列表，按稳定域身份合并各页并拒绝重复项；当该 total 描述同一过滤集合时，将最终唯一行数与可用的 `total` 比较。对于含多个分页数组的响应，只跟随 `pagination.<section>` 下拥有正在消费数组的 cursor，不要隐式推进无关 section。
 
-For `library note payloads`, retain every candidate in source order, including candidates sharing a payload type. Read `scanned` as source progress and `returned` as matches; `total: null` means an exact total is unavailable. An empty payload page with `hasMore: true` must still advance through its returned cursor. Exhaust the scan before claiming absence, and use `library note payload` with the explicit payload type for a complete value whose uniqueness is checked across all candidates. A failed candidate fails the page; retain previously accepted evidence as incomplete and use the structured error to decide whether the read can resume. Payload input, decoded values, and note HTML each have a 1 MiB bound; a resource limit cannot be bypassed by declaring the first readable candidate authoritative.
+对于 `library note payloads`，按源顺序保留每个候选，包括共享同一 payload 类型的候选。将 `scanned` 读作源进度，将 `returned` 读作匹配数；`total: null` 表示无法给出精确总数。带 `hasMore: true` 的空 payload 页仍必须沿返回的 cursor 继续推进。在声称不存在之前先穷尽扫描；当需要一个在所有候选中检查唯一性的完整值时，使用带显式 payload 类型的 `library note payload`。失败的候选会使整页失败；将先前已接受的证据保留为不完整，并使用结构化错误判断读取能否恢复。Payload 输入、解码值与 note HTML 各有 1 MiB 上限；通过将第一个可读候选声明为权威无法绕过资源限制。
 
-Ordinary library lists start with the cursor omitted, default to 25 rows, and allow at most 100. Their cursors bind the domain, source, selectors, and ordering position without a time-to-live or snapshot guarantee. Saved Search discovery uses `library saved-searches list`; retain each returned portable ref because equal display names can identify different searches. For `invalid_library_cursor` or `basis_mismatch`, preserve the structured reason and incomplete evidence, correct the input or deliberately reacquire the full logical read, and keep the new acquisition separate from the failed one. An unchanged list count alone does not prove unchanged membership or content.
+普通库列表从省略 cursor 开始，默认 25 行，最多允许 100 行。其 cursor 绑定域、来源、选择器与排序位置，但没有生存期或快照保证。已保存搜索发现使用 `library saved-searches list`；保留返回的每个可移植 ref，因为相同的显示名称可能标识不同的搜索。对于 `invalid_library_cursor` 或 `basis_mismatch`，保留结构化原因与不完整证据，纠正输入或有意识地重新获取完整的逻辑读取，并让新获取与失败获取保持分离。仅凭列表计数未变并不能证明成员关系或内容未变。
 
-`invalid_host_bridge_cursor` means the cursor is malformed, expired, scoped to another command, bound to different criteria, or anchored to a row that is no longer available. Preserve the structured `reason`. If the intended read is still required, intentionally restart from the first page with the original filters, rebuild the result, and report that the snapshot changed; do not append a restarted first page to rows collected under the failed cursor.
+`invalid_host_bridge_cursor` 表示 cursor 畸形、过期、属于另一命令、绑定到不同准则，或锚定到不再可用的行。保留结构化 `reason`。若预期读取仍然必需，有意识地用原始过滤器从第一页重新开始，重建结果，并报告快照已改变；不要将重开的第一页追加到失败 cursor 下收集的行之后。
 
-`library snapshot` is a fixed-basis cursor operation with a stricter continuation contract. Start it with the resolved `libraryId` and an optional `batchSize` from 1 through 1,000; the default is 500. Continue only with the returned opaque `snapshotId` and `cursor`, the same library identity, and the same batch size. Keep `schema`, `scope`, `order`, `batchIndex`, `deliveredItems`, and `deliveredBatches` with every accepted page. Do not add search filters, decode either handle, substitute an ordinary library-list cursor, or merge pages from separate snapshot identities.
+`library snapshot` 是固定基础的 cursor operation，具有更严格的续接契约。使用已解析的 `libraryId` 与可选的 `batchSize`（1 到 1,000）启动；默认值为 500。只使用返回的不透明 `snapshotId` 与 `cursor`、相同的库身份与相同的批大小继续。随每个接受的页保留 `schema`、`scope`、`order`、`batchIndex`、`deliveredItems` 与 `deliveredBatches`。不要添加搜索筛选、解码任一 handle、替换为普通库列表 cursor，或合并来自不同快照身份的页。
 
-Only an `outcome: completed` terminal page with matching Host-issued `completionEvidence` proves that every item in the captured set was delivered. An `active` page, missing evidence, expired session, cursor mismatch, resource-limit failure, interruption, or Host restart is incomplete and cannot authorize replacement of an index or deletion of absent rows. The session is process-local and expires after 30 minutes; after invalidation, discard the incomplete collection and begin a new full snapshot. A snapshot identity is not a change cursor, tombstone feed, replay log, or cross-process resume handle.
+只有带有匹配的 Host 签发 `outcome: completed` 的 `completionEvidence` 终态页才能证明捕获集中的每个 item 均已交付。`active` 页、缺失证据、会话过期、cursor 失配、资源限制失败、中断或 Host 重启都是不完整的，不能授权替换索引或删除缺席行。会话是进程本地的，30 分钟后过期；失效后丢弃不完整的采集，开始一次新的完整快照。快照身份不是变更 cursor、墓碑流、重放日志或跨进程恢复句柄。
 
-For an `offset` result, preserve the selector and request `offset=nextOffset` until `hasMore` is false. Keep chunks in offset order, require each chunk's `offset` to equal the previous `nextOffset`, and concatenate exactly once. The default text window is 8,000 characters and the maximum is 16,000 unless the descriptor declares a stricter value. An offset beyond the end is a valid empty terminal chunk, not permission to retry from zero. Completion requires the reconstructed character count to match `totalChars` when present.
+对于 `offset` 结果，保留 selector 并请求 `offset=nextOffset`，直到 `hasMore` 为 false。按 offset 顺序保留各块，要求每块的 `offset` 等于前一 `nextOffset`，且只拼接一次。默认文本窗口为 8,000 字符，最大为 16,000，除非描述符声明更严格的值。超过末尾的 offset 是合法的空终止块，而不是从零重试的许可。当存在 `totalChars` 时，完成要求重建的字符数与之匹配。
 
-For a `limit` result, use the declared default and hard maximum, inspect `truncated`, and narrow the selector when the desired evidence cannot fit. A limit-bounded result has no implicit continuation: do not invent a cursor. For `fixed`, verify that the result is a registry, singleton, aggregate, or otherwise hard-bounded contract before treating one response as complete.
+对于 `limit` 结果，使用声明默认与硬上限，检查 `truncated`，并在所需证据放不下时收窄选择器。limit 有界的结果没有隐式续接：不要臆造 cursor。对于 `fixed`，在把一次响应视为完整前，核实结果属于 registry、singleton、aggregate 或其他硬有界契约。
 
-For a `file` result, stdout is only the delivery control plane. Preserve the owning object or operation identity and the returned file descriptor, verify that no private filesystem path from the Zotero computer is exposed, download through `file download`, and compare byte count and SHA-256 with the descriptor. If the handle expires, reacquire it from the owning semantic command instead of retrying an arbitrary path. Do not treat a successful descriptor response as proof that the bytes were downloaded or verified.
+对于 `file` 结果，stdout 只是交付控制面。保留属主对象或操作身份与返回的文件描述符，核实没有暴露来自 Zotero 计算机的私有文件系统路径，通过 `file download` 下载，并把字节数与 SHA-256 同描述符比对。若句柄过期，从属主语义命令重新获取，而不要重试任意路径。不要把成功的描述符响应当作字节已下载或已验证的证明。
 
-For a workflow resource result, read every `resourceOutputs` descriptor before declaring the requested deliverable complete. Preserve its output slot context, `fileId`, display name, content type, byte count, SHA-256, and expiry; run the descriptor's `downloadCommand` or the equivalent canonical `file download` invocation, then verify the downloaded bytes. Workflow output handles are process-local as well as short-lived, so download them before service restart or expiry. An empty `resourceOutputs` array is valid only when the workflow published no bound output at that response boundary. It is not permission to search the Zotero computer for a guessed output path.
+对于 workflow 资源结果，在声明所请求交付物已完成之前，请阅读每个 `resourceOutputs` 描述符。保留其输出 slot 上下文、`fileId`、显示名称、内容类型、字节数、SHA-256 与过期时间；运行描述符的 `downloadCommand` 或等效的规范 `file download` 调用，然后验证下载的字节。workflow 输出 handles 既进程本地又短暂，因此要在服务重启或过期前下载它们。仅当该 workflow 在该响应边界未发布任何绑定输出时，空的 `resourceOutputs` 数组才有效。它并不允许在 Zotero 计算机上搜索猜测的输出路径。
 
-`raw` is reserved for `call`. The target capability still owns its own paging, limit, offset, or file boundary; raw invocation never widens it and is not a bypass for a canonical semantic command. If a semantic command exists, use it so argv validation, result contracts, recovery, and generated guidance remain enforceable.
+`raw` 保留给 `call`。目标 capability 仍拥有自己的分页、limit、offset 或 file 边界；raw 调用绝不扩大它，也不是绕过规范语义命令的旁路。若语义命令存在，使用它，使 argv 验证、结果契约、恢复与生成的指导保持可执行。
 
-### Start from user intent
+### 从用户意图出发
 
-An agent often receives a request such as “show me the papers about this topic,” “download the analysis result,” or “run the deep-reading workflow” before it knows any CLI names. Do not make the user translate that request into a command.
+Agent 常在知道任何 CLI 名称之前收到“给我看看关于这个 topic 的论文”、“下载分析结果”或“运行深度阅读 workflow”这类请求。不要让用户把请求翻译成命令。
 
-Use this sequence:
+使用此序列：
 
-1. Read [the command catalog](references/command-catalog.md).
-2. Identify the requested Zotero object, task family, freshness, deliverable, and state-change boundary.
-3. Select the smallest candidate command or ordered command sequence from the catalog.
-4. Use `surface search` only when multiple candidates still match.
-5. Use `surface describe` to obtain the exact live contract.
-6. Read the one detailed reference that owns the command root.
-7. Construct and execute the invocation only after inputs, effects, approval, handles, completion evidence, and recovery are known.
+1. 阅读 [the command catalog](references/command-catalog.md)。
+2. 识别所请求的 Zotero 对象、task 系列、新鲜度、交付物与状态变更边界。
+3. 从 catalog 选择最小的候选命令或有序命令序列。
+4. 仅当多个候选仍匹配时才使用 `surface search`。
+5. 使用 `surface describe` 获取确切的实时契约。
+6. 阅读拥有命令根的那一份详细参考。
+7. 只有在输入、效果、approval、handle、完成证据与恢复都已明确后，才构造并执行调用。
 
-The catalog is intentionally compact. It owns discovery by user intent, while the command references own executable detail. Do not construct argv from the catalog table or copy a command merely because its summary shares a keyword with the user's request.
+目录刻意精简。它按用户意图拥有发现，命令参考拥有可执行细节。不要从目录表构造 argv，也不要仅因其摘要与用户请求共享关键词就复制命令。
 
-### Translate common request shapes
+### 翻译常见请求形态
 
-- “This paper,” “these items,” and “the current collection” first require `context` commands to resolve the live selection.
-- For selected items, consume the exact selection page and pass each opaque `nextCursor` unchanged until `hasMore` is false; default page size is 25 and the maximum is 100. Preserve object refs and order across pages, and keep current-view tree sources separate from item selection. A `basis_mismatch` failure invalidates the entire acquisition: discard its collected pages, stop that invocation, and obtain a fresh explicit scope before starting another acquisition. Never submit a partial page set as the user's complete selection.
-- Workflow `items` input requires complete `{libraryId,key}` refs; `none` represents explicit empty input. Carry the reviewed refs through validation, submission and agent-run apply. A stored record without complete refs cannot execute; preserve the record and report the invalid input rather than filling identities from the active pane or assuming a library.
-- “What is in my library?” and “do I have papers about X?” require `library` reads and a complete bounded paging decision.
-- “Change these tags” or “put this in a collection” requires a live identity read, a reviewed mutation, current authority, and post-write verification.
-- “Get the generated report” may require a Product or workflow artifact read followed by file delivery; it is not automatically an attachment read.
-- “Run workflow X” requires workflow discovery, description, selection validation, provider-profile validation when declared, and submission.
-- “Run workflow X with this file” additionally requires a non-interactive invocation mode, a matching declared input resource slot, `file upload`, and the same opaque resource binding during validation and submission. If the workflow lacks the mode or slot, return the live eligibility error instead of triggering a GUI picker.
-- “How is the workflow going?” begins from the typed handle returned by submission. For direct admission, retain the returned `workflowRunId` and use `run`, not workflow discovery. For host-queue admission, retain `submissionId`, inspect `workflow submission get`, and use `workflow queue list` or `workflow queue cancel` only for queue-level observation or pending cancellation; do not invent a `workflowRunId` before an admitted task exposes one.
-- “Refresh the synthesis graph” requires diagnosis of the exact derived model and maintenance scope before any write.
-- “Why is the bridge failing?” begins with semantic health and profile diagnostics; raw `call` is the last resort.
+- “This paper”、“these items”与“the current collection”首先需要 `context` 命令解析实时选择。
+- 对所选 items，消费确切的选择页，并将每个不透明的 `nextCursor` 原样传递直到 `hasMore` 为 false；默认页大小为 25，最大为 100。跨页保留对象 refs 与顺序，并将当前视图树源与 item 选择分开。`basis_mismatch` 失败使整个获取无效：丢弃其已收集页，停止该次调用，并在开始另一次获取前获得明确的新的范围。绝不要把部分页集合提交为用户完整的选择。
+- Workflow `items` 输入要求完整 `{libraryId,key}` refs；`none` 表示显式空输入。让已审阅的 refs 贯穿校验、提交与 agent-run apply。没有完整 refs 的已存记录无法执行；保留该记录并报告无效输入，而不要从活动面板填身份或假定某个 library。
+- “我的 library 里有什么？”与“我有关于 X 的论文吗？”要求 `library` 读取与完整的有界分页决策。
+- "Change these tags"（更改这些标签）或 "put this in a collection"（把这个放进 collection）需要实时 identity 读取、经审阅的 mutation、当前权限与写后验证。
+- “获取生成的报告”可能需要读取 Product 或 workflow artifact 后再交付文件；它不是自动的附件读取。
+- "Run workflow X"（运行 workflow X）需要 workflow 发现、描述、选择验证、声明时的 provider-profile 验证与提交。
+- “用此文件运行 workflow X” 额外要求非交互调用模式、匹配的已声明输入资源槽位、`file upload`，以及在校验与提交期间相同的 opaque 资源绑定。若 workflow 缺少该模式或槽位，返回实时资格错误，而不是触发 GUI picker。
+- “workflow 进行得如何？”从提交返回的类型化句柄开始。对于直接准入，保留返回的 `workflowRunId` 并使用 `run`，而不是 workflow 发现。对于 host 队列准入，保留 `submissionId`、检查 `workflow submission get`，并且只在队列级观察或待处理取消时使用 `workflow queue list` 或 `workflow queue cancel`；在已准入 task 暴露一个 `workflowRunId` 之前不要臆造它。
+- "Refresh the synthesis graph"（刷新 synthesis graph）在任何写入前需要诊断确切的派生模型与 maintenance 范围。
+- “bridge 为什么失败？”从语义健康与 profile 诊断开始；原始 `call` 是最后手段。
 
-When a request spans families, preserve the boundary between each result and the next input. A context read does not authorize a mutation, workflow validation does not authorize submission, run termination does not prove Product delivery, and a maintenance receipt does not prove an unrelated model is current.
+当请求跨越多个命令族时，保留每个结果与下一输入之间的边界。上下文读取不授权 mutation，workflow 验证不授权提交，run 终止不证明 Product 投递，维护 receipt 不证明无关模型为最新。
 
-### Provider profile authority
+### Provider profile 权限
 
-Resolve provider profiles in this order: an explicit `--provider-profile`, then
-`ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE`, then a Host-saved workflow candidate,
-then no profile. The explicit flag always wins, including explicit `{}`. The
-environment value is an already configured default: validate it and use the
-normalized result without asking the operator to confirm that same profile.
-The environment value may be inline JSON or `@absolute-file`; never use stdin,
-relative paths, credentials, endpoints, or local paths in it.
+按此顺序解析 provider profiles：显式 `--provider-profile`，然后
+`ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE`，然后是 Host 保存的 workflow 候选，
+然后无 profile。显式标志始终胜出，包括显式 `{}`。
+环境值已是配置好的默认：验证它并采用
+规范化的结果，而不要求 operator 确认同一 profile。
+环境值可为内联 JSON 或 `@absolute-file`；绝不使用 stdin，
+其中的相对路径、凭证、端点或本地路径。
 
-When no environment default exists, read `workflow defaults --workflow <id>`
-after the live workflow requirements and selection/options contract. A saved
-Host value is only a candidate. Present the workflow, backend id/label/type,
-plugin provider, ACP model provider and model, mode, reasoning effort,
-`autoApproveAcpPermissions`, catalog source/revision/freshness, and the
-profile fingerprint. A request to “run this workflow”, silence, refusal, or
-“pick anything” is not confirmation of an unknown profile. Stop until the
-operator confirms the displayed candidate or supplies an explicit profile.
+当不存在环境默认时，读取 `workflow defaults --workflow <id>`
+在实时 workflow 要求与选择/选项契约之后。已保存的
+Host 值只是候选。呈现 workflow、backend id/label/type，
+plugin provider、ACP 模型 provider 与模型、模式、推理力度、
+`autoApproveAcpPermissions`、目录源/修订/新鲜度与
+profile 指纹。“run this workflow”式的请求、沉默、拒绝或
+“随便挑一个”不是对未知 profile 的确认。停止，直到
+操作者确认显示的候选或提供显式 profile。
 
-After confirmation, run workflow validation and provider-profile validation
-again, then submit the exact normalized profile returned by validation. Keep
-provider-profile validation, environment-default authorization, Zotero UI
-workflow approval, and ACP tool-permission approval as separate boundaries.
-If no profile is available for a backend-required workflow, stop on
-`provider_profile_required` and follow its declared safe next action.
+确认后，运行 workflow 验证与 provider-profile 验证
+再次执行，然后提交验证返回的确切规范化 profile。保持
+provider-profile 验证、环境默认授权、Zotero UI
+workflow approval 与 ACP 工具权限 approval 是分开的边界。
+若 backend 需要的 workflow 没有可用 profile，请停在
+`provider_profile_required` 并遵循其声明的安全下一步。
 
-For ACP backends, use `workflow profile refresh --backend <id>` when the
-descriptor reports a missing, stale, or inconsistent catalog. Model choices are
-grouped by `acpModelProvider`; do not flatten one provider's models into a
-global list or invent a missing model. `workflow profile validate` returns only
-the normalized profile, non-sensitive source, catalog diagnostics, and a
-fingerprint; it never returns environment-variable text or file paths.
+对于 ACP backends，当 profile 缺失时使用 `workflow profile refresh --backend <id>`
+descriptor 报告缺失、过期或不一致的 catalog。模型选择
+按 `acpModelProvider` 分组；不要将一个 provider 的模型展平进
+全局列表或臆造缺失模型。`workflow profile validate` 只返回
+规范化的 profile、非敏感来源、目录诊断与
+fingerprint；它绝不返回环境变量文本或文件路径。
 
-### Confirm the selected command
+### 确认所选命令
 
-Before execution, answer all of these questions from the live descriptor and detailed reference:
+执行前，从实时描述符与详细参考回答以下所有问题：
 
-- What canonical command will run?
-- Which values are positionals, flags, inline JSON, stdin, or files?
-- What object or typed handle identity is required?
-- Is the operation read-only, navigational, mutating, maintenance, or diagnostic?
-- Where can approval occur, and what exact scope does it cover?
-- Does the result page, issue another handle, or require a later receipt?
-- What live evidence proves the requested outcome?
-- If the call is interrupted, what state or handle must be inspected before retry?
+- 将运行哪条规范命令？
+- 哪些值是位置参数、flags、内联 JSON、stdin 还是文件？
+- 需要什么对象或类型化 handle 身份？
+- 该操作是只读、导航性、变更性、maintenance 还是诊断性？
+- approval 可能在哪里发生，它覆盖的确切范围是什么？
+- 结果页、再签发句柄、或要求后续 receipt？
+- 什么实时证据证明请求的成果？
+- 若调用被中断，重试前必须检查什么状态或 handle？
 
-If any answer is absent, do not guess. Continue discovery, resolve live identity, or return the missing input or authority as the current blocker.
+若任何答案缺失，不要猜测。继续发现、解析实时 identity，或将缺失的输入或权限作为当前阻塞返回。
 
-Choose an input channel only when the descriptor permits it:
+仅当描述符允许时才选择输入通道：
 
-- use direct flags and positionals for short scalar values and typed refs;
-- use inline JSON only for short, reviewed payloads;
-- use a documented path, `@file`, or `-` for stdin for larger payloads;
-- keep workflow selection, workflow options, and provider profile as separate values;
-- use absolute output paths when a command or profile helper requires them.
+- 短标量值与类型化 refs 使用直接标志与位置参数；
+- 只对简短、已审阅的 payloads 使用内联 JSON；
+- 较大 payloads 使用文档化路径、`@file` 或 '-' 表示 stdin；`-`
+- 将 workflow 选择、workflow 选项与 provider profile 保持为独立值；
+- 当命令或 profile helper 要求时使用绝对输出路径。
 
-Do not reinterpret a CLI option from a similarly named command. The generated command-surface references expose all bindings, but the active binary's `surface describe` result wins when the loaded artifact and executable differ.
+不要从名称相似的命令重新解释 CLI 选项。生成的命令 surface 参考暴露所有绑定，但当加载的 artifact 与可执行文件不同时，活动二进制的 `surface describe` 结果胜出。
 
-## Identity, paging, and freshness
+## 身份、分页与新鲜度
 
-A title, citation string, cached index row, generated report, or search candidate is not a Zotero object identity. Resolve current context for deictic requests, keep returned library IDs and item keys, normalize child notes or attachments to their top-level parent only when the next contract requires parent items, and fetch the selected object before reporting detailed state or writing.
+标题、引文字符串、缓存的 index 行、生成的报告或搜索候选都不是 Zotero 对象身份。为指代性请求解析当前上下文，保留返回的库 ID 与 item key，仅当下一契约要求父级 item 时才将子 note 或附件规范化为其顶层父级，并在报告详细状态或写入前获取所选对象。
 
-For cursor or offset pagination, preserve accepted pages and the last returned cursor or offset. Continue until the response reports completion or the bounded request is satisfied. After interruption, resume from the last accepted position and never merge an already accepted page twice. An empty first page or truncated search is not proof of absence.
+对 cursor 或 offset 分页，保留已接受页与最后返回的 cursor 或 offset。继续直到响应报告完成或有界请求已满足。中断后从最后接受的位置续读，绝不两次合并已接受的页。空首页或截断搜索不是缺席的证明。
 
-Local indexes, snapshots, workflow catalogs, notifications, and generated Synthesis artifacts have explicit freshness limits. Re-read the live object, selection, permission, run, Product, operation, or workflow description whenever the requested conclusion or write depends on current state.
+本地索引、快照、workflow 目录、通知与生成的 Synthesis artifacts 有明确的新鲜度限制。每当所请求的结论或写入依赖当前状态时，重新读取实时对象、选择、权限、run、Product、operation 或 workflow 描述。
 
-## Managed notes and literature artifacts
+## 受管 notes 与文献 artifacts
 
-Inspect the `kind` returned by `library note get` before choosing a read continuation or a write. An ordinary note exposes its requested text or HTML and the command's offset continuation. A managed note exposes a complete semantic `payload`, its `noteKind`, provenance, derived views, and the UTF-8 `payloadBytes` and `detailBytes` facts. Offset and character limits do not partition that payload. Keep its source identifiers and evidence together when using it in another operation.
+在选择读续接或写入前，检查 `kind` 返回的 `library note get`。普通 note 暴露所请求的文本或 HTML 以及命令的 offset 续接。受管 note 暴露完整的语义 `payload`、其 `noteKind`、来源、派生视图以及 UTF-8 `payloadBytes` 与 `detailBytes` 事实。offset 与字符限制不分割该 payload。在另一操作中使用它时，把其源标识符与证据放在一起。
 
-Use the declared semantic operation in `mutation execute` for a managed write: `managed_note.write_custom` and `managed_note.write_conversation` accept a title and Markdown with an explicit create-parent or update-note target; `literature_artifact.upsert_digest`, `literature_artifact.upsert_references`, `literature_artifact.upsert_citation_analysis`, and `literature_artifact.upsert_score` address one parent and the corresponding semantic input. Read the current command descriptor for the exact closed input schema. Ordinary note creation cannot supply reserved managed markers, and ordinary content replacement cannot edit a managed note. Do not assemble managed writes from raw HTML replacement and separate payload attachment calls.
+受管理的写入请使用专用语义 mutation 命令，需要无效果预览时加上 `--dry-run`：`managed_note.write_custom` 与 `managed_note.write_conversation` 接受标题和 Markdown，并带显式的 create-parent 或 update-note 目标；`literature_artifact.upsert_digest`、`literature_artifact.upsert_references`、`literature_artifact.upsert_citation_analysis` 与 `literature_artifact.upsert_score` 指向一个父对象及相应的语义输入。读取当前命令描述符以获取确切的封闭输入 schema。普通 note 创建无法提供保留的受管理标记，普通内容替换无法编辑受管理的 note。不要用原始 HTML 替换加独立 payload 附加调用来拼装受管理写入。
 
-Digest, References, Citation Analysis, and Literature Score each have one slot per parent. Create the slot when no candidate exists; update it when exactly one candidate exists. Multiple candidates are a conflict requiring inspection of the returned refs. Keep all candidates intact and report the conflict instead of choosing the first note, removing duplicates, or supplying a note ref to override singleton selection. A custom or conversation update must preserve its parent and exact managed type.
+Digest、References、Citation Analysis 与 Literature Score 每个父级各有一个槽位。没有候选时创建槽位；恰好一个候选时更新它。多个候选是冲突，需要检查返回的 refs。保留全部候选并报告冲突，而不是选择第一条 note、移除重复项或提供 note ref 覆盖单例选择。自定义或对话更新必须保留其父级与精确的受管类型。
 
-Pass References as the complete `source_reference_artifact.v1` object and preserve every `sourceReferenceId`, extraction fact, bibliography field, and matching field. Pass Citation Analysis as its complete canonical artifact with the source IDs, mentions, unresolved evidence, scope decisions, and timeline intact. Citation function and free-text role are distinct facts. Rendered labels, report Markdown, source snapshots, and `referencesBasis` are derived or runtime-owned evidence; they are not writable alternatives to the semantic input. A References-only update preserves the Citation note but can make its basis stale, so re-read the dependent artifact before claiming that the pair is current.
+将 References 作为完整的 `source_reference_artifact.v1` 对象传递，并保留每个 `sourceReferenceId`、提取事实、书目字段与匹配字段。将 Citation Analysis 作为其完整的规范 artifact 传递，保持源 ID、提及、未解决证据、范围决策与时间线完整。引文功能与自由文本角色是不同的事实。渲染的标签、报告 Markdown、源快照与 `referencesBasis` 是派生的或运行时拥有的证据；它们不是语义输入的可写替代品。仅 References 的更新保留 Citation note，但可能使其基础过期，因此在声称二者为最新前重新读取依赖的 artifact。
 
-The Broker's managed-detail limit is 1 MiB. A downstream tool's smaller result budget is a separate delivery boundary, not a request to truncate or re-page the artifact. On `resource_limited`, retain the target and byte facts and report the unavailable complete result; do not substitute a raw-HTML read, guessed file path, partial artifact, or hidden attachment scan. On `invalid_artifact` or `legacy_artifact_requires_migration`, keep the original note and source files intact, report the typed failure, and direct the operator to the registered Literature Artifacts entry in Dashboard Migrations or the explicit file-import preview. No CLI mutation accepts migration mappings or caller-supplied write authority.
+Broker 的受管详情上限为 1 MiB。下游工具较小的结果预算是一个单独的交付边界，而不是要求截断或重新分页该 artifact。遇到 `resource_limited` 时，保留目标与字节事实，并报告不可用的完整结果；不要用原始 HTML 读取、猜测的文件路径、部分 artifact 或隐藏附件扫描来代替。遇到 `invalid_artifact` 或 `legacy_artifact_requires_migration` 时，保持原始 note 与源文件完好，报告该类型化失败，并引导操作员查看 Dashboard Migrations 中已注册的 Literature Artifacts 条目或显式的文件导入预览。任何 CLI 变更都不接受迁移映射或调用方提供的写授权。
 
-After a managed write, verify its durable canonical operation evidence and re-read the managed detail. Check the exact parent and type, promised semantic payload, and any dependency or image evidence relevant to the request. A receipt for one artifact does not prove that a separately written sibling committed; use the declared Workflow or import operation when the result requires an atomic parent set, and retain its single authoritative receipt.
+在托管写入后，验证其持久的规范 operation 证据并重新读取托管细节。检查确切的 parent 与类型、承诺的语义 payload，以及与请求相关的任何依赖或图像证据。一个 artifact 的 receipt 不能证明分别写入的兄弟项已提交；当结果需要原子 parent 集时，使用声明的 Workflow 或 import operation，并保留其单一权威 receipt。
 
-## Effects, approval, and handles
+## Effects、approval 与 handles
 
-The command card distinguishes read, navigation, write, maintenance, and debug operations. Navigation may change visible Zotero UI state without modifying bibliographic data. Ephemeral output or workflow control is not automatically a library mutation. Maintenance and debug repair require their own diagnosed scope and must not be used as shortcuts around a failed semantic command.
+命令卡片区分 read、navigation、write、maintenance 与 debug 操作。Navigation 可在不修改书目数据的情况下改变可见的 Zotero UI 状态。临时输出或 workflow 控制并不自动等于库 mutation。Maintenance 与 debug 修复需要其自身经诊断的范围，不得用作绕过失败语义命令的捷径。
 
-Zotero-managed writes and apply-back remain subject to the declared Zotero-side approval path. Permission reads are observational and cannot approve or reject a request. A prior approval, valid preview, local validation, notification, cached proposal, or terminal run never authorizes another operation.
+### 导航授权与证据
 
-For a canonical mutation, preserve one operation ID for the complete intent. When both the input and `--operation-id` name it, they must agree. A changed target, desired effect, or file content is a new intent requiring its own review. Preview reports safe plan facts and `domainPlanDigest`; execution prepares again after an approval wait and requests renewed approval if that digest changes. Keep the reviewed scope explicit and stop on a stale-plan conflict rather than trying to supply revision or token authority.
+仅对请求的交互式 UI 操作使用导航。七个项目拥有的导航 capability 允许操作者范围（缺席或 `global`）与 `acp-chat` 而无需逐次 approval；自动化 `acp-skill-run`、`acp-run` 与 `skillrunner-run` 范围被拒绝。非空但畸形或未知的范围无效。拒绝时保持所提供的范围不变，并将该边界返回给调用者；提示或原始 capability 调用不能提升自动化调用。
 
-Read canonical write evidence with `mutation get-operation`. A running observation refers to an execution still owned by this process; a settled observation contains the durable receipt or attempt. A committed or unchanged receipt confirms the recorded operation, while failed, canceled, unknown, and repair_required attempts require their declared recovery. Preserve affected and residual refs and verify the current target separately before proposing another change.
+每个 Bridge、CLI 或 MCP 请求在准入时捕获一次当前的 Zotero 主窗口。之后的焦点变化不会重定向该请求。此捕获并不在多窗口 session 中确立发起方 ACP Chat Workspace 窗口。若该区别重要，请在调用前与操作者确认预期交互。缺失或已关闭的被捕获窗口会失败；不要替换为窗口标识符，也不要在变为活动的任意窗口上重试。
 
-An unavailable observation cannot establish whether an identity is new or its evidence has expired. Known ordinary terminal evidence is retained for 30 days, and expired evidence leaves an identity binding that prevents execution under that ID. Unknown and repair_required evidence remains available for reconciliation. If replay reports outcome_unavailable, retain the ID and report the missing historical evidence; do not create a replacement write merely to recover the lost result. Generic `operation get` describes its own HTTP operations and cannot settle a canonical mutation.
+按预期的证据边界选择导航 operation。Focus 请求恢复/聚焦但不改变所选 tab 或 items，且不能证明 OS 已将 Zotero 置于前台。库选择 operations 确认精确的可移植目标；reveal 在其 receipt 中保留所请求的 item 顺序，并确认所选 ref 集合而不打开内容。普通 item 打开使用 Zotero 的原生 handler，报告的是派发（dispatch）而非已渲染的文档。精确的 Reader 位置派发则针对捕获窗口中的内置 Reader tab，等待初始化和归一化位置命令；它不证明像素级视口。请使用所选命令卡片上的封闭输入与结果 schema，而不是互相交换这些结果。
 
-Treat every returned identifier as an opaque typed handle. Keep Zotero refs, `submissionId`, `queueId`, `workflowRunId`, `skillRunId`, `agentRunId`, `agentRequestId`, `permissionRequestId`, `operationId`, `eventId`, `fileId`, and Product identifiers in their declared command families. Never synthesize, recast, or exchange them. A `submissionId` identifies one immutable native-queue admission, while a `queueId` identifies one pending unit inside that submission; neither is a workflow-run identity. Do not reuse a handle after `handleConsumption` is `consumed` or `unknown` without a domain receipt that explicitly permits continuation.
+对于 reveal，从一个可共享视图的 library 中提供一到一百个唯一的 item、note 或 attachment ref；不要为了凑合请求而提升子项、去重、丢弃目标或混入活跃与已删除对象。内容导航会恢复/聚焦其自身捕获的窗口，因此额外的 focus 调用并无必要。首个 UI 效果之前的取消使 UI 保持不变；效果开始后的中断不能授权回滚或自动重放。保留导航失败的 code 与 reason，将不确定的 dispatch 如实报告为不确定，并在再次尝试前取得一次新的显式调用。导航回执是瞬时证据，不是规范 mutation 记录，`mutation get-operation` 不能判定其 UI 结果。
 
-## Files, Products, and artifacts
+精确 Reader 定位调用复用捕获窗口中的内置 Reader 标签页，或初始化绑定到该窗口的标签页。冷调用可能在 Reader 初始化完成前创建一个可见的加载标签页。若该效果后初始化或窗口验证失败，保留标签页可能残留，且请求的位置未被确认；保留 attachment 或 annotation ref 及请求的位置，报告不确定的 UI 结果，并在请求再次调用前让操作者检查目标窗口。`location_unsupported` 失败不是使用其他目的地的许可。不得用普通 item 打开、其他窗口或无位置回退代替完成证据。
 
-A Zotero-side path is not automatically readable by the agent. When an attachment, Product, artifact, or operation returns a `fileId` or delivery instruction, use the declared download command and verify checksum and byte count before using the bytes as evidence. Reacquire expired access from the owning object rather than guessing a storage path.
+Zotero 管理的写入与 apply-back 仍受声明的 Zotero 侧 approval 路径约束。权限读取是观察性的，不能批准或拒绝请求。先前的 approval、有效 preview、本地验证、notification、缓存 proposal 或终态 run 绝不授权另一项 operation。
 
-Keep these identities separate:
+对于规范 mutation，为完整意图保留一个 operation ID。当输入与 `--operation-id` 都指向它时，二者必须一致。目标、预期效果或文件内容发生变化即新意图，需要其自身的审阅。Preview 报告安全的计划事实与 `domainPlanDigest`；execution 在 approval 等待后重新准备，若该 digest 变化则请求重新批准。保持已审阅范围明确，遇到过期计划冲突时停止，而不要试图提供修订或 token 权限。
 
-- a local path names agent-accessible bytes;
-- `fileId` is a short-lived bridge-issued transfer handle;
-- Product identity names a Dashboard record and its downloadable assets;
-- a workflow artifact belongs to its workflow or item contract;
-- a Zotero attachment is live library state and must be verified through an item read.
+用 `mutation get-operation` 读取规范写证据。运行中的观察指仍由本进程拥有的执行；已落定的观察包含持久 receipt 或尝试。已提交或未改变的 receipt 确认已记录的操作，而 failed、canceled、unknown 与 repair_required 尝试需要其声明的恢复。保留受影响与剩余 refs，并在提出另一更改前单独验证当前目标。
 
-For a local file writeback, verify the artifact first, upload it, retain the returned checksum and `fileId`, perform the approved attachment mutation, and re-read the parent item's attachments. A completed workflow run does not prove that a Product or expected artifact exists; inspect and download the requested output separately.
+不可用的观察无法确定身份是新的还是其证据已过期。已知的普通终态证据保留 30 天，过期证据会留下身份绑定，阻止在该 ID 下执行。Unknown 与 repair_required 证据仍可用于对账。若重放报告 outcome_unavailable，保留该 ID 并报告缺失的历史证据；不要仅为找回丢失的结果而创建替代写入。Generic `operation get` 描述其自身的 HTTP 操作，无法了结规范 mutation。
 
-## Workflow and run control
+将每个返回的标识符视为不透明的类型化句柄。把 Zotero refs、`submissionId`、`queueId`、`workflowRunId`、`skillRunId`、`agentRunId`、`agentRequestId`、`permissionRequestId`、`operationId`、`eventId`、`fileId` 与 Product 标识符保留在各自声明的命令族中。绝不合成、重铸或互换它们。一个 `submissionId` 标识一次不可变原生队列接纳，而 `queueId` 标识该 submission 内的一个待处理单元；两者都不是 workflow-run 身份。当 `handleConsumption` 为 `consumed` 或 `unknown` 时，若没有明确允许延续的领域回执，不要复用句柄。
 
-For Zotero-managed execution, discover the current workflow, read its description or requirements, validate selection and workflow options, validate the backend provider profile independently, then submit them through the declared join point. Read the returned `admission` branch before choosing a monitoring family. Direct admission returns a `workflowRunId`; preserve it and use run commands for status, cancellation, skill interaction, permission observation, notifications, history, and events. A direct-run cancellation request is intent until a later run read confirms terminal state.
+## 文件、Products 与 artifacts
 
-When the workflow declares external resources, confirm `nonInteractiveSupported`, slot direction, kind, cardinality, requiredness, accepted extension/content type, size/count limits, and output delivery before uploading. Validation reads upload handles without consuming them; accepted submission owns their lease until its direct run or native submission reaches a terminal state within the active service process. Do not reuse an input `fileId` for another submission while it is leased. Resource `fileId` values and leases are process-local: after service restart, inspect separately durable admitted runs, then upload fresh inputs, validate fresh bindings, and obtain current authority before creating any replacement submission. Download every returned workflow artifact before restart or expiry and verify its integrity. If validation reports `workflow_resource_missing`, `workflow_resource_mismatch`, `invalid_workflow_resource_bindings`, or `workflow_resource_ineligible`, correct only the named slot, handle, or invocation boundary and validate again. If execution reports `workflow_interaction_required` or `workflow_conflict_requires_policy`, do not wait for or automate Zotero UI; supply a declared non-interactive option such as the workflow's conflict policy, or return the interaction boundary as the blocker.
+Zotero 侧路径并非自动对 agent 可读。当 attachment、Product、artifact 或 operation 返回 `fileId` 或投递指令时，使用声明的下载命令，并在将字节用作证据前验证校验和与字节数。从拥有对象处重新获取过期的访问，而非猜测存储路径。
 
-Host-queue admission returns a `submissionId`, unit counts, and queue links instead of fabricating an already-started run. Preserve that submission handle and inspect `workflow submission get` for the immutable unit projection and current aggregate state. Use `workflow queue list` to observe active queue units, `workflow queue cancel <queueId>` only to cancel a still-pending unit, and `run list --submission <submissionId>` to discover admitted Zotero-managed tasks without confusing task lineage with queue membership. Once a unit is admitted or running, queue cancellation must fail closed; use the returned `workflowRunId` and the normal run-control plane for execution cancellation or interaction.
+保持这些 identity 相互分离：
 
-The native queue owns bounded admission and keeps each admitted slot occupied through terminal execution and apply-back. Queue position or aggregate submission state is not a workflow result, a Product receipt, or proof that requested Zotero changes exist. Inspect every admitted task and its expected outputs independently, preserve failed and canceled units as distinct outcomes, and do not resubmit an uncertain submission merely because no `workflowRunId` was present in the initial response.
+- 本地路径指 agent 可访问的字节；
+- `fileId` 是 bridge 签发的短效传输 handle；
+- Product 身份指称 Dashboard 记录及其可下载资产；
+- workflow artifact 属于其 workflow 或 item 契约；
+- Zotero attachment 是实时库状态，必须通过 item 读取验证。
 
-Active submission and queue projections are process-local. If Host restart makes the original `submissionId` unavailable, use submission-filtered task discovery and live run reads to recover units that had already been admitted; do not reconstruct pending units from labels or member counts. Report unadmitted units as no longer active, preserve their original source scope outside queue internals, and require current authority before submitting a replacement bounded request.
+对于本地文件写回，先验证 artifact，上传它，保留返回的校验和与 `fileId`，执行已批准的 attachment mutation，并重新读取 parent item 的 attachments。已完成的 workflow run 不能证明 Product 或预期 artifact 存在；请单独检查并下载所请求的输出。
 
-For self-owned agent execution, confirm that the workflow supports that mode, prepare the handoff, preserve `agentRunId`, every `agentRequestId`, bundle locations, and checksums, then inspect each request contract. Validate every completed result locally before apply-back. Apply the complete request-to-result mapping through `workflow agent-apply` and use `workflow agent-apply-status` for the durable receipt. The apply response is only a bounded aggregate; page `workflow agent-apply-status` with the same `agentRunId` until every receipt result is collected, and preserve its state-change and handle-consumption evidence separately from individual result rows. Never monitor an `agentRunId` through the Zotero-managed run plane.
+## Workflow 与 run 控制
 
-`workflow agent-bundle inspect` and `workflow agent-result validate` are local preflight commands. They accept a directory or ZIP without contacting the service, applying data, renewing a lease, or consuming a handle. Unsafe paths, symbolic links, duplicate entries, excessive entry counts, oversized JSON, malformed archives, and unsupported compression return structured local-input failures. Local success proves structural validity only; it does not prove semantic correctness or authorize apply-back.
+对于 Zotero 管理的执行，先发现当前 workflow，阅读其描述或要求，校验选择与 workflow options，独立校验 backend provider profile，然后通过声明的接入点提交它们。在选择监控系列之前，先读取返回的 `admission` 分支。直接准入返回 `workflowRunId`；保留它，并使用 run 命令进行状态、取消、skill 交互、权限观察、通知、历史与事件操作。直接 run 的取消请求只是一个意图，直到后续的 run 读取确认终止状态。
 
-Notifications are lifecycle signals, not transcripts, interaction targets, or authorization. Use `skillRunId` for reply/connect, `permissionRequestId` for permission inspection, and `eventId` for acknowledgement. Acknowledge an event only after its action has been handled.
+当 workflow 声明外部资源时，上传前先确认 `nonInteractiveSupported`、slot 方向、种类、基数、必填性、可接受的扩展名/内容类型、大小/数量限制以及输出交付方式。校验会读取上传 handles 但不消耗它们；已接受的提交拥有其租约，直到其直接 run 或原生提交在当前活动的驻留服务进程内到达终止状态。租约期间，不要把某个输入 `fileId` 复用于另一提交。资源 `fileId` 值与租约都是进程本地的：服务重启后，先检查分别持久化的已准入 runs，再上传新输入、校验新绑定，并在创建任何替代提交前取得当前授权。在重启或过期前下载每个返回的 workflow artifact 并验证其完整性。若校验报告 `workflow_resource_missing`、`workflow_resource_mismatch`、`invalid_workflow_resource_bindings` 或 `workflow_resource_ineligible`，只修正所指的 slot、handle 或调用边界，然后重新校验。若执行报告 `workflow_interaction_required` 或 `workflow_conflict_requires_policy`，不要等待或自动化 Zotero UI；提供已声明的非交互选项（如该 workflow 的冲突策略），或将交互边界作为阻塞原因返回。
 
-## Synthesis operation boundaries
+Host 队列接纳返回 `submissionId`、单元计数与队列链接，而不是捏造一个已开始的 run。保留该 submission 句柄，并检查 `workflow submission get` 以获取不可变单元投影与当前聚合状态。使用 `workflow queue list` 观察活跃队列单元，仅在单元仍待处理时用 `workflow queue cancel <queueId>` 取消，并用 `run list --submission <submissionId>` 发现已接纳的 Zotero 托管任务，而不要把任务谱系与队列成员关系混淆。单元一旦被接纳或运行，队列取消必须失败关闭；对执行取消或交互请使用返回的 `workflowRunId` 与常规 run 控制面。
 
-Treat topics, graphs, indexes, resolvers, artifacts, concepts, schemas, and attention queues as distinct derived models. A derived association is not automatically a scholarly or causal claim, and a generated artifact is not proof of a current Zotero write.
+原生队列拥有有界准入，并让每个已准入槽位保持占用直至终态执行与 apply-back。队列位置或聚合提交状态不是 workflow 结果、Product receipt，也不是所请求 Zotero 更改存在的证明。独立检查每个已准入任务及其预期输出，将失败与取消单元作为不同结果保留，且不要仅因初始响应中没有 `workflowRunId` 就重新提交不确定的提交。
 
-Use cache and index status reads before proposing maintenance. Reference-sidecar refresh, citation-graph update, graph-metric refresh, and cache invalidation are separate operations with separate scopes, approvals, operation IDs, and receipts. Preserve the committed basis hash where required; do not treat one operation's completion as evidence that another derived model is current.
+活动提交与队列投影是进程本地的。若 Host 重启使原始 `submissionId` 不可用，使用按提交过滤的 task 发现与实时 run 读取来恢复已被准入的单元；不要根据标签或成员数量重建待处理单元。将未准入单元报告为不再活动，在队列内部结构之外保留其原始源范围，并在提交替代有界请求之前要求当前授权。
 
-## Hard constraints
+对于自有 agent 执行，确认 workflow 支持该模式，准备 handoff，保留 `agentRunId`、每个 `agentRequestId`、bundle 位置与校验和，然后检查每个请求契约。在 apply-back 前于本地验证每个已完成的结果。通过 `workflow agent-apply` 应用完整的请求到结果映射，并使用 `workflow agent-apply-status` 获取持久 receipt。apply 响应只是有界的聚合；用同一个 `workflow agent-apply-status` 翻页 `agentRunId`，直至收齐每个 receipt 结果，并将其状态改变与 handle 消耗证据与各结果行分开保留。绝不通过 Zotero 托管的 run 平面监视 `agentRunId`。
 
-- Use only documented canonical CLI commands and the argv confirmed by `surface describe` or the command reference. Do not guess flags or substitute raw `call` for an available semantic command.
-- Never read or modify Zotero databases, storage, or application internals directly. All library writes and apply-back operations stay on the Zotero-side approval path.
-- Treat every returned identifier as an opaque, typed handle. Do not exchange handle kinds, reuse a consumed or unknown handle, or send local paths where a bridge-issued handle is required.
-- Never pass an agent-local or Zotero-local path through workflow resource bindings. Inputs consume only `fileId` values issued by `file upload`; outputs declare only `bridge-download` and return downloadable descriptors.
-- Keep bearer tokens and other credentials out of command arguments, JSON results, diagnostics, and task evidence.
-- Treat stdout as one JSON envelope. Preserve pagination cursors, file checksums, operation receipts, and output locations exactly as returned.
-- A local validation success does not authorize a later `workflow agent-apply`; Zotero-side preflight and approval remain authoritative.
-- Use the CLI binary, profile, embedded contract, and release envelope from one release set. A matching version string alone is not sufficient identity evidence.
-- Do not infer current Zotero state from a cached projection, workflow terminal status, notification, local artifact, or generated analysis.
-- Do not retry a state-changing call until its durable state and handle consumption are known.
-- Do not implement an agent-side workflow queue, plan-entry registry, reservation loop, replay loop, or background batching layer around `workflow submit`. Bounded concurrency and pending-unit ownership belong to Zotero's native workflow queue.
-- Do not treat `submissionId`, `queueId`, and `workflowRunId` as interchangeable. Queue cancellation applies only to a pending `queueId`; admitted work is controlled through its real run handle.
+`workflow agent-bundle inspect` 与 `workflow agent-result validate` 是本地预检命令。它们接受目录或 ZIP，不联系服务、不应用数据、不续租，也不消耗 handle。不安全路径、符号链接、重复条目、过多条目数、超大 JSON、畸形归档与不支持的压缩返回结构化的本地输入失败。本地成功仅证明结构有效；它不证明语义正确，也不授权 apply-back。
 
-## LLM and tool responsibilities
+通知是生命周期信号，不是 transcripts、交互目标或授权。用 `skillRunId` 进行回复/连接，用 `permissionRequestId` 检查权限，用 `eventId` 确认。仅在其关联操作已处理后确认事件。
 
-- The agent owns operation selection, semantic interpretation, approval-aware decisions, evidence use, and recovery choices.
-- The CLI owns exact argv parsing, Zotero Bridge service requests, typed-handle transport, structured errors, and local bundle/result validation.
-- The renderer owns the command-surface references and embedded Agent Surface; do not hand-assemble those artifacts or invent a handle, receipt, checksum, or result envelope.
+## Synthesis 操作边界
 
-## Completion
+将 topic、graph、index、resolver、artifact、概念、schema 与 attention queue 视为不同的派生模型。派生的关联不自动等于学术或因果主张，生成的 artifact 也不是当前 Zotero 写入的证据。
 
-The Skill is complete when the requested operation has returned a valid JSON envelope, all required pages or delivered bytes have been obtained, relevant handles and receipts are preserved, and any requested state change is live-verified. It is also complete when a structured failure is classified with the next safe action and no unsafe repeat has occurred.
+提出维护前先做 cache 与 index 状态读取。Reference-sidecar 刷新、citation-graph 更新、graph-metric 刷新与 cache 失效是独立操作，各有作用域、approvals、operation IDs 与 receipts。需要处保留已提交的 basis 哈希；不要把一次操作的完成当作另一派生模型为当前状态的证据。
 
-Match the evidence to the operation:
+## 硬性约束
 
-- for a bounded read, retain the stable object ref and the fields that answer the request;
-- for a paged result, retain the completed boundary or the last accepted cursor;
-- for delivered bytes, retain the checksum, byte count, and owning object;
-- for a mutation, retain the approval outcome, operation receipt, and live post-read;
-- for an asynchronous run, retain terminal state and separately verify the requested deliverable;
-- for a host-queue submission, retain `submissionId`, each unit's `queueId` and admitted task identity when present, the aggregate terminal projection, and the independently verified result or failure for every requested unit;
-- for a local validator, report only structural validity and do not imply remote authority.
+- 仅使用文档化的规范 CLI 命令及 `surface describe` 或命令参考确认的 argv。不要猜测标志，也不要用原始 `call` 替代可用的语义命令。
+- 绝不直接读取或修改 Zotero 数据库、存储或应用内部。所有库写入与 apply-back operation 都保持在 Zotero 侧 approval 路径上。
+- 将每个返回的标识符视为不透明的类型化句柄。不要互换 handle 种类、重用已消耗或未知的 handle，也不要在需要 bridge 签发 handle 的地方发送本地路径。
+- 绝不将 agent 本地或 Zotero 本地路径传入 workflow 资源绑定。输入只消耗 `fileId` 签发的 `file upload` 值；输出只声明 `bridge-download` 并返回可下载描述符。
+- 将 bearer token 与其他凭据挡在命令参数、JSON 结果、diagnostics 与任务证据之外。
+- 将 stdout 视为一个 JSON envelope。按原样保留分页 cursor、文件校验和、operation receipt 与输出位置。
+- 本地校验成功不授权后续 `workflow agent-apply`；Zotero 侧预检与 approval 仍是权威。
+- 从同一 release set 使用 CLI 二进制、profile、嵌入契约与发布信封。仅匹配的版本字符串不是充分的身份证据。
+- 不要从缓存投影、workflow 终态状态、通知、本地 artifact 或生成的分析推断当前 Zotero 状态。
+- 在其持久状态与 handle 消耗已知前，不要重试改变状态的调用。
+- 不要在 `workflow submit` 周围实现 agent 侧 workflow queue、计划项注册表、预留循环、重放循环或后台批处理层。有界并发与待处理 unit 所有权属于 Zotero 的原生 workflow queue。
+- 不要将 `submissionId`、`queueId` 与 `workflowRunId` 视为可互换。队列取消只适用于待处理的 `queueId`；已准入工作通过其真实 run handle 控制。
 
-## Failure handling
+## LLM 与工具职责
 
-1. Preserve the command, sanitized inputs, structured error code, relevant handles, accepted pages, and any operation or output identifiers.
-2. Read `retryable`, `stateChange`, `handleConsumption`, `safeNextActions`, and `nextCommand` from the envelope.
-3. When `stateChange` is `changed` or `unknown`, read the durable operation, apply-back receipt, workflow/run state, or affected live object before another change.
-4. When `handleConsumption` is `consumed` or `unknown`, do not reuse the handle unless the domain receipt declares a resumable action.
-5. Retry only when `retryable` is true, current state permits it, and the retry will not duplicate an accepted page, submission, mutation, upload, or apply-back.
-6. For partial apply-back, report each applied, failed, and unattempted request from the receipt; never collapse the result into success or replay the complete mapping.
-7. For file or paging failure, keep verified bytes/pages and resume only through the returned cursor, file owner, or safe next command.
-8. If authority, input, identity, profile readiness, or approval is missing, return the structured failure and required decision rather than bypassing the CLI or Zotero-side boundary.
-9. For an uncertain host-queue submission, inspect the original `submissionId`, then correlate admitted tasks with `run list --submission`; never create a second submission until the first admission outcome is known.
-10. When pending cancellation races with admission, accept the queue endpoint's conflict as evidence that ownership has crossed to the run plane, re-read the submission projection, and continue only with the exposed task or run handle.
-11. For workflow resource failure, preserve the slot id, binding, upload descriptor, and submission/run handle. Re-upload only when the original `fileId` is expired, unavailable, or invalidated by service restart; do not retry a leased handle in another submission or replace it with a local path.
+- Agent 拥有操作选择、语义解读、approval 感知决策、证据使用与恢复选择。
+- CLI 拥有精确 argv 解析、Zotero Bridge 服务请求、类型化句柄传输、结构化错误与本地 bundle/result 校验。
+- renderer 拥有命令 surface 引用与内嵌 Agent Surface；不要手工拼装那些 artifacts，也不要捏造 handle、receipt、checksum 或结果信封。
 
-## References
+## 完成
 
-When the canonical command is unknown, first read [the command catalog](references/command-catalog.md). The catalog links exactly one generated card for every canonical leaf command. After selecting a command, load only that card; it is independently complete for inherited globals, local argv, structured inputs, schemas, examples, effects, approval, handles, targets, and recovery. The active executable's `surface describe` result wins before a live operation.
+当请求的 operation 返回了有效 JSON envelope、已取得所有必需页或交付字节、相关 handle 与 receipt 均已保留、且任何请求的状态改变都已实时验证时，该 Skill 即完成。当结构化失败已按下一个安全动作分类且未发生不安全的重复时，该 Skill 同样完成。
+
+将证据匹配到操作：
+
+- 对于有界读取，保留稳定对象 ref 与回答请求所需的字段；
+- 对分页结果，保留已完成的边界或最后接受的 cursor；
+- 对交付的字节，保留校验和、字节数与属主对象；
+- 对 mutation，保留 approval 结果、operation receipt 与实时事后读取；
+- 对异步 run，保留终态状态并单独核实所请求的交付物；
+- 对于 host-queue 提交，保留 `submissionId`、每个 unit 的 `queueId`（存在时）与已接纳任务 identity、聚合终态投影，以及每个请求 unit 的独立验证结果或失败；
+- 对本地验证器，只报告结构有效性，不暗示远程 authority。
+
+## 失败处理
+
+1. 保留命令、脱敏输入、结构化错误代码、相关 handles、接受的页面，以及任何 operation 或输出标识符。
+2. 从信封读取 `retryable`、`stateChange`、`handleConsumption`、`safeNextActions` 与 `nextCommand`。
+3. 当 `stateChange` 为 `changed` 或 `unknown` 时，在再次变更前读取持久 operation、apply-back receipt、workflow/run 状态或受影响的实时对象。
+4. 当 `handleConsumption` 为 `consumed` 或 `unknown` 时，除非域 receipt 声明可恢复动作，否则不要重用 handle。
+5. 仅当 `retryable` 为 true、当前状态允许且重试不会重复已接受的页、提交、mutation、上传或 apply-back 时重试。
+6. 对部分 apply-back，从 receipt 报告每个已应用、失败与未尝试的请求；绝不要将结果折叠为成功或重放完整映射。
+7. 对于文件或分页失败，保留已验证的字节/页，并只通过返回的 cursor、文件所有者或安全的下一条命令恢复。
+8. 若权限、输入、身份、profile 就绪度或 approval 缺失，返回结构化失败与所需决定，而非绕过 CLI 或 Zotero 侧边界。
+9. 对于不确定的 host-queue 提交，检查原始 `submissionId`，然后用 `run list --submission` 关联已准入任务；在首次准入结果已知前绝不创建第二个提交。
+10. 当待处理取消与接纳竞争时，把 queue 端点的冲突视为所有权已移交到 run 平面的证据，重新读取 submission projection，并仅以暴露出的 task 或 run handle 继续。
+11. 对于 workflow 资源失败，保留 slot id、绑定、上传描述符与提交/run handle。仅在原始 `fileId` 过期、不可用或已被服务重启作废时重新上传；不要在其他提交中重试处于租约的 handle，也不要用本地路径替换它。
+
+## 参考
+
+当规范命令未知时，先阅读 [the command catalog](references/command-catalog.md)。该 catalog 为每条规范叶命令恰好链接一张生成的卡片。选择命令后只加载该卡片；它对继承的 globals、本地 argv、结构化输入、schemas、示例、effects、approval、handles、目标与恢复都是独立完整的。活动可执行文件的 `surface describe` 结果在实时 operation 之前优先。

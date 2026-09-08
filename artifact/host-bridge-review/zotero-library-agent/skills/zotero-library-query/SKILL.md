@@ -1,184 +1,184 @@
 ---
 name: zotero-library-query
-description: 检索当前 Zotero 文献库内容并回答有界、源支撑的问题。当用户需要当前条目、收藏、笔记、附件、上下文或文献库答案时使用。
+description: 检索当前 Zotero 库内容并回答有界的、基于来源的问题。当用户需要当前条目、collections、笔记、附件、上下文或库答案时使用。
 ---
 
 # Zotero Library Query
 
-## Goal
+## 目标
 
-Resolve a bounded question against current Zotero library, UI, attachment, and Synthesis context; distinguish live facts from interpretation; and return a source-grounded answer without modifying Zotero-managed state.
+针对当前 Zotero 库、UI、附件和 Synthesis 上下文解析一个有界的问题；区分实时事实与解读；在不修改 Zotero 托管状态的前提下返回一个基于来源的答案。
 
-## Inputs
+## 输入
 
-- A question, search/list filters, or an explicit object, collection, topic, Product, artifact, or run handle.
-- Any deictic phrase that depends on the current Zotero pane or selection.
-- The required freshness, source depth, result bound, and requested evidence format.
+- 一个问题、搜索/列表筛选条件，或显式的对象、collection、topic、Product、artifact 或 run handle。
+- 任何依赖当前 Zotero 面板或选择的指示语。
+- 所需的新鲜度、来源深度、结果上限与请求的证据格式。
 
-## Natural-language intake
+## 自然语言接收
 
-Translate conversational wording into a bounded live read before choosing commands.
+在选择命令之前，将对话式措辞翻译为有界的实时读取。
 
-| User wording | Interpret as | First check |
+| 用户措辞 | 解读为 | 首项检查 |
 | --- | --- | --- |
-| “this paper,” “these items,” “the current collection” | Deictic current-context query | Read the live Zotero selection; if empty or heterogeneous, ask which object is intended |
-| “Do I have papers about X?” | Bounded library search | Confirm library/collection filters and whether a negative answer requires exhaustive paging |
-| “What notes do I have on X?” | Note discovery and optional body/payload reads | Establish whether titles/metadata suffice or note content is required |
-| “Can you show me the PDF?” | Attachment identity and byte delivery | Resolve the parent and exact attachment; never infer a storage path |
-| “What is missing analysis?” | Readiness query | Define the readiness category and requested scope; do not remediate |
-| “What does the graph say about X?” | Derived Synthesis read | Select the exact model, scope, and freshness before interpretation |
-| “Has workflow Y finished?” | Run query | Require the typed run identity; terminal state does not prove output delivery |
-| “Bundle these papers/topics” when identities are unclear | Selector-resolution query | Resolve exact Zotero item refs or stable Topic IDs, then hand the verified selectors to Synthesis direct delivery |
+| "this paper"、"these items"、"the current collection" | 指示性当前上下文查询 | 读取实时 Zotero 选择；若为空或异构，应询问所指对象 |
+| "我有关于 X 的论文吗？" | 有界库搜索 | 确认 library/collection 筛选条件以及否定性答案是否需要穷尽分页 |
+| "我有关于 X 的什么笔记？" | 笔记发现及可选的 body/payload 读取 | 确认标题/元数据是否足够，或需要笔记内容 |
+| "你能给我看一下 PDF 吗？" | 附件身份与字节交付 | 解析父条目与精确附件；不要推断存储路径 |
+| "哪些分析是缺失的？" | 就绪性查询 | 定义就绪性类别与请求的范围；不要进行修复 |
+| "graph 对 X 怎么说？" | 衍生的 Synthesis 读取 | 在解读之前选择精确的模型、范围与新鲜度 |
+| "workflow Y 完成了吗？" | 运行查询 | 要求类型化的 run identity；终态不能证明输出已交付 |
+| 当身份不明时的 "Bundle these papers/topics" | 选择器解析查询 | 解析精确的 Zotero item refs 或稳定的 Topic ID，然后将经验证的选择器交给 Synthesis 直接交付 |
 
-Clarify when:
+在以下情况下需要澄清：
 
-- a deictic phrase has no unambiguous live selection;
-- the user names a title with multiple candidate items;
-- “all,” “none,” “latest,” or “current” changes the required paging or freshness;
-- the requested conclusion requires full text but only metadata or abstract may be available;
-- private note or attachment content would be exposed beyond the user's requested purpose;
-- the question could mean a live Zotero fact or a derived Synthesis/workflow interpretation.
+- 指示性短语没有明确的实时选择；
+- 用户给出的标题对应多个候选条目；
+- "all"、"none"、"latest" 或 "current" 会改变所需分页或新鲜度；
+- 所请求的结论需要全文，但可能仅有元数据或摘要可用；
+- 私有笔记或附件内容将被暴露，超出用户请求的目的；
+- 问题可能既指向实时 Zotero 事实，又指向衍生的 Synthesis/workflow 解读。
 
-Safe defaults:
+安全默认值：
 
-- use current live Zotero data rather than a cached report;
-- keep the query read-only;
-- use the narrowest library or collection scope explicitly named;
-- return a conversational answer unless the user requests a separate artifact;
-- use the strongest available evidence, but disclose when it is weaker than requested.
+- 使用当前实时 Zotero 数据而非缓存的报告；
+- 保持查询为只读；
+- 使用显式命名的最窄 library 或 collection 范围；
+- 返回对话式答案，除非用户请求单独的 artifact；
+- 使用可用的最强证据，但当其弱于请求时予以披露。
 
-There is no safe default for an absent current selection, ambiguous item identity, or a negative conclusion from incomplete paging. Ask or return `canceled` instead of silently broadening the search.
+对于缺失的当前选择、模糊的条目身份或不完整分页得出的否定性结论，不存在安全默认值。应询问或返回 `canceled`，而不是静默地扩大搜索。
 
-## Workflow
+## 工作流
 
-### Classify and resolve scope
+### 分类并解析范围
 
-1. State the bounded question, required freshness, source depth, result limit, and evidence format. Decide whether it depends on current UI context, a known object, candidate discovery, or an exhaustive bounded inventory.
-2. Resolve deictic context first. For a known ref, read the live object; for a title, citation, or description, search candidates and choose only after stable identity evidence; for an inventory, preserve the complete filter and paging boundary.
-3. Keep note, attachment, parent item, collection, topic, Product, artifact, run, and operation identities distinct. Derive a top-level parent only when the selected read contract requires it.
+1. 陈述有界的问题、所需新鲜度、来源深度、结果上限与证据格式。判定其是否依赖于当前 UI 上下文、已知对象、候选发现或有界穷尽清单。
+2. 首先解析指示性上下文。对于已知 ref，读取实时对象；对于标题、引文或描述，搜索候选且仅在获得稳定身份证据后选择；对于清单，保留完整的筛选与分页边界。
+3. 保持笔记、附件、父条目、collection、topic、Product、artifact、run 与 operation 身份的区分。仅当所选读取契约要求时，才派生顶层父条目。
 
-When Query precedes direct research-bundle delivery, its output boundary is identity, not file creation. Return the ordered, deduplicated stable selectors that the user actually chose: item refs must resolve to one live Zotero item each, and Topic selectors must be current Topic IDs rather than titles or report headings. Keep rejected candidates and unresolved phrases visible. Do not fetch missing literature, run analysis, refresh Synthesis models, or invoke bundle delivery while material identity is still ambiguous.
+当 Query 优先于直接 research-bundle 交付时，其输出边界是身份，而非文件创建。返回用户实际选定的、有序的、去重的稳定选择器：item refs 必须各自解析为一个实时 Zotero 条目，Topic 选择器必须是当前的 Topic ID 而非标题或报告标题。保留被拒绝的候选与未解析的短语。在物质身份仍模糊时，不要获取缺失的文献、运行分析、刷新 Synthesis 模型或调用包交付。
 
-### Collect live evidence
+### 收集实时证据
 
-4. Use the narrowest current operation that can answer the question, then expand only when required: item detail before children, note metadata before body/payload, attachment metadata before bytes, and derived-model status before freshness-sensitive interpretation.
-5. Complete required cursor, offset, or content paging. Preserve accepted pages, filters, refs, locators, returned freshness facts, and the last safe resume position without merging a page twice.
-6. When bytes are required, obtain access from the owning attachment, Product, or artifact and verify the delivered checksum and byte count. Never infer a readable local path from Zotero-side metadata.
-7. Separate direct Zotero facts, source text, plugin-derived structure, workflow state, and your interpretation. Limit every claim to the strongest evidence actually delivered.
+4. 使用能回答该问题的最窄当前操作，并仅在需要时扩展：先条目详情后子项，先笔记元数据后 body/payload，先附件元数据后字节，先衍生模型状态后新鲜度敏感的解读。
+5. 完成所需的 cursor、offset 或内容分页。在不重复合并页面的前提下，保留已接受的页面、筛选条件、refs、locators、返回的新鲜度事实以及最后安全的恢复位置。
+6. 当需要字节时，从所属附件、Product 或 artifact 取得访问权，并校验已交付的校验和与字节数。绝不要从 Zotero 端元数据推断可读的本地路径。
+7. 区分直接的 Zotero 事实、源文本、插件派生结构、workflow 状态与你的解读。每个声明都限定在实际交付的最强证据上。
 
-### State the bounded answer
+### 陈述有界的答案
 
-8. Answer from the smallest sufficient evidence set. State untraversed scope, unavailable content, stale derived views, or asymmetric source depth wherever they affect the conclusion.
-9. Return `zotero-library-task.result.v1` with source-oriented inline evidence for each material conclusion and declared artifacts only when the answer produces a separate deliverable.
+8. 从最小充分的证据集合作答。指出未遍历的范围、不可用的内容、过期的衍生视图，或影响结论的不对称来源深度。
+9. 返回 `zotero-library-task.result.v1`，对每个实质结论附带面向来源的内联 evidence，仅在答案产生单独的交付物时声明 artifacts。
 
-### Report the answer to the user
+### 向用户报告答案
 
-Organize the human-facing answer before constructing the machine result:
+在构造机器结果之前组织面向人类的答案：
 
-1. State the direct bounded answer.
-2. Name the live scope searched or object resolved.
-3. Separate Zotero facts, delivered source text, derived model output, and interpretation.
-4. Attach stable Zotero refs and precise locators to material claims.
-5. State incomplete pages, unavailable attachments, stale models, or asymmetric source depth.
-6. Offer the next bounded read only when it follows from the current result.
+1. 陈述直接的有界答案。
+2. 命名已搜索的实时范围或已解析的对象。
+3. 区分 Zotero 事实、已交付的源文本、衍生模型输出与解读。
+4. 将稳定的 Zotero refs 与精确 locators 附加到关键声明。
+5. 陈述不完整的页面、不可用的附件、过期的模型或不对称的来源深度。
+6. 仅当下一步的有界读取自然源自当前结果时，再提出该读取。
 
-For a negative answer, state the completed boundary: library, collection, filters, page completion, freshness, and which source types were inspected. “No result in the first page” is not “not in the library.”
+对于否定性答案，陈述已完成的边界：library、collection、筛选条件、分页完成、新鲜度与已检查的来源类型。"第一页无结果"不等同于"库中不存在"。
 
-For a current-selection answer, preserve the actual selected object kinds. If a note or attachment is selected, do not silently answer about its parent unless the question and read contract require the parent.
+对于当前选择的答案，保留实际所选对象的种类。若选择的是笔记或附件，除非问题与读取契约要求父条目，否则不要静默地回答其父条目。
 
-For an attachment answer, distinguish metadata inspection from byte delivery. If bytes were delivered, verify checksum and byte count before using the file as evidence. If they were not delivered, do not claim to have read the full text.
+对于附件答案，区分元数据检查与字节交付。若字节已交付，则在校验和与字节数验证之前不要将其作为证据使用。若字节未交付，不要声称已读取全文。
 
-### Query completion checklist
+### 查询完成清单
 
-Identity:
+身份：
 
-- Deictic context was read live.
-- Title or citation candidates were disambiguated with stable refs.
-- Child and parent identities were not silently exchanged.
-- Product, artifact, run, operation, and Zotero refs retain their kinds.
+- 指示性上下文已实时读取。
+- 标题或引文候选已通过稳定 refs 消歧。
+- 子项与父条目身份未被静默替换。
+- Product、artifact、run、operation 与 Zotero refs 保留了其种类。
 
-Scope:
+范围：
 
-- Library, collection, filters, source kinds, and result bound are explicit.
-- Required pages are complete or the answer states the untraversed boundary.
-- Freshness-sensitive objects or derived models were re-read.
-- A negative conclusion is supported by the complete declared boundary.
+- library、collection、筛选条件、来源种类与结果上限是显式的。
+- 所需页面已完成，或答案陈述了未遍历的边界。
+- 对新鲜度敏感的对象或衍生模型已被重读。
+- 否定性结论得到完整已声明边界的支撑。
 
-Evidence:
+证据：
 
-- Each material claim is tied to a live object, delivered source, or named derived model.
-- Full-text claims use delivered full text rather than metadata or abstract.
-- Locators identify the relevant page, section, note, annotation, or asset.
-- Interpretation is distinguishable from direct Zotero or source facts.
+- 每个关键声明都绑定到实时对象、已交付的来源或具名衍生模型。
+- 全文声明使用已交付的全文，而非元数据或摘要。
+- locators 标识相关的页面、章节、笔记、注释或 asset。
+- 解读可与直接 Zotero 或来源事实区分。
 
-Privacy:
+隐私：
 
-- Attachment and note content is limited to the requested purpose.
-- No credential, token, Zotero storage path, or unrelated private content is exposed.
-- A produced artifact contains only the necessary evidence.
+- 附件与笔记内容限于所请求的目的。
+- 不暴露凭据、token、Zotero 存储路径或无关私有内容。
+- 产出的 artifact 仅包含必要的证据。
 
-Near misses:
+近似失败：
 
-- A snapshot is not automatically current library state.
-- A search candidate is not a resolved item.
-- An attachment record is not delivered bytes.
-- A completed run is not a verified Product.
-- A graph edge is not a source claim.
-- A readiness warning is not authority to repair.
-- An empty page is not absence unless paging is complete.
+- 快照不会自动成为当前库状态。
+- 搜索候选不是已解析条目。
+- 附件记录不是已交付字节。
+- 已完成的运行不是已验证的 Product。
+- 图边不是来源声明。
+- 就绪性警告不是修复的授权。
+- 空页面不是缺失，除非分页已完成。
 
-If one of these checks fails, repair the read boundary or return the exact limitation. Do not broaden the user's question simply to obtain an answer.
+若上述任一检查失败，应修复读取边界或返回精确的限制。不要仅仅为了得到答案而扩大用户的问题。
 
-### Handoff boundaries
+### 交接边界
 
-- Hand a resolved external-literature need to acquisition, not to a library mutation.
-- Hand a question requiring sustained interpretation of source text to analysis with exact source refs and evidence depth.
-- Hand a cross-source claim, gap, graph, or topic question to synthesis with the verified source boundary.
-- Hand direct paper/Topic bundle delivery to synthesis with the verified ordered selectors, the user's aggregation intent, and any declared local-versus-remote delivery requirement. Query completion proves selector identity only; it does not prove bundle content or delivery.
-- Hand a requested note, tag, collection, metadata, or attachment change to curation with the read evidence but no implied authority.
-- Hand persistent monitoring to the hosted facet only after returning the finite query result.
+- 将已解析的外部文献需求交接给获取，而非库变更。
+- 将需要持续解读源文本的问题交接给分析，并附带精确的来源 refs 与证据深度。
+- 将跨来源主张、缺口、graph 或 topic 问题交接给综合，并附带经验证的来源边界。
+- 将直接的论文/Topic 包交付交接给综合，并附带经验证的有序选择器、用户的聚合意图以及任何已声明的本地对远程交付要求。Query 完成仅证明选择器身份；它不证明包内容或交付。
+- 将请求的笔记、标签、collection、元数据或附件变更交接给整理，并附带读取证据但不附带隐含授权。
+- 仅在返回有限查询结果后，将持续监控交接给托管端。
 
-A handoff carries stable identities, accepted pages, source depth, relevant evidence, and diagnostics. It does not carry an inferred approval, guessed handle, private local storage path, or a claim that the successor task has already completed.
+交接携带稳定的身份、已接受的页面、来源深度、相关证据与诊断。它不携带推断的批准、猜测的 handle、私有的本地存储路径，或声称后继任务已完成的断言。
 
-State the handoff boundary in the current summary so the next task and the user know exactly what remains.
+在当前摘要中陈述交接边界，以便下一个任务与用户准确知道还剩下什么。
 
-## Hard constraints
+## 硬约束
 
-- Read only through `zotero-bridge` and do not infer item identity from a title, citation string, or stale result.
-- Do not mutate, submit, apply back, or start unattended monitoring while answering a query.
-- Do not expose private attachment contents, credentials, or local storage paths in a result.
-- Re-query live data when freshness matters or a handle has expired.
-- Do not treat navigation, snapshot data, a notification, terminal run, generated artifact, or Synthesis association as proof of a bibliographic write.
-- Do not claim full-text evidence when only metadata, abstract, OCR fragments, or inaccessible attachment records were available.
-- Do not conclude absence from an incomplete page sequence or substitute another object after a stale ref.
+- 仅通过 `zotero-bridge` 进行读取，不要从标题、引文字符串或过期结果推断条目身份。
+- 在回答查询时不要变更、提交、apply-back 或启动无人值守的监控。
+- 不要在结果中暴露私有附件内容、凭据或本地存储路径。
+- 当新鲜度重要或 handle 已过期时，重新查询实时数据。
+- 不要将导航、快照数据、通知、终态运行、生成的 artifact 或 Synthesis 关联视为书目写入的证据。
+- 在仅有元数据、摘要、OCR 片段或不可访问的附件记录时，不要声称拥有全文证据。
+- 不要从不完整的页面序列得出缺失结论，或在过期 ref 之后替换为另一个对象。
 
-## LLM And Tool Responsibilities
+## LLM 与工具职责
 
-The LLM owns query scope, candidate selection, evidence sufficiency, source comparison, interpretation, and freshness judgment. The bundled CLI and runner own exact argv, live reads, cursor and file-handle transport, downloaded-byte checks, and result-schema validation. Do not invent handles, locators, command results, or library facts.
+LLM 拥有查询范围、候选选择、证据充分性、来源比较、解读与新鲜度判断。打包的 CLI 与 runner 拥有精确的 argv、实时读取、cursor 与文件 handle 传输、已下载字节的校验以及结果 schema 校验。不要捏造 handles、locators、命令结果或库事实。
 
-## Result contract
+## 结果契约
 
-Return one business JSON object matching `assets/output.schema.json`.
+返回一个匹配 `assets/output.schema.json` 的业务 JSON 对象。
 
-Required:
+必填：
 
-- `schema`: `zotero-library-task.result.v1`.
-- `status`: `completed`, `canceled`, or `failed`.
-- `summary`: the answer and its bounded search/read basis, not a bare success label.
+- `schema`：`zotero-library-task.result.v1`。
+- `status`：`completed`、`canceled` 或 `failed`。
+- `summary`：答案及其有界搜索/读取依据，而非一个空洞的成功标签。
 
-Optional:
+可选：
 
-- `evidence` is an optional array; each entry has `kind` plus a stable `ref`; use `locator` for a page, section, annotation, note block, cursor boundary, asset role, or other exact source location, and `description` for its relevance.
-- `artifacts` is an optional array; each entry has an existing agent-accessible `path` and `role`; add `mediaType` when known.
-- `diagnostics` is an optional array; each entry has `code` and `message` for missing identity, incomplete paging, unavailable content, stale derived state, or another material limitation.
+- `evidence` 是可选数组；每个条目包含 `kind` 与稳定的 `ref`；使用 `locator` 表示页面、章节、注释、笔记块、cursor 边界、asset 角色或其他精确来源位置，使用 `description` 表示其相关性。
+- `artifacts` 是可选数组；每个条目包含一个 agent 可访问的 `path` 与 `role`；已知时附加 `mediaType`。
+- `diagnostics` 是可选数组；每个条目包含 `code` 与 `message`，用于缺失身份、不完整分页、不可用内容、过期衍生状态或其他关键限制。
 
-Status rules:
+状态规则：
 
-- `completed`: the declared query scope is sufficiently traversed and the answer is supported. A verified empty result is completed.
-- `canceled`: a material scope, identity, source-depth choice, or privacy decision is missing before the read can safely answer.
-- `failed`: an attempted read, page sequence, or file delivery cannot complete and the declared objective remains unmet.
+- `completed`：已声明的查询范围被充分遍历，答案得到支持。经过验证的空结果属于 completed。
+- `canceled`：在读取能安全作答之前，关键的范围、身份、来源深度选择或隐私决策缺失。
+- `failed`：尝试的读取、页面序列或文件交付无法完成，且已声明的目标仍未达成。
 
-Minimal result:
+最小结果：
 
 ```json
 {
@@ -188,18 +188,18 @@ Minimal result:
 }
 ```
 
-Do not invent `partial`; if only part of the requested objective completed, use `failed`, preserve accepted evidence, and explain the remaining gap. Omit empty optional arrays rather than fabricating entries.
+不要捏造 `partial`；若仅完成部分所请求的目标，使用 `failed`，保留已接受的 evidence，并解释剩余缺口。宁可省略空的可选数组，也不要捏造条目。
 
-The Runner's `__SKILL_DONE__` marker is transport metadata. Use `false` only while a concrete user decision is pending; use the final branch when ready, but never place the marker inside this business object or a result file. Emit no Markdown around the JSON.
+Runner 的 `__SKILL_DONE__` 标记是传输元数据。仅在有具体用户决定待定时使用 `false`；就绪时使用最终分支，但切勿将此标记放入业务对象或结果文件内部。JSON 周围不要发出 Markdown。
 
-## Completion
+## 完成
 
-Return one final `zotero-library-task.result.v1` object with required `schema`, `status`, and `summary`. Use `completed` only when the declared scope has been searched or resolved far enough to support the answer and material claims carry live evidence. Use `canceled` when the question, scope, identity, or source-depth choice is missing, and `failed` for an unrecoverable access or paging error.
+返回一个最终的 `zotero-library-task.result.v1` 对象，必填 `schema`、`status` 与 `summary`。仅当已声明范围已被搜索或充分解析以支撑答案，且关键声明带有实时 evidence 时，使用 `completed`。当问题、范围、身份或来源深度选择缺失时使用 `canceled`；对于无法恢复的访问或分页错误使用 `failed`。
 
-## Failure handling
+## 失败处理
 
-Preserve accepted pages, last cursor or offset, source identity, file owner, and structured error. Narrow an over-broad request only when the narrowed boundary still answers the user's question. Reacquire expired file access from the attachment, Product, or artifact that issued it. If only a weaker source basis remains, offer that bounded answer with an explicit limitation rather than implying the requested evidence depth.
+保留已接受的页面、最后的 cursor 或 offset、来源身份、文件所有者与结构化错误。仅在收窄后的边界仍能回答用户问题时收窄过宽的请求。从发出该访问的附件、Product 或 artifact 重新获取过期的文件访问。若仅剩较弱的来源依据，应以明确的限制提供该有界答案，而不是暗示所请求的证据深度。
 
-## References
+## 参考
 
-Consult [the comprehensive query playbook](references/playbook.md) when the request needs a detailed search/list/snapshot decision, note payload or annotation handling, attachment-byte delivery, readiness interpretation, Synthesis model selection, privacy minimization, or interrupted paging/file recovery.
+当请求需要详细的搜索/列表/快照决策、笔记 payload 或注释处理、附件字节交付、就绪性解读、Synthesis 模型选择、隐私最小化或中断的分页/文件恢复时，查阅 [the comprehensive query playbook](references/playbook.md)。

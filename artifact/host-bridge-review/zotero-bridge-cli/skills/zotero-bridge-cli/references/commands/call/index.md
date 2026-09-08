@@ -8,23 +8,23 @@
 zotero-bridge call [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] CAPABILITY <CAPABILITY> [--input <JSON_OR_FILE>]
 ```
 
-全局选项可以出现在 leaf 命令之前或之后。使用 `--schema` 可以检查原始的结构化输入 schema，而无需加载 profile 或连接 Zotero。
+全局选项可出现在叶命令之前或之后。使用 `--schema` 检查原始结构化输入 schema，而无需加载 profile 或连接 Zotero。
 
 ## 全局参数
 
 | Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| --endpoint | endpoint | option | no | — | ENDPOINT | no | ZOTERO_BRIDGE_ENDPOINT | — | Zotero Bridge 服务的端点基址。若省略，CLI 会读取 ZOTERO_BRIDGE_ENDPOINT 或 profile 文件。CLI 不会随意猜测 bridge 端口。 |
-| --operation-id | operation_id | option | no | — | ID | no | ZOTERO_BRIDGE_OPERATION_ID | — | 用于一次会改变 Zotero 状态的请求的不透明幂等性 id |
-| --profile | profile | option | no | — | PATH | no | ZOTERO_BRIDGE_PROFILE | — | Zotero Bridge 连接 profile JSON 文件的路径。若省略，CLI 会尝试使用 Zotero Agents 的 well-known profile。ACP 运行 profile 通常引用 tokenEnv；本地的 well-known profile 可能包含由用户级文件权限保护的 bearer token。 |
-| --schema | schema | option | no | — | SCHEMA; values: true, false | no | — | — | 为一个规范化的 leaf 命令打印版本化的原始 JSON Schema 和受管控的示例。Schema 模式为离线模式，不会加载 profile、读取 Zotero Bridge 配置，也不会连接 Zotero。 |
+| --endpoint | endpoint | option | no | — | ENDPOINT | no | ZOTERO_BRIDGE_ENDPOINT | — | Zotero Bridge 服务端点基础 URL。若省略，CLI 读取 ZOTERO_BRIDGE_ENDPOINT 或 profile 文件。CLI 不会猜测随机的 bridge 端口。 |
+| --operation-id | operation_id | option | no | — | ID | no | ZOTERO_BRIDGE_OPERATION_ID | — | 用于改变状态的 Zotero 请求的不透明 idempotency id |
+| --profile | profile | option | no | — | PATH | no | ZOTERO_BRIDGE_PROFILE | — | Zotero Bridge connection-profile JSON 文件的路径。若省略，CLI 会尝试 Zotero Agents 的 well-known profile。ACP run profile 通常引用 tokenEnv；本地 well-known profile 可能包含受用户级文件权限保护的 bearer token。 |
+| --schema | schema | option | no | — | SCHEMA; values: true, false | no | — | — | 打印一个规范叶命令的带版本原始 JSON Schema 与受管辖示例。Schema 模式为离线模式，不加载 profile、不读取 Zotero Bridge 配置，也不连接 Zotero。 |
 
-## 本地选项与位置参数
+## 局部选项与位置参数
 
 | Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| CAPABILITY | capability | positional | yes | — | CAPABILITY | no | — | — | Capability name, for example library.get_item_detail |
-| --input | input | option | no | — | JSON_OR_FILE | no | — | — | Capability input. Use inline JSON such as '{"key":"ABC"}', a file path containing JSON, @file syntax, or '-' to read JSON from stdin. Omit for {}. |
+| CAPABILITY | capability | positional | yes | — | CAPABILITY | no | — | — | Capability 名称，例如 library.get_item_detail |
+| --input | input | option | no | — | JSON_OR_FILE | no | — | — | Capability 输入。使用内联 JSON 如 '{"key":"ABC"}'、含 JSON 的文件路径、@file 语法或 '-' 从 stdin 读取 JSON。省略时为 {}。 |
 
 ## 调用 schema
 
@@ -51,7 +51,7 @@ zotero-bridge call [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PAT
 
 ## 结构化输入 schema
 
-### `--input` (input)
+### `--input`（input）
 
 必需：`false`。
 
@@ -64,7 +64,7 @@ zotero-bridge call [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PAT
 }
 ```
 
-## 组合 payload schema
+## 组合载荷 schema
 
 ```json
 {
@@ -84,11 +84,11 @@ zotero-bridge call [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PAT
 }
 ```
 
-## Payload 组合
+## 载荷组合
 
-此命令没有单独的字段映射程序。其 binding 模式可直接执行：passthrough 使用唯一的结构化源，而 `none` 和 `raw` 保持其声明的封闭行为。
+此命令没有独立的字段映射程序。其绑定模式为直接可执行：passthrough 使用唯一的结构化来源，而 `none` 与 `raw` 保持其声明的封闭行为。
 
-`composition`: `null`.
+`composition`：`null`。
 
 ## 结果 schema
 
@@ -110,9 +110,9 @@ zotero-bridge call [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PAT
 
 ## 示例
 
-### input: shape-only 示例
+### input：仅形状示例
 
---input 的最小 JSON 形式。
+--input 的最小 JSON 形状。
 
 ```console
 zotero-bridge call --input '{}'
@@ -120,11 +120,11 @@ zotero-bridge call --input '{}'
 
 前置条件：
 
-- 执行前，请将示例中的标识符和值替换为对所选 Zotero library、workflow、provider 或 capability 有效的输入。
+- 执行前，将示例中的标识符与值替换为对所选 Zotero 库、workflow、provider 或 capability 有效的输入。
 
 ## 完整命令描述符
 
-此封闭描述符是 `surface describe` 返回的机器可读命令契约；此处包含它是为了让该卡片在无需加载其他命令参考的情况下仍可独立审计。
+此封闭描述符是 `surface describe` 返回的机器可读命令契约；此处包含它，以便在不加载另一份命令参考的情况下，本卡片仍可独立审计。
 
 ```json
 {
@@ -313,27 +313,27 @@ zotero-bridge call --input '{}'
 
 ## 参数失败与恢复契约
 
-Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+参数失败以单个 JSON 错误信封返回。先检查 `error.code`，然后要求 `error.details.schema` 为 `host-bridge.argument-error.v1`，再使用结构化边界字段。保留规范命令、已净化的输入以及任何已返回的类型化句柄；绝不在证据中包含完整的原始载荷。
 
-- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
-- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
-- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
-- `command_input` reports schema violations for a structured input. Inspect the bounded `violations`, then run this exact leaf with `--schema` and correct the declared field or type; do not invent an alias.
-- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
-- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
-- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
+- `argv` 报告缺失、未知、冲突或无效的 CLI 参数。请依据本卡片的参数表或当前命令帮助重建 argv。
+- `json_source` 报告 stdin 或文件源不可读。请修正该源，而不要将值挪到另一个绑定。
+- `json_syntax` 以安全行列上下文报告无效 JSON。在解读领域字段前先修复语法。
+- `command_input` 报告结构化输入的 schema 违规。检查有界的 `violations`，然后用 `--schema` 运行此精确叶命令并修正所声明的字段或类型；不要自行发明别名。
+- `payload_contract` 表示 CLI 组合出的 capability 载荷在网络 I/O 之前违反了可执行契约。将其视为实现缺陷；不要用原始传输绕过语义命令。
+- `command_result` 表示 Host 响应或本地结果未通过其可执行结果 schema。不得将其作为成功证据接受或报告。
+- 违规数组经过脱敏、确定性排序，并最多保留八项。当 `truncated` 为 true 时，应修正所报告的违规并重新校验，而不是要求披露秘密或完整载荷。
 
-## 运行契约
+## 操作契约
 
-- Canonical argv path: `call`.
-- Output boundary: `raw`; governed details: {"strategy":"raw"}.
-- Pagination: `none`.
-- Category: `debug`; danger: `none`.
-- Structured binding mode: `raw`.
-- Intent visibility: `hidden`.
-- Operational aliases: `call`, `capability`, `CAPABILITY`, `input`, `JSON_OR_FILE`.
+- 规范 argv 路径：`call`。
+- 输出边界：`raw`；受管辖细节：{"strategy":"raw"}。
+- 分页：`none`。
+- 类别：`debug`；危险级别：`none`。
+- 结构化绑定模式：`raw`。
+- 意图可见性：`hidden`。
+- 操作别名：`call`、`capability`、`CAPABILITY`、`input`、`JSON_OR_FILE`。
 
-### 影响
+### 效果
 
 ```json
 [
@@ -355,7 +355,7 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 }
 ```
 
-### Handle 转换
+### 句柄转换
 
 ```json
 [

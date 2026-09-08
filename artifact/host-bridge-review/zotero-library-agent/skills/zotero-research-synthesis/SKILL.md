@@ -1,213 +1,213 @@
 ---
 name: zotero-research-synthesis
-description: 将有限范围的 Zotero 文献合成为可追溯的研究上下文。当用户需要为当前问题获得证据支撑的主题、论断、图谱、空白或跨源综合时使用。
+description: 将限定范围的 Zotero 文献合成为可追溯的研究上下文。当用户需要围绕当前问题获得有证据支撑的主题、主张、图谱、缺口或多源综合结论时使用。
 ---
 
-# Zotero Research Synthesis
+# Zotero 研究综合
 
-## Goal
+## 目标
 
-Relate a bounded set of verified Zotero sources and derived research structures to a question, topic, claim, graph, gap, or export outcome while preserving source disagreement, model provenance, freshness, and stage-specific completion evidence.
+将一组已核验的 Zotero 文献与衍生研究结构与问题、主题、主张、图谱、缺口或导出结果关联起来,同时保留文献间的分歧、模型来源、新鲜度以及各阶段的完成证据。
 
-## Inputs
+## 输入
 
-- A research question plus a topic, claim, graph, index, resolver selector, artifact, Product, or resolved source set.
-- Inclusion rules, desired synthesis model and deliverable, and required freshness.
-- Current authority for workflow submission, derived-state maintenance, export, persistence, or agent apply-back.
+- 一个研究问题,加上主题、主张、图谱、索引、解析器选择子、产物 Product 或已解析的文献集合。
+- 纳入规则、所需的综合模型与交付物,以及要求的新鲜度。
+- 工作流提交、衍生状态维护、导出、持久化或 agent apply-back 的当前授权。
 
-## Natural-language intake
+## 自然语言接入
 
-Translate broad wording such as “what does the literature say,” “map this field,” “find the gap,” or “update the topic” into a bounded source set, research question, synthesis model, and deliverable.
+将诸如"文献都说了些什么"、"梳理这一领域"、"找出缺口"或"更新这个主题"等宽泛措辞,转译为限定文献集合、研究问题、综合模型与交付物。
 
-| User wording | Initial route | Material boundary |
+| 用户措辞 | 初始路径 | 素材边界 |
 | --- | --- | --- |
-| “What does the literature say about X?” | Source-grounded synthesis | Bound the included Zotero sources and the question being synthesized |
-| “How are these papers related?” | Comparative or graph-assisted synthesis | Decide whether relationships come from source claims, citations, computed graph edges, or interpretation |
-| “What are the research gaps?” | Gap synthesis | Define corpus, time boundary, evidence standard, and whether missing coverage is distinguishable from a real gap |
-| “Create a topic for X” | Synthesis workflow candidate | Establish source set, topic identity, workflow options, and submission authority |
-| “Refresh this topic and tell me what changed” | Maintenance then synthesis | Diagnose stale model and scope; obtain separate maintenance authority |
-| “Export the synthesis” | Product/artifact delivery | Identify the expected export, format, Product/asset, and local destination |
-| “The graph has no X; update it” | Diagnosis before maintenance | An empty result does not itself justify refresh or graph mutation |
+| "文献关于 X 都说了些什么?" | 基于来源的综合 | 限定纳入的 Zotero 文献与待综合的问题 |
+| "这些论文之间有何关联?" | 比较式或图谱辅助的综合 | 决定关系是来自来源主张、引文、计算得到的图边,还是解读 |
+| "研究缺口在哪里?" | 缺口综合 | 定义语料、时间边界、证据标准,并区分缺失覆盖与真实缺口 |
+| "为 X 创建一个主题" | 综合工作流候选 | 确认文献集合、主题身份、工作流选项与提交授权 |
+| "刷新这个主题并告诉我变化" | 先维护后综合 | 诊断陈旧模型与范围;获得独立的维护授权 |
+| "导出综合结果" | Product / 产物交付 | 明确预期的导出、格式、Product / 资产以及本地目标 |
+| "图谱里没有 X;更新它" | 维护前的诊断 | 空结果本身不构成刷新或图谱变更的正当理由 |
 
-Capture:
+需要捕获:
 
-- the research question and intended decision;
-- the verified source set and inclusion/exclusion rules;
-- source freshness and required derived-model freshness;
-- synthesis form: narrative, claim table, topic report, citation graph, gap map, timeline, resolver result, or export;
-- disagreement and uncertainty treatment;
-- workflow or direct-read preference when both are supported;
-- requested maintenance, persistence, export, or apply-back effects.
+- 研究问题与预期决策;
+- 已核验文献集合与纳入/排除规则;
+- 文献新鲜度与衍生模型要求的新鲜度;
+- 综合形式:叙事、主张表、主题报告、引文图、缺口图、时间线、解析器结果或导出;
+- 分歧与不确定性的处理方式;
+- 同时支持工作流或直接读取时的偏好;
+- 请求的维护、持久化、导出或 apply-back 效果。
 
-Ask when:
+在以下情形应询问:
 
-- the source set or research question is not bounded;
-- several models could answer different questions;
-- derived state is stale and a maintenance action would change it;
-- graph structure could be mistaken for scholarly agreement or causality;
-- a workflow/provider choice changes execution, cost, or output;
-- “save,” “publish,” “attach,” or “update” introduces a new state-change boundary.
+- 文献集合或研究问题尚未限定;
+- 多个模型可能回答不同问题;
+- 衍生状态陈旧且维护动作会改变它;
+- 图谱结构可能被误读为学术共识或因果关系;
+- 工作流/提供者选择会改变执行、成本或输出;
+- "保存"、"发布"、"附加"或"更新"引入了新的状态变更边界。
 
-Safe defaults:
+安全默认:
 
-- synthesize from current verified Zotero sources without maintenance;
-- preserve disagreement and missing evidence;
-- use a narrative answer unless a structured deliverable is requested;
-- inspect model status before using a derived view;
-- keep generated output outside Zotero unless a later curation/apply-back stage is authorized.
+- 仅基于当前已核验 Zotero 文献进行综合,不进行维护;
+- 保留分歧与缺失证据;
+- 除非明确请求结构化交付物,否则使用叙事回答;
+- 使用衍生视图前检查模型状态;
+- 生成的输出保持在 Zotero 之外,除非后续策展/apply-back 阶段获得授权。
 
-There is no safe default for source inclusion, topic identity, maintenance scope, causal interpretation, workflow submission, export target, persistence, or apply-back.
+对于来源纳入、主题身份、维护范围、因果解读、工作流提交、导出目标、持久化或 apply-back,不存在安全默认值。
 
-## Workflow
+## 工作流
 
-### Choose synthesis or direct delivery
+### 选择综合还是直接交付
 
-Use the direct research-bundle branch when the user wants portable files for already identified Zotero papers or existing Topics and does not ask for a new research selection, manuscript-oriented Product, analysis generation, or model refresh. Paper bundles aggregate the requested items and include portable metadata, preferred source Markdown with its valid local images or PDF fallback, and each available digest, references, citation-analysis, and literature-score artifact. Topic bundles include each current report and one globally deduplicated digest per associated canonical `libraryId:itemKey`; the exported report copy links validated bibliography markers to those digest paths without changing the stored Topic report.
+当用户希望为已识别的 Zotero 论文或已存在的主题获得可移植文件,并且不要求新的研究筛选、面向手稿的 Product、分析生成或模型刷新时,使用直接的研究 bundle 分支。论文 bundle 汇总所请求条目,包含可移植元数据、首选来源 Markdown 及其有效本地图像或 PDF 回退,以及每篇可用的摘要、参考文献、引文分析与文献评分产物。主题 bundle 包含每个当前报告,以及每个关联规范 `libraryId:itemKey` 的一个全局去重摘要;导出的报告副本将经验证的文献标注链接到这些摘要路径,但不会更改已存储的主题报告。
 
-Stable item refs or Topic IDs are required. If the request supplies titles, a fuzzy phrase, or an ambiguous selection, hand identity resolution to Query and continue only with its verified ordered selectors. Do not use the direct branch to discover papers, produce missing analysis, refresh a stale Topic, or create the broader manuscript-oriented Research Bundle Product. Missing optional source/artifact content is a manifest warning; an unresolved selector is a request failure.
+稳定的条目引用或主题 ID 是必需的。如果请求仅给出标题、模糊短语或歧义选择,请将身份解析交给 Query,仅使用其已核验的有序选择子继续工作。不要使用直接分支来发现论文、生成缺失分析、刷新陈旧主题,或创建更广义的面向手稿的研究 bundle Product。缺失的可选来源/产物内容是清单警告;未解析的选择子则是请求失败。
 
-For a local Host connection, require an absent or empty destination directory and verify the resulting `manifest.json`, `index.md`, requested report/paper inventory, and diagnostics. For a remote connection, do not send a client-local output path: retain the returned bridge-download handle, execute the supplied download step, verify returned size/checksum evidence, and unpack only after byte verification. Do not report completion from handle issuance alone. On expiry, repeat the read-only export with the same verified selectors; on a non-empty local destination, choose a new or emptied destination rather than overwriting it.
+对于本地 Host 连接,要求目标目录不存在或为空,并验证生成的 `manifest.json`、`index.md`、所请求的报告/论文清单以及诊断信息。对于远程连接,不要发送客户端本地输出路径:保留返回的 bridge-download 句柄,执行提供的下载步骤,验证返回的大小/校验和证据,仅在字节验证通过后解包。不得仅凭句柄签发就报告完成。若过期,请使用相同的已核验选择子重新执行只读导出;若本地目标目录非空,请选择新的或已清空的目标,而非覆盖。
 
-### Plan a library topic structure before synthesis
+### 综合前规划库主题结构
 
-When the user wants help organizing the current library, or wants several related Topics that should share one coherent graph, run the live-described Topic Planner workflow before creating any Topic synthesis. The planner owns the library-wide comparison: it reads a complete current planning context, measures every library paper against materialized and Planned Topics, and returns one atomic reconciliation of Planned Topic definitions and relation proposals. A Planned Topic is a reusable skeleton with a stable topic ID, definition, scope, resolver, revision, basis, and lifecycle. It does not contain provisional paper membership and it is not evidence that a synthesis report exists.
+当用户希望帮助组织当前库,或希望若干相关主题共用同一一致的图谱时,请在任何主题综合创建前,运行实时描述的主题规划工作流。该规划器负责库范围比较:读取完整的当前规划上下文,针对已物化与 Planned 主题测量库中每篇论文,并返回一份对 Planned 主题定义与关系建议的原子化协调结果。Planned 主题是一个可复用的骨架,包含稳定的主题 ID、定义、范围、解析器、版本、依据与生命周期。它不包含临时论文成员资格,也不能证明综合报告的存在。
 
-Treat a truncated inline planning context as incomplete. Request the workflow's supported complete-file delivery, verify the library-index and Topic Graph basis hashes, and preserve the coverage manifest. Apply the planner result only through its workflow result hook. Graph compare-and-swap conflict means that no part of the plan was applied: obtain a fresh planning context and rerun the planner. Library drift may leave an otherwise valid graph reconciliation applied with stale coverage; report that state and rerun planning before relying on the old denominator. Verify the resulting Planned Topic identities, lifecycle states, and suggested relations from a fresh read.
+将截断的内联规划上下文视为不完整。请请求工作流支持的完整文件交付,验证库索引与主题图谱依据哈希,并保留覆盖清单。仅通过工作流结果钩子应用规划结果。图谱 compare-and-swap 冲突意味着计划中没有任何部分被应用:获取新的规划上下文并重新运行规划器。库漂移可能使原本有效的图谱协调以陈旧覆盖被应用;请报告该状态,并在依赖旧分母前重新规划。从新读结果中验证所得 Planned 主题身份、生命周期状态与建议关系。
 
-After one plan has been persisted, separate Create Topic Synthesis runs may materialize its active Planned Topics independently, including in parallel. Each run must select the Planned Topic identity, reread its current definition and resolver, resolve membership at execution time, and materialize that same topic ID. Do not copy the Planned Topic into a new ad hoc identity. A stale Planned Topic is not fillable until a later planner reconciliation reactivates it. Ad hoc creation remains appropriate for one isolated user-supplied seed; it must not silently substitute for a requested library-wide plan.
+在一个计划被持久化之后,单独的创建主题综合运行可独立地(可并行)物化其活跃 Planned 主题。每次运行必须选择 Planned 主题身份,重新读取其当前定义与解析器,在执行时解析成员资格,并物化同一主题 ID。不要将 Planned 主题复制为新的临时身份。Planned 主题若陈旧,则在后续规划协调重新激活前不可填充。对于单一用户提供的种子,临时创建仍然合适;但它不得悄悄替代所请求的库范围计划。
 
-Treat a free Create Topic Synthesis seed as topic intent, not proof that a new topic identity is needed. The prepare stage must inspect the complete topic inventory before resolving that intent: cancel when a materialized Topic already represents the same identity; otherwise automatically select the best active Planned Topic whose definition and scope can accept the intent without broadening, narrowing, or rewriting it; create from scratch only when neither match exists. Related Topics and parent or child scopes are not interchangeable identity matches. If several active Planned Topics pass the same-identity test, prefer the best definition-and-scope match and use aliases and title only as secondary evidence. The runtime must reread a selected Planned Topic …
+将自由的创建主题综合种子视为主题意图,并非新主题身份确属必要的证据。准备阶段必须在解析该意图前检查完整的主题清单:当已物化主题已代表同一身份时取消;否则自动选择最佳活跃 Planned 主题,要求其定义与范围能够在不加宽、不收窄、不重写的情况下接受该意图;仅当两者都不匹配时,从零创建。相关主题与父/子范围不是可互换的身份匹配。若多个活跃 Planned 主题通过同一身份测试,优先选择定义与范围最佳匹配者,仅将别名与标题作为次要证据。运行时必须重新读取所选 Planned 主题……
 
-The planner may recommend updates to materialized Topics but cannot rewrite them. Route each accepted recommendation through Update Topic Synthesis. An update remains meaningful when no papers were added: changed digests, literature scores, dependencies, resolver results, or triage state can still require recomputation. Verify the updated report and Topic Graph result independently of planner, Create, or Update terminal run state.
+规划器可以建议对已物化主题的更新,但不能改写它们。请通过更新主题综合路由每个被采纳的建议。即使未新增论文,更新仍然有意义:已变的摘要、文献评分、依赖、解析器结果或分流状态仍可能需要重算。请独立于规划器、创建或更新终端运行状态,验证更新后的报告与主题图谱结果。
 
-### Establish source and model boundary
+### 确立来源与模型边界
 
-1. State the research question, inclusion and exclusion rule, required freshness, and intended deliverable. Resolve every source ref and the exact topic, graph, index, resolver selector, artifact, Product, or schema used.
-2. Select the derived model that actually answers the question. Record its identity, scope, paging completion, freshness status, and any missing source coverage before interpreting it.
-3. Distinguish direct source claims, current Zotero facts, notes/annotations, computed relationships, workflow-produced interpretation, your inference, disagreement, and evidence gaps.
+1. 陈述研究问题、纳入与排除规则、要求的新鲜度与预期交付物。解析每个来源引用与确切的主题、图谱、索引、解析器选择子、产物、Product 或 schema。
+2. 选择真正回答问题的衍生模型。记录其身份、范围、分页完成度、新鲜度状态以及任何缺失的来源覆盖,然后再行解读。
+3. 区分直接来源主张、当前 Zotero 事实、笔记/标注、计算关系、工作流产生的解读、你的推断、分歧与证据缺口。
 
-For paper-level synthesis material, treat `digest`, `references`, `citation_analysis`, and `literature_score` as one four-artifact set. Inspect `paper_artifacts.get_manifest` before reading or exporting payloads. Omit `artifact_types` only when the complete set is intended; use an explicit filter when the task needs fewer artifacts. A paper is artifact-complete only when all four rows are available. A missing or invalid literature score keeps coverage partial even when the other three rows are available.
+对于论文级综合素材,将 `digest`、`references`、`citation_analysis` 与 `literature_score` 视为一组共四个的产物集合。在读取或导出载荷前,请检查 `paper_artifacts.get_manifest`。仅在期望完整集合时省略 `artifact_types`;若任务需要更少产物,请使用显式过滤。仅当全部四行均可用时,一篇论文才视为产物完整。缺失或无效的文献评分即使其他三行可用,也使覆盖保持部分。
 
-The manifest's `literature_quality` snapshot records the score status, schema/rubric identity, paper type, scores, confidence, neutralized quality prior, payload hash, and diagnostics. Use that frozen snapshot as the paper's intrinsic-quality evidence. Do not replace it with a new subjective quality label. Missing or invalid scoring uses the neutral prior and remains visible in diagnostics. Topic relevance, Research Bundle eligibility, evidence role, disagreement, and claim support still require task-specific judgment; quality does not widen the selected source boundary or justify a hard filter by itself.
+清单的 `literature_quality` 快照记录评分状态、schema / 评分标准身份、论文类型、评分、置信度、已被中和的质量先验、载荷哈希与诊断信息。请使用该冻结快照作为论文的内在质量证据。不要用新的主观质量标签替代它。缺失或无效的评分使用中和先验,并在诊断中保持可见。主题相关性、研究 bundle 资格、证据角色、分歧与主张支持仍需任务专属判断;质量本身不会放宽所选来源边界,也不能单独成为硬性过滤的依据。
 
-### Separate read, workflow, and maintenance
+### 分离读取、工作流与维护
 
-4. Synthesize directly from supported reads when no reusable execution contract is needed. Use a live-described workflow when it owns the requested provider execution or multi-artifact output; validate workflow input and provider profile separately.
-5. Treat sidecar refresh, citation-graph update, graph-metric repair, cache invalidation, and index status as separate maintenance contracts. Diagnose the exact stale model and scope before proposing one.
-6. Preserve each workflow or maintenance stage's handle, approval, source scope, pre-state, post-state, successful and failed refs, retryability, and basis hash. One receipt never completes another stage.
+4. 当不需要可复用的执行契约时,直接从受支持的读取综合。当实时描述的工作流拥有所请求的提供者执行或多产物输出时,使用它;分别验证工作流输入与提供者配置文件。
+5. 将 sidecar 刷新、引文图更新、图度量修复、缓存失效与索引状态视为独立的维护契约。提出任一动作前,请诊断确切的陈旧模型与范围。
+6. 保留每个工作流或维护阶段的句柄、批准、来源范围、前置状态、后置状态、成功与失败的引用、可重试性与依据哈希。一份回执不能完成另一阶段。
 
-### Verify each requested output
+### 验证每个请求的输出
 
-7. Verify the requested topic identity/report, graph result, resolver scope, artifact, Product, downloaded export, or live Zotero effect independently of terminal run state.
-8. Submit, persist, attach, or apply a synthesis output only through a new current authority boundary. A local artifact is not proof of Zotero state.
-9. Return `zotero-library-task.result.v1` with traceable evidence, declared artifacts, explicit disagreement and gaps, and every failed, skipped, or unavailable source subject.
+7. 独立于终端运行状态,验证所请求的主题身份/报告、图谱结果、解析器范围、产物、Product、已下载导出或实时 Zotero 效应。
+8. 仅通过新的当前授权边界来提交、持久化、附加或应用综合输出。本地产物不能证明 Zotero 状态。
+9. 返回 `zotero-library-task.result.v1`,附带可追溯证据、声明的产物、明确的分歧与缺口,以及每个失败、跳过或不可用的来源主题。
 
-### Build the synthesis in layers
+### 分层构建综合
 
-1. Inventory the verified sources and available evidence depth.
-2. Extract source-level claims with locators.
-3. Group claims by the declared question or model without erasing disagreement.
-4. Separate direct evidence, bibliographic relation, computed structure, workflow output, and your inference.
-5. State coverage gaps and whether they reflect missing sources, inaccessible content, stale derived state, or a supported research gap.
-6. Verify every requested artifact, Product asset, topic report, graph result, or export.
+1. 盘点已核验来源与可用证据深度。
+2. 抽取带定位符的来源级主张。
+3. 按声明问题或模型对主张分组,且不消除分歧。
+4. 区分直接证据、文献关系、计算结构、工作流输出与你的推断。
+5. 陈述覆盖缺口,并指出它们反映的是缺失来源、不可访问内容、陈旧衍生状态,还是受支持的研究缺口。
+6. 验证每个请求的产物、Product 资产、主题报告、图谱结果或导出。
 
-When a score changes, treat Topic context selection and dependent topic synthesis as stale until the owning workflow refreshes them. Reference-sidecar refresh maintains reference indexing only; it does not create or repair literature scores. If the three non-score artifacts are complete and only the score is absent, the repair route is literature-analysis score-only. If any of digest, references, or citation analysis is unavailable, use the full literature-analysis route.
+当评分发生变化时,在所属工作流刷新之前,将主题上下文选择与依赖主题综合视为陈旧。引用 sidecar 刷新仅维护引用索引;它不创建或修复文献评分。若三个非评分产物均完整而仅评分缺失,则修复路径为 literature-analysis 的仅评分路线。若摘要、参考文献或引文分析任一不可用,请使用完整的 literature-analysis 路线。
 
-When a workflow is used, preserve the live workflow description, selection, provider profile, options, run handle, expected result evidence, and inspection outcome. When maintenance is used, preserve the diagnosed model, pre-state, scope, operation ID, receipt, post-state, and basis hash if declared.
+使用工作流时,请保留实时工作流描述、选择、提供者配置文件、选项、运行句柄、预期结果证据与检查结果。使用维护时,请保留诊断的模型、前置状态、范围、操作 ID、回执、后置状态以及声明的依据哈希。
 
-Do not merge workflow execution and maintenance into one authority decision. Do not treat a completed maintenance operation as proof that the requested synthesis was recomputed or inspected.
+不要将工作流执行与维护合并为一个授权决策。不要将已完成的维护操作视为所请求的综合已被重算或检查的证据。
 
-For a human-facing result, state:
+对面向人员的结果,请陈述:
 
-- the bounded question and source set;
-- major supported themes or relationships;
-- disagreement and uncertainty;
-- evidence and locators;
-- derived-model provenance and freshness;
-- unavailable sources or incomplete stages;
-- produced artifacts and their verification;
-- any separately proposed next state change.
+- 限定的问题与文献集合;
+- 主要受支持的主题或关系;
+- 分歧与不确定性;
+- 证据与定位符;
+- 衍生模型的来源与新鲜度;
+- 不可用来源或不完整阶段;
+- 生成的产物及其验证情况;
+- 任何另行提议的下一状态变更。
 
-### Synthesis completion checklist
+### 综合完成清单
 
-Source boundary:
+来源边界:
 
-- Every included source is resolved and within the declared rule.
-- Excluded and unavailable sources are visible.
-- Source-level evidence is not replaced by graph or topic membership.
-- Freshness is recorded for both live sources and derived models.
+- 每个纳入来源均已解析且在声明规则内。
+- 排除与不可用来源可见。
+- 来源级证据未被图谱或主题成员资格取代。
+- 同时记录实时来源与衍生模型的新鲜度。
 
-Model boundary:
+模型边界:
 
-- The selected model answers the declared question.
-- Model identity, scope, paging, basis, and status are preserved.
-- Graph, topic, resolver, index, artifact, and Product identities remain distinct.
-- Computed structure is not promoted to causality or consensus.
+- 所选模型回答声明的问题。
+- 模型身份、范围、分页、依据与状态均保留。
+- 图谱、主题、解析器、索引、产物与 Product 身份保持区分。
+- 计算结构未被提升为因果关系或共识。
 
-Execution:
+执行:
 
-- Direct synthesis, workflow execution, and maintenance are separate stages.
-- Workflow selection, options, provider, and expected outputs were validated.
-- Maintenance has diagnosed scope, authority, operation receipt, and post-state.
-- One receipt is not reused as evidence for another model.
+- 直接综合、工作流执行与维护是各自独立的阶段。
+- 工作流选择、选项、提供者与预期输出均已验证。
+- 维护已诊断范围、授权、操作回执与后置状态。
+- 一份回执未被复用为另一模型的证据。
 
-Output:
+输出:
 
-- Themes, claims, relationships, gaps, and disagreements trace to evidence.
-- Missing coverage is distinguished from a supported research gap.
-- Every promised Product or artifact is inspected and, when requested, downloaded and verified.
-- A direct bundle names its selector scope, delivery mode, manifest inventory, warning set, and verified local directory or downloaded file; missing optional entries are not reported as generated.
-- Persistence or apply-back has its own authority and receipt.
+- 主题、主张、关系、缺口与分歧均可追溯到证据。
+- 缺失覆盖与受支持的研究缺口加以区分。
+- 每个承诺的 Product 或产物均已检查,并在请求时下载与验证。
+- 直接 bundle 标注其选择子范围、交付模式、清单条目、警告集与已验证的本地目录或下载文件;缺失的可选项不报告为已生成。
+- 持久化或 apply-back 拥有自身授权与回执。
 
-Near misses:
+险些遗漏:
 
-- An empty graph query does not prove no scholarly relationship.
-- A topic cluster does not prove authors agree.
-- A stale index does not automatically authorize refresh.
-- A completed refresh does not prove the synthesis report was regenerated.
-- A local export does not prove a Zotero note or attachment exists.
-- A workflow artifact does not become live library truth without verification.
+- 空的图谱查询不能证明不存在学术关系。
+- 主题聚类不能证明作者达成一致。
+- 陈旧索引不能自动授权刷新。
+- 已完成的刷新不能证明综合报告已重新生成。
+- 本地导出不能证明存在 Zotero 笔记或附件。
+- 工作流产物未经验证不能成为库的实时真相。
 
-If the model cannot answer the question, choose another supported model only after explaining the difference; do not silently reinterpret the user's objective.
+若模型不能回答问题,请先解释差异,再选择其他受支持模型;不要悄悄改写用户目标。
 
-## Hard constraints
+## 硬约束
 
-- Do not represent a generated graph, topic, or workflow output as live Zotero truth without live verification.
-- Do not submit workflows or apply agent-owned output without current authority and any approval shown in Zotero.
-- Do not turn a bounded synthesis request into background topic maintenance or continuous monitoring.
-- Preserve source disagreement, uncertainty, and missing evidence rather than forcing a conclusion.
-- Do not infer causality or scholarly agreement from a computed graph edge, cluster, ranking, or topic membership alone.
-- Do not use an empty derived query as automatic justification for cache invalidation, sidecar refresh, graph update, or metric repair.
-- Do not treat one maintenance receipt as completion evidence for another model or reuse an operation ID across stages.
-- Do not claim export completion until the intended Product or artifact asset has been downloaded and verified.
+- 不要在未做实时核验的情况下,将生成的图谱、主题或工作流输出表示为 Zotero 实时真相。
+- 没有当前授权与 Zotero 中显示的任何批准时,不要提交工作流或应用 agent 拥有的输出。
+- 不要把限定范围的综合请求变成后台主题维护或持续监控。
+- 保留来源分歧、不确定性与缺失证据,而不是强行得出结论。
+- 不要仅凭计算出的图边、聚类、排名或主题成员资格推断因果关系或学术共识。
+- 不要将空的衍生查询自动作为缓存失效、sidecar 刷新、图谱更新或度量修复的正当理由。
+- 不要将一份维护回执当作另一模型的完成证据,或在阶段间复用操作 ID。
+- 在目标 Product 或产物资产已被下载并验证之前,不要声称为导出已完成。
 
-## LLM And Tool Responsibilities
+## LLM 与工具职责
 
-The LLM owns source boundaries, model choice, relationship interpretation, evidence sufficiency, disagreement, gap analysis, and workflow judgment. The bundled CLI and runner own exact argv, live service calls, run/operation/file/artifact handles, approval transport, and result-schema validation. Do not invent handles, receipts, graph facts, workflow outcomes, basis hashes, or applied state.
+LLM 负责来源边界、模型选择、关系解读、证据充分性、分歧、缺口分析以及工作流判断。捆绑的 CLI 与运行器负责精确 argv、实时服务调用、运行/操作/文件/产物句柄、批准传输与结果 schema 验证。不得捏造句柄、回执、图谱事实、工作流结果、依据哈希或已应用状态。
 
-## Result contract
+## 结果契约
 
-Return one business JSON object matching `assets/output.schema.json`.
+返回一个匹配 `assets/output.schema.json` 的业务 JSON 对象。
 
-Required:
+必填:
 
-- `schema`: `zotero-library-task.result.v1`.
-- `status`: `completed`, `canceled`, or `failed`.
-- `summary`: state the research question, source/model boundary, synthesis outcome, verified deliverables, disagreement, and material limits.
+- `schema`:`zotero-library-task.result.v1`。
+- `status`:`completed`、`canceled` 或 `failed`。
+- `summary`:陈述研究问题、来源/模型边界、综合结果、已验证交付物、分歧与实质性限制。
 
-Optional:
+可选:
 
-- `evidence` is an optional array; each entry requires `kind` and `ref`; use it for Zotero sources, source locators, topics, graph queries, model status, workflow runs, Products, artifacts, or maintenance receipts.
-- `artifacts` is an optional array; each entry requires an existing `path` and `role`, such as `topic-report`, `claim-matrix`, `graph-export`, or `synthesis-bundle`; add `mediaType` when known.
-- `diagnostics` is an optional array; each entry requires `code` and `message` for stale models, source gaps, unsupported inferences, workflow/maintenance failures, missing Products, or another stable limitation.
+- `evidence` 为可选数组;每个条目需要 `kind` 与 `ref`;用于 Zotero 来源、来源定位符、主题、图谱查询、模型状态、工作流运行、Product、产物或维护回执。
+- `artifacts` 为可选数组;每个条目需要已存在的 `path` 与 `role`,如 `topic-report`、`claim-matrix`、`graph-export` 或 `synthesis-bundle`;在已知时添加 `mediaType`。
+- `diagnostics` 为可选数组;每个条目需要 `code` 与 `message`,用于陈旧模型、来源缺口、不支持的推断、工作流/维护失败、缺失 Product 或其他稳定限制。
 
-Status rules:
+状态规则:
 
-- `completed`: the bounded source/model basis supports the synthesis and every promised output is inspected.
-- `canceled`: the question, source boundary, model choice, maintenance scope, export target, or authority is missing.
-- `failed`: an attempted read, workflow, maintenance operation, or output verification cannot complete the overall synthesis objective.
+- `completed`:限定来源/模型依据支持综合,且每个承诺输出均已检查。
+- `canceled`:问题、来源边界、模型选择、维护范围、导出目标或授权缺失。
+- `failed`:尝试的读取、工作流、维护操作或输出验证无法完成整体综合目标。
 
-Minimal result:
+最简结果:
 
 ```json
 {
@@ -217,18 +217,18 @@ Minimal result:
 }
 ```
 
-Do not invent `partial`. If a valid subset result exists but the overall requested synthesis failed, use `failed`, preserve the valid evidence and artifacts, and diagnose missing stages or sources.
+不要捏造 `partial`。若存在有效子集结果但整体请求的综合失败,请使用 `failed`,保留有效证据与产物,并诊断缺失阶段或来源。
 
-The Runner's `__SKILL_DONE__` marker is transport metadata, not a business field. Use the pending branch only for a concrete user decision and emit the final business object without Markdown or extra prose.
+运行器的 `__SKILL_DONE__` 标记是传输元数据,而非业务字段。仅在具体的用户决策上使用待定分支,并输出不带 Markdown 或额外散文的最终业务对象。
 
-## Completion
+## 完成
 
-Return one final `zotero-library-task.result.v1` object with required `schema`, `status`, and `summary`. Use `completed` when the declared source/model boundary supports the requested synthesis and every promised output is inspected. Use `canceled` when the question, source boundary, model choice, maintenance scope, or authority is missing, and `failed` when required reads or approved execution cannot complete safely.
+返回一个最终的 `zotero-library-task.result.v1` 对象,包含必填的 `schema`、`status` 与 `summary`。当声明的来源/模型边界支持所请求的综合,且每个承诺输出均已检查时,使用 `completed`。当问题、来源边界、模型选择、维护范围或授权缺失时,使用 `canceled`;当所需读取或已批准执行无法安全完成时,使用 `failed`。
 
-## Failure handling
+## 失败处理
 
-Report the source set, topic/model identity, run and operation handles, committed basis facts, produced artifacts, and stable diagnostics. Resume at the first synthesis stage lacking valid completion evidence. If a workflow needs interaction or a maintenance precondition fails, return the required decision or diagnostic; do not substitute another workflow, broaden the source scope, or bypass the basis check.
+报告来源集合、主题/模型身份、运行与操作句柄、已提交依据事实、生成的产物与稳定诊断。在首个缺乏有效完成证据的综合阶段恢复。若工作流需要交互或维护前置失败,请返回所需决策或诊断;不要替换为其他工作流、加宽来源范围或绕过依据检查。
 
-## References
+## 参考
 
-Consult [the comprehensive synthesis playbook](references/playbook.md) when the task needs a detailed derived-model choice, freshness decision record, workflow/maintenance precondition, basis-hash lifecycle, multi-stage literature-to-topic sequence, Product/export verification, or staged recovery.
+当任务需要详细的衍生模型选择、新鲜度决策记录、工作流/维护前置条件、依据哈希生命周期、多阶段文献到主题序列、Product / 导出验证或分阶段恢复时,请参阅[综合操作手册全文](references/playbook.md)。

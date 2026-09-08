@@ -96,3 +96,7 @@ artifact/acp-probe/
 
 **/__pycache__/
 .pytest_cache/
+
+# Workspace analysis artifacts (local only)
+WORKSPACE-CATALOG.sqlite
+WORKSPACE-STRUCTURE-REPORT.md
