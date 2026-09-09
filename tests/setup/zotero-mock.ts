@@ -3,6 +3,9 @@ import { promises as fs } from "fs";
 import * as fsSync from "fs";
 import os from "os";
 import path from "path";
+import { installPluginStateNodeSqliteAdapter } from "../helpers/pluginStateNodeSqliteAdapter";
+
+installPluginStateNodeSqliteAdapter();
 
 type TagEntry = { tag: string; type?: number };
 type MockCreatorInput = {

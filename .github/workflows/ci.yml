@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Setup JS
         uses: zotero-plugin-dev/workflows/setup-js@main
+        with:
+          node-version: 24
       - name: Run Lint
         run: npm run lint:check
 
@@ -29,6 +31,8 @@ jobs:
     steps:
       - name: Setup JS
         uses: zotero-plugin-dev/workflows/setup-js@main
+        with:
+          node-version: 24
       - name: Run Build
         run: npm run build
       - name: Upload build result
@@ -45,6 +49,8 @@ jobs:
     steps:
       - name: Setup JS
         uses: zotero-plugin-dev/workflows/setup-js@main
+        with:
+          node-version: 24
       - name: Resolve compatibility matrix from manifest
         id: plan
         shell: bash
@@ -64,6 +70,8 @@ jobs:
     steps:
       - name: Setup JS
         uses: zotero-plugin-dev/workflows/setup-js@main
+        with:
+          node-version: 24
       - name: Read Host Bridge CLI test toolchain
         id: host_bridge_recipe
         shell: bash
@@ -85,6 +93,8 @@ jobs:
     steps:
       - name: Setup JS
         uses: zotero-plugin-dev/workflows/setup-js@main
+        with:
+          node-version: 24
       - name: Read Host Bridge CLI test toolchain
         id: host_bridge_recipe
         shell: bash
@@ -112,6 +122,8 @@ jobs:
     steps:
       - name: Setup JS
         uses: zotero-plugin-dev/workflows/setup-js@main
+        with:
+          node-version: 24
       - name: Download canonical plugin build
         uses: actions/download-artifact@v5
         with:
@@ -155,6 +167,8 @@ jobs:
     steps:
       - name: Setup JS
         uses: zotero-plugin-dev/workflows/setup-js@main
+        with:
+          node-version: 24
       - name: Download canonical plugin build
         uses: actions/download-artifact@v5
         with:

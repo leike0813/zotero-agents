@@ -22,6 +22,8 @@ jobs:
     steps:
       - name: Setup JS
         uses: zotero-plugin-dev/workflows/setup-js@main
+        with:
+          node-version: 24
 
       - name: Initialize content submodules
         run: git submodule update --init skills_builtin

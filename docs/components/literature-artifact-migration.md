@@ -114,7 +114,8 @@ overwrites the original representation. Ordinary notes and ordinary
 
 ## Durable lifecycle
 
-`pluginStateStore.ts` owns the private SQLite records
+`pluginStateStore/literatureMigrationTables.ts` owns the private SQLite records,
+while `pluginStateStore.ts` keeps their public composition seam:
 `plugin_literature_artifact_migration_runs` and
 `plugin_literature_artifact_migration_sets`. A run stores the migration ID,
 definition version, library, state, counts, timestamps, and bounded

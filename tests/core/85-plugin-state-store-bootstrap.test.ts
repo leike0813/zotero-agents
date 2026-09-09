@@ -1,8 +1,10 @@
 import { assert } from "chai";
 import {
+  getPluginTaskRequestEntry,
   getPluginStateMigrationStatus,
   inspectPluginStateStoreCounts,
   resetPluginStateStoreForTests,
+  upsertPluginTaskRequestEntry,
   upsertPluginTaskRowEntry,
 } from "../../src/modules/pluginStateStore";
 import {
@@ -113,6 +115,32 @@ describe("plugin state store bootstrap", function () {
     assert.equal(String(getPref("skillRunnerRequestLedgerJson") || ""), "");
     assert.equal(String(getPref("skillRunnerDeferredTasksJson") || ""), "");
     assert.equal(String(getPref("taskDashboardHistoryJson") || ""), "");
+  });
+
+  it("keeps logically distinct composite task keys independent", function () {
+    upsertPluginTaskRequestEntry("alpha::beta", {
+      requestId: "gamma",
+      backendId: "backend-1",
+      state: "queued",
+      updatedAt: "2026-09-09T00:00:00.000Z",
+      payload: '{"source":1}',
+    });
+    upsertPluginTaskRequestEntry("alpha", {
+      requestId: "beta::gamma",
+      backendId: "backend-2",
+      state: "running",
+      updatedAt: "2026-09-09T00:00:01.000Z",
+      payload: '{"source":2}',
+    });
+
+    assert.equal(
+      getPluginTaskRequestEntry("alpha::beta", "gamma")?.backendId,
+      "backend-1",
+    );
+    assert.equal(
+      getPluginTaskRequestEntry("alpha", "beta::gamma")?.backendId,
+      "backend-2",
+    );
   });
 
   it("reuses guarded connections and avoids nested BEGIN IMMEDIATE", function () {
