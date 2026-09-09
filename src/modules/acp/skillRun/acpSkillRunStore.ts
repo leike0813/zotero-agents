@@ -3,10 +3,6 @@ import {
   clearPluginRunStore,
   deletePluginRunStoreEntry,
 } from "../../pluginStateStore";
-import {
-  registerAcpSkillRunsMemoryClearer,
-  registerAcpSkillRunsRetentionCleaner,
-} from "../../runtimePersistence";
 import { isAssistantSilentExecutionMode } from "../../assistant/publication/assistantExecutionDisplayPolicy";
 import {
   finishAcpExecutionProgress,
@@ -2079,13 +2075,11 @@ export function resetAcpSkillRunsForTests() {
   clearPluginRunStore("acp");
 }
 
-registerAcpSkillRunsMemoryClearer(() => {
+export function clearAcpSkillRunsForRuntimePersistence() {
   clearAcpSkillRunRecords();
   runtimeCatalogByRequestId.clear();
   setAcpSkillRunSelectedRequestId("");
   invalidateAcpSkillRunPersistenceHydration();
   clearPluginRunStore("acp");
   emitWorkspaceChanged();
-});
-
-registerAcpSkillRunsRetentionCleaner(cleanupExpiredAcpSkillRunsForRetention);
+}

@@ -7,8 +7,6 @@ import { promisify } from "node:util";
 import {
   RUNTIME_APPEND_CHUNK_CODE_UNITS,
   appendRuntimeTextFile,
-  cleanupRuntimePersistenceRetention,
-  cleanupRuntimePersistenceCategory,
   ensureRuntimeDirectoryStrict,
   getRuntimePersistencePaths,
   getSynthesisSidecarLifecyclePaths,
@@ -18,10 +16,8 @@ import {
   listRuntimeChildrenStrict,
   moveRuntimePath,
   removeRuntimePathStrict,
-  registerRuntimeLogClearer,
   replaceRuntimeTextFileAtomically,
   resolveRuntimeTemporaryDirectory,
-  scanRuntimePersistenceUsage,
   validateManagedAbsolutePath,
   validateManagedRelativePath,
   validateManagedRelativePathSet,
@@ -37,9 +33,12 @@ import {
 } from "../../src/modules/acp/skillRun/acpSkillRunStore";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import {
-  cleanupPersistenceIssues,
-  scanPersistenceIntegrity,
-} from "../../src/modules/persistenceIntegrity";
+  cleanupRuntimePersistenceCategory,
+  cleanupRuntimePersistenceIssues,
+  cleanupRuntimePersistenceRetention,
+  scanRuntimePersistenceGovernance,
+  type RuntimePersistenceCategory,
+} from "../../src/modules/runtimePersistenceGovernance";
 import type { WorkflowProductRecord } from "../../src/modules/workflow/catalog/workflowProductStore";
 import {
   buildSynthesisKnowledgeGraphPaths,
@@ -502,43 +501,6 @@ describe("runtime persistence governance", function () {
     }
   });
 
-  it("awaits the asynchronous runtime log clearer before deleting log storage", async function () {
-    const paths = getRuntimePersistencePaths();
-    await fs.mkdir(paths.logsDir, { recursive: true });
-    await fs.writeFile(
-      path.join(paths.logsDir, "pending.log"),
-      "pending",
-      "utf8",
-    );
-    let release!: () => void;
-    let markStarted!: () => void;
-    const started = new Promise<void>((resolve) => {
-      markStarted = resolve;
-    });
-    const blocked = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    registerRuntimeLogClearer(async () => {
-      markStarted();
-      await blocked;
-    });
-    try {
-      let completed = false;
-      const cleanup = cleanupRuntimePersistenceCategory("logs").then(() => {
-        completed = true;
-      });
-      await started;
-      assert.isTrue(await pathExists(paths.logsDir));
-      assert.isFalse(completed);
-      release();
-      await cleanup;
-      assert.isFalse(await pathExists(paths.logsDir));
-    } finally {
-      release?.();
-      registerRuntimeLogClearer(clearRuntimeLogs);
-    }
-  });
-
   it("resolves a managed root with semantic subdirectories", function () {
     const paths = getRuntimePersistencePaths();
     assert.equal(paths.root, tempRoot);
@@ -853,7 +815,12 @@ describe("runtime persistence governance", function () {
       payload: '{"event":true}',
     });
 
-    const snapshot = await scanRuntimePersistenceUsage();
+    const governance = await scanRuntimePersistenceGovernance();
+    const snapshot = governance.usage;
+    assert.equal(
+      governance.integrity.schema,
+      "zotero-agents.persistence_integrity_report.v1",
+    );
     const categories = snapshot.categories.map((entry) => entry.category);
     assert.include(categories, "acp-conversations");
     assert.notInclude(categories, "state");
@@ -918,14 +885,14 @@ describe("runtime persistence governance", function () {
       await fs.writeFile(path.join(legacyRoot, "old.txt"), "legacy", "utf8");
 
       setDebugModeOverrideForTests(false);
-      const hiddenSnapshot = await scanRuntimePersistenceUsage();
+      const hiddenSnapshot = (await scanRuntimePersistenceGovernance()).usage;
       assert.notInclude(
         hiddenSnapshot.categories.map((entry) => entry.category),
         "legacy",
       );
 
       setDebugModeOverrideForTests(true);
-      const visibleSnapshot = await scanRuntimePersistenceUsage();
+      const visibleSnapshot = (await scanRuntimePersistenceGovernance()).usage;
       assert.notInclude(
         visibleSnapshot.categories.map((entry) => entry.category),
         "legacy" as any,
@@ -1089,7 +1056,7 @@ describe("runtime persistence governance", function () {
       }),
     });
 
-    const snapshot = await scanRuntimePersistenceUsage();
+    const snapshot = (await scanRuntimePersistenceGovernance()).usage;
     const category = snapshot.categories.find(
       (entry) => entry.category === "workflow-products",
     );
@@ -1703,6 +1670,19 @@ describe("runtime persistence governance", function () {
     assert.equal(await fs.readFile(canonicalFile, "utf8"), "{}");
   });
 
+  it("does not treat an unknown cleanup category as temporary data", async function () {
+    const paths = getRuntimePersistencePaths();
+    const sentinel = path.join(paths.tmpDir, "keep.tmp");
+    await fs.mkdir(paths.tmpDir, { recursive: true });
+    await fs.writeFile(sentinel, "keep", "utf8");
+
+    await cleanupRuntimePersistenceCategory(
+      "unknown" as RuntimePersistenceCategory,
+    );
+
+    assert.equal(await fs.readFile(sentinel, "utf8"), "keep");
+  });
+
   it("reports SQLite-indexed missing files and orphan runtime assets before cleanup", async function () {
     const paths = getRuntimePersistencePaths();
     const missingProduct: WorkflowProductRecord = {
@@ -1750,25 +1730,29 @@ describe("runtime persistence governance", function () {
     const oldTime = new Date("2026-05-01T00:00:00.000Z");
     await fs.utimes(orphan, oldTime, oldTime);
 
-    const report = await scanPersistenceIntegrity({
-      nowMs: Date.parse("2026-05-25T00:00:00.000Z"),
-    });
+    const report = (
+      await scanRuntimePersistenceGovernance({
+        nowMs: Date.parse("2026-05-25T00:00:00.000Z"),
+      })
+    ).integrity;
     assert.includeMembers(
       report.issues.map((issue) => issue.type),
       ["missing_file_for_db_row", "orphan_file_without_db_row"],
     );
 
-    const dryRun = await cleanupPersistenceIssues({
+    const dryRunResult = await cleanupRuntimePersistenceIssues({
       dryRun: true,
       nowMs: Date.parse("2026-05-25T00:00:00.000Z"),
     });
+    const dryRun = dryRunResult.cleanup;
     assert.isTrue(dryRun.dryRun);
     assert.equal(await fs.readFile(orphan, "utf8"), "orphan");
 
-    const cleanup = await cleanupPersistenceIssues({
+    const cleanupResult = await cleanupRuntimePersistenceIssues({
       dryRun: false,
       nowMs: Date.parse("2026-05-25T00:00:00.000Z"),
     });
+    const cleanup = cleanupResult.cleanup;
     assert.include(cleanup.removedPaths, orphan);
     await fs.access(orphan).then(
       () => assert.fail("expected orphan asset to be removed"),
@@ -1796,13 +1780,16 @@ describe("runtime persistence governance", function () {
     await fs.mkdir(path.dirname(runtimeSynthesisFile), { recursive: true });
     await fs.writeFile(runtimeSynthesisFile, "legacy", "utf8");
 
-    const report = await scanPersistenceIntegrity();
+    const report = (await scanRuntimePersistenceGovernance()).integrity;
     assert.include(
       report.issues.map((issue) => issue.type),
       "forbidden_durable_asset_in_runtime",
     );
 
-    const cleanup = await cleanupPersistenceIssues({ dryRun: false });
+    const cleanupResult = await cleanupRuntimePersistenceIssues({
+      dryRun: false,
+    });
+    const cleanup = cleanupResult.cleanup;
     assert.notInclude(cleanup.removedPaths, canonicalFile);
     assert.notInclude(cleanup.removedPaths, stateFile);
     const forbiddenIssue = report.issues.find(
@@ -1830,7 +1817,7 @@ describe("runtime persistence governance", function () {
       await fs.writeFile(file, "{}", "utf8");
     }
 
-    const report = await scanPersistenceIntegrity();
+    const report = (await scanRuntimePersistenceGovernance()).integrity;
 
     assert.notInclude(
       report.issues.map((issue) => issue.type),
@@ -1900,7 +1887,7 @@ describe("runtime persistence governance", function () {
       await fs.writeFile(file, "{}", "utf8");
     }
 
-    const report = await scanPersistenceIntegrity();
+    const report = (await scanRuntimePersistenceGovernance()).integrity;
     const types = report.issues.map((issue) => issue.type);
     assert.includeMembers(types, [
       "managed_path_reserved_name",

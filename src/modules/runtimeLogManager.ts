@@ -3,7 +3,6 @@ import { version } from "../../package.json";
 import {
   getRuntimePersistencePaths,
   readRuntimeTextFile,
-  registerRuntimeLogClearer,
   replaceRuntimeTextFileAtomically,
 } from "./runtimePersistence";
 import { isDebugModeEnabled } from "./debugMode";
@@ -1549,8 +1548,6 @@ export function clearRuntimeLogs() {
   });
   return drainRuntimeLogPersistence();
 }
-
-registerRuntimeLogClearer(clearRuntimeLogs);
 
 function snapshotRuntimeLogsInternal(): RuntimeLogSnapshot {
   const budget = resolveActiveRetentionBudget();

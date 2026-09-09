@@ -40,6 +40,10 @@ _Avoid_: Terminal outcome, completion, job state
 The Zotero-process owner that composes Task Dashboard state, snapshots, actions, frame lifecycle, refresh scheduling, and cleanup behind the stable `dashboardHost.ts` lifecycle interface. The page renderer and wire contract remain separate owners.
 _Avoid_: Task manager dialog, Dashboard page, Dashboard wire contract
 
+**Runtime Persistence Governance**:
+The policy domain that observes plugin-managed runtime data, reports integrity issues, and controls category-, issue-, and age-based cleanup while excluding durable knowledge and user-authored content.
+_Avoid_: Runtime filesystem, persistence adapter, state store
+
 **Zotero Host Capability Broker**:
 The canonical process-local, JSON-safe capability interface for Zotero context, navigation, bounded library reads, metadata translation, and controlled mutations. It owns host capability semantics but not transport, authorization, approval, exposure, or remote file locality.
 _Avoid_: Workflow hostApi, Host Bridge API, MCP tool registry

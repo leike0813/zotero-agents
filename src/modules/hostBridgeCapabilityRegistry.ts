@@ -40,7 +40,6 @@ import {
 import {
   getRuntimePersistencePaths,
   readRuntimeBytes,
-  scanRuntimePersistenceUsage,
   writeRuntimeBytes,
 } from "./runtimePersistence";
 import { joinPath } from "../utils/path";
@@ -62,7 +61,7 @@ import {
   type WorkflowProductAsset,
   type WorkflowProductRecord,
 } from "./workflow/catalog/workflowProductStore";
-import { scanPersistenceIntegrity } from "./persistenceIntegrity";
+import { scanRuntimePersistenceGovernance } from "./runtimePersistenceGovernance";
 import type {
   HostBridgeApprovalRequirement,
   HostBridgeCapabilityManifestEntry,
@@ -2189,10 +2188,7 @@ async function debugStatus(
 
 async function debugPersistenceSnapshot(input: unknown) {
   const object = asObject(input);
-  const [usage, integrity] = await Promise.all([
-    scanRuntimePersistenceUsage(),
-    scanPersistenceIntegrity(),
-  ]);
+  const { usage, integrity } = await scanRuntimePersistenceGovernance();
   return debugEnvelope("host_bridge.debug.persistence.snapshot.v1", object, {
     usage: redactLocalPaths(usage, object.includeLocalPaths === true),
     integrity: redactLocalPaths(integrity, object.includeLocalPaths === true),

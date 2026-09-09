@@ -114,18 +114,15 @@ import { releaseAcpSkillRunAuditTrailWrites } from "./modules/acp/skillRun/acpSk
 import { initializeWorkflowProductStorage } from "./modules/workflow/catalog/workflowProductStore";
 import { shutdownAcpWebSocketBridgeService } from "./modules/acp/transport/acpWebSocketBridgeService";
 import { reconcileAcpSkillRunWorkflowTasksOnStartup } from "./modules/acp/skillRun/acpSkillRunStore";
-import {
-  cleanupRuntimePersistenceRetention,
-  cleanupRuntimePersistenceCategory,
-  getRuntimePersistencePaths,
-  scanRuntimePersistenceUsage,
-  type RuntimePersistenceCategory,
-} from "./modules/runtimePersistence";
+import { getRuntimePersistencePaths } from "./modules/runtimePersistence";
 import { shutdownRuntimeFileRangeReader } from "./modules/runtimeFileRangeReader";
 import {
-  cleanupPersistenceIssues,
-  scanPersistenceIntegrity,
-} from "./modules/persistenceIntegrity";
+  cleanupRuntimePersistenceCategory,
+  cleanupRuntimePersistenceIssues,
+  cleanupRuntimePersistenceRetention,
+  scanRuntimePersistenceGovernance,
+  type RuntimePersistenceCategory,
+} from "./modules/runtimePersistenceGovernance";
 import {
   ensureHostBridgeServer,
   buildHostBridgeRemoteCliProfileForCopy,
@@ -1496,8 +1493,6 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
         initialTabKey: "runtime-logs",
       });
       break;
-    case "scanRuntimePersistenceUsage":
-      return scanRuntimePersistenceUsage();
     case "cleanupRuntimePersistenceCategory":
       return cleanupRuntimePersistenceCategory(
         String(data.category || "") as RuntimePersistenceCategory,
@@ -1518,51 +1513,16 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
           console.warn("[runtime-persistence] progress callback failed", error);
         }
       };
-      let usageStepCount = 0;
-      let integrityStepCount = 0;
-      const usage = await scanRuntimePersistenceUsage({
-        onProgress: (progress) => {
-          usageStepCount = Math.max(usageStepCount, progress.total);
-          emitProgress({
-            ...progress,
-            percent: Math.floor((progress.percent || 0) / 2),
-          });
-        },
-      });
-      const integrity = await scanPersistenceIntegrity({
-        onProgress: (progress) => {
-          integrityStepCount = Math.max(integrityStepCount, progress.total);
-          const total = usageStepCount + progress.total;
-          emitProgress({
-            ...progress,
-            current: usageStepCount + progress.current,
-            total,
-            percent: 50 + Math.floor((progress.percent || 0) / 2),
-          });
-        },
-      });
-      emitProgress({
-        stage: "complete",
-        label: "Persistence scan complete",
-        current: Math.max(usageStepCount + integrityStepCount, 0),
-        total: Math.max(usageStepCount + integrityStepCount, 0),
-        percent: 100,
-      });
-      return { usage, integrity };
+      return scanRuntimePersistenceGovernance({ onProgress: emitProgress });
     }
     case "cleanupPersistenceGovernanceIssues": {
       const issueIds = Array.isArray(data.issueIds)
         ? data.issueIds.map((entry: unknown) => String(entry || "").trim())
         : [];
-      const cleanup = await cleanupPersistenceIssues({
+      return cleanupRuntimePersistenceIssues({
         issueIds: issueIds.filter(Boolean),
         dryRun: data.dryRun !== false,
       });
-      const [usage, integrity] = await Promise.all([
-        scanRuntimePersistenceUsage(),
-        scanPersistenceIntegrity(),
-      ]);
-      return { cleanup, usage, integrity };
     }
     case "resetSynthesisDatabase":
       return (await getDefaultSynthesisClient()).maintenance.resetDatabase({

@@ -1,23 +1,6 @@
 import { joinPath } from "../utils/path";
 import { getPref, setPref } from "../utils/prefs";
-import {
-  getRuntimePersistencePaths,
-  registerAcpConversationRecordsByteEstimator,
-  registerAcpConversationRecordsClearer,
-  registerAcpConversationRecordsCounter,
-  registerPluginTaskDomainByteEstimator,
-  registerPluginTaskDomainClearer,
-  registerPluginTaskDomainExceptRowScopesClearer,
-  registerPluginTaskDomainExceptRowScopesByteEstimator,
-  registerPluginTaskDomainCounter,
-  registerPluginTaskDomainExceptRowScopesCounter,
-  registerPluginRunStoreByteEstimator,
-  registerPluginRunStoreClearer,
-  registerPluginRunStoreCounter,
-  registerPluginTaskScopeByteEstimator,
-  registerPluginTaskScopeClearer,
-  registerPluginTaskScopeCounter,
-} from "./runtimePersistence";
+import { getRuntimePersistencePaths } from "./runtimePersistence";
 import {
   getGuardedSqliteConnection,
   resetGuardedSqliteForTests,
@@ -4305,30 +4288,6 @@ export function inspectPluginStateStoreCounts() {
       : 0,
   };
 }
-
-registerPluginTaskDomainClearer(clearPluginTaskDomain);
-registerPluginTaskDomainExceptRowScopesClearer(
-  clearPluginTaskDomainExceptRowScopes,
-);
-registerAcpConversationRecordsClearer(clearAcpConversationTaskRecords);
-registerPluginTaskScopeClearer(clearPluginTaskScope);
-registerPluginTaskDomainCounter(countPluginTaskDomain);
-registerPluginTaskDomainExceptRowScopesCounter(
-  countPluginTaskDomainExceptRowScopes,
-);
-registerAcpConversationRecordsCounter(countAcpConversationTaskRecords);
-registerPluginTaskScopeCounter(countPluginTaskScope);
-registerPluginTaskDomainByteEstimator(estimatePluginTaskDomainBytes);
-registerPluginTaskDomainExceptRowScopesByteEstimator(
-  estimatePluginTaskDomainExceptRowScopesBytes,
-);
-registerAcpConversationRecordsByteEstimator(
-  estimateAcpConversationTaskRecordsBytes,
-);
-registerPluginTaskScopeByteEstimator(estimatePluginTaskScopeBytes);
-registerPluginRunStoreClearer(clearPluginRunStore);
-registerPluginRunStoreCounter(countPluginRunStore);
-registerPluginRunStoreByteEstimator(estimatePluginRunStoreBytes);
 
 export function exportPluginStateStoreRowsForTests() {
   const db = getAdapter();

@@ -1,9 +1,30 @@
 # runtime-persistence-governance Specification
 
 ## Purpose
-Runtime persistence governance defines where indexed operational state is stored and how cold-path JSON assets are treated.
+Runtime Persistence Governance defines how plugin-managed runtime data is
+observed, checked, and cleaned. Runtime persistence separately owns managed
+paths and cross-runtime filesystem adapter selection.
 
 ## Requirements
+
+### Requirement: Runtime Persistence Governance exposes one consolidated interface
+
+Runtime Persistence Governance SHALL own combined usage and integrity scans,
+category cleanup, issue cleanup, and age-based retention behind one module
+interface. Filesystem adapter selection and managed path policy SHALL remain in
+runtime persistence.
+
+#### Scenario: Preferences scan managed runtime data
+
+- **WHEN** preferences requests a governance scan
+- **THEN** one governance operation SHALL return the existing usage snapshot and integrity report
+- **AND** callers SHALL NOT compose the two scans themselves.
+
+#### Scenario: Governance performs cleanup
+
+- **WHEN** category, issue, or retention cleanup is requested
+- **THEN** governance SHALL determine eligible records and paths
+- **AND** physical filesystem work SHALL use runtime persistence operations.
 
 ### Requirement: SQLite state stores indexed operational state
 
@@ -119,7 +140,7 @@ diagnostics.
 ### Requirement: Sidecar runtime installs have a fixed managed persistence root
 
 
-Runtime persistence governance SHALL reserve
+Runtime persistence SHALL reserve
 `runtime/synthesis/service-runtime` for product-owned Synthesis runtime
 versions, staging directories, and active/previous pointers.
 
@@ -133,7 +154,7 @@ versions, staging directories, and active/previous pointers.
 ### Requirement: Runtime pointer replacement is atomic
 
 
-Runtime persistence governance SHALL provide a fail-closed atomic text
+Runtime persistence SHALL provide a fail-closed atomic text
 replacement primitive for managed pointer files.
 
 #### Scenario: Atomic replacement is available

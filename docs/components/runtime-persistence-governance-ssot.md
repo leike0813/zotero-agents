@@ -2,6 +2,12 @@
 
 Runtime persistence is plugin-managed data that can grow during normal use and can be safely monitored or cleaned by category. It is not plugin settings and it is not user-authored workflow or skill content.
 
+Runtime Persistence Governance owns usage and integrity scans, category and
+issue cleanup, and age-based retention. The runtime persistence module owns
+root and path resolution, managed path policy, and late-bound filesystem
+adapter selection. Governance calls those filesystem operations without
+selecting an adapter itself.
+
 ## Root
 The runtime persistence root is resolved by the runtime persistence module:
 
@@ -36,7 +42,9 @@ The managed runtime cleanup surface must not include:
 Migration is conservative. Existing runtime state may be copied into the new root, but legacy files are not deleted automatically. Legacy runtime directories are shown as cleanable only after the user explicitly chooses that cleanup category.
 
 ## Development Rule
-Any new persistent runtime content that can grow over time must register a semantic path/category through the runtime persistence module and appear in preferences usage monitoring.
+Any new persistent runtime content that can grow over time must have a semantic
+path and category in Runtime Persistence Governance and appear in preferences
+usage monitoring.
 
 `workspace` is reserved for directories where an agent process actually runs. Plugin-private persistence directories such as ACP Chat `conversations/` and `runtime/` must not be described as workspaces in user-facing UI.
 

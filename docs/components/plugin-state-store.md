@@ -205,25 +205,11 @@ getAdapter()
 | 作用域操作 | 3 | `plugin_task_rows` | clear / count / estimateBytes |
 | 基础设施 | 6 | — | getPluginDataDirectoryPath / getPluginStateDatabasePath / resetTest / getMigrationStatus / inspectCounts / exportRowsForTests |
 
-## 治理钩子
+## 治理读取
 
-模块启动时注册 9 个回调到 `runtimePersistence.ts`：
-
-```typescript
-registerPluginTaskDomainClearer(clearPluginTaskDomain)
-registerPluginTaskDomainExceptRowScopesClearer(clearPluginTaskDomainExceptRowScopes)
-registerPluginTaskScopeClearer(clearPluginTaskScope)
-
-registerPluginTaskDomainCounter(countPluginTaskDomain)
-registerPluginTaskDomainExceptRowScopesCounter(countPluginTaskDomainExceptRowScopes)
-registerPluginTaskScopeCounter(countPluginTaskScope)
-
-registerPluginTaskDomainByteEstimator(estimatePluginTaskDomainBytes)
-registerPluginTaskDomainExceptRowScopesByteEstimator(estimatePluginTaskDomainExceptRowScopesBytes)
-registerPluginTaskScopeByteEstimator(estimatePluginTaskScopeBytes)
-```
-
-使 `runtimePersistence.ts` 能统一管理所有持久化域（清除、统计、字节估算）。
+Runtime Persistence Governance 直接调用域级和作用域级的 clear、count 与
+estimateBytes 操作。Plugin State Store 只提供 SQLite/Map 行事实，不持有分类、
+保留期限或文件清理策略。
 
 ## 测试支持
 
