@@ -600,7 +600,7 @@ export async function startMockSkillRunnerServer(args: {
 export function literatureDigestBundlePath(projectRoot: string) {
   return joinPath(
     projectRoot,
-    "test",
+    "tests",
     "fixtures",
     "literature-analysis",
     "run_bundle_canonical.zip",

@@ -1048,7 +1048,8 @@ describe("host bridge cli packaging and install", function () {
     assert.deepEqual(command("library items list").arguments[0].aliases, [
       "input",
     ]);
-    assert.deepEqual(tokens("mutation preview"), ["--input"]);
+    assert.deepEqual(tokens("mutation item update"), ["--item", "--patch"]);
+    assert.deepEqual(tokens("mutation get-operation"), ["OPERATION_ID"]);
 
     const statusCard = await fs.readFile(
       "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/bridge/status.md",

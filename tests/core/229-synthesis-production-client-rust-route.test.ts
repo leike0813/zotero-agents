@@ -91,6 +91,83 @@ const TOPIC_WORKBENCH_OPERATIONS = [
   "client.restoreTopicDiscoveryHint",
 ] as const;
 
+type CanonicalReferenceFixture = {
+  sourceReferenceId: string;
+  title: string;
+  year: number | null;
+  authors?: string[];
+  raw?: string;
+  matching?: {
+    DOI?: string;
+    url?: string;
+    ISBN?: string;
+    ISSN?: string;
+    citekey?: string;
+  };
+};
+
+function canonicalReferenceArtifact(
+  entries: readonly CanonicalReferenceFixture[],
+) {
+  return {
+    schema: "source_reference_artifact.v1",
+    references: entries.map((entry) => ({
+      sourceReferenceId: entry.sourceReferenceId,
+      extraction: {
+        raw: entry.raw ?? entry.title,
+        confidence: 1,
+      },
+      bibliography: {
+        title: entry.title,
+        authors: entry.authors ?? ["Researcher"],
+        year: entry.year,
+        itemType: "journalArticle",
+      },
+      matching: entry.matching ?? {},
+    })),
+  };
+}
+
+function canonicalCitationAnalysisArtifact(
+  sourceReferenceIds: readonly string[],
+) {
+  return {
+    schema: "citation_analysis_artifact.v1",
+    meta: {
+      language: "en",
+      scope: { section_title: null, line_start: null, line_end: null },
+      scope_source: null,
+      scope_decision: {
+        selection_reason: null,
+        covered_sections: [],
+        fallback_from: null,
+        fallback_reason: null,
+      },
+      mapping_reliability: "normal",
+      reference_extraction: { status: "completed" },
+    },
+    summary: "",
+    timeline: {
+      early: { summary: "", sourceReferenceIds: [] },
+      mid: { summary: "", sourceReferenceIds: [] },
+      recent: { summary: "", sourceReferenceIds: [...sourceReferenceIds] },
+    },
+    items: sourceReferenceIds.map((sourceReferenceId) => ({
+      sourceReferenceId,
+      function: "background",
+      role_in_context: "background",
+      topic: null,
+      usage: null,
+      keywords: [],
+      summary: null,
+      key_reference_reason: null,
+      confidence: 1,
+      mentions: [],
+    })),
+    unresolved: [],
+  };
+}
+
 async function createProductionRouteNativeComposition(
   port: number,
   id: string,
@@ -751,6 +828,14 @@ describe("Synthesis Rust production client route", function () {
       database
         .prepare("DELETE FROM synt_schema_meta WHERE key=?")
         .run("reference_redirect_graph_schema_version");
+      database.exec(`
+        INSERT INTO synt_reference_canonical(
+          canonical_reference_id,title,normalized_title,year,authors_json,
+          identifiers_json,metadata_hash,status,created_at,updated_at
+        ) VALUES
+          ('canonical:a','A','a','','[]','{}','sha256:a','active','${now}','${now}'),
+          ('canonical:b','B','b','','[]','{}','sha256:b','active','${now}','${now}');
+      `);
       const insertRedirect = database.prepare(
         `INSERT INTO synt_reference_redirect(
            from_canonical_reference_id,to_canonical_reference_id,reason,
@@ -2965,25 +3050,27 @@ describe("Synthesis Rust production client route", function () {
           const smallReference = String(call.payload.expectedHash).includes(
             "hostref3",
           );
+          const referenceId = smallReference
+            ? "host-reference:hostref3"
+            : "host-reference:shared";
           result = {
             status: "available",
             payloadHash: call.payload.expectedHash,
             content: {
               kind: "json",
-              value: {
-                padding: smallReference
-                  ? ""
-                  : `共享引用 ${"文献".repeat(400_000)}`,
-                references: [
-                  {
-                    title: smallReference
-                      ? "Small expanded reference"
-                      : "Shared expanded reference",
-                    year: "   ",
-                    authors: ["研究者"],
-                  },
-                ],
-              },
+              value: canonicalReferenceArtifact([
+                {
+                  sourceReferenceId: referenceId,
+                  title: smallReference
+                    ? "Small expanded reference"
+                    : "Shared expanded reference",
+                  year: null,
+                  authors: ["研究者"],
+                  raw: smallReference
+                    ? "Small expanded reference"
+                    : `共享引用 ${"文献".repeat(400_000)}`,
+                },
+              ]),
             },
             diagnostics: [],
           };
@@ -3178,7 +3265,16 @@ describe("Synthesis Rust production client route", function () {
         refresh.body.data.operation_id,
       );
       assert.equal(refreshCompleted.status, "completed");
-      assert.equal(refreshCompleted.receipt.ok, true);
+      assert.equal(
+        refreshCompleted.receipt.schema,
+        "synthesis.maintenance_receipt.v1",
+        JSON.stringify(refreshCompleted),
+      );
+      assert.equal(
+        refreshCompleted.receipt.outcome,
+        "completed",
+        JSON.stringify(refreshCompleted),
+      );
       assert.equal(
         reverseHostCalls.filter(
           (capability) => capability === "library.items.list_page",
@@ -3215,13 +3311,13 @@ describe("Synthesis Rust production client route", function () {
         matching.body.data.operation_id,
       );
       assert.equal(
-        matchingCompleted.receipt.ok,
-        true,
+        matchingCompleted.receipt.schema,
+        "synthesis.maintenance_receipt.v1",
         JSON.stringify(matchingCompleted),
       );
       assert.equal(
-        matchingCompleted.receipt.status,
-        "promoted",
+        matchingCompleted.receipt.outcome,
+        "completed",
         JSON.stringify(matchingCompleted),
       );
 
@@ -3920,14 +4016,18 @@ describe("Synthesis Rust production client route", function () {
         payloadHash: "sha256:digest-large",
         content: `# Digest\n${"x".repeat(128 * 1024)}`,
       },
-      references: {
-        payloadHash: "sha256:references-large",
-        references: [{ title: "Target", year: "2025", citekey: "target2025" }],
-      },
-      citationAnalysis: {
-        payloadHash: "sha256:citation-large",
-        citations: [{ reference_index: 0, role: "background" }],
-      },
+      references: canonicalReferenceArtifact([
+        {
+          sourceReferenceId: "digest-reference:target",
+          title: "Target",
+          year: 2025,
+          authors: ["Researcher"],
+          matching: { citekey: "target2025" },
+        },
+      ]),
+      citationAnalysis: canonicalCitationAnalysisArtifact([
+        "digest-reference:target",
+      ]),
       literatureMatchingMetadata: { key_terms: ["Large request"] },
       matchedReferences: [
         {
@@ -4068,26 +4168,16 @@ describe("Synthesis Rust production client route", function () {
         url: "",
         citekey: "source2026",
         dateAdded: "2026-08-12",
-        references: {
-          payloadHash: `sha256:${crypto
-            .createHash("sha256")
-            .update(`${revision}:references`)
-            .digest("hex")}`,
-          references: targets.map((target) => ({
+        references: canonicalReferenceArtifact(
+          targets.map((target, index) => ({
+            sourceReferenceId: `related-items:${revision}:${index}`,
             title: target,
-            year: "2026",
+            year: 2026,
           })),
-        },
-        citationAnalysis: {
-          payloadHash: `sha256:${crypto
-            .createHash("sha256")
-            .update(`${revision}:citation`)
-            .digest("hex")}`,
-          citations: targets.map((_, index) => ({
-            reference_index: index,
-            role: "background",
-          })),
-        },
+        ),
+        citationAnalysis: canonicalCitationAnalysisArtifact(
+          targets.map((_, index) => `related-items:${revision}:${index}`),
+        ),
         matchedReferences: targets.map((target) => ({
           library_id: 1,
           item_key: target,
@@ -4264,7 +4354,16 @@ describe("Synthesis Rust production client route", function () {
         refresh.body.data.operation_id,
       );
       assert.equal(completed.status, "completed");
-      assert.equal(completed.receipt.ok, true);
+      assert.equal(
+        completed.receipt.schema,
+        "synthesis.maintenance_receipt.v1",
+        JSON.stringify(completed),
+      );
+      assert.equal(
+        completed.receipt.outcome,
+        "completed",
+        JSON.stringify(completed),
+      );
 
       const missing = await call(port, "client.getPublicMaintenanceOperation", {
         args: [{ operation_id: "maintenance:missing" }],

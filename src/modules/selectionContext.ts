@@ -38,6 +38,10 @@ export type SelectionReadApi = {
   library: Pick<ZoteroHostCapabilityBroker["library"], "getItemDetail">;
 };
 
+function selectionTitle(title: string | undefined): { title?: string } {
+  return title?.trim() ? { title } : {};
+}
+
 export function selectionTargetRef(
   selection: SelectionContext,
 ): PortableItemRef | null {
@@ -101,7 +105,7 @@ export function attachmentSelectionFact(
     kind: "attachment",
     ref: item.ref,
     itemType: "attachment",
-    title: item.title,
+    ...selectionTitle(item.title),
     ...(item.parentRef ? { parentRef: item.parentRef } : {}),
     filename: item.filename,
     contentType: item.contentType,
@@ -117,7 +121,7 @@ function detailSelectionFact(detail: ItemDetailDto): SelectionItemFact {
       ref: detail.item.ref,
       itemType: "annotation",
       parentRef: detail.item.attachmentRef,
-      title: detail.item.text,
+      ...selectionTitle(detail.item.text),
     };
   return {
     kind:
@@ -128,7 +132,7 @@ function detailSelectionFact(detail: ItemDetailDto): SelectionItemFact {
           : "parent",
     ref: detail.item.ref,
     itemType: detail.kind === "regular" ? detail.item.itemType : "note",
-    title: detail.item.title,
+    ...selectionTitle(detail.item.title),
     ...(detail.item.parentRef ? { parentRef: detail.item.parentRef } : {}),
   };
 }
@@ -169,7 +173,7 @@ export async function readSelectionContext(
                 : "parent",
         ref: item.ref,
         itemType: item.itemType,
-        ...(item.title !== undefined ? { title: item.title } : {}),
+        ...selectionTitle(item.title),
         ...(item.parentRef ? { parentRef: item.parentRef } : {}),
       });
     if (!page.hasMore) return lockSelection(items);

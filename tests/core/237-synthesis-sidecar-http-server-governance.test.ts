@@ -112,7 +112,7 @@ async function healthReady(harness: SynthesisProductionRouteHarness) {
 describe("Synthesis sidecar HTTP server governance", function () {
   this.timeout(30_000);
 
-  it("bounds partial connection admission and recovers capacity", async function () {
+  it("bounds active admission while queueing the next connection", async function () {
     const harness = await startSynthesisProductionRouteHarness({
       id: "http-admission",
     });
@@ -122,7 +122,7 @@ describe("Synthesis sidecar HTTP server governance", function () {
       const beforeThreads = readThreadCount(harness.pid);
       records.push(
         ...(await Promise.all(
-          Array.from({ length: 100 }, () =>
+          Array.from({ length: 16 }, () =>
             openPartialSocket(
               harness.port,
               "GET /synthesis/v1/health HTTP/1.1\r\nX-Partial: ",
@@ -131,20 +131,27 @@ describe("Synthesis sidecar HTTP server governance", function () {
         )),
       );
       trickle = setInterval(() => {
-        for (const record of records) {
+        for (const record of records.slice(0, 16)) {
           if (!record.closed && !record.socket.destroyed) {
             record.socket.write("x", () => undefined);
           }
         }
       }, 100);
-      await delay(1_000);
+      await delay(500);
 
-      const openConnections = records.filter((record) => !record.closed);
-      const overloads = records.filter((record) =>
-        record.response.startsWith("HTTP/1.1 503"),
+      const queued = await openPartialSocket(
+        harness.port,
+        "GET /synthesis/v1/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
       );
-      assert.isAtMost(openConnections.length, 16);
-      assert.isAtLeast(overloads.length, 1);
+      records.push(queued);
+      await delay(500);
+      assert.isFalse(queued.closed, "the next connection stays in backlog");
+      assert.equal(
+        queued.response,
+        "",
+        "backlog connection is not handled yet",
+      );
+
       const afterThreads = readThreadCount(harness.pid);
       if (beforeThreads !== null && afterThreads !== null) {
         assert.isAtMost(afterThreads - beforeThreads, 16);
@@ -152,6 +159,13 @@ describe("Synthesis sidecar HTTP server governance", function () {
 
       clearInterval(trickle);
       trickle = undefined;
+      records[0]!.socket.destroy();
+      assert.isTrue(
+        await waitUntil(() => queued.response.includes("\r\n\r\n"), 2_000),
+        "the queued connection is handled after an active slot is released",
+      );
+      assert.equal(/^HTTP\/1\.1\s+(\d{3})\b/.exec(queued.response)?.[1], "200");
+
       for (const record of records) record.socket.destroy();
       assert.isTrue(await waitUntil(() => healthReady(harness), 2_000));
       const recoveredThreads = readThreadCount(harness.pid);

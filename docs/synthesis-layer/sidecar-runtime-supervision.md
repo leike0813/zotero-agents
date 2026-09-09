@@ -63,13 +63,15 @@ secondary evidence. Forced process termination is only a bounded fallback.
 
 ## Inbound HTTP ownership
 
-The loopback listener admits at most sixteen active connections and does not
-queue overflow. A connection beyond that bound receives `503
-service_unavailable` without creating a handler thread. One connection owner
-holds the active socket clones and each handler's lease, so normal completion,
-transport failure, timeout, and panic all release the same capacity. Completed
-handler threads are joined during ordinary listener polling instead of being
-retained until process shutdown.
+The loopback listener admits at most sixteen active connections. When all
+active leases are occupied, it stops accepting until a slot is released;
+additional TCP handshakes remain in the operating-system listen backlog and do
+not create handler threads or receive an application response yet. Once a slot
+is released, the next backlog connection can be accepted and handled normally.
+One connection owner holds the active socket clones and each handler's lease,
+so normal completion, transport failure, timeout, and panic all release the
+same capacity. Completed handler threads are joined during ordinary listener
+polling instead of being retained until process shutdown.
 
 Each connection carries one HTTP/1.1 request and closes after its response. The
 request line and each header line are limited to 8 KiB, the complete header

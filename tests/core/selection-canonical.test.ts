@@ -27,6 +27,106 @@ describe("canonical locked selection", function () {
     assert.notProperty(request, "targetParentID");
     assert.notProperty(request, "sourceAttachmentPaths");
   });
+
+  it("omits empty canonical titles across detail and selected-page projections", async function () {
+    const titleValues = ["", " \t ", " Kept title "] as const;
+
+    for (const title of titleValues) {
+      const refs = {
+        note: { libraryId: 1, key: "NOTE01" },
+        attachment: { libraryId: 1, key: "ATTACH01" },
+        annotation: { libraryId: 1, key: "ANNOT01" },
+      };
+      const broker = createFailClosedZoteroHostCapabilityBroker({
+        context: {
+          getSelectedItems: async () => ({
+            items: [
+              { ref: refs.note, itemType: "note", title },
+              { ref: refs.attachment, itemType: "attachment", title },
+              { ref: refs.annotation, itemType: "annotation", title },
+            ],
+            returned: 3,
+            total: 3,
+            hasMore: false,
+            nextCursor: null,
+          }),
+        },
+        library: {
+          getItemDetail: async (ref) => {
+            if (ref.key === refs.note.key)
+              return {
+                kind: "note",
+                item: {
+                  ref: refs.note,
+                  parentRef: null,
+                  title,
+                  textExcerpt: "",
+                  textLength: 0,
+                  htmlLength: 0,
+                  revision: "note-revision",
+                },
+              };
+            if (ref.key === refs.attachment.key)
+              return {
+                kind: "attachment",
+                item: {
+                  ref: refs.attachment,
+                  parentRef: null,
+                  revision: "attachment-revision",
+                  title,
+                  filename: null,
+                  contentType: null,
+                  charset: null,
+                  url: null,
+                  linkMode: "stored_file",
+                  role: "ordinary",
+                  createdAt: "2026-01-01T00:00:00.000Z",
+                  file: { state: "missing" },
+                },
+              };
+            return {
+              kind: "annotation",
+              item: {
+                ref: refs.annotation,
+                itemRef: refs.note,
+                attachmentRef: refs.attachment,
+                revision: "annotation-revision",
+                annotationType: "highlight",
+                text: title,
+                comment: "",
+                color: null,
+                location: {
+                  pageIndex: null,
+                  pageLabel: null,
+                  sortIndex: "",
+                  position: null,
+                },
+                tags: [],
+                createdAt: "2026-01-01T00:00:00.000Z",
+                modifiedAt: "2026-01-01T00:00:00.000Z",
+              },
+            };
+          },
+        },
+      });
+
+      const [built, read] = await Promise.all([
+        buildSelectionContext(
+          [refs.note, refs.attachment, refs.annotation],
+          broker,
+        ),
+        readSelectionContext(broker),
+      ]);
+      for (const selection of [built, read]) {
+        assert.lengthOf(selection.items, 3);
+        for (const item of selection.items) {
+          if (title.trim()) assert.strictEqual(item.title, title);
+          else assert.notProperty(item, "title");
+        }
+      }
+    }
+  });
+
   it("resolves uploads from the current canonical descriptor and fails on unavailable files", async function () {
     const ref = { libraryId: 1, key: "ATTACH01" };
     const selectionContext = lockSelection([

@@ -64,7 +64,7 @@ describe("Synthesis cross-language sidecar contract", function () {
     assert.equal(result.unauthorizedGenericEscapeCount, 0);
     assert.equal(
       result.fingerprint,
-      "sha256:cd06048bc2d89f47f700407929b03936b05a5d51f9c49ddfde8c7580c519a19a",
+      "sha256:101d84a02c8fb77ba4306a44f50faa59ac3eadcfe1ed69743b15a638d26ac690",
     );
   });
 

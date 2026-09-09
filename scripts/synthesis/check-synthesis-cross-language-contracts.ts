@@ -17,6 +17,26 @@ const PROTOCOL_CONTRACT_ROOT = path.resolve(
   import.meta.dirname,
   "../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1",
 );
+const CANONICAL_ARTIFACT_CONTRACT_ROOT = path.resolve(
+  import.meta.dirname,
+  "../../packages/synthesis-contracts/contract-set/canonical-literature-artifacts-v1",
+);
+const EXTERNAL_SCHEMA_FILES = new Map([
+  [
+    "https://zotero-agents.local/canonical-literature-artifacts/v1/source-reference-artifact.schema.json",
+    path.join(
+      CANONICAL_ARTIFACT_CONTRACT_ROOT,
+      "schemas/source-reference-artifact.schema.json",
+    ),
+  ],
+  [
+    "https://zotero-agents.local/canonical-literature-artifacts/v1/citation-analysis-artifact.schema.json",
+    path.join(
+      CANONICAL_ARTIFACT_CONTRACT_ROOT,
+      "schemas/citation-analysis-artifact.schema.json",
+    ),
+  ],
+]);
 const WORKER_PROTOCOL_SOURCE = path.resolve(
   import.meta.dirname,
   "../../rust/synthesis-sidecar/crates/synthesis-protocol/src/lib.rs",
@@ -128,6 +148,9 @@ function workerOperationsFromRust() {
 
 function normalizeProtocolRef(schemaRef: string, fromFile?: string) {
   const [relativePath, fragment = ""] = schemaRef.split("#", 2);
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(relativePath)) {
+    return `${relativePath}${fragment ? `#${fragment}` : ""}`;
+  }
   const resolvedPath = relativePath
     ? path.posix.normalize(
         fromFile
@@ -138,6 +161,13 @@ function normalizeProtocolRef(schemaRef: string, fromFile?: string) {
   return `${resolvedPath || ""}${fragment ? `#${fragment}` : ""}`;
 }
 
+function schemaFilePath(relativePath: string) {
+  return (
+    EXTERNAL_SCHEMA_FILES.get(relativePath) ||
+    path.join(PROTOCOL_CONTRACT_ROOT, relativePath)
+  );
+}
+
 function schemaAtRef(
   schemaRef: string,
   fromFile?: string,
@@ -145,7 +175,7 @@ function schemaAtRef(
   const canonicalRef = normalizeProtocolRef(schemaRef, fromFile);
   const [relativePath, fragment = ""] = canonicalRef.split("#", 2);
   if (!relativePath) return undefined;
-  const fullPath = path.join(PROTOCOL_CONTRACT_ROOT, relativePath);
+  const fullPath = schemaFilePath(relativePath);
   if (!fs.existsSync(fullPath)) return undefined;
   const schema = JSON.parse(fs.readFileSync(fullPath, "utf8")) as JsonObject;
   if (!fragment) return { canonicalRef, schema, node: schema, relativePath };
@@ -461,6 +491,15 @@ function inspectProtocolRegistry(errors: string[]) {
   }));
   const schemaIds = new Set<string>();
   const protocolAjv = new Ajv2020({ strict: true, allErrors: true });
+  for (const [schemaRef, fullPath] of EXTERNAL_SCHEMA_FILES) {
+    try {
+      protocolAjv.addSchema(
+        JSON.parse(fs.readFileSync(fullPath, "utf8")) as JsonObject,
+      );
+    } catch (error) {
+      errors.push(`external_schema_invalid:${schemaRef}:${String(error)}`);
+    }
+  }
   for (const { relativePath, document } of schemaDocuments) {
     if (document.$schema !== registry.jsonSchemaDialect) {
       errors.push(`protocol_schema_dialect_invalid:${relativePath}`);

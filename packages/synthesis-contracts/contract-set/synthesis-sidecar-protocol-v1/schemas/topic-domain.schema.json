@@ -1088,64 +1088,11 @@
         "content": { "$ref": "#/$defs/String" }
       }
     },
-    "ReferenceEntry": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "id": { "$ref": "#/$defs/String" },
-        "title": { "$ref": "#/$defs/String" },
-        "year": { "$ref": "#/$defs/String" },
-        "authors": { "$ref": "#/$defs/Strings" },
-        "doi": { "$ref": "#/$defs/String" },
-        "url": { "$ref": "#/$defs/String" },
-        "text": { "$ref": "#/$defs/String" }
-      }
-    },
     "ReferencesArtifact": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "noteKey": { "$ref": "#/$defs/String" },
-        "payloadHash": { "type": "string", "maxLength": 80 },
-        "references": {
-          "type": "array",
-          "maxItems": 25000,
-          "items": { "$ref": "#/$defs/ReferenceEntry" }
-        }
-      }
-    },
-    "CitationAnalysisItem": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "id": { "$ref": "#/$defs/String" },
-        "ref_index": { "type": "integer", "minimum": 0 },
-        "reference_index": { "type": "integer", "minimum": 0 },
-        "index": { "type": "integer", "minimum": 0 },
-        "title": { "$ref": "#/$defs/String" },
-        "year": { "$ref": "#/$defs/String" },
-        "function": { "$ref": "#/$defs/String" },
-        "role": { "$ref": "#/$defs/String" },
-        "roles": { "$ref": "#/$defs/Strings" }
-      }
+      "$ref": "https://zotero-agents.local/canonical-literature-artifacts/v1/source-reference-artifact.schema.json"
     },
     "CitationAnalysisArtifact": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "noteKey": { "$ref": "#/$defs/String" },
-        "payloadHash": { "type": "string", "maxLength": 80 },
-        "items": {
-          "type": "array",
-          "maxItems": 25000,
-          "items": { "$ref": "#/$defs/CitationAnalysisItem" }
-        },
-        "citations": {
-          "type": "array",
-          "maxItems": 25000,
-          "items": { "$ref": "#/$defs/CitationAnalysisItem" }
-        }
-      }
+      "$ref": "https://zotero-agents.local/canonical-literature-artifacts/v1/citation-analysis-artifact.schema.json"
     },
     "LiteratureScore": {
       "type": "object",
