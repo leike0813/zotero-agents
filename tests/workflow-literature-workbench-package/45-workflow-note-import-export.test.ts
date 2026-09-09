@@ -1517,7 +1517,7 @@ describe("workflow: literature-workbench import/export notes", function () {
   describeImportEditorSuite("import-notes editor-driven flows", function () {
     it("previews legacy bundle note payloads through the private converter seam", async function () {
       const { convertLegacyArtifactSet } =
-        await import("../../src/modules/literatureArtifactMigration");
+        await import("../../src/modules/literatureArtifactMigration/converter");
       const legacyHtml = renderPayloadBlock("references-json", {
         items: [
           {

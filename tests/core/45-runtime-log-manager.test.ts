@@ -4,7 +4,6 @@ import path from "node:path";
 import { config } from "../../package.json";
 import {
   appendRuntimeLog,
-  createWorkflowLoggingOwner,
   buildRuntimeDiagnosticBundle,
   buildRuntimeIssueDiagnosticBundle,
   buildRuntimeIssueSummary,
@@ -24,6 +23,7 @@ import {
   snapshotRuntimeLogs,
   subscribeRuntimeLogs,
 } from "../../src/modules/runtimeLogManager";
+import { createWorkflowLoggingOwner } from "../../src/workflows/workflowLoggingOwner";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import {
   enableAcpRuntimePerformanceProfiler,

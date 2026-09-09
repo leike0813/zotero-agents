@@ -157,6 +157,13 @@ class FakeXULElement {
     this.listeners.set(type, existing);
   }
 
+  removeEventListener(type: string, listener: Listener) {
+    this.listeners.set(
+      type,
+      (this.listeners.get(type) || []).filter((entry) => entry !== listener),
+    );
+  }
+
   dispatch(type: string, init: Record<string, unknown> = {}) {
     const listeners = this.listeners.get(type) || [];
     const event = {
@@ -3083,6 +3090,126 @@ describe("gui: preference scripts", function () {
       /is-green|is-red|is-gray|is-orange/,
     );
     assert.match(localRuntimeAutoStartIcon.className, /is-green|is-red/);
+  });
+
+  it("replaces the local runtime binding without letting an old window unload dispose the new one", async function () {
+    const calls: Array<{ type: string; data: any }> = [];
+    (
+      globalThis as {
+        addon: {
+          hooks: {
+            onPrefsEvent: (type: string, data: any) => Promise<unknown>;
+          };
+        };
+      }
+    ).addon.hooks.onPrefsEvent = async (type, data) => {
+      calls.push({ type, data });
+      return {
+        ok: true,
+        details: {
+          runtimeState: "stopped",
+          autoStartPaused: true,
+          hasRuntimeInfo: true,
+          inFlightAction: "",
+        },
+      };
+    };
+
+    const oldPrefs = createPrefsWindow();
+    const currentPrefs = createPrefsWindow();
+    await registerPrefsScripts(oldPrefs.window);
+    await registerPrefsScripts(currentPrefs.window);
+    await flushTasks();
+
+    oldPrefs.localRuntimeStopButton.dispatch("command");
+    currentPrefs.localRuntimeStopButton.dispatch("command");
+    await flushTasks();
+    assert.lengthOf(
+      calls.filter((entry) => entry.type === "stopSkillRunnerLocalRuntime"),
+      1,
+      "only the current preference window should retain command listeners",
+    );
+
+    const currentStateCallsBeforeUnload = calls.filter(
+      (entry) =>
+        entry.type === "stateSkillRunnerLocalRuntime" &&
+        entry.data.window === currentPrefs.window,
+    ).length;
+    oldPrefs.dispatchWindowEvent("unload");
+    emitManagedLocalRuntimeStateChangedForTests();
+    await flushTasks();
+    assert.equal(
+      calls.filter(
+        (entry) =>
+          entry.type === "stateSkillRunnerLocalRuntime" &&
+          entry.data.window === currentPrefs.window,
+      ).length,
+      currentStateCallsBeforeUnload + 1,
+      "a late unload from the old window must not dispose the current subscription",
+    );
+  });
+
+  it("does not continue a pending local runtime plan after its preference binding is replaced", async function () {
+    let resolvePlan!: (value: unknown) => void;
+    const plan = new Promise<unknown>((resolve) => {
+      resolvePlan = resolve;
+    });
+    const calls: Array<{ type: string; data: any }> = [];
+    (
+      globalThis as {
+        addon: {
+          hooks: {
+            onPrefsEvent: (type: string, data: any) => Promise<unknown>;
+          };
+        };
+      }
+    ).addon.hooks.onPrefsEvent = async (type, data) => {
+      calls.push({ type, data });
+      if (type === "planSkillRunnerLocalRuntimeOneclick") {
+        return plan;
+      }
+      return {
+        ok: true,
+        details: {
+          runtimeState: "stopped",
+          autoStartPaused: true,
+          hasRuntimeInfo: true,
+          inFlightAction: "",
+        },
+      };
+    };
+
+    const oldPrefs = createPrefsWindow();
+    const currentPrefs = createPrefsWindow();
+    await registerPrefsScripts(oldPrefs.window);
+    oldPrefs.localRuntimeDeployButton.dispatch("command");
+    await flushTasks();
+    const oldStatusAtCleanup = oldPrefs.localRuntimeStatusText.textContent;
+
+    await registerPrefsScripts(currentPrefs.window);
+    resolvePlan({ ok: true, details: { plannedAction: "start" } });
+    await flushTasks();
+    await flushTasks();
+
+    assert.notInclude(
+      calls.map((entry) => entry.type),
+      "deploySkillRunnerLocalRuntime",
+      "a disposed plan must not dispatch its next Host effect",
+    );
+    assert.equal(
+      oldPrefs.localRuntimeStatusText.textContent,
+      oldStatusAtCleanup,
+      "a disposed async action must not update its old DOM",
+    );
+    assert.lengthOf(
+      calls.filter(
+        (entry) =>
+          entry.type === "stateSkillRunnerLocalRuntime" &&
+          entry.data.window === oldPrefs.window,
+      ),
+      1,
+      "a disposed async action must not refresh its old window",
+    );
   });
 
   it("hides debug console control and skips debug event when debug mode is disabled", async function () {

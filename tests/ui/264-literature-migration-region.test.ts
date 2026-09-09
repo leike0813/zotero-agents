@@ -2,6 +2,8 @@ import { assert } from "chai";
 import { h, render } from "preact";
 import { MigrationsRegion } from "../../src/dashboard/components/MigrationsRegion";
 import type { DashboardMigrationsSelection } from "../../src/dashboard/components/MigrationsRegion";
+import { projectDashboardPanel } from "../../src/dashboard/dashboardPanelModel";
+import type { DashboardUiState } from "../../src/dashboard/dashboardTypes";
 import {
   createSidebarDomEnvironment,
   installSidebarDomGlobals,
@@ -9,6 +11,25 @@ import {
 } from "../helpers/sidebarDomEnv";
 
 describe("Dashboard literature migration region", function () {
+  it("uses an unknown non-actionable version when the host view is absent", function () {
+    const panel = projectDashboardPanel(
+      {
+        generatedAt: "2026-01-01T00:00:00.000Z",
+        title: "Tasks",
+        labels: {},
+        selectedTabKey: "migrations",
+        tabs: [{ key: "migrations", label: "Migrations", group: "system" }],
+        summary: { total: 0, running: 0, succeeded: 0, failed: 0, canceled: 0 },
+        runningRows: [],
+        homeWorkflows: [],
+      },
+      { selectedTabKey: "" } as DashboardUiState,
+    );
+
+    assert.equal(panel.views.migrations?.view.definitionVersion, 0);
+    assert.equal(panel.views.migrations?.view.activeRun, null);
+  });
+
   it("renders bounded candidate facts and sends only runtime-issued refs", function () {
     const environment = createSidebarDomEnvironment();
     installSidebarDomGlobals(environment);
@@ -18,7 +39,7 @@ describe("Dashboard literature migration region", function () {
     const selection: DashboardMigrationsSelection = {
       view: {
         migrationId: "literature-artifacts",
-        definitionVersion: 1,
+        definitionVersion: 7,
         availability: "available",
         availabilityReason: "",
         libraryId: 1,
@@ -26,7 +47,7 @@ describe("Dashboard literature migration region", function () {
           runId: "run-1",
           operationId: "op-1",
           migrationId: "literature-artifacts",
-          definitionVersion: 1,
+          definitionVersion: 7,
           libraryId: 1,
           state: "preview",
           reason: "",
@@ -95,7 +116,7 @@ describe("Dashboard literature migration region", function () {
           candidateIds: ["candidate-1"],
           reviewAcceptedCandidateIds: [],
           migrationId: "literature-artifacts",
-          definitionVersion: 1,
+          definitionVersion: 7,
         },
       },
     ]);
@@ -120,6 +141,7 @@ describe("Dashboard literature migration region", function () {
           ...selection,
           view: {
             ...selection.view,
+            definitionVersion: 0,
             availability: "unavailable",
             activeRun: null,
             activeOperationId: "",
@@ -135,6 +157,12 @@ describe("Dashboard literature migration region", function () {
       (button) => button.textContent === selection.scanLabel,
     );
     assert.isTrue(scan?.disabled);
+    assert.notInclude(root.textContent || "", "· 0");
+    assert.isUndefined(
+      Array.from(root.querySelectorAll("button")).find(
+        (button) => button.textContent === selection.applyLabel,
+      ),
+    );
     render(null, root);
     restoreSidebarDomGlobals();
     environment.dom.window.close();

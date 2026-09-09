@@ -279,6 +279,8 @@ sequenceDiagram
 
 6. **Preferences Refresh Consistency** — Runtime state changes from manual actions and background auto-ensure must emit the same state-change signal via `notifyManagedLocalRuntimeStateChanged()`. Preferences page subscribes via `subscribeManagedLocalRuntimeStateChange` and refreshes snapshot from `getManagedLocalRuntimeStateSnapshot()`.
 
+   `bindSkillRunnerLocalRuntimePreferences(window)` owns this Preferences partition's DOM listeners, state subscription, and uninstall dialog. Re-registering first disposes the previous binding. An in-flight Host effect may settle after disposal, but the disposed binding must not update DOM, refresh state, or dispatch the next effect in a plan/preview chain.
+
 7. **Runtime Info Lifecycle** — Runtime info is persisted via Zotero pref key `skillRunnerLocalRuntimeStateJson`. New deploy overwrites existing runtime info. Uninstall clears runtime info immediately at entry via `clearManagedLocalRuntimeState()` (before any file deletion). Runtime info is bound to managed backend context (id=`"managed-local"`) and isolated from normal backend overwrite flow.
 
 8. **Script Existence Rule** — With runtime info present, missing `installDir` must raise visible error. This is enforced by `resolveEffectiveInstallDir()` returning empty string, which causes downstream operations to return failure.

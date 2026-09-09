@@ -9,7 +9,7 @@ import {
   type LegacyArtifactSetInput,
   type LiteratureArtifactMigrationConversion,
   type LiteratureArtifactMigrationConverterOptions,
-} from "../../literatureArtifactMigration";
+} from "../../literatureArtifactMigration/converter";
 
 const HTML_NS = "http://www.w3.org/1999/xhtml";
 const ROOT_ID = "zs-workflow-editor-root";

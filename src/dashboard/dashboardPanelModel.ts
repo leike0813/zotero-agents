@@ -1144,7 +1144,7 @@ function projectViews(
   const labels: DashboardLabels = snapshot.labels || {};
   const migrationView = snapshot.literatureArtifactMigrationView || {
     migrationId: "literature-artifacts",
-    definitionVersion: 1,
+    definitionVersion: 0,
     availability: "unavailable" as const,
     availabilityReason: labelText(
       labels,

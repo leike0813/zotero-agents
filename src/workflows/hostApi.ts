@@ -1,5 +1,5 @@
 import { createWorkflowEditorOwner } from "../modules/workflow/ui/workflowEditorHost";
-import { createWorkflowLoggingOwner } from "../modules/runtimeLogManager";
+import { createWorkflowLoggingOwner } from "./workflowLoggingOwner";
 import { createWorkflowNotificationOwner } from "../modules/workflowExecution/feedbackSeam";
 import { createWorkflowSynthesisHostApi } from "../modules/synthesisClient/workflowHostClient";
 import { createWorkflowArchiveApi } from "./archive";

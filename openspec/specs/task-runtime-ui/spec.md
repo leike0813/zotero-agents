@@ -587,7 +587,7 @@ Task runtime UI MUST use `runKey` as the stable key for SkillRunner rows across 
 
 ### Requirement: SkillRunner UI projection MUST derive display facts dynamically
 
-SkillRunner task UI MUST derive display facts from the run projection and MUST NOT persist or own lifecycle facts.
+SkillRunner task UI MUST derive display facts from the current SkillRunner run projection. Generic task storage and active indexes MUST NOT hydrate, copy, persist, or own SkillRunner lifecycle projections.
 
 #### Scenario: Backend connection data comes from backend registry
 
@@ -616,6 +616,20 @@ SkillRunner task UI MUST derive display facts from the run projection and MUST N
   fallback to `workflowId`
 - **AND** it MUST resolve `sequenceStepIndex` and `sequenceFinalStepId` from
   `SequenceRunState` when sequence state is available.
+
+#### Scenario: Run Store terminal state is visible without explicit synchronization
+
+- **GIVEN** a SkillRunner run is visible in an active task summary
+- **WHEN** its Run Store projection becomes terminal
+- **THEN** the next task summary read MUST use that terminal projection
+- **AND** the run MUST disappear from active summaries without an explicit copy or synchronization step.
+
+#### Scenario: Dashboard refresh cache does not own lifecycle truth
+
+- **WHEN** Dashboard reuses a revision-scoped or dirty-gated task-row projection
+- **THEN** that cache MAY avoid redundant UI projection work
+- **AND** a cache miss MUST still derive SkillRunner rows from the Run Store
+- **AND** the cache MUST NOT become the correctness source for lifecycle state.
 
 ### Requirement: Observer detached state MUST preserve visible SkillRunner rows
 

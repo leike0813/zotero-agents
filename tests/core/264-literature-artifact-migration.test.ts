@@ -2,14 +2,15 @@ import { assert } from "chai";
 import {
   LITERATURE_ARTIFACT_MIGRATION_DEFINITION_VERSION,
   LITERATURE_ARTIFACT_MIGRATION_ID,
-  classifyLegacyArtifactSet,
-  convertLegacyArtifactSet,
   createLiteratureArtifactMigrationHostFromZoteroBroker,
   createLiteratureArtifactMigrationService,
   resetLiteratureArtifactMigrationRuntimeForTests,
-  type LegacyArtifactSetInput,
   type MigrationPortableItemRef,
 } from "../../src/modules/literatureArtifactMigration";
+import {
+  convertLegacyArtifactSet,
+  type LegacyArtifactSetInput,
+} from "../../src/modules/literatureArtifactMigration/converter";
 import { hashSynthesisContractCanonicalJson } from "../../packages/synthesis-contracts/src/index";
 import type {
   LiteratureArtifactApplyAnalysisResultDto,
@@ -24,6 +25,11 @@ import {
   resetPluginStateStoreForTests,
 } from "../../src/modules/pluginStateStore";
 import { createFailClosedZoteroHostCapabilityBroker } from "../helpers/zoteroHostCapabilityBrokerHarness";
+import {
+  buildDashboardSnapshot,
+  createDefaultRuntimeLogFilters,
+  type DashboardState,
+} from "../../src/modules/dashboard/dashboardSnapshot";
 
 describe("literature artifact migration", function () {
   beforeEach(function () {
@@ -34,6 +40,45 @@ describe("literature artifact migration", function () {
   afterEach(function () {
     resetPluginStateStoreForTests();
     resetLiteratureArtifactMigrationRuntimeForTests();
+  });
+
+  it("projects the migration owner's current definition version", async function () {
+    const state: DashboardState = {
+      backends: [],
+      selectedTabKey: "migrations",
+      selectedLiteratureMigrationRunId: "",
+      selectedBackendSubviewById: new Map(),
+      selectedLogTaskByBackendId: new Map(),
+      selectedLogEntryByBackendId: new Map(),
+      selectedWorkflowOptionsWorkflowId: "",
+      workflowSettingsDraftById: new Map(),
+      workflowSettingsSaveStateById: new Map(),
+      workflowSettingsSaveErrorById: new Map(),
+      workflowSettingsSaveTimerById: new Map(),
+      runtimeLogFilters: createDefaultRuntimeLogFilters(),
+      runtimeLogSelectedIdSet: new Set(),
+      homeWorkflowDocWorkflowId: "",
+      selectedProductId: "",
+      selectedProductAssetId: "",
+      selectedProductSection: "products",
+      selectedFeedbackProductId: "",
+      feedbackSkillFilter: "",
+      selectedFeedbackProductIds: new Set(),
+      productExportInProgress: false,
+      homeWorkflowDocCacheByWorkflowId: new Map(),
+    };
+
+    const snapshot = await buildDashboardSnapshot({
+      state,
+      backends: [],
+      history: [],
+      active: [],
+    });
+
+    assert.equal(
+      snapshot.literatureArtifactMigrationView?.definitionVersion,
+      LITERATURE_ARTIFACT_MIGRATION_DEFINITION_VERSION,
+    );
   });
 
   it("uses deterministic content evidence and never treats ref_number as identity", function () {
@@ -61,7 +106,7 @@ describe("literature artifact migration", function () {
         ],
       },
     };
-    const plan = classifyLegacyArtifactSet(input, {
+    const plan = convertLegacyArtifactSet(input, {
       idFactory: generateSourceReferenceId,
     });
     assert.equal(plan.classification, "ready");
@@ -76,7 +121,7 @@ describe("literature artifact migration", function () {
 
   for (const field of ["url", "ISBN", "ISSN", "citekey"]) {
     it(`does not link different papers by shared ${field}`, function () {
-      const plan = classifyLegacyArtifactSet({
+      const plan = convertLegacyArtifactSet({
         libraryId: 1,
         parentRef: { libraryId: 1, key: "PARENT" },
         references: [
@@ -107,7 +152,7 @@ describe("literature artifact migration", function () {
   }
 
   it("blocks explicit identity whose supplied bibliographic facts conflict", function () {
-    const plan = classifyLegacyArtifactSet({
+    const plan = convertLegacyArtifactSet({
       libraryId: 1,
       parentRef: { libraryId: 1, key: "PARENT" },
       references: [
@@ -137,7 +182,7 @@ describe("literature artifact migration", function () {
   });
 
   it("preserves an explicit identity when no contradicting facts are supplied", function () {
-    const plan = classifyLegacyArtifactSet({
+    const plan = convertLegacyArtifactSet({
       libraryId: 1,
       parentRef: { libraryId: 1, key: "PARENT" },
       references: [
@@ -163,7 +208,7 @@ describe("literature artifact migration", function () {
     { raw: "Alpha (2020)" },
   ]) {
     it(`links citation-only ${Object.keys(evidence)[0]} evidence without requiring a full snapshot`, function () {
-      const plan = classifyLegacyArtifactSet({
+      const plan = convertLegacyArtifactSet({
         libraryId: 1,
         parentRef: { libraryId: 1, key: "PARENT" },
         references: [
@@ -186,7 +231,7 @@ describe("literature artifact migration", function () {
   }
 
   it("blocks a conflicting snapshot with the same raw reference instead of recovering a duplicate", function () {
-    const plan = classifyLegacyArtifactSet({
+    const plan = convertLegacyArtifactSet({
       libraryId: 1,
       parentRef: { libraryId: 1, key: "PARENT" },
       references: [
@@ -241,7 +286,7 @@ describe("literature artifact migration", function () {
         ],
       },
     };
-    const plan = classifyLegacyArtifactSet(input, {
+    const plan = convertLegacyArtifactSet(input, {
       idFactory: generateSourceReferenceId,
     });
     assert.equal(plan.classification, "review_required");
@@ -257,7 +302,7 @@ describe("literature artifact migration", function () {
       references: [],
       citation: { mentions: [{ rawCitation: "unknown" }] },
     };
-    const plan = classifyLegacyArtifactSet(input);
+    const plan = convertLegacyArtifactSet(input);
     assert.equal(plan.classification, "blocked");
     assert.include(plan.reasonCodes, "citation_only");
     assert.equal(convertLegacyArtifactSet(input).droppedCount, 0);
@@ -354,7 +399,7 @@ describe("literature artifact migration", function () {
     };
     const firstNote = { libraryId: 1, key: "LEGACY-1" };
     const secondNote = { libraryId: 1, key: "LEGACY-2" };
-    const crossNote = classifyLegacyArtifactSet({
+    const crossNote = convertLegacyArtifactSet({
       libraryId: 1,
       parentRef: { libraryId: 1, key: "PARENT" },
       filePayloads: [
@@ -388,7 +433,7 @@ describe("literature artifact migration", function () {
     assert.include(crossNote.reasonCodes, "duplicate_reference");
     assert.equal(crossNote.classification, "blocked");
 
-    const sameNote = classifyLegacyArtifactSet({
+    const sameNote = convertLegacyArtifactSet({
       libraryId: 1,
       parentRef: { libraryId: 1, key: "PARENT" },
       filePayloads: [
@@ -426,7 +471,7 @@ describe("literature artifact migration", function () {
         },
       ],
     };
-    const plan = classifyLegacyArtifactSet({
+    const plan = convertLegacyArtifactSet({
       libraryId: 1,
       parentRef: { libraryId: 1, key: "PARENT" },
       filePayloads: [
@@ -595,7 +640,7 @@ describe("literature artifact migration", function () {
     assert.isOk(input);
     assert.lengthOf(input?.legacyNotes || [], 1);
     assert.lengthOf(input?.canonicalNotes || [], 1);
-    const conversion = classifyLegacyArtifactSet(input!, {
+    const conversion = convertLegacyArtifactSet(input!, {
       idFactory: () => "legacy-id",
     });
     assert.equal(conversion.classification, "blocked");

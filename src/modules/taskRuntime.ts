@@ -14,7 +14,6 @@ import {
   applySkillRunnerRunEvent,
   buildSkillRunnerRunKey,
   listSkillRunnerRunProjections,
-  projectSkillRunnerRun,
   resetSkillRunnerRunStoreForTests,
   subscribeSkillRunnerRunStore,
 } from "./skillRunner/run/skillRunnerRunStore";
@@ -110,7 +109,6 @@ const taskRecords = new Map<string, WorkflowTaskRecord>();
 const activeTaskRecordIds = new Set<string>();
 const listeners = new Set<TaskListener>();
 const changeListeners = new Set<TaskChangeListener>();
-let hydratedFromStore = false;
 let unsubscribeSkillRunnerRunStoreTaskBridge: (() => void) | undefined;
 
 const workflowTaskReadDiagnostics = {
@@ -564,21 +562,6 @@ function parsePersistedTaskRecord(raw: unknown): WorkflowTaskRecord | null {
   };
 }
 
-function ensureHydratedFromStore() {
-  if (hydratedFromStore) {
-    return;
-  }
-  hydratedFromStore = true;
-  for (const projection of listSkillRunnerRunProjections()) {
-    mergeSkillRunnerProjection(taskRecords, projection);
-  }
-}
-
-function persistTaskRecordsToStore() {
-  // SkillRunner rows are now derived from SkillRunnerRunStore. Other task rows
-  // remain process-local here; backend-specific stores own persistence.
-}
-
 function syncTaskRecordActiveIndex(id: string, record?: WorkflowTaskRecord) {
   if (record && isActive(record.state)) {
     activeTaskRecordIds.add(id);
@@ -607,297 +590,6 @@ function isFinishedState(state: JobState) {
   return isTerminal(state);
 }
 
-function isSkillRunnerWorkflowTaskRecord(record: WorkflowTaskRecord) {
-  return String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE;
-}
-
-function skillRunnerRequestProjectionKey(record: WorkflowTaskRecord) {
-  if (!isSkillRunnerWorkflowTaskRecord(record)) {
-    return "";
-  }
-  const requestId = String(record.requestId || "").trim();
-  if (!requestId) {
-    return "";
-  }
-  return `${String(record.backendId || "").trim()}:${requestId}`;
-}
-
-function skillRunnerRunKeyProjectionKey(record: WorkflowTaskRecord) {
-  if (!isSkillRunnerWorkflowTaskRecord(record)) {
-    return "";
-  }
-  return String(record.runKey || "").trim();
-}
-
-function getSkillRunnerLocalIdentityValues(record: WorkflowTaskRecord) {
-  const isSequenceStep =
-    String(record.role || "").trim() === "sequence_step" ||
-    !!String(record.sequenceStepId || "").trim();
-  return new Set(
-    [
-      record.runKey,
-      record.localRunId,
-      record.id,
-      record.jobId,
-      isSequenceStep ? "" : record.runId,
-    ]
-      .map((entry) => String(entry || "").trim())
-      .filter(Boolean),
-  );
-}
-
-function hasSharedSkillRunnerLocalIdentity(
-  a: WorkflowTaskRecord,
-  b: WorkflowTaskRecord,
-) {
-  if (
-    !isSkillRunnerWorkflowTaskRecord(a) ||
-    !isSkillRunnerWorkflowTaskRecord(b)
-  ) {
-    return false;
-  }
-  const aBackendId = String(a.backendId || "").trim();
-  const bBackendId = String(b.backendId || "").trim();
-  if (aBackendId && bBackendId && aBackendId !== bBackendId) {
-    return false;
-  }
-  const aValues = getSkillRunnerLocalIdentityValues(a);
-  if (aValues.size === 0) {
-    return false;
-  }
-  for (const value of getSkillRunnerLocalIdentityValues(b)) {
-    if (aValues.has(value)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function deleteRecordFromMap(
-  records: Map<string, WorkflowTaskRecord>,
-  id: string,
-) {
-  if (records === taskRecords) {
-    return deleteTaskRecord(id);
-  }
-  return records.delete(id);
-}
-
-function pruneStaleSkillRunnerLocalRows(
-  records: Map<string, WorkflowTaskRecord>,
-  canonical: WorkflowTaskRecord,
-  keepId?: string,
-) {
-  if (
-    !isSkillRunnerWorkflowTaskRecord(canonical) ||
-    !String(canonical.requestId || "").trim()
-  ) {
-    return 0;
-  }
-  let removed = 0;
-  for (const [id, existing] of Array.from(records.entries())) {
-    if (id === keepId || id === canonical.id) {
-      continue;
-    }
-    if (!isSkillRunnerWorkflowTaskRecord(existing)) {
-      continue;
-    }
-    const existingRequestId = String(existing.requestId || "").trim();
-    if (existingRequestId === String(canonical.requestId || "").trim()) {
-      continue;
-    }
-    if (!hasSharedSkillRunnerLocalIdentity(existing, canonical)) {
-      continue;
-    }
-    if (deleteRecordFromMap(records, id)) {
-      removed += 1;
-    }
-  }
-  return removed;
-}
-
-function applySkillRunnerProjectionMerge(args: {
-  records: Map<string, WorkflowTaskRecord>;
-  id: string;
-  existing: WorkflowTaskRecord;
-  projection: WorkflowTaskRecord;
-  preserveRuntimeIds: boolean;
-}) {
-  const next = args.preserveRuntimeIds
-    ? {
-        ...args.existing,
-        ...args.projection,
-        id: args.existing.id,
-        runId: args.existing.runId,
-        jobId: args.existing.jobId,
-      }
-    : {
-        ...args.existing,
-        ...args.projection,
-      };
-  const nextId = String(next.id || args.id).trim() || args.id;
-  if (nextId !== args.id) {
-    args.records.delete(args.id);
-    if (args.records === taskRecords) {
-      syncTaskRecordActiveIndex(args.id, undefined);
-    }
-  }
-  args.records.set(nextId, next);
-  if (args.records === taskRecords) {
-    syncTaskRecordActiveIndex(nextId, next);
-  }
-  pruneStaleSkillRunnerLocalRows(args.records, args.projection, nextId);
-}
-
-function mergeSkillRunnerProjection(
-  records: Map<string, WorkflowTaskRecord>,
-  projection: WorkflowTaskRecord,
-) {
-  const runKey = skillRunnerRunKeyProjectionKey(projection);
-  if (runKey) {
-    for (const [id, existing] of records.entries()) {
-      if (skillRunnerRunKeyProjectionKey(existing) !== runKey) {
-        continue;
-      }
-      applySkillRunnerProjectionMerge({
-        records,
-        id,
-        existing,
-        projection,
-        preserveRuntimeIds: false,
-      });
-      return;
-    }
-    records.set(projection.id, projection);
-    if (records === taskRecords) {
-      syncTaskRecordActiveIndex(projection.id, projection);
-    }
-    pruneStaleSkillRunnerLocalRows(records, projection, projection.id);
-    return;
-  }
-  const projectionKey = skillRunnerRequestProjectionKey(projection);
-  if (projectionKey) {
-    for (const [id, existing] of records.entries()) {
-      if (skillRunnerRequestProjectionKey(existing) !== projectionKey) {
-        continue;
-      }
-      applySkillRunnerProjectionMerge({
-        records,
-        id,
-        existing,
-        projection,
-        preserveRuntimeIds: true,
-      });
-      return;
-    }
-    for (const [id, existing] of records.entries()) {
-      if (
-        String(existing.requestId || "").trim() ||
-        !hasSharedSkillRunnerLocalIdentity(existing, projection)
-      ) {
-        continue;
-      }
-      applySkillRunnerProjectionMerge({
-        records,
-        id,
-        existing,
-        projection,
-        preserveRuntimeIds: true,
-      });
-      return;
-    }
-  }
-  records.set(projection.id, projection);
-  if (records === taskRecords) {
-    syncTaskRecordActiveIndex(projection.id, projection);
-  }
-  pruneStaleSkillRunnerLocalRows(records, projection, projection.id);
-}
-
-function syncExistingSkillRunnerProjection(
-  records: Map<string, WorkflowTaskRecord>,
-  projection: WorkflowTaskRecord,
-) {
-  const runKey = skillRunnerRunKeyProjectionKey(projection);
-  if (runKey) {
-    for (const [id, existing] of records.entries()) {
-      if (skillRunnerRunKeyProjectionKey(existing) !== runKey) {
-        continue;
-      }
-      applySkillRunnerProjectionMerge({
-        records,
-        id,
-        existing,
-        projection,
-        preserveRuntimeIds: false,
-      });
-      return true;
-    }
-  }
-  const projectionKey = skillRunnerRequestProjectionKey(projection);
-  if (projectionKey) {
-    for (const [id, existing] of records.entries()) {
-      if (skillRunnerRequestProjectionKey(existing) !== projectionKey) {
-        continue;
-      }
-      applySkillRunnerProjectionMerge({
-        records,
-        id,
-        existing,
-        projection,
-        preserveRuntimeIds: true,
-      });
-      return true;
-    }
-    for (const [id, existing] of records.entries()) {
-      if (
-        String(existing.requestId || "").trim() ||
-        !hasSharedSkillRunnerLocalIdentity(existing, projection)
-      ) {
-        continue;
-      }
-      applySkillRunnerProjectionMerge({
-        records,
-        id,
-        existing,
-        projection,
-        preserveRuntimeIds: true,
-      });
-      return true;
-    }
-  }
-  return false;
-}
-
-export function syncWorkflowTaskFromSkillRunnerProjection(
-  projection: WorkflowTaskRecord,
-) {
-  if (!isSkillRunnerWorkflowTaskRecord(projection)) {
-    return false;
-  }
-  const updatedExisting = syncExistingSkillRunnerProjection(
-    taskRecords,
-    projection,
-  );
-  if (!updatedExisting && !isActive(projection.state)) {
-    return false;
-  }
-  if (!updatedExisting) {
-    taskRecords.set(projection.id, projection);
-    syncTaskRecordActiveIndex(projection.id, projection);
-    pruneStaleSkillRunnerLocalRows(taskRecords, projection, projection.id);
-  }
-  persistTaskRecordsToStore();
-  emitTasksChanged({
-    taskId: projection.id,
-    requestId: projection.requestId,
-    backendId: projection.backendId,
-    state: projection.state,
-    reason: "record-updated",
-  });
-  return true;
-}
-
 export function recordWorkflowTaskUpdate(job: JobRecord) {
   if (!isProjectableWorkflowJob(job)) {
     return null;
@@ -920,7 +612,6 @@ export function recordWorkflowTaskUpdate(job: JobRecord) {
       );
     });
     if (removedTask) {
-      persistTaskRecordsToStore();
       emitTasksChanged({
         taskId: record.id,
         requestId: record.requestId,
@@ -932,7 +623,6 @@ export function recordWorkflowTaskUpdate(job: JobRecord) {
     return projection || record;
   }
   setTaskRecord(record.id, record);
-  persistTaskRecordsToStore();
   emitTasksChanged({
     taskId: record.id,
     requestId: record.requestId,
@@ -944,12 +634,11 @@ export function recordWorkflowTaskUpdate(job: JobRecord) {
 }
 
 export function listWorkflowTasks() {
-  ensureHydratedFromStore();
   workflowTaskReadDiagnostics.fullTaskRecordScanCount += 1;
   workflowTaskReadDiagnostics.taskRecordCandidateReadCount += taskRecords.size;
   const merged = new Map(taskRecords);
   for (const projection of listSkillRunnerRunProjections()) {
-    mergeSkillRunnerProjection(merged, projection);
+    merged.set(projection.id, projection);
   }
   return Array.from(merged.values())
     .map((entry) => ({ ...entry }))
@@ -1020,7 +709,7 @@ export function listWorkflowTaskSummaries(
     requestId: options.requestId,
     limit: options.limit,
   })) {
-    mergeSkillRunnerProjection(merged, projection);
+    merged.set(projection.id, projection);
   }
   const limit = normalizeTaskListLimit(options.limit);
   const rows = Array.from(merged.values())
@@ -1037,7 +726,6 @@ export function listActiveWorkflowTaskSummaries(
 }
 
 export function clearFinishedWorkflowTasks() {
-  ensureHydratedFromStore();
   let removed = false;
   for (const [id, record] of taskRecords.entries()) {
     if (!isFinishedState(record.state)) {
@@ -1047,7 +735,6 @@ export function clearFinishedWorkflowTasks() {
     removed = true;
   }
   if (removed) {
-    persistTaskRecordsToStore();
     emitTasksChanged({ reason: "records-removed" });
   }
 }
@@ -1056,7 +743,6 @@ export function removeWorkflowTasksByBackendAndRequestIds(args: {
   backendId: string;
   requestIds: string[];
 }) {
-  ensureHydratedFromStore();
   const backendId = String(args.backendId || "").trim();
   const requestIdSet = new Set(
     (Array.isArray(args.requestIds) ? args.requestIds : [])
@@ -1079,7 +765,6 @@ export function removeWorkflowTasksByBackendAndRequestIds(args: {
     removed += 1;
   }
   if (removed > 0) {
-    persistTaskRecordsToStore();
     emitTasksChanged({
       backendId,
       reason: "records-removed",
@@ -1097,7 +782,6 @@ export function updateWorkflowTaskStateByRequest(args: {
   error?: string;
   updatedAt?: string;
 }) {
-  ensureHydratedFromStore();
   const requestId = String(args.requestId || "").trim();
   if (!requestId) {
     return 0;
@@ -1140,9 +824,6 @@ export function updateWorkflowTaskStateByRequest(args: {
           },
     );
     if (storedRun) {
-      const projection = projectSkillRunnerRun({ run: storedRun });
-      mergeSkillRunnerProjection(taskRecords, projection);
-      pruneStaleSkillRunnerLocalRows(taskRecords, projection);
       updated += 1;
     }
   }
@@ -1170,7 +851,6 @@ export function updateWorkflowTaskStateByRequest(args: {
     updated += 1;
   }
   if (updated > 0) {
-    persistTaskRecordsToStore();
     emitTasksChanged({
       requestId,
       backendId: backendId || undefined,
@@ -1179,14 +859,6 @@ export function updateWorkflowTaskStateByRequest(args: {
     });
   }
   return updated;
-}
-
-function isRecoverableSkillRunnerProjection(record: WorkflowTaskRecord) {
-  return (
-    String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE &&
-    !!String(record.backendId || "").trim() &&
-    !!String(record.requestId || "").trim()
-  );
 }
 
 function isAcpProjectionWithRequest(record: WorkflowTaskRecord) {
@@ -1201,9 +873,6 @@ function shouldFailRecoveredProjection(record: WorkflowTaskRecord) {
   if (backendType === PASS_THROUGH_BACKEND_TYPE) {
     return true;
   }
-  if (isRecoverableSkillRunnerProjection(record)) {
-    return false;
-  }
   if (isAcpProjectionWithRequest(record)) {
     return false;
   }
@@ -1211,7 +880,6 @@ function shouldFailRecoveredProjection(record: WorkflowTaskRecord) {
 }
 
 export function reconcileWorkflowTaskProjectionsOnStartup() {
-  ensureHydratedFromStore();
   const now = new Date().toISOString();
   const failedTaskIds: string[] = [];
   const preservedTaskIds: string[] = [];
@@ -1223,11 +891,6 @@ export function reconcileWorkflowTaskProjectionsOnStartup() {
       continue;
     }
     if (!isActive(record.state)) {
-      continue;
-    }
-    if (String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE) {
-      deleteTaskRecord(id);
-      preservedTaskIds.push(id);
       continue;
     }
     if (!shouldFailRecoveredProjection(record)) {
@@ -1243,7 +906,6 @@ export function reconcileWorkflowTaskProjectionsOnStartup() {
     failedTaskIds.push(id);
   }
   if (failedTaskIds.length > 0 || removedLegacySequenceRootTaskIds.length > 0) {
-    persistTaskRecordsToStore();
     emitTasksChanged({ reason: "record-updated" });
   }
   return {
@@ -1273,13 +935,11 @@ export function subscribeWorkflowTaskChanges(listener: TaskChangeListener) {
 }
 
 export function resetWorkflowTasks() {
-  ensureHydratedFromStore();
   clearTaskRecords();
   listeners.clear();
   changeListeners.clear();
   unsubscribeSkillRunnerRunStoreTaskBridge?.();
   unsubscribeSkillRunnerRunStoreTaskBridge = undefined;
-  hydratedFromStore = false;
   resetWorkflowTaskReadDiagnosticsForTests();
   resetSkillRunnerRunStoreForTests();
 }

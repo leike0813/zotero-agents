@@ -1,14 +1,16 @@
 # Literature Artifact Migration
 
-`src/modules/literatureArtifactMigration.ts` owns the one explicit upgrade
-path for legacy Literature References and Citation payloads. The Dashboard
-owns the user-facing operation; the normal Broker reader, Workflow Host,
-Bundle, Synthesis, and ordinary import paths remain canonical-only.
+`src/modules/literatureArtifactMigration.ts` owns the explicit migration
+lifecycle for legacy Literature References and Citation payloads, while
+`src/modules/literatureArtifactMigration/converter.ts` owns their pure one-way
+conversion. The Dashboard owns the user-facing operation; the normal Broker
+reader, Workflow Host, Bundle, Synthesis, and ordinary import paths remain
+canonical-only.
 
 ## Ownership and boundary
 
 The migration is registered with the static identity
-`literature-artifacts` and definition version `1`. Its public runtime surface
+`literature-artifacts` and definition version `2`. Its public runtime surface
 is the service returned by `createLiteratureArtifactMigrationService()`:
 
 | Operation | Effect |
@@ -32,10 +34,10 @@ are dispatched only from the explicit local actions.
 
 ## Converter
 
-`classifyLegacyArtifactSet()` and `convertLegacyArtifactSet()` are the only
-legacy conversion entry points. The converter is pure and is shared by the
-library adapter and the private ordinary Import preview path. Canonical input
-is handled by the normal importer and must not pass through this converter.
+`convertLegacyArtifactSet()` is the only legacy conversion entry point. The
+converter is pure and is shared by the library adapter and the private
+ordinary Import preview path. Canonical input is handled by the normal importer
+and must not pass through this converter.
 
 The converter preserves the approved evidence order: a unique retained
 non-positional identity, normalized DOI, normalized raw citation, and then

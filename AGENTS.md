@@ -231,9 +231,7 @@
 - Canonical mutation 的 scope/operationId/kind/semantic digest admission 与终态证据由 `zoteroHostMutationAuthority.ts` 和 `pluginStateStore.ts` 的 SQLite 记录持有；仅 durable insert winner 执行。重放先于资源准备，重启遗留 started 归 unknown，普通终态证据保留 30 天后只清 evidence，永久保留 identity binding；unknown/repair_required 不按龄删除。
 - 所有写入先做无副作用 preflight，私有 prepared plan 绑定范围、revision/state 和文件事实；审批等待后重新准备，digest 变化须重新审批，native slice 写入前再校验。公共 DTO 不接受 expectedRevision/token/path/fileId 写入授权；Bridge 文件 handle 仅在 adapter 转为私有 prepared-file。
 - Bridge/MCP/CLI 共用 profile-local host-bridge mutation scope，通过 `mutation.get_operation` 观察 canonical 证据；通用 HTTP operation store 不得抢占或重放 canonical mutation。Workflow 仅显式投影 `mutations.getOperation`，不得暴露 handlers 或 native mutation executor。
-
 - Selection 必须经 Broker 精确分页完成一次获取后锁定有序 canonical facts；分页 basis 变化使整次获取失败，不得混合页或自动重采样。Workflow settings/preparation/execute 共用锁定输入，显式与 durable 输入只接受完整 portable refs；promotion、去重和来源优先级仅属于命名 task selector。选择与任务 DTO 不携带 native ID 或路径，上传路径仅从最终 canonical attachment file descriptor 获取。
-
 - `src/modules/zoteroHostCapabilityBroker.ts` 中的 `ZoteroHostCapabilityBroker` 是 Zotero host capability 语义的唯一事实源；`WorkflowHostApi`、Host Bridge 与 MCP 是独立 projection，不得反向成为 broker 定义来源。
 - Managed Note 语义固定为 custom、conversation-note、digest、references、citation-analysis、literature-score 六类；完整 detail、canonical payload、provenance、health 与 derived projection 由 Broker owner 统一提供。
 - paired References/Citation 与 migration parent-set 通过 Broker 私有 writer 一次提交 identity/receipt；canonical verify 后的 legacy cleanup 是同一 authority operation 的 required tail，失败保留 canonical 结果并进入 repair_required。
@@ -262,3 +260,37 @@
 - Gitee 发布只能通过独立的 `npm run sync:gitee-release` 命令执行。除非用户在当前任务中单独明确要求，Agent 不得自动执行、轮询或等待该命令。
 - Gitee 同步必须复用 GitHub 已发布的插件和 content package 原始字节，不得为 Gitee 重新构建产物、修改版本、创建修复提交或重新触发正式发布流程。
 - content package 的 GitHub release asset 是不可变产物：同名同版本仅允许复用 SHA-256 一致的文件；内容不同必须提升 content package 版本。
+
+## Cost-saving subagent delegation
+
+Proactively offload suitable bounded work to these lower-cost agents instead of
+spending the primary agent's context and model quota on routine execution:
+
+- `scout`: use for read-only local repository exploration, including file and
+  symbol discovery, call-path tracing, configuration lookup, module summaries,
+  and existing-test inspection.
+- `researcher`: use for current external research involving official
+  documentation, standards, upstream source, changelogs, issues, papers, or
+  community evidence.
+- `routine_worker`: use for fully specified, deterministic, low-risk edits and
+  workflows whose material decisions and acceptance checks are already closed.
+
+Prefer these agents whenever the assignment fits their boundary, even when the
+primary agent could perform the work directly, provided delegation cost is
+reasonable. Independent `scout` and `researcher` assignments may run in
+parallel.
+
+Keep the following work in the primary agent or another stronger specialist:
+
+- architecture and material planning decisions;
+- ambiguous or open-ended implementation;
+- unknown-cause debugging;
+- security, authentication, authorization, privacy, cryptography, billing,
+  concurrency, data migration, destructive, deployment, or public-API changes;
+- final review, integration, verification, and completion judgment.
+
+Do not give `routine_worker` overlapping write ownership with another agent.
+Give every delegated task a bounded objective, explicit scope, required output,
+and stopping condition. Integrate the returned result without unnecessarily
+repeating the entire investigation, but spot-check facts that affect important
+decisions.

@@ -424,7 +424,7 @@ describe("background refresh governance", function () {
     resetAcpSkillRunSummaryDiagnosticsForTests();
   });
 
-  it("keeps dashboard, sidebar, and popover summary reads off full SkillRunner payloads", function () {
+  it("keeps dashboard, sidebar, and popover reads on summary projection interfaces", function () {
     seedSkillRunnerRuns(36);
     applySkillRunnerRunEvent({
       type: "backend.snapshot",

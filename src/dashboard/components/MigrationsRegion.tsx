@@ -80,9 +80,11 @@ export const MigrationsRegion = memo(
       >
         <header class="dashboard-migrations-header">
           <h2>{selection.pageTitle}</h2>
-          <span class="dashboard-migrations-version">
-            {view.migrationId} · {view.definitionVersion}
-          </span>
+          {view.definitionVersion > 0 ? (
+            <span class="dashboard-migrations-version">
+              {view.migrationId} · {view.definitionVersion}
+            </span>
+          ) : null}
         </header>
         {view.availability !== "available" ? (
           <p class="empty">

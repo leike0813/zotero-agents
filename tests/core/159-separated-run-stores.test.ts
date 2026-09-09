@@ -19,13 +19,14 @@ import {
   upsertAcpSkillRun,
 } from "../../src/modules/acp/skillRun/acpSkillRunStore";
 import {
+  getWorkflowTaskReadDiagnosticsForTests,
   listActiveWorkflowTaskSummaries,
   listActiveWorkflowTasks,
   listWorkflowTasks,
   recordWorkflowTaskUpdate,
+  resetWorkflowTaskReadDiagnosticsForTests,
   resetWorkflowTasks,
   subscribeWorkflowTaskChanges,
-  syncWorkflowTaskFromSkillRunnerProjection,
 } from "../../src/modules/taskRuntime";
 import {
   listTaskDashboardHistory,
@@ -37,7 +38,6 @@ import {
   listSkillRunnerRunProjectionSummaries,
   listSkillRunnerRunProjections,
   listSkillRunnerRunRecords,
-  projectSkillRunnerRun,
   registerSkillRunnerSkillDisplaySnapshot,
   resetSkillRunnerRunStoreReadDiagnosticsForTests,
   subscribeSkillRunnerRunStore,
@@ -877,7 +877,7 @@ describe("separated ACP and SkillRunner run stores", function () {
     assert.equal(task?.canReply, false);
   });
 
-  it("clears stale active task index after a targeted SkillRunner terminal projection sync", function () {
+  it("derives active tasks directly from the current SkillRunner run projection", function () {
     const run = applySkillRunnerRunEvent({
       type: "submit.local_created",
       init: {
@@ -912,18 +912,14 @@ describe("separated ACP and SkillRunner run stores", function () {
     });
     assert.isOk(updated);
 
-    assert.include(
-      listActiveWorkflowTaskSummaries().map((entry) => entry.runKey),
-      run!.runKey,
-    );
-
-    syncWorkflowTaskFromSkillRunnerProjection(
-      projectSkillRunnerRun({ run: updated! }),
-    );
-
+    resetWorkflowTaskReadDiagnosticsForTests();
     assert.notInclude(
       listActiveWorkflowTaskSummaries().map((entry) => entry.runKey),
       run!.runKey,
+    );
+    assert.equal(
+      getWorkflowTaskReadDiagnosticsForTests().taskRecordCandidateReadCount,
+      0,
     );
     assert.equal(
       listWorkflowTasks().find((entry) => entry.runKey === run!.runKey)?.state,

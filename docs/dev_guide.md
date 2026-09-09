@@ -168,7 +168,7 @@ Dashboard 当前能力：
 - SkillRunner 观察链路：`SkillRunnerRunStore` projection + UI chat stream pool + targeted history/pending 补偿
 - 历史持久化：本地 JSON，固定保留 30 天
 - backend 视图数据源：run store projection + history projection 合并
-- SkillRunner request-ready 可见：`/v1/jobs` create/upload 完成后进入 `SkillRunnerRunStore` projection；pre-ready 不创建可见任务行
+- SkillRunner 任务直接来自 `SkillRunnerRunStore` projection：pre-ready local run 保持可见但不启动 backend observation；绑定 request ID 后沿用同一 `runKey`
 - Pass-through：不展示、不计数、不入历史
 
 - 执行链与 Dashboard 边界：

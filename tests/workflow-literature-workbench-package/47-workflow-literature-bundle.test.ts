@@ -44,7 +44,7 @@ import {
   resetZoteroLibrarySourcePageQueryAdapterForTests,
   setZoteroLibrarySourcePageQueryAdapterForTests,
 } from "../../src/modules/zoteroHost/zoteroLibraryPageQuery";
-import { convertLegacyArtifactSet } from "../../src/modules/literatureArtifactMigration";
+import { convertLegacyArtifactSet } from "../../src/modules/literatureArtifactMigration/converter";
 
 import { createMockZoteroLibrarySourcePageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
 

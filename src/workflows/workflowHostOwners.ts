@@ -4,10 +4,6 @@ import {
 } from "../../package.json";
 import { createWorkflowEditorOwner } from "../modules/workflow/ui/workflowEditorHost";
 import {
-  createWorkflowLoggingOwner,
-  type WorkflowRuntimeLogBinding,
-} from "../modules/runtimeLogManager";
-import {
   createZoteroHostCapabilityBroker,
   getZoteroHostCanonicalMutationControl,
   ZoteroHostCapabilityError,
@@ -97,6 +93,10 @@ import {
   createWorkflowHostError,
   type WorkflowInteractionMember,
 } from "./workflowHostErrorContract";
+import {
+  createWorkflowLoggingOwner,
+  type WorkflowRuntimeLogBinding,
+} from "./workflowLoggingOwner";
 
 export { WORKFLOW_HOST_API_VERSION } from "./workflowHostContract";
 

@@ -113,4 +113,4 @@ development instead of dropping it silently at the receiver.
 | Host Bridge Capability Registry | `hostBridgeCapabilityRegistry.ts` | Debug capabilities filtered from listings |
 | Local Deploy Debug Store | `skillRunnerLocalDeployDebugStore.ts` | Debug store writes become no-ops |
 | Selection Sample | `selectionSample.ts` | Sample/validate context menu entries hidden |
-| Debug Console Button | `preferenceScript.ts` | Debug console button hidden from preferences UI |
+| Debug Console Button | `preferences/skillRunnerLocalRuntimePreferences.ts` | Debug console button hidden from preferences UI |

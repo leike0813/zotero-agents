@@ -32,6 +32,8 @@ import {
   configureLiteratureArtifactMigrationHost,
   createLiteratureArtifactMigrationHostFromZoteroBroker,
   getLiteratureArtifactMigrationService,
+  LITERATURE_ARTIFACT_MIGRATION_DEFINITION_VERSION,
+  LITERATURE_ARTIFACT_MIGRATION_ID,
 } from "../literatureArtifactMigration";
 import { readRuntimeTextFileStrict } from "../runtimePersistence";
 import { listRuntimeLogs } from "../runtimeLogManager";
@@ -1021,8 +1023,8 @@ function buildLiteratureArtifactMigrationView(
   const service = resolveDashboardLiteratureMigrationService();
   if (!service) {
     return {
-      migrationId: "literature-artifacts",
-      definitionVersion: 1,
+      migrationId: LITERATURE_ARTIFACT_MIGRATION_ID,
+      definitionVersion: LITERATURE_ARTIFACT_MIGRATION_DEFINITION_VERSION,
       availability: "unavailable",
       availabilityReason: localize(
         "task-dashboard-literature-migration-unavailable",
@@ -1061,8 +1063,8 @@ function buildLiteratureArtifactMigrationView(
     receipts.map((receipt) => [receipt.candidateId, receipt.outcome]),
   );
   return {
-    migrationId: "literature-artifacts",
-    definitionVersion: 1,
+    migrationId: LITERATURE_ARTIFACT_MIGRATION_ID,
+    definitionVersion: LITERATURE_ARTIFACT_MIGRATION_DEFINITION_VERSION,
     availability: activeSnapshot ? "busy" : "available",
     availabilityReason: activeSnapshot
       ? localize(

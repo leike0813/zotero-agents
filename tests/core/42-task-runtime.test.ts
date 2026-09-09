@@ -311,7 +311,7 @@ describe("task runtime", function () {
     assert.include(task.error || "", "previous Zotero plugin session");
   });
 
-  it("reads SkillRunner request projections from the run store", function () {
+  it("leaves SkillRunner startup projection ownership with the run store", function () {
     const run = applySkillRunnerRunEvent({
       type: "submit.local_created",
       init: {
@@ -336,7 +336,7 @@ describe("task runtime", function () {
     const result = reconcileWorkflowTaskProjectionsOnStartup();
 
     assert.equal(result.failedCount, 0);
-    assert.equal(result.preservedCount, 1);
+    assert.equal(result.preservedCount, 0);
     assert.equal(
       listActiveWorkflowTasks()[0]?.requestId,
       "request-skillrunner",

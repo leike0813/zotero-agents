@@ -20,10 +20,7 @@ import {
 import { isNonRecoverableSkillRunnerFailure } from "./skillRunnerRecoverableState";
 import { buildSkillRunnerRunRecordRequestPayload } from "./skillRunnerInteractiveAutoReply";
 import { isWaiting } from "./skillRunnerProviderStateMachine";
-import {
-  syncWorkflowTaskFromSkillRunnerProjection,
-  type WorkflowTaskRecord,
-} from "../../taskRuntime";
+import type { WorkflowTaskRecord } from "../../taskRuntime";
 import { canWorkflowRunWithoutSelection } from "../../../workflows/triggerPolicy";
 import { openRunResultBundleReader } from "../../workflowExecution/bundleIO";
 import { createWorkflowResultContext } from "../../workflowExecution/resultContext";
@@ -231,7 +228,7 @@ function setRequestState(args: {
   source: string;
 }) {
   const updatedAt = nowIso();
-  const updated = applySkillRunnerRunEvent(
+  applySkillRunnerRunEvent(
     args.state === "succeeded" ||
       args.state === "failed" ||
       args.state === "canceled"
@@ -260,11 +257,6 @@ function setRequestState(args: {
           },
         },
   );
-  if (updated) {
-    syncWorkflowTaskFromSkillRunnerProjection(
-      projectSkillRunnerRun({ run: updated }),
-    );
-  }
 }
 
 function buildTerminalRunResult(args: {
