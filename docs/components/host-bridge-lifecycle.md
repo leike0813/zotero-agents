@@ -18,11 +18,15 @@ By default the server listens on `127.0.0.1` with a random port in the
 `26570–26869` range. It supports pinned ports, LAN mode (`0.0.0.0`), and
 automatic supervised recovery.
 
-Three modules implement this subsystem:
+The server is split by ownership rather than by transport endpoint:
 
 | Module | File | Role |
 |--------|------|------|
-| Server | `src/modules/hostBridge/server/hostBridgeServer.ts` | HTTP server, lifecycle, port strategy, supervisor |
+| Server | `src/modules/hostBridge/server/hostBridgeServer.ts` | Listener lifecycle, authorization, admission, operation replay, socket ownership, port strategy, supervisor |
+| Request reader | `src/modules/hostBridge/server/hostHttpRequestReader.ts` | Bounded byte reads and strict HTTP request parsing |
+| Response writer | `src/modules/hostBridge/server/runtimeHttpResponse.ts` | Memory/file response construction and output transfer |
+| Route contract | `src/modules/hostBridge/server/hostBridgeRouteContract.ts` | Private route match descriptor and admission modes |
+| Route families | `src/modules/hostBridge/server/routes/hostBridge*Routes.ts` | Diagnostics, capability/context, workflow/activity, file, and Synthesis path ownership |
 | Protocol | `src/modules/hostBridge/server/hostBridgeProtocol.ts` | Request/response types, status snapshot shape |
 | Auth | `src/modules/hostBridge/server/hostBridgeAuth.ts` | Session token, master token encryption, authorization |
 
@@ -42,7 +46,7 @@ export type HostBridgeServiceStatus =
   | "stopped";
 ```
 
-The internal `HostBridgeServerState` (line 66 of `hostBridgeServer.ts`) adds
+The internal `HostBridgeServerState` adds
 supervisor flags: `supervised`, `restartCount`, `lastRecoveryReason`,
 `controlledShutdown`.
 
@@ -94,14 +98,14 @@ shutdownHostBridgeServer()
 
 ### Key Functions
 
-| Function | Line | Purpose |
-|----------|------|---------|
-| `ensureHostBridgeServer()` | 1590 | Idempotent start — guarded by `startingPromise` to prevent concurrent launches |
-| `shutdownHostBridgeServer()` | 1602 | Controlled stop — sets `controlledShutdown=true` to prevent recovery |
-| `restartHostBridgeServer()` | 1615 | shutdown → ensure |
-| `startHostBridgeSupervisor()` | 1627 | Enables supervisor + kicks off ensure + starts 30s tick |
-| `stopHostBridgeSupervisor()` | 1642 | Disables supervisor, stops timers, closes socket |
-| `getHostBridgeServerStatus()` | 1707 | Returns `HostBridgeStatusSnapshot` from current state |
+| Function | Purpose |
+|----------|---------|
+| `ensureHostBridgeServer()` | Idempotent start — guarded by `startingPromise` to prevent concurrent launches |
+| `shutdownHostBridgeServer()` | Controlled stop — sets `controlledShutdown=true` to prevent recovery |
+| `restartHostBridgeServer()` | shutdown → ensure |
+| `startHostBridgeSupervisor()` | Enables supervisor + kicks off ensure + starts 30s tick |
+| `stopHostBridgeSupervisor()` | Disables supervisor, stops timers, closes socket |
+| `getHostBridgeServerStatus()` | Returns `HostBridgeStatusSnapshot` from current state |
 
 ### Supervisor
 
@@ -226,6 +230,9 @@ All routes are under the `/bridge/v2/` prefix.
 | `/bridge/v2/call` | POST | `callCapability()` | Invoke a named capability with input |
 | `/bridge/v2/workflows` | GET | `listWorkflows()` | List available workflow manifests |
 | `/bridge/v2/workflows/submit` | POST | `submitWorkflow()` | Submit a workflow for execution |
+| `/bridge/v2/workflows/agent-runs/{agentRunId}/apply` | GET, POST | workflow/activity route | Read or apply an agent-run result |
+| `/bridge/v2/workflows/agent-runs/{agentRunId}/renew` | POST | workflow/activity route | Renew an unconsumed agent run |
+| `/bridge/v2/workflows/agent-runs/{agentRunId}/abandon` | POST | workflow/activity route | Abandon an unconsumed agent run |
 | `/bridge/v2/workflows/runs/{workflowRunId}` | GET | `getWorkflowRun()` | Query workflow run status |
 | `/bridge/v2/workflows/runs/{workflowRunId}/cancel` | POST | `cancelWorkflowRun()` | Request workflow run cancellation |
 | `/bridge/v2/tasks` | GET | `listTasks()` | List task records |
@@ -234,13 +241,25 @@ All routes are under the `/bridge/v2/` prefix.
 | `/bridge/v2/skill-runs/{skillRunId}/reply` | POST | `replySkillRun()` | Reply to a waiting skill run |
 | `/bridge/v2/skill-runs/{skillRunId}/connect` | POST | `connectSkillRun()` | Connect to a recoverable skill run |
 | `/bridge/v2/files/{fileId}` | GET | `downloadFile()` | Download a file by file ID |
+| `/bridge/v2/files/upload` | POST | file route | Register one bounded upload as an opaque file handle |
+| `/bridge/v2/synthesis/cache/status` | GET | Synthesis route | Read cache or maintenance-operation status |
+| `/bridge/v2/synthesis/cache/invalidate` | POST | Synthesis route | Request approved cache invalidation |
+| `/bridge/v2/synthesis/index/status` | GET | Synthesis route | Read index availability |
 
 Request processing order:
-1. Parse HTTP headers and body
-2. Verify bridge path prefix (`/bridge/v2/`)
-3. Health endpoint bypasses auth
-4. All other paths: `isHostBridgeAuthorizationValid()` auth check
-5. Body size limit: `MAX_REQUEST_BODY_BYTES = 1MB`
+
+1. Read bounded bytes and strictly parse the HTTP request.
+2. Dispatch `/mcp`; otherwise verify the `/bridge/v2/` prefix.
+3. Serve `GET /bridge/v2/health` before authorization.
+4. Authorize every other Host Bridge route and enforce its body limit.
+5. Match one private route descriptor. The descriptor is the single source for
+   `read`, `generic-operation`, or `canonical-mutation` admission.
+6. Reserve/replay generic operations when required, invoke the matched handler,
+   then complete or mark the operation outcome unknown.
+
+Every non-GET route marked `generic-operation` requires
+`X-Zotero-Bridge-Operation-Id`. Canonical mutation capabilities retain their
+own durable mutation authority instead of entering the generic operation store.
 
 ---
 
@@ -329,7 +348,7 @@ preferences UI and the CLI injection system to surface status diagnostics.
 
 When a Host Bridge capability requires user approval (`"zotero-ui-required"`),
 the server builds a human-readable prompt via
-`buildCapabilityApprovalPrompt(capability, input)` (line 830).
+`buildCapabilityApprovalPrompt(capability, input)`.
 
 ### Dispatcher
 
@@ -347,7 +366,7 @@ Routes by capability name:
 
 ### Mutation Approval Prompts
 
-`buildMutationApprovalPrompt(input)` (line 664) dispatches by
+The canonical mutation approval builder dispatches by
 `input.operation`:
 
 | Operation | Title | Summary/Detail |
@@ -366,7 +385,7 @@ field.
 
 ### Debug Eval Approval Prompt
 
-`buildDebugZoteroEvalApprovalPrompt(input)` (line 814):
+`buildDebugZoteroEvalApprovalPrompt(input)`:
 
 - Title: `"Approve Zotero debug eval?"`
 - Detail includes risk warning:
@@ -375,5 +394,5 @@ field.
 
 ### Truncation Helper
 
-`compactApprovalText(value, limit)` (line 806) truncates a string to `limit`
+`compactApprovalText(value, limit)` truncates a string to `limit`
 characters, appending `...[truncated]` when the source exceeds the limit.

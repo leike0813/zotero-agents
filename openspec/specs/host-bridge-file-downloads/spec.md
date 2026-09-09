@@ -27,7 +27,7 @@ handles.
 The system SHALL validate file handles before returning file bytes.
 
 #### Scenario: Known file handle downloads
-- **WHEN** an authenticated client requests `GET /bridge/v1/files/{fileId}` for
+- **WHEN** an authenticated client requests `GET /bridge/v2/files/{fileId}` for
   a known, unexpired, available file handle
 - **THEN** the bridge SHALL return the file bytes without text encoding
   conversion
@@ -109,7 +109,7 @@ Broker-issued file upload and download operations SHALL use `/bridge/v2` and ret
 - **THEN** Host Bridge SHALL return the authorized bytes under the existing integrity and redaction rules.
 
 #### Scenario: Client uses the removed v1 route
-- **WHEN** a client requests the corresponding `/bridge/v1/files` route
+- **WHEN** a client requests the corresponding `/bridge/v2/files` route
 - **THEN** Host Bridge SHALL NOT serve it as a supported v2 file operation.
 
 ### Requirement: Workflow output resources reuse broker downloads

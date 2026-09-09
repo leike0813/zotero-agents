@@ -23,6 +23,10 @@ Host Bridge SHALL retain generic HTTP operation history only for routes that exp
 - **WHEN** a non-canonical route reuses an existing generic operation id with a different request digest
 - **THEN** Host Bridge SHALL reject it with idempotency_conflict.
 
+#### Scenario: State-changing v2 route omits operation identity
+- **WHEN** a client submits a non-canonical state-changing `/bridge/v2/` request without an operation id
+- **THEN** Host Bridge SHALL reject it with `operation_id_required` before the route effect begins.
+
 ### Requirement: Unknown outcomes SHALL be inspectable
 
 Callers SHALL distinguish committed and unchanged mutation receipts from failed, canceled, unknown, and repair_required mutation attempts. A lost response after a canonical mutation SHALL direct the caller to mutation.get_operation, whose read-only result is exactly running, settled with result, or unavailable.

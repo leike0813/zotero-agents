@@ -1,3 +1,9 @@
+import {
+  beginRuntimeFileResponseTransfer,
+  type RuntimeFileResponseTransfer,
+  type RuntimeFileTransferSource,
+} from "../../runtimeFileTransfer";
+
 export const RUNTIME_HTTP_RESPONSE_POLICY = Object.freeze({
   chunkBytes: 0x8000,
 });
@@ -15,6 +21,26 @@ export type PreparedMemoryHttpResponse = {
 export type RuntimeMemoryResponseTransfer = {
   completion: Promise<void>;
   abort: () => void;
+};
+
+export type RuntimeHttpResponse =
+  | PreparedMemoryHttpResponse
+  | {
+      kind: "file";
+      headers: string;
+      source: RuntimeFileTransferSource;
+    };
+
+export type RuntimeHttpResponseTransfer =
+  | RuntimeFileResponseTransfer
+  | RuntimeMemoryResponseTransfer;
+
+export type RuntimeHttpResponseArgs = {
+  status: number;
+  reason: string;
+  body: unknown;
+  contentType?: string;
+  headers?: Record<string, string>;
 };
 
 type ResponseArgs = {
@@ -103,6 +129,87 @@ export function prepareEmptyHttpResponse(args: {
     wireByteLength: headers.length,
     contentType: "",
   };
+}
+
+export function prepareRuntimeHttpResponse(args: RuntimeHttpResponseArgs) {
+  return typeof args.body === "string"
+    ? prepareTextHttpResponse({
+        status: args.status,
+        reason: args.reason,
+        bodyText: args.body,
+        contentType: args.contentType,
+        headers: args.headers,
+      })
+    : prepareJsonHttpResponse({
+        status: args.status,
+        reason: args.reason,
+        body: args.body,
+        contentType: args.contentType,
+        headers: args.headers,
+      });
+}
+
+export function runtimeHttpBytesToBinaryString(bytes: Uint8Array) {
+  const chunks: string[] = [];
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    chunks.push(
+      String.fromCharCode(...bytes.slice(offset, offset + chunkSize)),
+    );
+  }
+  return chunks.join("");
+}
+
+function headerSafeFilename(filename: string) {
+  return String(filename || "download.bin")
+    .split("")
+    .map((char) => {
+      const code = char.charCodeAt(0);
+      return char === '"' || code <= 0x1f || code === 0x7f ? "_" : char;
+    })
+    .join("");
+}
+
+function asciiContentDispositionFilename(filename: string) {
+  const safe = headerSafeFilename(filename);
+  const ascii = safe.replace(/[^\x20-\x7e]/g, "_").trim();
+  const extension = safe.match(/(\.[A-Za-z0-9]{1,16})$/)?.[1] || ".bin";
+  const stem = ascii.replace(/(\.[A-Za-z0-9]{1,16})$/, "");
+  return /[A-Za-z0-9]/.test(stem)
+    ? ascii || `download${extension}`
+    : `download${extension}`;
+}
+
+function encodeContentDispositionFilename(filename: string) {
+  const safe = headerSafeFilename(filename);
+  return encodeURIComponent(safe)
+    .replace(
+      /['()]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+    )
+    .replace(/\*/g, "%2A");
+}
+
+export function prepareRuntimeFileHttpResponse(args: {
+  filename: string;
+  contentType: string;
+  source: RuntimeFileTransferSource;
+  sha256?: string;
+}): RuntimeHttpResponse {
+  const fallback = asciiContentDispositionFilename(args.filename);
+  const encoded = encodeContentDispositionFilename(args.filename || fallback);
+  const contentDisposition = `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
+  const headers = [
+    "HTTP/1.1 200 OK",
+    `Content-Type: ${args.contentType || "application/octet-stream"}`,
+    `Content-Length: ${args.source.size}`,
+    ...(args.sha256 ? [`X-Zotero-Bridge-Sha256: ${args.sha256}`] : []),
+    `Content-Disposition: ${contentDisposition}`,
+    "Connection: close",
+    "",
+    "",
+  ].join("\r\n");
+  return { kind: "file", headers, source: args.source };
 }
 
 function runtimeComponents() {
@@ -314,6 +421,29 @@ export function beginRuntimeMemoryResponseTransfer(args: {
   return asyncOutputStream
     ? beginAsyncMemoryCopy({ ...args, asyncOutputStream })
     : beginNodeMemoryCopy(args);
+}
+
+export async function writeRuntimeHttpResponse(
+  outputStream: any,
+  response: RuntimeHttpResponse,
+  onTransfer?: (transfer: RuntimeHttpResponseTransfer) => void,
+) {
+  if (response.kind === "file") {
+    const transfer = beginRuntimeFileResponseTransfer({
+      headers: response.headers,
+      source: response.source,
+      outputStream,
+    });
+    onTransfer?.(transfer);
+    await transfer.completion;
+    return;
+  }
+  const transfer = beginRuntimeMemoryResponseTransfer({
+    response,
+    outputStream,
+  });
+  onTransfer?.(transfer);
+  await transfer.completion;
 }
 
 export const runtimeHttpResponseInternalsForTests = {

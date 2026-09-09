@@ -62,7 +62,7 @@ function stableValue(value: unknown): unknown {
   return value;
 }
 
-function fingerprint(value: unknown) {
+export function fingerprintHostBridgeValue(value: unknown) {
   const text = JSON.stringify(stableValue(value));
   let hash = 2166136261;
   for (let index = 0; index < text.length; index += 1) {
@@ -142,7 +142,7 @@ export function paginateHostBridgeRows<T>(args: {
     Math.floor(Number(args.maxLimit) || HOST_BRIDGE_PAGE_LIMIT_MAX),
   );
   const limit = boundedLimit(args.limit, defaultLimit, maxLimit);
-  const criteriaHash = fingerprint(args.criteria);
+  const criteriaHash = fingerprintHostBridgeValue(args.criteria);
   const now = Number.isFinite(args.now) ? Number(args.now) : Date.now();
   const cursorTtlMs = Math.max(
     1,

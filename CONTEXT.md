@@ -44,6 +44,10 @@ _Avoid_: Task manager dialog, Dashboard page, Dashboard wire contract
 The canonical process-local, JSON-safe capability interface for Zotero context, navigation, bounded library reads, metadata translation, and controlled mutations. It owns host capability semantics but not transport, authorization, approval, exposure, or remote file locality.
 _Avoid_: Workflow hostApi, Host Bridge API, MCP tool registry
 
+**Host Bridge Server**:
+The embedded HTTP lifecycle owner for listener binding, authorization, request admission, operation replay, socket ownership, and shutdown. Private route adapters own path matching and route-family handling; the server does not define Zotero capability semantics.
+_Avoid_: Host Bridge API, capability registry, generic HTTP router
+
 **Workflow Host API Projection**:
 The explicit member-level projection from the canonical broker into `WorkflowHostApi` v12, combined with trusted local workflow services and raw Zotero ref normalization. It is a separate compatibility surface and must not receive whole broker domains implicitly.
 _Avoid_: Broker alias, common host API, universal host facade

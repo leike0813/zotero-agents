@@ -123,6 +123,117 @@ function bytesToLatin1String(bytes: Uint8Array) {
   return output;
 }
 
+export function safeDecodeHostHttpPath(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+}
+
+export function parseHostHttpPath(rawPath: string) {
+  const query: Record<string, string> = {};
+  const queryIndex = rawPath.indexOf("?");
+  const path = queryIndex >= 0 ? rawPath.slice(0, queryIndex) : rawPath;
+  const queryText = queryIndex >= 0 ? rawPath.slice(queryIndex + 1) : "";
+  let parseError = "";
+  for (const part of queryText.split("&")) {
+    if (!part) continue;
+    const separator = part.indexOf("=");
+    const name = separator >= 0 ? part.slice(0, separator) : part;
+    const value = separator >= 0 ? part.slice(separator + 1) : "";
+    const decodedName = safeDecodeHostHttpPath(name);
+    const decodedValue = safeDecodeHostHttpPath(value);
+    if (decodedName === null || decodedValue === null) {
+      parseError = "malformed_query_encoding";
+      continue;
+    }
+    query[decodedName] = decodedValue;
+  }
+  return { path: path || "/", query, parseError };
+}
+
+function findHeaderSeparator(bytes: Uint8Array) {
+  for (let index = 0; index <= bytes.length - 4; index += 1) {
+    if (
+      bytes[index] === 13 &&
+      bytes[index + 1] === 10 &&
+      bytes[index + 2] === 13 &&
+      bytes[index + 3] === 10
+    ) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function decodeUtf8Body(bytes: Uint8Array) {
+  try {
+    if (typeof TextDecoder === "function") {
+      return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    }
+    return decodeURIComponent(escape(bytesToLatin1String(bytes)));
+  } catch {
+    return null;
+  }
+}
+
+function parseHttpHeaders(head: string) {
+  const lines = head.split("\r\n");
+  const [method = "", rawPath = ""] = String(lines[0] || "").split(/\s+/);
+  const parsedPath = parseHostHttpPath(rawPath);
+  const headers: Record<string, string> = {};
+  for (const line of lines.slice(1)) {
+    const separator = line.indexOf(":");
+    if (separator < 0) continue;
+    headers[line.slice(0, separator).trim().toLowerCase()] = line
+      .slice(separator + 1)
+      .trim();
+  }
+  return { method, parsedPath, headers };
+}
+
+export function parseHostHttpRequestBytes(raw: Uint8Array): HostHttpRequest {
+  const splitIndex = findHeaderSeparator(raw);
+  const headBytes = splitIndex >= 0 ? raw.slice(0, splitIndex) : raw;
+  const bodyBytes =
+    splitIndex >= 0 ? raw.slice(splitIndex + 4) : new Uint8Array();
+  const head = bytesToLatin1String(headBytes);
+  const { method, parsedPath, headers } = parseHttpHeaders(head);
+  const contentLength = Math.max(
+    0,
+    Number(headers["content-length"] || bodyBytes.length),
+  );
+  const boundedBodyBytes =
+    contentLength > 0 ? bodyBytes.slice(0, contentLength) : new Uint8Array();
+  const body = decodeUtf8Body(boundedBodyBytes);
+  const bodyParseError =
+    body === null && parsedPath.path !== "/bridge/v2/files/upload"
+      ? "invalid_utf8_body"
+      : "";
+  return {
+    method: method.toUpperCase(),
+    path: parsedPath.path,
+    query: parsedPath.query,
+    headers,
+    body: body || "",
+    bodyBytes: boundedBodyBytes,
+    bodyByteLength: boundedBodyBytes.byteLength,
+    parseError: parsedPath.parseError || bodyParseError,
+  };
+}
+
+export function hostHttpUtf8ByteLength(text: string) {
+  return typeof TextEncoder === "function"
+    ? new TextEncoder().encode(text).length
+    : text.length;
+}
+
+export function parseHostHttpJsonBody(body: string): unknown {
+  const trimmed = String(body || "").trim();
+  return trimmed ? JSON.parse(trimmed) : {};
+}
+
 function concatBytes(chunks: readonly Uint8Array[], totalLength: number) {
   const output = new Uint8Array(totalLength);
   let offset = 0;
@@ -530,3 +641,16 @@ export function beginHostHttpRequestRead(
     },
   };
 }
+import type { CancellationSignal } from "../../../utils/wait";
+
+export type HostHttpRequest = {
+  method: string;
+  path: string;
+  query: Record<string, string>;
+  headers: Record<string, string>;
+  body: string;
+  bodyBytes: Uint8Array;
+  bodyByteLength: number;
+  signal?: CancellationSignal;
+  parseError?: string;
+};

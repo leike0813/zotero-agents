@@ -250,6 +250,45 @@ describe("host bridge server phase 1", function () {
     assert.strictEqual(parsed.json.error.code, "invalid_operation_id");
   });
 
+  it("requires operation ids for dynamic state-changing v2 routes", async function () {
+    const token = configureHostBridgeServerForTests({
+      token: "dynamic-operation-token",
+    });
+    const requests = [
+      {
+        path: "/bridge/v2/workflows/agent-runs/agent-1/apply",
+        body: JSON.stringify({ results: [] }),
+      },
+      { path: "/bridge/v2/workflows/agent-runs/agent-1/renew" },
+      { path: "/bridge/v2/workflows/agent-runs/agent-1/abandon" },
+      { path: "/bridge/v2/workflows/runs/run-1/cancel" },
+      { path: "/bridge/v2/workflows/queue/queue-1/cancel" },
+      {
+        path: "/bridge/v2/skill-runs/skill-1/reply",
+        body: JSON.stringify({ message: "continue" }),
+      },
+      { path: "/bridge/v2/skill-runs/skill-1/connect" },
+    ];
+
+    for (const request of requests) {
+      const parsed = parseRawHttpResponse(
+        await handleHostBridgeHttpRequestForTests({
+          method: "POST",
+          path: request.path,
+          headers: { authorization: `Bearer ${token}` },
+          body: request.body,
+          disableAutomaticOperationId: true,
+        }),
+      );
+      assert.strictEqual(parsed.status, 428, request.path);
+      assert.strictEqual(
+        parsed.json.error.code,
+        "operation_id_required",
+        request.path,
+      );
+    }
+  });
+
   it("profiles asynchronous Host Bridge input waits without a real Zotero socket", async function () {
     setDebugModeOverrideForTests(true);
     enableAcpRuntimePerformanceProfiler();

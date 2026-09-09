@@ -7,7 +7,7 @@ TBD - created by archiving change introduce-host-bridge-cli-interface. Update Pu
 
 ### Requirement: Host Bridge service requires bearer authentication
 The system SHALL require bearer-token authentication for all Host Bridge
-requests except `GET /bridge/v1/health`.
+requests except `GET /bridge/v2/health`.
 
 #### Scenario: Missing token is rejected
 - **WHEN** a client sends a non-health bridge request without
@@ -47,7 +47,7 @@ under `/bridge/v1`.
 #### Scenario: Unified listener serves both protocol routes
 
 - **WHEN** the Host Access listener is running
-- **THEN** `GET /bridge/v1/health` SHALL return Host Bridge health metadata
+- **THEN** `GET /bridge/v2/health` SHALL return Host Bridge health metadata
 - **AND** `POST /mcp` SHALL be routable by the same listener when MCP is enabled
 - **AND** both routes SHALL use the same bound port.
 
@@ -56,19 +56,19 @@ under `/bridge/v1`.
 - **GIVEN** Host Bridge LAN binding is enabled
 - **WHEN** Host Access starts
 - **THEN** the listener SHALL bind according to the Host Bridge LAN setting
-- **AND** both `/bridge/v1/*` and `/mcp` SHALL be available on that listener
+- **AND** both `/bridge/v2/*` and `/mcp` SHALL be available on that listener
 - **AND** LAN mode SHALL require the configured fixed Host Bridge port.
 
 ### Requirement: Host Bridge shared bearer authentication with MCP
 
 The system SHALL require bearer-token authentication for all Host Bridge
-requests except `GET /bridge/v1/health`, and SHALL share that bearer token with
+requests except `GET /bridge/v2/health`, and SHALL share that bearer token with
 the MCP route.
 
 #### Scenario: Shared token authorizes both protocol routes
 
 - **GIVEN** a client has the current Host Bridge bearer token
-- **WHEN** it calls authenticated `/bridge/v1/*` routes or `/mcp`
+- **WHEN** it calls authenticated `/bridge/v2/*` routes or `/mcp`
 - **THEN** the same token SHALL authorize both protocol surfaces.
 
 ### Requirement: Unified Host Access settings control both protocol surfaces
@@ -141,7 +141,7 @@ paginated Zotero library readiness inspection.
 
 #### Scenario: Capability returns lightweight readiness DTOs
 
-- **WHEN** `/bridge/v1/call` invokes `library.readiness_audit`
+- **WHEN** `/bridge/v2/call` invokes `library.readiness_audit`
 - **THEN** Host Bridge SHALL return `zotero.library.readiness_audit.v1`
 - **AND** each item SHALL include a compact Zotero item summary, readiness
   states for `pdf`, `markdown`, and `analysis`, a `missing` array, and
