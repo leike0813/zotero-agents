@@ -28,7 +28,7 @@ import {
   incrementAcpRuntimeMetric,
   observeAcpRuntimeDuration,
   readAcpRuntimePerformanceClockMs,
-} from "./acpRuntimePerformanceProfiler";
+} from "./acp/diagnostics/acpRuntimePerformanceProfiler";
 
 type SqlPrimitive = string | number | null;
 type SqlParams = Record<string, SqlPrimitive>;

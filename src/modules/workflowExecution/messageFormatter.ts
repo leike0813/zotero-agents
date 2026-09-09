@@ -3,7 +3,7 @@ import {
   resolveAddonRef,
   resolveRuntimeAddon,
 } from "../../utils/runtimeBridge";
-import type { WorkflowMessageFormatter } from "../workflowExecuteMessage";
+import type { WorkflowMessageFormatter } from "./workflowExecuteMessage";
 
 export function localizeWorkflowText(
   id: string,

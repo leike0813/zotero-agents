@@ -1,4 +1,3 @@
-import { workflowSubmissionQueue } from "../../jobQueue/workflowSubmissionQueue";
 import type { WorkflowSubmissionQueue } from "../../jobQueue/workflowSubmissionQueue";
 import type {
   WorkflowExecutionUnitOutcome,
@@ -6,17 +5,17 @@ import type {
   WorkflowSubmissionQueueExecutionContext,
   WorkflowSubmissionSummary,
 } from "../../jobQueue/workflowSubmissionQueueContracts";
-import { appendRuntimeLog } from "../runtimeLogManager";
-import type { WorkflowMessageFormatter } from "../workflowExecuteMessage";
-import { runWorkflowApplySeam } from "./applySeam";
+import type { appendRuntimeLog } from "../runtimeLogManager";
+import type { WorkflowMessageFormatter } from "./workflowExecuteMessage";
 import type {
   PreparedWorkflowExecution,
   PreparedWorkflowUnit,
   WorkflowApplySummary,
   WorkflowRunState,
 } from "./contracts";
-import { buildPreparedWorkflowUnitExecution } from "./preparationSeam";
-import { runWorkflowExecutionSeam } from "./runSeam";
+import type { buildPreparedWorkflowUnitExecution } from "./preparationSeam";
+import type { runWorkflowApplySeam } from "./applySeam";
+import type { runWorkflowExecutionSeam } from "./runSeam";
 
 export type PreparedWorkflowUnitExecutionResult = {
   outcome: WorkflowExecutionUnitOutcome;
@@ -35,29 +34,25 @@ export type PreparedWorkflowSubmission = Readonly<{
   completion: Promise<WorkflowSubmissionSummary>;
 }>;
 
-type SubmissionSeamDeps = Readonly<{
+export type SubmissionSeamDeps = Readonly<{
   submissionQueue: WorkflowSubmissionQueue;
-  executePreparedUnit: typeof executePreparedWorkflowUnit;
+  executePreparedUnit: (
+    args: Parameters<typeof executePreparedWorkflowUnit>[0],
+  ) => ReturnType<typeof executePreparedWorkflowUnit>;
   appendRuntimeLog: typeof appendRuntimeLog;
 }>;
 
-const defaultSubmissionSeamDeps: SubmissionSeamDeps = {
-  submissionQueue: workflowSubmissionQueue,
-  executePreparedUnit: executePreparedWorkflowUnit,
-  appendRuntimeLog,
-};
-
-type PreparedWorkflowUnitDeps = Readonly<{
-  buildPreparedUnit: typeof buildPreparedWorkflowUnitExecution;
-  runPreparedUnit: typeof runWorkflowExecutionSeam;
-  applyPreparedUnit: typeof runWorkflowApplySeam;
+export type PreparedWorkflowUnitDeps = Readonly<{
+  buildPreparedUnit: (
+    args: Parameters<typeof buildPreparedWorkflowUnitExecution>[0],
+  ) => ReturnType<typeof buildPreparedWorkflowUnitExecution>;
+  runPreparedUnit: (
+    args: Parameters<typeof runWorkflowExecutionSeam>[0],
+  ) => ReturnType<typeof runWorkflowExecutionSeam>;
+  applyPreparedUnit: (
+    args: Parameters<typeof runWorkflowApplySeam>[0],
+  ) => ReturnType<typeof runWorkflowApplySeam>;
 }>;
-
-const defaultPreparedWorkflowUnitDeps: PreparedWorkflowUnitDeps = {
-  buildPreparedUnit: buildPreparedWorkflowUnitExecution,
-  runPreparedUnit: runWorkflowExecutionSeam,
-  applyPreparedUnit: runWorkflowApplySeam,
-};
 
 function summarizeDirectOutcomes(
   outcomes: ReadonlyArray<WorkflowExecutionUnitOutcome>,
@@ -78,10 +73,9 @@ export async function executePreparedWorkflowUnit(
     messageFormatter: WorkflowMessageFormatter;
     submissionContext?: WorkflowSubmissionQueueExecutionContext;
   },
-  deps: Partial<PreparedWorkflowUnitDeps> = {},
+  deps: PreparedWorkflowUnitDeps,
 ): Promise<PreparedWorkflowUnitExecutionResult> {
-  const resolved = { ...defaultPreparedWorkflowUnitDeps, ...deps };
-  const buildResult = await resolved.buildPreparedUnit({
+  const buildResult = await deps.buildPreparedUnit({
     prepared: args.prepared,
     unit: args.unit,
   });
@@ -93,7 +87,7 @@ export async function executePreparedWorkflowUnit(
       },
     };
   }
-  const runState = resolved.runPreparedUnit({
+  const runState = deps.runPreparedUnit({
     prepared: buildResult.built,
     submissionLineage: args.submissionContext,
   });
@@ -112,7 +106,7 @@ export async function executePreparedWorkflowUnit(
       };
     }
   }
-  const applySummary = await resolved.applyPreparedUnit({
+  const applySummary = await deps.applyPreparedUnit({
     runState,
     messageFormatter: args.messageFormatter,
   });
@@ -140,9 +134,8 @@ export async function submitPreparedWorkflowUnits(
     messageFormatter: WorkflowMessageFormatter;
     onTerminal?: (summary: WorkflowSubmissionSummary) => void;
   },
-  deps: Partial<SubmissionSeamDeps> = {},
+  deps: SubmissionSeamDeps,
 ): Promise<PreparedWorkflowSubmission> {
-  const resolved = { ...defaultSubmissionSeamDeps, ...deps };
   const executionResults = new Map<
     string,
     PreparedWorkflowUnitExecutionResult
@@ -153,7 +146,7 @@ export async function submitPreparedWorkflowUnits(
   ) => {
     let result: PreparedWorkflowUnitExecutionResult;
     try {
-      result = await resolved.executePreparedUnit({
+      result = await deps.executePreparedUnit({
         prepared: args.prepared,
         unit,
         messageFormatter: args.messageFormatter,
@@ -168,7 +161,7 @@ export async function submitPreparedWorkflowUnits(
         failureReason:
           error instanceof Error ? error.message : String(error || "unknown"),
       };
-      resolved.appendRuntimeLog({
+      deps.appendRuntimeLog({
         level: "error",
         scope: "workflow-trigger",
         workflowId: args.prepared.workflow.manifest.id,
@@ -198,7 +191,7 @@ export async function submitPreparedWorkflowUnits(
   if (backendType === "acp" || backendType === "skillrunner") {
     const providerOptions =
       args.prepared.executionContext.providerOptions || {};
-    const handle = resolved.submissionQueue.enqueueSubmission({
+    const handle = deps.submissionQueue.enqueueSubmission({
       backend: {
         backendType,
         backendId: args.prepared.executionContext.backend.id,

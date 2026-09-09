@@ -23,8 +23,8 @@ import {
   type PluginStateReadonlyRow,
   type PluginStateReadonlyStore,
 } from "./pluginStateReadonly";
-import { isWorkflowVisible } from "../workflowVisibility";
-import { buildWorkflowSettingsUiDescriptor } from "../workflowSettings";
+import { isWorkflowVisible } from "../workflow/catalog/workflowVisibility";
+import { buildWorkflowSettingsUiDescriptor } from "../workflow/settings/workflowSettings";
 import { loadBackendsRegistryReadonly } from "./backendsReadonly";
 import { projectSkillRunnerReadonlyRuns } from "./skillRunnerReadonlyProjection";
 

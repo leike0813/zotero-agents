@@ -1,8 +1,8 @@
-import { listNotePayloadBlocks } from "../notePayloadCodec";
+import { listNotePayloadBlocks } from "../zoteroHost/notePayloadCodec";
 import {
   classifyManagedNoteContent,
   ManagedNoteOwnerError,
-} from "../zoteroManagedNotes";
+} from "../zoteroHost/zoteroManagedNotes";
 import { readArtifactsFromRegistryInputs } from "../synthesis/libraryAdapter";
 import { buildReferenceSidecarMetadataFingerprintPayload } from "../synthesis/registry";
 import type {

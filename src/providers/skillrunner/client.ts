@@ -9,9 +9,9 @@ import { appendRuntimeLog } from "../../modules/runtimeLogManager";
 import {
   runSkillRunnerConnection,
   type SkillRunnerConnectionLane,
-} from "../../modules/skillRunnerConnectionGovernor";
-import { markSkillRunnerBackendHealthSuccess } from "../../modules/skillRunnerBackendHealthRegistry";
-import { isSkillRunnerInteractiveAutoReplyEnabled } from "../../modules/skillRunnerInteractiveAutoReply";
+} from "../../modules/skillRunner/connection/skillRunnerConnectionGovernor";
+import { markSkillRunnerBackendHealthSuccess } from "../../modules/skillRunner/connection/skillRunnerBackendHealthRegistry";
+import { isSkillRunnerInteractiveAutoReplyEnabled } from "../../modules/skillRunner/run/skillRunnerInteractiveAutoReply";
 import { buildSkillRunnerSkillPackageBundle } from "./skillPackageBundler";
 import { SkillRunnerHttpError } from "./errors";
 import {
@@ -26,7 +26,7 @@ import {
   isWaiting,
   normalizeStatus,
   normalizeStatusWithGuard,
-} from "../../modules/skillRunnerProviderStateMachine";
+} from "../../modules/skillRunner/run/skillRunnerProviderStateMachine";
 import { delay } from "../../utils/runtimeCompatibility";
 import { readRuntimeBytes } from "../../modules/runtimePersistence";
 

@@ -10,18 +10,18 @@
 	path = skills_builtin/literature-translator
 	url = https://github.com/leike0813/agent-skills
 	branch = skill/literature-translator
-[submodule "reference/Skill-Runner"]
-	path = reference/Skill-Runner
+[submodule "references/Skill-Runner"]
+	path = references/Skill-Runner
 	url = https://github.com/leike0813/Skill-Runner
-[submodule "reference/Zotero-7"]
-	path = reference/Zotero-7
+[submodule "references/Zotero-7"]
+	path = references/Zotero-7
 	url = https://github.com/zotero/zotero.git
 	shallow = true
-[submodule "reference/Zotero-9"]
-	path = reference/Zotero-9
+[submodule "references/Zotero-9"]
+	path = references/Zotero-9
 	url = https://github.com/zotero/zotero.git
 	shallow = true
-[submodule "reference/Zotero-10"]
-	path = reference/Zotero-10
+[submodule "references/Zotero-10"]
+	path = references/Zotero-10
 	url = https://github.com/zotero/zotero.git
 	shallow = true

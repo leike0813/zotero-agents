@@ -8,7 +8,7 @@ import {
   closeAssistantWorkspaceSidebar,
   isAssistantWorkspaceSidebarOpen,
   openAssistantWorkspaceSidebar,
-} from "./assistantWorkspaceSidebar";
+} from "./assistant/workspace/assistantWorkspaceSidebar";
 import { getStringOrFallback } from "../utils/locale";
 import { joinPath } from "../utils/path";
 import { resolveAddonRef } from "../utils/runtimeBridge";

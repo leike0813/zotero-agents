@@ -329,11 +329,11 @@ function main() {
 
   const displayNameModule = readText("src/backends/displayName.ts");
   const runtimeToastModule = readText(
-    "src/modules/skillRunnerLocalRuntimeManager.ts",
+    "src/modules/skillRunner/runtime/skillRunnerLocalRuntimeManager.ts",
   );
   const governanceHelper = readText("src/utils/localizationGovernance.ts");
   const synthesisWorkbenchHost = readText(
-    "src/modules/synthesisWorkbenchTab.ts",
+    "src/modules/synthesis/workbench/synthesisWorkbenchTab.ts",
   );
   const synthesisWorkbenchSources = listPageSources("src/synthesis");
   const synthesisWorkbenchApp = readText(

@@ -71,7 +71,7 @@ The system SHALL prioritize read/context MCP tools before write tools.
 
 ### Requirement: Broker SSOT document stays synchronized
 
-The system SHALL maintain `doc/components/zotero-host-capability-broker-ssot.md` as the human-facing SSOT for this model.
+The system SHALL maintain `docs/components/zotero-host-capability-broker-ssot.md` as the human-facing SSOT for this model.
 
 #### Scenario: Related public contract changes
 

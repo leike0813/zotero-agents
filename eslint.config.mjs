@@ -35,13 +35,13 @@ const projectIgnores = {
     "openspec/specs/**",
 
     // Documentation and reference payloads are governed by content checks.
-    "doc/**",
-    "reference/**",
+    "docs/**",
+    "references/**",
     "site/**",
     "**/*.md",
 
     // Artifacts
-    "artifact/**",
+    "artifacts/**",
     "assets/**",
     "attachments/**",
     "deprecated/**",
@@ -50,7 +50,7 @@ const projectIgnores = {
     "workflows/**",
 
     // Test fixtures
-    "test/fixtures/**",
+    "tests/fixtures/**",
   ],
 };
 
@@ -83,7 +83,7 @@ export default [
         },
       },
       {
-        files: ["test/**/*.ts"],
+        files: ["tests/**/*.ts"],
         rules: {
           "mocha/consistent-spacing-between-blocks": "off",
           "mocha/no-mocha-arrows": "off",

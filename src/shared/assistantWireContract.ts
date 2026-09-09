@@ -65,7 +65,7 @@ export const ASSISTANT_WORKSPACE_TRANSCRIPT_DELTA_KEYS: readonly string[] = [
 /**
  * Payload keys per non-transcript publication kind. The authoritative kind
  * list lives in ASSISTANT_WORKSPACE_REGION_REGISTRY (src/modules); this map
- * must cover every kind except "transcript" (guarded by test/core/190).
+ * must cover every kind except "transcript" (guarded by tests/core/190).
  */
 export const ASSISTANT_WORKSPACE_PUBLICATION_PAYLOAD_KEYS: Record<
   string,
@@ -157,7 +157,7 @@ export type AssistantWorkspaceMessageType =
 // Shared wire identity types
 //
 // Canonical home for the structural types that travel on the wire. They were
-// moved here from src/modules/assistantWorkspacePublication.ts, which
+// moved here from src/modules/assistant/publication/assistantWorkspacePublication.ts, which
 // re-exports them so existing import sites keep working.
 // ---------------------------------------------------------------------------
 

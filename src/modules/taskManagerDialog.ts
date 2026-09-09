@@ -30,7 +30,7 @@ import {
 } from "./taskDashboardSnapshot";
 import { workflowSubmissionQueue } from "../jobQueue/workflowSubmissionQueue";
 import type { WorkflowQueueEntryId } from "../jobQueue/workflowSubmissionQueueContracts";
-import { getLoadedWorkflowSourceById } from "./workflowRuntime";
+import { getLoadedWorkflowSourceById } from "./workflow/catalog/workflowRuntime";
 import {
   listActiveWorkflowTaskSummaries,
   subscribeWorkflowTaskChanges,
@@ -38,8 +38,8 @@ import {
   type WorkflowTaskRecord,
 } from "./taskRuntime";
 import { projectDashboardActiveTasks } from "./dashboardActiveTasks";
-import { mapAcpSkillRunSummaryToWorkflowTask } from "./acpSkillRunTaskProjection";
-import { buildSkillRunnerManagementUiUrl } from "./skillRunnerManagementDialog";
+import { mapAcpSkillRunSummaryToWorkflowTask } from "./acp/skillRun/acpSkillRunTaskProjection";
+import { buildSkillRunnerManagementUiUrl } from "./skillRunner/surface/skillRunnerManagementDialog";
 import { readRuntimeTextFileStrict } from "./runtimePersistence";
 import {
   isAcpRuntimeReplayProfilerAvailable,
@@ -56,26 +56,26 @@ const SYNTHESIS_SIDECAR_DIAGNOSTICS_AVAILABLE =
 import { refreshSkillRunnerModelCacheForBackend } from "../providers/skillrunner/modelCache";
 import { config, version } from "../../package.json";
 import { resolveAddonRef } from "../utils/runtimeBridge";
-import { buildSkillRunnerManagementClient } from "./skillRunnerManagementClientFactory";
+import { buildSkillRunnerManagementClient } from "./skillRunner/connection/skillRunnerManagementClientFactory";
 import { isSkillRunnerRunTerminalClientError } from "../providers/skillrunner/errors";
 import {
   resolveSkillRunnerManagementResponseSemantic,
   settleSkillRunnerRunAsFailed,
-} from "./skillRunnerRunSettlement";
+} from "./skillRunner/run/skillRunnerRunSettlement";
 import { joinPath } from "../utils/path";
 import {
   buildWorkflowSettingsUiDescriptor,
   getWorkflowSettingsRevision,
   rebaseWorkflowProviderOptionsForBackendChange,
   updateWorkflowSettings,
-} from "./workflowSettings";
-import { triggerWorkflowFromUnifiedEntry } from "./workflowMenu";
+} from "./workflow/settings/workflowSettings";
+import { triggerWorkflowFromUnifiedEntry } from "./workflow/ui/workflowMenu";
 import { canWorkflowRunWithoutSelection } from "../workflows/triggerPolicy";
-import type { WorkflowExecutionOptions } from "./workflowSettingsDomain";
+import type { WorkflowExecutionOptions } from "./workflow/settings/workflowSettingsDomain";
 import {
   isWorkflowSettingsStructuralRefreshChange,
   normalizeWorkflowSettingsDraftChangeOrigin,
-} from "./workflowSettingsDialogModel";
+} from "./workflow/settings/workflowSettingsDialogModel";
 import {
   compareWorkflowDisplayOrder,
   isCoreWorkflow,
@@ -85,18 +85,18 @@ import {
   isTerminal,
   isWaiting,
   normalizeStatus,
-} from "./skillRunnerProviderStateMachine";
+} from "./skillRunner/run/skillRunnerProviderStateMachine";
 import {
   isSkillRunnerBackendAvailable,
   subscribeSkillRunnerBackendHealth,
-} from "./skillRunnerBackendHealthRegistry";
-import { stopSessionSync } from "./skillRunnerSessionSyncManager";
-import { getVisibleLoadedWorkflowEntries } from "./workflowVisibility";
+} from "./skillRunner/connection/skillRunnerBackendHealthRegistry";
+import { stopSessionSync } from "./skillRunner/run/skillRunnerSessionSyncManager";
+import { getVisibleLoadedWorkflowEntries } from "./workflow/catalog/workflowVisibility";
 import {
   listAcpSkillRunSummaries,
   subscribeAcpSkillRunWorkspaceChanges,
-} from "./acpSkillRunStore";
-import { openAssistantWorkspaceSidebar } from "./assistantWorkspaceSidebar";
+} from "./acp/skillRun/acpSkillRunStore";
+import { openAssistantWorkspaceSidebar } from "./assistant/workspace/assistantWorkspaceSidebar";
 import {
   getWorkflowProduct,
   getWorkflowProductMigrationStatus,
@@ -108,15 +108,15 @@ import {
   exportSkillRunFeedbackMarkdownFile,
   SKILL_RUN_FEEDBACK_ASSET_ID,
   WORKFLOW_PRODUCT_KIND_SKILL_RUN_FEEDBACK,
-} from "./workflowProductStore";
+} from "./workflow/catalog/workflowProductStore";
 import { openFolderInSystemFileManager } from "../utils/fileSystem";
 import { openRuntimeFilePicker } from "../platform/filePicker";
 import {
   recordBackgroundRefreshRead,
   registerBackgroundRefreshTimer,
 } from "./backgroundRefreshGovernance";
-import { cancelAcpSkillRun } from "./acpSkillRunActions";
-import { selectAcpSkillRun } from "./acpSkillRunWorkspaceSelection";
+import { cancelAcpSkillRun } from "./acp/skillRun/acpSkillRunActions";
+import { selectAcpSkillRun } from "./acp/skillRun/acpSkillRunWorkspaceSelection";
 import {
   type DashboardActionEnvelope,
   type DashboardHostMessage,
@@ -2373,7 +2373,7 @@ async function buildDashboardSnapshot(args: {
     resolvedSelectedTabKey === "synthesis-sidecar"
   ) {
     const { readSynthesisSidecarTraceSnapshot } =
-      await import("./synthesisSidecarTrace");
+      await import("./synthesis/sidecar/synthesisSidecarTrace");
     snapshot.synthesisSidecarView = {
       traceSnapshot: readSynthesisSidecarTraceSnapshot(),
     };
@@ -2493,7 +2493,7 @@ async function buildDashboardSnapshot(args: {
       limit: 300,
     });
     const { getVisibleLoadedWorkflowEntries } =
-      await import("./workflowVisibility");
+      await import("./workflow/catalog/workflowVisibility");
     const loadedWorkflows = getVisibleLoadedWorkflowEntries();
 
     const mappedBackends = logSummary.facets.backendIds.sort().map((bId) => {
@@ -2547,7 +2547,7 @@ async function buildDashboardSnapshot(args: {
     resolvedSelectedTabKey === "skillrunner-connection-audit"
   ) {
     const { getSkillRunnerConnectionGovernorSnapshot } =
-      await import("./skillRunnerConnectionAudit");
+      await import("./skillRunner/connection/skillRunnerConnectionAudit");
     snapshot.skillRunnerConnectionAuditView = {
       generatedAt: new Date().toISOString(),
       governor: getSkillRunnerConnectionGovernorSnapshot(),
@@ -2566,12 +2566,12 @@ async function buildDashboardSnapshot(args: {
       acpTraceRecorderEnabled
     ) {
       const { getAcpRuntimeSemanticTraceRecorderView } =
-        await import("./acpRuntimeSemanticTraceRecorder");
+        await import("./acp/diagnostics/acpRuntimeSemanticTraceRecorder");
       snapshot.acpTraceRecorderView = getAcpRuntimeSemanticTraceRecorderView();
     }
     if (__acp_runtime_replay_profiler_enabled__ && acpReplayProfilerEnabled) {
       const { getAcpRuntimeReplayControllerView } =
-        await import("./acpRuntimeReplayController");
+        await import("./acp/diagnostics/acpRuntimeReplayController");
       snapshot.acpReplayProfilerView = getAcpRuntimeReplayControllerView();
     }
     return finalizeDashboardSnapshot(snapshot);
@@ -3496,7 +3496,8 @@ export async function openTaskManagerDialog(args?: {
       action.startsWith("acp-trace-recorder-")
     ) {
       try {
-        const recorder = await import("./acpRuntimeSemanticTraceRecorder");
+        const recorder =
+          await import("./acp/diagnostics/acpRuntimeSemanticTraceRecorder");
         if (action === "acp-trace-recorder-start") {
           await recorder.armAcpRuntimeSemanticTraceRecorder({
             sourceKind:
@@ -3518,7 +3519,8 @@ export async function openTaskManagerDialog(args?: {
         } else if (action === "acp-trace-recorder-save") {
           const saved = await recorder.saveFrozenAcpRuntimeSemanticTrace();
           if (__acp_runtime_replay_profiler_enabled__) {
-            const replay = await import("./acpRuntimeReplayController");
+            const replay =
+              await import("./acp/diagnostics/acpRuntimeReplayController");
             await replay.preflightAcpRuntimeReplayTrace({
               tracePath: saved.path,
             });
@@ -3546,7 +3548,8 @@ export async function openTaskManagerDialog(args?: {
         action.startsWith("acp-replay-trace-"))
     ) {
       try {
-        const replay = await import("./acpRuntimeReplayController");
+        const replay =
+          await import("./acp/diagnostics/acpRuntimeReplayController");
         if (action === "acp-replay-trace-browse") {
           replay.setAcpRuntimeReplayDraft({
             phase: String(payload.phase || ""),
@@ -4850,7 +4853,7 @@ export async function openTaskManagerDialog(args?: {
       }
     });
     if (SYNTHESIS_SIDECAR_DIAGNOSTICS_AVAILABLE) {
-      void import("./synthesisSidecarTrace").then(
+      void import("./synthesis/sidecar/synthesisSidecarTrace").then(
         ({ subscribeSynthesisSidecarTracePatches }) => {
           unsubscribeSynthesisDiagnostics =
             subscribeSynthesisSidecarTracePatches(() => {

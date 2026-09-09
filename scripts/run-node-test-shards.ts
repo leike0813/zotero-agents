@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 import {
   resolveSynthesisNativeStage1Suite,
   SYNTHESIS_NATIVE_STAGE1_SUITE_ID,
-} from "./synthesis-native-stage1-suite";
+} from "./synthesis/synthesis-native-stage1-suite";
 
 type ShardId =
   | "core-acp-session-manager"
@@ -42,22 +42,22 @@ type ShardRunResult = {
 };
 
 const PROJECT_ROOT = process.cwd();
-const TEST_SETUP_FILE = "test/setup/zotero-mock.ts";
-const COMMON_SETUP_FILES = ["test/00-domain-filter.test.ts"];
+const TEST_SETUP_FILE = "tests/setup/zotero-mock.ts";
+const COMMON_SETUP_FILES = ["tests/00-domain-filter.test.ts"];
 const CORE_SETUP_FILES = [
   ...COMMON_SETUP_FILES,
-  "test/core/00-mocha-grep-setup.test.ts",
-  "test/core/00-zotero-diagnostic-setup.test.ts",
+  "tests/core/00-mocha-grep-setup.test.ts",
+  "tests/core/00-zotero-diagnostic-setup.test.ts",
 ];
 const UI_SETUP_FILES = [
   ...COMMON_SETUP_FILES,
-  "test/ui/00-mocha-grep-setup.test.ts",
-  "test/ui/00-zotero-diagnostic-setup.test.ts",
+  "tests/ui/00-mocha-grep-setup.test.ts",
+  "tests/ui/00-zotero-diagnostic-setup.test.ts",
 ];
 const WORKFLOW_SETUP_FILES = [
   ...COMMON_SETUP_FILES,
-  "test/workflow-setup/00-mocha-grep-setup.test.ts",
-  "test/workflow-setup/00-zotero-diagnostic-setup.test.ts",
+  "tests/workflow-setup/00-mocha-grep-setup.test.ts",
+  "tests/workflow-setup/00-zotero-diagnostic-setup.test.ts",
 ];
 const ALL_SHARED_SETUP_FILES = new Set([
   ...COMMON_SETUP_FILES,
@@ -72,25 +72,25 @@ const SHARDS: ShardDefinition[] = [
     label: "ACP Session Manager",
     setupFiles: CORE_SETUP_FILES,
     select: (filePath) =>
-      filePath === "test/core/96-acp-conversation-store.test.ts" ||
-      /^test\/core\/96-acp-session-manager-[^/]+\.test\.ts$/.test(filePath),
+      filePath === "tests/core/96-acp-conversation-store.test.ts" ||
+      /^tests\/core\/96-acp-session-manager-[^/]+\.test\.ts$/.test(filePath),
   },
   {
     id: "core-acp-skillrunner",
     label: "ACP SkillRunner-compatible runner",
     setupFiles: CORE_SETUP_FILES,
     select: (filePath) =>
-      filePath === "test/core/107-acp-skillrunner-compatible-runner.test.ts",
+      filePath === "tests/core/107-acp-skillrunner-compatible-runner.test.ts",
   },
   {
     id: "core-acp-other",
     label: "Other ACP core tests",
     setupFiles: CORE_SETUP_FILES,
     select: (filePath) =>
-      filePath.startsWith("test/core/") &&
+      filePath.startsWith("tests/core/") &&
       filePath.endsWith(".test.ts") &&
       !isCoreAcpSessionManagerFile(filePath) &&
-      filePath !== "test/core/107-acp-skillrunner-compatible-runner.test.ts" &&
+      filePath !== "tests/core/107-acp-skillrunner-compatible-runner.test.ts" &&
       path.basename(filePath).toLowerCase().includes("acp"),
   },
   {
@@ -98,7 +98,7 @@ const SHARDS: ShardDefinition[] = [
     label: "Synthesis core tests",
     setupFiles: CORE_SETUP_FILES,
     select: (filePath) =>
-      filePath.startsWith("test/core/") &&
+      filePath.startsWith("tests/core/") &&
       filePath.endsWith(".test.ts") &&
       /(?:^|[-_])(synthesis|topic-synthesis)(?:[-_]|\.|$)/i.test(
         path.basename(filePath),
@@ -109,28 +109,29 @@ const SHARDS: ShardDefinition[] = [
     label: "Remaining core tests",
     setupFiles: CORE_SETUP_FILES,
     select: (filePath) =>
-      filePath.startsWith("test/core/") && filePath.endsWith(".test.ts"),
+      filePath.startsWith("tests/core/") && filePath.endsWith(".test.ts"),
   },
   {
     id: "node-core",
     label: "Node core tests",
     setupFiles: COMMON_SETUP_FILES,
     select: (filePath) =>
-      filePath.startsWith("test/node/core/") && filePath.endsWith(".test.ts"),
+      filePath.startsWith("tests/node/core/") && filePath.endsWith(".test.ts"),
   },
   {
     id: "ui",
     label: "UI tests",
     setupFiles: UI_SETUP_FILES,
     select: (filePath) =>
-      filePath.startsWith("test/ui/") && filePath.endsWith(".test.ts"),
+      filePath.startsWith("tests/ui/") && filePath.endsWith(".test.ts"),
   },
   {
     id: "workflow",
     label: "Workflow tests",
     setupFiles: WORKFLOW_SETUP_FILES,
     select: (filePath) =>
-      /^test\/workflow-[^/]+\//.test(filePath) && filePath.endsWith(".test.ts"),
+      /^tests\/workflow-[^/]+\//.test(filePath) &&
+      filePath.endsWith(".test.ts"),
   },
 ];
 
@@ -140,20 +141,20 @@ function normalizeTestPath(filePath: string) {
 
 function isCoreAcpSessionManagerFile(filePath: string) {
   return (
-    filePath === "test/core/96-acp-conversation-store.test.ts" ||
-    /^test\/core\/96-acp-session-manager-[^/]+\.test\.ts$/.test(filePath)
+    filePath === "tests/core/96-acp-conversation-store.test.ts" ||
+    /^tests\/core\/96-acp-session-manager-[^/]+\.test\.ts$/.test(filePath)
   );
 }
 
-async function collectTestFiles(dir = "test"): Promise<string[]> {
+async function collectTestFiles(dir = "tests"): Promise<string[]> {
   const absoluteDir = path.join(PROJECT_ROOT, dir);
   const entries = await readdir(absoluteDir, { withFileTypes: true });
   const files: string[] = [];
   for (const entry of entries) {
     const relativePath = normalizeTestPath(path.join(dir, entry.name));
     if (
-      relativePath === "test/zotero" ||
-      relativePath.startsWith("test/zotero/")
+      relativePath === "tests/zotero" ||
+      relativePath.startsWith("tests/zotero/")
     ) {
       continue;
     }

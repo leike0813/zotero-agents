@@ -28,7 +28,7 @@ jobs:
 
       - name: Restore exact Host Bridge CLI prebuild set
         run: |
-          aggregate="$(jq -r .binaryAggregateSha256 cli/zotero-bridge/release.json)"
+          aggregate="$(jq -r .binaryAggregateSha256 releases/host-bridge/cli-release.json)"
           npm run sync:host-bridge-cli-prebuilds -- \
             --aggregate="$aggregate" \
             --branch="${HOST_BRIDGE_CLI_PREBUILD_BRANCH}"
@@ -78,9 +78,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          release_id="$(jq -r .releaseSetId host-bridge/release-set.json)"
-          test "$(jq -r .status host-bridge/latest-complete-release-receipt.json)" = "complete"
-          test "$(jq -r .releaseSetId host-bridge/latest-complete-release-receipt.json)" = "$release_id"
+          release_id="$(jq -r .releaseSetId releases/host-bridge/release-set.json)"
+          test "$(jq -r .status releases/host-bridge/latest-complete-release-receipt.json)" = "complete"
+          test "$(jq -r .releaseSetId releases/host-bridge/latest-complete-release-receipt.json)" = "$release_id"
 
       - name: Run release gate
         run: npm run test:gate:release
@@ -98,7 +98,7 @@ jobs:
         run: npm run check:synthesis-sidecar-runtime-xpi
 
       - name: Verify packaged Host Bridge assets
-        run: npx tsx scripts/check-plugin-host-bridge-assets.ts .scaffold/build/zotero-skills.xpi
+        run: npx tsx scripts/host-bridge/check-plugin-host-bridge-assets.ts .scaffold/build/zotero-skills.xpi
 
       - name: Release plugin
         run: npm run release

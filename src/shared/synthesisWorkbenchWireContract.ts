@@ -1,7 +1,7 @@
 /**
  * Synthesis Workbench wire contract — single source of truth for the
  * postMessage envelopes exchanged between the synthesis workbench page and
- * the Zotero host (src/modules/synthesisWorkbenchTab.ts), plus the
+ * the Zotero host (src/modules/synthesis/workbench/synthesisWorkbenchTab.ts), plus the
  * standalone export envelopes the host injects as window globals.
  *
  * Imported both by the host-side modules (src/modules/**) and by the

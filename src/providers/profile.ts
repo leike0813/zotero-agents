@@ -15,7 +15,7 @@ import {
   hasAcpProviderScopedModelOptions,
   parseAcpProviderModelId,
   resolveAcpDisplayModelIdForProviderSelection,
-} from "../modules/acpModelOptionFolding";
+} from "../modules/acp/chat/acpModelOptionFolding";
 
 export const PROVIDER_PROFILE_SCHEMA = "zotero-bridge.provider-profile.v1";
 export const PROVIDER_PROFILE_DESCRIPTOR_SCHEMA =

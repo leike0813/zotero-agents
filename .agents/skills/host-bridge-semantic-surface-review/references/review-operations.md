@@ -2,7 +2,7 @@
 
 ## Composition and ownership
 
-`host-bridge/surfaces.json` is the source of truth for the three surfaces. Resolve it with `scripts/host-bridge-surface-model.ts` before reviewing ownership, inherited Skills, mounts, source roots, generated roots, or surface patch versions.
+`contracts/host-bridge/surfaces.json` is the source of truth for the three surfaces. Resolve it with `scripts/host-bridge/host-bridge-surface-model.ts` before reviewing ownership, inherited Skills, mounts, source roots, generated roots, or surface patch versions.
 
 | Layer | Surface | Owns | Does not own |
 | --- | --- | --- | --- |
@@ -12,11 +12,11 @@
 
 ## Contracts and sources
 
-Review behavior changes in Host Bridge modules, the executable capability and CLI command contracts, CLI command implementations, `schemas/host-bridge.agent-surface.v6.schema.json`, the Rust runtime-derived v6 Agent Surface descriptor, workflow declarations, and relevant OpenSpec specifications.
+Review behavior changes in Host Bridge modules, the executable capability and CLI command contracts, CLI command implementations, `contracts/host-bridge/schemas/host-bridge.agent-surface.v6.schema.json`, the Rust runtime-derived v6 Agent Surface descriptor, workflow declarations, and relevant OpenSpec specifications.
 
-Review composition and rendering changes in `host-bridge/surfaces.json`, `scripts/host-bridge-surface-model.ts`, `scripts/render-host-bridge-surfaces.ts`, `scripts/host-bridge-workflow-catalog.ts`, `scripts/materialize-host-bridge-surfaces.ts`, `scripts/check-host-bridge-skill-packages.ts`, release-set scripts and schemas, and the Host Bridge release workflow. Review catalog/runtime parity in `src/workflows/manifestContract.ts`, the runtime workflow-control projection, and the official manifests under `workflows_builtin/`.
+Review composition and rendering changes in `contracts/host-bridge/surfaces.json`, `scripts/host-bridge/host-bridge-surface-model.ts`, `scripts/host-bridge/render-host-bridge-surfaces.ts`, `scripts/host-bridge/host-bridge-workflow-catalog.ts`, `scripts/host-bridge/materialize-host-bridge-surfaces.ts`, `scripts/host-bridge/check-host-bridge-skill-packages.ts`, release-set scripts and schemas, and the Host Bridge release workflow. Review catalog/runtime parity in `src/workflows/manifestContract.ts`, the runtime workflow-control projection, and the official manifests under `workflows_builtin/`.
 
-`cli/zotero-bridge/release.json` supplies the CLI identity. Surface versions use its major.minor line plus each surface's `patch` in the manifest; exact component and payload digests distinguish the corresponding bytes.
+`releases/host-bridge/cli-release.json` supplies the CLI identity. Surface versions use its major.minor line plus each surface's `patch` in the manifest; exact component and payload digests distinguish the corresponding bytes.
 
 Read the manifest-resolved source roots:
 
@@ -26,7 +26,7 @@ Read the manifest-resolved source roots:
 - Generic task Skills: `zotero-library-query`, `zotero-literature-acquisition`, `zotero-literature-analysis`, `zotero-research-synthesis`, and `zotero-library-curation` beneath `skills_src/zotero-library-agent/skills/`.
 - Hermes: `profiles_src/hermes/zotero-librarian/SOUL.md`, `README.md`, `skills/zotero-librarian/SKILL.md`, its direct references, and `scripts/zotero_librarian_service.py`.
 
-Never edit generated targets as semantic sources. The unified renderer and materializer own the generated roots in the manifest, release-set envelopes, generated command references, and `doc/` outputs.
+Never edit generated targets as semantic sources. The unified renderer and materializer own the generated roots in the manifest, release-set envelopes, generated command references, and `docs/` outputs.
 
 ## Review procedure
 
@@ -49,7 +49,7 @@ For every affected package, confirm the frontmatter description states what it d
 Run the deterministic gate after source review:
 
 ```sh
-npx tsx scripts/check-host-bridge-skill-packages.ts <manifest-resolved-skill-root> [...]
+npx tsx scripts/host-bridge/check-host-bridge-skill-packages.ts <manifest-resolved-skill-root> [...]
 ```
 
 The gate checks structure, reachability, current-state wording, exact substantive prose duplication, and materialized instruction depth. A materialized `SKILL.md` shorter than 100 lines or reference shorter than 200 lines is a hard error. A materialized `SKILL.md` shorter than 200 lines or reference shorter than 350 lines is reported in the structured `host-bridge.instruction-depth-warnings.v1` advisory output. Apply these thresholds to rendered or materialized packages, not compact source templates that are expanded by a renderer. The reviewer remains responsible for semantic parity, paraphrased overlap, command-policy separation, reference depth, and evidence semantics.
@@ -57,7 +57,7 @@ The gate checks structure, reachability, current-state wording, exact substantiv
 For a governed semantic change, pin the relative thickness comparison to the declared clean baseline:
 
 ```sh
-npx tsx scripts/check-host-bridge-skill-packages.ts --baseline-ref <baseline-commit> <manifest-resolved-skill-root> [...]
+npx tsx scripts/host-bridge/check-host-bridge-skill-packages.ts --baseline-ref <baseline-commit> <manifest-resolved-skill-root> [...]
 ```
 
 The relative gate compares each materialized file's substantive instruction-line count and normalized prose character count with the same file at the baseline ref. The current file may not have fewer substantive instruction lines, and normalized prose must remain at least 95% of baseline. Every direct reference present in the baseline `SKILL.md` must remain reachable unless the approved explicit deletion inventory names that reference. Passing this mechanical gate does not authorize semantic compression, merger, reordering, or deletion.

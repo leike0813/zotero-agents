@@ -26,23 +26,23 @@ import {
   createSynthesisSidecarRpcClient,
   SynthesisSidecarRpcError,
   type SynthesisSidecarRpcConnection,
-} from "../synthesisSidecarRpcClient";
+} from "../synthesis/sidecar/synthesisSidecarRpcClient";
 import {
   SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
   synthesisProductionOperationPolicy,
   synthesisProductionTransportDeadlineMs,
-} from "../synthesisProductionRpcPolicy";
+} from "../synthesis/production/synthesisProductionRpcPolicy";
 import {
   consumeSynthesisSidecarOutputJson,
   createSynthesisSidecarContentTransferClient,
   SynthesisSidecarTransferClientError,
-} from "../synthesisSidecarTransferClient";
-import { beginSynthesisSidecarBusinessAudit } from "../synthesisSidecarBusinessAudit";
+} from "../synthesis/sidecar/synthesisSidecarTransferClient";
+import { beginSynthesisSidecarBusinessAudit } from "../synthesis/sidecar/synthesisSidecarBusinessAudit";
 import {
   createSynthesisSidecarTraceContext,
   recordSynthesisSidecarTraceEvent,
-} from "../synthesisSidecarTrace";
-import { getReadySynthesisProductionControlConnection } from "../synthesisSidecarRuntimeSupervisor";
+} from "../synthesis/sidecar/synthesisSidecarTrace";
+import { getReadySynthesisProductionControlConnection } from "../synthesis/sidecar/synthesisSidecarRuntimeSupervisor";
 import {
   createSynthesisClientFromPort,
   type SynthesisClientPort,

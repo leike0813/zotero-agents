@@ -266,7 +266,7 @@ function stageDirectSynthesisBundle() {
       "--workspace",
       "--locked",
       "--manifest-path",
-      "native/synthesis-sidecar/Cargo.toml",
+      "rust/synthesis-sidecar/Cargo.toml",
     ],
     {
       cwd: ROOT,
@@ -280,7 +280,7 @@ function stageDirectSynthesisBundle() {
       : "synthesis-sidecar";
   const rustSidecar = resolve(
     ROOT,
-    "native/synthesis-sidecar/target/debug",
+    "rust/synthesis-sidecar/target/debug",
     executable,
   );
   const output = resolve(ADDON_SOURCE_DIR, "bin", target, "synthesis-sidecar");
@@ -289,7 +289,7 @@ function stageDirectSynthesisBundle() {
     [
       "--import",
       "tsx",
-      "scripts/package-synthesis-sidecar-runtime.ts",
+      "scripts/synthesis/package-synthesis-sidecar-runtime.ts",
       `--target=${target}`,
       `--rust-sidecar=${rustSidecar}`,
       `--output=${output}`,

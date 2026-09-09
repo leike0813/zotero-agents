@@ -1,9 +1,9 @@
-import { getAcpSkillRunRecord } from "../acpSkillRunStore";
+import { getAcpSkillRunRecord } from "../acp/skillRun/acpSkillRunStore";
 import {
   buildSkillRunnerSingleRunKey,
   getSkillRunnerRunRecord,
   getSkillRunnerRunRecordByRequest,
-} from "../skillRunnerRunStore";
+} from "../skillRunner/run/skillRunnerRunStore";
 import type { WorkflowRunState } from "./contracts";
 import { getSequenceRunState } from "./sequenceStateStore";
 

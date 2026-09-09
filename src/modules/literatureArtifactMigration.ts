@@ -26,7 +26,7 @@ import {
   type LegacyMigrationCleanupPlan,
   type ManagedParentSetSemanticInput,
   type ZoteroManagedNoteLocalControl,
-} from "./zoteroManagedNotes";
+} from "./zoteroHost/zoteroManagedNotes";
 import type { ZoteroHostCapabilityBroker } from "./zoteroHostCapabilityBroker";
 import type { ZoteroHostMutationCallerScope } from "./zoteroHostMutationAuthority";
 import {

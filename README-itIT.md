@@ -608,12 +608,12 @@ npm run build        # Build di produzione
 
 | Documento | Descrizione |
 |-----------|-------------|
-| [Flusso architetturale](doc/architecture-flow.md) | Panoramica della pipeline di esecuzione (con diagramma di flusso Mermaid) |
-| [Guida per sviluppatori](doc/dev_guide.md) | Componenti principali, modello di configurazione, catena di esecuzione |
-| [Componenti flusso di lavoro](doc/components/workflows.md) | Schema manifest, hook, filtro input, semantica di esecuzione |
-| [Componenti Provider](doc/components/providers.md) | Sistema di contratti Provider, tipi di richiesta |
-| [Strategia di test](doc/testing-framework.md) | Ambiente di esecuzione doppio, modalità lite/full, cancelletto CI |
-| [Livello Synthesis](doc/synthesis-layer/README.md) | Design interno di grafo della conoscenza, grafo delle citazioni, base di conoscenza concettuale |
+| [Flusso architetturale](docs/architecture-flow.md) | Panoramica della pipeline di esecuzione (con diagramma di flusso Mermaid) |
+| [Guida per sviluppatori](docs/dev_guide.md) | Componenti principali, modello di configurazione, catena di esecuzione |
+| [Componenti flusso di lavoro](docs/components/workflows.md) | Schema manifest, hook, filtro input, semantica di esecuzione |
+| [Componenti Provider](docs/components/providers.md) | Sistema di contratti Provider, tipi di richiesta |
+| [Strategia di test](docs/testing-framework.md) | Ambiente di esecuzione doppio, modalità lite/full, cancelletto CI |
+| [Livello Synthesis](docs/synthesis-layer/README.md) | Design interno di grafo della conoscenza, grafo delle citazioni, base di conoscenza concettuale |
 
 </details>
 

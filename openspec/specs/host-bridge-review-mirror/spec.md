@@ -61,4 +61,4 @@ The formal review artifact SHALL be replaced only after all staging validation a
 
 #### Scenario: Invalid staging preserves prior review
 - **WHEN** finalization detects an invalid translation or stale source snapshot
-- **THEN** the existing `artifact/host-bridge-review/` remains byte-for-byte available
+- **THEN** the existing `artifacts/host-bridge-review/` remains byte-for-byte available

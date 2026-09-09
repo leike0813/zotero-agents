@@ -582,12 +582,12 @@ npm run build        # Produktions-Build
 
 | Dokumentation | Beschreibung |
 |------|------|
-| [Architekturablauf](doc/architecture-flow.md) | Überblick über die Ausführungspipeline (inkl. Mermaid-Flussdiagramm) |
-| [Entwicklerleitfaden](doc/dev_guide.md) | Kernkomponenten, Konfigurationsmodell, Ausführungskette |
-| [Workflow-Komponenten](doc/components/workflows.md) | Manifest-Schema, Hooks, Eingabefilterung, Ausführungssyntax |
-| [Provider-Komponenten](doc/components/providers.md) | Provider-Vertragssystem, Anfragetypen |
-| [Teststrategie](doc/testing-framework.md) | Zwei Laufzeitumgebungen, Lite/Full-Modi, CI-Schwellen |
-| [Synthesis-Schicht](doc/synthesis-layer/README.md) | Internes Design von Wissensgraph, Zitationsgraph und Konzept-Wissensbasis |
+| [Architekturablauf](docs/architecture-flow.md) | Überblick über die Ausführungspipeline (inkl. Mermaid-Flussdiagramm) |
+| [Entwicklerleitfaden](docs/dev_guide.md) | Kernkomponenten, Konfigurationsmodell, Ausführungskette |
+| [Workflow-Komponenten](docs/components/workflows.md) | Manifest-Schema, Hooks, Eingabefilterung, Ausführungssyntax |
+| [Provider-Komponenten](docs/components/providers.md) | Provider-Vertragssystem, Anfragetypen |
+| [Teststrategie](docs/testing-framework.md) | Zwei Laufzeitumgebungen, Lite/Full-Modi, CI-Schwellen |
+| [Synthesis-Schicht](docs/synthesis-layer/README.md) | Internes Design von Wissensgraph, Zitationsgraph und Konzept-Wissensbasis |
 
 </details>
 

@@ -22,7 +22,7 @@ import {
   readAcpRuntimePerformanceClockMs,
   snapshotAcpRuntimeProfiles,
   type AcpRuntimePerformanceSnapshot,
-} from "./acpRuntimePerformanceProfiler";
+} from "./acp/diagnostics/acpRuntimePerformanceProfiler";
 
 export type RuntimeLogLevel = "debug" | "info" | "warn" | "error";
 export type RuntimeLogErrorCategory =

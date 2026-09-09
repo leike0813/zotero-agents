@@ -1595,7 +1595,7 @@ export const MUTATION_PUBLIC_PREVIEW_OUTPUT_SCHEMAS_BY_OPERATION =
         required: MUTATION_PREVIEW_OUTPUT_SCHEMA.required,
       },
     ]),
-) as unknown as Record<MutationOperation, JsonSchema>;
+  ) as unknown as Record<MutationOperation, JsonSchema>;
 
 export const MUTATION_PUBLIC_EXECUTION_OUTPUT_SCHEMAS_BY_OPERATION =
   Object.fromEntries(
@@ -1616,4 +1616,4 @@ export const MUTATION_PUBLIC_EXECUTION_OUTPUT_SCHEMAS_BY_OPERATION =
         },
       ];
     }),
-) as unknown as Record<MutationOperation, JsonSchema>;
+  ) as unknown as Record<MutationOperation, JsonSchema>;

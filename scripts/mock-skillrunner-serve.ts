@@ -3,7 +3,7 @@ import { fileURLToPath } from "url";
 import {
   literatureDigestBundlePath,
   startMockSkillRunnerServer,
-} from "../test/mock-skillrunner/server";
+} from "../tests/mock-skillrunner/server";
 
 type CliOptions = {
   host: string;

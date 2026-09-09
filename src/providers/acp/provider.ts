@@ -11,7 +11,7 @@ import {
   SKILLRUNNER_SEQUENCE_REQUEST_KIND,
 } from "../../config/defaults";
 import { appendRuntimeLog } from "../../modules/runtimeLogManager";
-import { executeAcpSkillRunnerJob } from "../../modules/acpSkillRunnerOrchestrator";
+import { executeAcpSkillRunnerJob } from "../../modules/acp/skillRun/acpSkillRunnerOrchestrator";
 import {
   buildAcpFoldedModelGroups,
   hasAcpProviderScopedModelOptions,
@@ -20,9 +20,9 @@ import {
   normalizeAcpProviderModelOptionsForRuntime,
   normalizeAcpEffortId,
   resolveAcpDisplayModelIdForProviderSelection,
-} from "../../modules/acpModelOptionFolding";
+} from "../../modules/acp/chat/acpModelOptionFolding";
 import type { BackendInstance } from "../../backends/types";
-import { normalizeAcpSkillRuntimeSelection } from "../../modules/acpSessionConfigOptions";
+import { normalizeAcpSkillRuntimeSelection } from "../../modules/acp/chat/acpSessionConfigOptions";
 
 export class AcpProvider implements Provider {
   readonly id = ACP_BACKEND_TYPE;

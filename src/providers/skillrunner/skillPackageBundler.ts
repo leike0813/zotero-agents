@@ -4,7 +4,7 @@ import {
   runtimeRelativePath,
   statRuntimePath,
 } from "../../modules/runtimePersistence";
-import { scanPluginSkillRegistry } from "../../modules/pluginSkillRegistry";
+import { scanPluginSkillRegistry } from "../../modules/workflow/catalog/pluginSkillRegistry";
 import { createZipFromNamedFiles } from "./zipTransport";
 
 export type SkillRunnerSkillPackageBundle = {

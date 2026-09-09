@@ -24,7 +24,7 @@ import {
 const PROJECT_ROOT = process.cwd();
 const DEFAULT_MANIFEST = path.join(
   PROJECT_ROOT,
-  "test/zotero/compatibility-matrix.json",
+  "tests/zotero/compatibility-matrix.json",
 );
 
 type CliOptions = {

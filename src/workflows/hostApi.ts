@@ -1,4 +1,4 @@
-import { createWorkflowEditorOwner } from "../modules/workflowEditorHost";
+import { createWorkflowEditorOwner } from "../modules/workflow/ui/workflowEditorHost";
 import { createWorkflowLoggingOwner } from "../modules/runtimeLogManager";
 import { createWorkflowNotificationOwner } from "../modules/workflowExecution/feedbackSeam";
 import { createWorkflowSynthesisHostApi } from "../modules/synthesisClient/workflowHostClient";
@@ -13,7 +13,7 @@ import {
   getZoteroManagedNoteLocalControl,
   ManagedNoteOwnerError,
   type ManagedParentSetSemanticInput,
-} from "../modules/zoteroManagedNotes";
+} from "../modules/zoteroHost/zoteroManagedNotes";
 import {
   createWorkflowAddonOwner,
   createWorkflowHostCapabilityBroker,

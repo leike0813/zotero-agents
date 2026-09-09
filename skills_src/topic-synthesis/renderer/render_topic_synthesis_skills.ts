@@ -8,7 +8,7 @@ import {
   type AcpSkillSchemaKey,
   validateRunnerManifestShape,
   validateSkillSchemaAnnotations,
-} from "../../../src/modules/acpSkillSchemaAssets";
+} from "../../../src/modules/acp/skillRun/acpSkillSchemaAssets";
 
 type StageContract = {
   id: string;

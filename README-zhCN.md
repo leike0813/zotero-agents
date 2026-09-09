@@ -599,12 +599,12 @@ npm run build        # 生产构建
 
 | 文档 | 说明 |
 |------|------|
-| [架构流程](doc/architecture-flow.md) | 执行管线总览（含 Mermaid 流程图） |
-| [开发指南](doc/dev_guide.md) | 核心组件、配置模型、执行链路 |
-| [工作流组件](doc/components/workflows.md) | Manifest schema、hooks、输入筛选、执行语义 |
-| [Provider 组件](doc/components/providers.md) | Provider 契约系统、请求类型 |
-| [测试策略](doc/testing-framework.md) | 双运行环境、lite/full 模式、CI 门禁 |
-| [Synthesis 层](doc/synthesis-layer/README.md) | 知识图谱、引文图谱、概念知识库的内部设计 |
+| [架构流程](docs/architecture-flow.md) | 执行管线总览（含 Mermaid 流程图） |
+| [开发指南](docs/dev_guide.md) | 核心组件、配置模型、执行链路 |
+| [工作流组件](docs/components/workflows.md) | Manifest schema、hooks、输入筛选、执行语义 |
+| [Provider 组件](docs/components/providers.md) | Provider 契约系统、请求类型 |
+| [测试策略](docs/testing-framework.md) | 双运行环境、lite/full 模式、CI 门禁 |
+| [Synthesis 层](docs/synthesis-layer/README.md) | 知识图谱、引文图谱、概念知识库的内部设计 |
 
 </details>
 

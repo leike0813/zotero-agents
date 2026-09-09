@@ -2,7 +2,7 @@ import {
   config as packageConfig,
   version as packageVersion,
 } from "../../package.json";
-import { createWorkflowEditorOwner } from "../modules/workflowEditorHost";
+import { createWorkflowEditorOwner } from "../modules/workflow/ui/workflowEditorHost";
 import {
   createWorkflowLoggingOwner,
   type WorkflowRuntimeLogBinding,
@@ -17,8 +17,8 @@ import {
   getZoteroManagedNoteLocalControl,
   classifyManagedNoteTransfer,
   type ManagedParentSetSemanticInput,
-} from "../modules/zoteroManagedNotes";
-import { parseEmbeddedNotePayloadBlock } from "../modules/notePayloadCodec";
+} from "../modules/zoteroHost/zoteroManagedNotes";
+import { parseEmbeddedNotePayloadBlock } from "../modules/zoteroHost/notePayloadCodec";
 import { createWorkflowNotificationOwner } from "../modules/workflowExecution/feedbackSeam";
 import {
   copyRuntimeFile,
@@ -33,7 +33,7 @@ import {
   createZoteroHostPreparedFiles,
   type PreparedStoredAttachment,
   type ZoteroHostPreparedFiles,
-} from "../modules/zoteroHostPreparedFiles";
+} from "../modules/zoteroHost/zoteroHostPreparedFiles";
 import {
   resolveRuntimeAddon,
   resolveRuntimeZotero,
@@ -85,7 +85,7 @@ import {
   createResearchBundleImportEffects,
   createResearchBundleImporter,
   createCanonicalResearchBundleMaterializer,
-} from "../modules/researchBundleService";
+} from "../modules/hostBridge/workflow/researchBundleService";
 import {
   lookupTrustedStoredAttachmentMutation,
   MutationAuthorityExecutionError,

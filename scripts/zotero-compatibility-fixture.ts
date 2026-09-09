@@ -973,7 +973,7 @@ export async function cleanupRunLayoutState(
     path.join(root, "compatibility-entries"),
     path.join(root, "host"),
     path.join(root, "node_modules"),
-    path.join(root, "test"),
+    path.join(root, "tests"),
     path.join(root, "workflows_builtin"),
   ];
   for (const statePath of statePaths) {

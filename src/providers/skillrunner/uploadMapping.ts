@@ -28,7 +28,9 @@ export function buildSkillRunnerUploadRelativePath(
 }
 
 function isAbsoluteLocalPath(value: string) {
-  const normalized = String(value || "").trim().replace(/\\/g, "/");
+  const normalized = String(value || "")
+    .trim()
+    .replace(/\\/g, "/");
   return /^[A-Za-z]:\//.test(normalized) || normalized.startsWith("/");
 }
 

@@ -86,8 +86,8 @@ The project SHALL maintain a service-level design document for the Zotero MCP to
 #### Scenario: Tool contract documentation exists
 
 - **WHEN** the MCP tool suite is reviewed or changed
-- **THEN** `doc/components/zotero-mcp-service-design.md` SHALL define the current tool names, purposes, input signatures, structured result contracts, text disclosure rules, and failure guidance
-- **AND** `doc/components/zotero-host-capability-broker-ssot.md` SHALL remain the architecture boundary SSOT.
+- **THEN** `docs/components/zotero-mcp-service-design.md` SHALL define the current tool names, purposes, input signatures, structured result contracts, text disclosure rules, and failure guidance
+- **AND** `docs/components/zotero-host-capability-broker-ssot.md` SHALL remain the architecture boundary SSOT.
 
 ### Requirement: Agent-facing MCP text disclosures are actionable
 

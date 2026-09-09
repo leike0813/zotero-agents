@@ -15,7 +15,7 @@ import {
   deriveWorkflowProductAssetLocalPath,
   getWorkflowProductMigrationStatus,
   listWorkflowProducts,
-} from "./workflowProductStore";
+} from "./workflow/catalog/workflowProductStore";
 
 export type PersistenceIntegrityIssueType =
   | "missing_file_for_db_row"

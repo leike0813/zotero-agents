@@ -1,6 +1,6 @@
 import { config } from "../../package.json";
 import { getStringOrFallback } from "../utils/locale";
-import { rebuildWorkflowActionPopup } from "./workflowMenu";
+import { rebuildWorkflowActionPopup } from "./workflow/ui/workflowMenu";
 import {
   installWorkspaceToolbarTaskPopover,
   uninstallWorkspaceToolbarTaskPopover,

@@ -161,7 +161,7 @@ Before replacement, synchronization validates:
 Successful synchronization replaces the seven managed platform binaries and their seven `.sha256` sidecars under `addon/bin`, then updates:
 
 ```text
-cli/zotero-bridge/release.json
+releases/host-bridge/cli-release.json
 addon/bin/zotero-bridge-release.json
 ```
 

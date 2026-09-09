@@ -2,35 +2,34 @@ import { appendRuntimeLog } from "../runtimeLogManager";
 import {
   normalizeErrorMessage,
   type WorkflowMessageFormatter,
-} from "../workflowExecuteMessage";
+} from "./workflowExecuteMessage";
 import { executeApplyResult } from "../../workflows/runtime";
 import {
   createUnavailableBundleReader,
   openRunResultBundleReader,
 } from "./bundleIO";
 import { createWorkflowResultContext } from "./resultContext";
-import {} from "../acpSkillRunStore";
-import { applySkillRunnerRunEvent } from "../skillRunnerRunStore";
+import { applySkillRunnerRunEvent } from "../skillRunner/run/skillRunnerRunStore";
 import type { WorkflowApplySummary, WorkflowRunState } from "./contracts";
 import {
   resolveTargetParentRefFromRequest,
   resolveTaskNameFromRequest,
 } from "./requestMeta";
-import { isActive } from "../skillRunnerProviderStateMachine";
+import { isActive } from "../skillRunner/run/skillRunnerProviderStateMachine";
 import {
   getSkillRunnerRequestIdFromJob,
   hasRecoverableSkillRunnerRequest,
-} from "../skillRunnerRecoverableState";
+} from "../skillRunner/run/skillRunnerRecoverableState";
 import { buildWorkflowTaskRecordFromJob } from "../taskRuntime";
 import { canWorkflowRunWithoutSelection } from "../../workflows/triggerPolicy";
-import { collectSkillRunFeedbackSidecar } from "../skillRunFeedback";
+import { collectSkillRunFeedbackSidecar } from "../skillRunner/run/skillRunFeedback";
 import { normalizeWorkflowApplyDiagnostics } from "./applyDiagnostics";
 import { sequenceTerminalStepOwnsApply } from "./sequenceRuntime";
 import { resolveWorkflowJobTerminalResolution } from "./terminalResolution";
 import {
   detachAcpSkillRunControllerAfterApplyResult,
   markAcpSkillRunApplyResult,
-} from "../acpSkillRunActions";
+} from "../acp/skillRun/acpSkillRunActions";
 
 type RunResultLike = {
   status?: string;

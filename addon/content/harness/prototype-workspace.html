@@ -3,13 +3,21 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Prototype: Assistant Workspace source switching (issue #36, functional)</title>
+    <title>
+      Prototype: Assistant Workspace source switching (issue #36, functional)
+    </title>
     <script src="../shared/theme.js"></script>
     <link rel="stylesheet" href="../shared/theme.css" />
     <link rel="stylesheet" href="../shared/icons.css?ui=20260614-icons-v1" />
     <link rel="stylesheet" href="../sidebar/assistant-workspace.css" />
-    <link rel="stylesheet" href="../shared/assistant/assistant-panel-shared.css" />
-    <link rel="stylesheet" href="../shared/assistant/assistant-workspace-acp-child.css" />
+    <link
+      rel="stylesheet"
+      href="../shared/assistant/assistant-panel-shared.css"
+    />
+    <link
+      rel="stylesheet"
+      href="../shared/assistant/assistant-workspace-acp-child.css"
+    />
     <style>
       body {
         margin: 0;
@@ -360,19 +368,25 @@
     <header class="proto-reviewbar">
       <strong>Prototype review controls — not part of the design</strong>
       <span
-        >Decided design: per-lane source <em>sub-tabs</em> (attention dots + counts), below the lane
-        switcher. Variants A/B dropped.</span
+        >Decided design: per-lane source <em>sub-tabs</em> (attention dots +
+        counts), below the lane switcher. Variants A/B dropped.</span
       >
       <a href="/content/harness/">← Harness index</a>
       <a href="./prototype-source-switching.html">Static mockup</a>
-      <span>Issue #36 · functional prototype · real harness publication data</span>
+      <span
+        >Issue #36 · functional prototype · real harness publication data</span
+      >
     </header>
 
     <main class="proto-stage">
       <div class="proto-device" aria-label="Assistant sidebar prototype">
         <div class="proto-shell" id="proto-shell">
           <header class="proto-shell-header">
-            <nav class="proto-lanes" id="proto-lanes" aria-label="Assistant workspace lanes"></nav>
+            <nav
+              class="proto-lanes"
+              id="proto-lanes"
+              aria-label="Assistant workspace lanes"
+            ></nav>
             <button
               id="assistant-workspace-close"
               class="assistant-workspace-close"
@@ -383,7 +397,12 @@
               ×
             </button>
           </header>
-          <nav class="proto-subtabs" id="proto-subtabs" role="tablist" aria-label="Source"></nav>
+          <nav
+            class="proto-subtabs"
+            id="proto-subtabs"
+            role="tablist"
+            aria-label="Source"
+          ></nav>
           <section class="proto-body">
             <div
               id="assistant-workspace-loading"
@@ -392,10 +411,19 @@
               aria-live="polite"
               aria-label="Loading assistant panel"
             >
-              <span class="assistant-workspace-loading-spinner" aria-hidden="true"></span>
+              <span
+                class="assistant-workspace-loading-spinner"
+                aria-hidden="true"
+              ></span>
             </div>
-            <div id="proto-mock-pi-conversations" class="proto-mock-pane hidden"></div>
-            <div id="proto-mock-pi-skill-runs" class="proto-mock-pane hidden"></div>
+            <div
+              id="proto-mock-pi-conversations"
+              class="proto-mock-pane hidden"
+            ></div>
+            <div
+              id="proto-mock-pi-skill-runs"
+              class="proto-mock-pane hidden"
+            ></div>
             <iframe
               id="assistant-frame-acp-chat"
               class="assistant-frame hidden"
@@ -420,10 +448,22 @@
       <aside class="proto-notes">
         <h2>Functional prototype — issue #36</h2>
         <ul>
-          <li>Two lanes; the lane switcher is the only top-level navigation.</li>
-          <li>Source sub-tabs sit under the lane switcher: attention dots + counts, styled like the shell tabs.</li>
-          <li>External Agent / SkillRunner sub-tabs render the real child panels on real harness data.</li>
-          <li>Zotero Agent sub-tabs render DOM-level replicas of the real panels (same classes, same production stylesheets), marked with a small "preview" tag; their buttons only toast.</li>
+          <li>
+            Two lanes; the lane switcher is the only top-level navigation.
+          </li>
+          <li>
+            Source sub-tabs sit under the lane switcher: attention dots +
+            counts, styled like the shell tabs.
+          </li>
+          <li>
+            External Agent / SkillRunner sub-tabs render the real child panels
+            on real harness data.
+          </li>
+          <li>
+            Zotero Agent sub-tabs render DOM-level replicas of the real panels
+            (same classes, same production stylesheets), marked with a small
+            "preview" tag; their buttons only toast.
+          </li>
           <li>Keyboard: Tab / ←→ / ↑↓ / Enter / Esc.</li>
         </ul>
         <h2 style="margin-top: 10px">Host action log</h2>

@@ -582,12 +582,12 @@ npm run build        # 本番ビルド
 
 | ドキュメント | 説明 |
 |------|------|
-| [アーキテクチャフロー](doc/architecture-flow.md) | 実行パイプラインの概要（Mermaid フロー図付き） |
-| [開発ガイド](doc/dev_guide.md) | コアコンポーネント、設定モデル、実行チェーン |
-| [ワークフローコンポーネント](doc/components/workflows.md) | マニフェストスキーマ、フック、入力フィルタリング、実行セマンティクス |
-| [プロバイダーコンポーネント](doc/components/providers.md) | プロバイダー契約システム、リクエストタイプ |
-| [テスト戦略](doc/testing-framework.md) | 二つの実行環境、lite/full モード、CI ゲート |
-| [Synthesis レイヤー](doc/synthesis-layer/README.md) | ナレッジグラフ、引用グラフ、概念ナレッジベースの内部設計 |
+| [アーキテクチャフロー](docs/architecture-flow.md) | 実行パイプラインの概要（Mermaid フロー図付き） |
+| [開発ガイド](docs/dev_guide.md) | コアコンポーネント、設定モデル、実行チェーン |
+| [ワークフローコンポーネント](docs/components/workflows.md) | マニフェストスキーマ、フック、入力フィルタリング、実行セマンティクス |
+| [プロバイダーコンポーネント](docs/components/providers.md) | プロバイダー契約システム、リクエストタイプ |
+| [テスト戦略](docs/testing-framework.md) | 二つの実行環境、lite/full モード、CI ゲート |
+| [Synthesis レイヤー](docs/synthesis-layer/README.md) | ナレッジグラフ、引用グラフ、概念ナレッジベースの内部設計 |
 
 </details>
 

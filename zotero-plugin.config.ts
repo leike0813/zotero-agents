@@ -1,7 +1,7 @@
 import { defineConfig } from "zotero-plugin-scaffold";
 import path from "node:path";
 import pkg from "./package.json";
-import { assertPluginHostBridgeAssets } from "./scripts/check-plugin-host-bridge-assets";
+import { assertPluginHostBridgeAssets } from "./scripts/host-bridge/check-plugin-host-bridge-assets";
 import { patchGeneratedZoteroTestRunner } from "./scripts/patch-zotero-test-runner";
 import {
   dashboardSynthesisSidecarRegionElisionPlugin,
@@ -32,14 +32,14 @@ export function shouldUseHeadlessZoteroTest(
 
 const ZOTERO_TEST_ENTRIES = {
   lite: {
-    core: "test/zotero/core/lite",
-    ui: "test/zotero/ui/lite",
-    workflow: "test/zotero/workflow/lite",
+    core: "tests/zotero/core/lite",
+    ui: "tests/zotero/ui/lite",
+    workflow: "tests/zotero/workflow/lite",
   },
   full: {
-    core: "test/zotero/core/full",
-    ui: "test/zotero/ui/full",
-    workflow: "test/zotero/workflow/full",
+    core: "tests/zotero/core/full",
+    ui: "tests/zotero/ui/full",
+    workflow: "tests/zotero/workflow/full",
   },
 } as const;
 
@@ -132,15 +132,17 @@ export default defineConfig({
         assertPluginHostBridgeAssets({
           xpiPath: path.join(ctx.dist, `${ctx.xpiName}.xpi`),
           hostBridgeReleasePath: path.join(
-            "cli",
-            "zotero-bridge",
-            "release.json",
+            "releases",
+            "host-bridge",
+            "cli-release.json",
           ),
         });
       },
     },
     assets: [
       "addon/**/*.*",
+      "!addon/content/harness/prototype-*.html",
+      "!addon/content/harness/prototype-*.bundle.js",
       "addon/bin/**/*",
       "addon/bin/**/zotero-bridge",
       "addon/bin/**/synthesis-sidecar/**/*",

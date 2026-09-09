@@ -5,7 +5,7 @@ import type {
 import { executeApplyResult } from "../../workflows/runtime";
 import type { ProviderExecutionResult } from "../../providers/contracts";
 import { appendRuntimeLog } from "../runtimeLogManager";
-import { collectSkillRunFeedbackSidecar } from "../skillRunFeedback";
+import { collectSkillRunFeedbackSidecar } from "../skillRunner/run/skillRunFeedback";
 import { openRunResultBundleReader } from "./bundleIO";
 import { createWorkflowResultContext } from "./resultContext";
 

@@ -8,7 +8,7 @@ import type {
   WorkflowEditorOpenArgs,
   WorkflowEditorOpenResult,
   WorkflowEditorRenderer,
-} from "./modules/workflowEditorHost";
+} from "./modules/workflow/ui/workflowEditorHost";
 
 class Addon {
   public data: {

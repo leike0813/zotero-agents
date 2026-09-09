@@ -201,13 +201,13 @@ export type WorkflowClipboardOwner = Readonly<{
 export type WorkflowEditorOwner = Readonly<{
   openSession(
     input: Omit<
-      import("../modules/workflowEditorHost").WorkflowEditorOpenArgs,
+      import("../modules/workflow/ui/workflowEditorHost").WorkflowEditorOpenArgs,
       "rendererId" | "renderer"
     > & {
-      renderer: import("../modules/workflowEditorHost").WorkflowEditorRenderer;
+      renderer: import("../modules/workflow/ui/workflowEditorHost").WorkflowEditorRenderer;
     },
   ): ReturnType<
-    typeof import("../modules/workflowEditorHost").openWorkflowEditorSession
+    typeof import("../modules/workflow/ui/workflowEditorHost").openWorkflowEditorSession
   >;
 }>;
 
@@ -1812,7 +1812,7 @@ export type WorkflowHostLiveReadAdapters = {
 };
 
 import type { WorkflowResultContext } from "../modules/workflowExecution/resultContext";
-import type { ProductStorageApi } from "../modules/workflowProductStore";
+import type { ProductStorageApi } from "../modules/workflow/catalog/workflowProductStore";
 import type {
   SynthesisJsonObject,
   SynthesisJsonValue,
@@ -2291,19 +2291,19 @@ export type WorkflowEditorSessionRequest<
   TContext extends JsonValue,
   _TResult extends JsonValue,
 > = Omit<
-  import("../modules/workflowEditorHost").WorkflowEditorOpenArgs<
+  import("../modules/workflow/ui/workflowEditorHost").WorkflowEditorOpenArgs<
     TState,
     TContext
   >,
   "rendererId" | "renderer"
 > & {
-  renderer: import("../modules/workflowEditorHost").WorkflowEditorRenderer<
+  renderer: import("../modules/workflow/ui/workflowEditorHost").WorkflowEditorRenderer<
     TState,
     TContext
   >;
 };
 export type WorkflowEditorSessionResult<TResult extends JsonValue> = Omit<
-  import("../modules/workflowEditorHost").WorkflowEditorOpenResult,
+  import("../modules/workflow/ui/workflowEditorHost").WorkflowEditorOpenResult,
   "result"
 > & { result?: TResult };
 

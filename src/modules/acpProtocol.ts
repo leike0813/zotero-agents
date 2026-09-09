@@ -1,4 +1,4 @@
-import type { AcpPermissionOptionKind } from "./acpPermissionOptions";
+import type { AcpPermissionOptionKind } from "./acp/transport/acpPermissionOptions";
 
 export const ACP_PROTOCOL_VERSION = 1;
 

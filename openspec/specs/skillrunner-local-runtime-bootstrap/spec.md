@@ -14,8 +14,8 @@ TBD - created by archiving change add-skillrunner-oneclick-local-deploy. Update 
 
 #### Scenario: Reference directory is not executable runtime dependency
 - **WHEN** 插件执行本地一键部署
-- **THEN** 插件 MUST NOT 调用 `reference/Skill-Runner/scripts/*` 作为执行入口
-- **AND** `reference/Skill-Runner` 仅作为文档与参考源码
+- **THEN** 插件 MUST NOT 调用 `references/Skill-Runner/scripts/*` 作为执行入口
+- **AND** `references/Skill-Runner` 仅作为文档与参考源码
 
 #### Scenario: Deploy requires bootstrap report contract
 - **WHEN** `ctl bootstrap` 成功但响应缺失 `details.bootstrap_report_file`，或该路径文件不存在/不可解析

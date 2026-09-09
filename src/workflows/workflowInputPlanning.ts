@@ -11,7 +11,7 @@ import { resolveWorkflowDisplayLocale } from "./localization";
 import {
   evaluateGeneratedNoteFactsReadiness,
   type LibraryArtifactGeneratedNoteFacts,
-} from "../modules/libraryArtifactReadiness";
+} from "../modules/zoteroHost/libraryArtifactReadiness";
 import type {
   LoadedWorkflow,
   WorkflowInputMemberKind,

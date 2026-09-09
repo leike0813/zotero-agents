@@ -9,17 +9,17 @@ import {
   ZoteroNotePayloadResourceLimitError,
   type ZoteroNotePayloadBlock,
   type ZoteroNotePayloadDetail,
-} from "./notePayloadCodec";
+} from "./zoteroHost/notePayloadCodec";
 import {
   listNotePayloadBlocksForItemPage,
   ZoteroNotePayloadCursorError,
   ZoteroNotePayloadPageLimitError,
-} from "./zoteroNotePayloadResolver";
+} from "./zoteroHost/zoteroNotePayloadResolver";
 import {
   resolveLibraryArtifactReadiness,
   type LibraryArtifactItem,
   type LibraryArtifactReadOptions,
-} from "./libraryArtifactReadiness";
+} from "./zoteroHost/libraryArtifactReadiness";
 import {
   queryZoteroLibraryPage,
   queryZoteroAnnotationPage,
@@ -30,7 +30,7 @@ import {
   ZoteroLibraryCursorError,
   ZoteroLibraryPageLimitError,
   ZoteroLibrarySourceQueryError,
-} from "./zoteroLibraryPageQuery";
+} from "./zoteroHost/zoteroLibraryPageQuery";
 import { createSha256Accumulator, sha256Hex } from "../utils/sha256";
 import { yieldToEventLoop } from "../utils/runtimeCompatibility";
 import type {
@@ -165,7 +165,7 @@ import {
   type LegacyMigrationCleanupPlan,
   ManagedNoteOwnerError,
   type ManagedParentSetSemanticInput,
-} from "./zoteroManagedNotes";
+} from "./zoteroHost/zoteroManagedNotes";
 import {
   getBuiltinStatusPolicy,
   getBuiltinStatusTag,
@@ -211,8 +211,8 @@ import {
   type PreparedStoredAttachment,
   type ResolvedPreparedStoredAttachment,
   type ZoteroHostPreparedFiles,
-} from "./zoteroHostPreparedFiles";
-export type { PreparedStoredAttachment } from "./zoteroHostPreparedFiles";
+} from "./zoteroHost/zoteroHostPreparedFiles";
+export type { PreparedStoredAttachment } from "./zoteroHost/zoteroHostPreparedFiles";
 import {
   copyRuntimeFile,
   ensureRuntimeDirectory,
@@ -231,13 +231,13 @@ import { joinPath } from "../utils/path";
 import {
   nativeMutations,
   type StoredAttachmentMetadata,
-} from "./zoteroHostNativeMutations";
-import { brokerMutationPrimitives } from "./zoteroHostBrokerPrimitives";
+} from "./zoteroHost/zoteroHostNativeMutations";
+import { brokerMutationPrimitives } from "./zoteroHost/zoteroHostBrokerPrimitives";
 import {
   executeHostTrashMutation,
   prepareHostTrashMutation,
   type PreparedHostTrashMutation,
-} from "./zoteroHostTrash";
+} from "./zoteroHost/zoteroHostTrash";
 import { createWorkflowBibliographyOwner } from "../workflows/bibliography";
 
 type ZoteroHostNoteMutationCallerScope = ZoteroHostMutationCallerScope &

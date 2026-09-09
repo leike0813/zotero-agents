@@ -1,4 +1,97 @@
-import { MANAGED_LOCAL_BACKEND_ID } from "../modules/skillRunnerLocalRuntimeConstants";
+import type { BackendInstance } from "./types";
+
+export const MANAGED_LOCAL_BACKEND_ID = "local-skillrunner-backend";
+
+export function normalizeManagedLocalBackendId(value: unknown) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return "";
+  return normalized === MANAGED_LOCAL_BACKEND_ID
+    ? MANAGED_LOCAL_BACKEND_ID
+    : normalized;
+}
+
+function normalizeString(value: unknown) {
+  return String(value || "").trim();
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function fnv1a32(input: string) {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
+}
+
+export function computeAcpBackendConfigFingerprint(backend: BackendInstance) {
+  const normalizeArray = (value: unknown) =>
+    Array.isArray(value)
+      ? value.map((entry) => normalizeString(entry)).filter(Boolean)
+      : [];
+  const env =
+    backend.env &&
+    typeof backend.env === "object" &&
+    !Array.isArray(backend.env)
+      ? Object.fromEntries(
+          Object.entries(backend.env)
+            .map(([key, value]) => [
+              normalizeString(key),
+              normalizeString(value),
+            ])
+            .filter(([key, value]) => key && value),
+        )
+      : {};
+  return `acp-${fnv1a32(
+    stableJson({
+      command: normalizeString(backend.command),
+      args: normalizeArray(backend.args),
+      env,
+      agentFamily: normalizeString(backend.acp?.agentFamily),
+      skillRoots: normalizeArray(backend.acp?.skillRoots),
+    }),
+  )}`;
+}
+
+export function isAcpBackendConnectionTestPassed(backend: BackendInstance) {
+  const test = backend.acp?.connectionTest;
+  return (
+    test?.status === "passed" &&
+    normalizeString(test.configFingerprint) ===
+      computeAcpBackendConfigFingerprint(backend)
+  );
+}
+
+export function markAcpBackendConnectionState(
+  backend: BackendInstance,
+): BackendInstance {
+  const test = backend.acp?.connectionTest;
+  if (!test) return backend;
+  const fingerprint = computeAcpBackendConfigFingerprint(backend);
+  if (normalizeString(test.configFingerprint) === fingerprint) return backend;
+  return {
+    ...backend,
+    acp: {
+      ...(backend.acp || {}),
+      connectionTest: {
+        ...test,
+        status: "stale",
+        configFingerprint: normalizeString(test.configFingerprint),
+        error: "ACP backend configuration changed; rerun connection test.",
+      },
+    },
+  };
+}
 
 function normalizeToken(value: string) {
   return value

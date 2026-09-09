@@ -1,8 +1,8 @@
-import { getHostBridgeApprovalRequirement } from "./hostBridgePermissionManager";
+import { getHostBridgeApprovalRequirement } from "./hostBridge/permissions/hostBridgePermissionManager";
 import {
   executeHostBridgeCanonicalMutation,
   HOST_BRIDGE_MUTATION_CALLER_SCOPE,
-} from "./hostBridgeMutationAdapter";
+} from "./hostBridge/server/hostBridgeMutationAdapter";
 import type {
   AttachmentDetailDto,
   JsonObject,
@@ -24,7 +24,7 @@ import {
   acquireHostBridgeUploadedFileLease,
   releaseHostBridgeUploadedFileLease,
   type HostBridgeFileDescriptor,
-} from "./hostBridgeFileRegistry";
+} from "./hostBridge/server/hostBridgeFileRegistry";
 import {
   createCanonicalStoredAttachmentSource,
   createStoredAttachmentCompleteSemanticInput,
@@ -44,12 +44,12 @@ import {
   writeRuntimeBytes,
 } from "./runtimePersistence";
 import { joinPath } from "../utils/path";
-import { ZoteroLibraryCursorError } from "./zoteroLibraryPageQuery";
+import { ZoteroLibraryCursorError } from "./zoteroHost/zoteroLibraryPageQuery";
 import { createStoreZipBytes } from "./zipStore";
 import {
   chunkHostBridgeText,
   paginateHostBridgeRows,
-} from "./hostBridgePagination";
+} from "./hostBridge/server/hostBridgePagination";
 import {
   assertWorkflowProductStorageReady,
   exportWorkflowProductToDirectory,
@@ -61,7 +61,7 @@ import {
   WORKFLOW_PRODUCT_KIND_SKILL_RUN_FEEDBACK,
   type WorkflowProductAsset,
   type WorkflowProductRecord,
-} from "./workflowProductStore";
+} from "./workflow/catalog/workflowProductStore";
 import { scanPersistenceIntegrity } from "./persistenceIntegrity";
 import type {
   HostBridgeApprovalRequirement,
@@ -69,7 +69,7 @@ import type {
   HostBridgeConnectionMode,
   HostBridgeErrorCategory,
   HostBridgeStatusSnapshot,
-} from "./hostBridgeProtocol";
+} from "./hostBridge/server/hostBridgeProtocol";
 import {
   resolveZoteroHostCapabilityBroker,
   ZoteroHostCapabilityError,
@@ -101,14 +101,14 @@ import { getDefaultSynthesisClient } from "./synthesisClient/defaultClient";
 import {
   createDirectResearchBundleApplication,
   type DirectResearchBundleApplication,
-} from "./researchBundleService";
+} from "./hostBridge/workflow/researchBundleService";
 import {
   getHostBridgeCapabilityContract,
   listHostBridgeCapabilityContractEntries,
   validateHostBridgeCapabilityInput,
   validateHostBridgeCapabilityOutput,
   type HostBridgeContractViolation,
-} from "./hostBridgeCapabilityContract";
+} from "./hostBridge/server/hostBridgeCapabilityContract";
 export type HostBridgeCapabilityContext = {
   getStatus: () => HostBridgeStatusSnapshot;
   connectionMode: HostBridgeConnectionMode;
@@ -556,19 +556,35 @@ function bridgeNavigation(
     case "navigation.focus_zotero":
       return navigation.focusZotero(context.control);
     case "navigation.select_library_view":
-      return navigation.selectLibraryView(asObject(input) as any, context.control);
+      return navigation.selectLibraryView(
+        asObject(input) as any,
+        context.control,
+      );
     case "navigation.select_collection":
-      return navigation.selectCollection(asObject(input) as any, context.control);
+      return navigation.selectCollection(
+        asObject(input) as any,
+        context.control,
+      );
     case "navigation.select_saved_search":
-      return navigation.selectSavedSearch(asObject(input) as any, context.control);
+      return navigation.selectSavedSearch(
+        asObject(input) as any,
+        context.control,
+      );
     case "navigation.reveal_items":
       return navigation.revealItems(asObject(input) as any, context.control);
     case "navigation.open_item":
       return navigation.openItem(asObject(input) as any, context.control);
     case "navigation.open_reader_location":
-      return navigation.openReaderLocation(asObject(input) as any, context.control);
+      return navigation.openReaderLocation(
+        asObject(input) as any,
+        context.control,
+      );
     default:
-      throw new ZoteroHostCapabilityError("unsupported_operation", "Unknown navigation capability", { memberOrOperation: capabilityName });
+      throw new ZoteroHostCapabilityError(
+        "unsupported_operation",
+        "Unknown navigation capability",
+        { memberOrOperation: capabilityName },
+      );
   }
 }
 
@@ -752,19 +768,23 @@ async function executeMutationWithBridgeProjection(
   context: HostBridgeCapabilityContext,
 ) {
   const request = asObject(input);
-  const { dryRun = false, operationId: requestedOperationId, ...payload } = request;
+  const {
+    dryRun = false,
+    operationId: requestedOperationId,
+    ...payload
+  } = request;
   const operationId =
     typeof requestedOperationId === "string" && requestedOperationId
       ? requestedOperationId
-      : context.operationId || (dryRun ? undefined : generatedMutationOperationId());
+      : context.operationId ||
+        (dryRun ? undefined : generatedMutationOperationId());
   const canonicalInput = {
     ...payload,
     operation,
     ...(!dryRun && operationId ? { operationId } : {}),
   };
-  const storedAttachmentIngress = parseBridgeStoredAttachmentIngress(
-    canonicalInput,
-  );
+  const storedAttachmentIngress =
+    parseBridgeStoredAttachmentIngress(canonicalInput);
   if (isBridgeStoredAttachmentExecuteIngress(storedAttachmentIngress)) {
     return executeBridgeStoredAttachmentMutation(
       storedAttachmentIngress,
@@ -772,7 +792,10 @@ async function executeMutationWithBridgeProjection(
     );
   }
   if (storedAttachmentIngress && dryRun) {
-    return previewBridgeStoredAttachmentMutation(storedAttachmentIngress, context);
+    return previewBridgeStoredAttachmentMutation(
+      storedAttachmentIngress,
+      context,
+    );
   }
   if (dryRun) {
     return resolveCapabilityBroker(context).mutations.preview(
@@ -793,8 +816,12 @@ async function executeMutationWithBridgeProjection(
 }
 
 function generatedMutationOperationId() {
-  const crypto = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
-  return crypto?.randomUUID?.() || `mutation-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const crypto = (globalThis as { crypto?: { randomUUID?: () => string } })
+    .crypto;
+  return (
+    crypto?.randomUUID?.() ||
+    `mutation-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  );
 }
 
 type BridgeStoredAttachmentOperation =
@@ -1252,7 +1279,9 @@ export const CANONICAL_MUTATION_PROJECTION_NAMES = [
 export function isCanonicalMutationProjectionCapability(
   name: string,
 ): name is MutationOperation {
-  return (CANONICAL_MUTATION_PROJECTION_NAMES as readonly string[]).includes(name);
+  return (CANONICAL_MUTATION_PROJECTION_NAMES as readonly string[]).includes(
+    name,
+  );
 }
 
 function capability(
@@ -2119,7 +2148,7 @@ async function debugStatus(
   const object = asObject(input);
   const [taskRuntime, acpSkillRunStore] = await Promise.all([
     import("./taskRuntime"),
-    import("./acpSkillRunStore"),
+    import("./acp/skillRun/acpSkillRunStore"),
   ]);
   const { listActiveWorkflowTaskSummaries, listWorkflowTasks } = taskRuntime;
   const { listAcpSkillRunSummaries } = acpSkillRunStore;
@@ -2176,7 +2205,7 @@ async function debugTasksSnapshot(input: unknown) {
   const limit = debugLimit(object);
   const [taskRuntime, acpSkillRunStore] = await Promise.all([
     import("./taskRuntime"),
-    import("./acpSkillRunStore"),
+    import("./acp/skillRun/acpSkillRunStore"),
   ]);
   const { listActiveWorkflowTaskSummaries, listWorkflowTasks } = taskRuntime;
   const { listAcpSkillRunSummaries } = acpSkillRunStore;
@@ -2204,7 +2233,7 @@ async function debugSkillRunnerConnectionsSnapshot(input: unknown) {
   ) {
     const object = asObject(input);
     const { getSkillRunnerConnectionGovernorSnapshot } =
-      await import("./skillRunnerConnectionAudit");
+      await import("./skillRunner/connection/skillRunnerConnectionAudit");
     return debugEnvelope(
       "host_bridge.debug.skillrunner.connections.snapshot.v1",
       object,
@@ -2767,7 +2796,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
   debugCapability("debug.acpSkillRun.reapplyResult", async (input) => {
     const object = asObject(input);
     const { reapplyAcpSkillRunResult } =
-      await import("./acpSkillRunnerOrchestrator");
+      await import("./acp/skillRun/acpSkillRunnerOrchestrator");
     return reapplyAcpSkillRunResult({
       requestId: object.requestId as string | undefined,
       runId: object.runId as string | undefined,

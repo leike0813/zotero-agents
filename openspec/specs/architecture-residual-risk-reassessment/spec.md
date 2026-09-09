@@ -38,7 +38,7 @@ The reassessment SHALL evaluate only baseline-defined concerns and MUST NOT expa
 #### Scenario: Assessment source is baseline-defined
 
 - **WHEN** the reassessment is executed
-- **THEN** assessed items are derived from `doc/architecture-hardening-baseline.md` (debt register, boundaries, acceptance criteria), with explicit out-of-scope notes for anything else
+- **THEN** assessed items are derived from `artifacts/archive/architecture-hardening-baseline.md` (debt register, boundaries, acceptance criteria), with explicit out-of-scope notes for anything else
 
 #### Scenario: Future roadmap expansion is excluded
 
@@ -61,15 +61,14 @@ The reassessment process SHALL define explicit closure states so each identified
 
 ### Requirement: Reassessment deliverable SHALL be published as project documentation
 
-The reassessment result SHALL be published under `doc/` and linked from the baseline document for long-term discoverability.
+The reassessment result SHALL be published under `artifacts/archive/` and linked from the baseline document for long-term discoverability.
 
 #### Scenario: Doc publication
 
 - **WHEN** reassessment implementation is completed
-- **THEN** a baseline reassessment report exists under `doc/` and includes scope, rubric, risk entries, and closure outcomes
+- **THEN** a baseline reassessment report exists under `artifacts/archive/` and includes scope, rubric, risk entries, and closure outcomes
 
 #### Scenario: Baseline linkage
 
-- **WHEN** a reader opens `doc/architecture-hardening-baseline.md`
+- **WHEN** a reader opens `artifacts/archive/architecture-hardening-baseline.md`
 - **THEN** the document contains a clear pointer to the reassessment report
-

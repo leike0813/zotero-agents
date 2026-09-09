@@ -1,26 +1,6 @@
 {
   "schema": "synthesis-durable-foundation-corpus.v1",
   "schemaVersion": "synthesis-repository-foundation.v4",
-  "nodeOracle": {
-    "coreRange": [203, 217],
-    "files": [
-      "test/core/203-synthesis-sidecar-isolated-repository-foundation.test.ts",
-      "test/core/204-synthesis-sidecar-workbench-chrome-read-model.test.ts",
-      "test/core/205-synthesis-sidecar-topic-canonical-store-foundation.test.ts",
-      "test/core/206-synthesis-sidecar-topic-application-foundation.test.ts",
-      "test/core/207-synthesis-sidecar-citation-graph-application-foundation.test.ts",
-      "test/core/208-synthesis-sidecar-reference-refresh-application-foundation.test.ts",
-      "test/core/209-synthesis-sidecar-reference-matching-review-application-foundation.test.ts",
-      "test/core/210-synthesis-sidecar-tag-vocabulary-application-foundation.test.ts",
-      "test/core/211-synthesis-sidecar-concept-kb-application-foundation.test.ts",
-      "test/core/212-synthesis-sidecar-topic-graph-application-foundation.test.ts",
-      "test/core/213-synthesis-sidecar-knowledge-checkpoint-application-foundation.test.ts",
-      "test/core/214-synthesis-sidecar-durable-bundle-export-foundation.test.ts",
-      "test/core/215-synthesis-sidecar-durable-bundle-import-foundation.test.ts",
-      "test/core/216-synthesis-sidecar-webdav-sync-application-foundation.test.ts",
-      "test/core/217-synthesis-sidecar-debug-maintenance-application-foundation.test.ts"
-    ]
-  },
   "repository": {
     "pragmas": {
       "journalMode": "wal",

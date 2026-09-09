@@ -17,12 +17,12 @@ npx tsx tools/synthesis-index-harness/cli.ts snapshot `
 npx tsx tools/synthesis-index-harness/cli.ts run `
   --zotero-db "D:/Workspace/Artifact/Zotero-Skills/Zotero_data/zotero.sqlite" `
   --plugin-db "D:/Workspace/Artifact/Zotero-Skills/Zotero_data/zotero-agents/state/zotero-agents.db" `
-  --debug-db "artifact/synthesis-index-harness/debug.sqlite"
+  --debug-db "artifacts/synthesis-index-harness/debug.sqlite"
 
 npx tsx tools/synthesis-index-harness/cli.ts serve `
   --zotero-db "D:/Workspace/Artifact/Zotero-Skills/Zotero_data/zotero.sqlite" `
   --plugin-db "D:/Workspace/Artifact/Zotero-Skills/Zotero_data/zotero-agents/state/zotero-agents.db" `
-  --debug-db "artifact/synthesis-index-harness/debug.sqlite" `
+  --debug-db "artifacts/synthesis-index-harness/debug.sqlite" `
   --port 8765
 ```
 

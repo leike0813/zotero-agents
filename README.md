@@ -601,12 +601,12 @@ npm run build        # Production build
 
 | Document | Description |
 |----------|-------------|
-| [Architecture Flow](doc/architecture-flow.md) | Execution pipeline overview (with Mermaid flowchart) |
-| [Development Guide](doc/dev_guide.md) | Core components, configuration model, execution chain |
-| [Workflow Components](doc/components/workflows.md) | Manifest schema, hooks, input filtering, execution semantics |
-| [Provider Components](doc/components/providers.md) | Provider contract system, request types |
-| [Testing Strategy](doc/testing-framework.md) | Dual runtime environments, lite/full modes, CI gates |
-| [Synthesis Layer](doc/synthesis-layer/README.md) | Internal design of knowledge graph, citation graph, and concept knowledge base |
+| [Architecture Flow](docs/architecture-flow.md) | Execution pipeline overview (with Mermaid flowchart) |
+| [Development Guide](docs/dev_guide.md) | Core components, configuration model, execution chain |
+| [Workflow Components](docs/components/workflows.md) | Manifest schema, hooks, input filtering, execution semantics |
+| [Provider Components](docs/components/providers.md) | Provider contract system, request types |
+| [Testing Strategy](docs/testing-framework.md) | Dual runtime environments, lite/full modes, CI gates |
+| [Synthesis Layer](docs/synthesis-layer/README.md) | Internal design of knowledge graph, citation graph, and concept knowledge base |
 
 </details>
 

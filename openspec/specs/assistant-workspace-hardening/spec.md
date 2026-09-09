@@ -59,7 +59,7 @@ read semantics, ordering, or resolution timing.
 ### Requirement: Post-refactor performance baseline is deterministically re-recordable
 
 A governance baseline reflecting the post-refactor publication plane
-SHALL be recorded under `artifact/performance-baselines/` with an
+SHALL be recorded under `artifacts/performance-baselines/` with an
 output prefix distinct from the 2026-07-18 pre-refactor recording, and
 the historical files SHALL be preserved untouched. The recording SHALL
 remain machine-independent (fixed test clock, deterministic double-run
@@ -86,7 +86,7 @@ pre-merge items rather than silently dropped.
 
 - **WHEN** the nine-record replay matrix completes on the Zotero 9 host
 - **THEN** the result artifacts are archived under
-  `artifact/performance-baselines/`
+  `artifacts/performance-baselines/`
 - **AND** the outcome is recorded in the refactor plan artifact.
 
 #### Scenario: Zotero 7 host unavailable

@@ -47,12 +47,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          jq -e '.schema == "synthesis-sidecar.build-recipe.v1" and (.targets | length == 7)' native/synthesis-sidecar/build-recipe.json > /dev/null
-          echo "recipe=$(jq -c '[.targets[] | . + {rustFlags: (.rustFlags // "")}]' native/synthesis-sidecar/build-recipe.json)" >> "$GITHUB_OUTPUT"
-          echo "node_version=$(jq -r .toolchain.node native/synthesis-sidecar/build-recipe.json)" >> "$GITHUB_OUTPUT"
-          echo "rust_toolchain=$(jq -r .toolchain.rust native/synthesis-sidecar/build-recipe.json)" >> "$GITHUB_OUTPUT"
-          echo "zig_version=$(jq -r .toolchain.zig native/synthesis-sidecar/build-recipe.json)" >> "$GITHUB_OUTPUT"
-          echo "cargo_zigbuild_version=$(jq -r .toolchain.cargoZigbuild native/synthesis-sidecar/build-recipe.json)" >> "$GITHUB_OUTPUT"
+          jq -e '.schema == "synthesis-sidecar.build-recipe.v1" and (.targets | length == 7)' rust/synthesis-sidecar/build-recipe.json > /dev/null
+          echo "recipe=$(jq -c '[.targets[] | . + {rustFlags: (.rustFlags // "")}]' rust/synthesis-sidecar/build-recipe.json)" >> "$GITHUB_OUTPUT"
+          echo "node_version=$(jq -r .toolchain.node rust/synthesis-sidecar/build-recipe.json)" >> "$GITHUB_OUTPUT"
+          echo "rust_toolchain=$(jq -r .toolchain.rust rust/synthesis-sidecar/build-recipe.json)" >> "$GITHUB_OUTPUT"
+          echo "zig_version=$(jq -r .toolchain.zig rust/synthesis-sidecar/build-recipe.json)" >> "$GITHUB_OUTPUT"
+          echo "cargo_zigbuild_version=$(jq -r .toolchain.cargoZigbuild rust/synthesis-sidecar/build-recipe.json)" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: ${{ steps.recipe.outputs.node_version }}
@@ -63,7 +63,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          identities="$(npx tsx -e 'import { computeSynthesisSidecarRuntimeIdentities } from "./scripts/synthesis-sidecar-runtime-release-governance.ts"; computeSynthesisSidecarRuntimeIdentities().then(x => process.stdout.write(JSON.stringify(x)))')"
+          identities="$(npx tsx -e 'import { computeSynthesisSidecarRuntimeIdentities } from "./scripts/synthesis/synthesis-sidecar-runtime-release-governance.ts"; computeSynthesisSidecarRuntimeIdentities().then(x => process.stdout.write(JSON.stringify(x)))')"
           {
             echo "source_fingerprint=$(jq -r .sourceFingerprint <<<"$identities")"
             echo "build_fingerprint=$(jq -r .buildFingerprint <<<"$identities")"
@@ -76,7 +76,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npx tsx scripts/resolve-synthesis-sidecar-runtime-cache.ts \
+          npx tsx scripts/synthesis/resolve-synthesis-sidecar-runtime-cache.ts \
             --repo="$GITHUB_REPOSITORY" \
             --source-sha="${{ inputs.source_sha }}" \
             --build-fingerprint="${{ steps.identities.outputs.build_fingerprint }}" \
@@ -141,7 +141,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npx tsx scripts/download-synthesis-sidecar-runtime-cache.ts \
+          npx tsx scripts/synthesis/download-synthesis-sidecar-runtime-cache.ts \
             --run-id="${{ matrix.cacheRunId }}" \
             --artifact-id="${{ matrix.cacheArtifactId }}" \
             --archive-url="${{ matrix.cacheArchiveUrl }}" \
@@ -157,7 +157,7 @@ jobs:
               -o .scaffold/prebuild-symbols.zip
             unzip -j -q .scaffold/prebuild-symbols.zip \
               -d .scaffold/prebuild-symbols/win32-x64
-            npx tsx -e 'import fs from "node:fs"; import { createHash } from "node:crypto"; import { rebuildSynthesisSidecarRuntimeSymbolManifest } from "./scripts/package-synthesis-sidecar-runtime-symbols.ts"; const m=rebuildSynthesisSidecarRuntimeSymbolManifest(JSON.parse(fs.readFileSync(process.argv[1],"utf8"))); const r=JSON.parse(fs.readFileSync(process.argv[5],"utf8")); const executable=r.files.find((entry)=>entry.path===r.executable); const archive=fs.readFileSync(process.argv[6]); if(m.sourceCommit!==process.argv[2]||m.sourceFingerprint!==process.argv[3]||m.buildFingerprint!==process.argv[4]||m.executable.sha256!==executable?.sha256||m.archive.bytes!==archive.byteLength||m.archive.sha256!==createHash("sha256").update(archive).digest("hex")) throw new Error("cached symbol identity mismatch")' \
+            npx tsx -e 'import fs from "node:fs"; import { createHash } from "node:crypto"; import { rebuildSynthesisSidecarRuntimeSymbolManifest } from "./scripts/synthesis/package-synthesis-sidecar-runtime-symbols.ts"; const m=rebuildSynthesisSidecarRuntimeSymbolManifest(JSON.parse(fs.readFileSync(process.argv[1],"utf8"))); const r=JSON.parse(fs.readFileSync(process.argv[5],"utf8")); const executable=r.files.find((entry)=>entry.path===r.executable); const archive=fs.readFileSync(process.argv[6]); if(m.sourceCommit!==process.argv[2]||m.sourceFingerprint!==process.argv[3]||m.buildFingerprint!==process.argv[4]||m.executable.sha256!==executable?.sha256||m.archive.bytes!==archive.byteLength||m.archive.sha256!==createHash("sha256").update(archive).digest("hex")) throw new Error("cached symbol identity mismatch")' \
               .scaffold/prebuild-symbols/win32-x64/manifest.json \
               "${{ matrix.cacheSourceSha }}" \
               "${{ needs.plan.outputs.source_fingerprint }}" \
@@ -174,17 +174,17 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ matrix.useZig }}" = "true" ]; then
-            cargo +${{ needs.plan.outputs.rust_toolchain }} zigbuild --release --locked --target "${{ matrix.target }}" --manifest-path native/synthesis-sidecar/Cargo.toml --bin synthesis-sidecar
+            cargo +${{ needs.plan.outputs.rust_toolchain }} zigbuild --release --locked --target "${{ matrix.target }}" --manifest-path rust/synthesis-sidecar/Cargo.toml --bin synthesis-sidecar
           else
-            cargo +${{ needs.plan.outputs.rust_toolchain }} build --release --locked --target "${{ matrix.target }}" --manifest-path native/synthesis-sidecar/Cargo.toml --bin synthesis-sidecar
+            cargo +${{ needs.plan.outputs.rust_toolchain }} build --release --locked --target "${{ matrix.target }}" --manifest-path rust/synthesis-sidecar/Cargo.toml --bin synthesis-sidecar
           fi
-          binary="native/synthesis-sidecar/target/${{ matrix.target }}/release/${{ matrix.binary }}"
+          binary="rust/synthesis-sidecar/target/${{ matrix.target }}/release/${{ matrix.binary }}"
           created_at="$(git log -1 --format=%ct | xargs -I{} node -e 'process.stdout.write(new Date({} * 1000).toISOString())')"
           npm run package:synthesis-sidecar-runtime -- --target="${{ matrix.platform }}" --rust-sidecar="$binary" --created-at="$created_at" --output=".scaffold/synthesis-sidecar-runtime/${{ matrix.platform }}"
           if [ "${{ matrix.platform }}" = "win32-x64" ]; then
-            pdb="$(find "native/synthesis-sidecar/target/${{ matrix.target }}/release" -maxdepth 1 -iname '*.pdb' -print -quit)"
+            pdb="$(find "rust/synthesis-sidecar/target/${{ matrix.target }}/release" -maxdepth 1 -iname '*.pdb' -print -quit)"
             test -n "$pdb"
-            npx tsx scripts/package-synthesis-sidecar-runtime-symbols.ts \
+            npx tsx scripts/synthesis/package-synthesis-sidecar-runtime-symbols.ts \
               --source-commit="${{ inputs.source_sha }}" \
               --source-fingerprint="${{ needs.plan.outputs.source_fingerprint }}" \
               --build-fingerprint="${{ needs.plan.outputs.build_fingerprint }}" \
@@ -204,8 +204,8 @@ jobs:
             bundle=".scaffold/synthesis-sidecar-runtime/${{ matrix.platform }}"
           fi
           binary="$bundle/${{ matrix.binary }}"
-          npx tsx scripts/smoke-synthesis-rust-sidecar-worker.ts "$binary" "${{ needs.plan.outputs.build_fingerprint }}"
-          npx tsx scripts/smoke-synthesis-rust-durable-candidate.ts "$binary" "${{ matrix.platform }}"
+          npx tsx scripts/synthesis/smoke-synthesis-rust-sidecar-worker.ts "$binary" "${{ needs.plan.outputs.build_fingerprint }}"
+          npx tsx scripts/synthesis/smoke-synthesis-rust-durable-candidate.ts "$binary" "${{ matrix.platform }}"
       - name: Validate archive and write target evidence
         shell: bash
         run: |
@@ -224,7 +224,7 @@ jobs:
           fi
           archive=".scaffold/current-artifact/synthesis-sidecar-runtime-${{ matrix.platform }}.tar.gz"
           node -e 'require("node:fs").copyFileSync(process.argv[1], process.argv[2])' "$source_archive" "$archive"
-          archive_sha="$(npx tsx -e 'import { sha256File } from "./scripts/synthesis-sidecar-runtime-release-governance.ts"; sha256File(process.argv[1]).then(x => process.stdout.write(x))' "$archive")"
+          archive_sha="$(npx tsx -e 'import { sha256File } from "./scripts/synthesis/synthesis-sidecar-runtime-release-governance.ts"; sha256File(process.argv[1]).then(x => process.stdout.write(x))' "$archive")"
           archive_bytes="$(node -e 'process.stdout.write(String(require("node:fs").statSync(process.argv[1]).size))' "$archive")"
           if [ "${{ matrix.nativeSmoke }}" = "true" ]; then
             smoke="$(jq -n --arg run "$GITHUB_RUN_ID" '{status:"passed",runId:($run|tonumber)}')"
@@ -289,7 +289,7 @@ jobs:
           test "$(find .scaffold/evidence -name '*.json' | wc -l)" -eq 7
           mkdir -p .scaffold/symbols/win32-x64
           cp .scaffold/downloads/synthesis-sidecar-runtime-symbols-win32-x64/* .scaffold/symbols/win32-x64/
-          npx tsx scripts/publish-synthesis-sidecar-runtime-prebuild.ts \
+          npx tsx scripts/synthesis/publish-synthesis-sidecar-runtime-prebuild.ts \
             --repo="$GITHUB_REPOSITORY" \
             --source-sha="${{ inputs.source_sha }}" \
             --request-id="$REQUEST_ID" \

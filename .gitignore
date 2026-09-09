@@ -12,24 +12,18 @@ pnpm-lock.yaml
 yarn.lock
 
 # TSC
-tsconfig.tsbuildinfo
-tsconfig.sidebar.tsbuildinfo
-tsconfig.dashboard.tsbuildinfo
-tsconfig.synthesis.tsbuildinfo
+*.tsbuildinfo
 
 # Rust
-cli/zotero-bridge/target/
-native/acp-ws-bridge/target/
-native/synthesis-sidecar/target/
+rust/*/target/
 
 # Scaffold
 .env
 .scaffold
-build
-logs
+/build
+/logs
 
 .mattpack/
-.agent/
 .vscode/
 .history/
 .codex/
@@ -37,7 +31,6 @@ logs
 .kilo/
 .kilocode/
 .kimi-code/
-.codebuddy/
 .qwen/
 .pi/
 .omp/
@@ -70,17 +63,17 @@ logs
 /attachments
 /runtime
 
-reference/Skill-Runner
-reference/Zotero_TagVocab
-reference/zotero
-reference/vscode-acp
-reference/Zotero-7
-reference/Zotero-9
-reference/Zotero-10
+references/Skill-Runner
+references/Zotero_TagVocab
+references/zotero
+references/vscode-acp
+references/Zotero-7
+references/Zotero-9
+references/Zotero-10
 
-artifact/test-diagnostics/
-artifact/content-packages/
-artifact/literature-deep-reading-detr-sample/visual-regression/latest/
+artifacts/test-diagnostics/
+artifacts/content-packages/
+artifacts/literature-deep-reading-detr-sample/visual-regression/latest/
 
 .zotero-skills-runtime/
 .zotero-agents/
@@ -91,12 +84,12 @@ artifact/literature-deep-reading-detr-sample/visual-regression/latest/
 .tmp_lit_bundle/
 non-existing-zotero-data/
 
-artifact/acp-transcript-samples/
-artifact/acp-probe/
+artifacts/acp-transcript-samples/
+artifacts/acp-probe/
 
 **/__pycache__/
 .pytest_cache/
 
 # Workspace analysis artifacts (local only)
-WORKSPACE-CATALOG.sqlite
-WORKSPACE-STRUCTURE-REPORT.md
+artifacts/workspace-audit/WORKSPACE-CATALOG.sqlite
+artifacts/workspace-audit/WORKSPACE-STRUCTURE-REPORT.md

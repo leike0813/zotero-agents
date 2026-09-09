@@ -1,7 +1,7 @@
 import type { BackendInstance } from "../backends/types";
-import type { HostBridgeStatusSnapshot } from "./hostBridgeProtocol";
-import type { AcpPermissionOptionKind } from "./acpPermissionOptions";
-import type { AssistantMessageCountsSnapshot } from "./assistantMessageCounts";
+import type { HostBridgeStatusSnapshot } from "./hostBridge/server/hostBridgeProtocol";
+import type { AcpPermissionOptionKind } from "./acp/transport/acpPermissionOptions";
+import type { AssistantMessageCountsSnapshot } from "./assistant/publication/assistantMessageCounts";
 
 export type AcpConnectionStatus =
   | "idle"

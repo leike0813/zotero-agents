@@ -14,7 +14,7 @@ import { isDebugModeEnabled } from "../modules/debugMode";
 import {
   emitWorkflowPackageDiagnostic,
   summarizeWorkflowRuntimeCapabilities,
-} from "../modules/workflowPackageDiagnostics";
+} from "../modules/workflow/catalog/workflowPackageDiagnostics";
 import {
   createBoundWorkflowResearchBundleApi,
   createWorkflowHostApi,
@@ -22,7 +22,7 @@ import {
   withWorkflowHostLeafScope,
   type WorkflowHostLeafScope,
 } from "./hostApi";
-import { createHostBridgeWorkflowResourceApi } from "../modules/hostBridgeWorkflowResources";
+import { createHostBridgeWorkflowResourceApi } from "../modules/hostBridge/workflow/hostBridgeWorkflowResources";
 import { createWorkflowSynthesisHostApi } from "../modules/synthesisClient/workflowHostClient";
 import {
   WORKFLOW_HOST_API_VERSION,
@@ -50,7 +50,7 @@ import type {
   WorkflowRuntimeInfrastructureContext,
 } from "./types";
 import type { WorkflowRunOptions } from "./zoteroHostAccessOptions";
-import { createProductStorageApi } from "../modules/workflowProductStore";
+import { createProductStorageApi } from "../modules/workflow/catalog/workflowProductStore";
 import {
   SKILLRUNNER_SUPPORTS_ZOTERO_HOST_ACCESS_RUNTIME_OPTIONS,
   buildZoteroHostAccessRuntimeOptions,
@@ -59,7 +59,7 @@ import {
 import {
   SKILL_RUN_FEEDBACK_RUNTIME_OPTION,
   isSkillRunFeedbackCollectionEnabled,
-} from "../modules/skillRunFeedback";
+} from "../modules/skillRunner/run/skillRunFeedback";
 import { planWorkflowInput } from "./workflowInputPlanning";
 import type {
   WorkflowScopedSelectionContext,

@@ -9,10 +9,8 @@ import {
 import { appendRuntimeLog } from "../runtimeLogManager";
 import { recordWorkflowTaskUpdate } from "../taskRuntime";
 import { recordTaskDashboardHistoryFromJob } from "../taskDashboardHistory";
-import { openAssistantWorkspaceSidebar } from "../assistantWorkspaceSidebar";
-import { focusSkillRunnerWorkspace } from "../skillRunnerRunDialog";
-import { subscribeAcpSkillRunWorkspaceChanges } from "../acpSkillRunStore";
-import { requestAcpSkillRunForeground } from "../acpSkillRunForeground";
+import { subscribeAcpSkillRunWorkspaceChanges } from "../acp/skillRun/acpSkillRunStore";
+import { requestAcpSkillRunForeground } from "../acp/skillRun/acpSkillRunForeground";
 import type { BuiltPreparedWorkflowUnit, WorkflowRunState } from "./contracts";
 import {
   resolveInputUnitIdentityFromRequest,
@@ -32,17 +30,17 @@ import type {
 } from "../../providers/types";
 import { localizeWorkflowLabel } from "../../workflows/localization";
 import type { LoadedWorkflow } from "../../workflows/types";
-import { getLoadedWorkflowEntries } from "../workflowRuntime";
+import { getLoadedWorkflowEntries } from "../workflow/catalog/workflowRuntime";
 import { executeSequenceStepApply } from "./sequenceStepApply";
 import { acpSequenceStepLifecycle } from "./acpSequenceStepLifecycle";
-import { resolveSkillRunnerExecutionModeFromRequest } from "../skillRunnerExecutionMode";
+import { resolveSkillRunnerExecutionModeFromRequest } from "../skillRunner/run/skillRunnerExecutionMode";
 import {
   mapSkillRunnerProgressLifecycle,
   mapSkillRunnerSubmitPhase,
-} from "../skillRunnerProgressMapping";
-import { maybeObserveSkillRunnerAutoReplyRun } from "../skillRunnerAutoReplyObserver";
-import { buildSkillRunnerRunRecordRequestPayload } from "../skillRunnerInteractiveAutoReply";
-import { resolveSkillRunnerSkillDisplay } from "../skillRunnerSubmissionContext";
+} from "../skillRunner/run/skillRunnerProgressMapping";
+import { maybeObserveSkillRunnerAutoReplyRun } from "../skillRunner/run/skillRunnerAutoReplyObserver";
+import { buildSkillRunnerRunRecordRequestPayload } from "../skillRunner/run/skillRunnerInteractiveAutoReply";
+import { resolveSkillRunnerSkillDisplay } from "../skillRunner/run/skillRunnerSubmissionContext";
 import {
   applySkillRunnerRunEvent,
   buildSkillRunnerSequenceRunKey,
@@ -51,7 +49,7 @@ import {
   getSkillRunnerRunRecord,
   registerSkillRunnerSkillDisplaySnapshot,
   subscribeSkillRunnerRunStore,
-} from "../skillRunnerRunStore";
+} from "../skillRunner/run/skillRunnerRunStore";
 import { subscribeSequenceRunStateStore } from "./sequenceStateStore";
 import { isDebugModeEnabled } from "../debugMode";
 import { resolveWorkflowJobTerminalResolution } from "./terminalResolution";
@@ -60,10 +58,10 @@ import {
   claimAcpRuntimeSemanticTraceRoot,
   finishAcpRuntimeSemanticTraceRoot,
   settleAcpRuntimeSemanticTraceOpenRequests,
-} from "../acpRuntimeSemanticTraceRecorder";
-import { selectAcpSkillRun } from "../acpSkillRunWorkspaceSelection";
+} from "../acp/diagnostics/acpRuntimeSemanticTraceRecorder";
+import { selectAcpSkillRun } from "../acp/skillRun/acpSkillRunWorkspaceSelection";
 
-type RunSeamDeps = {
+export type RunSeamDeps = {
   createQueue: (
     config: ConstructorParameters<typeof JobQueueManager>[0],
   ) => JobQueueManager;
@@ -71,22 +69,26 @@ type RunSeamDeps = {
   appendRuntimeLog: typeof appendRuntimeLog;
   recordWorkflowTaskUpdate: typeof recordWorkflowTaskUpdate;
   recordTaskDashboardHistoryFromJob: typeof recordTaskDashboardHistoryFromJob;
-  openAssistantWorkspaceSidebar: typeof openAssistantWorkspaceSidebar;
-  focusSkillRunnerWorkspace: typeof focusSkillRunnerWorkspace;
+  openAssistantWorkspaceSidebar: typeof import("../assistant/workspace/assistantWorkspaceSidebar").openAssistantWorkspaceSidebar;
+  focusSkillRunnerWorkspace(args: {
+    runKey: string;
+    selectionChanged: boolean;
+  }): void | Promise<void>;
   selectAcpSkillRun: (requestId: string) => void | Promise<void>;
   getLoadedWorkflowEntries: typeof getLoadedWorkflowEntries;
   executeSequenceStepApply: typeof executeSequenceStepApply;
   resolveWorkflowJobTerminalResolution: typeof resolveWorkflowJobTerminalResolution;
 };
 
-const defaultRunSeamDeps: RunSeamDeps = {
+const defaultRunSeamDeps: Omit<
+  RunSeamDeps,
+  "openAssistantWorkspaceSidebar" | "focusSkillRunnerWorkspace"
+> = {
   createQueue: (config) => new JobQueueManager(config),
   executeWithProvider,
   appendRuntimeLog,
   recordWorkflowTaskUpdate,
   recordTaskDashboardHistoryFromJob,
-  openAssistantWorkspaceSidebar,
-  focusSkillRunnerWorkspace,
   selectAcpSkillRun,
   getLoadedWorkflowEntries,
   executeSequenceStepApply,
@@ -473,7 +475,16 @@ export function runWorkflowExecutionSeam(
     prepared: BuiltPreparedWorkflowUnit;
     submissionLineage?: WorkflowSubmissionQueueExecutionContext;
   },
-  deps: Partial<RunSeamDeps> = {},
+  deps: Partial<
+    Omit<
+      RunSeamDeps,
+      "openAssistantWorkspaceSidebar" | "focusSkillRunnerWorkspace"
+    >
+  > &
+    Pick<
+      RunSeamDeps,
+      "openAssistantWorkspaceSidebar" | "focusSkillRunnerWorkspace"
+    >,
 ): WorkflowRunState {
   const resolved = {
     ...defaultRunSeamDeps,

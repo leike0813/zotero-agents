@@ -5,23 +5,23 @@ import {
   isAssistantExecutionDisplayMode,
   setAssistantExecutionDisplayMode,
   subscribeAssistantExecutionDisplayMode,
-} from "./assistantExecutionDisplayPolicy";
+} from "./assistant/publication/assistantExecutionDisplayPolicy";
 import {
   isAssistantTranscriptPaginationVirtualizationEnabled,
   setAssistantTranscriptPaginationVirtualizationEnabled,
-} from "./assistantTranscriptRenderingPreference";
+} from "./assistant/publication/assistantTranscriptRenderingPreference";
 import {
   getDefaultSkillDirForWorkflowDir,
   getDefaultWorkflowDir,
   getEffectiveWorkflowDir,
-} from "./workflowRuntime";
+} from "./workflow/catalog/workflowRuntime";
 import { getString, getStringOrFallback } from "../utils/locale";
 import { isDebugModeEnabled } from "./debugMode";
-import { subscribeManagedLocalRuntimeStateChange } from "./skillRunnerLocalRuntimeManager";
+import { subscribeManagedLocalRuntimeStateChange } from "./skillRunner/runtime/skillRunnerLocalRuntimeManager";
 import {
   subscribeContentPackageInstallProgress,
   type ContentPackageInstallProgress,
-} from "./contentPackageSubscription";
+} from "./workflow/catalog/contentPackageSubscription";
 import { runtimePathExists } from "./runtimePersistence";
 
 let unbindManagedLocalRuntimeStateChange: (() => void) | null = null;

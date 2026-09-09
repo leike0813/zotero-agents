@@ -9,7 +9,7 @@ import {
   isActive,
   isTerminal,
   isWaiting,
-} from "./skillRunnerProviderStateMachine";
+} from "./skillRunner/run/skillRunnerProviderStateMachine";
 import {
   applySkillRunnerRunEvent,
   buildSkillRunnerRunKey,
@@ -17,7 +17,7 @@ import {
   projectSkillRunnerRun,
   resetSkillRunnerRunStoreForTests,
   subscribeSkillRunnerRunStore,
-} from "./skillRunnerRunStore";
+} from "./skillRunner/run/skillRunnerRunStore";
 
 export type WorkflowTaskRecord = {
   id: string;

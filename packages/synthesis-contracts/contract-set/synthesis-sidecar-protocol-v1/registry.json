@@ -5,7 +5,7 @@
     "productionClientRoster": "../synthesis-production-client-v1/capabilities.json",
     "forwardCapabilityRoster": "../../../src/sidecarSystem.ts#SYNTHESIS_SIDECAR_CAPABILITIES",
     "reverseHostRoster": "../../../src/sidecarProduction.ts#SYNTHESIS_REVERSE_HOST_CAPABILITIES",
-    "workerOperationRoster": "../../../../native/synthesis-sidecar/crates/synthesis-protocol/src/lib.rs"
+    "workerOperationRoster": "../../../../rust/synthesis-sidecar/crates/synthesis-protocol/src/lib.rs"
   },
   "expected": {
     "crossProcessCapabilities": 120,

@@ -40,20 +40,21 @@
 │   │   └── markdown-reader/  # Markdown 附件阅读器
 │   ├── locale/               # 多语言 FTL 文件（11 种语言）
 │   └── bin/                  # Host Bridge CLI 预编译二进制（跨平台）
-├── doc/                      # 架构文档
+├── docs/                     # 架构文档与 ADR
 │   ├── components/           # 各组件设计文档（~49 篇）
 │   └── synthesis-layer/      # Synthesis 层设计文档
-├── reference/                # 外部参考资料（Skill-Runner, zotero-plugin-toolkit, API 指南等）
+├── references/               # 固定版本的外部参考资料与源码基线
 ├── src/                      # TypeScript 源码
 │   ├── index.ts              # 插件入口
 │   ├── addon.ts              # 插件基类
 │   ├── hooks.ts              # 生命周期钩子
-│   ├── modules/              # 核心模块（~140 个模块文件）
-│   │   ├── acp*.ts           # ACP 协议相关（connection, transport, session, skill runner, transcript 等）
-│   │   ├── assistant*.ts     # Assistant 面板（model, renderer, view model, transcript）
-│   │   ├── workflow*.ts      # 工作流引擎（execute, runtime, settings, menu, editor 等）
-│   │   ├── skillRunner*.ts   # Skill-Runner 后端集成
-│   │   ├── hostBridge*.ts    # Host Bridge 服务
+│   ├── modules/              # 核心跨层模块
+│   │   ├── acp/              # ACP transport、chat、skill run 与 diagnostics
+│   │   ├── assistant/        # Assistant workspace 与 publication
+│   │   ├── workflow/         # 工作流 catalog、settings 与 UI
+│   │   ├── skillRunner/      # SkillRunner connection、runtime、run 与 surface
+│   │   ├── hostBridge/       # Host Bridge server、MCP、permissions、workflow 与 CLI
+│   │   ├── zoteroHost/       # Zotero Host adapter 实现
 │   │   ├── synthesis/        # Synthesis 子模块（~33 个文件）
 │   │   ├── workflowExecution/ # 工作流执行子模块（~18 个文件）
 │   │   ├── harness/          # 只读测试 Harness 子模块
@@ -73,7 +74,7 @@
 │   ├── schemas/              # JSON Schema 定义
 │   ├── shared/               # 共享前端组件与跨边界契约（citation graph, topic timeline, assistant wire/snapshot contract）
 │   └── sidebar/              # 侧边栏页面 JS（ES module .js，esbuild 打包到 addon/content/sidebar/*.bundle.js；只允许 import 相对路径与 src/shared）
-├── test/                     # 测试
+├── tests/                    # 测试
 │   ├── core/                 # 核心功能测试（~100+ 测试文件）
 │   ├── node/core/            # Node.js 环境测试
 │   ├── ui/                   # UI 测试
@@ -83,7 +84,7 @@
 │   ├── setup/                # 测试环境初始化
 │   ├── mock-skillrunner/     # Mock Skill-Runner 服务
 │   └── workflow-*/           # 各工作流的专项测试
-├── scripts/                  # 构建与运维脚本（~50 个 .ts/.mjs）
+├── scripts/                  # 构建、治理与运维脚本（按交付域分组）
 ├── skills_builtin/           # 内置 Skill 定义（~22 个 skill 目录）
 │   ├── literature-analysis/
 │   ├── literature-deep-reading/
@@ -106,10 +107,10 @@
 │   └── changes/              # 变更记录（含 archive）
 ├── profiles/                 # Hermes Profile 发布目录
 ├── profiles_src/             # Hermes Profile 源文件
-├── cli/                      # Zotero Bridge CLI（Rust 项目）
-├── native/                   # Native 辅助程序（ACP WebSocket Bridge，Rust）
-├── deprecated/               # 已废弃的旧代码（保留参考）
-├── artifact/                 # 开发过程工件（设计评审、审计报告、playbook 等）
+├── contracts/                # Host Bridge 与 Synthesis sidecar 跨语言契约
+├── releases/                 # 受治理的发布身份与 receipt
+├── rust/                     # Zotero Bridge、ACP WS Bridge 与 Synthesis sidecar
+├── artifacts/                # 开发过程工件（设计评审、审计报告、playbook 等）
 ├── assets/                   # 共享资产（Skill Runner 输出合约 Python 库）
 ├── feeds/                    # 内容订阅 feed
 ├── site/                     # Docusaurus 用户文档站点
@@ -135,12 +136,12 @@
 
 # Zotero 源码参考基线
 
-- `reference/Zotero-7` 固定到 tag `7.0.32`（commit `188c54c186fbbaa6889145986d43ba64160a44fa`）。
-- `reference/Zotero-9` 固定到 tag `9.0.6`（commit `7132587c2d6d56725debe64908733a8140bc6be3`）。
-- `reference/Zotero-10` 固定到 tag `10.0.1`（commit `36749bd0bd4fdac9ee46c16f7aa7bed094a0851f`）。
+- `references/Zotero-7` 固定到 tag `7.0.32`（commit `188c54c186fbbaa6889145986d43ba64160a44fa`）。
+- `references/Zotero-9` 固定到 tag `9.0.6`（commit `7132587c2d6d56725debe64908733a8140bc6be3`）。
+- `references/Zotero-10` 固定到 tag `10.0.1`（commit `36749bd0bd4fdac9ee46c16f7aa7bed094a0851f`）。
 - 三个目录是 shallow submodule，只初始化 Zotero 主仓；嵌套 submodule 仅在明确需要审计对应源码时按路径初始化。
-- 三个目录在 `.gitignore` 中精确排除，默认 `rg`、CodeGraph、Prettier、ESLint 和 TypeScript 检查不得扫描这些参考源码；有意调查时使用 `git -C reference/Zotero-10 …`、`rg --no-ignore …` 等显式命令。
-- 更新基线时，先选择稳定 tag 并核对 tag 指向的 commit，再更新 gitlink；同时审阅 `test/zotero/compatibility-matrix.json`、兼容性文档与公开支持声明。不得跟踪维护分支头。
+- 三个目录在 `.gitignore` 中精确排除，默认 `rg`、CodeGraph、Prettier、ESLint 和 TypeScript 检查不得扫描这些参考源码；有意调查时使用 `git -C references/Zotero-10 …`、`rg --no-ignore …` 等显式命令。
+- 更新基线时，先选择稳定 tag 并核对 tag 指向的 commit，再更新 gitlink；同时审阅 `tests/zotero/compatibility-matrix.json`、兼容性文档与公开支持声明。不得跟踪维护分支头。
 
 # Host Bridge Agent-facing Surface硬约束
 
@@ -187,7 +188,7 @@
 
 # Synthesis Sidecar Runtime 生命周期硬约束
 
-- `native/synthesis-sidecar` 的生产运行时由 library target 持有；`main.rs` 只能保留 `worker` / `serve --config` CLI 适配，不得重新声明或组装 runtime module graph。
+- `rust/synthesis-sidecar` 的生产运行时由 library target 持有；`main.rs` 只能保留 `worker` / `serve --config` CLI 适配，不得重新声明或组装 runtime module graph。
 - `runtime_service::serve(&Path)` 是生产生命周期唯一入口，必须统一负责 config 读取、资源组装、listener bind、ready publication、运行期终止、500 ms 有界清理和 typed terminal result。
 - discovery 原子发布是 sidecar ready commit；stdout listening 事件仅用于诊断。ready 之前的失败必须回滚已取得的 owner，ready 之后的所有生命周期终止必须进入同一清理路径并移除 discovery。
 - `system.shutdown` 成功响应只表示停止请求已接受，必须先刷出响应再发布 stopping；进程退出才表示清理完成。父输入关闭与 authenticated shutdown 共用 reason-bearing stop signal。

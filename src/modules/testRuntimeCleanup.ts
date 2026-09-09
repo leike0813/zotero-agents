@@ -3,32 +3,32 @@ import {
   resetManagedLocalRuntimeLoopsForTests,
   resetManagedLocalRuntimeStateChangeListenersForTests,
   resetLocalRuntimeToastStateForTests,
-} from "./skillRunnerLocalRuntimeManager";
+} from "./skillRunner/runtime/skillRunnerLocalRuntimeManager";
 import { stopSkillRunnerModelCacheAutoRefresh } from "../providers/skillrunner/modelCache";
-import { resetSkillRunnerBackendHealthRegistryForTests } from "./skillRunnerBackendHealthRegistry";
-import { stopSkillRunnerBackendReachabilityCoordinator } from "./skillRunnerBackendReachabilityCoordinator";
+import { resetSkillRunnerBackendHealthRegistryForTests } from "./skillRunner/connection/skillRunnerBackendHealthRegistry";
+import { stopSkillRunnerBackendReachabilityCoordinator } from "./skillRunner/connection/skillRunnerBackendReachabilityCoordinator";
 import { resetPluginStateStoreForTests } from "./pluginStateStore";
 import {
   resetSkillRunnerTaskReconcilerForTests,
   setSkillRunnerBackendReconcileFailureToastEmitterForTests,
   setSkillRunnerTaskLifecycleToastEmitterForTests,
-} from "./skillRunnerTaskReconciler";
+} from "./skillRunner/run/skillRunnerTaskReconciler";
 import { resetWorkflowTasks } from "./taskRuntime";
-import { resetSkillRunnerSessionSyncForTests } from "./skillRunnerSessionSyncManager";
-import { resetSkillRunnerRunDialogForTests } from "./skillRunnerRunDialog";
-import { resetSkillRunnerAutoReplyObserverForTests } from "./skillRunnerAutoReplyObserver";
+import { resetSkillRunnerSessionSyncForTests } from "./skillRunner/run/skillRunnerSessionSyncManager";
+import { resetSkillRunnerRunDialogForTests } from "./skillRunner/surface/skillRunnerRunDialog";
+import { resetSkillRunnerAutoReplyObserverForTests } from "./skillRunner/run/skillRunnerAutoReplyObserver";
 import { resetTaskManagerDialogRuntimeForTests } from "./taskManagerDialog";
-import { resetWorkflowSettingsReadDiagnosticsForTests } from "./workflowSettings";
+import { resetWorkflowSettingsReadDiagnosticsForTests } from "./workflow/settings/workflowSettings";
 import { resetTestPerformanceProbeHooksForTests } from "./testPerformanceProbeBridge";
 import { resetWorkflowHostApiForTests } from "../workflows/hostApi";
 import { clearPackageHookBundleCacheForTests } from "../workflows/packageHookBundler";
 import { resetWorkflowToastStateForTests } from "./workflowExecution/feedbackSeam";
-import { clearWorkflowRuntimeBridgeForTests } from "./workflowRuntimeBridge";
+import { clearWorkflowRuntimeBridgeForTests } from "./workflow/catalog/workflowRuntimeBridge";
 import { setDebugModeOverrideForTests } from "./debugMode";
 import { setDiagnosticVerboseOverrideForTests } from "./diagnosticVerbosity";
-import { setSkillRunnerInteractiveAutoReplyEnabledForTests } from "./skillRunnerInteractiveAutoReply";
-import { resetWorkflowRuntimeForTests } from "./workflowRuntime";
-import { resetSynthesisSidecarRuntimeSupervisorForTests } from "./synthesisSidecarRuntimeSupervisor";
+import { setSkillRunnerInteractiveAutoReplyEnabledForTests } from "./skillRunner/run/skillRunnerInteractiveAutoReply";
+import { resetWorkflowRuntimeForTests } from "./workflow/catalog/workflowRuntime";
+import { resetSynthesisSidecarRuntimeSupervisorForTests } from "./synthesis/sidecar/synthesisSidecarRuntimeSupervisor";
 import {
   resetDefaultSynthesisClientForTests,
   setDefaultSynthesisClientCompositionFactoryForTests,

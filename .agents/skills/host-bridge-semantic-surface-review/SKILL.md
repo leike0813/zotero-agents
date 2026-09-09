@@ -12,7 +12,7 @@ Verify that the minimum-core CLI, Generic research-task suite, and Hermes hosted
 ## Inputs
 
 - The current working tree and changed-file context.
-- `host-bridge/surfaces.json`, CLI release identity, and affected behavior or OpenSpec contracts.
+- `contracts/host-bridge/surfaces.json`, CLI release identity, and affected behavior or OpenSpec contracts.
 - The source Skill packages and hosted facet sources named by the surface map.
 - The baseline commit and semantic-parity matrix declared by the active surface-design change when a structural rewrite is in scope.
 
@@ -21,11 +21,11 @@ Verify that the minimum-core CLI, Generic research-task suite, and Hermes hosted
 1. Run the read-only collector from the repository root:
 
    ```sh
-   npx tsx scripts/host-bridge-semantic-review-context.ts
+   npx tsx scripts/host-bridge/host-bridge-semantic-review-context.ts
    ```
 
 2. Read [review operations](references/review-operations.md). Select every changed source and contract required by the returned focus.
-3. Resolve affected surfaces from `host-bridge/surfaces.json`. Check that minimum-core owns exact CLI facts, Generic owns bounded research-task policy, and Hermes owns resident automation policy.
+3. Resolve affected surfaces from `contracts/host-bridge/surfaces.json`. Check that minimum-core owns exact CLI facts, Generic owns bounded research-task policy, and Hermes owns resident automation policy.
 4. Check each governed Skill as an executable contract: `SKILL.md` contains goal, process, hard constraints, completion, and failure handling; all references are directly linked; no required constraint is only in a reference.
 5. For a rewrite, compare every unique baseline goal, decision, procedure, constraint, evidence rule, completion condition, failure path, recovery rule, and near miss with the semantic-parity matrix. Require one current owner or a complete generated equivalent.
 5a. Before editing, record every explicit deletion authorized by the active plan. Treat every other existing instruction as preservation-required: do not compress, delete, merge, reorder, or rewrite it merely to make room for new guidance. Add new instructions at the same operational thickness and level of detail as adjacent guidance.
@@ -36,7 +36,7 @@ Verify that the minimum-core CLI, Generic research-task suite, and Hermes hosted
 
 ## Hard constraints
 
-- Treat `host-bridge/surfaces.json` as the composition source of truth and resolve inheritance before judging a surface.
+- Treat `contracts/host-bridge/surfaces.json` as the composition source of truth and resolve inheritance before judging a surface.
 - Keep operational command facts in minimum-core, research-task semantics in Generic, and resident automation policy in Hermes; do not duplicate them across layers.
 - Treat `SKILL.md` as the minimum complete execution contract. References expand detail but never contain the only required hard constraint.
 - A rewritten surface must be a semantic superset of its declared clean baseline after baseline duplicates are collapsed. No valid semantic unit may be omitted or weakened into a summary.

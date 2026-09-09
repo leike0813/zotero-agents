@@ -1,8 +1,8 @@
-import { summarizeLibraryGeneratedArtifacts } from "../libraryArtifactReadiness";
+import { summarizeLibraryGeneratedArtifacts } from "../zoteroHost/libraryArtifactReadiness";
 import {
   queryZoteroLibraryPage,
   ZoteroLibraryCursorError,
-} from "../zoteroLibraryPageQuery";
+} from "../zoteroHost/zoteroLibraryPageQuery";
 import {
   SYNTHESIS_HOST_READ_PAGE_LIMIT_DEFAULT,
   SYNTHESIS_HOST_READ_PAGE_LIMIT_MAX,

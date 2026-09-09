@@ -3,7 +3,7 @@ import {
   incrementAcpRuntimeMetric,
   observeAcpRuntimeDuration,
   readAcpRuntimePerformanceClockMs,
-} from "./acpRuntimePerformanceProfiler";
+} from "./acp/diagnostics/acpRuntimePerformanceProfiler";
 
 export const BUFFERED_WRITE_DELAY_MS = 2000;
 export const BUFFERED_WRITE_MAX_BYTES = 128 * 1024;

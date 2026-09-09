@@ -595,12 +595,12 @@ npm run build        # 生產建置
 
 | 文件 | 說明 |
 |------|------|
-| [架構流程](doc/architecture-flow.md) | 執行管線總覽（含 Mermaid 流程圖） |
-| [開發指南](doc/dev_guide.md) | 核心元件、設定模型、執行鏈路 |
-| [工作流程元件](doc/components/workflows.md) | Manifest schema、hooks、輸入篩選、執行語意 |
-| [Provider 元件](doc/components/providers.md) | Provider 契約系統、請求類型 |
-| [測試策略](doc/testing-framework.md) | 雙執行環境、lite/full 模式、CI 關卡 |
-| [Synthesis 層](doc/synthesis-layer/README.md) | 知識圖譜、引文圖譜、概念知識庫的內部設計 |
+| [架構流程](docs/architecture-flow.md) | 執行管線總覽（含 Mermaid 流程圖） |
+| [開發指南](docs/dev_guide.md) | 核心元件、設定模型、執行鏈路 |
+| [工作流程元件](docs/components/workflows.md) | Manifest schema、hooks、輸入篩選、執行語意 |
+| [Provider 元件](docs/components/providers.md) | Provider 契約系統、請求類型 |
+| [測試策略](docs/testing-framework.md) | 雙執行環境、lite/full 模式、CI 關卡 |
+| [Synthesis 層](docs/synthesis-layer/README.md) | 知識圖譜、引文圖譜、概念知識庫的內部設計 |
 
 </details>
 

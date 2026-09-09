@@ -27,7 +27,7 @@ import type {
 import type { ProviderProgressEvent } from "../../providers/types";
 import type { ProviderOrchestrationContext } from "../../providers/types";
 import type { appendRuntimeLog } from "../runtimeLogManager";
-import type { SkillRunnerSkillDisplayById } from "../skillRunnerSubmissionContext";
+import type { SkillRunnerSkillDisplayById } from "../skillRunner/run/skillRunnerSubmissionContext";
 import {
   applySequenceRunEvent,
   getSequenceRunState,
@@ -36,10 +36,10 @@ import {
   type SequenceRunState,
 } from "./sequenceStateStore";
 import { getDotPath } from "./valuePath";
-import { applySkillRunnerRunEvent } from "../skillRunnerRunStore";
-import { isNonRecoverableSkillRunnerFailure } from "../skillRunnerRecoverableState";
+import { applySkillRunnerRunEvent } from "../skillRunner/run/skillRunnerRunStore";
+import { isNonRecoverableSkillRunnerFailure } from "../skillRunner/run/skillRunnerRecoverableState";
 import { isDebugModeEnabled } from "../debugMode";
-import { getAcpSkillRunRecord } from "../acpSkillRunStore";
+import { getAcpSkillRunRecord } from "../acp/skillRun/acpSkillRunStore";
 
 export type ExecuteWithProvider = (args: {
   requestKind: string;

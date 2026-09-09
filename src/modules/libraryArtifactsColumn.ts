@@ -5,7 +5,7 @@ import {
   parseLibraryArtifactState,
   resolveLibraryArtifactReadiness,
   type LibraryArtifactItem,
-} from "./libraryArtifactReadiness";
+} from "./zoteroHost/libraryArtifactReadiness";
 import { literatureScoreToStars } from "../shared/literatureScore";
 
 type LibraryColumnState = {

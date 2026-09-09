@@ -1,5 +1,5 @@
 import type { HookHelpers } from "./types";
-import { evaluateGeneratedNoteReadiness } from "../modules/libraryArtifactReadiness";
+import { evaluateGeneratedNoteReadiness } from "../modules/zoteroHost/libraryArtifactReadiness";
 
 function escapeHtml(input: string) {
   return input

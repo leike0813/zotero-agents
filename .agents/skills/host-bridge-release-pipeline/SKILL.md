@@ -12,14 +12,14 @@ Publish the manifest-defined minimum-core, Generic, and Hermes surfaces from one
 ## Inputs
 
 - A clean, synchronized `main` checkout with an approved source change.
-- `host-bridge/surfaces.json`, `cli/zotero-bridge/release.json`, and the latest complete release receipt.
+- `contracts/host-bridge/surfaces.json`, `releases/host-bridge/cli-release.json`, and the latest complete release receipt.
 - Explicit publication authorization and, when supplied, an exact CLI version target.
 
 ## Workflow
 
 1. Read [release-set operations](references/release-set-operations.md). Inspect the manifest and run `npm run release:host-bridge:plan`.
 2. Run `$host-bridge-semantic-surface-review` when the collector requires review. Resolve every manifest layer and stop if its handoff is blocked.
-3. Render and validate content with the unified renderer, then run `npm run check:host-bridge-content`, the documentation gate, and the Skill-package validator. Use the manifest to pass every governed Skill root to `scripts/check-host-bridge-skill-packages.ts`. Run `$host-bridge-review-mirror` after semantic changes and require `npm run check:host-bridge-review-mirror` to pass before preparation or dispatch.
+3. Render and validate content with the unified renderer, then run `npm run check:host-bridge-content`, the documentation gate, and the Skill-package validator. Use the manifest to pass every governed Skill root to `scripts/host-bridge/check-host-bridge-skill-packages.ts`. Run `$host-bridge-review-mirror` after semantic changes and require `npm run check:host-bridge-review-mirror` to pass before preparation or dispatch.
 4. Confirm the exact CLI prebuild aggregate on `host-bridge-cli-prebuilds`. When the plan requires a seven-platform build-only prebuild, use `$host-bridge-cli-prebuild` and return only after its exact aggregate is synchronized and the freshness gate passes. Otherwise run `npm run check:host-bridge-cli-prebuild-freshness`.
 5. Prepare exactly once with `npm run prepare:host-bridge-release`, optionally passing the explicit exact CLI target. Commit and push the complete prepared set to `main`.
 6. Re-run `npm run check:host-bridge-content` and the other local gates, then dispatch `npm run release:host-bridge:dispatch -- --release-set-id hbrs-... --watch` only after explicit publication authorization. The command dispatches and watches the exact `release-host-bridge.yml` run.
@@ -31,7 +31,7 @@ Use `$host-bridge-cli-prebuild` for development-branch dispatch, exact run recov
 
 ## Hard constraints
 
-- Use `host-bridge/surfaces.json` as the only surface composition and patch ownership source. Surface versions are CLI major.minor plus the layer-owned patch; exact digests and release-set identity bind bytes.
+- Use `contracts/host-bridge/surfaces.json` as the only surface composition and patch ownership source. Surface versions are CLI major.minor plus the layer-owned patch; exact digests and release-set identity bind bytes.
 - Do not render, prepare, dispatch, resume, or publish while semantic review, the ownership-based review mirror, content gates, Skill-package validation, or prebuild freshness is blocked.
 - The release workflow restores the exact verified seven-platform prebuild aggregate. Do not build selected platforms locally or use GitHub Releases as the prebuild store.
 - Dispatch only the exact prepared `releaseSetId`; retries reuse it and never associate different bytes with an immutable tag or surface version.

@@ -565,7 +565,11 @@
     </header>
 
     <main class="proto-stage">
-      <div class="proto-device" id="proto-device" aria-label="Assistant sidebar mock"></div>
+      <div
+        class="proto-device"
+        id="proto-device"
+        aria-label="Assistant sidebar mock"
+      ></div>
       <aside class="proto-notes" id="proto-notes"></aside>
     </main>
 
@@ -601,24 +605,79 @@
         }
 
         var DATA_POPULATED = [
-          owner("conversations", "zotero-agent", "Summarize Kwon 2024 methodology", { status: "unread", time: "2m" }),
-          owner("conversations", "zotero-agent", "Compare attention variants", { status: "done", time: "1h" }),
-          owner("conversations", "external-agent", "Refactor transcript renderer", { backend: "Claude Code", status: "running", time: "now" }),
-          owner("conversations", "external-agent", "Draft release notes", { backend: "Codex CLI", status: "done", time: "3d" }),
-          owner("skill-runs", "zotero-agent", "Literature digest — Zhou 2025", { status: "running", time: "now" }),
-          owner("skill-runs", "external-agent", "Batch translate — 6 PDFs", { backend: "Claude Code", status: "done", time: "5h" }),
-          owner("skill-runs", "skillrunner", "Literature Analysis — Tao 2023", { status: "waiting", time: "4m" }),
-          owner("skill-runs", "skillrunner", "Tag Regulation — 42 items", { status: "done", time: "1d" }),
-          owner("skill-runs", "skillrunner", "Deep Reading — Ito 2024", { status: "error", time: "2d" }),
+          owner(
+            "conversations",
+            "zotero-agent",
+            "Summarize Kwon 2024 methodology",
+            { status: "unread", time: "2m" },
+          ),
+          owner("conversations", "zotero-agent", "Compare attention variants", {
+            status: "done",
+            time: "1h",
+          }),
+          owner(
+            "conversations",
+            "external-agent",
+            "Refactor transcript renderer",
+            { backend: "Claude Code", status: "running", time: "now" },
+          ),
+          owner("conversations", "external-agent", "Draft release notes", {
+            backend: "Codex CLI",
+            status: "done",
+            time: "3d",
+          }),
+          owner("skill-runs", "zotero-agent", "Literature digest — Zhou 2025", {
+            status: "running",
+            time: "now",
+          }),
+          owner("skill-runs", "external-agent", "Batch translate — 6 PDFs", {
+            backend: "Claude Code",
+            status: "done",
+            time: "5h",
+          }),
+          owner("skill-runs", "skillrunner", "Literature Analysis — Tao 2023", {
+            status: "waiting",
+            time: "4m",
+          }),
+          owner("skill-runs", "skillrunner", "Tag Regulation — 42 items", {
+            status: "done",
+            time: "1d",
+          }),
+          owner("skill-runs", "skillrunner", "Deep Reading — Ito 2024", {
+            status: "error",
+            time: "2d",
+          }),
         ];
 
         var DATA_ATTENTION = [
-          owner("conversations", "zotero-agent", "Summarize Kwon 2024 methodology", { status: "done", time: "2m" }),
-          owner("conversations", "zotero-agent", "Compare attention variants", { status: "done", time: "1h" }),
-          owner("conversations", "external-agent", "Refactor transcript renderer", { backend: "Claude Code", status: "unread", time: "now" }),
-          owner("skill-runs", "zotero-agent", "Literature digest — Zhou 2025", { status: "done", time: "3h" }),
-          owner("skill-runs", "skillrunner", "Literature Analysis — Tao 2023", { status: "waiting", time: "4m" }),
-          owner("skill-runs", "skillrunner", "Deep Reading — Ito 2024", { status: "waiting", time: "9m" }),
+          owner(
+            "conversations",
+            "zotero-agent",
+            "Summarize Kwon 2024 methodology",
+            { status: "done", time: "2m" },
+          ),
+          owner("conversations", "zotero-agent", "Compare attention variants", {
+            status: "done",
+            time: "1h",
+          }),
+          owner(
+            "conversations",
+            "external-agent",
+            "Refactor transcript renderer",
+            { backend: "Claude Code", status: "unread", time: "now" },
+          ),
+          owner("skill-runs", "zotero-agent", "Literature digest — Zhou 2025", {
+            status: "done",
+            time: "3h",
+          }),
+          owner("skill-runs", "skillrunner", "Literature Analysis — Tao 2023", {
+            status: "waiting",
+            time: "4m",
+          }),
+          owner("skill-runs", "skillrunner", "Deep Reading — Ito 2024", {
+            status: "waiting",
+            time: "9m",
+          }),
         ];
 
         /* ---------- state ---------- */
@@ -649,7 +708,11 @@
           return state.scenario === "error" && source === "external-agent";
         }
         function ownerNeedsAttention(o) {
-          return o.status === "waiting" || o.status === "unread" || o.status === "error";
+          return (
+            o.status === "waiting" ||
+            o.status === "unread" ||
+            o.status === "error"
+          );
         }
         function sourceAttention(lane, source) {
           return laneOwners(lane).some(function (o) {
@@ -686,10 +749,18 @@
           return el("span", "dot is-" + kind);
         }
         function statusMeta(o) {
-          if (o.status === "running") return { dot: "running", text: "Running", cls: "" };
-          if (o.status === "waiting") return { dot: "attention", text: "Needs approval", cls: "status-attention" };
-          if (o.status === "unread") return { dot: "unread", text: "New activity", cls: "" };
-          if (o.status === "error") return { dot: "error", text: "Failed", cls: "status-error" };
+          if (o.status === "running")
+            return { dot: "running", text: "Running", cls: "" };
+          if (o.status === "waiting")
+            return {
+              dot: "attention",
+              text: "Needs approval",
+              cls: "status-attention",
+            };
+          if (o.status === "unread")
+            return { dot: "unread", text: "New activity", cls: "" };
+          if (o.status === "error")
+            return { dot: "error", text: "Failed", cls: "status-error" };
           return { dot: "done", text: "", cls: "" };
         }
         function toast(msg) {
@@ -722,8 +793,15 @@
           var nav = el("nav", "proto-lanes");
           nav.setAttribute("aria-label", "Assistant workspace lanes");
           LANES.forEach(function (lane) {
-            var b = el("button", "proto-lane" + (state.lane === lane.key ? " is-active" : ""), lane.label);
-            b.setAttribute("aria-pressed", state.lane === lane.key ? "true" : "false");
+            var b = el(
+              "button",
+              "proto-lane" + (state.lane === lane.key ? " is-active" : ""),
+              lane.label,
+            );
+            b.setAttribute(
+              "aria-pressed",
+              state.lane === lane.key ? "true" : "false",
+            );
             if (laneAttention(lane.key) && state.lane !== lane.key) {
               b.appendChild(dot("attention"));
               b.setAttribute("aria-label", lane.label + " — needs attention");
@@ -744,8 +822,16 @@
           // Conversations only: Zotero Agent direct, External Agent per backend.
           var items = [
             { label: "Zotero Agent", action: "new:zotero-agent" },
-            { label: "Claude Code", group: "External Agent", action: "new:Claude Code" },
-            { label: "Codex CLI", group: "External Agent", action: "new:Codex CLI" },
+            {
+              label: "Claude Code",
+              group: "External Agent",
+              action: "new:Claude Code",
+            },
+            {
+              label: "Codex CLI",
+              group: "External Agent",
+              action: "new:Codex CLI",
+            },
           ];
           return items;
         }
@@ -761,9 +847,14 @@
               menu.appendChild(el("div", "proto-menu-label", item.group));
               lastGroup = item.group;
             }
-            var it = el("button", "proto-menu-item" + (item.checked ? " is-checked" : ""));
+            var it = el(
+              "button",
+              "proto-menu-item" + (item.checked ? " is-checked" : ""),
+            );
             it.setAttribute("role", "menuitem");
-            it.appendChild(el("span", "", (item.checked ? "✓ " : "") + item.label));
+            it.appendChild(
+              el("span", "", (item.checked ? "✓ " : "") + item.label),
+            );
             if (item.meta || item.attention || item.unavailable) {
               var meta = el("span", "meta");
               if (item.unavailable) meta.appendChild(dot("error"));
@@ -784,7 +875,9 @@
             menu.classList.add("align-right");
           }
           wrap.appendChild(menu);
-          var focusables = Array.prototype.slice.call(menu.querySelectorAll(".proto-menu-item"));
+          var focusables = Array.prototype.slice.call(
+            menu.querySelectorAll(".proto-menu-item"),
+          );
           menu.addEventListener("keydown", function (ev) {
             var i = focusables.indexOf(document.activeElement);
             if (ev.key === "ArrowDown") {
@@ -808,7 +901,7 @@
                 document.removeEventListener("mousedown", onDoc);
               }
             },
-            { capture: true }
+            { capture: true },
           );
           function dismissMenu() {
             if (menu.parentElement) menu.parentElement.removeChild(menu);
@@ -832,7 +925,9 @@
             // source menu filter
             var wrap = el("div", "proto-menuwrap");
             var cur =
-              state.filter === "all" ? "All sources" : SOURCES[state.filter].label;
+              state.filter === "all"
+                ? "All sources"
+                : SOURCES[state.filter].label;
             var btn = el("button", "proto-btn", cur + " ▾");
             btn.setAttribute("aria-haspopup", "menu");
             btn.setAttribute("aria-expanded", "false");
@@ -902,19 +997,25 @@
           var chips = [{ key: "all", label: "All" }].concat(
             LANE_SOURCES[state.lane].map(function (s) {
               return { key: s, label: SOURCES[s].label };
-            })
+            }),
           );
           chips.forEach(function (chip) {
             var b = el(
               "button",
-              "proto-chip" + (state.filter === chip.key ? " is-active" : "")
+              "proto-chip" + (state.filter === chip.key ? " is-active" : ""),
             );
-            b.setAttribute("aria-pressed", state.filter === chip.key ? "true" : "false");
+            b.setAttribute(
+              "aria-pressed",
+              state.filter === chip.key ? "true" : "false",
+            );
             b.appendChild(el("span", "", chip.label));
             if (chip.key !== "all") {
-              b.appendChild(el("span", "", String(sourceCount(state.lane, chip.key))));
+              b.appendChild(
+                el("span", "", String(sourceCount(state.lane, chip.key))),
+              );
               if (sourceUnavailable(chip.key)) b.appendChild(dot("error"));
-              else if (sourceAttention(state.lane, chip.key)) b.appendChild(dot("attention"));
+              else if (sourceAttention(state.lane, chip.key))
+                b.appendChild(dot("attention"));
             }
             b.addEventListener("click", function () {
               state.filter = chip.key;
@@ -927,7 +1028,10 @@
 
         function renderRow(o, globalIndex) {
           var row = el("button", "proto-row");
-          var title = el("span", "proto-row-title" + (o.status === "unread" ? " is-unread" : ""));
+          var title = el(
+            "span",
+            "proto-row-title" + (o.status === "unread" ? " is-unread" : ""),
+          );
           if (o.status === "waiting") title.appendChild(dot("attention"));
           title.appendChild(el("span", "t", o.title));
           row.appendChild(title);
@@ -972,8 +1076,8 @@
               el(
                 "div",
                 "proto-banner",
-                "External Agent backends unavailable — connection lost. Other sources unaffected."
-              )
+                "External Agent backends unavailable — connection lost. Other sources unaffected.",
+              ),
             );
           }
 
@@ -982,16 +1086,26 @@
             if (!data.length) {
               if (state.lane === "conversations") {
                 empty.appendChild(el("div", "", "No conversations yet."));
-                empty.appendChild(el("div", "", "Start one with ＋ New above."));
+                empty.appendChild(
+                  el("div", "", "Start one with ＋ New above."),
+                );
               } else {
                 empty.appendChild(el("div", "", "No skill runs yet."));
                 empty.appendChild(
-                  el("div", "", "Runs started from workflows appear here — nothing to create by hand.")
+                  el(
+                    "div",
+                    "",
+                    "Runs started from workflows appear here — nothing to create by hand.",
+                  ),
                 );
               }
             } else {
               empty.appendChild(
-                el("div", "", "Nothing from " + SOURCES[state.filter].label + " yet.")
+                el(
+                  "div",
+                  "",
+                  "Nothing from " + SOURCES[state.filter].label + " yet.",
+                ),
               );
             }
             list.appendChild(empty);
@@ -1014,7 +1128,8 @@
                 count.appendChild(dot("error"));
                 count.appendChild(el("span", "", "unavailable"));
               } else {
-                if (sourceAttention(state.lane, source)) count.appendChild(dot("attention"));
+                if (sourceAttention(state.lane, source))
+                  count.appendChild(dot("attention"));
                 count.appendChild(el("span", "", String(group.length)));
               }
               head.appendChild(count);
@@ -1031,8 +1146,8 @@
                     "proto-row-meta",
                     sourceUnavailable(source)
                       ? "  Reconnect to see conversations from this source."
-                      : "  Nothing here yet."
-                  )
+                      : "  Nothing here yet.",
+                  ),
                 );
                 return;
               }
@@ -1049,7 +1164,9 @@
           // arrow-key navigation across rows
           list.addEventListener("keydown", function (ev) {
             if (ev.key !== "ArrowDown" && ev.key !== "ArrowUp") return;
-            var rows = Array.prototype.slice.call(list.querySelectorAll(".proto-row"));
+            var rows = Array.prototype.slice.call(
+              list.querySelectorAll(".proto-row"),
+            );
             var i = rows.indexOf(document.activeElement);
             if (i < 0) return;
             ev.preventDefault();
@@ -1063,7 +1180,12 @@
           var o = currentData()[state.selected];
           var wrap = el("div", "proto-detail");
           var head = el("div", "proto-detail-head");
-          var back = el("button", "back", "‹ " + (state.lane === "conversations" ? "Conversations" : "Skill Runs"));
+          var back = el(
+            "button",
+            "back",
+            "‹ " +
+              (state.lane === "conversations" ? "Conversations" : "Skill Runs"),
+          );
           back.addEventListener("click", function () {
             state.selected = null;
             render();
@@ -1074,9 +1196,13 @@
             el(
               "span",
               "proto-badge" +
-                (o.source === "zotero-agent" ? " is-zotero" : o.source === "skillrunner" ? " is-skillrunner" : ""),
-              sourceLabel(o)
-            )
+                (o.source === "zotero-agent"
+                  ? " is-zotero"
+                  : o.source === "skillrunner"
+                    ? " is-skillrunner"
+                    : ""),
+              sourceLabel(o),
+            ),
           );
           wrap.appendChild(head);
 
@@ -1092,7 +1218,11 @@
           }
 
           var tr = el("div", "proto-transcript");
-          var b1 = el("div", "proto-bubble user", "(transcript preview — not part of this prototype)");
+          var b1 = el(
+            "div",
+            "proto-bubble user",
+            "(transcript preview — not part of this prototype)",
+          );
           var b2 = el(
             "div",
             "proto-bubble agent",
@@ -1100,7 +1230,7 @@
               ? "This run is waiting for a permission decision."
               : o.status === "error"
                 ? "This run failed. Recovery actions would appear here."
-                : "Owner view: transcript, drawers, reply — unchanged from today."
+                : "Owner view: transcript, drawers, reply — unchanged from today.",
           );
           tr.appendChild(b1);
           tr.appendChild(b2);
@@ -1130,7 +1260,9 @@
 
         function renderNotes() {
           notes.innerHTML = "";
-          notes.appendChild(el("h2", "", "Variant " + state.variant + " — how it works"));
+          notes.appendChild(
+            el("h2", "", "Variant " + state.variant + " — how it works"),
+          );
           var ul = el("ul");
           NOTES[state.variant].forEach(function (t) {
             ul.appendChild(el("li", "", t));
@@ -1141,8 +1273,8 @@
               el(
                 "div",
                 "",
-                "▶ Scenario: the unseen source (External Agent conversation / SkillRunner runs) needs attention — check that the switch control shows it without switching."
-              )
+                "▶ Scenario: the unseen source (External Agent conversation / SkillRunner runs) needs attention — check that the switch control shows it without switching.",
+              ),
             );
           }
           if (state.scenario === "loading") {
@@ -1150,8 +1282,8 @@
               el(
                 "div",
                 "",
-                "▶ Scenario: lane chrome renders instantly; list skeleton is owner-scoped. Open a row to see owner-first transcript loading."
-              )
+                "▶ Scenario: lane chrome renders instantly; list skeleton is owner-scoped. Open a row to see owner-first transcript loading.",
+              ),
             );
           }
         }
@@ -1174,17 +1306,21 @@
           renderNotes();
         }
 
-        document.getElementById("proto-variant").addEventListener("change", function (ev) {
-          state.variant = ev.target.value;
-          state.filter = "all";
-          state.selected = null;
-          render();
-        });
-        document.getElementById("proto-scenario").addEventListener("change", function (ev) {
-          state.scenario = ev.target.value;
-          state.selected = null;
-          render();
-        });
+        document
+          .getElementById("proto-variant")
+          .addEventListener("change", function (ev) {
+            state.variant = ev.target.value;
+            state.filter = "all";
+            state.selected = null;
+            render();
+          });
+        document
+          .getElementById("proto-scenario")
+          .addEventListener("change", function (ev) {
+            state.scenario = ev.target.value;
+            state.selected = null;
+            render();
+          });
 
         render();
       })();

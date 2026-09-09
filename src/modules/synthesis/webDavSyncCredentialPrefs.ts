@@ -1,4 +1,4 @@
-import { getHostBridgeToken } from "../hostBridgeAuth";
+import { getHostBridgeToken } from "../hostBridge/server/hostBridgeAuth";
 import { getPref, setPref } from "../../utils/prefs";
 
 const CREDENTIAL_SCHEMA_ID = "synthesis.webdav_sync_credential";

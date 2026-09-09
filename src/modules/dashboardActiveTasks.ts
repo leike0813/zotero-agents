@@ -2,10 +2,10 @@ import {
   ACP_SKILL_RUN_REQUEST_KIND,
   PASS_THROUGH_BACKEND_TYPE,
 } from "../config/defaults";
-import { type AcpSkillRunSummary } from "./acpSkillRunStore";
-import { mapAcpSkillRunSummaryToWorkflowTask } from "./acpSkillRunTaskProjection";
+import { type AcpSkillRunSummary } from "./acp/skillRun/acpSkillRunStore";
+import { mapAcpSkillRunSummaryToWorkflowTask } from "./acp/skillRun/acpSkillRunTaskProjection";
 import type { WorkflowTaskRecord } from "./taskRuntime";
-import { isActiveAcpSkillRunStatus } from "./acpSkillRunStatus";
+import { isActiveAcpSkillRunStatus } from "./acp/skillRun/acpSkillRunStatus";
 
 export type DashboardActiveTaskRow = WorkflowTaskRecord;
 export type DashboardActiveTaskScope = {

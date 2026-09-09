@@ -8,21 +8,22 @@ Treat these groups as requiring `$host-bridge-release-pipeline` unless the user
 explicitly limits release scope:
 
 - CLI contracts, build inputs, packaging, installers, and checks under
-  `cli/zotero-bridge/**`, `scripts/build-zotero-bridge-cli.mjs`, and the related
-  `scripts/*zotero-bridge-cli*` files.
+  `rust/zotero-bridge/**` and the related `scripts/host-bridge/*zotero-bridge-cli*`
+  files.
 - Agent-facing sources and generated surfaces under
   `skills_src/zotero-bridge-cli/**`, `skills_src/zotero-library-agent/**`,
   `addon/content/host-bridge-skills/**`,
   `profiles_src/hermes/zotero-librarian/**`, and
   `profiles/hermes/zotero-librarian/**`.
 - Host Bridge protocol, capability, broker, workflow, and OpenSpec contracts.
-- Release contracts and coordination under `host-bridge/**`,
-  `schemas/host-bridge.*`, `scripts/host-bridge-*`,
-  `scripts/render-host-bridge-*`, the unified surface renderer/materializer, and
+- Release contracts and coordination under `contracts/host-bridge/**`,
+  `releases/host-bridge/**`, `scripts/host-bridge/**`, the unified surface
+  renderer/materializer, and
   `.github/workflows/release-host-bridge.yml`.
 - Human review governance and output under
   `.agents/skills/host-bridge-review-mirror/**`,
-  `scripts/host-bridge-review-mirror.ts`, and `artifact/host-bridge-review/**`.
+  `scripts/host-bridge/host-bridge-review-mirror.ts`, and
+  `artifacts/host-bridge-review/**`.
 
 ## Required Action
 

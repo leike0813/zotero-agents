@@ -595,12 +595,12 @@ npm run build        # Compilação para produção
 
 | Documento | Descrição |
 |-----------|-----------|
-| [Fluxo de arquitetura](doc/architecture-flow.md) | Visão geral do pipeline de execução (com diagrama de fluxo Mermaid) |
-| [Guia de desenvolvimento](doc/dev_guide.md) | Componentes principais, modelo de configuração, cadeia de execução |
-| [Componentes de fluxos de trabalho](doc/components/workflows.md) | Esquema do manifesto, hooks, filtragem de entrada, semântica de execução |
-| [Componentes de Provider](doc/components/providers.md) | Sistema de contrato de Provider, tipos de solicitação |
-| [Estratégia de testes](doc/testing-framework.md) | Ambientes de execução duplos, modos lite/full, barreiras de CI |
-| [Camada Synthesis](doc/synthesis-layer/README.md) | Design interno do grafo de conhecimento, grafo de citações e base de conhecimento conceitual |
+| [Fluxo de arquitetura](docs/architecture-flow.md) | Visão geral do pipeline de execução (com diagrama de fluxo Mermaid) |
+| [Guia de desenvolvimento](docs/dev_guide.md) | Componentes principais, modelo de configuração, cadeia de execução |
+| [Componentes de fluxos de trabalho](docs/components/workflows.md) | Esquema do manifesto, hooks, filtragem de entrada, semântica de execução |
+| [Componentes de Provider](docs/components/providers.md) | Sistema de contrato de Provider, tipos de solicitação |
+| [Estratégia de testes](docs/testing-framework.md) | Ambientes de execução duplos, modos lite/full, barreiras de CI |
+| [Camada Synthesis](docs/synthesis-layer/README.md) | Design interno do grafo de conhecimento, grafo de citações e base de conhecimento conceitual |
 
 </details>
 

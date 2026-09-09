@@ -1,0 +1,776 @@
+import { assert } from "chai";
+import * as crypto from "crypto";
+import * as fs from "fs/promises";
+import * as os from "os";
+import * as path from "path";
+import { rejects as assertRejects } from "node:assert";
+import {
+  configureHostBridgeServerForTests,
+  handleHostBridgeHttpRequestForTests,
+  resetHostBridgeServerForTests,
+  rotateHostBridgeMasterToken,
+} from "../../src/modules/hostBridge/server/hostBridgeServer";
+import {
+  acquireHostBridgeUploadedFileLease,
+  hasHostBridgeUploadedFileLease,
+  registerHostBridgeExportFile,
+  registerHostBridgeFileHandle,
+  registerHostBridgeUploadedFile,
+  registerHostBridgeWorkflowArtifactFile,
+  releaseHostBridgeUploadedFileLease,
+  resetHostBridgeFileRegistryForTests,
+  resolveHostBridgeFileDownload,
+  resolveHostBridgeUploadedFile,
+} from "../../src/modules/hostBridge/server/hostBridgeFileRegistry";
+import { createHostBridgeWorkflowResourceApi } from "../../src/modules/hostBridge/workflow/hostBridgeWorkflowResources";
+import { executeHostBridgeCapability } from "../../src/modules/hostBridgeCapabilityRegistry";
+import {
+  configureHostBridgeGlobalApprovalHandlerForTests,
+  resetHostBridgePermissionManagerForTests,
+} from "../../src/modules/hostBridge/permissions/hostBridgePermissionManager";
+import type { HostBridgeStatusSnapshot } from "../../src/modules/hostBridge/server/hostBridgeProtocol";
+import { createFailClosedZoteroHostCapabilityBroker } from "../helpers/zoteroHostCapabilityBrokerHarness";
+import { setPref } from "../../src/utils/prefs";
+import {
+  resetZoteroLibrarySourcePageQueryAdapterForTests,
+  setZoteroLibrarySourcePageQueryAdapterForTests,
+} from "../../src/modules/zoteroHost/zoteroLibraryPageQuery";
+
+function parseRawHttpResponse(raw: string) {
+  const splitIndex = raw.indexOf("\r\n\r\n");
+  const head = splitIndex >= 0 ? raw.slice(0, splitIndex) : raw;
+  const body = splitIndex >= 0 ? raw.slice(splitIndex + 4) : "";
+  const status = Number(head.match(/^HTTP\/1\.1\s+(\d+)/)?.[1] || 0);
+  return {
+    status,
+    head,
+    body,
+    json: body.trim().startsWith("{") ? JSON.parse(body) : null,
+  };
+}
+
+async function bridgeRequest(args: {
+  token: string;
+  method: string;
+  path: string;
+  body?: unknown;
+}) {
+  return parseRawHttpResponse(
+    await handleHostBridgeHttpRequestForTests({
+      method: args.method,
+      path: args.path,
+      headers: {
+        authorization: `Bearer ${args.token}`,
+      },
+      body:
+        typeof args.body === "undefined"
+          ? undefined
+          : JSON.stringify(args.body),
+    }),
+  );
+}
+
+async function writeTempFile(name: string, content: string) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-bridge-file-"));
+  const filePath = path.join(root, name);
+  await fs.writeFile(filePath, content, "utf8");
+  return { root, filePath };
+}
+
+async function writeTempBytes(name: string, content: Uint8Array) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-bridge-file-"));
+  const filePath = path.join(root, name);
+  await fs.writeFile(filePath, content);
+  return { root, filePath };
+}
+
+function binaryStringToBytes(text: string) {
+  return Uint8Array.from(
+    Array.from(text).map((char) => char.charCodeAt(0) & 0xff),
+  );
+}
+
+function sha256(bytes: Uint8Array) {
+  return `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`;
+}
+
+describe("host bridge file downloads", function () {
+  afterEach(async function () {
+    resetHostBridgeServerForTests();
+    resetHostBridgeFileRegistryForTests();
+    resetHostBridgePermissionManagerForTests();
+    setPref("hostBridgeMasterTokenEncryptedJson", "");
+    setPref("hostBridgeMasterTokenMasked", "");
+    setPref("hostBridgeMasterTokenUpdatedAt", "");
+    setPref("hostBridgeMasterTokenKeyMaterial", "");
+  });
+
+  it("downloads only registered file handles without approval", async function () {
+    const token = configureHostBridgeServerForTests({ token: "file-token" });
+    const { root, filePath } = await writeTempFile(
+      "paper.txt",
+      "registered file content",
+    );
+    configureHostBridgeGlobalApprovalHandlerForTests(() => {
+      throw new Error("download must not request approval");
+    });
+    try {
+      const descriptor = await registerHostBridgeExportFile({
+        localPath: filePath,
+        displayName: "../paper.txt",
+        contentType: "text/plain",
+      });
+
+      const parsed = await bridgeRequest({
+        token,
+        method: "GET",
+        path: `/bridge/v2/files/${descriptor.fileId}`,
+      });
+
+      assert.strictEqual(parsed.status, 200);
+      assert.include(parsed.head, "Content-Type: text/plain");
+      assert.include(parsed.head, "Content-Length: 23");
+      assert.include(
+        parsed.head,
+        `X-Zotero-Bridge-Sha256: ${descriptor.sha256}`,
+      );
+      assert.strictEqual(descriptor.size, 23);
+      assert.match(descriptor.sha256 || "", /^sha256:[a-f0-9]{64}$/);
+      assert.include(
+        parsed.head,
+        'Content-Disposition: attachment; filename="paper.txt"',
+      );
+      assert.strictEqual(parsed.body, "registered file content");
+      assert.notInclude(JSON.stringify(descriptor), filePath);
+
+      const artifact = await registerHostBridgeWorkflowArtifactFile({
+        localPath: filePath,
+        workflowId: "workflow-1",
+        runId: "run-1",
+      });
+      assert.strictEqual(artifact.sourceKind, "workflow-artifact");
+      assert.strictEqual(artifact.owner?.workflowId, "workflow-1");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("serves binary file bytes with stable length and sha256 metadata", async function () {
+    const token = configureHostBridgeServerForTests({ token: "file-token" });
+    const bytes = new Uint8Array(0x9005);
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = index % 251;
+    }
+    bytes[3] = 0x00;
+    bytes[4] = 0x80;
+    bytes[5] = 0xff;
+    const { root, filePath } = await writeTempBytes("bundle.zip", bytes);
+    try {
+      const descriptor = await registerHostBridgeExportFile({
+        localPath: filePath,
+        displayName: "bundle.zip",
+        contentType: "application/zip",
+      });
+
+      const parsed = await bridgeRequest({
+        token,
+        method: "GET",
+        path: `/bridge/v2/files/${descriptor.fileId}`,
+      });
+
+      assert.strictEqual(parsed.status, 200);
+      assert.include(parsed.head, `Content-Length: ${bytes.byteLength}`);
+      assert.strictEqual(descriptor.size, bytes.byteLength);
+      assert.strictEqual(descriptor.sha256, sha256(bytes));
+      assert.include(parsed.head, `X-Zotero-Bridge-Sha256: ${sha256(bytes)}`);
+      assert.deepEqual(binaryStringToBytes(parsed.body), bytes);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a registered file that is truncated before download", async function () {
+    const token = configureHostBridgeServerForTests({ token: "file-token" });
+    const { root, filePath } = await writeTempFile(
+      "changing.txt",
+      "registered file content",
+    );
+    try {
+      const descriptor = await registerHostBridgeExportFile({
+        localPath: filePath,
+      });
+      await fs.truncate(filePath, 3);
+
+      const parsed = await bridgeRequest({
+        token,
+        method: "GET",
+        path: `/bridge/v2/files/${descriptor.fileId}`,
+      });
+
+      assert.strictEqual(parsed.status, 404);
+      assert.strictEqual(parsed.json.error.code, "file_unavailable");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a same-size registered file mutation before download", async function () {
+    const token = configureHostBridgeServerForTests({ token: "file-token" });
+    const original = new TextEncoder().encode("registered bytes");
+    const changed = new TextEncoder().encode("changed content!");
+    assert.strictEqual(changed.byteLength, original.byteLength);
+    const { root, filePath } = await writeTempBytes("changing.bin", original);
+    try {
+      const descriptor = await registerHostBridgeExportFile({
+        localPath: filePath,
+      });
+      await fs.writeFile(filePath, changed);
+
+      const parsed = await bridgeRequest({
+        token,
+        method: "GET",
+        path: `/bridge/v2/files/${descriptor.fileId}`,
+      });
+
+      assert.strictEqual(parsed.status, 404);
+      assert.strictEqual(parsed.json.error.code, "file_unavailable");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("encodes non-ASCII download filenames as RFC 5987 header values", async function () {
+    const token = configureHostBridgeServerForTests({ token: "file-token" });
+    const { root, filePath } = await writeTempFile(
+      "paper.pdf",
+      "registered file content",
+    );
+    try {
+      const descriptor = await registerHostBridgeExportFile({
+        localPath: filePath,
+        displayName: "中文 文件.pdf",
+        contentType: "application/pdf",
+      });
+
+      const parsed = await bridgeRequest({
+        token,
+        method: "GET",
+        path: `/bridge/v2/files/${descriptor.fileId}`,
+      });
+
+      assert.strictEqual(parsed.status, 200);
+      assert.include(
+        parsed.head,
+        "Content-Disposition: attachment; filename=\"download.pdf\"; filename*=UTF-8''%E4%B8%AD%E6%96%87%20%E6%96%87%E4%BB%B6.pdf",
+      );
+      assert.notInclude(parsed.head, "中文");
+      assert.notInclude(parsed.head, "\u0000");
+      assert.isTrue(
+        parsed.head.split("").every((char) => char.charCodeAt(0) <= 0x7f),
+      );
+      assert.strictEqual(parsed.body, "registered file content");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("downloads registered file handles with a master token for remote profiles", async function () {
+    configureHostBridgeServerForTests({ token: "local-file-token" });
+    const master = await rotateHostBridgeMasterToken();
+    const { root, filePath } = await writeTempFile(
+      "remote.txt",
+      "remote file content",
+    );
+    try {
+      const descriptor = await registerHostBridgeExportFile({
+        localPath: filePath,
+        displayName: "remote.txt",
+        contentType: "text/plain",
+      });
+
+      const parsed = await bridgeRequest({
+        token: master.token,
+        method: "GET",
+        path: `/bridge/v2/files/${descriptor.fileId}`,
+      });
+
+      assert.strictEqual(parsed.status, 200);
+      assert.strictEqual(parsed.body, "remote file content");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects unknown, expired, and path-like file ids structurally", async function () {
+    const token = configureHostBridgeServerForTests({ token: "file-token" });
+    const { root, filePath } = await writeTempFile("expired.txt", "expired");
+    try {
+      const unknown = await bridgeRequest({
+        token,
+        method: "GET",
+        path: "/bridge/v2/files/file-missing",
+      });
+      assert.strictEqual(unknown.status, 404);
+      assert.strictEqual(unknown.json.error.code, "file_not_found");
+
+      const pathLike = await bridgeRequest({
+        token,
+        method: "GET",
+        path: "/bridge/v2/files/..%2Fsecret.txt",
+      });
+      assert.strictEqual(pathLike.status, 400);
+      assert.strictEqual(pathLike.json.error.code, "invalid_file_id");
+
+      const expiredDescriptor = await registerHostBridgeFileHandle({
+        localPath: filePath,
+        sourceKind: "bridge-export",
+        ttlMs: 1,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      const expired = await bridgeRequest({
+        token,
+        method: "GET",
+        path: `/bridge/v2/files/${expiredDescriptor.fileId}`,
+      });
+      assert.strictEqual(expired.status, 410);
+      assert.strictEqual(expired.json.error.code, "file_handle_expired");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("retains leased uploads through expiry and acquires each handle atomically", async function () {
+    const descriptor = await registerHostBridgeUploadedFile({
+      bytes: new TextEncoder().encode("leased input"),
+      displayName: "input.txt",
+      contentType: "text/plain",
+      ttlMs: 50,
+    });
+    const attempts = await Promise.allSettled([
+      acquireHostBridgeUploadedFileLease([descriptor.fileId]),
+      acquireHostBridgeUploadedFileLease([descriptor.fileId]),
+    ]);
+    const fulfilled = attempts.filter(
+      (
+        entry,
+      ): entry is PromiseFulfilledResult<
+        Awaited<ReturnType<typeof acquireHostBridgeUploadedFileLease>>
+      > => entry.status === "fulfilled",
+    );
+    const rejected = attempts.filter(
+      (entry): entry is PromiseRejectedResult => entry.status === "rejected",
+    );
+    assert.lengthOf(fulfilled, 1);
+    assert.lengthOf(rejected, 1);
+    assert.strictEqual(
+      (rejected[0].reason as { code?: string }).code,
+      "file_handle_leased",
+    );
+    assert.isTrue(hasHostBridgeUploadedFileLease(descriptor.fileId));
+
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    const resolved = await resolveHostBridgeUploadedFile(descriptor.fileId);
+    assert.strictEqual(resolved.descriptor.fileId, descriptor.fileId);
+
+    releaseHostBridgeUploadedFileLease(fulfilled[0].value.leaseId, false);
+    assert.isFalse(hasHostBridgeUploadedFileLease(descriptor.fileId));
+    try {
+      await resolveHostBridgeUploadedFile(descriptor.fileId);
+      assert.fail("expected the expired unleased handle to be rejected");
+    } catch (error) {
+      assert.strictEqual(
+        (error as { code?: string }).code,
+        "file_handle_expired",
+      );
+    }
+  });
+
+  it("stages preview uploads as canonical sources without consuming their handles", async function () {
+    const bytes = new TextEncoder().encode("preview input");
+    const upload = await registerHostBridgeUploadedFile({
+      bytes,
+      displayName: "preview.txt",
+      contentType: "text/plain",
+    });
+    const observedInputs: Record<string, unknown>[] = [];
+    const broker = createFailClosedZoteroHostCapabilityBroker({
+      mutations: {
+        async preview(input, scope) {
+          assert.deepEqual(scope, { ownerId: "host-bridge" });
+          observedInputs.push(input as Record<string, unknown>);
+          return {
+            schema: "zotero-agents.mutation-preview.v1" as const,
+            operation: input.operation,
+            outcome: "would_change" as const,
+            observedAt: "2026-09-06T00:00:00.000Z",
+            domainPlanDigest: `preview-upload:${input.operation}`,
+            plan: { operation: input.operation },
+          };
+        },
+      },
+    });
+
+    for (const input of [
+      {
+        operation: "attachments.create",
+        placement: { kind: "top_level", libraryId: 1 },
+        source: {
+          kind: "stored_file",
+          fileId: upload.fileId,
+          targetFilename: "preview.txt",
+        },
+        metadata: { title: "Preview upload", contentType: "text/plain" },
+      },
+      {
+        operation: "attachments.replaceFile",
+        attachmentRef: { libraryId: 1, key: "ATTACHMENT" },
+        source: {
+          kind: "stored_file",
+          fileId: upload.fileId,
+          targetFilename: "preview.txt",
+        },
+      },
+    ]) {
+      const { operation, ...typedInput } = input;
+      const result = await executeHostBridgeCapability(
+        operation,
+        { ...typedInput, dryRun: true },
+        {
+          connectionMode: "local",
+          getStatus: () => ({}) as HostBridgeStatusSnapshot,
+          resolveZoteroHostCapabilityBroker: () => broker,
+        },
+      );
+      assert.deepInclude(result as Record<string, unknown>, {
+        operation,
+      });
+    }
+
+    assert.lengthOf(observedInputs, 2);
+    for (const observedInput of observedInputs) {
+      const source = observedInput.source as Record<string, unknown>;
+      assert.deepInclude(source, {
+        kind: "stored_file",
+        targetFilename: "preview.txt",
+      });
+      assert.notProperty(source, "fileId");
+      assert.notProperty(source, "copyFile");
+      assert.notProperty(source, "removePath");
+      assert.match(
+        (source.content as { main: { sha256: string } }).main.sha256,
+        /^sha256:[a-f0-9]{64}$/i,
+      );
+      assert.strictEqual(
+        (source.content as { main: { sizeBytes: number } }).main.sizeBytes,
+        bytes.byteLength,
+      );
+    }
+    assert.isFalse(hasHostBridgeUploadedFileLease(upload.fileId));
+    assert.strictEqual(
+      (await resolveHostBridgeUploadedFile(upload.fileId)).descriptor.fileId,
+      upload.fileId,
+    );
+  });
+
+  it("invalidates process-scoped resource handles and leases after a registry restart", async function () {
+    const upload = await registerHostBridgeUploadedFile({
+      bytes: new TextEncoder().encode("restart input"),
+      displayName: "restart-input.txt",
+      contentType: "text/plain",
+    });
+    await acquireHostBridgeUploadedFileLease([upload.fileId]);
+    const { root, filePath } = await writeTempFile(
+      "restart-output.txt",
+      "restart output",
+    );
+    try {
+      const output = await registerHostBridgeWorkflowArtifactFile({
+        localPath: filePath,
+        workflowId: "restart-boundary-workflow",
+        displayName: "restart-output.txt",
+        contentType: "text/plain",
+      });
+
+      resetHostBridgeFileRegistryForTests();
+
+      assert.isFalse(hasHostBridgeUploadedFileLease(upload.fileId));
+      for (const fileId of [upload.fileId, output.fileId]) {
+        try {
+          await resolveHostBridgeFileDownload(fileId);
+          assert.fail("expected a process-scoped handle to be unavailable");
+        } catch (error) {
+          assert.strictEqual(
+            (error as { code?: string }).code,
+            "file_not_found",
+          );
+        }
+      }
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("publishes workflow resource outputs through the existing download registry", async function () {
+    const resources = await createHostBridgeWorkflowResourceApi({
+      workflowId: "resource-output-workflow",
+      manifest: {
+        schemaVersion: 2,
+        id: "resource-output-workflow",
+        label: "Resource output workflow",
+        provider: "pass-through",
+        supportedInvocationModes: ["non-interactive"],
+        resourceRequirements: [
+          {
+            id: "report",
+            direction: "output",
+            kind: "file",
+            cardinality: "one",
+            required: true,
+            suggestedName: "report.txt",
+          },
+        ],
+      },
+      inputs: {},
+      outputBindings: {
+        report: { delivery: "bridge-download" },
+      },
+    });
+    const allocation = await resources.allocateOutput({
+      slotId: "report",
+      suggestedName: "report.txt",
+      contentType: "text/plain",
+    });
+    const secondAllocation = await resources.allocateOutput({
+      slotId: "report",
+      suggestedName: "report.txt",
+      contentType: "text/plain",
+    });
+    assert.notStrictEqual(secondAllocation.path, allocation.path);
+    await fs.writeFile(allocation.path, "workflow output", "utf8");
+    const output = await resources.publishOutput({
+      slotId: "report",
+      path: allocation.path,
+      displayName: "report.txt",
+      contentType: "text/plain",
+    });
+
+    assert.strictEqual(output.sourceKind, "workflow-artifact");
+    assert.strictEqual(output.slotId, "report");
+    assert.strictEqual(output.displayName, "report.txt");
+    assert.strictEqual(output.size, 15);
+    assert.match(output.sha256 || "", /^sha256:[a-f0-9]{64}$/);
+    assert.include(output.downloadCommand, output.fileId);
+    assert.notProperty(output, "path");
+    const resolved = await resolveHostBridgeFileDownload(output.fileId);
+    assert.strictEqual(
+      await fs.readFile(resolved.source.path, "utf8"),
+      "workflow output",
+    );
+  });
+
+  it("keeps allocations run-scoped and cleans unpublished output staging", async function () {
+    const resources = await createHostBridgeWorkflowResourceApi({
+      workflowId: "resource-owner-workflow",
+      runId: "run-a",
+      manifest: {
+        schemaVersion: 2,
+        id: "resource-owner-workflow",
+        label: "Resource owner workflow",
+        provider: "pass-through",
+        supportedInvocationModes: ["non-interactive"],
+        resourceRequirements: [
+          {
+            id: "report",
+            direction: "output",
+            kind: "file",
+            cardinality: "one",
+            required: true,
+            accept: { extensions: [".txt"], maxBytes: 32 },
+          },
+        ],
+      },
+      inputs: {},
+      outputBindings: { report: { delivery: "bridge-download" } },
+    });
+    const allocation = await resources.allocateOutput({
+      slotId: "report",
+      suggestedName: "report.txt",
+      contentType: "text/plain",
+    });
+    assert.match(allocation.allocationId || "", /^run-a:allocation:/);
+    await assertRejects(
+      resources.publishOutput({
+        allocationId: allocation.allocationId,
+        slotId: "report",
+        path: allocation.path,
+        displayName: "report.txt",
+        contentType: "text/plain",
+      }),
+    );
+    await assertRejects(
+      resources.resolveResource({
+        kind: "workflow_resource",
+        id: "run-b:input:x:1",
+      }),
+    );
+    await resources.cleanup();
+    await assertRejects(fs.access(allocation.path));
+    assert.deepEqual(resources.listOutputs(), []);
+  });
+
+  it("materializes declared local files into immutable run-scoped resources", async function () {
+    const { root, filePath } = await writeTempFile(
+      "research-source.txt",
+      "original research bytes",
+    );
+    const resources = await createHostBridgeWorkflowResourceApi({
+      workflowId: "resource-materialization-workflow",
+      runId: "materialize-run",
+      manifest: {
+        schemaVersion: 2,
+        id: "resource-materialization-workflow",
+        label: "Resource materialization workflow",
+        provider: "pass-through",
+        supportedInvocationModes: ["non-interactive"],
+        resourceRequirements: [
+          {
+            id: "research-source",
+            direction: "input",
+            kind: "file",
+            cardinality: "many",
+            required: false,
+            accept: {
+              extensions: [".txt"],
+              contentTypes: ["text/plain"],
+              maxCount: 2,
+              maxBytes: 64,
+            },
+          },
+        ],
+      },
+      inputs: {},
+      outputBindings: {},
+    });
+    try {
+      const materialized = await resources.materializeFile({
+        slotId: "research-source",
+        sourcePath: filePath,
+        displayName: "research-source.txt",
+        contentType: "text/plain",
+      });
+      assert.match(
+        materialized.ref?.id || "",
+        /^materialize-run:materialized:/,
+      );
+      assert.notStrictEqual(materialized.path, filePath);
+
+      await fs.writeFile(filePath, "changed source bytes", "utf8");
+      const resolved = await resources.get(materialized.ref!);
+      assert.strictEqual(
+        await fs.readFile(resolved.path, "utf8"),
+        "original research bytes",
+      );
+      await fs.writeFile(materialized.path, "tampered managed bytes", "utf8");
+      await assertRejects(resources.get(materialized.ref!));
+
+      await assertRejects(
+        resources.materializeFile({
+          slotId: "undeclared",
+          sourcePath: filePath,
+          displayName: "research-source.txt",
+          contentType: "text/plain",
+        }),
+      );
+      await resources.cleanup();
+      await assertRejects(resources.get(materialized.ref!));
+    } finally {
+      await resources.cleanup();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("returns bridge-download attachment descriptors without local paths", async function () {
+    const token = configureHostBridgeServerForTests({
+      token: "attachment-token",
+    });
+    const { root, filePath } = await writeTempFile(
+      "attachment.txt",
+      "attachment bytes",
+    );
+    const parent = new Zotero.Item("journalArticle");
+    parent.setField("title", "Bridge Attachment Parent");
+    await parent.saveTx();
+    const attachmentId = 991234;
+    const attachment = {
+      id: attachmentId,
+      key: "ATTACH01",
+      itemType: "attachment",
+      libraryID: Zotero.Libraries.userLibraryID,
+      parentItemID: parent.id,
+      deleted: false,
+      version: 1,
+      attachmentLinkMode: 0,
+      attachmentFilename: "attachment.txt",
+      attachmentContentType: "text/plain",
+      fileSize: 16,
+      dateAdded: "2026-09-06T00:00:00.000Z",
+      isNote: () => false,
+      isAttachment: () => true,
+      isRegularItem: () => false,
+      getAttachmentLinkMode: () => 0,
+      getCollections: () => [],
+      getTags: () => [],
+      getField: (field: string) =>
+        field === "title"
+          ? "Attachment"
+          : field === "contentType"
+            ? "text/plain"
+            : "",
+      getFilePathAsync: async () => filePath,
+    } as unknown as Zotero.Item;
+    setZoteroLibrarySourcePageQueryAdapterForTests({
+      async queryAsync(_sql, _params, context) {
+        if (context.domain !== "attachments") {
+          return context.kind === "count" ? [{ total: 0 }] : [];
+        }
+        if (context.kind === "count") return [{ total: 1 }];
+        return [{ itemID: attachmentId }];
+      },
+      async hydrateItems(ids) {
+        return ids.filter((id) => id === attachmentId).map(() => attachment);
+      },
+    });
+
+    try {
+      const parsed = await bridgeRequest({
+        token,
+        method: "POST",
+        path: "/bridge/v2/call",
+        body: {
+          capability: "library.get_item_attachments",
+          input: { id: parent.id },
+        },
+      });
+
+      assert.strictEqual(parsed.status, 200);
+      const attachmentPage = parsed.json.result.data;
+      const attachment = attachmentPage.attachments[0];
+      assert.strictEqual(attachment.access.mode, "bridge-download");
+      assert.match(attachment.access.file.fileId, /^file-/);
+      assert.strictEqual(attachment.access.file.displayName, "attachment.txt");
+      assert.notProperty(attachment, "path");
+      assert.notInclude(parsed.body, filePath);
+      assert.deepInclude(attachmentPage, {
+        nextCursor: null,
+        hasMore: false,
+        returned: 1,
+        total: 1,
+        limit: 25,
+      });
+    } finally {
+      resetZoteroLibrarySourcePageQueryAdapterForTests();
+      await parent.eraseTx();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+});

@@ -3,8 +3,8 @@ export const runtimeDiagnosticsFeatureGroups = {
     switchKey: "profiler",
     define: "__acp_runtime_performance_profiler_enabled__",
     exclusiveModules: [
-      "src/modules/acpRuntimePerformanceProfiler.ts",
-      "src/modules/acpRuntimePerformanceBaseline.ts",
+      "src/modules/acp/diagnostics/acpRuntimePerformanceProfiler.ts",
+      "src/modules/acp/diagnostics/acpRuntimePerformanceBaseline.ts",
     ],
     forbiddenRuntimeMarkers: [
       "zotero-agents.acp-runtime-performance-profile.v1",
@@ -15,7 +15,9 @@ export const runtimeDiagnosticsFeatureGroups = {
   recorder: {
     switchKey: "recorder",
     define: "__acp_runtime_semantic_trace_recorder_enabled__",
-    exclusiveModules: ["src/modules/acpRuntimeSemanticTraceRecorder.ts"],
+    exclusiveModules: [
+      "src/modules/acp/diagnostics/acpRuntimeSemanticTraceRecorder.ts",
+    ],
     forbiddenRuntimeMarkers: [
       "single-event-limit",
       "acp-traces",
@@ -36,15 +38,15 @@ export const runtimeDiagnosticsFeatureGroups = {
     switchKey: "replay",
     define: "__acp_runtime_replay_profiler_enabled__",
     exclusiveModules: [
-      "src/modules/acpRuntimeReplayIdentity.ts",
-      "src/modules/acpRuntimeReplayProfiler.ts",
-      "src/modules/acpRuntimeReplayLogicalTime.ts",
-      "src/modules/acpRuntimeReplayTargets.ts",
-      "src/modules/acpRuntimeReplayProductionPorts.ts",
-      "src/modules/acpSyntheticConnectionAdapter.ts",
-      "src/modules/acpRuntimeReplayProfileContext.ts",
-      "src/modules/acpRuntimeReplayController.ts",
-      "src/modules/acpRuntimeReplayPublicationSidecar.ts",
+      "src/modules/acp/diagnostics/acpRuntimeReplayIdentity.ts",
+      "src/modules/acp/diagnostics/acpRuntimeReplayProfiler.ts",
+      "src/modules/acp/diagnostics/acpRuntimeReplayLogicalTime.ts",
+      "src/modules/acp/diagnostics/acpRuntimeReplayTargets.ts",
+      "src/modules/acp/diagnostics/acpRuntimeReplayProductionPorts.ts",
+      "src/modules/acp/transport/acpSyntheticConnectionAdapter.ts",
+      "src/modules/acp/diagnostics/acpRuntimeReplayProfileContext.ts",
+      "src/modules/acp/diagnostics/acpRuntimeReplayController.ts",
+      "src/modules/acp/diagnostics/acpRuntimeReplayPublicationSidecar.ts",
     ],
     forbiddenRuntimeMarkers: [
       "zotero-agents.acp-runtime-replay-matrix.v2",
@@ -68,8 +70,8 @@ export const runtimeDiagnosticsFeatureGroups = {
     switchKey: "skillRunnerAudit",
     define: "__skillrunner_connection_audit_enabled__",
     exclusiveModules: [
-      "src/modules/skillRunnerConnectionAudit.ts",
-      "src/modules/skillRunnerConnectionAuditStore.ts",
+      "src/modules/skillRunner/connection/skillRunnerConnectionAudit.ts",
+      "src/modules/skillRunner/connection/skillRunnerConnectionAuditStore.ts",
     ],
     forbiddenRuntimeMarkers: [
       "host_bridge.debug.skillrunner.connections.snapshot.v1",
@@ -84,7 +86,7 @@ export const runtimeDiagnosticsFeatureGroups = {
     switchKey: "synthesisSidecar",
     define: "__synthesis_sidecar_diagnostics_enabled__",
     exclusiveModules: [
-      "src/modules/synthesisSidecarTrace.ts",
+      "src/modules/synthesis/sidecar/synthesisSidecarTrace.ts",
       "packages/synthesis-contracts/src/sidecarObservability.ts",
     ],
     forbiddenRuntimeMarkers: [
@@ -99,9 +101,9 @@ export type RuntimeDiagnosticsFeatureName =
   keyof typeof runtimeDiagnosticsFeatureGroups;
 
 export const runtimeDiagnosticsSharedExclusiveModules = [
-  "src/modules/acpRuntimeDiagnosticsMode.ts",
-  "src/modules/acpRuntimeSemanticTrace.ts",
-  "src/modules/acpChatDiagnosticAuditTrail.ts",
+  "src/modules/acp/diagnostics/acpRuntimeDiagnosticsMode.ts",
+  "src/modules/acp/diagnostics/acpRuntimeSemanticTrace.ts",
+  "src/modules/acp/diagnostics/acpChatDiagnosticAuditTrail.ts",
 ] as const;
 
 export const runtimeDiagnosticsExclusiveModules = [

@@ -2,7 +2,7 @@
 // action sender, and the snapshot -> draft -> render controller.
 //
 // Wire protocol (frozen, mirrored from addon/content/dashboard/backend-manager.js;
-// the host side lives in src/modules/backendManager.ts):
+// the host side lives in src/modules/workflow/settings/backendManager.ts):
 //   page -> host: { type: "backend-manager-dialog:action", action, payload }
 //     posted to window.parent with targetOrigin "*"; the page announces
 //     itself with the "ready" action after load.

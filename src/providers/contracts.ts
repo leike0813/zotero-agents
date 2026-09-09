@@ -1,4 +1,4 @@
-import type { SkillRunnerProviderState } from "../modules/skillRunnerProviderStateMachine";
+import type { SkillRunnerProviderState } from "../modules/skillRunner/run/skillRunnerProviderStateMachine";
 
 export type ProviderExecutionRequestMeta = {
   targetParentRef?: { libraryId: number; key: string };

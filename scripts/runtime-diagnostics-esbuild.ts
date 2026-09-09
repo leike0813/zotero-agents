@@ -16,7 +16,7 @@ const profilerModuleBasename = path.basename(
   ".ts",
 );
 const chatDiagnosticAuditModuleBasename = path.basename(
-  "src/modules/acpChatDiagnosticAuditTrail.ts",
+  "src/modules/acp/diagnostics/acpChatDiagnosticAuditTrail.ts",
   ".ts",
 );
 const synthesisSidecarDiagnosticsModuleBasename = path.basename(

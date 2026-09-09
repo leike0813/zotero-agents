@@ -17,7 +17,7 @@ pnpm-lock.yaml
 # Generated/bundled files
 addon/content/shared/vendor
 addon/locale
-cli/zotero-bridge/src/agent-surface.json
+rust/zotero-bridge/src/agent-surface.json
 skills_builtin
 skills_src
 workflows_builtin
@@ -28,19 +28,19 @@ openspec/specs
 
 # Documentation
 AGENTS.md
-doc
-reference
+docs
+references
 site
 README*.md
 **/*.md
 
 # Test fixtures
-test/fixtures
-test/fixtures/workflow-loader-invalid-json
-test/fixtures/selection-context/attachments
+tests/fixtures
+tests/fixtures/workflow-loader-invalid-json
+tests/fixtures/selection-context/attachments
 
 # Artifacts
-artifact
+artifacts
 assets
 attachments
 deprecated

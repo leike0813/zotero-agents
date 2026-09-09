@@ -102,34 +102,34 @@ const RELEASE_GATE_SCHEMA = "zotero-agents.release-gate.v2" as const;
 const DEFAULT_REPO = "leike0813/zotero-agents";
 
 const HOST_BRIDGE_PREFIXES = [
-  "cli/zotero-bridge/",
+  "rust/zotero-bridge/",
   "addon/content/host-bridge-skills/",
   "skills_src/zotero-bridge-cli/",
   "skills_src/zotero-library-agent/",
   "profiles_src/hermes/zotero-librarian/",
   "profiles/hermes/zotero-librarian/",
-  "host-bridge/",
-  "schemas/host-bridge.",
+  "contracts/host-bridge/",
+  "releases/host-bridge/",
+  "contracts/host-bridge/schemas/host-bridge.",
   ".agents/skills/host-bridge-",
-  "scripts/host-bridge-",
-  "scripts/render-host-bridge-",
+  "scripts/host-bridge/",
 ] as const;
 
 const HOST_BRIDGE_EXACT_FILES = new Set([
   "src/modules/hostBridgeCapabilityRegistry.ts",
   "src/modules/zoteroHostCapabilityBroker.ts",
-  "scripts/host-bridge-surface-catalog.ts",
-  "scripts/render-host-bridge-surfaces.ts",
-  "scripts/check-host-bridge-skill-packages.ts",
-  "scripts/host-bridge-surface-version.ts",
-  "scripts/build-zotero-bridge-cli.mjs",
-  "scripts/package-zotero-bridge-cli.mjs",
-  "scripts/publish-host-bridge-cli-bundle.ps1",
-  "scripts/publish-zotero-librarian-profile.ps1",
-  "scripts/publish-zotero-library-agent-bundle.ps1",
-  "scripts/materialize-host-bridge-surfaces.ts",
-  "scripts/prepare-host-bridge-release.ts",
-  "scripts/render-host-bridge-release-set.ts",
+  "scripts/host-bridge/host-bridge-surface-catalog.ts",
+  "scripts/host-bridge/render-host-bridge-surfaces.ts",
+  "scripts/host-bridge/check-host-bridge-skill-packages.ts",
+  "scripts/host-bridge/host-bridge-surface-version.ts",
+  "scripts/host-bridge/build-zotero-bridge-cli.mjs",
+  "scripts/host-bridge/package-zotero-bridge-cli.mjs",
+  "scripts/host-bridge/publish-host-bridge-cli-bundle.ps1",
+  "scripts/host-bridge/publish-zotero-librarian-profile.ps1",
+  "scripts/host-bridge/publish-zotero-library-agent-bundle.ps1",
+  "scripts/host-bridge/materialize-host-bridge-surfaces.ts",
+  "scripts/host-bridge/prepare-host-bridge-release.ts",
+  "scripts/host-bridge/render-host-bridge-release-set.ts",
   ".github/workflows/release-host-bridge.yml",
 ]);
 
@@ -143,11 +143,11 @@ const CONTENT_PACKAGE_PREFIXES = [
 const CONTENT_PACKAGE_EXACT_FILES = new Set([
   "content-package.version.json",
   ".github/workflows/publish-content-feed.yml",
-  "scripts/build-content-package-feed.ts",
-  "scripts/bump-content-package-version.ts",
-  "scripts/prepare-content-package-release.ts",
-  "scripts/check-content-package-release.ts",
-  "scripts/publish-content-package-github.ts",
+  "scripts/content-package/build-content-package-feed.ts",
+  "scripts/content-package/bump-content-package-version.ts",
+  "scripts/content-package/prepare-content-package-release.ts",
+  "scripts/content-package/check-content-package-release.ts",
+  "scripts/content-package/publish-content-package-github.ts",
 ]);
 
 async function defaultRunCommand(command: string, args: string[]) {

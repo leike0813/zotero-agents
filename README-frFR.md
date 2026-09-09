@@ -582,12 +582,12 @@ npm run build        # Build de production
 
 | Documentation | Description |
 |------|------|
-| [Flux d'architecture](doc/architecture-flow.md) | Vue d'ensemble du pipeline d'exécution (avec diagramme Mermaid) |
-| [Guide de développement](doc/dev_guide.md) | Composants principaux, modèle de configuration, chaîne d'exécution |
-| [Composants de workflow](doc/components/workflows.md) | Schéma du manifeste, hooks, filtrage des entrées, sémantique d'exécution |
-| [Composants de fournisseur](doc/components/providers.md) | Système de contrat des fournisseurs, types de requêtes |
-| [Stratégie de test](doc/testing-framework.md) | Double environnement d'exécution, modes lite/full, barrières CI |
-| [Couche Synthesis](doc/synthesis-layer/README.md) | Conception interne du graphe de connaissances, du graphe de citations et de la base de connaissances conceptuelle |
+| [Flux d'architecture](docs/architecture-flow.md) | Vue d'ensemble du pipeline d'exécution (avec diagramme Mermaid) |
+| [Guide de développement](docs/dev_guide.md) | Composants principaux, modèle de configuration, chaîne d'exécution |
+| [Composants de workflow](docs/components/workflows.md) | Schéma du manifeste, hooks, filtrage des entrées, sémantique d'exécution |
+| [Composants de fournisseur](docs/components/providers.md) | Système de contrat des fournisseurs, types de requêtes |
+| [Stratégie de test](docs/testing-framework.md) | Double environnement d'exécution, modes lite/full, barrières CI |
+| [Couche Synthesis](docs/synthesis-layer/README.md) | Conception interne du graphe de connaissances, du graphe de citations et de la base de connaissances conceptuelle |
 
 </details>
 

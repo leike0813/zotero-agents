@@ -42,7 +42,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: content-packages
-          path: artifact/content-packages
+          path: artifacts/content-packages
 
       - name: Check content feed publish token
         run: |
@@ -57,19 +57,19 @@ jobs:
         run: |
           VERSION="$(node -e "const fs=require('fs'); const d=JSON.parse(fs.readFileSync('content-package.version.json','utf8')); console.log(process.env.CONTENT_PACKAGE_VERSION || d.version)")"
           TAG="official-workflows-v${VERSION}"
-          node --import tsx scripts/publish-content-package-github.ts \
+          node --import tsx scripts/content-package/publish-content-package-github.ts \
             --repo "${CONTENT_FEED_GITHUB_REPO}" \
             --tag "${TAG}" \
             --title "Official Workflow Package ${VERSION}" \
             --notes "Official Zotero Agents Workflow package ${VERSION}." \
-            artifact/content-packages/*/packages/*.zip \
-            artifact/content-packages/*/packages/*.zip.sha256
+            artifacts/content-packages/*/packages/*.zip \
+            artifacts/content-packages/*/packages/*.zip.sha256
 
       - name: Publish content-feed branch to GitHub content repo
         run: >-
-          node --import tsx scripts/publish-content-package-feeds.ts
+          node --import tsx scripts/content-package/publish-content-package-feeds.ts
           --repo "$CONTENT_FEED_GITHUB_REPO"
-          --source artifact/content-packages
+          --source artifacts/content-packages
           --channels "$CONTENT_PACKAGE_CHANNELS"
           --revision "$GITHUB_SHA"
 

@@ -2,7 +2,7 @@ import type { BackendInstance } from "../../backends/types";
 import { ACP_BACKEND_TYPE } from "../../config/defaults";
 import { loadWorkflowManifests } from "../../workflows/loader";
 import type { LoadedWorkflow } from "../../workflows/types";
-import { isWorkflowVisible } from "../workflowVisibility";
+import { isWorkflowVisible } from "../workflow/catalog/workflowVisibility";
 import {
   ASSISTANT_WORKSPACE_ACTION_REGISTRY,
   createAcpChatWorkspaceOwner,
@@ -16,25 +16,25 @@ import {
   type AssistantWorkspacePublication,
   type AssistantWorkspacePublicationAck,
   type AssistantWorkspacePublicationSource,
-} from "../assistantWorkspacePublication";
-import { AssistantWorkspacePublicationCoordinator } from "../assistantWorkspacePublicationCoordinator";
+} from "../assistant/publication/assistantWorkspacePublication";
+import { AssistantWorkspacePublicationCoordinator } from "../assistant/publication/assistantWorkspacePublicationCoordinator";
 import {
   AssistantWorkspacePublicationRuntime,
   defineAssistantWorkspacePublicationAdapter,
   type AssistantWorkspacePublicationAdapter,
   type AssistantWorkspacePublicationRuntimeConfiguration,
-} from "../assistantWorkspacePublicationRuntime";
+} from "../assistant/publication/assistantWorkspacePublicationRuntime";
 import {
   createWorkspaceOwnerControl,
   readWorkspaceOwnerRegions,
   skillRunSecondaryLabel,
-} from "../assistantWorkspaceSurfaceSkeleton";
+} from "../assistant/workspace/assistantWorkspaceSurfaceSkeleton";
 import {
   createAssistantWorkspaceTranscriptPage,
   parseAssistantWorkspaceTranscriptPageRequest,
   type AssistantWorkspaceTranscriptRegion,
-} from "../assistantWorkspaceTranscriptPublication";
-import { buildAssistantWorkspacePublicationLabels } from "../assistantWorkspacePublicationLabels";
+} from "../assistant/publication/assistantWorkspaceTranscriptPublication";
+import { buildAssistantWorkspacePublicationLabels } from "../assistant/publication/assistantWorkspacePublicationLabels";
 import {
   ASSISTANT_INTERACTION_FILE_MAX_BYTES,
   ASSISTANT_INTERACTION_TOTAL_MAX_BYTES,

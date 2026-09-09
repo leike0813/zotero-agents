@@ -3,8 +3,8 @@ import type { BackendManagementAuth } from "../../backends/types";
 import {
   runSkillRunnerConnection,
   type SkillRunnerConnectionLane,
-} from "../../modules/skillRunnerConnectionGovernor";
-import { markSkillRunnerBackendHealthSuccess } from "../../modules/skillRunnerBackendHealthRegistry";
+} from "../../modules/skillRunner/connection/skillRunnerConnectionGovernor";
+import { markSkillRunnerBackendHealthSuccess } from "../../modules/skillRunner/connection/skillRunnerBackendHealthRegistry";
 import {
   SkillRunnerHttpError,
   formatSkillRunnerHttpErrorMessage,
@@ -13,7 +13,7 @@ import {
   buildSkillRunnerHandshakeRequest,
   normalizeSkillRunnerHandshakeResponse,
   type SkillRunnerBackendCapabilities,
-} from "../../modules/skillRunnerHandshakeProtocol";
+} from "../../modules/skillRunner/connection/skillRunnerHandshakeProtocol";
 import {
   ASSISTANT_INTERACTION_FILE_MAX_BYTES,
   ASSISTANT_INTERACTION_TOTAL_MAX_BYTES,

@@ -595,12 +595,12 @@ npm run build        # 프로덕션 빌드
 
 | 문서 | 설명 |
 |------|------|
-| [아키텍처 흐름](doc/architecture-flow.md) | 실행 파이프라인 개요 (Mermaid 흐름도 포함) |
-| [개발 가이드](doc/dev_guide.md) | 핵심 컴포넌트, 설정 모델, 실행 체인 |
-| [워크플로 컴포넌트](doc/components/workflows.md) | 매니페스트 스키마, hook, 입력 필터링, 실행 시맨틱 |
-| [Provider 컴포넌트](doc/components/providers.md) | Provider 계약 시스템, 요청 유형 |
-| [테스트 전략](doc/testing-framework.md) | 이중 실행 환경, lite/full 모드, CI 게이트 |
-| [Synthesis 레이어](doc/synthesis-layer/README.md) | 지식 그래프, 인용 그래프, 개념 지식 베이스의 내부 설계 |
+| [아키텍처 흐름](docs/architecture-flow.md) | 실행 파이프라인 개요 (Mermaid 흐름도 포함) |
+| [개발 가이드](docs/dev_guide.md) | 핵심 컴포넌트, 설정 모델, 실행 체인 |
+| [워크플로 컴포넌트](docs/components/workflows.md) | 매니페스트 스키마, hook, 입력 필터링, 실행 시맨틱 |
+| [Provider 컴포넌트](docs/components/providers.md) | Provider 계약 시스템, 요청 유형 |
+| [테스트 전략](docs/testing-framework.md) | 이중 실행 환경, lite/full 모드, CI 게이트 |
+| [Synthesis 레이어](docs/synthesis-layer/README.md) | 지식 그래프, 인용 그래프, 개념 지식 베이스의 내부 설계 |
 
 </details>
 

@@ -8,10 +8,9 @@ import {
   resolveInputUnitIdentityFromRequest,
   resolveTaskNameFromRequest,
 } from "./requestMeta";
-import { workflowSubmissionQueue } from "../../jobQueue/workflowSubmissionQueue";
 import type { PreparedWorkflowUnit } from "./contracts";
 
-type DuplicateGuardDeps = {
+export type DuplicateGuardDeps = {
   listActiveWorkflowTasks: () => WorkflowTaskRecord[];
   hasActiveOrQueuedWorkflowInput: (args: {
     workflowId: string;
@@ -27,10 +26,11 @@ type DuplicateGuardDeps = {
   }) => boolean;
 };
 
-const defaultDuplicateGuardDeps: DuplicateGuardDeps = {
+const defaultDuplicateGuardDeps: Omit<
+  DuplicateGuardDeps,
+  "hasActiveOrQueuedWorkflowInput"
+> = {
   listActiveWorkflowTasks: listActiveWorkflowTaskSummaries,
-  hasActiveOrQueuedWorkflowInput: (args) =>
-    workflowSubmissionQueue.hasActiveOrQueuedWorkflowInput(args),
   appendRuntimeLog,
   confirmDuplicateSubmission: ({ win, title, message, yesLabel, noLabel }) => {
     const runtime = globalThis as {
@@ -127,7 +127,8 @@ export async function runWorkflowUnitDuplicateGuardSeam(
     workflowLabel: string;
     units: ReadonlyArray<PreparedWorkflowUnit>;
   },
-  deps: Partial<DuplicateGuardDeps> = {},
+  deps: Partial<Omit<DuplicateGuardDeps, "hasActiveOrQueuedWorkflowInput">> &
+    Pick<DuplicateGuardDeps, "hasActiveOrQueuedWorkflowInput">,
 ): Promise<WorkflowUnitDuplicateGuardResult> {
   const resolved = {
     ...defaultDuplicateGuardDeps,
@@ -267,6 +268,7 @@ export async function runWorkflowDuplicateGuardSeam(
 ): Promise<DuplicateGuardResult> {
   const resolved = {
     ...defaultDuplicateGuardDeps,
+    hasActiveOrQueuedWorkflowInput: () => false,
     ...deps,
   };
 

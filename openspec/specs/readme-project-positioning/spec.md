@@ -16,7 +16,7 @@ The root `README.md` MUST use English as the primary language and MUST provide a
 
 #### Scenario: Reader needs Chinese documentation
 - **WHEN** a user reads the root README
-- **THEN** README SHALL include a visible link to `doc/README-zhCN.md`
+- **THEN** README SHALL include a visible link to `README-zhCN.md`
 
 ### Requirement: README SHALL Explain Pluggable Workflow Architecture and Benefits
 The README MUST explain that the plugin uses a pluggable workflow architecture and state why this is advantageous.
@@ -46,4 +46,3 @@ The README MUST include explicit attribution that this project was generated fro
 #### Scenario: Reader checks project origin
 - **WHEN** a user reads project background
 - **THEN** README SHALL contain a clear statement of Zotero Plugin Template origin
-

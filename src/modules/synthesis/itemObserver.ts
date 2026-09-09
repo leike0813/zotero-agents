@@ -1,6 +1,6 @@
 import type { SynthesisClient } from "../../../packages/synthesis-contracts/src/index";
 import { getDefaultSynthesisClient } from "../synthesisClient/defaultClient";
-import { parseNoteKind } from "../notePayloadCodec";
+import { parseNoteKind } from "../zoteroHost/notePayloadCodec";
 
 function cleanString(value: unknown) {
   return String(value || "").trim();

@@ -60,8 +60,8 @@ async function main() {
     path.join(runRoot, "workflows_builtin"),
   );
   await createDirectoryLink(
-    path.join(projectRoot, "test"),
-    path.join(runRoot, "test"),
+    path.join(projectRoot, "tests"),
+    path.join(runRoot, "tests"),
   );
   try {
     await fs.access(path.join(projectRoot, ".scaffold", "cache"));
@@ -82,14 +82,14 @@ async function main() {
     : [context.test.entries];
   const sourceFiles =
     mode === "xpi-smoke"
-      ? [path.join(projectRoot, "test/zotero/compatibility/xpi/suite.test.ts")]
+      ? [path.join(projectRoot, "tests/zotero/compatibility/xpi/suite.test.ts")]
       : [
           ...configuredEntries.map((entry) =>
             path.resolve(projectRoot, String(entry), "suite.test.ts"),
           ),
           path.join(
             projectRoot,
-            "test/zotero/compatibility/probe/suite.test.ts",
+            "tests/zotero/compatibility/probe/suite.test.ts",
           ),
         ];
   context.test.entries = [await createEntryProxy(runRoot, mode, sourceFiles)];

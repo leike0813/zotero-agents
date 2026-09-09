@@ -3,7 +3,7 @@
 // Backend Manager dialog page regions (Preact), migrated from the
 // hand-written addon/content/dashboard/backend-manager.js. Action names,
 // payload shapes, label fallbacks, and class names mirror the frozen wire
-// contract with the host (src/modules/backendManager.ts); the host localizes
+// contract with the host (src/modules/workflow/settings/backendManager.ts); the host localizes
 // every label and ships them in the snapshot's labels map, so the page never
 // calls FTL itself.
 

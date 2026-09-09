@@ -78,13 +78,13 @@ Structured artifact import SHALL validate against the repository's versioned con
 #### Scenario: References schema is validated by the contract owner
 - **WHEN** canonical references JSON is imported
 - **THEN** validation SHALL use the declared contract-set version
-- **AND** runtime SHALL not read the external `reference/Skill-Runner` tree
+- **AND** runtime SHALL not read the external `references/Skill-Runner` tree
 - **AND** unknown fields and aliases SHALL fail closed.
 
 #### Scenario: References schema copy is used for validation
 - **WHEN** references JSON is imported by a legacy-compatible workflow adapter
 - **THEN** the adapter SHALL resolve the declared schema through the contract-set owner
-- **AND** runtime SHALL not depend on reading the external `reference/Skill-Runner` tree.
+- **AND** runtime SHALL not depend on reading the external `references/Skill-Runner` tree.
 
 #### Scenario: Citation analysis schema is validated by the contract owner
 - **WHEN** canonical citation-analysis JSON is imported
@@ -120,4 +120,3 @@ Literature score export and import SHALL preserve the native
 - **THEN** the score payload SHALL be preserved
 - **AND** derived image attachment keys SHALL be remapped or rebuilt without
   changing the score JSON.
-

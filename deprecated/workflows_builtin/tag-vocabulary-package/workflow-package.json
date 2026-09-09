@@ -1,8 +1,0 @@
-{
-  "id": "tag-vocabulary-package",
-  "version": "1.0.0",
-  "workflows": [
-    "tag-manager/workflow.json",
-    "tag-regulator/workflow.json"
-  ]
-}
