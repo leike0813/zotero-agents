@@ -16,7 +16,6 @@ describe("workspace toolbar running tasks popover", function () {
     const acpProjection = await readProjectFile(
       "src/modules/acp/skillRun/acpSkillRunTaskProjection.ts",
     );
-    const dashboard = await readProjectFile("src/modules/taskManagerDialog.ts");
     const popover = await readProjectFile(
       "src/modules/workspaceToolbarTaskPopover.ts",
     );
@@ -30,8 +29,6 @@ describe("workspace toolbar running tasks popover", function () {
     assert.include(helper, "PASS_THROUGH_BACKEND_TYPE");
     assert.include(helper, "getVisibleAcpSkillRunRequestIds");
     assert.include(helper, "isActiveAcpSkillRunStatus(run.status)");
-    assert.include(dashboard, "projectDashboardActiveTasks");
-    assert.notInclude(dashboard, "function isVisibleDashboardActiveTask");
     assert.include(popover, "listDashboardActiveTasksForPopover");
   });
 

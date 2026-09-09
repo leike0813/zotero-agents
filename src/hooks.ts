@@ -30,7 +30,7 @@ import {
   setContentPackageInstallProgress,
 } from "./modules/workflow/catalog/contentPackageSubscription";
 import { openBackendManagerDialog } from "./modules/workflow/settings/backendManager";
-import { openTaskManagerDialog } from "./modules/taskManagerDialog";
+import { openTaskDashboard } from "./modules/dashboardHost";
 import {
   notifySynthesisWorkbenchLibraryItemsChanged,
   prewarmSynthesisWorkbenchSurfaces,
@@ -1360,7 +1360,7 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       });
       break;
     case "openWorkflowSettings":
-      await openTaskManagerDialog({
+      await openTaskDashboard({
         initialTabKey: "workflow-options",
         initialWorkflowId:
           typeof data.workflowId === "string" ? data.workflowId : undefined,
@@ -1374,9 +1374,6 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       }
       break;
     }
-    case "openTaskManager":
-      await openTaskManagerDialog();
-      break;
     case "openDashboard":
       await openZoteroSkillsWorkspaceTab({
         window: data.window,
@@ -1495,7 +1492,7 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       });
       break;
     case "openLogViewer":
-      await openTaskManagerDialog({
+      await openTaskDashboard({
         initialTabKey: "runtime-logs",
       });
       break;

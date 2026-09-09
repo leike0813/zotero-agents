@@ -17,7 +17,7 @@ import type {
 //
 // Action names and payload shapes mirror the legacy implementation
 // (addon/content/dashboard/app.js renderAcpTraceRecorder/renderAcpReplayProfiler,
-// :2968-3551) and the host handler in src/modules/taskManagerDialog.ts:
+// and the host handler in src/modules/dashboard/dashboardActions.ts:
 //   acp-trace-recorder-start        { sourceKind, maxBytes, maxEvents, maxEventBytes }
 //   acp-trace-recorder-finish       {}
 //   acp-trace-recorder-cancel       {}

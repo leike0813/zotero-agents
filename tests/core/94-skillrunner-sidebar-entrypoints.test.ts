@@ -11,14 +11,6 @@ async function readProjectFile(relativePath: string) {
 }
 
 describe("skillrunner sidebar entrypoints", function () {
-  it("routes dashboard open-run actions to the unified Assistant workspace", async function () {
-    const ts = await readProjectFile("src/modules/taskManagerDialog.ts");
-    assert.include(ts, "openAssistantWorkspaceSidebar");
-    assert.notInclude(ts, "await openSkillRunnerRunDialog({");
-    assert.include(ts, 'if (action === "open-running-task")');
-    assert.include(ts, 'if (action === "open-run")');
-  });
-
   it("keeps compatibility menu actions but forwards them through the Assistant workspace host", async function () {
     const workflowMenu = await readProjectFile(
       "src/modules/workflow/ui/workflowMenu.ts",

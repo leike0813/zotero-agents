@@ -1441,10 +1441,10 @@ function resolveRunWorkspaceStatusLabel(value: string) {
   }
   const normalized = normalizeStatus(value, "running");
   if (normalized === "queued") {
-    return localize("task-manager-status-queued", "Queued");
+    return localize("task-dashboard-status-queued", "Queued");
   }
   if (normalized === "running") {
-    return localize("task-manager-status-running", "Running");
+    return localize("task-dashboard-status-running", "Running");
   }
   if (normalized === "waiting_user") {
     return localize("task-dashboard-status-waiting-user", "Waiting User");

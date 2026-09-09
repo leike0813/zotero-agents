@@ -27,7 +27,7 @@ import type {
 // descriptor whenever the descriptor's draft-bearing content changes; field
 // edits mutate the draft in place and emit workflow-settings-draft actions.
 // Debounced persistence lives on the host (420 ms save timer in
-// taskManagerDialog), which echoes applied drafts back through the
+// Dashboard Host), which echoes applied drafts back through the
 // descriptor — an echo with changed draft content resets local state and
 // remounts the settings shell, matching the legacy full-form rebuild.
 //

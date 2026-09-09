@@ -145,41 +145,4 @@ describe("skillrunner sidebar host runtime", function () {
     assert.include(foregroundContinuation, `type: "submit.local_created"`);
     assert.include(foregroundContinuation, `type: "submit.request_creating"`);
   });
-
-  it("hosts SkillRunner management UI inside the Dashboard backend tab", async function () {
-    const taskManager = await readProjectFile(
-      "src/modules/taskManagerDialog.ts",
-    );
-    const workspaceTab = await readProjectFile("src/modules/workspaceTab.ts");
-    const backendRegion = await readProjectFile(
-      "src/dashboard/components/BackendRegion.tsx",
-    );
-    const dashboardCss = await readProjectFile(
-      "addon/content/dashboard/styles.css",
-    );
-
-    assert.include(taskManager, "selectedBackendSubviewById");
-    assert.include(taskManager, "managementUiUrl");
-    assert.include(workspaceTab, "initialDashboardTabKey");
-    assert.include(workspaceTab, "initialDashboardBackendSubview");
-    assert.include(workspaceTab, "pendingDashboardSelection");
-    assert.include(workspaceTab, "runtime.dashboardRuntime.selectTab");
-    assert.include(workspaceTab, "createManagementHost");
-    assert.include(workspaceTab, "skillrunner-management-workspace-host");
-    assert.include(workspaceTab, "skillrunner-management-workspace-frame");
-    assert.include(workspaceTab, "clearManagementOverlay");
-    assert.include(taskManager, 'action === "open-management"');
-    assert.include(taskManager, 'action === "show-runs"');
-    assert.include(taskManager, 'action === "mount-management-host"');
-    assert.include(taskManager, 'action === "open-management-external"');
-    assert.include(taskManager, "args.managementHost.mount");
-    assert.include(backendRegion, "function SkillRunnerManagementSubview");
-    assert.include(backendRegion, "skillrunner-management-dashboard-host");
-    assert.include(backendRegion, 'onAction("mount-management-host"');
-    assert.include(backendRegion, 'onAction("show-runs"');
-    assert.include(backendRegion, 'onAction("open-management-external"');
-    assert.include(dashboardCss, ".management-host-panel");
-    assert.include(dashboardCss, ".management-host-mount");
-    assert.include(dashboardCss, ".management-host-frame");
-  });
 });

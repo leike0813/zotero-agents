@@ -3875,14 +3875,6 @@ describe("Synthesis tab UI model", function () {
       "addon/content/zoteroPane.css",
       "utf8",
     );
-    const dashboardHomeRegion = await fs.readFile(
-      "src/dashboard/components/HomeRegion.tsx",
-      "utf8",
-    );
-    const dashboardCss = await fs.readFile(
-      "addon/content/dashboard/styles.css",
-      "utf8",
-    );
     const config = await fs.readFile("zotero-plugin.config.ts", "utf8");
 
     assert.include(host, "Zotero_Tabs.add");
@@ -3909,7 +3901,6 @@ describe("Synthesis tab UI model", function () {
     assert.include(host, "onSelect");
     assert.include(host, "isAssistantWorkspaceSidebarOpen");
     assert.include(host, "sidebarOpen");
-    assert.notInclude(host, "openTaskManagerDialog");
     assert.notInclude(host, "import { openSynthesisWorkbenchTab");
     assert.include(host, "dashboard-mount-ready");
     assert.include(host, "synthesis-mount-ready");
@@ -3998,16 +3989,6 @@ describe("Synthesis tab UI model", function () {
     assert.include(css, "-moz-appearance: none");
     assert.include(css, "--workspace-control-bg");
     assert.include(css, "--workspace-control-bg: #dbeafe");
-    assert.include(dashboardHomeRegion, '<td class="center-cell">');
-    assert.include(
-      dashboardHomeRegion,
-      "<span class={row.statusClass}>{row.statusText}</span>",
-    );
-    assert.include(
-      dashboardHomeRegion,
-      '<td class="center-cell">{row.updatedAtText}</td>',
-    );
-    assert.include(dashboardCss, "td.center-cell");
     assert.include(css, "background: var(--workspace-control-bg)");
     assert.include(css, "box-shadow: var(--workspace-control-shadow)");
     assert.include(css, ".toolbar-icon");

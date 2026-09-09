@@ -1,7 +1,7 @@
 # dashboard-management-auth Specification
 
 ## Purpose
-TBD - created by archiving change reset-task-manager-to-dashboard. Update Purpose after archive.
+Define how the Dashboard Host authenticates SkillRunner management requests without affecting execution-chain credentials.
 ## Requirements
 ### Requirement: Dashboard MUST support management-API Basic Auth for SkillRunner
 系统 MUST 支持 Dashboard 调用 SkillRunner `/v1/management/*` 时的 Basic Auth 录入与重试。
@@ -19,4 +19,3 @@ TBD - created by archiving change reset-task-manager-to-dashboard. Update Purpos
 #### Scenario: 管理 API 凭据不影响执行链鉴权
 - **WHEN** provider 执行 `skillrunner.job.v1`
 - **THEN** 系统 MUST NOT 自动注入 management_auth Basic 凭据
-

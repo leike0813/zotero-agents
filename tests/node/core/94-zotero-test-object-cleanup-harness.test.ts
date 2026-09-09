@@ -186,7 +186,7 @@ describe("zotero test real object cleanup harness", function () {
       resetSkillRunnerRunDialogForTests: async () => {
         order.push("background-cleanup");
       },
-      resetTaskManagerDialogRuntimeForTests: async () => undefined,
+      resetTaskDashboardHostForTests: async () => undefined,
       resetSkillRunnerTaskReconcilerForTests: async () => undefined,
       resetSkillRunnerSessionSyncForTests: async () => undefined,
       stopSkillRunnerModelCacheAutoRefresh: () => undefined,

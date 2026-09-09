@@ -60,10 +60,6 @@ describe("shallow re-export facades", function () {
         path: "../../../workflows/triggerPolicy",
       },
       {
-        file: "src/modules/taskManagerDialog.ts",
-        path: "../workflows/triggerPolicy",
-      },
-      {
         file: "src/modules/hostBridge/workflow/hostBridgeWorkflowControl.ts",
         path: "../../../workflows/triggerPolicy",
       },

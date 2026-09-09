@@ -32,8 +32,8 @@ describe("zotero test background cleanup harness", function () {
       resetSkillRunnerRunDialogForTests: async () => {
         calls.push("resetSkillRunnerRunDialogForTests");
       },
-      resetTaskManagerDialogRuntimeForTests: async () => {
-        calls.push("resetTaskManagerDialogRuntimeForTests");
+      resetTaskDashboardHostForTests: async () => {
+        calls.push("resetTaskDashboardHostForTests");
       },
       resetSkillRunnerTaskReconcilerForTests: mark(
         "resetSkillRunnerTaskReconcilerForTests",
@@ -95,7 +95,7 @@ describe("zotero test background cleanup harness", function () {
       "setDefaultSynthesisClientCompositionFactoryForTests",
       "resetDefaultSynthesisClientForTests",
       "resetSkillRunnerRunDialogForTests",
-      "resetTaskManagerDialogRuntimeForTests",
+      "resetTaskDashboardHostForTests",
       "resetSkillRunnerTaskReconcilerForTests",
       "resetSkillRunnerSessionSyncForTests",
       "stopSkillRunnerModelCacheAutoRefresh",
@@ -134,8 +134,8 @@ describe("zotero test background cleanup harness", function () {
       resetSkillRunnerRunDialogForTests: async () => {
         calls.push("resetSkillRunnerRunDialogForTests");
       },
-      resetTaskManagerDialogRuntimeForTests: async () => {
-        calls.push("resetTaskManagerDialogRuntimeForTests");
+      resetTaskDashboardHostForTests: async () => {
+        calls.push("resetTaskDashboardHostForTests");
       },
       resetSkillRunnerTaskReconcilerForTests: async () => {
         calls.push("resetSkillRunnerTaskReconcilerForTests:start");
@@ -156,7 +156,7 @@ describe("zotero test background cleanup harness", function () {
     }
     assert.deepEqual(calls, [
       "resetSkillRunnerRunDialogForTests",
-      "resetTaskManagerDialogRuntimeForTests",
+      "resetTaskDashboardHostForTests",
       "resetSkillRunnerTaskReconcilerForTests:start",
     ]);
 
@@ -179,7 +179,7 @@ describe("zotero test background cleanup harness", function () {
       resetSkillRunnerRunDialogForTests: async () => {
         calls += 1;
       },
-      resetTaskManagerDialogRuntimeForTests: async () => {
+      resetTaskDashboardHostForTests: async () => {
         calls += 1;
       },
       resetSkillRunnerTaskReconcilerForTests: () => {

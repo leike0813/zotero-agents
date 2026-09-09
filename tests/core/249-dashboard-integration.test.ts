@@ -61,6 +61,25 @@ function makeSnapshot(
       tabHome: "Home",
       noHistory: "No runs yet",
       runtimeLogsClearConfirm: "",
+      homeWorkflowTitle: "Workflows",
+      homeWorkflowBuiltinBadge: "Built-in",
+      homeWorkflowCoreBadge: "Core",
+      homeWorkflowRunButton: "Run",
+      homeWorkflowDocButton: "Description",
+      homeWorkflowSettingsButton: "Settings",
+      homeSummaryTitle: "Summary",
+      summaryTotal: "Total",
+      summaryRunning: "Running",
+      summarySucceeded: "Succeeded",
+      summaryFailed: "Failed",
+      summaryCanceled: "Canceled",
+      runningTitle: "Running tasks",
+      noRunning: "Nothing running",
+      colTask: "Task",
+      colWorkflow: "Workflow",
+      colBackend: "Backend",
+      colStatus: "Status",
+      colUpdatedAt: "Updated",
     },
     selectedTabKey: "home",
     tabs: [
@@ -266,6 +285,108 @@ describe("dashboard A2c integration (src/dashboard)", function () {
     assert.ok(productsMount.childNodes.length > 0);
     const homeMount = root.querySelector('[data-region-mount="home"]')!;
     assert.equal(homeMount.childNodes.length, 0);
+  });
+
+  it("renders the running-task columns and routes a row through its wire identity", function () {
+    const { root, controller, sentActions } = createWiredApp();
+    controller.applySnapshot(
+      makeSnapshot({
+        runningRows: [
+          {
+            id: "task-1",
+            workflowId: "wf-1",
+            workflowLabel: "Workflow One",
+            backendId: "backend-1",
+            backendType: "skillrunner",
+            backendLabel: "Backend One (skillrunner)",
+            taskName: "Task One",
+            state: "running",
+            stateSemantics: {
+              normalized: "running",
+              terminal: false,
+              waiting: false,
+            },
+            stateLabel: "Running",
+            runKey: "run-1",
+            requestId: "request-1",
+            requestKind: "skillrunner.job.v1",
+            createdAt: "2026-09-05T00:00:00.000Z",
+            updatedAt: "2026-09-05T00:00:01.000Z",
+          },
+        ],
+      }),
+    );
+
+    assert.deepEqual(
+      Array.from(root.querySelectorAll("thead th"), (cell) => cell.textContent),
+      ["Task", "Workflow", "Backend", "Status", "Updated"],
+    );
+    const row = root.querySelector<HTMLTableRowElement>("tbody tr.clickable");
+    assert.ok(row, "running row exists");
+    row!.click();
+    assert.deepEqual(sentActions, [
+      {
+        action: "open-running-task",
+        payload: {
+          taskId: "task-1",
+          backendId: "backend-1",
+          backendType: "skillrunner",
+          runKey: "run-1",
+          requestId: "request-1",
+          requestKind: "skillrunner.job.v1",
+        },
+      },
+    ]);
+  });
+
+  it("renders workflow identity and routes its available actions", function () {
+    const { root, controller, sentActions } = createWiredApp();
+    controller.applySnapshot(
+      makeSnapshot({
+        homeWorkflows: [
+          {
+            workflowId: "wf-1",
+            workflowLabel: "Workflow One",
+            providerId: "provider-1",
+            configurable: true,
+            official: true,
+            core: true,
+            quickRunEnabled: true,
+          },
+        ],
+      }),
+    );
+
+    assert.equal(
+      root.querySelector(".workflow-bubble-title-text")?.textContent,
+      "Workflow One",
+    );
+    assert.equal(
+      root.querySelector(".workflow-bubble-official-badge")?.textContent,
+      "Built-in",
+    );
+    assert.equal(
+      root.querySelector(".workflow-bubble-core-badge")?.textContent,
+      "Core",
+    );
+    for (const label of ["Run", "Description", "Settings"]) {
+      const button = root.querySelector<HTMLButtonElement>(
+        `button[aria-label="${label}"]`,
+      );
+      assert.ok(button, `${label} action exists`);
+      button!.click();
+    }
+    assert.deepEqual(sentActions, [
+      { action: "run-home-workflow", payload: { workflowId: "wf-1" } },
+      {
+        action: "open-home-workflow-doc",
+        payload: { workflowId: "wf-1" },
+      },
+      {
+        action: "open-home-workflow-settings",
+        payload: { workflowId: "wf-1" },
+      },
+    ]);
   });
 
   it("restores the latest workflow README scroll after close and reopen, but not for another workflow", function () {

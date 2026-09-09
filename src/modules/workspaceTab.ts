@@ -11,7 +11,7 @@ import {
   type DashboardManagementHost,
   mountTaskDashboardRuntime,
   type MountedTaskDashboardRuntime,
-} from "./taskManagerDialog";
+} from "./dashboardHost";
 import {
   closeAssistantWorkspaceSidebar,
   isAssistantWorkspaceSidebarOpen,

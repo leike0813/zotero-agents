@@ -36,6 +36,10 @@ _Avoid_: Tool text helper, mirror-specific tool display
 The read-only interpretation of one workflow job's local queue and canonical lifecycle facts, yielding both a terminal conclusion (missing, pending, locally ready, canonically ready) and a normalized slot status for the run seam.
 _Avoid_: Terminal outcome, completion, job state
 
+**Dashboard Host**:
+The Zotero-process owner that composes Task Dashboard state, snapshots, actions, frame lifecycle, refresh scheduling, and cleanup behind the stable `dashboardHost.ts` lifecycle interface. The page renderer and wire contract remain separate owners.
+_Avoid_: Task manager dialog, Dashboard page, Dashboard wire contract
+
 **Zotero Host Capability Broker**:
 The canonical process-local, JSON-safe capability interface for Zotero context, navigation, bounded library reads, metadata translation, and controlled mutations. It owns host capability semantics but not transport, authorization, approval, exposure, or remote file locality.
 _Avoid_: Workflow hostApi, Host Bridge API, MCP tool registry

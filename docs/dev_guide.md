@@ -155,7 +155,8 @@ profile 时反馈，不能作为菜单门禁。
 Dashboard 当前能力：
 
 - Browser-hosted 本地 Web 面板：
-  - host：`src/modules/taskManagerDialog.ts`
+  - host 入口：`src/modules/dashboardHost.ts`
+  - host 私有实现：`src/modules/dashboard/`
   - web panel：`addon/content/dashboard/*`
   - host/web 桥接：`dashboard:init` / `dashboard:snapshot` / `dashboard:action`
 - 整页 tab：

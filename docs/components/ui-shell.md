@@ -26,12 +26,12 @@
 
 ## Dashboard（当前实现）
 
-- 使用 `openTaskManagerDialog` 作为兼容入口函数，实际呈现为 browser-hosted 的 `Task Dashboard`。
+- 使用 `openTaskDashboard` 打开 browser-hosted 的 `Task Dashboard`。
 - 入口事件：
-  - 新事件 `openDashboard`
-  - 兼容别名 `openTaskManager`（内部转发到同一打开逻辑）
+  - `openDashboard` 打开 Zotero Agents Workspace 的 Dashboard 视图
 - 承载方式：
-  - host：`src/modules/taskManagerDialog.ts`
+  - host 入口：`src/modules/dashboardHost.ts`
+  - host 私有实现：`src/modules/dashboard/`
   - web panel：`addon/content/dashboard/*`
   - host/web 桥接消息：`dashboard:init` / `dashboard:snapshot` / `dashboard:action`
 - 页面信息架构（整页 tab）：

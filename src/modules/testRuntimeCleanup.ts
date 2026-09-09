@@ -17,7 +17,7 @@ import { resetWorkflowTasks } from "./taskRuntime";
 import { resetSkillRunnerSessionSyncForTests } from "./skillRunner/run/skillRunnerSessionSyncManager";
 import { resetSkillRunnerRunDialogForTests } from "./skillRunner/surface/skillRunnerRunDialog";
 import { resetSkillRunnerAutoReplyObserverForTests } from "./skillRunner/run/skillRunnerAutoReplyObserver";
-import { resetTaskManagerDialogRuntimeForTests } from "./taskManagerDialog";
+import { resetTaskDashboardHostForTests } from "./dashboardHost";
 import { resetWorkflowSettingsReadDiagnosticsForTests } from "./workflow/settings/workflowSettings";
 import { resetTestPerformanceProbeHooksForTests } from "./testPerformanceProbeBridge";
 import { resetWorkflowHostApiForTests } from "../workflows/hostApi";
@@ -53,7 +53,7 @@ type CleanupDeps = {
   resetSkillRunnerTaskReconcilerForTests: () => void | Promise<void>;
   resetSkillRunnerRunDialogForTests: () => void | Promise<void>;
   resetSkillRunnerAutoReplyObserverForTests: () => void;
-  resetTaskManagerDialogRuntimeForTests: () => void | Promise<void>;
+  resetTaskDashboardHostForTests: () => void | Promise<void>;
   resetWorkflowSettingsReadDiagnosticsForTests: () => void;
   resetTestPerformanceProbeHooksForTests: () => void;
   resetWorkflowHostApiForTests: () => void;
@@ -87,7 +87,7 @@ const defaultCleanupDeps: CleanupDeps = {
   resetSkillRunnerTaskReconcilerForTests,
   resetSkillRunnerRunDialogForTests,
   resetSkillRunnerAutoReplyObserverForTests,
-  resetTaskManagerDialogRuntimeForTests,
+  resetTaskDashboardHostForTests,
   resetWorkflowSettingsReadDiagnosticsForTests,
   resetTestPerformanceProbeHooksForTests,
   resetWorkflowHostApiForTests,
@@ -124,7 +124,7 @@ export async function cleanupBackgroundRuntimeForZoteroTests() {
   );
   await Promise.resolve(cleanupDeps.resetSkillRunnerRunDialogForTests());
   cleanupDeps.resetSkillRunnerAutoReplyObserverForTests();
-  await Promise.resolve(cleanupDeps.resetTaskManagerDialogRuntimeForTests());
+  await Promise.resolve(cleanupDeps.resetTaskDashboardHostForTests());
   await Promise.resolve(cleanupDeps.resetSkillRunnerTaskReconcilerForTests());
   await Promise.resolve(cleanupDeps.resetSkillRunnerSessionSyncForTests());
   cleanupDeps.stopSkillRunnerModelCacheAutoRefresh();

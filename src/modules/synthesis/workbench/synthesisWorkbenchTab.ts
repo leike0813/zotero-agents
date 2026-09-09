@@ -81,7 +81,7 @@ import { registerBackgroundRefreshTimer } from "../../backgroundRefreshGovernanc
 import { delay, yieldToEventLoop } from "../../../utils/runtimeCompatibility";
 import { BUILTIN_STATUS_FACET, isBuiltinStatusTag } from "../builtinTagPolicy";
 import { readSynthesisSidecarTraceSnapshot } from "../sidecar/synthesisSidecarTrace";
-import { openTaskManagerDialog } from "../../taskManagerDialog";
+import { openTaskDashboard } from "../../dashboardHost";
 import { recoverDefaultSynthesisProductionOwner } from "../production/synthesisProductionOwner";
 import { isSynthesisLiteratureScoreInvalidationEvent } from "../itemObserver";
 import {
@@ -2782,7 +2782,7 @@ function handleAction(
     return;
   }
   if (envelope.action === "openSynthesisSidecarDiagnostics") {
-    void openTaskManagerDialog({
+    void openTaskDashboard({
       initialTabKey: "synthesis-sidecar",
       chromeWindow: runtime.window,
     });

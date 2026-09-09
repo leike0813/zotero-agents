@@ -148,7 +148,7 @@ tabs, replay tooling) enters through these functions:
 |---|---|---|
 | `installAssistantWorkspaceSidebarShell(win)` | `(win: _ZoteroTypes.MainWindow) => AssistantWorkspaceHostRuntime` | Create or return the per-window host runtime: mounts the shell into the library and reader sidebar docks, starts the shell handshake and message listener. Called by `hooks.ts` on startup and lazily by the open/toggle paths. |
 | `removeAssistantWorkspaceSidebarShell(win)` | `(win) => void` | Tear down the host on window close/unload (`hooks.ts`). |
-| `openAssistantWorkspaceSidebar(args?)` | `async (args?: { window?; tab?; backend?; requestId?; runKey?; target? }) => Promise<boolean>` | Open the sidebar, optionally switch tab and select a specific run (`requestId` for ACP Skills, `runKey` for SkillRunner). Callers: hooks menus, `taskManagerDialog`, `workspaceTab`, `acpSkillRunForeground`. |
+| `openAssistantWorkspaceSidebar(args?)` | `async (args?: { window?; tab?; backend?; requestId?; runKey?; target? }) => Promise<boolean>` | Open the sidebar, optionally switch tab and select a specific run (`requestId` for ACP Skills, `runKey` for SkillRunner). Callers: hooks menus, Dashboard Host actions, `workspaceTab`, `acpSkillRunForeground`. |
 | `closeAssistantWorkspaceSidebar(args?)` | `(args?: { window? }) => boolean` | Close the active dock. Callers: hooks, `workspaceTab`, `markdownAttachmentTab`. |
 | `isAssistantWorkspaceSidebarOpen(args?)` | `(args?: { window? }) => boolean` | Open-state query for the same callers. |
 | `toggleAssistantWorkspaceSidebar(args?)` | `async (args?: { window?; tab?; target? }) => Promise<boolean>` | Toggle command; a tab switch on an already-open sidebar re-publishes a state pulse instead of closing. |

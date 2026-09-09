@@ -3,6 +3,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { config } from "../../package.json";
 import { buildAcpSkillRunPanelSnapshot } from "../helpers/acpSkillRunWorkspaceHarness";
+import {
+  createDashboardRuntimeHarness,
+  flushDashboardRuntime,
+  replaceGlobalProperty,
+} from "../helpers/dashboardHostHarness";
 import type { JobRecord } from "../../src/jobQueue/manager";
 import {
   getBackendsRegistryReadDiagnosticsForTests,
@@ -42,14 +47,15 @@ import {
 } from "../../src/modules/taskDashboardHistory";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 import {
+  getBackgroundRefreshGovernanceSnapshotForTests,
   getBackgroundRefreshReadDiagnosticsForTests,
   recordBackgroundRefreshRead,
   resetBackgroundRefreshGovernanceForTests,
 } from "../../src/modules/backgroundRefreshGovernance";
 import {
   mountTaskDashboardRuntime,
-  resetTaskManagerDialogRuntimeForTests,
-} from "../../src/modules/taskManagerDialog";
+  resetTaskDashboardHostForTests,
+} from "../../src/modules/dashboardHost";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import { resetAcpRuntimeReplayControllerForTests } from "../../src/modules/acp/diagnostics/acpRuntimeReplayController";
 import {
@@ -220,105 +226,6 @@ function seedBackendsPref() {
       ],
     }),
   );
-}
-
-function createDashboardRuntimeHarness() {
-  let intervalCallback: (() => void) | undefined;
-  let messageCallback: ((event: { data: unknown }) => void) | undefined;
-  const alerts: string[] = [];
-  const frameWindow = {
-    posted: [] as unknown[],
-    postMessage(message: unknown) {
-      this.posted.push(message);
-    },
-  };
-  const frame = {
-    contentWindow: frameWindow,
-    style: {} as Record<string, string>,
-    setAttribute() {
-      // no-op
-    },
-    addEventListener() {
-      // load is not needed; mountTaskDashboardRuntime also refreshes on init.
-    },
-    remove() {
-      // no-op
-    },
-  };
-  const document = {
-    createElement() {
-      return frame;
-    },
-  };
-  const root = {
-    innerHTML: "",
-    ownerDocument: document,
-    appendChild() {
-      // no-op
-    },
-  };
-  const hostWindow = {
-    document,
-    setInterval(callback: () => void) {
-      intervalCallback = callback;
-      return 1;
-    },
-    clearInterval() {
-      // no-op
-    },
-    setTimeout(callback: () => void) {
-      return setTimeout(callback, 0) as unknown as number;
-    },
-    clearTimeout(timer: number) {
-      clearTimeout(timer as unknown as ReturnType<typeof setTimeout>);
-    },
-    addEventListener(
-      type: string,
-      callback: (event: { data: unknown }) => void,
-    ) {
-      if (type === "message") messageCallback = callback;
-    },
-    removeEventListener() {
-      // no-op
-    },
-    alert(message: string) {
-      alerts.push(message);
-    },
-  };
-  return {
-    root: root as unknown as HTMLElement,
-    hostWindow: hostWindow as unknown as Window,
-    frameWindow,
-    alerts,
-    dispatchAction(action: string, payload: Record<string, unknown>) {
-      messageCallback?.({
-        data: { type: "dashboard:action", action, payload },
-      });
-    },
-    runInterval() {
-      intervalCallback?.();
-    },
-  };
-}
-
-function replaceGlobalProperty(key: string, value: unknown) {
-  const runtime = globalThis as Record<string, unknown>;
-  const previous = Object.getOwnPropertyDescriptor(runtime, key);
-  Object.defineProperty(runtime, key, {
-    configurable: true,
-    value,
-    writable: true,
-  });
-  return () => {
-    if (previous) Object.defineProperty(runtime, key, previous);
-    else delete runtime[key];
-  };
-}
-
-async function flushDashboardRuntime() {
-  for (let index = 0; index < 5; index += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  }
 }
 
 describe("background refresh governance", function () {
@@ -895,6 +802,13 @@ describe("background refresh governance", function () {
     });
     await flushDashboardRuntime();
 
+    assert.deepInclude(
+      getBackgroundRefreshGovernanceSnapshotForTests().map(
+        ({ owner, intervalMs }) => ({ owner, intervalMs }),
+      ),
+      { owner: "task-dashboard-refresh", intervalMs: 1200 },
+    );
+
     resetSkillRunnerRunStoreReadDiagnosticsForTests();
     resetBackendsRegistryReadDiagnosticsForTests();
     resetBackgroundRefreshGovernanceForTests();
@@ -980,27 +894,6 @@ describe("background refresh governance", function () {
     }
   });
 
-  it("keeps runtime log refreshes independent from full snapshots", function () {
-    const source = readFileSync(
-      join(process.cwd(), "src/modules/taskManagerDialog.ts"),
-      "utf8",
-    );
-    const runtimeLogsBranch = source.slice(
-      source.indexOf('resolvedSelectedTabKey === "runtime-logs"'),
-      source.indexOf(
-        'resolvedSelectedTabKey === "skillrunner-connection-audit"',
-      ),
-    );
-    assert.include(runtimeLogsBranch, "getRuntimeLogSummary");
-    assert.include(runtimeLogsBranch, "limit: 300");
-    assert.notInclude(runtimeLogsBranch, "snapshotRuntimeLogs");
-    const skipBlock = source.slice(
-      source.indexOf("const shouldSkipRefresh"),
-      source.indexOf("const enqueueRefresh"),
-    );
-    assert.notInclude(skipBlock, 'state.selectedTabKey === "runtime-logs"');
-  });
-
   it("publishes a visible Replay failure when the host has no AbortController", async function () {
     setDebugModeOverrideForTests(true);
     resetAcpRuntimeReplayControllerForTests();
@@ -1037,7 +930,7 @@ describe("background refresh governance", function () {
       runtime.cleanup();
       restoreAbortController();
       resetAcpRuntimeReplayControllerForTests();
-      await resetTaskManagerDialogRuntimeForTests();
+      await resetTaskDashboardHostForTests();
       setDebugModeOverrideForTests();
     }
   });
@@ -1120,7 +1013,6 @@ describe("background refresh governance", function () {
       "src/modules/skillRunner/connection/skillRunnerBackendReachabilityCoordinator.ts",
       "src/modules/skillRunner/runtime/skillRunnerLocalRuntimeManager.ts",
       "src/modules/synthesis/workbench/synthesisWorkbenchTab.ts",
-      "src/modules/taskManagerDialog.ts",
       "src/modules/workspaceTab.ts",
       "src/modules/workspaceToolbarTaskPopover.ts",
     ];
@@ -1133,7 +1025,6 @@ describe("background refresh governance", function () {
       "managed-local-runtime-auto-ensure",
       "synthesis-command-progress",
       "synthesis-workbench-handshake",
-      "task-dashboard-refresh",
       "workspace-tab-handshake",
       "workspace-toolbar-task-popover-refresh",
     ];
