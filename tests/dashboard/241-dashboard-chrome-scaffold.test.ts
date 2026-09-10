@@ -194,6 +194,43 @@ describe("dashboard chrome scaffold (src/dashboard)", function () {
     assert.equal(tabbar!.querySelectorAll(".tab-divider").length, 1);
   });
 
+  it("renders system tab icons from the existing zs-icon series", function () {
+    const { root } = renderPanelIntoRoot(
+      projectDashboardPanel(
+        makeSnapshot({
+          tabs: [
+            { key: "home", label: "Home", group: "system" },
+            { key: "migrations", label: "Migrations", group: "system" },
+            { key: "runtime-logs", label: "Logs", group: "system" },
+          ],
+        }),
+        idleUi(),
+      ),
+    );
+    const tabbar = root.querySelector('[data-role="dashboard-tabbar"]');
+    assert.ok(tabbar, "tabbar container exists");
+    const expectedByLabel: Array<[string, string]> = [
+      ["Home", "zs-icon-home"],
+      ["Migrations", "zs-icon-refresh"],
+    ];
+    expectedByLabel.forEach(([label, variant]) => {
+      const button = Array.from(
+        tabbar!.querySelectorAll("button.tab-btn"),
+      ).find((candidate) => (candidate.textContent || "").includes(label));
+      assert.ok(button, `tab button for ${label} not found`);
+      const icon = button!.querySelector(".tab-btn-icon");
+      assert.ok(icon, `tab-btn-icon missing for ${label}`);
+      assert.isTrue(
+        icon!.classList.contains("zs-icon"),
+        `tab-btn-icon for ${label} must include the base zs-icon class`,
+      );
+      assert.isTrue(
+        icon!.classList.contains(variant),
+        `tab-btn-icon for ${label} must include ${variant}`,
+      );
+    });
+  });
+
   it("tab click updates local state and emits the legacy select-tab action", function () {
     const ui = idleUi();
     const panel = projectDashboardPanel(makeSnapshot(), ui);

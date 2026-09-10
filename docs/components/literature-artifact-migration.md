@@ -32,6 +32,11 @@ and its region signature contains only bounded view facts. Selecting the tab,
 opening history, or deep-linking to a run does not scan or write. Scan/apply
 are dispatched only from the explicit local actions.
 
+This migration is scoped to the Zotero personal library. Before a preview or
+run exists, the Dashboard projection supplies `Zotero.Libraries.userLibraryID`;
+the region does not own a separate library selector or infer a library from UI
+selection.
+
 ## Converter
 
 `convertLegacyArtifactSet()` is the only legacy conversion entry point. The

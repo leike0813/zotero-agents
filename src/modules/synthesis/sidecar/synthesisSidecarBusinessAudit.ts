@@ -1,5 +1,6 @@
 import productionOperations from "../../../../packages/synthesis-contracts/contract-set/synthesis-production-client-v1/operations.json";
 import type { SynthesisSidecarProductionClientCapability } from "../../../../packages/synthesis-contracts/src/sidecarSystem";
+import type { SynthesisWorkbenchSurfaceName } from "../../../../packages/synthesis-contracts/src/workbench";
 import { appendRuntimeLog } from "../../runtimeLogManager";
 import { synthesisProductionOperationPolicy } from "../production/synthesisProductionRpcPolicy";
 
@@ -35,6 +36,9 @@ export type SynthesisSidecarBusinessAuditDetails = {
     | "invalid"
     | "internal";
   semanticStatus?: string;
+  surface?: SynthesisWorkbenchSurfaceName;
+  schemaRef?: string;
+  violations?: Array<{ keyword: string; pointer: string }>;
 };
 
 const manifest = productionOperations as Manifest;
@@ -135,6 +139,7 @@ function write(details: SynthesisSidecarBusinessAuditDetails) {
 export function beginSynthesisSidecarBusinessAudit(args: {
   operation: SynthesisSidecarProductionClientCapability;
   trigger?: SynthesisSidecarBusinessAuditDetails["trigger"];
+  surface?: SynthesisWorkbenchSurfaceName;
   now?: () => number;
 }) {
   const now = args.now ?? Date.now;
@@ -160,6 +165,7 @@ export function beginSynthesisSidecarBusinessAudit(args: {
     write({
       operation: args.operation,
       trigger,
+      ...(args.surface ? { surface: args.surface } : {}),
       stage: "terminal",
       outcome,
       durationMs: Math.max(0, now() - startedAt),
@@ -184,7 +190,39 @@ export function beginSynthesisSidecarBusinessAudit(args: {
       return semantic;
     },
     failed(error: unknown) {
-      finish("failed", { classification: stableCode(error) });
+      const details =
+        error && typeof error === "object" && "details" in error
+          ? (error as { details?: unknown }).details
+          : null;
+      const record =
+        details && typeof details === "object" && !Array.isArray(details)
+          ? (details as Record<string, unknown>)
+          : null;
+      finish("failed", {
+        classification: stableCode(error),
+        ...(record?.sidecarReason === "protocol_result_invalid" &&
+        typeof record.location === "string"
+          ? { schemaRef: record.location }
+          : {}),
+        ...(record?.sidecarReason === "protocol_result_invalid" &&
+        Array.isArray(record.violations)
+          ? {
+              violations: record.violations.flatMap((violation) => {
+                if (!violation || typeof violation !== "object") return [];
+                const row = violation as Record<string, unknown>;
+                return typeof row.keyword === "string" &&
+                  typeof row.instancePath === "string"
+                  ? [
+                      {
+                        keyword: row.keyword,
+                        pointer: row.instancePath,
+                      },
+                    ]
+                  : [];
+              }),
+            }
+          : {}),
+      });
     },
   };
 }

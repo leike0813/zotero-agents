@@ -1073,7 +1073,8 @@ function buildLiteratureArtifactMigrationView(
         )
       : "",
     libraryId:
-      activePreview?.libraryId || Number(displayedEntry?.libraryId || 0),
+      activePreview?.libraryId ||
+      Number(displayedEntry?.libraryId || Zotero.Libraries.userLibraryID),
     activeRun:
       activeSnapshot && activeEntry
         ? migrationRunToDashboardView(activeEntry)

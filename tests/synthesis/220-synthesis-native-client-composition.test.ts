@@ -1611,4 +1611,68 @@ describe("Synthesis native client composition", function () {
       sidecarReason: "citation_graph_basis_changed",
     });
   });
+
+  it("carries protocol validation paths into the failed Review surface audit", async function () {
+    const composition = createNativeSynthesisClientComposition({
+      getReadyConnection: () => ({
+        discovery: {
+          host: "127.0.0.1",
+          port: 1234,
+          profileId: "1".repeat(64),
+          serviceInstanceId: "service-1",
+        },
+        clientToken: "token",
+      }),
+      rpcClient: {
+        async call() {
+          throw new SynthesisSidecarRpcError("response_invalid", {
+            reason: "protocol_result_invalid",
+            location: "schema#/$defs/WorkbenchSurfaceResult",
+            violations: [
+              {
+                keyword: "type",
+                instancePath: "/registry/canonicalRows/0/authors",
+              },
+            ],
+          });
+        },
+      },
+    });
+    let failure: unknown;
+    try {
+      await composition.client.workbench.readSurface({
+        surface: "review",
+        state: toSynthesisWorkbenchReadState(createDefaultSynthesisUiState()),
+      });
+    } catch (error) {
+      failure = error;
+    }
+
+    assert.instanceOf(failure, SynthesisClientError);
+    assert.deepInclude((failure as SynthesisClientError).details!, {
+      sidecarCode: "response_invalid",
+      sidecarReason: "protocol_result_invalid",
+      location: "schema#/$defs/WorkbenchSurfaceResult",
+    });
+    assert.deepEqual((failure as SynthesisClientError).details?.violations, [
+      {
+        keyword: "type",
+        instancePath: "/registry/canonicalRows/0/authors",
+      },
+    ]);
+    const audit = listRuntimeLogs({
+      component: "synthesis-sidecar-business",
+      order: "desc",
+    })[0];
+    assert.deepInclude(audit?.details as Record<string, unknown>, {
+      surface: "review",
+      schemaRef: "schema#/$defs/WorkbenchSurfaceResult",
+    });
+    assert.deepEqual((audit?.details as Record<string, unknown>).violations, [
+      {
+        keyword: "type",
+        pointer: "/registry/canonicalRows/0/authors",
+      },
+    ]);
+  });
 });

@@ -338,6 +338,37 @@ describe("synthesis workbench scaffold (src/synthesis)", function () {
     });
   }
 
+  it("keeps chrome mounted and shows a surface error when Concept rendering throws", function () {
+    const valid = projectHosted(makeSnapshot({ selectedTab: "concepts" }));
+    const { root, renderer } = renderPanelIntoRoot(valid);
+    const shell = root.querySelector('[data-role="synthesis-shell"]');
+    const topbar = root.querySelector('[data-role="synthesis-topbar"]');
+    const malformed = projectHosted(makeSnapshot({ selectedTab: "concepts" }));
+    assert.equal(malformed?.business?.surface, "concepts");
+    (malformed!.business!.selection as { rows: unknown }).rows = null;
+    const reported: unknown[][] = [];
+    const originalConsoleError = console.error;
+    console.error = (...args: unknown[]) => reported.push(args);
+    try {
+      assert.doesNotThrow(() => renderer.renderPanel(malformed));
+    } finally {
+      console.error = originalConsoleError;
+    }
+
+    assert.strictEqual(
+      root.querySelector('[data-role="synthesis-shell"]'),
+      shell,
+    );
+    assert.strictEqual(
+      root.querySelector('[data-role="synthesis-topbar"]'),
+      topbar,
+    );
+    assert.ok(
+      root.querySelector('[data-synthesis-error-code="surface_render_failed"]'),
+    );
+    assert.lengthOf(reported, 1);
+  });
+
   it("bootstrap delivers host messages and detaches its listener on disposal", function () {
     const root = document.createElement("div");
     root.id = "app";
@@ -422,6 +453,19 @@ describe("synthesis workbench scaffold (src/synthesis)", function () {
     ]);
     assert.notInclude(tabs, "reader");
     assert.ok(buttons[0].classList.contains("active"), "home tab is active");
+  });
+
+  it("renders every nav tab icon with the base zs-icon class", function () {
+    const { root } = renderPanelIntoRoot(projectHosted(makeSnapshot()));
+    const shell = root.querySelector('[data-role="synthesis-shell"]');
+    assert.ok(shell, "shell container exists");
+    const buttons = shell!.querySelectorAll("button[data-synthesis-tab]");
+    assert.lengthOf(buttons, 7);
+    buttons.forEach((button) => {
+      const tabKey = button.getAttribute("data-synthesis-tab") || "";
+      const icon = button.querySelector("span.nav-icon > span.zs-icon");
+      assert.ok(icon, `nav-icon span missing for ${tabKey}`);
+    });
   });
 
   it("tab click dispatches the legacy selectTab action", function () {

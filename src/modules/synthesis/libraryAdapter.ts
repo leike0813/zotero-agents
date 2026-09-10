@@ -348,16 +348,24 @@ async function childNotes(
         typeof error === "object" && error && "code" in error
           ? cleanString((error as { code?: unknown }).code)
           : "";
-      if (
-        code !== "invalid_artifact" &&
-        code !== "legacy_artifact_requires_migration"
-      ) {
-        throw error;
-      }
       const details =
         typeof error === "object" && error && "details" in error
           ? (error as { details?: unknown }).details
           : undefined;
+      const ambiguousNote =
+        code === "conflict" &&
+        details !== null &&
+        typeof details === "object" &&
+        !Array.isArray(details) &&
+        (details as { reason?: unknown }).reason === "ambiguous_state" &&
+        (details as { kind?: unknown }).kind === "note";
+      if (
+        code !== "invalid_artifact" &&
+        code !== "legacy_artifact_requires_migration" &&
+        !ambiguousNote
+      ) {
+        throw error;
+      }
       const diagnosticNoteKind =
         details && typeof details === "object" && !Array.isArray(details)
           ? managedNoteKind((details as { noteKind?: unknown }).noteKind) ||
@@ -369,7 +377,7 @@ async function childNotes(
         updatedAt: cleanString(note.revision),
         noteKind: diagnosticNoteKind,
         payload: null,
-        issue: code,
+        issue: ambiguousNote ? "ambiguous_state" : code,
       });
     }
   }
@@ -611,6 +619,7 @@ function payloadBlocksForInput(input: ReferenceSidecarInput) {
   }> = [];
   const payloadTypesSeen: string[] = [];
   const decodeErrors: string[] = [];
+  const untypedDecodeErrors: string[] = [];
   const managedArtifactTypes: Partial<
     Record<ManagedNoteKind, PaperArtifactType>
   > = {
@@ -638,6 +647,11 @@ function payloadBlocksForInput(input: ReferenceSidecarInput) {
         ]
       : [];
     const blocks = directBlocks;
+    if (note.issue && !directType) {
+      const issue = `${cleanString(note.key) || "unknown-note"}:unknown:${note.issue}`;
+      decodeErrors.push(issue);
+      untypedDecodeErrors.push(issue);
+    }
     for (const block of blocks) {
       const payloadType = cleanString(block.payloadType);
       if (payloadType) {
@@ -659,6 +673,7 @@ function payloadBlocksForInput(input: ReferenceSidecarInput) {
       (left, right) => left.localeCompare(right),
     ),
     decodeErrors,
+    untypedDecodeErrors,
   };
 }
 
@@ -851,6 +866,18 @@ export function readArtifactsFromRegistryInputs(
     for (const type of requestedTypes) {
       const found = firstPayloadBlock({ input, scan, artifactType: type });
       if (!found) {
+        if (scan.untypedDecodeErrors.length) {
+          artifacts.push({
+            ...baseProbe,
+            paper_ref: paperRef,
+            artifact_type: type,
+            status: "decode_error",
+            payload_type: PAPER_ARTIFACT_PAYLOAD_TYPES[type],
+            missing_reason: "payload_decode_error",
+            diagnostics: [...scan.untypedDecodeErrors],
+          });
+          continue;
+        }
         diagnostics.push(
           `${paperRef}:${PAPER_ARTIFACT_PAYLOAD_TYPES[type]}:missing`,
         );

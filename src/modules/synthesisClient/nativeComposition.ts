@@ -2,6 +2,7 @@ import {
   SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_ENCODING,
   SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_VERSION,
   SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES,
+  SYNTHESIS_WORKBENCH_SURFACES,
   SynthesisClientError,
   canonicalizeSynthesisContractJsonArtifact,
   hashSynthesisContractCanonicalJson,
@@ -336,6 +337,28 @@ function normalizeRpcError(error: unknown) {
       !hasControlCharacter
         ? detailReason
         : error.code;
+    const location =
+      typeof error.details.location === "string" &&
+      error.details.location.length <= 4096
+        ? error.details.location
+        : "";
+    const violations = Array.isArray(error.details.violations)
+      ? error.details.violations.slice(0, 16).flatMap((violation) => {
+          if (!violation || typeof violation !== "object") return [];
+          const row = violation as Record<string, unknown>;
+          return typeof row.keyword === "string" &&
+            row.keyword.length <= 64 &&
+            typeof row.instancePath === "string" &&
+            row.instancePath.length <= 4096
+            ? [
+                {
+                  keyword: row.keyword,
+                  instancePath: row.instancePath,
+                },
+              ]
+            : [];
+        })
+      : [];
     return new SynthesisClientError(
       error.code === "invalid_request"
         ? "invalid_request"
@@ -345,7 +368,16 @@ function normalizeRpcError(error: unknown) {
           ? "conflict"
           : "unavailable",
       "The native Synthesis request failed",
-      { sidecarCode: error.code, sidecarReason: reason },
+      {
+        sidecarCode: error.code,
+        sidecarReason: reason,
+        ...(reason === "protocol_result_invalid" && location
+          ? { location }
+          : {}),
+        ...(reason === "protocol_result_invalid" && violations.length
+          ? { violations }
+          : {}),
+      },
     );
   }
   return unavailable(
@@ -374,7 +406,26 @@ function createNativePort(args: {
       return async (...methodArgs: unknown[]) => {
         const operation =
           capability as SynthesisSidecarProductionClientCapability;
-        const audit = beginSynthesisSidecarBusinessAudit({ operation });
+        const surfaceCandidate =
+          typeof methodArgs[0] === "string"
+            ? methodArgs[0]
+            : methodArgs[0] &&
+                typeof methodArgs[0] === "object" &&
+                !Array.isArray(methodArgs[0])
+              ? (methodArgs[0] as Record<string, unknown>).surface
+              : undefined;
+        const surface =
+          property === "getSynthesisWorkbenchSurfaceInput" &&
+          typeof surfaceCandidate === "string" &&
+          SYNTHESIS_WORKBENCH_SURFACES.includes(
+            surfaceCandidate as SynthesisWorkbenchSurfaceName,
+          )
+            ? (surfaceCandidate as SynthesisWorkbenchSurfaceName)
+            : undefined;
+        const audit = beginSynthesisSidecarBusinessAudit({
+          operation,
+          ...(surface ? { surface } : {}),
+        });
         const trace = createSynthesisSidecarTraceContext();
         recordSynthesisSidecarTraceEvent({
           context: trace,

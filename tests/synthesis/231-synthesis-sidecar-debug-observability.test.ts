@@ -1,5 +1,6 @@
 import { assert } from "chai";
 import { promises as fs } from "node:fs";
+import { SynthesisClientError } from "../../packages/synthesis-contracts/src";
 import {
   rebuildSynthesisSidecarObservationEvent,
   rebuildSynthesisSidecarTraceContext,
@@ -524,6 +525,71 @@ describe("Synthesis sidecar debug observability", function () {
     });
     assert.notProperty(bodies[1] || {}, "trace");
     assert.lengthOf(events, 2);
+  });
+
+  it("keeps bounded schema locations when a successful RPC body fails result validation", async function () {
+    const events: Record<string, unknown>[] = [];
+    const rpc = createSynthesisSidecarRpcClient({
+      transportErrors: SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
+      recordTraceEvent: (event) => events.push(event),
+      fetch: (async (_input: unknown, init?: RequestInit) => {
+        const request = JSON.parse(String(init?.body || "{}"));
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            requestId: request.requestId,
+            serviceInstanceId: "service-1",
+            data: { privateValue: "must-not-leak" },
+          }),
+          { status: 200 },
+        );
+      }) as typeof fetch,
+    });
+    let failure: unknown;
+    try {
+      await rpc.call({
+        connection: {
+          baseUrl: "http://127.0.0.1:1",
+          profileId: "profile-1",
+          clientToken: "secret-token",
+          serviceInstanceId: "service-1",
+        },
+        capability: "client.getSynthesisWorkbenchSurfaceInput",
+        payload: {},
+        rebuildResult() {
+          throw new SynthesisClientError("internal", "invalid result", {
+            location: "schema#/$defs/WorkbenchSurfaceResult",
+            privateValue: "must-not-leak",
+            violations: [
+              {
+                keyword: "type",
+                instancePath: "/registry/canonicalRows/0/authors",
+                message: "must-not-leak",
+              },
+            ],
+          });
+        },
+      });
+    } catch (error) {
+      failure = error;
+    }
+
+    assert.instanceOf(failure, SynthesisSidecarRpcError);
+    assert.deepEqual((failure as SynthesisSidecarRpcError).details, {
+      reason: "protocol_result_invalid",
+      location: "schema#/$defs/WorkbenchSurfaceResult",
+      violations: [
+        {
+          keyword: "type",
+          instancePath: "/registry/canonicalRows/0/authors",
+        },
+      ],
+    });
+    assert.equal(
+      (events.at(-1)?.identities as Record<string, unknown>).reason,
+      "protocol_result_invalid",
+    );
+    assert.notInclude(JSON.stringify({ failure, events }), "must-not-leak");
   });
 
   it("preserves native operation timeout separately from local transport timeout", async function () {

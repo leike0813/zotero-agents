@@ -42,7 +42,7 @@ describe("literature artifact migration", function () {
     resetLiteratureArtifactMigrationRuntimeForTests();
   });
 
-  it("projects the migration owner's current definition version", async function () {
+  it("projects the current migration version and personal library", async function () {
     const state: DashboardState = {
       backends: [],
       selectedTabKey: "migrations",
@@ -78,6 +78,10 @@ describe("literature artifact migration", function () {
     assert.equal(
       snapshot.literatureArtifactMigrationView?.definitionVersion,
       LITERATURE_ARTIFACT_MIGRATION_DEFINITION_VERSION,
+    );
+    assert.equal(
+      snapshot.literatureArtifactMigrationView?.libraryId,
+      Zotero.Libraries.userLibraryID,
     );
   });
 

@@ -321,6 +321,48 @@ describe("Synthesis Host read capability ports", function () {
     );
   });
 
+  it("reports an ambiguous managed note as decode errors instead of failing the scan", async function () {
+    const libraryId = Zotero.Libraries.userLibraryID;
+    const paper = await createPaper("HOSTAMB1", "Host Ambiguous Artifact");
+    const note = new Zotero.Item("note");
+    note.libraryID = libraryId;
+    note.parentItemID = paper.id;
+    note.setNote(
+      [
+        renderPayloadBlock({
+          payloadType: "references-json",
+          payload: referencesArtifact("Ambiguous Reference"),
+          payloadFormat: "json",
+        }),
+        renderPayloadBlock({
+          payloadType: "citation-analysis-json",
+          payload: { schema: "citation_analysis.v1", items: [] },
+          payloadFormat: "json",
+        }),
+      ].join("\n"),
+    );
+    await note.saveTx();
+    const port = createZoteroSynthesisHostReadPort({ libraryId });
+
+    const scan = await port.artifacts.scanPage({
+      libraryId,
+      paperRefs: [`${libraryId}:${paper.key}`],
+      artifactTypes: ["references", "citation_analysis"],
+      limit: 1,
+    });
+
+    assert.deepEqual(
+      scan.artifacts.map(({ artifactType, status }) => ({
+        artifactType,
+        status,
+      })),
+      [
+        { artifactType: "references", status: "decode_error" },
+        { artifactType: "citation_analysis", status: "decode_error" },
+      ],
+    );
+  });
+
   it("rejects invalid bounds before touching the Host", async function () {
     const port = createZoteroSynthesisHostReadPort({
       libraryId: Zotero.Libraries.userLibraryID,

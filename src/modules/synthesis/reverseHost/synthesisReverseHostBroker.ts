@@ -60,6 +60,11 @@ type EffectResult = {
 const MAX_DEADLINE_AHEAD_MS = 60_000;
 const textEncoder = new TextEncoder();
 
+function diagnosticToken(value: unknown) {
+  const token = typeof value === "string" ? value : "";
+  return /^[a-z][a-z0-9_]{0,63}$/u.test(token) ? token : "";
+}
+
 function failure(
   code: ConstructorParameters<typeof SynthesisClientError>[0],
   reason: string,
@@ -151,6 +156,22 @@ export function createSynthesisReverseHostBroker(options: BrokerOptions) {
       });
       return result;
     } catch (error) {
+      const errorRecord =
+        error && typeof error === "object"
+          ? (error as Record<string, unknown>)
+          : null;
+      const details =
+        errorRecord?.details &&
+        typeof errorRecord.details === "object" &&
+        !Array.isArray(errorRecord.details)
+          ? (errorRecord.details as Record<string, unknown>)
+          : null;
+      const code =
+        (error instanceof SynthesisClientError
+          ? error.code
+          : diagnosticToken(errorRecord?.code)) ||
+        "reverse_host_handler_failed";
+      const reason = diagnosticToken(details?.reason);
       record({
         context: trace,
         source: "host",
@@ -160,11 +181,11 @@ export function createSynthesisReverseHostBroker(options: BrokerOptions) {
           error instanceof SynthesisClientError && error.code === "timeout"
             ? "timed-out"
             : "failed",
-        code:
-          error instanceof SynthesisClientError
-            ? error.code
-            : "reverse_host_handler_failed",
-        identities: { capability: call.capability },
+        code,
+        identities: {
+          capability: call.capability,
+          ...(reason ? { reason } : {}),
+        },
         metrics: { durationMs: Math.max(0, options.now() - startedAt) },
       });
       throw error;

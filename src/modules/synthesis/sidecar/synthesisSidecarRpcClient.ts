@@ -56,6 +56,38 @@ function fail(
   throw new SynthesisSidecarRpcError(code, details);
 }
 
+function protocolResultFailureDetails(error: unknown) {
+  const details =
+    error && typeof error === "object" && "details" in error
+      ? (error as { details?: unknown }).details
+      : null;
+  const record =
+    details && typeof details === "object" && !Array.isArray(details)
+      ? (details as Record<string, unknown>)
+      : null;
+  const bounded = (value: unknown, max: number) =>
+    typeof value === "string" && value.length <= max ? value : "";
+  const location = bounded(record?.location, 4096);
+  const violations = Array.isArray(record?.violations)
+    ? record.violations.slice(0, 16).flatMap((violation) => {
+        if (!violation || typeof violation !== "object") return [];
+        const row = violation as Record<string, unknown>;
+        const keyword = bounded(row.keyword, 64);
+        const instancePath = bounded(row.instancePath, 4096);
+        return keyword &&
+          typeof row.instancePath === "string" &&
+          row.instancePath.length <= 4096
+          ? [{ keyword, instancePath }]
+          : [];
+      })
+    : [];
+  return {
+    reason: "protocol_result_invalid",
+    ...(location ? { location } : {}),
+    ...(violations.length ? { violations } : {}),
+  };
+}
+
 function contentLength(response: Response) {
   const value = response.headers.get("content-length");
   if (!value || !/^(0|[1-9][0-9]*)$/.test(value)) {
@@ -305,8 +337,11 @@ export function createSynthesisSidecarRpcClient(options?: {
             },
           });
           return result;
-        } catch {
-          return fail(transportErrors.invalidResponse);
+        } catch (error) {
+          return fail(
+            transportErrors.invalidResponse,
+            protocolResultFailureDetails(error),
+          );
         }
       } catch (error) {
         if (error instanceof SynthesisSidecarRpcError) {

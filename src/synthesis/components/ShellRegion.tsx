@@ -81,7 +81,7 @@ export const ShellRegion = memo(
               onClick={() => onSelectTab(tab.tab)}
             >
               <span class={`nav-icon nav-icon-${tab.iconName}`}>
-                <span class={tab.iconClass} aria-hidden="true" />
+                <span class={`zs-icon ${tab.iconClass}`} aria-hidden="true" />
               </span>
               <span class="nav-label">{tab.label}</span>
             </button>

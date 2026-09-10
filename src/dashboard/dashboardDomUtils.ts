@@ -142,7 +142,8 @@ export function dashboardLogLevelBadgeClass(level: unknown): string {
 }
 
 const DASHBOARD_TAB_ICON_CLASSES: Record<string, string> = {
-  home: "zs-icon-dashboard",
+  home: "zs-icon-home",
+  migrations: "zs-icon-refresh",
   "workflow-options": "zs-icon-settings-applications",
   products: "zs-icon-inventory-2",
   "runtime-logs": "zs-icon-terminal",

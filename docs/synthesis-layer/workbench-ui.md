@@ -44,6 +44,14 @@ snapshot can supply last-known-good data. A failure without such data shows an
 error placeholder. Hidden-surface failures preserve the visible business region,
 and stale responses remain subject to the existing request-order checks.
 
+If a business component throws while rendering, the surface mount replaces
+only that content with the same error placeholder and reports
+`surface_render_failed` to the browser console; shell, topbar, graph owner, and
+status chrome remain mounted. A native result that fails protocol validation
+is reported as `protocol_result_invalid`. Runtime Logs retain only the surface,
+schema reference, and at most 16 `{ keyword, pointer }` violations; response
+values and native payloads are never logged.
+
 The Graph region owns its imperative Sigma canvas and camera. Markdown and
 topic timelines use bounded imperative islands inside Reader. Translation
 resolves message keys during projection/rendering from the host envelope;

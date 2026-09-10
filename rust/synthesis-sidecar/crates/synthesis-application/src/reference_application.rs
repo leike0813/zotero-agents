@@ -3410,9 +3410,10 @@ fn reference_proposal_diagnostics(value: &str) -> Vec<Value> {
             let code = diagnostic
                 .get("code")
                 .and_then(Value::as_str)
-                .filter(|code| !code.is_empty())?;
+                .filter(|code| !code.is_empty() && code.chars().count() <= 4096)?;
             Some(json!({"code":code}))
         })
+        .take(256)
         .collect()
 }
 
@@ -3486,7 +3487,7 @@ fn reference_revision_review_wire(review: ReferenceRevisionReviewRecord) -> Valu
         "source_paper_ref":review.source_ref,
         "target_work_id":review.canonical_reference_id,
         "reason":review.reason,
-        "diagnostics":json_array(&review.payload_json),
+        "diagnostics":reference_proposal_diagnostics(&review.payload_json),
         "updated_at":review.updated_at,
     })
 }
@@ -3494,10 +3495,31 @@ fn reference_revision_review_wire(review: ReferenceRevisionReviewRecord) -> Valu
 fn canonical_reference_workbench_wire(
     canonical: CanonicalReferenceRecord,
 ) -> Result<Value, String> {
-    let authors =
-        serde_json::from_str::<Value>(&canonical.authors_json).unwrap_or_else(|_| json!([]));
-    let identifiers =
-        serde_json::from_str::<Value>(&canonical.identifiers_json).unwrap_or_else(|_| json!({}));
+    let authors = json_array(&canonical.authors_json)
+        .into_iter()
+        .filter_map(|author| author.as_str().map(str::to_owned))
+        .filter(|author| !author.is_empty() && author.chars().count() <= 4096)
+        .take(25_000)
+        .collect::<Vec<_>>();
+    let identifiers = serde_json::from_str::<BTreeMap<String, Value>>(&canonical.identifiers_json)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|(key, value)| {
+            let valid_key = key.chars().count() <= 128
+                && key
+                    .chars()
+                    .next()
+                    .is_some_and(|character| character.is_ascii_alphabetic())
+                && key.chars().skip(1).all(|character| {
+                    character.is_ascii_alphanumeric() || matches!(character, '_' | '.' | ':' | '-')
+                });
+            value
+                .as_str()
+                .filter(|value| valid_key && value.chars().count() <= 4096)
+                .map(|value| (key, value.to_owned()))
+        })
+        .take(32)
+        .collect::<BTreeMap<_, _>>();
     Ok(json!({
         "row_id":canonical.canonical_reference_id,
         "effective_canonical_id":canonical.canonical_reference_id,
@@ -4691,6 +4713,81 @@ mod tests {
         assert!(diagnostics.iter().all(Value::is_object));
         assert!(diagnostics[1].get("severity").is_none());
         assert!(diagnostics[1].get("message").is_none());
+    }
+
+    #[test]
+    fn workbench_review_sanitizes_persisted_canonical_rows_and_review_diagnostics() {
+        let root = test_root("workbench-review-storage-projection");
+        seed_canonical_review_fixture(&root);
+        let mut repository = Repository::open(
+            &root,
+            RepositoryIdentity {
+                profile_id: "profile".into(),
+                data_root_id: "data".into(),
+            },
+        )
+        .expect("repository fixture");
+        let mut stored = canonical("f");
+        stored.authors_json = json!(["Ada", 42, ""]).to_string();
+        stored.identifiers_json = json!({
+            "DOI":"10.1000/example",
+            "invalid value":42,
+            "9invalid-key":"private",
+        })
+        .to_string();
+        repository
+            .upsert_canonical_reference_record(&stored)
+            .expect("stored canonical");
+        repository
+            .upsert_reference_revision_review_record(&ReferenceRevisionReviewRecord {
+                review_id: "review:f".into(),
+                source_ref: "1:AAAA1111".into(),
+                canonical_reference_id: "f".into(),
+                status: "open".into(),
+                reason: "protected_canonical_changed".into(),
+                payload_json: json!([
+                    {"code":"revision_required","message":"storage-only"},
+                    {"message":"missing-code"},
+                ])
+                .to_string(),
+                created_at: "1".into(),
+                updated_at: "1".into(),
+            })
+            .expect("stored review");
+        repository.close().expect("close fixture repository");
+        let app = application(
+            &root,
+            Arc::new(FakeHost::new()),
+            Arc::new(AtomicBool::new(false)),
+        );
+
+        let projection = app
+            .workbench_review(
+                &json!({
+                    "reviews":{
+                        "status":"open",
+                        "kind":"canonical_revision",
+                        "confidence":"all",
+                        "search":"",
+                        "limit":10,
+                    },
+                }),
+                1,
+            )
+            .expect("review projection");
+
+        assert_eq!(
+            projection["registry"]["canonicalRows"][0]["authors"],
+            json!(["Ada"]),
+        );
+        assert_eq!(
+            projection["registry"]["canonicalRows"][0]["identifiers"],
+            json!({"DOI":"10.1000/example"}),
+        );
+        assert_eq!(
+            projection["registry"]["cleanupProposals"][0]["diagnostics"],
+            json!([{"code":"revision_required"}]),
+        );
     }
 
     #[test]

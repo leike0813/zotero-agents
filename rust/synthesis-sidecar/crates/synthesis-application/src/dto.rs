@@ -205,11 +205,26 @@ pub struct TopicDefinitionDto {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub definition: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discipline: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub research_field: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope_boundary: Option<TopicScopeBoundaryDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub aliases: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope_include: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope_exclude: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TopicScopeBoundaryDto {
+    pub include: Vec<String>,
+    pub exclude: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

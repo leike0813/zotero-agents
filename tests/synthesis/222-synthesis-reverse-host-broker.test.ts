@@ -146,6 +146,43 @@ describe("Synthesis reverse Host broker", function () {
     assert.notInclude(JSON.stringify(events), "目录");
   });
 
+  it("retains safe structured handler failure identity without payload data", async function () {
+    const events: Record<string, unknown>[] = [];
+    const broker = createSynthesisReverseHostBroker({
+      profileId,
+      serviceInstanceId,
+      authorizationToken: token,
+      now: () => 10_000,
+      isHostConnected: () => true,
+      authorizeCapability: () => true,
+      handlers: makeHandlers(() => {
+        throw Object.assign(new Error("private note contents"), {
+          code: "conflict",
+          details: { reason: "ambiguous_state", kind: "note" },
+        });
+      }),
+      recordTraceEvent: (event) => events.push(event),
+    });
+
+    try {
+      await broker.dispatch({
+        authorizationToken: token,
+        call: call("library.artifacts.scan_page"),
+      });
+      assert.fail("expected handler failure");
+    } catch {
+      // Expected: this test observes the trace projection.
+    }
+
+    const terminal = events.at(-1)!;
+    assert.equal(terminal.code, "conflict");
+    assert.equal(
+      (terminal.identities as Record<string, unknown>).reason,
+      "ambiguous_state",
+    );
+    assert.notInclude(JSON.stringify(events), "private note contents");
+  });
+
   it("routes the closed capability set through lifecycle-scoped authorization", async function () {
     const routed: string[] = [];
     const broker = createSynthesisReverseHostBroker({

@@ -3386,7 +3386,7 @@ mod tests {
     }
 
     #[test]
-    fn workbench_list_does_not_decode_full_legacy_topic_payloads() {
+    fn workbench_reads_topic_definition_contract_fields() {
         let root = root("workbench-legacy-row");
         let (repository, canonical) = owners(&root);
         let application = TopicApplication::with_factories(
@@ -3405,13 +3405,37 @@ mod tests {
                 "UPDATE synt_topic_application_state
                  SET topic_definition_json=?1 WHERE topic_id=?2",
                 &[
-                    json!(r#"{"id":"topic-legacy","title":"Legacy","definition":"Legacy","scope":"historical"}"#),
+                    json!(r#"{"id":"topic-legacy","title":"Legacy","definition":"Legacy","scope":"historical","discipline":"history","research_field":"archives","scope_boundary":{"include":["primary sources"],"exclude":[]}}"#),
                     json!("topic-legacy"),
                 ],
             )
             .expect("legacy topic definition");
 
-        assert!(application.list(TopicListRequest::default()).is_err());
+        let topics = application
+            .list(TopicListRequest::default())
+            .expect("topic page");
+        assert_eq!(
+            topics.topics[0].topic_definition.scope.as_deref(),
+            Some("historical")
+        );
+        let detail = application
+            .detail(TopicDetailRequest {
+                topic_id: "topic-legacy".into(),
+            })
+            .expect("topic detail");
+        let TopicDetailResult::Ready { topic, .. } = detail else {
+            panic!("expected ready topic detail");
+        };
+        assert_eq!(topic.topic_definition.scope.as_deref(), Some("historical"));
+        assert_eq!(
+            topic
+                .topic_definition
+                .scope_boundary
+                .as_ref()
+                .expect("scope boundary")
+                .include,
+            vec!["primary sources"]
+        );
         let page = application
             .list_workbench(TopicListRequest::default())
             .expect("workbench page");

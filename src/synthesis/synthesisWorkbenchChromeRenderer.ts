@@ -196,6 +196,7 @@ function ensureSynthesisSkeleton(
 
 function SurfacePlaceholder(props: {
   selection: SynthesisWorkbenchPanel["surface"];
+  errorCode?: string;
 }) {
   const selection = props.selection;
   if (!selection) return null;
@@ -204,6 +205,9 @@ function SurfacePlaceholder(props: {
     {
       class: "surface-loading",
       "data-synthesis-surface": `${selection.surface}-placeholder`,
+      ...(props.errorCode
+        ? { "data-synthesis-error-code": props.errorCode }
+        : {}),
     },
     !selection.isError ? h("div", { class: "loading-spinner" }) : null,
     h("div", { class: "loading-title" }, selection.title),
@@ -419,15 +423,38 @@ export function createSynthesisWorkbenchChromeRenderer(
           content = null;
           break;
       }
-      render(
-        content ||
-          (panel?.surface && business?.surface !== "graph"
+      try {
+        render(
+          content ||
+            (panel?.surface && business?.surface !== "graph"
+              ? h(SurfacePlaceholder, {
+                  selection: synthesisWorkbenchSurfaceEqualityInput(panel),
+                })
+              : null),
+          surfaceMount,
+        );
+      } catch (error) {
+        console.error("surface_render_failed", error);
+        render(
+          panel?.surface
             ? h(SurfacePlaceholder, {
-                selection: synthesisWorkbenchSurfaceEqualityInput(panel),
+                selection: {
+                  ...panel.surface,
+                  status: "failed",
+                  title: translate
+                    ? translate("synthesis-surface-error-label")
+                    : "Loading Synthesis surface",
+                  subtitle: translate
+                    ? translate("synthesis-surface-error-message")
+                    : "Surface failed to load.",
+                  isError: true,
+                },
+                errorCode: "surface_render_failed",
               })
-            : null),
-        surfaceMount,
-      );
+            : null,
+          surfaceMount,
+        );
+      }
     }
 
     if (!panel) {
