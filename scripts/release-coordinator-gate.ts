@@ -409,7 +409,7 @@ function suggestedCommands(args: {
         "npm run check:content-package-release",
       ];
     case "run_local_gates":
-      return ["npm run test:node:full", "npm run lint:check"];
+      return ["npm test", "npm run lint:check"];
     case "sync_main_remotes":
       return ["git push origin main"];
     case "recover_release_state":
@@ -550,7 +550,7 @@ export async function analyzeReleaseGate(
     addBlocker(
       blockers,
       "test_node_full_required",
-      "Run npm run test:node:full before plugin release.",
+      "Run npm test before plugin release.",
     );
   }
   if (!args.lintCheckPassed) {

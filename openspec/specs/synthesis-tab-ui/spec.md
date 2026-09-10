@@ -600,7 +600,7 @@ The Synthesis Workbench SHALL retain the current production startup failure unti
 - **THEN** the persistent failure state is cleared
 - **AND** normal Workbench content refreshes
 
-#### Scenario: Task Manager inspects production failure
+#### Scenario: Task Dashboard inspects production failure
 - **WHEN** debug mode is disabled
-- **THEN** Task Manager displays the bounded safe summary
+- **THEN** Task Dashboard displays the bounded safe summary
 - **AND** does not display raw process tails

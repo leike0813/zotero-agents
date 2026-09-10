@@ -1,10 +1,6 @@
 import { joinPath } from "../utils/path";
 import { getTaskHistoryRetentionConfig } from "./taskRetentionPolicy";
 import {
-  cleanupExpiredAcpSkillRunsForRetention,
-  clearAcpSkillRunsForRuntimePersistence,
-} from "./acp/skillRun/acpSkillRunStore";
-import {
   clearAcpConversationTaskRecords,
   clearPluginRunStore,
   clearPluginTaskDomain,
@@ -794,6 +790,8 @@ export async function cleanupRuntimePersistenceCategory(
     details.rowsDeleted = runStoreRowsDeleted + legacyRowsDeleted;
     details.runStoreRowsDeleted = runStoreRowsDeleted;
     details.legacyRowsDeleted = legacyRowsDeleted;
+    const { clearAcpSkillRunsForRuntimePersistence } =
+      await import("./acp/skillRun/acpSkillRunStore");
     clearAcpSkillRunsForRuntimePersistence();
     await removeAndTrack(paths.acpSkillRunsDir);
   } else if (category === "workflow-products") {
@@ -851,6 +849,8 @@ export async function cleanupRuntimePersistenceRetention(args?: {
     retentionMs: retention.retentionMs,
   };
   const removedPaths: string[] = [];
+  const { cleanupExpiredAcpSkillRunsForRetention } =
+    await import("./acp/skillRun/acpSkillRunPersistence");
   const cleanerResult = cleanupExpiredAcpSkillRunsForRetention({
     retentionMs: retention.retentionMs,
     nowMs,

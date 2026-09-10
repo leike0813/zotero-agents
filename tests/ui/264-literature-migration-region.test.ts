@@ -141,7 +141,7 @@ describe("Dashboard literature migration region", function () {
           ...selection,
           view: {
             ...selection.view,
-            definitionVersion: 0,
+            definitionVersion: 2,
             availability: "unavailable",
             activeRun: null,
             activeOperationId: "",
@@ -157,7 +157,7 @@ describe("Dashboard literature migration region", function () {
       (button) => button.textContent === selection.scanLabel,
     );
     assert.isTrue(scan?.disabled);
-    assert.notInclude(root.textContent || "", "· 0");
+    assert.isNull(root.querySelector(".dashboard-migrations-version"));
     assert.isUndefined(
       Array.from(root.querySelectorAll("button")).find(
         (button) => button.textContent === selection.applyLabel,

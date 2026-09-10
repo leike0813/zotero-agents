@@ -461,15 +461,15 @@ SSOT documents):
 
 ## Test Anchors
 
-- `tests/core/184-assistant-workspace-publication-data-plane.test.ts` —
+- `tests/assistant/184-assistant-workspace-publication-data-plane.test.ts` —
   publication data plane: materialization, ordering, accumulator behavior.
-- `tests/core/190-assistant-workspace-wire-drift.test.ts` — wire drift guard:
+- `tests/assistant/190-assistant-workspace-wire-drift.test.ts` — wire drift guard:
   envelope/payload keys, forbidden fields, action registry parity.
-- `tests/core/192-assistant-workspace-chrome-components.test.ts` — chrome region
+- `tests/assistant/192-assistant-workspace-chrome-components.test.ts` — chrome region
   node identity across transcript-only and equivalent publications.
-- `tests/core/193-skillrunner-workspace-surface.test.ts` — SkillRunner surface:
+- `tests/skillrunner/193-skillrunner-workspace-surface.test.ts` — SkillRunner surface:
   snapshot-only transcript publication and run-key owner fallback.
-- `tests/core/97-acp-ui-smoke.test.ts` — end-to-end smoke across tabs.
+- `tests/acp/97-acp-ui-smoke.test.ts` — end-to-end smoke across tabs.
 
 Changes that touch transcript rendering, prompting, snapshots, or drawer/details
 behavior are expected to extend the identity-locking tests rather than add

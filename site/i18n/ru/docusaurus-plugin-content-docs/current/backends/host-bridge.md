@@ -20,7 +20,7 @@ Host Bridge — это встроенный HTTP-сервер плагина, к
       └── Режим stdin/pipe (для интеграции с агентами ACP)
 ```
 
-Версия протокола: `host-bridge.v2`. Все конечные точки, кроме `GET /bridge/v1/health`, требуют аутентификации Bearer Token. Контракты возможностей используют `host-bridge.capabilities.v2`.
+Версия протокола: `host-bridge.v2`. Все конечные точки, кроме `GET /bridge/v2/health`, требуют аутентификации Bearer Token. Контракты возможностей используют `host-bridge.capabilities.v2`.
 
 ## Конфигурация
 
@@ -294,7 +294,7 @@ stdout всегда выдаёт ровно один JSON-объект:
 {
   "schema": "zotero-bridge.profile.v1",
   "protocol": "host-bridge.v2",
-  "endpoint": "http://127.0.0.1:26570/bridge/v1",
+  "endpoint": "http://127.0.0.1:26570/bridge/v2",
   "connectionMode": "local",
   "auth": { "type": "bearer", "tokenEnv": "ZOTERO_BRIDGE_TOKEN" }
 }
@@ -475,8 +475,8 @@ stdout всегда выдаёт ровно один JSON-объект:
 2. Закрепите порт или отметьте текущий порт
 3. Создайте / скопируйте **Мастер-токен**
 4. Нажмите **Копировать профиль удалённого CLI** для полной конфигурации подключения
-5. На удалённой машине настройте `endpoint` (`http://<LAN_IP>:<port>/bridge/v1`) и токен
-6. Тест: `zotero-bridge status --endpoint http://<LAN_IP>:<port>/bridge/v1`
+5. На удалённой машине настройте `endpoint` (`http://<LAN_IP>:<port>/bridge/v2`) и токен
+6. Тест: `zotero-bridge status --endpoint http://<LAN_IP>:<port>/bridge/v2`
 
 **Важно:** Режим LAN обходит защиту loopback. Используйте только в доверенных локальных сетях.
 

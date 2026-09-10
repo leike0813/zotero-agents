@@ -1024,7 +1024,7 @@ function buildLiteratureArtifactMigrationView(
   if (!service) {
     return {
       migrationId: LITERATURE_ARTIFACT_MIGRATION_ID,
-      definitionVersion: LITERATURE_ARTIFACT_MIGRATION_DEFINITION_VERSION,
+      definitionVersion: 0,
       availability: "unavailable",
       availabilityReason: localize(
         "task-dashboard-literature-migration-unavailable",

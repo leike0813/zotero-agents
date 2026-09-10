@@ -20,7 +20,7 @@ Zotero Plugin Process
       └── Stdin/pipe mode (for ACP agent integration)
 ```
 
-Protocol version: `host-bridge.v2`. All endpoints except `GET /bridge/v1/health` require Bearer Token authentication. Capability contracts use `host-bridge.capabilities.v2`.
+Protocol version: `host-bridge.v2`. All endpoints except `GET /bridge/v2/health` require Bearer Token authentication. Capability contracts use `host-bridge.capabilities.v2`.
 
 ## Configuration
 
@@ -294,7 +294,7 @@ Well-known profile locations:
 {
   "schema": "zotero-bridge.profile.v1",
   "protocol": "host-bridge.v2",
-  "endpoint": "http://127.0.0.1:26570/bridge/v1",
+  "endpoint": "http://127.0.0.1:26570/bridge/v2",
   "connectionMode": "local",
   "auth": { "type": "bearer", "tokenEnv": "ZOTERO_BRIDGE_TOKEN" }
 }
@@ -470,8 +470,8 @@ Scope routing:
 2. Pin a port or note the current port
 3. Create / copy a **Master Token**
 4. Click **Copy Remote CLI Profile** for the full connection config
-5. On the remote machine, configure `endpoint` (`http://<LAN_IP>:<port>/bridge/v1`) and token
-6. Test: `zotero-bridge status --endpoint http://<LAN_IP>:<port>/bridge/v1`
+5. On the remote machine, configure `endpoint` (`http://<LAN_IP>:<port>/bridge/v2`) and token
+6. Test: `zotero-bridge status --endpoint http://<LAN_IP>:<port>/bridge/v2`
 
 **Important:** LAN mode bypasses loopback protection. Use only on trusted local networks.
 

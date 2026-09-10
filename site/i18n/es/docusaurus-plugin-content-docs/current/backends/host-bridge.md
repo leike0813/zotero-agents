@@ -20,7 +20,7 @@ Proceso del complemento Zotero
       └── Modo stdin/pipe (para integración con agentes ACP)
 ```
 
-Versión del protocolo: `host-bridge.v2`. Todos los endpoints excepto `GET /bridge/v1/health` requieren autenticación Bearer Token. Los contratos de capacidades usan `host-bridge.capabilities.v2`.
+Versión del protocolo: `host-bridge.v2`. Todos los endpoints excepto `GET /bridge/v2/health` requieren autenticación Bearer Token. Los contratos de capacidades usan `host-bridge.capabilities.v2`.
 
 ## Configuración
 
@@ -294,7 +294,7 @@ Ubicaciones conocidas del perfil:
 {
   "schema": "zotero-bridge.profile.v1",
   "protocol": "host-bridge.v2",
-  "endpoint": "http://127.0.0.1:26570/bridge/v1",
+  "endpoint": "http://127.0.0.1:26570/bridge/v2",
   "connectionMode": "local",
   "auth": { "type": "bearer", "tokenEnv": "ZOTERO_BRIDGE_TOKEN" }
 }
@@ -475,8 +475,8 @@ Enrutamiento por ámbito:
 2. Fija un puerto o anota el puerto actual
 3. Crea / copia un **token maestro**
 4. Haz clic en **Copiar perfil CLI remoto** para obtener la configuración de conexión completa
-5. En la máquina remota, configura `endpoint` (`http://<IP_LAN>:<puerto>/bridge/v1`) y el token
-6. Prueba: `zotero-bridge status --endpoint http://<IP_LAN>:<puerto>/bridge/v1`
+5. En la máquina remota, configura `endpoint` (`http://<IP_LAN>:<puerto>/bridge/v2`) y el token
+6. Prueba: `zotero-bridge status --endpoint http://<IP_LAN>:<puerto>/bridge/v2`
 
 **Importante:** El modo LAN omite la protección de loopback. Utilizar solo en redes locales de confianza.
 

@@ -32,14 +32,14 @@ export function shouldUseHeadlessZoteroTest(
 
 const ZOTERO_TEST_ENTRIES = {
   lite: {
-    core: "tests/zotero/core/lite",
-    ui: "tests/zotero/ui/lite",
-    workflow: "tests/zotero/workflow/lite",
+    core: ["tests/zotero/core/lite"],
+    ui: ["tests/zotero/ui/lite"],
+    workflow: ["tests/zotero/workflow/lite"],
   },
   full: {
-    core: "tests/zotero/core/full",
-    ui: "tests/zotero/ui/full",
-    workflow: "tests/zotero/workflow/full",
+    core: ["tests/zotero/core/lite", "tests/zotero/core/full"],
+    ui: ["tests/zotero/ui/lite", "tests/zotero/ui/full"],
+    workflow: ["tests/zotero/workflow/lite", "tests/zotero/workflow/full"],
   },
 } as const;
 
@@ -70,16 +70,17 @@ function resolveTestEntries(
   mode: TestMode,
 ): string | string[] {
   const entries = ZOTERO_TEST_ENTRIES[mode];
+  const setup = "tests/zotero/setup.test.ts";
   if (domain === "core") {
-    return [entries.core];
+    return [setup, ...entries.core];
   }
   if (domain === "ui") {
-    return [entries.ui];
+    return [setup, ...entries.ui];
   }
   if (domain === "workflow") {
-    return [entries.workflow];
+    return [setup, ...entries.workflow];
   }
-  return [entries.core, entries.ui, entries.workflow];
+  return [setup, ...entries.core, ...entries.ui, ...entries.workflow];
 }
 
 const TEST_MODE = normalizeTestMode(process.env.ZOTERO_TEST_MODE);

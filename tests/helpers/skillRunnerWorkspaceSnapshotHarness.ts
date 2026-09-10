@@ -39,8 +39,8 @@ import type { AssistantMessageCountsSnapshot } from "../../src/modules/assistant
  * local mock management server, attaches the real sidebar host, and captures
  * the v1 publications the workspace runtime emits through the shared
  * publication plane. Shared by
- * `tests/core/71-skillrunner-run-dialog-ui-e2e-alignment.test.ts` (contract
- * assertions) and `tests/core/97-acp-ui-smoke.test.ts` (envelope source).
+ * `tests/skillrunner/71-skillrunner-run-dialog-ui-e2e-alignment.test.ts` (contract
+ * assertions) and `tests/acp/97-acp-ui-smoke.test.ts` (envelope source).
  */
 
 export type SkillRunnerHarnessTaskSeed = {

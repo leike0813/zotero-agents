@@ -66,7 +66,7 @@ export const SYNTHESIS_PRODUCTION_SURFACES = [
     corpusPath:
       "packages/synthesis-contracts/contract-set/synthesis-topic-workbench-surface-v1/corpus.json",
     evidencePath:
-      "tests/core/229-synthesis-production-client-rust-route.test.ts",
+      "tests/synthesis/229-synthesis-production-client-rust-route.test.ts",
   },
   {
     id: "citation-graph",
@@ -77,7 +77,7 @@ export const SYNTHESIS_PRODUCTION_SURFACES = [
     corpusPath:
       "packages/synthesis-contracts/contract-set/synthesis-citation-graph-surface-v1/corpus.json",
     evidencePath:
-      "tests/core/231-synthesis-native-citation-graph-surface.test.ts",
+      "tests/synthesis/231-synthesis-native-citation-graph-surface.test.ts",
   },
   {
     id: "reference-canonical",
@@ -88,7 +88,7 @@ export const SYNTHESIS_PRODUCTION_SURFACES = [
     corpusPath:
       "packages/synthesis-contracts/contract-set/synthesis-reference-canonical-surface-v1/corpus.json",
     evidencePath:
-      "tests/core/232-synthesis-native-reference-canonical-surface.test.ts",
+      "tests/synthesis/232-synthesis-native-reference-canonical-surface.test.ts",
   },
   {
     id: "tag",
@@ -98,7 +98,7 @@ export const SYNTHESIS_PRODUCTION_SURFACES = [
       "58e6b10a3ca48adb8c9e38fc4328ad6b82c6d0f5ec845036c8bafdc9afbabfb6",
     corpusPath:
       "packages/synthesis-contracts/contract-set/synthesis-tag-surface-v1/corpus.json",
-    evidencePath: "tests/core/233-synthesis-native-tag-surface.test.ts",
+    evidencePath: "tests/synthesis/233-synthesis-native-tag-surface.test.ts",
   },
   {
     id: "concept-topic-graph",
@@ -109,7 +109,7 @@ export const SYNTHESIS_PRODUCTION_SURFACES = [
     corpusPath:
       "packages/synthesis-contracts/contract-set/synthesis-concept-topic-graph-surface-v1/corpus.json",
     evidencePath:
-      "tests/core/234-synthesis-native-concept-topic-graph-surface.test.ts",
+      "tests/synthesis/234-synthesis-native-concept-topic-graph-surface.test.ts",
   },
   {
     id: "artifact-library-debug",
@@ -120,7 +120,7 @@ export const SYNTHESIS_PRODUCTION_SURFACES = [
     corpusPath:
       "packages/synthesis-contracts/contract-set/synthesis-artifact-library-debug-surface-v1/corpus.json",
     evidencePath:
-      "tests/core/230-synthesis-native-artifact-library-debug-surface.test.ts",
+      "tests/synthesis/230-synthesis-native-artifact-library-debug-surface.test.ts",
   },
   {
     id: "webdav-maintenance",
@@ -131,7 +131,7 @@ export const SYNTHESIS_PRODUCTION_SURFACES = [
     corpusPath:
       "packages/synthesis-contracts/contract-set/synthesis-webdav-maintenance-surface-v1/corpus.json",
     evidencePath:
-      "tests/core/235-synthesis-native-webdav-maintenance-surface.test.ts",
+      "tests/synthesis/235-synthesis-native-webdav-maintenance-surface.test.ts",
   },
 ] as const;
 

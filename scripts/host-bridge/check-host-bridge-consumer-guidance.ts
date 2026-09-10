@@ -30,11 +30,11 @@ const CONSUMER_FILES = [
 ] as const;
 
 const HOST_BRIDGE_RUNTIME_TESTS = [
-  "tests/core/133-topic-synthesis-runtime-contract.test.ts",
-  "tests/core/155-topic-synthesis-split-runtime.test.ts",
-  "tests/core/157-literature-deep-reading-bootstrap.test.ts",
-  "tests/core/172-export-research-bundle-skill-runtime.test.ts",
-  "tests/core/173-collection-collector-skill-runtime.test.ts",
+  "tests/synthesis/133-topic-synthesis-runtime-contract.test.ts",
+  "tests/synthesis/155-topic-synthesis-split-runtime.test.ts",
+  "tests/tooling/157-literature-deep-reading-bootstrap.test.ts",
+  "tests/runtime/172-export-research-bundle-skill-runtime.test.ts",
+  "tests/runtime/173-collection-collector-skill-runtime.test.ts",
 ] as const;
 
 const FORBIDDEN_FAKE_CLI_MARKERS = [

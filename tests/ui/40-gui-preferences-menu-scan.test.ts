@@ -39,7 +39,7 @@ import {
   setZoteroLibrarySourcePageQueryAdapterForTests,
 } from "../../src/modules/zoteroHost/zoteroLibraryPageQuery";
 import { createMockZoteroLibrarySourcePageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
-import { isZoteroRuntime } from "../core/workflow-test-utils";
+import { isZoteroRuntime } from "../zotero/workflow-test-utils";
 
 type Listener = (event: Record<string, unknown>) => void;
 
@@ -3838,7 +3838,7 @@ describe("gui: workflow context menu", function () {
     assert.isOk(menu);
     assert.isOk(popup);
     await rebuildWorkflowActionPopup(win, popup as unknown as XULElement, {
-      includeTaskManagerItem: true,
+      includeWorkspaceItem: true,
     });
 
     assert.lengthOf(popup!.children, 8);
@@ -3937,11 +3937,11 @@ describe("gui: workflow context menu", function () {
 
       if (entry.rebuildOnly) {
         await rebuildWorkflowActionPopup(win, popup as unknown as XULElement, {
-          includeTaskManagerItem: true,
+          includeWorkspaceItem: true,
         });
       } else {
         await rebuildWorkflowActionPopup(win, popup as unknown as XULElement, {
-          includeTaskManagerItem: true,
+          includeWorkspaceItem: true,
         });
       }
 
@@ -3988,7 +3988,7 @@ describe("gui: workflow context menu", function () {
         `${config.addonRef}-workflows-popup`,
       ) as FakeXULElement;
       await rebuildWorkflowActionPopup(win, popup as unknown as XULElement, {
-        includeTaskManagerItem: true,
+        includeWorkspaceItem: true,
       });
       popup.children[0].dispatch("command");
 
@@ -4031,7 +4031,7 @@ describe("gui: workflow context menu", function () {
     ) as FakeXULElement;
 
     await rebuildWorkflowActionPopup(win, popup as unknown as XULElement, {
-      includeTaskManagerItem: true,
+      includeWorkspaceItem: true,
     });
 
     const installItem = popup.children.find((entry) =>
@@ -4081,7 +4081,7 @@ describe("gui: workflow context menu", function () {
       `${config.addonRef}-workflows-popup`,
     ) as FakeXULElement;
     await rebuildWorkflowActionPopup(win, popup as unknown as XULElement, {
-      includeTaskManagerItem: true,
+      includeWorkspaceItem: true,
     });
     const workflowItem = popup.children.find((entry) =>
       (entry.getAttribute("label") || "").startsWith("Pass Through GUI"),
@@ -4152,7 +4152,7 @@ describe("gui: workflow context menu", function () {
 
     await rebuildWorkflowActionPopup(win, popup as unknown as XULElement, {
       includeSkillRunnerSidebarItem: false,
-      includeTaskManagerItem: false,
+      includeWorkspaceItem: false,
       includeSynthesisWorkbenchItem: false,
     });
 
@@ -4181,7 +4181,7 @@ describe("gui: workflow context menu", function () {
 
     setDebugModeOverrideForTests(false);
     await rebuildWorkflowActionPopup(win, popup as unknown as XULElement, {
-      includeTaskManagerItem: true,
+      includeWorkspaceItem: true,
     });
     const labelsWhenHidden = popup.children.map(
       (entry) => entry.getAttribute("label") || "",
@@ -4197,7 +4197,7 @@ describe("gui: workflow context menu", function () {
 
     setDebugModeOverrideForTests(true);
     await rebuildWorkflowActionPopup(win, popup as unknown as XULElement, {
-      includeTaskManagerItem: true,
+      includeWorkspaceItem: true,
     });
     const labelsWhenVisible = popup.children.map(
       (entry) => entry.getAttribute("label") || "",
@@ -4230,7 +4230,7 @@ describe("gui: workflow context menu", function () {
         `${config.addonRef}-workflows-popup`,
       ) as FakeXULElement;
       await rebuildWorkflowActionPopup(win, popup as unknown as XULElement, {
-        includeTaskManagerItem: true,
+        includeWorkspaceItem: true,
       });
       const workflowItem = popup.children.find((child) =>
         (child.getAttribute("label") || "").startsWith("Workflow A"),
@@ -4263,7 +4263,7 @@ describe("gui: workflow context menu", function () {
 
     await rebuildWorkflowActionPopup(win, popup as unknown as XULElement, {
       includeSkillRunnerSidebarItem: false,
-      includeTaskManagerItem: false,
+      includeWorkspaceItem: false,
       includeSynthesisWorkbenchItem: false,
     });
 
@@ -4329,7 +4329,7 @@ describe("gui: workflow context menu", function () {
 
     await rebuildWorkflowActionPopup(win, popup as unknown as XULElement, {
       includeSkillRunnerSidebarItem: false,
-      includeTaskManagerItem: false,
+      includeWorkspaceItem: false,
       includeSynthesisWorkbenchItem: false,
     });
 
@@ -4378,7 +4378,7 @@ describe("gui: workflow context menu", function () {
 
     await rebuildWorkflowActionPopup(win, popup as unknown as XULElement, {
       includeSkillRunnerSidebarItem: false,
-      includeTaskManagerItem: false,
+      includeWorkspaceItem: false,
       includeSynthesisWorkbenchItem: false,
     });
 
@@ -4416,7 +4416,7 @@ describe("gui: workflow context menu", function () {
 
     await rebuildWorkflowActionPopup(win, popup as unknown as XULElement, {
       includeSkillRunnerSidebarItem: false,
-      includeTaskManagerItem: false,
+      includeWorkspaceItem: false,
       includeSynthesisWorkbenchItem: false,
     });
 
@@ -4453,7 +4453,7 @@ describe("gui: workflow context menu", function () {
 
     await rebuildWorkflowActionPopup(win, popup as unknown as XULElement, {
       includeSkillRunnerSidebarItem: false,
-      includeTaskManagerItem: false,
+      includeWorkspaceItem: false,
       includeSynthesisWorkbenchItem: false,
     });
 

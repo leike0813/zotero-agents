@@ -454,7 +454,6 @@ export type FluentMessageId =
   | 'menu-workflows-rescan'
   | 'menu-workflows-root'
   | 'menu-workflows-settings'
-  | 'menu-workflows-task-manager'
   | 'menuitem-diagnose-acp-refresh-cache'
   | 'menuitem-filemenulabel'
   | 'menuitem-label'

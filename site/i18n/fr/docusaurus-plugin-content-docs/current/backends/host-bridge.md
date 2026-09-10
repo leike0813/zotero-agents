@@ -20,7 +20,7 @@ Processus du plugin Zotero
       └── Mode stdin/pipe (pour l'intégration avec les agents ACP)
 ```
 
-Version du protocole : `host-bridge.v2`. Tous les points d'accès sauf `GET /bridge/v1/health` nécessitent une authentification par Bearer Token. Les contrats de capacités utilisent `host-bridge.capabilities.v2`.
+Version du protocole : `host-bridge.v2`. Tous les points d'accès sauf `GET /bridge/v2/health` nécessitent une authentification par Bearer Token. Les contrats de capacités utilisent `host-bridge.capabilities.v2`.
 
 ## Configuration
 
@@ -296,7 +296,7 @@ Emplacements de profil bien connus :
 {
   "schema": "zotero-bridge.profile.v1",
   "protocol": "host-bridge.v2",
-  "endpoint": "http://127.0.0.1:26570/bridge/v1",
+  "endpoint": "http://127.0.0.1:26570/bridge/v2",
   "connectionMode": "local",
   "auth": { "type": "bearer", "tokenEnv": "ZOTERO_BRIDGE_TOKEN" }
 }
@@ -477,8 +477,8 @@ Routage par périmètre :
 2. Fixez un port ou notez le port actuel
 3. Créez / copiez un **Jeton maître**
 4. Cliquez sur **Copier le profil CLI distant** pour la configuration complète de la connexion
-5. Sur la machine distante, configurez le `endpoint` (`http://<LAN_IP>:<port>/bridge/v1`) et le jeton
-6. Testez : `zotero-bridge status --endpoint http://<LAN_IP>:<port>/bridge/v1`
+5. Sur la machine distante, configurez le `endpoint` (`http://<LAN_IP>:<port>/bridge/v2`) et le jeton
+6. Testez : `zotero-bridge status --endpoint http://<LAN_IP>:<port>/bridge/v2`
 
 **Important :** Le mode LAN contourne la protection par loopback. À utiliser uniquement sur des réseaux locaux de confiance.
 

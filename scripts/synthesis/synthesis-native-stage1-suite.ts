@@ -41,7 +41,7 @@ export function resolveSynthesisNativeStage1Suite(
   const candidates = new Map<number, string[]>();
   for (const inputPath of allTestFiles) {
     const filePath = normalizeTestPath(inputPath);
-    const match = /^tests\/core\/(\d+)-synthesis-[^/]+\.test\.ts$/.exec(
+    const match = /^tests\/synthesis\/(\d+)-synthesis-[^/]+\.test\.ts$/.exec(
       filePath,
     );
     if (!match) continue;

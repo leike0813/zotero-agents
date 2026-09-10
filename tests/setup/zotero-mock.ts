@@ -3121,11 +3121,13 @@ baselineRuntimeGlobalDescriptors = captureRuntimeGlobalDescriptors();
 
 export const mochaHooks = {
   async beforeEach() {
+    this.timeout(BACKGROUND_RUNTIME_CLEANUP_TIMEOUT_MS);
     resetZoteroMockStateForTests();
     await cleanupBackgroundRuntimeForTests("beforeEach");
     resetZoteroMockStateForTests();
   },
   async afterEach() {
+    this.timeout(BACKGROUND_RUNTIME_CLEANUP_TIMEOUT_MS);
     resetZoteroMockStateForTests();
     await cleanupBackgroundRuntimeForTests("afterEach");
     resetZoteroMockStateForTests();

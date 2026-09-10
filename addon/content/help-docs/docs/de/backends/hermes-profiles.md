@@ -52,7 +52,7 @@ Vollständige Anbieterkonfigurationsoptionen finden Sie in der [Hermes-Dokumenta
 Das Profil enthält eine Host Bridge-Verbindungsvorlage unter `assets/host-bridge/profile.example.json`. Sie müssen den tatsächlichen Endpunkt und Token angeben:
 
 1. Öffnen Sie Zotero → Einstellungen → Zotero Agents → Host Bridge
-2. Klicken Sie auf **Starten / Endpunkt anzeigen**, um sicherzustellen, dass die Bridge läuft, und notieren Sie die Endpunkt-URL (z. B. `http://127.0.0.1:26570/bridge/v1`)
+2. Klicken Sie auf **Starten / Endpunkt anzeigen**, um sicherzustellen, dass die Bridge läuft, und notieren Sie die Endpunkt-URL (z. B. `http://127.0.0.1:26570/bridge/v2`)
 3. Klicken Sie auf **Master-Token kopieren** (oder verwenden Sie das im Panel angezeigte Sitzungstoken)
 4. Setzen Sie das Token als Umgebungsvariable:
 
@@ -67,7 +67,7 @@ $env:ZOTERO_BRIDGE_TOKEN = "<Ihr-Token>"
 5. Bei Fern-/LAN-Zugriff geben Sie auch den Endpunkt direkt an:
 
 ```bash
-export ZOTERO_BRIDGE_ENDPOINT="http://127.0.0.1:26570/bridge/v1"
+export ZOTERO_BRIDGE_ENDPOINT="http://127.0.0.1:26570/bridge/v2"
 ```
 
 Die Profilvorlage verwendet `auth.tokenEnv: "ZOTERO_BRIDGE_TOKEN"`, sodass die CLI das Token automatisch aus der Umgebung übernimmt. Siehe [Host Bridge-Konfiguration](#doc/backends%2Fhost-bridge) für detaillierte Dokumentation zu Endpunkt, Token und Profildateien.

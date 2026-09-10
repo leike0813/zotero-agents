@@ -52,7 +52,7 @@ Consultez la [documentation Hermes](https://github.com/anomalyco/hermes) pour to
 Le profil est livré avec un modèle de connexion Host Bridge dans `assets/host-bridge/profile.example.json`. Vous devez fournir le point de terminaison et le jeton réels :
 
 1. Ouvrez Zotero → Paramètres → Zotero Agents → Host Bridge
-2. Cliquez sur **Démarrer / Afficher le point de terminaison** pour vous assurer que le bridge est en cours d'exécution et notez l'URL du point de terminaison (ex. `http://127.0.0.1:26570/bridge/v1`)
+2. Cliquez sur **Démarrer / Afficher le point de terminaison** pour vous assurer que le bridge est en cours d'exécution et notez l'URL du point de terminaison (ex. `http://127.0.0.1:26570/bridge/v2`)
 3. Cliquez sur **Copier le jeton maître** (ou utilisez le jeton de session affiché dans le panneau)
 4. Définissez le jeton comme variable d'environnement :
 
@@ -67,7 +67,7 @@ $env:ZOTERO_BRIDGE_TOKEN = "<votre-jeton>"
 5. Pour un accès distant/LAN, incluez également le point de terminaison directement :
 
 ```bash
-export ZOTERO_BRIDGE_ENDPOINT="http://127.0.0.1:26570/bridge/v1"
+export ZOTERO_BRIDGE_ENDPOINT="http://127.0.0.1:26570/bridge/v2"
 ```
 
 Le modèle de profil utilise `auth.tokenEnv: "ZOTERO_BRIDGE_TOKEN"`, donc la CLI récupère automatiquement le jeton depuis l'environnement. Consultez la [Configuration de Host Bridge](#doc/backends%2Fhost-bridge) pour une documentation détaillée sur le point de terminaison, le jeton et les fichiers de profil.

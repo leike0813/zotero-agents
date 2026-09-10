@@ -348,7 +348,7 @@ SkillRunner local run state.
 #### Scenario: SkillRunner UI projection ignores legacy rows
 
 - **WHEN** legacy SkillRunner task/request/context rows remain in local state
-- **THEN** Dashboard, Task Manager, and assistant workspace SHALL list SkillRunner tasks from the SkillRunner run store
+- **THEN** Dashboard, Task Dashboard, and assistant workspace SHALL list SkillRunner tasks from the SkillRunner run store
 - **AND** they SHALL NOT restore or display tasks from legacy SkillRunner rows.
 
 ### Requirement: SkillRunner run workspace MUST preserve warm stream session state

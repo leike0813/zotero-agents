@@ -1,117 +1,86 @@
 # test-runtime-affinity-governance Specification
 
-## Purpose
-TBD - created by archiving change test-governance-three-axis-realignment. Update Purpose after archive.
 ## Requirements
-### Requirement: Test governance MUST classify runtime affinity explicitly
 
-The project test suite MUST distinguish between `node-only`, `zotero-safe`, and
-`zotero-unsafe` execution expectations.
+### Requirement: Runtime affinity SHALL be expressed by file placement
 
-#### Scenario: Mock-heavy helper test is classified as node-only
+Tests SHALL be placed under the runner whose environment their assertions require.
 
-- **WHEN** a test relies on package helpers, runtime seams, fake DOM, or heavy
-  mock injection
-- **THEN** it SHOULD be classified as `node-only`
+#### Scenario: Deterministic test
 
-#### Scenario: Ordinary Zotero regression case stays zotero-safe
+- **WHEN** a test can prove behavior through a public module interface, parseable artifact, mock, or fake DOM
+- **THEN** it is placed in a Node-owned production-domain directory
 
-- **WHEN** a workflow or UI regression can run in Zotero without unstable
-  multi-realm injection or real UI interaction
-- **THEN** it MAY remain `zotero-safe`
+#### Scenario: Real-host test
 
-### Requirement: Zotero-safe regressions MUST avoid real interactive UI
+- **WHEN** a test requires real Zotero API, SQLite, XPCOM, window/Reader, host filesystem, subprocess, or nested host-page behavior
+- **THEN** it is placed directly in a Zotero `lite` or `full` directory
 
-Regular Zotero-safe regression runs MUST NOT open real editor, file picker, or
-dialog UI.
+### Requirement: Zotero lite SHALL be a critical host guard
 
-#### Scenario: Thickened Zotero lite/full still exclude unstable UI-heavy classes
+Zotero `lite` SHALL contain stable critical behavior that requires the real host.
 
-- **WHEN** a test depends on editor, picker, dialog, GitHub sync, mock-e2e,
-  brittle multi-realm override, or other deep unstable host chains
-- **THEN** it MUST NOT return to the routine Zotero `lite` or `full` suites
-- **AND** it remains covered by Node or separate non-routine execution
+#### Scenario: Lite admission
 
-#### Scenario: Full parity ring restores only documented host-safe additions
+- **WHEN** a real-host test is stable, non-interactive, and protects a critical host integration risk
+- **THEN** it is eligible for `test:lite`
+- **AND** Node-only logic matrices are not duplicated there
 
-- **WHEN** Zotero `full` expands beyond the `lite` baseline
-- **THEN** it restores only the documented host-safe parity cases
-- **AND** it MUST NOT implicitly re-enable all tests from a retained mixed file
+#### Scenario: Full admission
 
-### Requirement: Real Zotero tests MUST clean created library objects after each case
+- **WHEN** a real-host regression is stable but long-running, optional-process-dependent, or lower frequency
+- **THEN** it is placed in `full`
 
-Real-host Zotero tests MUST NOT leave created parent items, notes, attachments,
-or collections behind for subsequent tests.
+### Requirement: Mixed runtime tests SHALL be split
 
-#### Scenario: Shared teardown deletes tracked real Zotero objects
+Tests with materially different Node and Zotero behavior SHALL be split by runtime owner.
 
-- **WHEN** a real Zotero test finishes
-- **THEN** shared teardown deletes tracked library objects created during that
-  test after background runtime cleanup completes
+#### Scenario: Runtime-dependent case selection
 
-#### Scenario: Explicit direct-object creation is manually registered
+- **WHEN** a test file uses runtime or mode checks to select materially different cases
+- **THEN** its Node and Zotero behavior is separated into files owned by their runners
+- **AND** routine Zotero membership is not selected by test title
 
-- **WHEN** a real Zotero test creates Zotero items or collections directly
-  without going through `handlers`
-- **THEN** the test explicitly registers those objects for teardown cleanup
+### Requirement: Routine Zotero tests SHALL avoid unstable interaction classes
 
-### Requirement: Tail degradation diagnosis MUST escalate to performance probe when residual probe is inconclusive
+Routine Zotero tests SHALL exclude unstable interactive behavior without a dedicated harness.
 
-When real Zotero `full` runs still degrade toward the tail after residual leak probing, the next diagnosis step MUST be a staged performance probe digest before timeout inflation or suite reordering is attempted.
+#### Scenario: Interactive host UI
 
-#### Scenario: Residual probe shows no actionable growth
+- **WHEN** a test can open a real editor, picker, dialog, installer, publication network flow, or brittle multi-realm override
+- **THEN** it remains outside routine `lite` and `full` execution unless a dedicated stable harness exists
 
-- **WHEN** the leak probe digest shows no actionable post-cleanup growth outside naturally monotonic counters
-- **THEN** engineers MUST enable the performance probe digest
-- **AND** the next diagnosis pass MUST focus on operation duration, event-loop lag, and host resource growth
+### Requirement: Real Zotero tests SHALL clean shared state
 
-### Requirement: Zotero full expansion SHALL prioritize stable host coverage over unstable interaction paths
+Real Zotero tests SHALL clean shared host state after execution.
 
-Routine Zotero execution SHALL thicken `full` using stable real-host suites,
-while continuing to exclude known instability classes.
+#### Scenario: Test teardown
 
-#### Scenario: Stable host suites are eligible for Zotero full
+- **WHEN** a real Zotero case finishes
+- **THEN** shared teardown records failure context before cleanup
+- **AND** it stops and drains background work
+- **AND** it removes tracked Zotero objects in dependency order
 
-- **WHEN** a suite exercises real Zotero host behavior without relying on real
-  editor, picker, or brittle dialog interaction
-- **THEN** it MAY be promoted into Zotero `full` to improve stable host
-  coverage
+### Requirement: Test governance SHALL target stable behavior
 
-#### Scenario: Known unstable interaction classes remain excluded
+Tests SHALL assert stable observable behavior or consumer-visible artifacts.
 
-- **WHEN** a suite depends on editor, picker, dialog, brittle multi-realm
-  override, GitHub sync, or similarly unstable interaction paths
-- **THEN** it MUST remain outside routine Zotero suites even if Zotero `full`
-  is being thickened
+#### Scenario: Toxic assertion
 
-### Requirement: Zotero routine suites MUST leave no background work behind
+- **WHEN** a test only asserts source strings, instruction prose, internal call order, exact incidental UI text, or suite configuration text
+- **THEN** it is removed or replaced by an existing check or observable behavior test
 
-Real Zotero tests MUST NOT leak background timers, event streams, reconcilers,
-or comparable module-level async work across test-case boundaries.
+#### Scenario: Allowed artifact contract
 
-#### Scenario: Async background modules support stop-and-drain
+- **WHEN** a static read parses a public schema, wire corpus, release manifest, checksum, executable bit, or package inventory
+- **THEN** it may remain as a consumer-visible contract test
 
-- **WHEN** a module owns long-lived async work such as polling loops, event
-  streams, or chat observers
-- **THEN** it exposes a stop-and-drain lifecycle so test teardown can wait for
-  in-flight work to exit before the next test begins
+### Requirement: Test governance SHALL NOT require meta-tests
 
-#### Scenario: Shared cleanup awaits async resets
+Test-suite governance SHALL NOT add tests whose only subject is test membership or policy.
 
-- **WHEN** the shared Zotero cleanup harness tears down SkillRunner test state
-- **THEN** it awaits async reset APIs instead of issuing stop-only cleanup
+#### Scenario: Governance validation
 
-### Requirement: Real Zotero tail degradation diagnosis MUST use staged leak evidence before timeout inflation
-
-When a real Zotero routine or full suite becomes materially slower toward the tail of the run, the investigation MUST first collect staged lifecycle evidence instead of immediately changing timeout budgets or execution ordering.
-
-#### Scenario: Shared leak probe digest is used before timeout inflation
-
-- **WHEN** Zotero `full` shows tail-end slowdown or flaky timeout drift
-- **THEN** the test infrastructure MUST support an opt-in staged leak probe
-  digest
-- **AND** the digest MUST capture at least test-start, pre-cleanup,
-  post-background-cleanup, post-object-cleanup, and domain-end snapshots
-- **AND** timeout increases or suite reordering MUST NOT be the first response
-  unless the digest already rules out shared-runtime growth
-
+- **WHEN** the test suite itself is reorganized or pruned
+- **THEN** validation uses inventory listing and actual runner execution
+- **AND** no test is added solely to test tests, allowlists, titles, or directory policy

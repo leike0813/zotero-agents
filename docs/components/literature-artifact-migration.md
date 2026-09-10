@@ -145,7 +145,7 @@ module does not add a new unconditional ToolResult gate.
 The focused Node migration and Dashboard tests are:
 
 ```text
-tests/core/264-literature-artifact-migration.test.ts
+tests/tooling/264-literature-artifact-migration.test.ts
 tests/ui/264-literature-migration-region.test.ts
 ```
 

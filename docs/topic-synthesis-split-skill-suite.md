@@ -662,8 +662,7 @@ Renderer 从 `skills_src/topic-synthesis/` 生成四个发布包。
 推荐验证：
 
 ```bash
-npx tsx node_modules/mocha/bin/mocha "tests/core/153-topic-synthesis-suite-renderer.test.ts" "tests/core/155-topic-synthesis-split-runtime.test.ts" --require tests/setup/zotero-mock.ts
-npx tsx node_modules/mocha/bin/mocha "tests/core/129-synthesis-layer-integration.test.ts" --require tests/setup/zotero-mock.ts
+npx tsx node_modules/mocha/bin/mocha "tests/synthesis/153-topic-synthesis-suite-renderer.test.ts" "tests/synthesis/155-topic-synthesis-split-runtime.test.ts" --require tests/setup/zotero-mock.ts
 npx tsc --noEmit
 ```
 

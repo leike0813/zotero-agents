@@ -1,6 +1,5 @@
 import { listRuntimeLogs } from "../../src/modules/runtimeLogManager";
 import { cleanupBackgroundRuntimeForZoteroTests } from "../../src/modules/testRuntimeCleanup";
-import { inferDomainFromFilePath } from "./domainFilter";
 import { cleanupTrackedZoteroTestObjects } from "./objectCleanupHarness";
 import {
   captureZoteroLeakProbeSnapshot,
@@ -35,6 +34,14 @@ function getRuntime() {
 function isZoteroRuntime() {
   const runtime = getRuntime();
   return !!runtime.IOUtils && !!runtime.PathUtils;
+}
+
+function inferDomainFromFilePath(filePath: string) {
+  return (
+    filePath
+      .replace(/\\/g, "/")
+      .match(/tests\/zotero\/(core|ui|workflow)\//)?.[1] || "all"
+  );
 }
 
 function getProviders() {

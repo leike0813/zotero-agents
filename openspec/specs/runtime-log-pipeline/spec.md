@@ -198,7 +198,7 @@ Runtime log append notifications and routine Runtime Logs UI refreshes MUST expo
 
 #### Scenario: Runtime Logs page refreshes
 
-- **WHEN** Task Manager refreshes the Runtime Logs page
+- **WHEN** Task Dashboard refreshes the Runtime Logs page
 - **THEN** it SHALL read aggregate summary data and at most 300 visible entries
 - **AND** the refresh SHALL NOT construct a complete `RuntimeLogSnapshot`.
 

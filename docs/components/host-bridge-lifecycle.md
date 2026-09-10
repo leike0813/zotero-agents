@@ -26,7 +26,7 @@ The server is split by ownership rather than by transport endpoint:
 | Request reader | `src/modules/hostBridge/server/hostHttpRequestReader.ts` | Bounded byte reads and strict HTTP request parsing |
 | Response writer | `src/modules/hostBridge/server/runtimeHttpResponse.ts` | Memory/file response construction and output transfer |
 | Route contract | `src/modules/hostBridge/server/hostBridgeRouteContract.ts` | Private route match descriptor and admission modes |
-| Route families | `src/modules/hostBridge/server/routes/hostBridge*Routes.ts` | Diagnostics, capability/context, workflow/activity, file, and Synthesis path ownership |
+| Route families | `src/modules/hostBridge/server/routes/hostBridge*Routes.ts` | Diagnostics, capability/context, workflow/activity, file, and Synthesis path ownership; each route family owns matching, method validation, request parsing, downstream dispatch, and error mapping for its routes |
 | Protocol | `src/modules/hostBridge/server/hostBridgeProtocol.ts` | Request/response types, status snapshot shape |
 | Auth | `src/modules/hostBridge/server/hostBridgeAuth.ts` | Session token, master token encryption, authorization |
 

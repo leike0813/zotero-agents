@@ -1,148 +1,78 @@
 # test-suite-gating-strategy Specification
 
-## Purpose
-TBD - created by archiving change define-lite-full-suite-and-ci-gates. Update Purpose after archive.
 ## Requirements
-### Requirement: The project SHALL define two normative test suites
-The project SHALL define two normative test suites: `lite` for pull request gating and `full` for release gating.
 
-#### Scenario: PR gate uses lite suite
-- **WHEN** a pull request gate runs
-- **THEN** it executes the `lite` suite
+### Requirement: Pull requests SHALL run both deterministic Node and real-host guards
 
-#### Scenario: Release gate uses full suite
-- **WHEN** a release gate runs
-- **THEN** it executes the `full` suite
+Pull-request gates SHALL require deterministic Node coverage and the critical real-Zotero guard.
 
-### Requirement: Full suite SHALL be a superset of lite suite
+#### Scenario: PR gate
 
-`full` suite membership SHALL include all tests in `lite` plus additional deep
-regression coverage.
+- **WHEN** the pull-request gate runs
+- **THEN** governance checks and Synthesis native stage1 run
+- **AND** all regular deterministic Node shards run
+- **AND** Zotero `lite` runs
+- **AND** failure in any stage blocks the gate
 
-#### Scenario: Additional deep tests are only in full
+### Requirement: Releases SHALL run the full real-host layer
 
-- **WHEN** environment-heavy, long-running, or intentionally down-tiered test
-  cases are classified
-- **THEN** they are allowed in `full` without being required in `lite`
-- **AND** case-level `itFullOnly` gating MAY be used to keep those cases inside
-  the same file while excluding them from `lite`
+Release gates SHALL require the complete real-Zotero layer in addition to pull-request coverage.
 
-### Requirement: Lite suite SHALL be explicitly optimized for fast feedback
+#### Scenario: Release gate
 
-`lite` suite membership SHALL be reviewed and pruned to keep PR feedback fast
-while preserving critical-path confidence.
+- **WHEN** the release gate runs
+- **THEN** it runs the same checks and Node layers as the PR gate
+- **AND** it runs Zotero `full`
+- **AND** `full` includes every `lite` file plus the files under each `full` directory
 
-#### Scenario: Zotero lite retains a daily real-host regression ring
+### Requirement: Test membership SHALL have one source of truth
 
-- **WHEN** Zotero `lite` routine suites are selected
-- **THEN** they MUST include host smoke plus a small set of real-host parity
-  cases for object operations, backend handoff, workflow context, and UI shell
-  behavior
-- **AND** they remain substantially smaller than broad historical Zotero
-  coverage
+Each test runner SHALL derive membership from one authoritative inventory.
 
-#### Scenario: Zotero full remains a strict superset of Zotero lite
+#### Scenario: Node inventory
 
-- **WHEN** Zotero `full` routine suites are selected
-- **THEN** they MUST execute every retained `lite` case
-- **AND** they MUST add an extra parity ring of guard, idempotency, and
-  real-host regression cases
+- **WHEN** Node tests are listed
+- **THEN** each regular test is assigned to exactly one ownership shard
+- **AND** unassigned or duplicate assignments fail the command
 
-#### Scenario: Workflow Zotero coverage uses lite baseline plus full parity
+#### Scenario: Zotero inventory
 
-- **WHEN** a workflow package is retained in routine Zotero execution
-- **THEN** `lite` MUST keep a canonical success path and only the smallest
-  necessary host-parity guards
-- **AND** `full` MAY add a small number of extra host-safe guards without
-  reintroducing deep matrix coverage
+- **WHEN** Zotero tests are selected
+- **THEN** membership comes directly from `tests/zotero/{core,ui,workflow}/{lite,full}`
+- **AND** aggregate import suites, file allowlists, and title allowlists are not used
 
-### Requirement: Lite selection-context rebuild SHALL use mix-all top-3-parent subset
-For `selection-context rebuild`, `lite` SHALL execute only a dedicated fixture derived from the first three parent entries of `selection-context-mix-all`.
+### Requirement: Domain commands SHALL follow production ownership
 
-#### Scenario: Lite rebuild scope uses top-3 parents only
-- **WHEN** `selection-context rebuild` runs in `lite` mode
-- **THEN** the test uses only the top-3-parent derived fixture and excludes standalone notes from `mix-all`
+Node domain commands SHALL execute shards grouped by production ownership.
 
-#### Scenario: Lite rebuild keeps artifacts
-- **WHEN** the top-3-parent rebuild case completes in `lite`
-- **THEN** rebuilt artifacts are preserved (no cleanup teardown)
+#### Scenario: Node domain command
 
-#### Scenario: Full rebuild remains comprehensive
-- **WHEN** `selection-context rebuild` runs in `full` mode
-- **THEN** the existing comprehensive fixture matrix continues to run
+- **WHEN** `test:node:<domain>` runs
+- **THEN** it executes only the shards owned by that production domain
+- **AND** a failing shard prints a direct single-shard rerun command
 
-### Requirement: CI gating behavior SHALL define blocking semantics
-The CI strategy SHALL define blocking vs warning behavior for each gate job. Pull requests SHALL block on the Windows x64 and Linux x64 Zotero 7.0.32, 9.0.6, and 10.0.1 `lite` behavioral matrix. Main and release runs SHALL block on the corresponding `full` behavioral matrix and formal-XPI smoke matrix. macOS Intel and ARM64 Zotero 10 formal-XPI smoke SHALL report evidence without blocking until separately promoted.
+#### Scenario: Native suite is not duplicated
 
-#### Scenario: Blocking gate failure
-- **WHEN** any selected Windows/Linux compatibility target fails its required behavioral or formal-XPI run
-- **THEN** the corresponding pipeline is marked failed
+- **WHEN** regular Node shards run in a gate that also runs Synthesis native stage1
+- **THEN** native stage1 files are excluded from regular shards
 
-#### Scenario: Non-blocking informational job failure
-- **WHEN** a macOS evidence target or another explicitly non-gating informational job fails
-- **THEN** it is reported as warning without overriding mandatory gate results
+### Requirement: Real-host compatibility SHALL remain blocking on supported targets
 
-### Requirement: Grouped test commands SHALL be provided at first-level domains
-The project SHALL provide grouped test commands for both Node and Zotero runs at first-level domains only: `core`, `ui`, and `workflow`.
+Supported real-host compatibility targets SHALL remain blocking.
 
-#### Scenario: Node grouped command by first-level domain
-- **WHEN** a developer runs a Node grouped command for `core`, `ui`, or `workflow`
-- **THEN** only tests in the selected first-level domain are executed
+#### Scenario: Compatibility matrix
 
-#### Scenario: Zotero grouped command by first-level domain
-- **WHEN** a developer runs a Zotero grouped command for `core`, `ui`, or `workflow`
-- **THEN** only tests in the selected first-level domain are executed
+- **WHEN** the compatibility gate runs
+- **THEN** Zotero 7, 9, and 10 on supported Linux and Windows targets remain blocking
+- **AND** explicitly informational macOS evidence does not override blocking results
 
-#### Scenario: Per-workflow grouped commands are not required in this change
-- **WHEN** grouped commands are defined for this change
-- **THEN** command surface is limited to first-level domain groups and does not require per-workflow command variants
+### Requirement: Zotero full MAY use sequential domain processes
 
-### Requirement: Full suite SHALL serve as the stable CI host-coverage gate
+The full Zotero layer MAY isolate domains in sequential host processes and SHALL preserve complete membership and failure propagation when it does.
 
-Zotero `full` SHALL be a strict superset of Zotero `lite`, but its purpose is
-not merely to add a narrow parity ring. Its purpose is to provide stable
-real-host coverage for CI gate use.
+#### Scenario: Full execution topology
 
-#### Scenario: Zotero full prioritizes stable host coverage over speed
-
-- **WHEN** Zotero `full` routine suites are selected
-- **THEN** they MUST include every retained `lite` case
-- **AND** they MUST add stable real-host suites or guards that improve coverage
-  across major host-risk buckets
-- **AND** they MUST not be optimized primarily for speed
-
-#### Scenario: Zotero full is evaluated by coverage buckets
-
-- **WHEN** Zotero `full` routine suites are curated
-- **THEN** they MUST cover:
-  - Zotero object lifecycle
-  - SkillRunner transport/state/reconcile
-  - workflow host context and idempotency
-  - UI host shell behavior
-- **AND** a full suite is incomplete when one of these buckets has no retained
-  stable real-host coverage
-
-### Requirement: Zotero full MAY run as sequential real-host domain segments
-
-Release gating SHALL continue to use the `full` suite. Zotero real-host `full`
-execution SHALL support sequential multi-process execution instead of requiring
-one monolithic process.
-
-#### Scenario: Release gate runs Zotero full as sequential real-host segments
-
-- **WHEN** a release gate runs the Zotero `full` suite
-- **THEN** it MAY execute `full` as multiple sequential real-host processes
-- **AND** the default retained execution topology SHALL run:
-  - `core:full`
-  - `ui:full`
-  - `workflow:full`
-- **AND** failure in any segment SHALL fail the overall `full` gate
-
-#### Scenario: Process splitting does not shrink full coverage
-
-- **WHEN** Zotero `full` is executed as sequential segments
-- **THEN** membership and gating semantics SHALL remain identical to the
-  retained `full` suite contract
-- **AND** process splitting SHALL be treated as an execution-topology change,
-  not a coverage reduction
-
+- **WHEN** `test:zotero:full` runs
+- **THEN** core, UI, and workflow domains may run in separate sequential Zotero processes
+- **AND** each domain loads its lite and full directories
+- **AND** failure in any process fails the full suite

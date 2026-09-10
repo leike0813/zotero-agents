@@ -42,7 +42,7 @@ users.
 
 The system SHALL expose a plugin-owned Host Access HTTP listener for local and
 explicitly enabled LAN clients. The Host Bridge REST API SHALL remain available
-under `/bridge/v1`.
+under `/bridge/v2`.
 
 #### Scenario: Unified listener serves both protocol routes
 

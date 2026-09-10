@@ -32,7 +32,7 @@ type Corpus = {
   request: Record<string, unknown>;
 };
 
-function assertOwnership(root: string) {
+export function inspectSynthesisNativeWorkerTransferOwnership(root: string) {
   const runtimeRoot = path.join(
     root,
     "rust/synthesis-sidecar/crates/synthesis-sidecar/src",
@@ -182,7 +182,7 @@ export async function checkSynthesisNativeWorkerTransferParity(
     canonicalResult: string;
     resultSha256: string;
   };
-  const errors = assertOwnership(root);
+  const errors = inspectSynthesisNativeWorkerTransferOwnership(root);
   const protocolCorpusSource = fs.readFileSync(PROTOCOL_CORPUS_PATH, "utf8");
   const protocolCorpus = JSON.parse(protocolCorpusSource) as {
     schema: string;

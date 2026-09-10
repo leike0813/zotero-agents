@@ -27,7 +27,6 @@ const MENU_ICON_URI = `chrome://${config.addonRef}/content/icons/icon_play_32.pn
 
 export type WorkflowActionPopupBuildOptions = {
   includeSkillRunnerSidebarItem?: boolean;
-  includeTaskManagerItem?: boolean;
   includeSynthesisWorkbenchItem?: boolean;
   includeWorkspaceItem?: boolean;
 };
@@ -271,8 +270,7 @@ export async function rebuildWorkflowActionPopup(
   popup: XULElement,
   options?: WorkflowActionPopupBuildOptions,
 ) {
-  const includeWorkspaceItem =
-    options?.includeWorkspaceItem ?? options?.includeTaskManagerItem !== false;
+  const includeWorkspaceItem = options?.includeWorkspaceItem !== false;
   const includeSkillRunnerSidebarItem =
     options?.includeSkillRunnerSidebarItem !== false;
   clearPopupChildren(popup);
@@ -402,7 +400,7 @@ export function ensureWorkflowMenuForWindow(win: _ZoteroTypes.MainWindow) {
       return;
     }
     void rebuildWorkflowActionPopup(win, popup, {
-      includeTaskManagerItem: true,
+      includeWorkspaceItem: true,
     });
   });
   menu.appendChild(popup);

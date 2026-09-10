@@ -215,7 +215,7 @@ credentials, and free error text are rejected.
 The trace store is process memory only. It holds at most 1,000 events and 128
 events per trace, pins active traces, evicts the oldest completed trace as a
 unit, and preserves a trace start, first failure, terminal, and dropped count
-when a trace overflows. The Task Manager reads one snapshot when its Sidecar tab
+when a trace overflows. The Task Dashboard reads one snapshot when its Sidecar tab
 opens and then consumes 200 ms `added`/`updated`/`evicted` batches. Existing
 trace rows, selection, detail, and scroll remain mounted when their data does
 not change. An accepted public maintenance operation keeps its originating

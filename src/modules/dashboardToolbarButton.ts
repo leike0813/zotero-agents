@@ -217,7 +217,7 @@ function ensureExecuteWorkflowToolbarButton(
     }
     void rebuildWorkflowActionPopup(win, popup, {
       includeSkillRunnerSidebarItem: false,
-      includeTaskManagerItem: false,
+      includeWorkspaceItem: false,
       includeSynthesisWorkbenchItem: false,
     });
   });

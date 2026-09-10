@@ -2,6 +2,7 @@ import {
   decodeBase64Utf8,
   encodeBase64Utf8,
 } from "../../zoteroHost/notePayloadCodec";
+import type { HostHttpRequest } from "./hostHttpRequestReader";
 
 const CURSOR_VERSION = 1;
 export const HOST_BRIDGE_PAGE_LIMIT_DEFAULT = 25;
@@ -202,6 +203,56 @@ export function paginateHostBridgeRows<T>(args: {
     total: args.rows.length,
     limit,
   };
+}
+
+function requestCriteria(query: Record<string, string>) {
+  return Object.fromEntries(
+    Object.entries(query)
+      .filter(([key]) => key !== "cursor" && key !== "limit")
+      .sort(([left], [right]) => left.localeCompare(right)),
+  );
+}
+
+function requestRowKey(value: unknown) {
+  const object =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  for (const key of [
+    "queueId",
+    "submissionUnitId",
+    "permissionRequestId",
+    "eventId",
+    "skillRunId",
+    "workflowRunId",
+    "runId",
+    "requestId",
+    "id",
+    "key",
+  ]) {
+    const entry = String(object[key] || "").trim();
+    if (entry) return `${key}:${entry}`;
+  }
+  return fingerprintHostBridgeValue(value);
+}
+
+export function paginateHostBridgeRequestRows<T>(args: {
+  request: HostHttpRequest;
+  scope: string;
+  rows: readonly T[];
+  extraCriteria?: Record<string, unknown>;
+}) {
+  return paginateHostBridgeRows({
+    scope: args.scope,
+    criteria: {
+      ...requestCriteria(args.request.query),
+      ...(args.extraCriteria || {}),
+    },
+    rows: args.rows,
+    key: requestRowKey,
+    cursor: args.request.query.cursor,
+    limit: args.request.query.limit,
+  });
 }
 
 export function chunkHostBridgeText(

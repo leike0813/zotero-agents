@@ -45,7 +45,7 @@ Provider 解析在 Preparation 阶段完成（`runWorkflowPreparationSeam` 内�
    - 重新扫描 workflows
    - Backend Manager
    - Workflow Settings
-   - Task Manager
+   - Task Dashboard
 
 ## 2. 触发阶段
 

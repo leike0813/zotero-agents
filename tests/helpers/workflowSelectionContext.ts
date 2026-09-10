@@ -4,7 +4,7 @@ import {
 } from "../../src/modules/selectionContext";
 import { setZoteroLibrarySourcePageQueryAdapterForTests } from "../../src/modules/zoteroHost/zoteroLibraryPageQuery";
 import { createMockZoteroLibrarySourcePageQueryAdapter } from "./zoteroLibraryPageQueryAdapter";
-import { isZoteroRuntime } from "../core/workflow-test-utils";
+import { isZoteroRuntime } from "../zotero/workflow-test-utils";
 
 type SelectionTestItem = {
   libraryID?: number;

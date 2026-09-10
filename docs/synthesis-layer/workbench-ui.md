@@ -15,7 +15,7 @@ Workbench UI is a read model over Zotero Library, workflow artifacts, and commit
 In debug builds, failed native startup spans are part of the same causal trace
 store as RPC, reverse-Host, worker, transfer, and durable-operation spans.
 Workbench may show the latest stable startup phase and code and link to the
-read-only **Synthesis Sidecar** page in Task Manager. The page groups spans by
+read-only **Synthesis Sidecar** page in Task Dashboard. The page groups spans by
 trace, shows parent/child depth, attempt, dropped counts, allowlisted metrics
 and facts, and copies the complete sanitized selected trace. It offers no
 retry, restart, repair, or mutation action. Release builds retain neither this

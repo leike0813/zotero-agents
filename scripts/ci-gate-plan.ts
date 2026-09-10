@@ -22,6 +22,10 @@ const SHARED_GATE_STAGES: readonly CiGateStage[] = [
     id: "test-synthesis-native-stage1",
     script: "test:synthesis-native:stage1",
   },
+  {
+    id: "test-node",
+    script: "test",
+  },
 ];
 
 export function getCiGateStages(gate: CiGateName): CiGateStage[] {

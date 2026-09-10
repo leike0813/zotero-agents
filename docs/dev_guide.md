@@ -10,10 +10,11 @@
 
 ## 2. 测试入口
 
-- `npm run test`：Zotero lite
+- `npm test`：常规 Node 分片
 - `npm run test:full`：Zotero full
-- `npm run test:node`：Node lite
-- `npm run test:node:full`：Node full
+- `npm run test:lite`：Zotero lite
+- `npm run test:node:<domain>`：单个 Node 所有权域
+- `npm run test:node:shards:list`：检查 Node 测试归属
 
 `lite/full` 具体规则见 `docs/testing-framework.md`。
 
