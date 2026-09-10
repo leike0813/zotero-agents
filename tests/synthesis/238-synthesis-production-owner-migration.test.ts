@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION } from "../../packages/synthesis-contracts/src/schemaVersion";
 import { createReadonlySqliteDatabase } from "../../src/modules/harness/sqliteReadonly";
 import { createDefaultSynthesisUiState } from "../../src/modules/synthesis/uiModel";
 import { toSynthesisWorkbenchReadState } from "../../src/modules/synthesisClient/workbenchUiAdapter";
@@ -270,7 +271,7 @@ describe("Synthesis legacy production owner migration", function () {
             "SELECT value FROM synt_schema_meta WHERE key='repository_foundation_schema_version'",
           )
           .get().value,
-        "synthesis-repository-foundation.v4",
+        SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION,
       );
       assert.equal(
         migrated

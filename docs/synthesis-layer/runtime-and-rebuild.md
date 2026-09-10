@@ -95,11 +95,11 @@ OpenSpec changes. Those historical Node oracle descriptions are fixed migration
 evidence, not current source inventory. Production supervision accepts only a
 verified `rust-native` manifest identity and an absolute native executable.
 
-The durable and application parity corpora fix repository foundation v3 at 53
-tables and 46 indexes, together with SQLite PRAGMAs, canonical bytes/hashes,
+The durable and application parity corpora fix repository foundation v5 at 62
+tables and 51 indexes, together with SQLite PRAGMAs, canonical bytes/hashes,
 fault points, public DTOs, stable codes, journal/receipt state, and reopen
-behavior. The complete v1→v2→v3 registry runs as one ordered transaction with
-one verified backup. It preserves Topic, approved binding/redirect/review,
+behavior. The complete v1→v2→v3→v4→v5 registry runs as one ordered transaction
+with one verified backup. It preserves Topic, approved binding/redirect/review,
 operation, sync, last-good projection, planned-topic payload, and discovery
 screening facts while marking rebuildable cache state stale. Production uses
 one serialized writer and at most four read-only connections. Seven-platform

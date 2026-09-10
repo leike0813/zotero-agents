@@ -149,7 +149,7 @@ or the closed 23-method retirement authorization. The baseline identity remains
 in `contracts/service-api-migration.yaml` so the source-fixed observable corpus
 can still be verified without retaining executable legacy code.
 
-Repository foundation v2 has 53 tables and 46 indexes. Production serializes
+Repository foundation v5 has 62 tables and 51 indexes. Production serializes
 writes through one owner and uses at most four read-only connections. Ordinary
 control/page DTOs target 768 KiB and cannot exceed 1 MiB; large Topic assets,
 artifact/review bodies, and exports use authenticated transfer, locator, or
@@ -170,7 +170,7 @@ synchronization is authorized by the current evidence.
 | Area | Status | Notes |
 | --- | --- | --- |
 | Library and artifact truth | current | Zotero Library and literature artifacts remain Host-owned SSOTs; Synthesis stores bounded projections and durable approved decisions. |
-| Native runtime and repository | production owner | Manifest v3 selects the XPI-bundled Rust runtime. Its application/repository/canonical layers own 53 tables, 46 indexes, Topic current files, migrations, and bounded workers. |
+| Native runtime and repository | production owner | Manifest v3 selects the XPI-bundled Rust runtime. Its application/repository/canonical layers own the foundation v5 repository with 62 tables, 51 indexes, Topic current files, migrations, and bounded workers. |
 | Workbench and domain surfaces | production Rust route | Home, Topics, Review, Tags, Concepts, Reader, Index, Graph, maintenance, sync, and debug capabilities use typed Rust application projections through `SynthesisClient`; read-only paths do not mutate readiness or operation state. |
 | Reference and Citation Graph | production Rust route | Reference refresh performs one Host identity scan and bounded changed-source projection; Graph pages, metrics, and layouts use repository windows and basis-guarded promotion. |
 | Topic, Tag, Concept, and Topic Graph | production Rust route | Rust owns DTO validation, domain rules, repository transactions, canonical coordination, and worker promotion. Host effects cross explicit reverse-Host ports. |

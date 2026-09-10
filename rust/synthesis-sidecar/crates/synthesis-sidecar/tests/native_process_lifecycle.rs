@@ -16,7 +16,9 @@ use synthesis_canonical_store::{
 #[cfg(feature = "test-support")]
 use synthesis_canonical_store::{CanonicalTopicState, canonical_topic_path_id};
 use synthesis_protocol::{canonical_json, canonical_sha256};
-use synthesis_repository::{DurableImportApply, DurableTopicBasis, Repository, RepositoryIdentity};
+use synthesis_repository::{
+    DurableImportApply, DurableTopicBasis, Repository, RepositoryIdentity, SCHEMA_VERSION,
+};
 #[cfg(feature = "test-support")]
 use synthesis_repository::{
     create_legacy_test_database, insert_legacy_test_topic_graph_rows, read_test_topic_graph_rows,
@@ -172,7 +174,7 @@ fn write_launch_config(root: &Path, reverse_host_port: u16) -> (PathBuf, PathBuf
         "platformSignature":platform_signature,
         "serviceVersion":env!("CARGO_PKG_VERSION"),
         "protocolVersion":"synthesis-sidecar.v1",
-        "schemaVersion":"synthesis-repository-foundation.v4",
+        "schemaVersion":SCHEMA_VERSION,
         "supervisorInstanceId":"supervisor-1",
         "diagnosticsEnabled":false,
         "repositoryDbPath":root.join("state/synthesis.db"),

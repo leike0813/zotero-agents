@@ -10,6 +10,7 @@ import {
   type SynthesisSidecarObservationEvent,
   type SynthesisSidecarTraceContext,
 } from "../../packages/synthesis-contracts/src/sidecarObservability";
+import { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION } from "../../packages/synthesis-contracts/src/schemaVersion";
 import { SYNTHESIS_SIDECAR_PROTOCOL } from "../../packages/synthesis-contracts/src/sidecarSystem";
 import { createNativeSynthesisClientComposition } from "../../src/modules/synthesisClient/nativeComposition";
 import { createSynthesisSidecarRpcClient } from "../../src/modules/synthesis/sidecar/synthesisSidecarRpcClient";
@@ -93,7 +94,7 @@ export function synthesisProductionRouteConfig(args: {
           },
     serviceVersion: "0.1.0",
     protocolVersion: SYNTHESIS_SIDECAR_PROTOCOL,
-    schemaVersion: "synthesis-repository-foundation.v4",
+    schemaVersion: SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION,
     diagnosticsEnabled: true,
     supervisorInstanceId: args.supervisorInstanceId,
     repositoryDbPath: path.join(args.root, "state", "synthesis.db"),

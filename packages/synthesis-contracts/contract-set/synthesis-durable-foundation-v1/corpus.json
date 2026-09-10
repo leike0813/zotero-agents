@@ -1,6 +1,6 @@
 {
   "schema": "synthesis-durable-foundation-corpus.v1",
-  "schemaVersion": "synthesis-repository-foundation.v4",
+  "schemaVersion": "synthesis-repository-foundation.v5",
   "repository": {
     "pragmas": {
       "journalMode": "wal",

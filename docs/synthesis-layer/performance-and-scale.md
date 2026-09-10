@@ -48,7 +48,7 @@ ids only.
 
 ## SQLite Policy
 
-The production repository foundation v2 contains 53 tables and 46 indexes. Rust
+The production repository foundation v5 contains 62 tables and 51 indexes. Rust
 serializes all mutation transactions through one writer and provides at most
 four read-only connections for bounded UI/status reads. Startup validates the
 schema and reconciles orphaned running operations before readiness; health and

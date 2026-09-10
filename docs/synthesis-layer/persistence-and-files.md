@@ -95,8 +95,8 @@ are inert and remain untouched.
 The launch config directly supplies `state/synthesis.db`,
 `data/synthesis`, reverse Host, and session identity. Rust holds the production
 OS lock before opening either root. Marker, receipt, admission, activation, and
-lease files are not runtime inputs. The production repository foundation v2 has
-53 tables and 46 indexes. One serialized writer owns mutation transactions and
+lease files are not runtime inputs. The production repository foundation v5 has
+62 tables and 51 indexes. One serialized writer owns mutation transactions and
 at most four read-only connections serve bounded reads while external Host,
 file, network, and worker work remains outside write transactions. Shutdown
 closes these production handles; it does not delete or demote the live roots.
@@ -213,7 +213,7 @@ Synthesis runtime DB uses typed `synt_*` tables for normal UI, Host Bridge, expl
 
 Graph-derived rows that replace visible state must either be scoped by run/basis until promotion or be guarded by an equivalent active pointer. Workbench hot reads must not read staged rows from an unpromoted run.
 
-Repository foundation v2 is reached from v1 only through the registered Rust migration. The migration creates `synt_topic_deleted_artifact` and its deletion-time index, preserves Topic, binding, redirect, review, operation, sync, and last-good projection rows, then marks cache bases, Citation layout/complex metrics, Tag/Concept/Topic Graph indexes, and Reference/Matching readiness stale. Production migration runs inside one immediate transaction after creating or verifying a content-addressed v1 database backup. The version metadata is updated last; failure leaves both the live database and backup at v1, and a repeated v2 startup performs no migration write.
+Repository foundation v5 is reached only through the registered Rust v1→v2→v3→v4→v5 migration chain. The chain preserves Topic, binding, redirect, review, operation, sync, and last-good projection rows while invalidating rebuildable state when required. Its v4→v5 step adds `source_reference_id` to Source Reference rows and preserves existing rows with an empty legacy value. Production migration runs inside one immediate transaction after creating or verifying a content-addressed backup. Version metadata is updated last; failure leaves the live database at its source version, and a repeated v5 startup performs no migration write.
 
 Do not store SQLite-owned Synthesis sidecar facts in generic plugin task rows
 or ad hoc `data/synthesis/**` JSON. The only normal JSON writes under
