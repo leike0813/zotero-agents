@@ -5040,6 +5040,24 @@ describe("zotero host broker capability api", function () {
     assert.isAtLeast(queryCount, 3);
   });
 
+  it("lists summaries for notes within the broker 1 MiB budget", async function () {
+    const parent = await createParentItem("Long Note Summary Parent");
+    const body = "x".repeat(50_001);
+    const note = await nativeFixtureMutations.parent.addNote(parent, {
+      content: `<p>${body}</p>`,
+    });
+    const broker = createZoteroHostCapabilityBroker();
+
+    const result = await broker.library.getItemNotes({
+      libraryId: parent.libraryID,
+      key: parent.key,
+    });
+
+    assert.strictEqual(result.returned, 1);
+    assert.strictEqual(result.notes[0]?.ref.key, note.key);
+    assert.strictEqual(result.notes[0]?.textLength, body.length);
+  });
+
   it("preserves cancellation when child source queries settle after abort", async function () {
     const parent = await createParentItem("Canceled child page");
     const ref = { libraryId: parent.libraryID, key: parent.key };

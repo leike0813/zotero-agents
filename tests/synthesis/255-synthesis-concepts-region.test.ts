@@ -21,16 +21,8 @@ import {
   type SynthesisWorkbenchConceptsSelection,
 } from "../../src/synthesis/components/ConceptsRegion";
 
-// Gap keys the region resolves through the injected t (integration adds them
-// to the i18n SSOT); the test merge map plays the integration role.
-const EXTRA_MESSAGES: Record<string, string> = {
-  "synthesis-confirm-delete-concepts": "Delete %count% concept(s)?",
-  "synthesis-concepts-select-row": "Select %label%",
-};
-
 function translate(key: string, vars?: Record<string, unknown>): string {
   const template =
-    EXTRA_MESSAGES[key] ||
     (SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES as Record<string, string>)[key] ||
     key;
   return formatSynthesisWorkbenchMessage(template, vars);

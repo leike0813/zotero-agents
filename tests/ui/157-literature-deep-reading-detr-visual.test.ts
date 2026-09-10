@@ -1,9 +1,7 @@
 import { assert } from "chai";
-import { execFile } from "child_process";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import { promisify } from "util";
 import { pathToFileURL } from "url";
 import { build } from "esbuild";
 import { chromium, type Browser, type Page } from "playwright";
@@ -12,8 +10,6 @@ import {
   buildSynthesisUiSnapshot,
   createDefaultSynthesisUiState,
 } from "../../src/modules/synthesis/uiModel";
-
-const execFileAsync = promisify(execFile);
 
 const sampleRoot = path.resolve(
   "tests",
@@ -966,7 +962,6 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
     const debugBundlePath = path.join(tempRoot, "app-debug.js");
     const htmlPath = path.join(tempRoot, "index.html");
     const debugHtmlPath = path.join(tempRoot, "index-debug.html");
-    const esbuildBin = path.resolve("node_modules", ".bin", "esbuild");
     await build({
       stdin: {
         contents: `
@@ -1002,16 +997,16 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
       define: { __debug_mode__: "false" },
       outfile: bundlePath,
     });
-    await execFileAsync(esbuildBin, [
-      path.resolve("src", "synthesisWorkbenchApp.ts"),
-      "--bundle",
-      "--format=iife",
-      "--target=es2020",
-      "--define:__debug_mode__=true",
-      "--jsx=automatic",
-      "--jsx-import-source=preact",
-      `--outfile=${debugBundlePath}`,
-    ]);
+    await build({
+      entryPoints: [path.resolve("src", "synthesisWorkbenchApp.ts")],
+      bundle: true,
+      jsx: "automatic",
+      jsxImportSource: "preact",
+      format: "iife",
+      target: "es2020",
+      define: { __debug_mode__: "true" },
+      outfile: debugBundlePath,
+    });
     const stylesheetUrl = pathToFileURL(
       path.resolve("addon", "content", "synthesis", "styles.css"),
     ).toString();
@@ -1077,7 +1072,27 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
     assert.isTrue(afterPage.sameControls);
     assert.isTrue(afterPage.sameSelection);
 
+    const collapsedNav = await page.evaluate(() => {
+      const nav = document.querySelector(".nav")!.getBoundingClientRect();
+      const button = document
+        .querySelector(".nav button")!
+        .getBoundingClientRect();
+      return { navWidth: nav.width, buttonWidth: button.width };
+    });
+    assert.closeTo(collapsedNav.buttonWidth, 40, 0.5);
+    assert.isBelow(collapsedNav.buttonWidth, collapsedNav.navWidth);
+
     await page.locator(".sidebar-collapse-toggle").click();
+    await page.locator(".synthesis-root.sidebar-expanded").waitFor();
+    const expandedNav = await page.evaluate(() => {
+      const nav = document.querySelector(".nav")!.getBoundingClientRect();
+      const button = document
+        .querySelector(".nav button")!
+        .getBoundingClientRect();
+      return { navWidth: nav.width, buttonWidth: button.width };
+    });
+    assert.closeTo(expandedNav.buttonWidth, expandedNav.navWidth, 0.5);
+
     await sendSnapshot(lifecycleSnapshot({ selectedNodeId: "zotero:item:A" }));
     await sendSnapshot(lifecycleSnapshot({ tab: "overview" }));
     await sendSnapshot(lifecycleSnapshot());

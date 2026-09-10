@@ -3405,7 +3405,7 @@ mod tests {
                 "UPDATE synt_topic_application_state
                  SET topic_definition_json=?1 WHERE topic_id=?2",
                 &[
-                    json!(r#"{"id":"topic-legacy","title":"Legacy","definition":"Legacy","scope":"historical","discipline":"history","research_field":"archives","scope_boundary":{"include":["primary sources"],"exclude":[]}}"#),
+                    json!(r#"{"id":"topic-legacy","title":"Legacy","definition":"Legacy","scope":"historical","discipline":"history","research_field":"archives","scope_boundary":{"include":["primary sources"],"exclude":[]},"summary":"Legacy summary","paper_count":4,"external_literature_count":2}"#),
                     json!("topic-legacy"),
                 ],
             )

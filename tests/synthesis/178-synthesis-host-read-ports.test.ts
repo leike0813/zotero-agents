@@ -1,5 +1,6 @@
 import { assert } from "chai";
 import {
+  rebuildSynthesisHostArtifactScanPageResult,
   type SynthesisHostArtifactDescriptor,
   type SynthesisHostReadPort,
   SynthesisClientError,
@@ -7,6 +8,7 @@ import {
 import { renderPayloadBlock } from "../../src/modules/zoteroHost/notePayloadCodec";
 import { createZoteroSynthesisHostReadPort } from "../../src/modules/synthesis/libraryAdapter";
 import { resetZoteroHostSnapshotRuntimeForTests } from "../../src/modules/zoteroHostCapabilityBroker";
+import { buildLiteratureQualitySnapshot } from "../../src/shared/literatureScore";
 import {
   resetZoteroLibraryPageQueryAdapterForTests,
   resetZoteroLibrarySourcePageQueryAdapterForTests,
@@ -254,6 +256,29 @@ describe("Synthesis Host read capability ports", function () {
     assert.equal(stale.status, "stale");
     assert.notEqual(stale.currentHash, descriptor!.payloadHash);
     assert.isUndefined(stale.content);
+  });
+
+  it("omits absent optional literature score hashes at the host contract", async function () {
+    const libraryId = Zotero.Libraries.userLibraryID;
+    const paper = await createPaper("HOSTSCR1", "Host Score Without Hash");
+    const port = createZoteroSynthesisHostReadPort({ libraryId });
+    const scan = await port.artifacts.scanPage({
+      libraryId,
+      paperRefs: [`${libraryId}:${paper.key}`],
+      artifactTypes: ["literature_score"],
+      limit: 10,
+    });
+    const artifact = scan.artifacts[0];
+    assert.isDefined(artifact);
+    const literatureQuality = buildLiteratureQualitySnapshot({});
+
+    assert.notProperty(literatureQuality, "payload_hash");
+    assert.doesNotThrow(() =>
+      rebuildSynthesisHostArtifactScanPageResult({
+        ...scan,
+        artifacts: [{ ...artifact, literatureQuality }],
+      }),
+    );
   });
 
   it("follows canonical note and payload pages before selecting an artifact", async function () {

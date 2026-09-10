@@ -196,7 +196,6 @@ impl TopicSourceMaterialsStatus {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct TopicDefinitionDto {
     pub id: String,
     pub title: String,

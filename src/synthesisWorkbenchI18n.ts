@@ -95,6 +95,7 @@ export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
     "Rebuild local Synthesis indexes now? Zotero may respond more slowly while this runs. Canonical Synthesis data will not be deleted.",
   "synthesis-confirm-delete-topic-artifact":
     "Delete this synthesis artifact? It will be hidden and kept for later purge.",
+  "synthesis-confirm-delete-concepts": "Delete %count% concept(s)?",
   "synthesis-confirm-purge-deleted-topic-artifacts":
     "Permanently purge deleted synthesis artifacts? This cannot be undone.",
   "synthesis-jobs-title": "Synthesis jobs",
@@ -467,6 +468,7 @@ export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
   "synthesis-action-remove-alias": "Remove Alias",
   "synthesis-concepts-selected": "%count% concept(s) selected",
   "synthesis-concepts-select-bulk": "Select concepts for bulk actions",
+  "synthesis-concepts-select-row": "Select %label%",
   "synthesis-concepts-empty-filtered": "No concepts match the current filters",
   "synthesis-concepts-empty-filtered-message":
     "Adjust the search, concept type, or status filters to show more concepts.",

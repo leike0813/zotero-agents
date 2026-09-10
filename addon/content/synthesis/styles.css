@@ -448,6 +448,10 @@ button.is-busy {
   text-align: left;
 }
 
+.synthesis-root.sidebar-collapsed .nav button {
+  width: 40px;
+}
+
 .synthesis-root.sidebar-expanded .nav button {
   justify-content: flex-start;
   padding: 7px 10px;

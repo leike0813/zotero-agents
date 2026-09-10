@@ -39,12 +39,7 @@ import type { SynthesisWorkbenchMessageKey } from "../../shared/synthesisWorkben
 // diagnostics) and high-frequency cross-region data stay out by construction.
 //
 // i18n: every user-visible string resolves through the injected `t` against
-// SynthesisWorkbenchMessageKey. Two legacy strings have no SSOT key yet and
-// are resolved through the same injected t via the documented gap-key seam
-// (CONCEPTS_GAP_MESSAGE_KEYS below); the integration layer must add them to
-// src/synthesisWorkbenchI18n.ts:
-//   synthesis-confirm-delete-concepts  "Delete %count% concept(s)?"
-//   synthesis-concepts-select-row      "Select %label%"
+// SynthesisWorkbenchMessageKey.
 
 // ---------------------------------------------------------------------------
 // Narrowed wire projections (the wire view's host slots are `unknown`
@@ -452,14 +447,6 @@ export function projectConceptReviewItemView(
 // Presentation.
 // ---------------------------------------------------------------------------
 
-// Strings without an SSOT key yet (see the header comment). Casting through
-// the message-key type keeps every call site on the injected t channel; the
-// integration layer owns adding these to src/synthesisWorkbenchI18n.ts.
-const DELETE_CONFIRM_MESSAGE_KEY =
-  "synthesis-confirm-delete-concepts" as SynthesisWorkbenchMessageKey;
-const SELECT_ROW_MESSAGE_KEY =
-  "synthesis-concepts-select-row" as SynthesisWorkbenchMessageKey;
-
 const CONCEPT_STATUS_FILTER_OPTIONS = ["all", "active", "review", "deprecated"];
 
 function HostCommandButton(props: {
@@ -543,7 +530,11 @@ export const ConceptsRegion = memo(function ConceptsRegion(
   const confirmDelete = (conceptIds: string[]) => {
     const ids = conceptIds.map((id) => textValue(id)).filter(Boolean);
     if (!ids.length) return;
-    if (!window.confirm(t(DELETE_CONFIRM_MESSAGE_KEY, { count: ids.length }))) {
+    if (
+      !window.confirm(
+        t("synthesis-confirm-delete-concepts", { count: ids.length }),
+      )
+    ) {
       return;
     }
     onAction("hostCommand", {
@@ -725,7 +716,7 @@ export const ConceptsRegion = memo(function ConceptsRegion(
                       visibleIdSet.has(row.conceptId) &&
                       selectedIds.has(row.conceptId)
                     }
-                    aria-label={t(SELECT_ROW_MESSAGE_KEY, {
+                    aria-label={t("synthesis-concepts-select-row", {
                       label: row.label || row.conceptId,
                     })}
                     onChange={(event) =>

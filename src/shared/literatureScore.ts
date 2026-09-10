@@ -98,7 +98,7 @@ export function buildLiteratureQualitySnapshot(args: {
     return {
       status: "invalid",
       quality_prior: 0.5,
-      payload_hash: payloadHash,
+      ...(payloadHash ? { payload_hash: payloadHash } : {}),
       diagnostics: ["literature_score_invalid"],
     };
   }
@@ -111,7 +111,7 @@ export function buildLiteratureQualitySnapshot(args: {
     confidence: score.confidence,
     confidence_adjusted_score: score.confidenceAdjustedScore,
     quality_prior: literatureQualityPrior(score.overallScore, score.confidence),
-    payload_hash: payloadHash,
+    ...(payloadHash ? { payload_hash: payloadHash } : {}),
     diagnostics: [],
   };
 }

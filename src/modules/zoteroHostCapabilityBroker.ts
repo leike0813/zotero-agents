@@ -1716,13 +1716,13 @@ function canonicalNoteText(item: Zotero.Item) {
   } catch {
     throw canonicalReadFailure("note");
   }
-  if (typeof html !== "string" || html.length > NOTE_HTML_INPUT_LIMIT) {
+  if (typeof html !== "string" || html.length > NOTE_PAYLOAD_MAX_BYTES) {
     throw capabilityError(
       "resource_limited",
       "note content exceeds the limit",
       {
         resource: "characters",
-        limit: NOTE_HTML_INPUT_LIMIT,
+        limit: NOTE_PAYLOAD_MAX_BYTES,
         observed: typeof html === "string" ? html.length : 0,
       },
     );
