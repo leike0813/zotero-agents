@@ -60,20 +60,58 @@ describe("Dashboard literature migration region", function () {
           diagnostics: [],
         },
         activeOperationId: "op-1",
-        candidates: [
-          {
-            candidateId: "candidate-1",
-            ordinal: 1,
-            classification: "ready",
-            outcome: "preview",
-            reasonCodes: [],
-            verifiedCount: 1,
-            unresolvedCount: 0,
-            recoveredCount: 0,
-            droppedCount: 0,
+        candidatePage: {
+          cursor: "",
+          nextCursor: "next-25",
+          items: [
+            {
+              candidateId: "candidate-1",
+              ordinal: 1,
+              title: "Ready paper",
+              classification: "ready",
+              outcome: "preview",
+              reasonCodes: [],
+              verifiedCount: 1,
+              unresolvedCount: 0,
+              recoveredCount: 0,
+              droppedCount: 0,
+              selected: true,
+            },
+            {
+              candidateId: "candidate-2",
+              ordinal: 2,
+              title: "Review paper",
+              classification: "review_required",
+              outcome: "preview",
+              reasonCodes: ["unresolved_linkage"],
+              verifiedCount: 1,
+              unresolvedCount: 1,
+              recoveredCount: 0,
+              droppedCount: 0,
+              selected: false,
+            },
+            {
+              candidateId: "candidate-3",
+              ordinal: 3,
+              title: "Blocked paper",
+              classification: "blocked",
+              outcome: "preview",
+              reasonCodes: ["duplicate_reference"],
+              verifiedCount: 1,
+              unresolvedCount: 0,
+              recoveredCount: 0,
+              droppedCount: 0,
+              selected: false,
+            },
+          ],
+          summary: {
+            total: 28,
+            ready: 26,
+            reviewRequired: 1,
+            blocked: 1,
+            selected: 26,
           },
-        ],
-        receipts: [],
+        },
         history: [],
       },
       pageTitle: "Migrations",
@@ -91,6 +129,17 @@ describe("Dashboard literature migration region", function () {
       candidateLabel: "Set",
       progressLabel: "Progress",
       attentionLabel: "Attention",
+      previousLabel: "Previous",
+      nextLabel: "Next",
+      selectedLabel: "Selected",
+      verifiedLabel: "Verified",
+      unresolvedLabel: "Unresolved",
+      recoveredLabel: "Recovered",
+      droppedLabel: "Dropped",
+      reasonLabels: {
+        unresolved_linkage: "Unresolved linkage",
+        duplicate_reference: "Duplicate reference",
+      },
     };
     render(
       h(MigrationsRegion, {
@@ -103,21 +152,48 @@ describe("Dashboard literature migration region", function () {
       }),
       root,
     );
+    const checkboxes = root.querySelectorAll<HTMLInputElement>(
+      '.dashboard-migration-candidate input[type="checkbox"]',
+    );
+    assert.lengthOf(checkboxes, 3);
+    assert.isTrue(checkboxes[0].checked);
+    assert.isFalse(checkboxes[1].checked);
+    assert.isFalse(checkboxes[1].disabled);
+    assert.isTrue(checkboxes[2].disabled);
+    checkboxes[1].checked = true;
+    checkboxes[1].dispatchEvent(
+      new document.defaultView!.Event("change", { bubbles: true }),
+    );
     const apply = Array.from(root.querySelectorAll("button")).find(
       (button) => button.textContent === "Apply",
     );
     assert.exists(apply);
     apply?.click();
+    const next = Array.from(root.querySelectorAll("button")).find(
+      (button) => button.textContent === "Next",
+    );
+    assert.exists(next);
+    next?.click();
     assert.deepEqual(actions, [
+      {
+        action: "literature-migration-set-selection",
+        payload: {
+          scanOperationId: "op-1",
+          candidateId: "candidate-2",
+          selected: true,
+        },
+      },
       {
         action: "literature-migration-apply",
         payload: {
           scanOperationId: "op-1",
-          candidateIds: ["candidate-1"],
-          reviewAcceptedCandidateIds: [],
           migrationId: "literature-artifacts",
           definitionVersion: 7,
         },
+      },
+      {
+        action: "literature-migration-list-receipts",
+        payload: { runId: "run-1", cursor: "next-25" },
       },
     ]);
     assert.notInclude(root.textContent || "", "sourceReferenceId");
@@ -145,7 +221,18 @@ describe("Dashboard literature migration region", function () {
             availability: "unavailable",
             activeRun: null,
             activeOperationId: "",
-            candidates: [],
+            candidatePage: {
+              cursor: "",
+              nextCursor: null,
+              items: [],
+              summary: {
+                total: 0,
+                ready: 0,
+                reviewRequired: 0,
+                blocked: 0,
+                selected: 0,
+              },
+            },
           },
         },
         onAction: () => assert.fail("opening an empty view must not scan"),

@@ -1154,8 +1154,18 @@ function projectViews(
     libraryId: 0,
     activeRun: null,
     activeOperationId: "",
-    candidates: [],
-    receipts: [],
+    candidatePage: {
+      cursor: "",
+      nextCursor: null,
+      items: [],
+      summary: {
+        total: 0,
+        ready: 0,
+        reviewRequired: 0,
+        blocked: 0,
+        selected: 0,
+      },
+    },
     history: [],
   };
   const migrations: DashboardMigrationsSelection = {
@@ -1206,6 +1216,48 @@ function projectViews(
       labels,
       "literatureMigrationAttention",
       "Attention required",
+    ),
+    previousLabel: labelText(labels, "literatureMigrationPrevious", "Previous"),
+    nextLabel: labelText(labels, "literatureMigrationNext", "Next"),
+    selectedLabel: labelText(labels, "literatureMigrationSelected", "Selected"),
+    verifiedLabel: labelText(labels, "literatureMigrationVerified", "Verified"),
+    unresolvedLabel: labelText(
+      labels,
+      "literatureMigrationUnresolved",
+      "Unresolved",
+    ),
+    recoveredLabel: labelText(
+      labels,
+      "literatureMigrationRecovered",
+      "Recovered",
+    ),
+    droppedLabel: labelText(labels, "literatureMigrationDropped", "Dropped"),
+    reasonLabels: Object.fromEntries(
+      [
+        ["citation_only", "Citation without References"],
+        ["duplicate_reference", "Duplicate reference"],
+        ["conflicting_evidence", "Conflicting evidence"],
+        ["damaged_input", "Damaged input"],
+        ["data_loss", "Data loss risk"],
+        ["read_only_library", "Read-only library"],
+        ["unresolved_linkage", "Unresolved linkage"],
+        ["ambiguous_linkage", "Ambiguous linkage"],
+        ["citation_snapshot_recovery", "Recovered citation snapshot"],
+        ["no_references", "No references"],
+        ["invalid_canonical_artifact", "Invalid canonical artifact"],
+        ["canonical_conflict", "Canonical artifact conflict"],
+        ["unsupported_input", "Unsupported input"],
+      ].map(([code, fallback]) => [
+        code,
+        labelText(
+          labels,
+          `literatureMigrationReason${code
+            .split("_")
+            .map((part) => part[0]?.toUpperCase() + part.slice(1))
+            .join("")}`,
+          fallback,
+        ),
+      ]),
     ),
   };
   return {

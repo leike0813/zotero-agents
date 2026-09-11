@@ -104,9 +104,8 @@ export type DashboardHostActionName =
   | "literature-migration-apply"
   | "literature-migration-stop"
   | "literature-migration-continue"
-  | "literature-migration-preview"
+  | "literature-migration-set-selection"
   | "literature-migration-list-receipts"
-  | "literature-migration-list-history"
   | "literature-migration-select-run";
 
 /** Actions handled by the Dashboard controller without a host round-trip. */
@@ -275,8 +274,6 @@ export type DashboardActionPayloadMap = {
   }>;
   "literature-migration-apply": DashboardActionPayloadShape<{
     scanOperationId: string;
-    candidateIds: string[];
-    reviewAcceptedCandidateIds?: string[];
     migrationId?: string;
     definitionVersion?: number;
   }>;
@@ -287,16 +284,13 @@ export type DashboardActionPayloadMap = {
     runId: string;
     candidateIds?: string[];
   }>;
-  "literature-migration-preview": DashboardActionPayloadShape<{
-    runId: string;
+  "literature-migration-set-selection": DashboardActionPayloadShape<{
+    scanOperationId: string;
     candidateId: string;
+    selected: boolean;
   }>;
   "literature-migration-list-receipts": DashboardActionPayloadShape<{
     runId: string;
-    limit?: number;
-    cursor?: string;
-  }>;
-  "literature-migration-list-history": DashboardActionPayloadShape<{
     limit?: number;
     cursor?: string;
   }>;
@@ -1082,6 +1076,7 @@ export type DashboardAcpReplayProfilerView = {
 export type DashboardLiteratureArtifactMigrationCandidate = {
   candidateId: string;
   ordinal: number;
+  title: string;
   classification: "ready" | "review_required" | "blocked";
   outcome:
     | "preview"
@@ -1096,6 +1091,20 @@ export type DashboardLiteratureArtifactMigrationCandidate = {
   unresolvedCount: number;
   recoveredCount: number;
   droppedCount: number;
+  selected: boolean;
+};
+
+export type DashboardLiteratureArtifactMigrationCandidatePage = {
+  cursor: string;
+  nextCursor: string | null;
+  items: DashboardLiteratureArtifactMigrationCandidate[];
+  summary: {
+    total: number;
+    ready: number;
+    reviewRequired: number;
+    blocked: number;
+    selected: number;
+  };
 };
 
 export type DashboardLiteratureArtifactMigrationRun = {
@@ -1128,8 +1137,7 @@ export type DashboardLiteratureArtifactMigrationView = {
   libraryId: number;
   activeRun: DashboardLiteratureArtifactMigrationRun | null;
   activeOperationId: string;
-  candidates: DashboardLiteratureArtifactMigrationCandidate[];
-  receipts: DashboardLiteratureArtifactMigrationCandidate[];
+  candidatePage: DashboardLiteratureArtifactMigrationCandidatePage;
   history: DashboardLiteratureArtifactMigrationRun[];
 };
 

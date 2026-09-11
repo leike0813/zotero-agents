@@ -388,6 +388,41 @@ describe("Synthesis Host read capability ports", function () {
     );
   });
 
+  it("keeps an oversized child note as a bounded artifact diagnostic", async function () {
+    const libraryId = Zotero.Libraries.userLibraryID;
+    const paper = await createPaper("HSTLIMIT", "Host Limited Artifact");
+    await addPayloadNote(
+      paper,
+      "references-json",
+      referencesArtifact("Readable Reference"),
+    );
+    const oversized = new Zotero.Item("note");
+    oversized.libraryID = libraryId;
+    oversized.parentItemID = paper.id;
+    oversized.setNote(`<p>${"文".repeat(360000)}</p>`);
+    await oversized.saveTx();
+    const port = createZoteroSynthesisHostReadPort({ libraryId });
+
+    const scan = await port.artifacts.scanPage({
+      libraryId,
+      paperRefs: [`${libraryId}:${paper.key}`],
+      artifactTypes: ["references", "citation_analysis"],
+      limit: 1,
+    });
+
+    const references = scan.artifacts.find(
+      (entry) => entry.artifactType === "references",
+    );
+    const citation = scan.artifacts.find(
+      (entry) => entry.artifactType === "citation_analysis",
+    );
+    assert.equal(references?.status, "available");
+    assert.equal(citation?.status, "decode_error");
+    assert.isUndefined(citation?.locator);
+    assert.include(citation?.diagnostics.join("\n"), "resource_limited");
+    assert.notInclude(JSON.stringify(scan), "文文文文");
+  });
+
   it("rejects invalid bounds before touching the Host", async function () {
     const port = createZoteroSynthesisHostReadPort({
       libraryId: Zotero.Libraries.userLibraryID,

@@ -160,6 +160,7 @@ export function createTaskDashboardRuntime(args: {
     backends: [],
     selectedTabKey: String(args.initialTabKey || "home").trim() || "home",
     selectedLiteratureMigrationRunId: "",
+    literatureMigrationReceiptCursor: "",
     selectedBackendSubviewById: new Map(),
     selectedLogTaskByBackendId: new Map(),
     selectedLogEntryByBackendId: new Map(),

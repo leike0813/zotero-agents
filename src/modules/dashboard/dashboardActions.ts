@@ -85,6 +85,7 @@ export type DashboardActionState = {
   backends: BackendInstance[];
   selectedTabKey: string;
   selectedLiteratureMigrationRunId: string;
+  literatureMigrationReceiptCursor?: string;
   selectedBackendSubviewById: Map<string, "runs" | "management">;
   selectedLogTaskByBackendId: Map<string, string>;
   selectedLogEntryByBackendId: Map<string, string>;
@@ -321,22 +322,11 @@ export function createDashboardActionDispatcher(
             alertRuntimeWindow(result.message);
           } else {
             state.selectedLiteratureMigrationRunId = result.runId;
+            state.literatureMigrationReceiptCursor = "";
           }
         } else if (action === "literature-migration-apply") {
           const result = await service.apply({
             scanOperationId: String(payload.scanOperationId || ""),
-            candidateIds: Array.isArray(payload.candidateIds)
-              ? payload.candidateIds
-                  .map((value) => String(value || ""))
-                  .filter(Boolean)
-              : [],
-            reviewAcceptedCandidateIds: Array.isArray(
-              payload.reviewAcceptedCandidateIds,
-            )
-              ? payload.reviewAcceptedCandidateIds
-                  .map((value) => String(value || ""))
-                  .filter(Boolean)
-              : [],
             migrationId: String(payload.migrationId || "") || undefined,
             definitionVersion:
               typeof payload.definitionVersion === "number"
@@ -357,9 +347,29 @@ export function createDashboardActionDispatcher(
               : undefined,
           });
           if (!result.ok) alertRuntimeWindow(result.message);
-          else state.selectedLiteratureMigrationRunId = result.runId;
+          else {
+            state.selectedLiteratureMigrationRunId = result.runId;
+            state.literatureMigrationReceiptCursor = "";
+          }
+        } else if (action === "literature-migration-set-selection") {
+          const result = service.setCandidateSelection({
+            scanOperationId: String(payload.scanOperationId || ""),
+            candidateId: String(payload.candidateId || ""),
+            selected: payload.selected === true,
+          });
+          if (!result.ok) alertRuntimeWindow(result.message);
+        } else if (action === "literature-migration-list-receipts") {
+          if (
+            String(payload.runId || "") ===
+            state.selectedLiteratureMigrationRunId
+          ) {
+            state.literatureMigrationReceiptCursor = String(
+              payload.cursor || "",
+            );
+          }
         } else if (action === "literature-migration-select-run") {
           state.selectedLiteratureMigrationRunId = String(payload.runId || "");
+          state.literatureMigrationReceiptCursor = "";
         }
         refresh("user-action");
       } catch (error) {

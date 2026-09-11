@@ -16,6 +16,7 @@ import type { JsonValue, PortableItemRef } from "../../workflows/types";
 export type LegacyArtifactSetInput = {
   libraryId: number;
   parentRef: PortableItemRef;
+  parentTitle?: string;
   references?: unknown;
   citation?: unknown;
   legacyPayload?: unknown;
@@ -95,9 +96,17 @@ type LiteratureArtifactMigrationClassification =
 type LiteratureArtifactMigrationReasonCode =
   LiteratureArtifactMigrationConversion["reasonCodes"][number];
 
-const MIGRATABLE_LEGACY_PAYLOAD_TYPES = new Set([
+export const MIGRATABLE_LEGACY_PAYLOAD_TYPES: ReadonlySet<string> = new Set([
   "references-json",
   "citation-analysis-json",
+]);
+
+export const KNOWN_LEGACY_PAYLOAD_TYPES: ReadonlySet<string> = new Set([
+  ...MIGRATABLE_LEGACY_PAYLOAD_TYPES,
+  "digest-markdown",
+  "literature-score-json",
+  "conversation-note-markdown",
+  "custom-markdown",
 ]);
 
 function payloadMarkerTypes(html: string): string[] {
@@ -295,15 +304,7 @@ function decodeHtmlPayloads(noteContent: string): DecodedHtmlPayload[] {
     /<span\b[^>]*data-zs-payload\s*=\s*(["']?)([^\s"'>]+)\1[^>]*>/giu;
   for (const match of noteContent.matchAll(tagPattern)) {
     const payloadType = text(match[2]);
-    if (
-      ![
-        "references-json",
-        "citation-analysis-json",
-        "conversation-note-markdown",
-        "custom-markdown",
-        "digest-markdown",
-      ].includes(payloadType)
-    ) {
+    if (!KNOWN_LEGACY_PAYLOAD_TYPES.has(payloadType)) {
       continue;
     }
     const decoded = decodePayloadTag(match[0], payloadType);
@@ -958,7 +959,7 @@ function classifyConversion(
     if (
       payloadType &&
       payloadType !== "unknown" &&
-      !MIGRATABLE_LEGACY_PAYLOAD_TYPES.has(payloadType)
+      !KNOWN_LEGACY_PAYLOAD_TYPES.has(payloadType)
     ) {
       unsupportedPayloadTypes.add(payloadType);
     }

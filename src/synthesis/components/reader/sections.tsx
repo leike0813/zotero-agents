@@ -1,6 +1,7 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 import type { ComponentChildren } from "preact";
+import { memo } from "preact/compat";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import { stableRegionSignature } from "../../../shared/regionEquality";
@@ -1221,6 +1222,56 @@ function ReportConceptNav(props: { ctx: ReaderSectionContext }) {
   );
 }
 
+type ReportMarkdownHooks = {
+  t: ReaderText;
+  concepts: ReaderConceptsProjection;
+  evidence: ReaderEvidenceRow[];
+  onOpenDigest: (row: ReaderEvidenceRow) => void;
+};
+
+const ReportMarkdownIsland = memo(
+  function ReportMarkdownIsland(props: {
+    body: string;
+    title: string;
+    signature: string;
+    hooksRef: { current: ReportMarkdownHooks };
+  }) {
+    const frameRef = useRef<HTMLDivElement | null>(null);
+    const outlineRef = useRef<HTMLDivElement | null>(null);
+    const scrollRef = useRef<HTMLDivElement | null>(null);
+
+    useLayoutEffect(() => {
+      const frame = frameRef.current;
+      const outlineSlot = outlineRef.current;
+      const scrollBody = scrollRef.current;
+      if (!frame || !outlineSlot || !scrollBody) return;
+      outlineSlot.textContent = "";
+      scrollBody.textContent = "";
+      const { body, outline } = renderMarkdownIsland(props.body, {
+        variant: "report",
+        t: props.hooksRef.current.t,
+        concepts: props.hooksRef.current.concepts,
+        digestRows: props.hooksRef.current.evidence,
+        onOpenDigest: (row) => props.hooksRef.current.onOpenDigest(row),
+        reportTitle: props.title,
+      });
+      body.classList.add("report-card");
+      outlineSlot.hidden = !outline;
+      frame.classList.toggle("no-outline", !outline);
+      if (outline) outlineSlot.appendChild(outline);
+      scrollBody.appendChild(body);
+    }, [props.body, props.signature, props.title]);
+
+    return (
+      <div class="topic-report-reader-frame" ref={frameRef}>
+        <div class="topic-report-outline-slot" ref={outlineRef} />
+        <div class="topic-report-scroll-body" ref={scrollRef} />
+      </div>
+    );
+  },
+  (previous, next) => previous.signature === next.signature,
+);
+
 export function TopicReportSection({ ctx }: { ctx: ReaderSectionContext }) {
   const { t, detail } = ctx;
   const report = detail.report;
@@ -1228,8 +1279,6 @@ export function TopicReportSection({ ctx }: { ctx: ReaderSectionContext }) {
     "",
   );
   const copyTimerRef = useRef<number | undefined>(undefined);
-  const frameRef = useRef<HTMLDivElement | null>(null);
-  const scrollRef = useRef<HTMLDivElement | null>(null);
   const islandSignature = stableRegionSignature([
     report.body,
     report.title,
@@ -1248,33 +1297,6 @@ export function TopicReportSection({ ctx }: { ctx: ReaderSectionContext }) {
     evidence: detail.evidence,
     onOpenDigest: ctx.onOpenDigest,
   };
-
-  useLayoutEffect(() => {
-    const scrollBody = scrollRef.current;
-    const frame = frameRef.current;
-    if (!scrollBody || !frame) return;
-    scrollBody.textContent = "";
-    frame
-      .querySelectorAll(":scope > .topic-report-outline")
-      .forEach((node) => node.remove());
-    if (!report.body) return;
-    const { body, outline } = renderMarkdownIsland(report.body, {
-      variant: "report",
-      t: hooksRef.current.t,
-      concepts: hooksRef.current.concepts,
-      digestRows: hooksRef.current.evidence,
-      onOpenDigest: (row) => hooksRef.current.onOpenDigest(row),
-      reportTitle: report.title,
-    });
-    body.classList.add("report-card");
-    if (outline) {
-      frame.classList.remove("no-outline");
-      frame.insertBefore(outline, scrollBody);
-    } else {
-      frame.classList.add("no-outline");
-    }
-    scrollBody.appendChild(body);
-  }, [islandSignature, report.body, report.title]);
 
   useEffect(
     () => () => {
@@ -1355,9 +1377,12 @@ export function TopicReportSection({ ctx }: { ctx: ReaderSectionContext }) {
                   </button>
                 </div>
               </div>
-              <div class="topic-report-reader-frame" ref={frameRef}>
-                <div class="topic-report-scroll-body" ref={scrollRef} />
-              </div>
+              <ReportMarkdownIsland
+                body={report.body}
+                title={report.title}
+                signature={islandSignature}
+                hooksRef={hooksRef}
+              />
             </div>
           );
           const conceptNav = <ReportConceptNav ctx={ctx} />;

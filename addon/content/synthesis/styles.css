@@ -3957,7 +3957,8 @@ th {
 }
 
 .topic-detail-shell {
-  display: block;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   width: 100%;
   height: 100%;
   min-height: 0;
@@ -4651,6 +4652,21 @@ th {
 
 .topic-report-reader-frame.no-outline {
   grid-template-columns: minmax(0, 1fr);
+}
+
+.topic-report-outline-slot {
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.topic-report-outline-slot[hidden] {
+  display: none;
+}
+
+.topic-report-outline-slot > .topic-report-outline {
+  box-sizing: border-box;
+  height: 100%;
 }
 
 .topic-report-scroll-body {

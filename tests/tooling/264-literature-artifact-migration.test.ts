@@ -465,7 +465,7 @@ describe("literature artifact migration", function () {
     assert.notInclude(sameNote.reasonCodes, "duplicate_reference");
   });
 
-  it("blocks a legacy note that carries another managed payload kind", function () {
+  it("preserves known non-target managed payload kinds", function () {
     const references = {
       items: [
         {
@@ -494,11 +494,36 @@ describe("literature artifact migration", function () {
         },
       ],
     });
+    assert.equal(plan.classification, "ready");
+    assert.notInclude(plan.reasonCodes, "unsupported_input");
+    assert.notInclude(
+      plan.diagnostics,
+      "unsupported legacy payload type: digest-markdown",
+    );
+  });
+
+  it("blocks an unknown managed payload kind", function () {
+    const plan = convertLegacyArtifactSet({
+      libraryId: 1,
+      parentRef: { libraryId: 1, key: "PARENT" },
+      filePayloads: [
+        {
+          payloadType: "references-json",
+          value: {
+            items: [
+              { title: "A Study", year: 2024, authors: ["Ada Lovelace"] },
+            ],
+          },
+        },
+        { payloadType: "future-managed-json", value: { future: true } },
+      ],
+    });
+
     assert.equal(plan.classification, "blocked");
     assert.include(plan.reasonCodes, "unsupported_input");
     assert.include(
       plan.diagnostics,
-      "unsupported legacy payload type: digest-markdown",
+      "unsupported legacy payload type: future-managed-json",
     );
   });
 
@@ -929,6 +954,134 @@ describe("literature artifact migration", function () {
       ),
     });
     assert.equal(stale.code, "fresh_scan_required");
+  });
+
+  it("pages runtime candidates and applies only the explicit selection", async function () {
+    const ready = Array.from({ length: 26 }, (_unused, index) => ({
+      libraryId: 1,
+      parentRef: { libraryId: 1, key: `P${String(index).padStart(7, "0")}` },
+      parentTitle: `Ready paper ${index + 1}`,
+      references: [
+        { title: `Ready reference ${index + 1}`, year: 2024, authors: ["Ada"] },
+      ],
+    }));
+    const review: LegacyArtifactSetInput = {
+      libraryId: 1,
+      parentRef: { libraryId: 1, key: "REVIEW01" },
+      parentTitle: "Review paper",
+      references: [
+        {
+          sourceReferenceId: "REF-A",
+          title: "Alpha",
+          year: 2020,
+          authors: ["Alice"],
+          url: "shared",
+        },
+      ],
+      citation: {
+        items: [
+          {
+            title: "Beta",
+            year: 2021,
+            authors: ["Bob"],
+            url: "shared",
+            mentions: [{ rawCitation: "Beta (2021)" }],
+          },
+        ],
+      },
+    };
+    const blocked: LegacyArtifactSetInput = {
+      libraryId: 1,
+      parentRef: { libraryId: 1, key: "BLOCK001" },
+      parentTitle: "Blocked paper",
+      filePayloads: [
+        {
+          payloadType: "references-json",
+          value: { items: [{ title: "Blocked reference" }] },
+        },
+        { payloadType: "future-managed-json", value: { future: true } },
+      ],
+    };
+    let applied = 0;
+    const service = createLiteratureArtifactMigrationService({
+      host: {
+        scanLibrary: async () => [...ready, review, blocked],
+        applySet: async () => {
+          applied += 1;
+          return { outcome: "applied" as const };
+        },
+      },
+      candidateIdFactory: (ordinal) => `candidate-${ordinal}`,
+    });
+    const preview = await service.scan({ libraryId: 1 });
+    assert.isTrue(preview.ok);
+    if (!preview.ok) throw new Error("expected migration preview");
+
+    const first = service.listCandidatePage({
+      runId: preview.runId,
+      limit: 25,
+    });
+    assert.lengthOf(first.items, 25);
+    assert.isString(first.nextCursor);
+    assert.deepEqual(first.summary, {
+      total: 28,
+      ready: 26,
+      reviewRequired: 1,
+      blocked: 1,
+      selected: 26,
+    });
+    assert.equal(first.items[0]?.title, "Ready paper 1");
+    assert.isTrue(first.items.every((candidate) => candidate.selected));
+
+    const second = service.listCandidatePage({
+      runId: preview.runId,
+      limit: 25,
+      cursor: first.nextCursor || undefined,
+    });
+    assert.deepEqual(
+      second.items.map(({ classification, selected }) => ({
+        classification,
+        selected,
+      })),
+      [
+        { classification: "ready", selected: true },
+        { classification: "review_required", selected: false },
+        { classification: "blocked", selected: false },
+      ],
+    );
+    const reviewCandidate = second.items[1]!;
+    const blockedCandidate = second.items[2]!;
+    assert.isTrue(
+      service.setCandidateSelection({
+        scanOperationId: preview.operationId,
+        candidateId: reviewCandidate.candidateId,
+        selected: true,
+      }).ok,
+    );
+    const blockedSelection = service.setCandidateSelection({
+      scanOperationId: preview.operationId,
+      candidateId: blockedCandidate.candidateId,
+      selected: true,
+    });
+    assert.isFalse(blockedSelection.ok);
+    if (blockedSelection.ok)
+      throw new Error("blocked candidate was selectable");
+    assert.equal(blockedSelection.code, "candidate_not_selectable");
+
+    const selected = service.listCandidatePage({
+      runId: preview.runId,
+      limit: 25,
+      cursor: first.nextCursor || undefined,
+    });
+    assert.equal(selected.summary.selected, 27);
+    assert.isTrue(selected.items[1]?.selected);
+    const result = await service.apply({
+      scanOperationId: preview.operationId,
+      migrationId: LITERATURE_ARTIFACT_MIGRATION_ID,
+      definitionVersion: LITERATURE_ARTIFACT_MIGRATION_DEFINITION_VERSION,
+    });
+    assert.isTrue(result.ok);
+    assert.equal(applied, 27);
   });
 
   it("continues every retryable set across durable receipt pages", async function () {

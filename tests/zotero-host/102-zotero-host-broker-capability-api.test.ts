@@ -1878,6 +1878,32 @@ describe("zotero host broker capability api", function () {
     );
   });
 
+  it("normalizes an oversized stored note at the public detail boundary", async function () {
+    const parent = await createParentItem("Oversized stored note");
+    const note = new Zotero.Item("note");
+    note.parentID = parent.id;
+    note.setNote(`<p>${"文".repeat(360000)}</p>`);
+    await note.saveTx();
+    const broker = createZoteroHostCapabilityBroker();
+
+    let rejected: unknown;
+    try {
+      await broker.library.getNoteDetail(
+        { libraryId: note.libraryID, key: note.key },
+        { format: "text" },
+      );
+    } catch (error) {
+      rejected = error;
+    }
+
+    assert.instanceOf(rejected, ZoteroHostCapabilityError);
+    const brokerError = rejected as ZoteroHostCapabilityError;
+    assert.equal(brokerError.code, "resource_limited");
+    assert.equal(brokerError.details.resource, "bytes");
+    assert.equal(brokerError.details.limit, 1024 * 1024);
+    assert.isAtLeast(Number(brokerError.details.observed), 1024 * 1024 + 1);
+  });
+
   it("updates each literature singleton and rejects duplicates without removing either candidate", async function () {
     for (const kind of [
       "digest",

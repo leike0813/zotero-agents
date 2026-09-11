@@ -336,6 +336,74 @@ describe("synthesis reader region (src/synthesis/components/reader)", function (
     ]);
   });
 
+  it("keeps the first-open report island mounted across toolbar updates", async function () {
+    const runtimeWindow = window as typeof window & {
+      ZoteroSkillsMarkdownRenderer?: {
+        renderInto: (container: HTMLElement) => HTMLElement;
+        buildOutline: () => HTMLElement;
+      };
+    };
+    runtimeWindow.ZoteroSkillsMarkdownRenderer = {
+      renderInto(container) {
+        const heading = document.createElement("h2");
+        heading.textContent = "Findings";
+        const paragraph = document.createElement("p");
+        paragraph.textContent = "Report body text.";
+        container.append(heading, paragraph);
+        return container;
+      },
+      buildOutline() {
+        const outline = document.createElement("nav");
+        outline.className = "topic-report-outline";
+        return outline;
+      },
+    };
+
+    try {
+      const { root, props } = renderRegion(makeSelection());
+      root
+        .querySelectorAll<HTMLButtonElement>(".topic-detail-tabs button")[7]
+        .click();
+      await flush();
+      const frame = root.querySelector(".topic-report-reader-frame")!;
+      const outlineSlot = frame.querySelector(".topic-report-outline-slot")!;
+      const outline = frame.querySelector(".topic-report-outline")!;
+      const scroll = frame.querySelector(".topic-report-scroll-body")!;
+      const body = scroll.firstElementChild!;
+      assert.ok(outlineSlot, "outline has a declarative owner");
+      assert.ok(outline, "outline rendered on first open");
+      assert.ok(body, "report body rendered on first open");
+
+      render(
+        h(ReaderRegion, {
+          ...props,
+          selection: makeSelection({
+            pendingCommands: ["exportTopicSynthesisReport"],
+          }),
+        }),
+        root,
+      );
+      await flush();
+
+      assert.strictEqual(
+        root.querySelector(".topic-report-reader-frame"),
+        frame,
+      );
+      assert.strictEqual(
+        frame.querySelector(".topic-report-outline-slot"),
+        outlineSlot,
+      );
+      assert.strictEqual(frame.querySelector(".topic-report-outline"), outline);
+      assert.strictEqual(
+        frame.querySelector(".topic-report-scroll-body"),
+        scroll,
+      );
+      assert.strictEqual(scroll.firstElementChild, body);
+    } finally {
+      delete runtimeWindow.ZoteroSkillsMarkdownRenderer;
+    }
+  });
+
   it("renders the artifact reader and dispatches closeArtifactReader", function () {
     const artifact = narrowArtifactReader({
       topicId: "topic-9",

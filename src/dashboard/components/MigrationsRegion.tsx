@@ -1,6 +1,7 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 import { memo } from "preact/compat";
+import { useEffect, useRef } from "preact/hooks";
 
 import {
   equalBySignature,
@@ -29,6 +30,14 @@ export type DashboardMigrationsSelection = {
   candidateLabel: string;
   progressLabel: string;
   attentionLabel: string;
+  previousLabel: string;
+  nextLabel: string;
+  selectedLabel: string;
+  verifiedLabel: string;
+  unresolvedLabel: string;
+  recoveredLabel: string;
+  droppedLabel: string;
+  reasonLabels: Record<string, string>;
 };
 
 export type DashboardMigrationsAction = Extract<
@@ -37,9 +46,8 @@ export type DashboardMigrationsAction = Extract<
   | "literature-migration-apply"
   | "literature-migration-stop"
   | "literature-migration-continue"
-  | "literature-migration-preview"
+  | "literature-migration-set-selection"
   | "literature-migration-list-receipts"
-  | "literature-migration-list-history"
   | "literature-migration-select-run"
 >;
 
@@ -58,20 +66,34 @@ export const MigrationsRegion = memo(
   function MigrationsRegion({ selection, onAction }: Props) {
     const { view } = selection;
     const active = view.activeRun;
-    const displayedCandidates = view.candidates.length
-      ? view.candidates
-      : view.receipts;
+    const { candidatePage } = view;
+    const cursorHistory = useRef<string[]>([]);
+    useEffect(() => {
+      cursorHistory.current = [];
+    }, [active?.runId]);
     const workerActive = view.availability === "busy";
     const canScan = view.availability === "available" && !workerActive;
     const canApply =
       !!active &&
       active.state === "preview" &&
       Boolean(view.activeOperationId) &&
-      view.candidates.some(
-        (candidate) =>
-          candidate.classification === "ready" ||
-          candidate.classification === "review_required",
-      );
+      candidatePage.summary.selected > 0;
+    const previousPage = () => {
+      const cursor = cursorHistory.current.pop();
+      if (cursor === undefined || !active) return;
+      onAction("literature-migration-list-receipts", {
+        runId: active.runId,
+        cursor,
+      });
+    };
+    const nextPage = () => {
+      if (!candidatePage.nextCursor || !active) return;
+      cursorHistory.current.push(candidatePage.cursor);
+      onAction("literature-migration-list-receipts", {
+        runId: active.runId,
+        cursor: candidatePage.nextCursor,
+      });
+    };
     return (
       <section
         class="dashboard-migrations"
@@ -110,17 +132,6 @@ export const MigrationsRegion = memo(
               onClick={() =>
                 onAction("literature-migration-apply", {
                   scanOperationId: active.operationId,
-                  candidateIds: view.candidates
-                    .filter(
-                      (candidate) => candidate.classification !== "blocked",
-                    )
-                    .map((candidate) => candidate.candidateId),
-                  reviewAcceptedCandidateIds: view.candidates
-                    .filter(
-                      (candidate) =>
-                        candidate.classification === "review_required",
-                    )
-                    .map((candidate) => candidate.candidateId),
                   migrationId: active.migrationId,
                   definitionVersion: active.definitionVersion,
                 })
@@ -153,50 +164,135 @@ export const MigrationsRegion = memo(
           ) : null}
         </div>
         {active ? (
-          <div class="dashboard-migrations-progress">
-            <strong>{selection.progressLabel}</strong>
+          <div class="dashboard-migrations-summary" aria-live="polite">
             <span>
-              {active.processedCount}/{active.setCount} · {active.state}
+              <strong>{candidatePage.summary.total}</strong>{" "}
+              {selection.candidateLabel}
             </span>
+            <span class="is-ready">
+              <strong>{candidatePage.summary.ready}</strong>{" "}
+              {selection.readyLabel}
+            </span>
+            <span class="is-review">
+              <strong>{candidatePage.summary.reviewRequired}</strong>{" "}
+              {selection.reviewLabel}
+            </span>
+            <span class="is-blocked">
+              <strong>{candidatePage.summary.blocked}</strong>{" "}
+              {selection.blockedLabel}
+            </span>
+            <span class="is-selected">
+              <strong>{candidatePage.summary.selected}</strong>{" "}
+              {selection.selectedLabel}
+            </span>
+            {active.state !== "preview" ? (
+              <span>
+                {selection.progressLabel} {active.processedCount}/
+                {active.setCount}
+              </span>
+            ) : null}
             {active.reason ? (
               <span class="attention">{active.reason}</span>
             ) : null}
           </div>
         ) : null}
-        {displayedCandidates.length ? (
-          <div class="dashboard-migrations-candidates">
-            {displayedCandidates.map((candidate) => (
-              <article
-                class="dashboard-migration-candidate"
-                key={candidate.candidateId}
-              >
-                <div>
-                  <strong>
-                    {selection.candidateLabel} {candidate.ordinal}
-                  </strong>
-                  <span class="status">
-                    {stateLabel(selection, candidate.classification)}
-                  </span>
-                </div>
-                <div class="dashboard-migration-facts">
-                  <span>{candidate.verifiedCount} verified</span>
-                  <span>{candidate.unresolvedCount} unresolved</span>
-                  <span>{candidate.recoveredCount} recovered</span>
-                  <span>{candidate.droppedCount} dropped</span>
-                </div>
-                {candidate.reasonCodes.length ? (
-                  <div class="dashboard-migration-reasons">
-                    {candidate.reasonCodes.join(", ")}
+        {candidatePage.items.length ? (
+          <>
+            <div class="dashboard-migrations-candidates">
+              {candidatePage.items.map((candidate) => (
+                <article
+                  class="dashboard-migration-candidate"
+                  key={candidate.candidateId}
+                  data-classification={candidate.classification}
+                >
+                  <label class="dashboard-migration-candidate-heading">
+                    <input
+                      type="checkbox"
+                      checked={candidate.selected}
+                      disabled={
+                        active?.state !== "preview" ||
+                        candidate.classification === "blocked" ||
+                        workerActive
+                      }
+                      onChange={(event) =>
+                        onAction("literature-migration-set-selection", {
+                          scanOperationId: active?.operationId || "",
+                          candidateId: candidate.candidateId,
+                          selected: event.currentTarget.checked,
+                        })
+                      }
+                    />
+                    <span>
+                      <strong>
+                        {candidate.title ||
+                          `${selection.candidateLabel} ${candidate.ordinal}`}
+                      </strong>
+                      {candidate.title ? (
+                        <small>
+                          {selection.candidateLabel} {candidate.ordinal}
+                        </small>
+                      ) : null}
+                    </span>
+                    <span class="status">
+                      {stateLabel(selection, candidate.classification)}
+                    </span>
+                  </label>
+                  <div class="dashboard-migration-facts">
+                    <span>
+                      {candidate.verifiedCount} {selection.verifiedLabel}
+                    </span>
+                    <span>
+                      {candidate.unresolvedCount} {selection.unresolvedLabel}
+                    </span>
+                    <span>
+                      {candidate.recoveredCount} {selection.recoveredLabel}
+                    </span>
+                    <span>
+                      {candidate.droppedCount} {selection.droppedLabel}
+                    </span>
                   </div>
-                ) : null}
-              </article>
-            ))}
-          </div>
+                  {candidate.reasonCodes.length ? (
+                    <div class="dashboard-migration-reasons">
+                      {candidate.reasonCodes.map((reason) => (
+                        <span key={reason} title={reason}>
+                          {selection.reasonLabels[reason] || reason}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+            <nav
+              class="dashboard-migrations-pagination"
+              aria-label={selection.pageTitle}
+            >
+              <button
+                type="button"
+                disabled={!cursorHistory.current.length}
+                onClick={previousPage}
+              >
+                {selection.previousLabel}
+              </button>
+              <span>
+                {candidatePage.items[0]?.ordinal || 0}–
+                {candidatePage.items.at(-1)?.ordinal || 0} /{" "}
+                {candidatePage.summary.total}
+              </span>
+              <button
+                type="button"
+                disabled={!candidatePage.nextCursor}
+                onClick={nextPage}
+              >
+                {selection.nextLabel}
+              </button>
+            </nav>
+          </>
         ) : (
           <p class="empty">{selection.migrationTitle}</p>
         )}
-        <section class="dashboard-migrations-history">
-          <h3>{selection.historyTitle}</h3>
+        <details class="dashboard-migrations-history">
+          <summary>{selection.historyTitle}</summary>
           {view.history.length ? (
             <ul>
               {view.history.map((run) => (
@@ -218,7 +314,7 @@ export const MigrationsRegion = memo(
           ) : (
             <p class="empty">{selection.emptyHistoryText}</p>
           )}
-        </section>
+        </details>
       </section>
     );
   },

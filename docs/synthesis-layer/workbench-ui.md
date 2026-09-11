@@ -53,7 +53,11 @@ schema reference, and at most 16 `{ keyword, pointer }` violations; response
 values and native payloads are never logged.
 
 The Graph region owns its imperative Sigma canvas and camera. Markdown and
-topic timelines use bounded imperative islands inside Reader. Translation
+topic timelines use bounded imperative islands inside Reader. The Topic
+Report's Markdown body and outline are owned by a single bounded island
+region; the body renders on first open and keeps its own scroll position,
+and same-owner toolbar or pending-command updates MUST NOT rebuild the Topic
+Report body DOM. Translation
 resolves message keys during projection/rendering from the host envelope;
 there is no whole-page reverse text translation pass.
 

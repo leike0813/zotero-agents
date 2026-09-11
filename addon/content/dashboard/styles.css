@@ -2448,6 +2448,156 @@ tr.clickable {
   }
 }
 
+.region-managed-view > .dashboard-migrations[data-region-content] {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.dashboard-migrations-header,
+.dashboard-migrations-toolbar,
+.dashboard-migration-candidate-heading,
+.dashboard-migrations-pagination {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dashboard-migrations-header,
+.dashboard-migrations-pagination {
+  justify-content: space-between;
+}
+
+.dashboard-migrations-header h2 {
+  margin: 0;
+}
+
+.dashboard-migrations-version {
+  color: var(--muted);
+  font-family: var(--zs-font-mono);
+  font-size: 11px;
+}
+
+.dashboard-migrations-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dashboard-migrations-summary > span,
+.dashboard-migration-reasons > span {
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--zs-panel-alt);
+}
+
+.dashboard-migrations-summary .is-selected {
+  border-color: var(--zs-accent-soft-border);
+  color: var(--zs-accent-strong);
+}
+
+.dashboard-migrations-candidates {
+  display: grid;
+  gap: 8px;
+  max-height: min(56vh, 620px);
+  min-height: 160px;
+  padding-right: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.dashboard-migration-candidate {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--zs-accent-soft-border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.dashboard-migration-candidate[data-classification="review_required"] {
+  border-left-color: var(--zs-warning-border);
+}
+
+.dashboard-migration-candidate[data-classification="blocked"] {
+  border-left-color: var(--zs-danger-border);
+}
+
+.dashboard-migration-candidate-heading > span:not(.status) {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+
+.dashboard-migration-candidate-heading strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-migration-candidate-heading small,
+.dashboard-migration-facts {
+  color: var(--muted);
+}
+
+.dashboard-migration-candidate-heading .status {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--zs-panel-alt);
+  white-space: nowrap;
+}
+
+.dashboard-migration-facts,
+.dashboard-migration-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.dashboard-migration-reasons > span {
+  padding-block: 2px;
+  font-size: 11px;
+}
+
+.dashboard-migrations-pagination {
+  padding-top: 2px;
+}
+
+.dashboard-migrations-history {
+  max-height: 180px;
+  overflow: auto;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.dashboard-migrations-history > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.dashboard-migrations-history ul {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+@container main-view (max-width: 560px) {
+  .dashboard-migrations-header,
+  .dashboard-migration-candidate-heading {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .dashboard-migration-candidate-heading > span:not(.status) {
+    min-width: calc(100% - 34px);
+  }
+}
+
 /* 3.3 SkillRunner/ACP history tasks table (7 columns) */
 @container table-container (max-width: 650px) {
   .skillrunner-task-panel .backend-task-table-wrap th:nth-child(3),

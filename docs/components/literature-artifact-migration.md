@@ -10,7 +10,7 @@ canonical-only.
 ## Ownership and boundary
 
 The migration is registered with the static identity
-`literature-artifacts` and definition version `2`. Its public runtime surface
+`literature-artifacts` and definition version `3`. Its public runtime surface
 is the service returned by `createLiteratureArtifactMigrationService()`:
 
 | Operation | Effect |
@@ -36,6 +36,19 @@ This migration is scoped to the Zotero personal library. Before a preview or
 run exists, the Dashboard projection supplies `Zotero.Libraries.userLibraryID`;
 the region does not own a separate library selector or infer a library from UI
 selection.
+
+The Dashboard candidate page returns 25 candidates per page; `ready` sets are
+selected by default, `review_required` sets can be toggled manually, and
+`blocked` sets are not selectable. The page renders no library selector and
+stays within the personal library bound by the scan.
+
+## Migratable payload
+
+The converter treats References and Citation payload blocks as the migratable
+target. Known non-target managed payloads (digest, score, conversation, custom
+markdown) are preserved on the target note and ignored by the migration. Any
+unknown payload block not in the approved managed set still blocks the set
+with `unsupported_input`.
 
 ## Converter
 

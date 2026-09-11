@@ -362,6 +362,7 @@ async function childNotes(
       if (
         code !== "invalid_artifact" &&
         code !== "legacy_artifact_requires_migration" &&
+        code !== "resource_limited" &&
         !ambiguousNote
       ) {
         throw error;

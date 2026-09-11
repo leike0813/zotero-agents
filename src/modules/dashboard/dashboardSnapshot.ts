@@ -79,6 +79,7 @@ export type DashboardState = {
   backendLoadError?: string;
   selectedTabKey: string;
   selectedLiteratureMigrationRunId: string;
+  literatureMigrationReceiptCursor?: string;
   selectedBackendSubviewById: Map<string, "runs" | "management">;
   selectedLogTaskByBackendId: Map<string, string>;
   selectedLogEntryByBackendId: Map<string, string>;
@@ -1033,8 +1034,18 @@ function buildLiteratureArtifactMigrationView(
       libraryId: 0,
       activeRun: null,
       activeOperationId: "",
-      candidates: [],
-      receipts: [],
+      candidatePage: {
+        cursor: "",
+        nextCursor: null,
+        items: [],
+        summary: {
+          total: 0,
+          ready: 0,
+          reviewRequired: 0,
+          blocked: 0,
+          selected: 0,
+        },
+      },
       history: [],
     };
   }
@@ -1046,22 +1057,27 @@ function buildLiteratureArtifactMigrationView(
     ? service.getRun(state.selectedLiteratureMigrationRunId)
     : null;
   const displayedEntry = selectedEntry || activeEntry;
-  const previewEntry =
-    displayedEntry?.state === "preview" ? displayedEntry : null;
-  const activePreview = activeSnapshot
-    ? service.getPreviewForRun(activeSnapshot.runId)
-    : previewEntry
-      ? service.getPreview(previewEntry.operationId)
-      : null;
   const history = service
-    .listHistory({ limit: 50 })
+    .listHistory({ limit: 20 })
     .map(migrationRunToDashboardView);
-  const receipts = displayedEntry
-    ? service.listReceipts({ runId: displayedEntry.runId, limit: 100 })
-    : [];
-  const outcomeByCandidate = new Map(
-    receipts.map((receipt) => [receipt.candidateId, receipt.outcome]),
-  );
+  const receiptCursor = String(state?.literatureMigrationReceiptCursor || "");
+  const candidatePage = displayedEntry
+    ? service.listCandidatePage({
+        runId: displayedEntry.runId,
+        limit: 25,
+        ...(receiptCursor ? { cursor: receiptCursor } : {}),
+      })
+    : {
+        items: [],
+        nextCursor: null,
+        summary: {
+          total: 0,
+          ready: 0,
+          reviewRequired: 0,
+          blocked: 0,
+          selected: 0,
+        },
+      };
   return {
     migrationId: LITERATURE_ARTIFACT_MIGRATION_ID,
     definitionVersion: LITERATURE_ARTIFACT_MIGRATION_DEFINITION_VERSION,
@@ -1072,9 +1088,9 @@ function buildLiteratureArtifactMigrationView(
           "A literature migration is already active.",
         )
       : "",
-    libraryId:
-      activePreview?.libraryId ||
-      Number(displayedEntry?.libraryId || Zotero.Libraries.userLibraryID),
+    libraryId: Number(
+      displayedEntry?.libraryId || Zotero.Libraries.userLibraryID,
+    ),
     activeRun:
       activeSnapshot && activeEntry
         ? migrationRunToDashboardView(activeEntry)
@@ -1082,31 +1098,13 @@ function buildLiteratureArtifactMigrationView(
           ? migrationRunToDashboardView(displayedEntry)
           : null,
     activeOperationId:
-      activeSnapshot?.operationId || activePreview?.operationId || "",
-    candidates:
-      activePreview?.candidates.map((candidate) => ({
-        candidateId: candidate.candidateId,
-        ordinal: candidate.ordinal,
-        classification: candidate.classification,
-        outcome:
-          outcomeByCandidate.get(candidate.candidateId) || candidate.outcome,
-        reasonCodes: candidate.reasonCodes,
-        verifiedCount: candidate.verifiedCount,
-        unresolvedCount: candidate.unresolvedCount,
-        recoveredCount: candidate.recoveredCount,
-        droppedCount: candidate.droppedCount,
-      })) || [],
-    receipts: receipts.map((receipt) => ({
-      candidateId: receipt.candidateId,
-      ordinal: receipt.ordinal,
-      classification: receipt.classification,
-      outcome: receipt.outcome,
-      reasonCodes: receipt.reasonCodes,
-      verifiedCount: receipt.verifiedCount,
-      unresolvedCount: receipt.unresolvedCount,
-      recoveredCount: receipt.recoveredCount,
-      droppedCount: receipt.droppedCount,
-    })),
+      activeSnapshot?.operationId || displayedEntry?.operationId || "",
+    candidatePage: {
+      cursor: receiptCursor,
+      nextCursor: candidatePage.nextCursor,
+      items: candidatePage.items,
+      summary: candidatePage.summary,
+    },
     history,
   };
 }
@@ -1281,6 +1279,66 @@ export async function buildDashboardSnapshot(args: {
     literatureMigrationAttention: localize(
       "task-dashboard-literature-migration-attention",
       "Attention required",
+    ),
+    literatureMigrationPrevious: localize(
+      "task-dashboard-literature-migration-previous",
+      "Previous",
+    ),
+    literatureMigrationNext: localize(
+      "task-dashboard-literature-migration-next",
+      "Next",
+    ),
+    literatureMigrationSelected: localize(
+      "task-dashboard-literature-migration-selected",
+      "Selected",
+    ),
+    literatureMigrationVerified: localize(
+      "task-dashboard-literature-migration-verified",
+      "Verified",
+    ),
+    literatureMigrationUnresolved: localize(
+      "task-dashboard-literature-migration-unresolved",
+      "Unresolved",
+    ),
+    literatureMigrationRecovered: localize(
+      "task-dashboard-literature-migration-recovered",
+      "Recovered",
+    ),
+    literatureMigrationDropped: localize(
+      "task-dashboard-literature-migration-dropped",
+      "Dropped",
+    ),
+    ...Object.fromEntries(
+      [
+        ["CitationOnly", "citation-only", "Citation without References"],
+        ["DuplicateReference", "duplicate-reference", "Duplicate reference"],
+        ["ConflictingEvidence", "conflicting-evidence", "Conflicting evidence"],
+        ["DamagedInput", "damaged-input", "Damaged input"],
+        ["DataLoss", "data-loss", "Data loss risk"],
+        ["ReadOnlyLibrary", "read-only-library", "Read-only library"],
+        ["UnresolvedLinkage", "unresolved-linkage", "Unresolved linkage"],
+        ["AmbiguousLinkage", "ambiguous-linkage", "Ambiguous linkage"],
+        [
+          "CitationSnapshotRecovery",
+          "citation-snapshot-recovery",
+          "Recovered citation snapshot",
+        ],
+        ["NoReferences", "no-references", "No references"],
+        [
+          "InvalidCanonicalArtifact",
+          "invalid-canonical-artifact",
+          "Invalid canonical artifact",
+        ],
+        [
+          "CanonicalConflict",
+          "canonical-conflict",
+          "Canonical artifact conflict",
+        ],
+        ["UnsupportedInput", "unsupported-input", "Unsupported input"],
+      ].map(([name, key, fallback]) => [
+        `literatureMigrationReason${name}`,
+        localize(`task-dashboard-literature-migration-reason-${key}`, fallback),
+      ]),
     ),
     tabBackends: localize("task-dashboard-tab-backends", "Backends"),
     acpTraceReplayTabTitle: localize(
