@@ -863,13 +863,30 @@ export async function createDashboardReadonlyModel(
     const backends = configuredBackends;
     const homeWorkflows = await buildHomeWorkflows(backends);
     const tabs = [
-      { key: "home", label: DASHBOARD_LABELS.home },
-      { key: "workflow-options", label: DASHBOARD_LABELS.tabWorkflowOptions },
-      { key: "products", label: DASHBOARD_LABELS.tabProducts },
-      { key: "runtime-logs", label: DASHBOARD_LABELS.runtimeLogsTabTitle },
+      {
+        key: "home",
+        label: DASHBOARD_LABELS.home,
+        group: "system" as const,
+      },
+      {
+        key: "workflow-options",
+        label: DASHBOARD_LABELS.tabWorkflowOptions,
+        group: "system" as const,
+      },
+      {
+        key: "products",
+        label: DASHBOARD_LABELS.tabProducts,
+        group: "system" as const,
+      },
+      {
+        key: "runtime-logs",
+        label: DASHBOARD_LABELS.runtimeLogsTabTitle,
+        group: "system" as const,
+      },
       ...backends.map((backend) => ({
         key: `backend:${backend.id}`,
         label: `${backendDisplayName(backend)} (${backend.type})`,
+        group: "backend" as const,
         backendId: backend.id,
         backendType: backend.type,
         disabled: false,

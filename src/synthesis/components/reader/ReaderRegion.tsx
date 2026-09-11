@@ -62,6 +62,19 @@ function TopicDetailToolbar(props: {
     });
   return (
     <div class="toolbar topic-detail-toolbar">
+      {!selection.standalone ? (
+        <button
+          type="button"
+          class="zs-back-link"
+          onClick={() => ctx.onAction("selectTab", { tab: "artifacts" })}
+        >
+          <span
+            class="zs-icon zs-icon-sm zs-icon-arrow-back"
+            aria-hidden="true"
+          />
+          <span>{t("synthesis-action-back-to-topics")}</span>
+        </button>
+      ) : null}
       <div class="topic-detail-toolbar-meta">
         <Badge text={detail.language || "auto"} tone="blue" />
         <Badge
@@ -77,14 +90,6 @@ function TopicDetailToolbar(props: {
         ) : null}
       </div>
       <div class="topic-detail-toolbar-actions">
-        {!selection.standalone ? (
-          <button
-            type="button"
-            onClick={() => ctx.onAction("selectTab", { tab: "artifacts" })}
-          >
-            {t("synthesis-action-back-to-topics")}
-          </button>
-        ) : null}
         <button
           type="button"
           class={updatePending ? "is-busy" : ""}

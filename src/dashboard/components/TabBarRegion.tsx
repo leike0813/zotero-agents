@@ -78,19 +78,26 @@ export const TabBarRegion = memo(
     const backendTabs = selection.tabs.filter((tab) => tab.group === "backend");
     return (
       <div class="dashboard-tabbar" data-region-content="dashboard-tabbar">
-        <h3 class="sidebar-title">{selection.systemTitle}</h3>
         {selection.tabs.length === 0 ? (
-          <div class="empty">{selection.emptyText}</div>
+          <>
+            <h3 class="sidebar-title">{selection.systemTitle}</h3>
+            <div class="empty">{selection.emptyText}</div>
+          </>
         ) : (
           <>
-            {systemTabs.map((tab) => (
-              <TabButton key={tab.key} tab={tab} onSelectTab={onSelectTab} />
-            ))}
+            <section class="tab-group" data-tab-group="system">
+              <h3 class="sidebar-title">{selection.systemTitle}</h3>
+              {systemTabs.map((tab) => (
+                <TabButton key={tab.key} tab={tab} onSelectTab={onSelectTab} />
+              ))}
+            </section>
             <div class="tab-divider" />
-            <h3 class="sidebar-title">{selection.backendTitle}</h3>
-            {backendTabs.map((tab) => (
-              <TabButton key={tab.key} tab={tab} onSelectTab={onSelectTab} />
-            ))}
+            <section class="tab-group" data-tab-group="backend">
+              <h3 class="sidebar-title">{selection.backendTitle}</h3>
+              {backendTabs.map((tab) => (
+                <TabButton key={tab.key} tab={tab} onSelectTab={onSelectTab} />
+              ))}
+            </section>
           </>
         )}
       </div>

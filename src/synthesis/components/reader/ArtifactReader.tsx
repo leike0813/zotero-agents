@@ -52,6 +52,17 @@ export function ArtifactReaderPanel(props: {
   return (
     <div class="reader-panel immersive-reader">
       <div class="reader-header">
+        <button
+          type="button"
+          class="zs-back-link"
+          onClick={() => props.onAction("closeArtifactReader")}
+        >
+          <span
+            class="zs-icon zs-icon-sm zs-icon-arrow-back"
+            aria-hidden="true"
+          />
+          <span>{t("synthesis-action-back-to-artifacts")}</span>
+        </button>
         <div class="reader-title">
           <strong>
             {artifact?.title || props.topicId || t("synthesis-tab-reader")}
@@ -59,12 +70,6 @@ export function ArtifactReaderPanel(props: {
           {metaLine ? <span class="muted">{metaLine}</span> : null}
         </div>
         <div class="toolbar">
-          <button
-            type="button"
-            onClick={() => props.onAction("closeArtifactReader")}
-          >
-            {t("synthesis-action-back-to-artifacts")}
-          </button>
           <button
             type="button"
             onClick={() => {

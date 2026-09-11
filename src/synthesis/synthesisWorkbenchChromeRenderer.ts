@@ -318,7 +318,11 @@ export function createSynthesisWorkbenchChromeRenderer(
       );
     }
 
-    const topbarMount = ensureRegionMount(skeleton.topbar, "topbar");
+    const topbarMount = ensureRegionMount(
+      skeleton.topbar,
+      "topbar",
+      skeleton.topbarControls,
+    );
     if (topbarMount) {
       render(
         panel?.topbar

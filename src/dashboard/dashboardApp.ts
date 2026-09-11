@@ -70,13 +70,37 @@ export function createDashboardController(deps: DashboardControllerDeps) {
     snapshot: null,
     ui: createInitialUiState(),
   };
+  // Projection memo: projectDashboardPanel is pure in (snapshot reference,
+  // selectedTabKey, sidecar filter/selection). Reusing the panel keeps every
+  // region selection reference-identical, so region memoization short-circuits
+  // without re-serializing signatures (see src/shared/regionEquality.ts).
+  let lastProjectionKey: {
+    snapshot: DashboardPageSnapshot;
+    selectedTabKey: string;
+    traceFilter: string;
+    selectedTraceId: string;
+  } | null = null;
+  let lastPanel: ReturnType<typeof projectDashboardPanel> | null = null;
 
   function renderCurrentPanel(): void {
     if (!state.snapshot) {
+      lastProjectionKey = null;
+      lastPanel = null;
       deps.renderPanel(null);
       return;
     }
-    const panel = projectDashboardPanel(state.snapshot, state.ui);
+    const snapshot = state.snapshot;
+    const sidecarUi = state.ui.synthesisSidecar;
+    const keyMatches =
+      lastProjectionKey &&
+      lastProjectionKey.snapshot === snapshot &&
+      lastProjectionKey.selectedTabKey === state.ui.selectedTabKey &&
+      lastProjectionKey.traceFilter === sidecarUi.traceFilter &&
+      lastProjectionKey.selectedTraceId === sidecarUi.selectedTraceId;
+    const panel =
+      keyMatches && lastPanel
+        ? lastPanel
+        : projectDashboardPanel(snapshot, state.ui);
     // Effective-selection writeback (legacy state.synthesisTraceId =
     // selected.traceId): when the projection resolves a different selected
     // trace than the UI state pinned (filter changes, trace expiry), sync
@@ -84,10 +108,17 @@ export function createDashboardController(deps: DashboardControllerDeps) {
     const sidecar = panel.views.synthesisSidecar;
     if (sidecar && sidecar.kind === "traces") {
       const effective = sidecar.detail ? sidecar.detail.traceId : "";
-      if (effective !== state.ui.synthesisSidecar.selectedTraceId) {
+      if (effective !== sidecarUi.selectedTraceId) {
         state.ui.synthesisSidecar.selectedTraceId = effective;
       }
     }
+    lastProjectionKey = {
+      snapshot,
+      selectedTabKey: state.ui.selectedTabKey,
+      traceFilter: sidecarUi.traceFilter,
+      selectedTraceId: state.ui.synthesisSidecar.selectedTraceId,
+    };
+    lastPanel = panel;
     deps.renderPanel(panel);
   }
 

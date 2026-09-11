@@ -191,7 +191,7 @@ function RunningTaskTable(props: {
     );
   }
   return (
-    <div class="panel">
+    <div class="panel home-running-panel">
       <div class="table-wrap home-running-table-wrap">
         <table>
           <thead>
@@ -265,7 +265,20 @@ function HomeDocViewSection(props: {
   ]);
   return (
     <section class="section workflow-doc-section">
-      <h3 class="section-title">{doc.title}</h3>
+      <div class="workflow-doc-header">
+        <button
+          type="button"
+          class="zs-back-link"
+          onClick={() => onAction("close-home-workflow-doc", {})}
+        >
+          <span
+            class="zs-icon zs-icon-sm zs-icon-arrow-back"
+            aria-hidden="true"
+          />
+          <span>{doc.backLabel}</span>
+        </button>
+        <h3 class="section-title">{doc.title}</h3>
+      </div>
       <div class="panel workflow-doc-panel">
         {doc.missingReadme ? (
           <div
@@ -290,14 +303,6 @@ function HomeDocViewSection(props: {
           />
         )}
       </div>
-      <div class="workflow-doc-footer">
-        <button
-          class="btn"
-          onClick={() => onAction("close-home-workflow-doc", {})}
-        >
-          {doc.backLabel}
-        </button>
-      </div>
     </section>
   );
 }
@@ -321,33 +326,35 @@ export const HomeRegion = memo(
     return (
       <div class="dashboard-home" data-region-content="dashboard-home">
         <h2 class="page-title">{selection.pageTitle}</h2>
-        {selection.bubbles.length > 0 ? (
-          <section class="section workflow-bubbles-section">
-            <h3 class="section-title">{selection.bubblesTitle}</h3>
-            <div class="workflow-bubbles-wrap">
-              {selection.bubbles.map((bubble) => (
-                <WorkflowBubble
-                  key={bubble.workflowId}
-                  bubble={bubble}
-                  onAction={onAction}
-                />
-              ))}
-            </div>
+        <div class="zs-scroll-region">
+          {selection.bubbles.length > 0 ? (
+            <section class="section workflow-bubbles-section">
+              <h3 class="section-title">{selection.bubblesTitle}</h3>
+              <div class="workflow-bubbles-wrap">
+                {selection.bubbles.map((bubble) => (
+                  <WorkflowBubble
+                    key={bubble.workflowId}
+                    bubble={bubble}
+                    onAction={onAction}
+                  />
+                ))}
+              </div>
+            </section>
+          ) : null}
+          <h3 class="section-title">{selection.summaryTitle}</h3>
+          <div class="cards">
+            {selection.cards.map((card) => (
+              <div class="card" key={card.label}>
+                <div class="card-label">{card.label}</div>
+                <div class="card-value">{card.value}</div>
+              </div>
+            ))}
+          </div>
+          <section class="section">
+            <h3 class="section-title">{selection.runningTitle}</h3>
+            <RunningTaskTable selection={selection} onAction={onAction} />
           </section>
-        ) : null}
-        <h3 class="section-title">{selection.summaryTitle}</h3>
-        <div class="cards">
-          {selection.cards.map((card) => (
-            <div class="card" key={card.label}>
-              <div class="card-label">{card.label}</div>
-              <div class="card-value">{card.value}</div>
-            </div>
-          ))}
         </div>
-        <section class="section">
-          <h3 class="section-title">{selection.runningTitle}</h3>
-          <RunningTaskTable selection={selection} onAction={onAction} />
-        </section>
       </div>
     );
   },

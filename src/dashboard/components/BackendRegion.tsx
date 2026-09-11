@@ -692,6 +692,53 @@ export const BackendRegion = memo(
     const backendId = selection.backendId;
     const showManagement =
       selection.kind === "skillrunner" && selection.subview === "management";
+    const taskTable = (
+      <TaskTable
+        panelClassName={selection.taskTable.panelClassName || undefined}
+        tableWrapClassName="backend-task-table-wrap"
+        scrollKey={selection.scrollKey}
+        initialScrollTop={taskScrollTop}
+        columns={selection.taskTable.columns}
+        rows={selection.taskTable.rows}
+        emptyText={selection.taskTable.emptyText}
+        selectedId={
+          selection.kind === "generic" ? selection.taskTable.selectedId : ""
+        }
+        onRowClick={
+          selection.kind === "generic"
+            ? (row) =>
+                onAction("select-log-task", { backendId, taskId: row.id })
+            : undefined
+        }
+        rowClassName={
+          selection.kind === "generic"
+            ? undefined
+            : (row) => (row.queueId ? "host-queued-workflow-row" : "")
+        }
+        renderRowCells={(row) =>
+          selection.kind === "skillrunner" ? (
+            <SkillRunnerTaskRowCells
+              selection={selection}
+              row={row}
+              onAction={onAction}
+            />
+          ) : selection.kind === "acp" ? (
+            <AcpTaskRowCells
+              selection={selection}
+              row={row}
+              onAction={onAction}
+            />
+          ) : (
+            <GenericTaskRowCells
+              selection={selection}
+              row={row}
+              onAction={onAction}
+            />
+          )
+        }
+        onScroll={onTaskTableScroll}
+      />
+    );
     return (
       <div class="dashboard-backend" data-region-content="dashboard-backend">
         <BackendToolbar selection={selection} onAction={onAction} />
@@ -700,63 +747,19 @@ export const BackendRegion = memo(
             selection={selection}
             onAction={onAction}
           />
-        ) : (
-          <>
-            <TaskTable
-              panelClassName={selection.taskTable.panelClassName || undefined}
-              tableWrapClassName="backend-task-table-wrap"
-              scrollKey={selection.scrollKey}
-              initialScrollTop={taskScrollTop}
-              columns={selection.taskTable.columns}
-              rows={selection.taskTable.rows}
-              emptyText={selection.taskTable.emptyText}
-              selectedId={
-                selection.kind === "generic"
-                  ? selection.taskTable.selectedId
-                  : ""
-              }
-              onRowClick={
-                selection.kind === "generic"
-                  ? (row) =>
-                      onAction("select-log-task", { backendId, taskId: row.id })
-                  : undefined
-              }
-              rowClassName={
-                selection.kind === "generic"
-                  ? undefined
-                  : (row) => (row.queueId ? "host-queued-workflow-row" : "")
-              }
-              renderRowCells={(row) =>
-                selection.kind === "skillrunner" ? (
-                  <SkillRunnerTaskRowCells
-                    selection={selection}
-                    row={row}
-                    onAction={onAction}
-                  />
-                ) : selection.kind === "acp" ? (
-                  <AcpTaskRowCells
-                    selection={selection}
-                    row={row}
-                    onAction={onAction}
-                  />
-                ) : (
-                  <GenericTaskRowCells
-                    selection={selection}
-                    row={row}
-                    onAction={onAction}
-                  />
-                )
-              }
-              onScroll={onTaskTableScroll}
-            />
-            {selection.kind === "generic" && selection.logs ? (
+        ) : selection.kind === "generic" ? (
+          <div class="zs-scroll-region">
+            {taskTable}
+            {selection.logs ? (
               <BackendLogsSection
                 selection={selection}
                 logs={selection.logs}
                 onAction={onAction}
               />
             ) : null}
-          </>
+          </div>
+        ) : (
+          taskTable
         )}
       </div>
     );

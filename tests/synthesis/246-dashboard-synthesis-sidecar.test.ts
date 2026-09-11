@@ -277,7 +277,7 @@ describe("dashboard synthesis sidecar region", function () {
     );
   });
 
-  it("emits the legacy UI intents through onAction", function () {
+  it("emits the legacy UI intents through onAction", async function () {
     const { container, actions } = renderRegion(makeSelection());
 
     const rows = container.querySelectorAll<HTMLElement>(
@@ -296,6 +296,9 @@ describe("dashboard synthesis sidecar region", function () {
     )!;
     input.value = "op-b";
     input.dispatchEvent(new window.Event("input", { bubbles: true }));
+    // The filter intent is debounced; typing must not dispatch per keystroke.
+    assert.equal(actions.length, 1);
+    await new Promise((resolve) => setTimeout(resolve, 250));
     assert.deepEqual(actions[1], {
       action: "synthesis-sidecar-set-trace-filter",
       payload: { filter: "op-b" },

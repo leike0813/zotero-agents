@@ -1,0 +1,249 @@
+/* Shared page-chrome layer for the Dashboard and Synthesis Workbench pages.
+ *
+ * Owns the cross-page design tokens (control colors, text/spacing scales) and
+ * the shared layout patterns (panel header, scroll ownership utilities, empty
+ * state, badge). Color/ radius/ shadow primitives come from theme.css; this
+ * file never hardcodes raw colors outside the token definitions below.
+ *
+ * Scroll ownership model (both pages):
+ *   L0 page root: never scrolls (overflow:hidden), grid carves out chrome.
+ *   L1 chrome: sidebar nav may scroll internally; topbar/statusbar never do.
+ *   L2 panel root: .zs-fill-col — column flex, overflow:hidden, min-height:0;
+ *     fixed zones (panel header, toolbars, filter rows, pagination) never
+ *     scroll with content.
+ *   L3 primary scroll region: exactly one primary content scroll region per
+ *     panel (flex:1; min-height:0; overflow:auto); sticky headers live inside
+ *     it. Dashboard panels use the shared .zs-scroll-region utility;
+ *     Synthesis surfaces keep their own wrappers (.concept-table-wrap,
+ *     .tags-table-wrap) acting as the region under the same model. A table
+ *     wrapper inside a panel region flattens (max-height:none) so it scrolls
+ *     with the region instead of nesting a second scrollbar; only wrappers
+ *     that are their own scroll containers live outside a region.
+ *   L4 bounded secondary areas: sub-panels such as the concept review panel
+ *     (max-height:42%) or the tag import popover (max-height:45%) may keep
+ *     their own bounded scrolling but never carry primary content; drawer/
+ *     popover/dialog bodies and the Sigma canvas manage their own scrolling.
+ */
+
+:root {
+  --zs-control-bg: #dbeafe;
+  --zs-control-hover: #c7dcff;
+  --zs-control-active-bg: #bfdbfe;
+  --zs-control-border: #8fb3f4;
+  --zs-control-disabled-bg: #edf1f6;
+  --zs-control-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+
+  --zs-text-xs: 11px;
+  --zs-text-sm: 12px;
+  --zs-text-md: 13px;
+  --zs-text-lg: 15px;
+
+  --zs-space-1: 4px;
+  --zs-space-2: 8px;
+  --zs-space-3: 12px;
+  --zs-space-4: 16px;
+  --zs-space-5: 24px;
+  --zs-space-6: 32px;
+
+  --zs-badge-accent-bg: var(--zs-accent-soft);
+  --zs-badge-accent-border: var(--zs-accent-soft-border);
+  --zs-badge-accent-text: var(--zs-accent-strong);
+  --zs-badge-success-bg: var(--zs-success-soft);
+  --zs-badge-success-border: var(--zs-success-border);
+  --zs-badge-success-text: var(--zs-success);
+  --zs-badge-warning-bg: var(--zs-warning-soft);
+  --zs-badge-warning-border: var(--zs-warning-border);
+  --zs-badge-warning-text: var(--zs-warning);
+  --zs-badge-danger-bg: var(--zs-danger-soft);
+  --zs-badge-danger-border: var(--zs-danger-border);
+  --zs-badge-danger-text: var(--zs-danger);
+  --zs-badge-muted-bg: var(--zs-panel-alt);
+  --zs-badge-muted-border: var(--zs-border);
+  --zs-badge-muted-text: var(--zs-muted);
+}
+
+:root[data-zs-theme="dark"] {
+  --zs-control-bg: rgba(96, 165, 250, 0.14);
+  --zs-control-hover: rgba(96, 165, 250, 0.22);
+  --zs-control-active-bg: rgba(96, 165, 250, 0.28);
+  --zs-control-border: rgba(147, 197, 253, 0.38);
+  --zs-control-disabled-bg: #17212f;
+  --zs-control-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-zs-theme="light"]) {
+    --zs-control-bg: rgba(96, 165, 250, 0.14);
+    --zs-control-hover: rgba(96, 165, 250, 0.22);
+    --zs-control-active-bg: rgba(96, 165, 250, 0.28);
+    --zs-control-border: rgba(147, 197, 253, 0.38);
+    --zs-control-disabled-bg: #17212f;
+    --zs-control-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+  }
+}
+
+/* Panel header: fixed zone at the top of a panel. Title/subtitle on the
+ * left, an optional back entry first, actions flushed right. */
+.zs-panel-header {
+  display: flex;
+  align-items: center;
+  gap: var(--zs-space-3);
+  flex: none;
+  min-width: 0;
+}
+
+.zs-panel-header-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.zs-panel-header-title {
+  margin: 0;
+  font-size: var(--zs-text-lg);
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--zs-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zs-panel-header-subtitle {
+  font-size: var(--zs-text-sm);
+  color: var(--zs-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zs-panel-header-actions {
+  margin-inline-start: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--zs-space-2);
+  flex: none;
+}
+
+/* Back entry for secondary views (detail pages, document pages). Always the
+ * first element of the panel header, visually distinct from action buttons. */
+.zs-back-link {
+  appearance: none;
+  -moz-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--zs-space-1);
+  flex: none;
+  border: 1px solid transparent;
+  border-radius: var(--zs-radius-md);
+  background: transparent;
+  color: var(--zs-accent);
+  font: inherit;
+  font-size: var(--zs-text-md);
+  padding: 4px 8px;
+  margin-inline-start: -8px;
+  cursor: pointer;
+}
+
+.zs-back-link:hover {
+  background: var(--zs-surface-hover);
+}
+
+.zs-back-link .zs-icon {
+  flex: none;
+}
+
+/* Scroll ownership utilities — see the model description at the top. */
+.zs-fill-col {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.zs-scroll-region {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.zs-panel-fixed {
+  flex: none;
+}
+
+/* Empty state: icon + one-line explanation + optional guidance action. */
+.zs-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--zs-space-2);
+  padding: var(--zs-space-6);
+  color: var(--zs-muted);
+  font-size: var(--zs-text-md);
+  text-align: center;
+}
+
+/* Badge: pill with semantic soft background/border/text. Modifiers:
+ * .zs-badge--accent | --success | --warning | --danger | --muted. */
+.zs-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--zs-space-1);
+  padding: 1px 8px;
+  border-radius: var(--zs-radius-pill);
+  border: 1px solid var(--zs-badge-muted-border);
+  background: var(--zs-badge-muted-bg);
+  color: var(--zs-badge-muted-text);
+  font-size: var(--zs-text-xs);
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.zs-badge--accent {
+  background: var(--zs-badge-accent-bg);
+  border-color: var(--zs-badge-accent-border);
+  color: var(--zs-badge-accent-text);
+}
+
+.zs-badge--success {
+  background: var(--zs-badge-success-bg);
+  border-color: var(--zs-badge-success-border);
+  color: var(--zs-badge-success-text);
+}
+
+.zs-badge--warning {
+  background: var(--zs-badge-warning-bg);
+  border-color: var(--zs-badge-warning-border);
+  color: var(--zs-badge-warning-text);
+}
+
+.zs-badge--danger {
+  background: var(--zs-badge-danger-bg);
+  border-color: var(--zs-badge-danger-border);
+  color: var(--zs-badge-danger-text);
+}
+
+/* Status dot for environment indicators (e.g. the sidecar pill). */
+.zs-status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--zs-muted-soft);
+}
+
+.zs-status-dot--ok {
+  background: var(--zs-success);
+}
+
+.zs-status-dot--warn {
+  background: var(--zs-warning);
+}
+
+.zs-status-dot--error {
+  background: var(--zs-danger);
+}

@@ -1,7 +1,7 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 import { memo } from "preact/compat";
-import { useLayoutEffect, useRef } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import { equalBySignature } from "../../shared/regionEquality";
 import type {
@@ -622,6 +622,53 @@ export function SynthesisSidecarTraceDetail(
 // Region boundary.
 // ---------------------------------------------------------------------------
 
+// Debounced filter input: typing updates the local draft immediately (no
+// reprojection per keystroke); the controller intent is dispatched after a
+// short idle window. External filter changes resync the draft.
+function SynthesisSidecarFilterInput(props: {
+  filterLabel: string;
+  filterValue: string;
+  filterPlaceholder: string;
+  onAction: DashboardActionHandler<DashboardSynthesisSidecarAction>;
+}) {
+  const [draft, setDraft] = useState(props.filterValue);
+  const lastSentRef = useRef(props.filterValue);
+  const timerRef = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (props.filterValue !== lastSentRef.current) {
+      lastSentRef.current = props.filterValue;
+      setDraft(props.filterValue);
+    }
+  }, [props.filterValue]);
+  useEffect(
+    () => () => {
+      window.clearTimeout(timerRef.current);
+    },
+    [],
+  );
+  return (
+    <label class="synthesis-sidecar-filter synthesis-sidecar-filter-grow">
+      <span class="card-label">{props.filterLabel}</span>
+      <input
+        class="workflow-settings-field-control mono"
+        value={draft}
+        placeholder={props.filterPlaceholder}
+        onInput={(event) => {
+          const value = (event.target as HTMLInputElement).value;
+          setDraft(value);
+          lastSentRef.current = value;
+          window.clearTimeout(timerRef.current);
+          timerRef.current = window.setTimeout(() => {
+            props.onAction("synthesis-sidecar-set-trace-filter", {
+              filter: value,
+            });
+          }, 150);
+        }}
+      />
+    </label>
+  );
+}
+
 export const SynthesisSidecarRegion = memo(
   function SynthesisSidecarRegion(props: SynthesisSidecarRegionProps) {
     const { selection, onAction, onCopyText } = props;
@@ -653,19 +700,12 @@ export const SynthesisSidecarRegion = memo(
             </div>
           ))}
         </section>
-        <label class="synthesis-sidecar-filter synthesis-sidecar-filter-grow">
-          <span class="card-label">{selection.filterLabel}</span>
-          <input
-            class="workflow-settings-field-control mono"
-            value={selection.filterValue}
-            placeholder={selection.filterPlaceholder}
-            onInput={(event) =>
-              onAction("synthesis-sidecar-set-trace-filter", {
-                filter: (event.target as HTMLInputElement).value,
-              })
-            }
-          />
-        </label>
+        <SynthesisSidecarFilterInput
+          filterLabel={selection.filterLabel}
+          filterValue={selection.filterValue}
+          filterPlaceholder={selection.filterPlaceholder}
+          onAction={onAction}
+        />
         <div class="synthesis-sidecar-layout">
           <SynthesisSidecarTraceTableIsland
             columns={selection.columns}

@@ -340,7 +340,7 @@ describe("dashboard chrome scaffold (src/dashboard)", function () {
     assert.equal(content!.getAttribute("data-workflow-id"), "wf-1");
     assert.equal(content!.innerHTML, "<p>doc-body</p>");
     const back = root.querySelector<HTMLButtonElement>(
-      ".workflow-doc-footer .btn",
+      ".workflow-doc-header .zs-back-link",
     );
     assert.ok(back);
     back!.click();

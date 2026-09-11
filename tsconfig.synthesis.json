@@ -11,6 +11,7 @@
     "src/synthesis/**/*.tsx",
     "src/synthesisWorkbenchApp.ts",
     "src/shared/**/*.ts",
+    "src/shared/**/*.tsx",
     "src/synthesisWorkbenchI18n.ts",
     "packages/synthesis-contracts/src/**/*.ts"
   ]

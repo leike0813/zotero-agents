@@ -22,5 +22,21 @@ export function stableRegionSignature(value: unknown): string {
 }
 
 export function equalBySignature(previous: unknown, next: unknown): boolean {
+  // Fast paths that are exactly equivalent to comparing JSON.stringify output:
+  // identical references (same object, same primitive) and the legacy
+  // null/undefined coalescing in stableRegionSignature. Numbers deliberately
+  // fall through to the string comparison (NaN/Infinity stringify to "null").
+  if (previous === next) return true;
+  if (previous == null || next == null) {
+    return previous == null && next == null;
+  }
+  const prevType = typeof previous;
+  if (
+    (prevType === "string" || prevType === "boolean") &&
+    prevType === typeof next
+  ) {
+    // Same-type strings/booleans that failed === can never stringify equal.
+    return false;
+  }
   return stableRegionSignature(previous) === stableRegionSignature(next);
 }

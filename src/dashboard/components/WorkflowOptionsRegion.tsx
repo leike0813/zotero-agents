@@ -1178,75 +1178,77 @@ export const WorkflowOptionsRegion = memo(
               ))}
             </div>
             {descriptor ? (
-              <div class="workflow-settings-shell" key={resetKey}>
-                <div class="workflow-settings-banner">
-                  {descriptor.requiresBackendProfile === true ? (
-                    <div class="workflow-settings-banner-profile">
-                      <div class="workflow-settings-banner-profile-label">
-                        {selection.texts.profileLabelText}
+              <div class="zs-scroll-region">
+                <div class="workflow-settings-shell" key={resetKey}>
+                  <div class="workflow-settings-banner">
+                    {descriptor.requiresBackendProfile === true ? (
+                      <div class="workflow-settings-banner-profile">
+                        <div class="workflow-settings-banner-profile-label">
+                          {selection.texts.profileLabelText}
+                        </div>
+                        {descriptor.profileEditable === true ? (
+                          <CustomSelectIsland
+                            options={(Array.isArray(descriptor.profiles)
+                              ? descriptor.profiles
+                              : []
+                            ).map((entry) => ({
+                              value: String((entry && entry.id) || ""),
+                              label: String((entry && entry.label) || ""),
+                            }))}
+                            value={draft.backendId}
+                            controlClassName="workflow-settings-banner-profile-select"
+                            onValueChange={(value) => {
+                              draft.backendId = String(value || "").trim();
+                              emitDraft({
+                                changedSection: "backend",
+                                changedKey: "backendId",
+                              });
+                            }}
+                          />
+                        ) : descriptor.profileMissing === true ? (
+                          <div class="workflow-settings-error">
+                            {selection.texts.blockedNoProfileText}
+                          </div>
+                        ) : (
+                          <div class="workflow-settings-empty">
+                            {fixedProfileLabel(descriptor)}
+                          </div>
+                        )}
                       </div>
-                      {descriptor.profileEditable === true ? (
-                        <CustomSelectIsland
-                          options={(Array.isArray(descriptor.profiles)
-                            ? descriptor.profiles
-                            : []
-                          ).map((entry) => ({
-                            value: String((entry && entry.id) || ""),
-                            label: String((entry && entry.label) || ""),
-                          }))}
-                          value={draft.backendId}
-                          controlClassName="workflow-settings-banner-profile-select"
-                          onValueChange={(value) => {
-                            draft.backendId = String(value || "").trim();
-                            emitDraft({
-                              changedSection: "backend",
-                              changedKey: "backendId",
-                            });
-                          }}
-                        />
-                      ) : descriptor.profileMissing === true ? (
-                        <div class="workflow-settings-error">
-                          {selection.texts.blockedNoProfileText}
-                        </div>
-                      ) : (
-                        <div class="workflow-settings-empty">
-                          {fixedProfileLabel(descriptor)}
-                        </div>
-                      )}
+                    ) : null}
+                    <div class="workflow-settings-meta">
+                      <div>{`${selection.texts.workflowLabelText}: ${descriptor.workflowLabel || ""}`}</div>
+                      <div>{`${selection.texts.providerLabelText}: ${descriptor.providerId || ""}`}</div>
                     </div>
-                  ) : null}
-                  <div class="workflow-settings-meta">
-                    <div>{`${selection.texts.workflowLabelText}: ${descriptor.workflowLabel || ""}`}</div>
-                    <div>{`${selection.texts.providerLabelText}: ${descriptor.providerId || ""}`}</div>
                   </div>
-                </div>
-                <div class="workflow-settings-sections-grid">
-                  <WorkflowSettingsSection
-                    title={selection.texts.workflowParamsTitleText}
-                    emptyText={selection.texts.noWorkflowParamsText}
-                    entries={
-                      Array.isArray(descriptor.workflowSchemaEntries)
-                        ? descriptor.workflowSchemaEntries
-                        : []
-                    }
-                    values={draft.workflowParams}
-                    texts={selection.texts}
-                    changedSection="workflowParams"
-                    onChange={emitDraft}
-                  />
-                  <WorkflowSettingsSection
-                    title={selection.texts.providerOptionsTitleText}
-                    emptyText={selection.texts.noProviderOptionsText}
-                    entries={
-                      Array.isArray(descriptor.providerSchemaEntries)
-                        ? descriptor.providerSchemaEntries
-                        : []
-                    }
-                    values={draft.providerOptions}
-                    texts={selection.texts}
-                    changedSection="providerOptions"
-                    onChange={emitDraft}
-                  />
+                  <div class="workflow-settings-sections-grid">
+                    <WorkflowSettingsSection
+                      title={selection.texts.workflowParamsTitleText}
+                      emptyText={selection.texts.noWorkflowParamsText}
+                      entries={
+                        Array.isArray(descriptor.workflowSchemaEntries)
+                          ? descriptor.workflowSchemaEntries
+                          : []
+                      }
+                      values={draft.workflowParams}
+                      texts={selection.texts}
+                      changedSection="workflowParams"
+                      onChange={emitDraft}
+                    />
+                    <WorkflowSettingsSection
+                      title={selection.texts.providerOptionsTitleText}
+                      emptyText={selection.texts.noProviderOptionsText}
+                      entries={
+                        Array.isArray(descriptor.providerSchemaEntries)
+                          ? descriptor.providerSchemaEntries
+                          : []
+                      }
+                      values={draft.providerOptions}
+                      texts={selection.texts}
+                      changedSection="providerOptions"
+                      onChange={emitDraft}
+                    />
+                  </div>
                 </div>
               </div>
             ) : null}

@@ -158,13 +158,73 @@ export const MigrationsRegion = memo(
         data-region-content="dashboard-migrations"
         data-availability={view.availability}
       >
-        <header class="dashboard-migrations-header">
-          <h2>{selection.pageTitle}</h2>
-          {view.definitionVersion > 0 && view.availability !== "unavailable" ? (
-            <span class="dashboard-migrations-version">
-              {view.migrationId} · {view.definitionVersion}
-            </span>
-          ) : null}
+        <header class="dashboard-migrations-header zs-panel-header">
+          <div class="zs-panel-header-main">
+            <h2 class="zs-panel-header-title">{selection.pageTitle}</h2>
+            {view.definitionVersion > 0 &&
+            view.availability !== "unavailable" ? (
+              <span class="dashboard-migrations-version zs-panel-header-subtitle">
+                {view.migrationId} · {view.definitionVersion}
+              </span>
+            ) : null}
+          </div>
+          <div class="dashboard-migrations-toolbar zs-panel-header-actions">
+            <button
+              type="button"
+              class="btn"
+              disabled={view.availability !== "available"}
+              onClick={() =>
+                onAction("literature-migration-scan", {
+                  libraryId: view.libraryId,
+                })
+              }
+            >
+              {selection.scanLabel}
+            </button>
+            {active ? (
+              <button
+                type="button"
+                disabled={!canApply}
+                class={`btn primary${workerActive ? " is-busy" : ""}`}
+                aria-busy={workerActive}
+                onClick={() =>
+                  onAction("literature-migration-apply", {
+                    scanOperationId: active.operationId,
+                    migrationId: active.migrationId,
+                    definitionVersion: active.definitionVersion,
+                  })
+                }
+              >
+                {selection.applyLabel}
+              </button>
+            ) : null}
+            {view.activeRunId && workerActive ? (
+              <button
+                type="button"
+                class="btn danger"
+                onClick={() =>
+                  onAction("literature-migration-stop", {
+                    runId: view.activeRunId,
+                  })
+                }
+              >
+                {selection.stopLabel}
+              </button>
+            ) : null}
+            {active?.state === "completed_with_attention" ? (
+              <button
+                type="button"
+                class="btn"
+                onClick={() =>
+                  onAction("literature-migration-continue", {
+                    runId: active.runId,
+                  })
+                }
+              >
+                {selection.continueLabel}
+              </button>
+            ) : null}
+          </div>
         </header>
         {view.availability === "unavailable" ? (
           <p class="empty">
@@ -172,64 +232,9 @@ export const MigrationsRegion = memo(
           </p>
         ) : null}
 
-        <div class="dashboard-migrations-toolbar">
-          <button
-            type="button"
-            disabled={view.availability !== "available"}
-            onClick={() =>
-              onAction("literature-migration-scan", {
-                libraryId: view.libraryId,
-              })
-            }
-          >
-            {selection.scanLabel}
-          </button>
-          {active ? (
-            <button
-              type="button"
-              disabled={!canApply}
-              class={workerActive ? "is-busy" : ""}
-              aria-busy={workerActive}
-              onClick={() =>
-                onAction("literature-migration-apply", {
-                  scanOperationId: active.operationId,
-                  migrationId: active.migrationId,
-                  definitionVersion: active.definitionVersion,
-                })
-              }
-            >
-              {selection.applyLabel}
-            </button>
-          ) : null}
-          {view.activeRunId && workerActive ? (
-            <button
-              type="button"
-              onClick={() =>
-                onAction("literature-migration-stop", {
-                  runId: view.activeRunId,
-                })
-              }
-            >
-              {selection.stopLabel}
-            </button>
-          ) : null}
-          {active?.state === "completed_with_attention" ? (
-            <button
-              type="button"
-              onClick={() =>
-                onAction("literature-migration-continue", {
-                  runId: active.runId,
-                })
-              }
-            >
-              {selection.continueLabel}
-            </button>
-          ) : null}
-        </div>
-
         {view.progress ? (
           <div class="dashboard-migration-progress" aria-live="polite">
-            <div>
+            <div class="dashboard-migration-progress-info">
               <strong>{selection.progressLabel}</strong>
               <span>
                 {view.progress.completed}/
@@ -239,44 +244,66 @@ export const MigrationsRegion = memo(
                 {view.progress.candidateCount} {selection.candidateLabel}
               </span>
             </div>
-            <progress
-              max={view.progress.total ?? undefined}
-              value={
+            <div
+              class="dashboard-migration-progress-track"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={view.progress.total ?? undefined}
+              aria-valuenow={
                 view.progress.total === null
                   ? undefined
                   : view.progress.completed
               }
-            />
+            >
+              <div
+                class={`dashboard-migration-progress-fill${
+                  view.progress.total === null ? " is-indeterminate" : ""
+                }`}
+                style={
+                  view.progress.total
+                    ? {
+                        width: `${Math.min(
+                          100,
+                          Math.round(
+                            (view.progress.completed / view.progress.total) *
+                              100,
+                          ),
+                        )}%`,
+                      }
+                    : undefined
+                }
+              />
+            </div>
           </div>
         ) : null}
 
         {active ? (
           <>
             <div class="dashboard-migrations-summary" aria-live="polite">
-              <span>
+              <span class="zs-badge">
                 <strong>{candidatePage.summary.total}</strong>{" "}
                 {selection.candidateLabel}
               </span>
               {candidatePage.summary.total !==
               candidatePage.summary.unfilteredTotal ? (
-                <span>
+                <span class="zs-badge">
                   {selection.filteredLabel} {candidatePage.summary.total}/
                   {candidatePage.summary.unfilteredTotal}
                 </span>
               ) : null}
-              <span class="is-ready">
+              <span class="zs-badge zs-badge--success">
                 <strong>{candidatePage.summary.ready}</strong>{" "}
                 {selection.readyLabel}
               </span>
-              <span class="is-review">
+              <span class="zs-badge zs-badge--warning">
                 <strong>{candidatePage.summary.reviewRequired}</strong>{" "}
                 {selection.reviewLabel}
               </span>
-              <span class="is-blocked">
+              <span class="zs-badge zs-badge--danger">
                 <strong>{candidatePage.summary.blocked}</strong>{" "}
                 {selection.blockedLabel}
               </span>
-              <span class="is-selected">
+              <span class="zs-badge zs-badge--accent">
                 <strong>{candidatePage.summary.selected}</strong>{" "}
                 {selection.selectedLabel}
               </span>
@@ -287,6 +314,7 @@ export const MigrationsRegion = memo(
             <div class="dashboard-migrations-filters" role="search">
               <input
                 type="search"
+                class="text-input"
                 data-role="migration-search"
                 value={candidatePage.query.search}
                 placeholder={selection.searchPlaceholder}
@@ -296,6 +324,7 @@ export const MigrationsRegion = memo(
                 }
               />
               <select
+                class="text-input"
                 aria-label={selection.classificationFilterLabel}
                 value={candidatePage.query.classification}
                 onChange={(event) =>
@@ -314,6 +343,7 @@ export const MigrationsRegion = memo(
                 <option value="blocked">{selection.blockedLabel}</option>
               </select>
               <select
+                class="text-input"
                 aria-label={selection.reasonFilterLabel}
                 value={candidatePage.query.reasonCode}
                 onChange={(event) =>
@@ -328,6 +358,7 @@ export const MigrationsRegion = memo(
                 ))}
               </select>
               <select
+                class="text-input"
                 aria-label={selection.dispositionFilterLabel}
                 value={candidatePage.query.disposition}
                 onChange={(event) =>
@@ -359,7 +390,7 @@ export const MigrationsRegion = memo(
           <div class="dashboard-migrations-results">
             {candidatePage.items.length ? (
               <>
-                <div class="dashboard-migrations-candidates">
+                <div class="dashboard-migrations-candidates zs-scroll-region">
                   {candidatePage.items.map((candidate) => (
                     <article
                       class={`dashboard-migration-candidate${candidate.candidateId === selectedCandidateId ? " is-selected" : ""}`}
@@ -401,11 +432,20 @@ export const MigrationsRegion = memo(
                             ] || candidate.disposition}
                           </small>
                         </span>
-                        <span class="status">
+                        <span
+                          class={`zs-badge ${
+                            candidate.classification === "ready"
+                              ? "zs-badge--success"
+                              : candidate.classification === "review_required"
+                                ? "zs-badge--warning"
+                                : "zs-badge--danger"
+                          }`}
+                        >
                           {stateLabel(selection, candidate.classification)}
                         </span>
                         <button
                           type="button"
+                          class="btn"
                           data-action="migration-open-detail"
                           aria-controls="migration-detail-drawer"
                           aria-expanded={
@@ -435,11 +475,12 @@ export const MigrationsRegion = memo(
                   ))}
                 </div>
                 <nav
-                  class="dashboard-migrations-pagination"
+                  class="dashboard-migrations-pagination zs-panel-fixed"
                   aria-label={selection.pageTitle}
                 >
                   <button
                     type="button"
+                    class="btn"
                     disabled={!cursorHistory.current.length}
                     onClick={previousPage}
                   >
@@ -452,6 +493,7 @@ export const MigrationsRegion = memo(
                   </span>
                   <button
                     type="button"
+                    class="btn"
                     disabled={!candidatePage.nextCursor}
                     onClick={nextPage}
                   >
@@ -480,6 +522,7 @@ export const MigrationsRegion = memo(
                 </div>
                 <button
                   type="button"
+                  class="btn clear"
                   aria-label={selection.closeLabel}
                   onClick={() => setSelectedCandidateId("")}
                 >
@@ -508,11 +551,11 @@ export const MigrationsRegion = memo(
                             type="button"
                             key={option.optionId}
                             data-option-id={option.optionId}
-                            class={
+                            class={`btn${
                               issue.selectedOptionId === option.optionId
-                                ? "is-selected"
+                                ? " is-selected"
                                 : ""
-                            }
+                            }`}
                             aria-pressed={
                               issue.selectedOptionId === option.optionId
                             }
@@ -544,6 +587,7 @@ export const MigrationsRegion = memo(
               <footer>
                 <button
                   type="button"
+                  class="btn primary"
                   disabled={
                     active?.state !== "preview" ||
                     workerActive ||
@@ -564,6 +608,7 @@ export const MigrationsRegion = memo(
                 </button>
                 <button
                   type="button"
+                  class="btn"
                   disabled={active?.state !== "preview" || workerActive}
                   onClick={() =>
                     onAction("literature-migration-set-selection", {
@@ -588,6 +633,7 @@ export const MigrationsRegion = memo(
                 <li key={run.runId}>
                   <button
                     type="button"
+                    class="btn"
                     onClick={() =>
                       onAction("literature-migration-select-run", {
                         runId: run.runId,

@@ -11,12 +11,15 @@
 /**
  * Create or reuse the managed mount child for region `name` directly under
  * `container`. The mount node carries the `data-region-mount` attribute and a
- * stable per-name class so repeated calls return the same node. Returns null
- * when no container is available.
+ * stable per-name class so repeated calls return the same node. When `before`
+ * is given, a newly created mount is inserted before that sibling instead of
+ * appended, letting pages fix the visual order between mounts and pre-existing
+ * chrome children. Returns null when no container is available.
  */
 export function ensureRegionMount(
   container: Element | null | undefined,
   name: string,
+  before?: Element | null,
 ): HTMLElement | null {
   if (!container) return null;
   container.classList.add("is-region-managed");
@@ -26,7 +29,11 @@ export function ensureRegionMount(
     mount = document.createElement("div");
     mount.className = `region-managed-view ${key}`;
     mount.setAttribute("data-region-mount", name);
-    container.appendChild(mount);
+    if (before && before.parentNode === container) {
+      container.insertBefore(mount, before);
+    } else {
+      container.appendChild(mount);
+    }
   }
   return mount as HTMLElement;
 }

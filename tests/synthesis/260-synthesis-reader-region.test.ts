@@ -167,12 +167,16 @@ describe("synthesis reader region (src/synthesis/components/reader)", function (
 
   it("dispatches selectTab/hostCommand with the legacy payloads", function () {
     const { root, dispatched } = renderRegion(makeSelection());
+    const back = root.querySelector<HTMLButtonElement>(
+      ".topic-detail-toolbar > .zs-back-link",
+    );
+    assert.ok(back, "back entry is the first element of the toolbar");
     const buttons = root.querySelectorAll<HTMLButtonElement>(
       ".topic-detail-toolbar-actions button",
     );
+    back!.click();
     buttons[0].click();
-    buttons[1].click();
-    buttons[3].click();
+    buttons[2].click();
     assert.deepEqual(dispatched, [
       { action: "selectTab", payload: { tab: "artifacts" } },
       {
@@ -197,7 +201,7 @@ describe("synthesis reader region (src/synthesis/components/reader)", function (
     const buttons = root.querySelectorAll<HTMLButtonElement>(
       ".topic-detail-toolbar-actions button",
     );
-    buttons[2].click();
+    buttons[1].click();
     assert.deepEqual(dispatched, [
       { action: "openTopicCitationSubgraph", payload: { topicId: "topic-1" } },
     ]);
@@ -426,7 +430,7 @@ describe("synthesis reader region (src/synthesis/components/reader)", function (
     assert.include(panel!.textContent, "abc123");
     assert.ok(panel!.querySelector(".markdown-fallback"));
     const back = root.querySelector<HTMLButtonElement>(
-      ".reader-header .toolbar button",
+      ".reader-header .zs-back-link",
     );
     back!.click();
     assert.deepEqual(dispatched, [

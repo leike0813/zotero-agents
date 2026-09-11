@@ -329,9 +329,11 @@ describe("Dashboard literature migration region", function () {
       }),
       root,
     );
-    const progress = root.querySelector<HTMLProgressElement>("progress");
-    assert.equal(progress?.value, 4);
-    assert.equal(progress?.max, 10);
+    const progress = root.querySelector(
+      '.dashboard-migration-progress [role="progressbar"]',
+    );
+    assert.equal(progress?.getAttribute("aria-valuenow"), "4");
+    assert.equal(progress?.getAttribute("aria-valuemax"), "10");
     assert.include(root.textContent || "", "4/10");
     render(
       h(MigrationsRegion, {

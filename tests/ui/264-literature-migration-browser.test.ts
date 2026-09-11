@@ -162,8 +162,10 @@ describe("Dashboard literature migration browser UI", function () {
     );
 
     await postSnapshot(page, migrationSnapshot(true));
-    const progress = page.locator(".dashboard-migration-progress progress");
-    assert.equal(await progress.getAttribute("value"), "7");
-    assert.equal(await progress.getAttribute("max"), "25");
+    const progress = page.locator(
+      '.dashboard-migration-progress [role="progressbar"]',
+    );
+    assert.equal(await progress.getAttribute("aria-valuenow"), "7");
+    assert.equal(await progress.getAttribute("aria-valuemax"), "25");
   });
 });

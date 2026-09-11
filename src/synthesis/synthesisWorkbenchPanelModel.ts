@@ -189,12 +189,18 @@ function projectShell(
   ui: SynthesisWorkbenchUiState,
   t: SynthesisWorkbenchText,
 ): SynthesisWorkbenchShellSelection {
+  // The reader is a secondary view below the tab it was opened from; keep that
+  // owning tab highlighted so the sidebar keeps showing where the user is.
+  const activeTab =
+    snapshot.selectedTab === "reader"
+      ? snapshot.reader?.previousTab || "artifacts"
+      : snapshot.selectedTab;
   const tabs: SynthesisWorkbenchNavTabView[] = NAV_TABS.map((entry) => ({
     tab: entry.tab,
     label: t(entry.labelKey),
     iconName: entry.iconName,
     iconClass: entry.iconClass,
-    active: snapshot.selectedTab === entry.tab,
+    active: activeTab === entry.tab,
   }));
   return {
     brandAlt: t("synthesis-brand-alt"),

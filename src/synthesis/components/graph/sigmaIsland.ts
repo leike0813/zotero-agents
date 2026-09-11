@@ -432,6 +432,7 @@ export class CitationGraphIsland {
     }
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
+    this.zoomSlider?.removeEventListener("input", this.handleSliderInput);
     this.zoomSlider = null;
     this.renderer?.kill();
     this.renderer = null;

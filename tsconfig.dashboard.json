@@ -10,6 +10,7 @@
     "src/dashboard/**/*.ts",
     "src/dashboard/**/*.tsx",
     "src/shared/**/*.ts",
+    "src/shared/**/*.tsx",
     "src/synthesisWorkbenchI18n.ts",
     "packages/synthesis-contracts/src/**/*.ts"
   ]

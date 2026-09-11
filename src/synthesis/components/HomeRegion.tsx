@@ -845,78 +845,80 @@ export const HomeRegion = memo(
     const { selection, t, onAction } = props;
     const insights = selection.insights;
     return (
-      <div class="home-shell" data-region-content="synthesis-home">
-        <section class="workspace-section">
-          <div class="section-heading">
-            <h2>{t("synthesis-home-library-insights")}</h2>
-          </div>
-          <div class="insight-grid">
-            <InsightCard
-              label={t("synthesis-home-registered-papers")}
-              value={insights.registeredPapers}
-              detail={t("synthesis-home-registered-papers-detail")}
-              tone="teal"
-            />
-            <InsightCard
-              label={t("synthesis-tab-topics")}
-              value={insights.topicCount}
-              detail={t("synthesis-home-generated-artifacts")}
-              tone="blue"
-            />
-            <InsightCard
-              label={t("synthesis-tab-graph")}
-              value={insights.graphNodes}
-              detail={t("synthesis-graph-shown-count", {
-                nodes: insights.graphNodes,
-                edges: insights.graphEdges,
-              })}
-            />
-            <InsightCard
-              label={t("synthesis-home-review-items")}
-              value={insights.reviewOpenCount}
-              detail={t("synthesis-home-review-items-detail", {
-                index: insights.reviewIndexCount,
-                concepts: insights.reviewConceptCount,
-                topicGraph: insights.reviewTopicGraphCount,
-              })}
-              tone={insights.reviewOpenCount ? "orange" : ""}
-            />
-          </div>
-        </section>
-        <SyncPanel selection={selection} t={t} onAction={onAction} />
-        <section class="workspace-section">
-          <div class="section-heading">
-            <h2>{t("synthesis-home-top-topics")}</h2>
-            <button
-              type="button"
-              class=""
-              onClick={() => onAction("selectTab", { tab: "artifacts" })}
-            >
-              {t("synthesis-action-view-all")}
-            </button>
-          </div>
-          <div class="topic-grid">
-            {selection.topics.length === 0 ? (
-              <div class="empty-state empty-state-info">
-                <strong class="empty-state-title">
-                  {t("synthesis-empty-no-topics")}
-                </strong>
-                <p class="empty-state-message">
-                  {t("synthesis-home-empty-message")}
-                </p>
-              </div>
-            ) : (
-              selection.topics.map((row) => (
-                <TopicCard
-                  key={row.id || row.title}
-                  row={row}
-                  t={t}
-                  onAction={onAction}
-                />
-              ))
-            )}
-          </div>
-        </section>
+      <div class="home-shell zs-fill-col" data-region-content="synthesis-home">
+        <div class="zs-scroll-region home-scroll">
+          <section class="workspace-section">
+            <div class="section-heading">
+              <h2>{t("synthesis-home-library-insights")}</h2>
+            </div>
+            <div class="insight-grid">
+              <InsightCard
+                label={t("synthesis-home-registered-papers")}
+                value={insights.registeredPapers}
+                detail={t("synthesis-home-registered-papers-detail")}
+                tone="teal"
+              />
+              <InsightCard
+                label={t("synthesis-tab-topics")}
+                value={insights.topicCount}
+                detail={t("synthesis-home-generated-artifacts")}
+                tone="blue"
+              />
+              <InsightCard
+                label={t("synthesis-tab-graph")}
+                value={insights.graphNodes}
+                detail={t("synthesis-graph-shown-count", {
+                  nodes: insights.graphNodes,
+                  edges: insights.graphEdges,
+                })}
+              />
+              <InsightCard
+                label={t("synthesis-home-review-items")}
+                value={insights.reviewOpenCount}
+                detail={t("synthesis-home-review-items-detail", {
+                  index: insights.reviewIndexCount,
+                  concepts: insights.reviewConceptCount,
+                  topicGraph: insights.reviewTopicGraphCount,
+                })}
+                tone={insights.reviewOpenCount ? "orange" : ""}
+              />
+            </div>
+          </section>
+          <SyncPanel selection={selection} t={t} onAction={onAction} />
+          <section class="workspace-section">
+            <div class="section-heading">
+              <h2>{t("synthesis-home-top-topics")}</h2>
+              <button
+                type="button"
+                class=""
+                onClick={() => onAction("selectTab", { tab: "artifacts" })}
+              >
+                {t("synthesis-action-view-all")}
+              </button>
+            </div>
+            <div class="topic-grid">
+              {selection.topics.length === 0 ? (
+                <div class="empty-state empty-state-info">
+                  <strong class="empty-state-title">
+                    {t("synthesis-empty-no-topics")}
+                  </strong>
+                  <p class="empty-state-message">
+                    {t("synthesis-home-empty-message")}
+                  </p>
+                </div>
+              ) : (
+                selection.topics.map((row) => (
+                  <TopicCard
+                    key={row.id || row.title}
+                    row={row}
+                    t={t}
+                    onAction={onAction}
+                  />
+                ))
+              )}
+            </div>
+          </section>
+        </div>
       </div>
     );
   },

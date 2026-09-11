@@ -493,6 +493,7 @@ function PillList(props: {
   items: string[];
   pillClass: string;
   t: SynthesisWorkbenchConceptsTranslate;
+  maxVisible?: number;
 }) {
   if (!props.items.length) {
     return (
@@ -501,13 +502,21 @@ function PillList(props: {
       </div>
     );
   }
+  const max = props.maxVisible && props.maxVisible > 0 ? props.maxVisible : 0;
+  const visible = max ? props.items.slice(0, max) : props.items;
+  const hidden = props.items.slice(visible.length);
   return (
     <div class="review-pill-list">
-      {props.items.map((item) => (
+      {visible.map((item) => (
         <span key={item} class={props.pillClass} title={item}>
           {maybeLocalizedValue(props.t, item) || item}
         </span>
       ))}
+      {hidden.length ? (
+        <span class={`${props.pillClass} pill-more`} title={hidden.join("\n")}>
+          +{hidden.length}
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -739,6 +748,7 @@ export const ConceptsRegion = memo(function ConceptsRegion(
                   <PillList
                     items={row.aliases}
                     pillClass="concept-alias-pill"
+                    maxVisible={3}
                     t={t}
                   />
                 </td>
@@ -956,7 +966,7 @@ export const ConceptsRegion = memo(function ConceptsRegion(
   };
 
   return (
-    <div class="panel" data-region-content="synthesis-concepts">
+    <div class="panel concepts-panel" data-region-content="synthesis-concepts">
       {renderFilters()}
       {renderStatusLine()}
       {renderBulkBar()}

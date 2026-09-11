@@ -27,6 +27,12 @@
   --zs-icon-size: 20px;
 }
 
+.zs-icon-arrow-back {
+  -webkit-mask-image: url("../icons/material-symbols/keyboard_arrow_up.svg");
+  mask-image: url("../icons/material-symbols/keyboard_arrow_up.svg");
+  transform: rotate(-90deg);
+}
+
 .zs-icon-dashboard {
   -webkit-mask-image: url("../icons/material-symbols/dashboard.svg");
   mask-image: url("../icons/material-symbols/dashboard.svg");

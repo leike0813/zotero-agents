@@ -84,9 +84,15 @@ export function useWindowedRows<T>(
     options.overscanPx || DEFAULT_OVERSCAN_PX,
     DEFAULT_OVERSCAN_PX,
   );
+  // Keys recompute only when items change, but always through the latest
+  // getKey (callers pass inline closures with unstable identity).
+  const getKeyRef = useRef(options.getKey);
+  getKeyRef.current = options.getKey;
   const keys = useMemo(
     () =>
-      items.map((item, index) => options.getKey(item, index) || String(index)),
+      items.map(
+        (item, index) => getKeyRef.current(item, index) || String(index),
+      ),
     [items],
   );
   const heightsRef = useRef(new Map<string, number>());
@@ -159,12 +165,37 @@ export function useWindowedRows<T>(
     }
   }, []);
 
+  const scrollRafRef = useRef<number | null>(null);
+  useLayoutEffect(
+    () => () => {
+      if (
+        scrollRafRef.current !== null &&
+        typeof cancelAnimationFrame === "function"
+      ) {
+        cancelAnimationFrame(scrollRafRef.current);
+      }
+    },
+    [],
+  );
+
   const onScroll = useCallback((event: Event) => {
     const node = event.currentTarget as HTMLElement | null;
     if (!node) return;
-    setViewport({
-      top: Math.max(0, node.scrollTop),
-      height: Math.max(1, node.clientHeight || 720),
+    // Coalesce scroll bursts into one viewport update per frame.
+    if (scrollRafRef.current !== null) return;
+    if (typeof requestAnimationFrame !== "function") {
+      setViewport({
+        top: Math.max(0, node.scrollTop),
+        height: Math.max(1, node.clientHeight || 720),
+      });
+      return;
+    }
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = null;
+      setViewport({
+        top: Math.max(0, node.scrollTop),
+        height: Math.max(1, node.clientHeight || 720),
+      });
     });
   }, []);
 

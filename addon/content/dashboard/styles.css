@@ -11,11 +11,11 @@
   --success: var(--zs-success);
   --danger: var(--zs-danger);
   --warning: var(--zs-warning);
-  --dashboard-control-bg: #dbeafe;
-  --dashboard-control-hover: #c7dcff;
-  --dashboard-control-active-bg: #bfdbfe;
-  --dashboard-control-border: #8fb3f4;
-  --dashboard-control-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+  --dashboard-control-bg: var(--zs-control-bg);
+  --dashboard-control-hover: var(--zs-control-hover);
+  --dashboard-control-active-bg: var(--zs-control-active-bg);
+  --dashboard-control-border: var(--zs-control-border);
+  --dashboard-control-shadow: var(--zs-control-shadow);
   --log-level-debug-bg: #f1f5f9;
   --log-level-debug-border: rgba(100, 116, 139, 0.35);
   --log-level-debug-text: #475569;
@@ -34,11 +34,6 @@
 }
 
 :root[data-zs-theme="dark"] {
-  --dashboard-control-bg: rgba(96, 165, 250, 0.14);
-  --dashboard-control-hover: rgba(96, 165, 250, 0.22);
-  --dashboard-control-active-bg: rgba(96, 165, 250, 0.28);
-  --dashboard-control-border: rgba(147, 197, 253, 0.38);
-  --dashboard-control-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
   --log-level-debug-bg: rgba(148, 163, 184, 0.12);
   --log-level-debug-border: rgba(148, 163, 184, 0.32);
   --log-level-debug-text: #cbd5e1;
@@ -58,11 +53,6 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-zs-theme="light"]) {
-    --dashboard-control-bg: rgba(96, 165, 250, 0.14);
-    --dashboard-control-hover: rgba(96, 165, 250, 0.22);
-    --dashboard-control-active-bg: rgba(96, 165, 250, 0.28);
-    --dashboard-control-border: rgba(147, 197, 253, 0.38);
-    --dashboard-control-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
     --log-level-debug-bg: rgba(148, 163, 184, 0.12);
     --log-level-debug-border: rgba(148, 163, 184, 0.32);
     --log-level-debug-text: #cbd5e1;
@@ -205,7 +195,12 @@ body {
 
 .main {
   padding: 16px;
-  overflow: auto;
+  /* Scroll ownership: the page-level main never scrolls; each panel manages
+     its own scroll region (see addon/content/shared/page-chrome.css). */
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
   container-type: inline-size;
   container-name: main-view;
 }
@@ -216,13 +211,6 @@ body {
 .region-managed-view,
 .region-managed-view > [data-region-content] {
   display: contents;
-}
-
-.main.skillrunner-fill {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
 }
 
 .management-host-panel {
@@ -419,9 +407,15 @@ body {
   height: 100%;
 }
 
-.workflow-doc-footer {
+.workflow-doc-header {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+
+.workflow-doc-header .section-title {
+  margin: 0;
 }
 
 .panel {
@@ -438,14 +432,39 @@ body {
   container-name: table-container;
 }
 
-.main.skillrunner-fill .skillrunner-task-panel {
+/* Inside a panel scroll region the region owns scrolling; the table wrap
+   flattens so its sticky thead sticks to the region instead of nesting a
+   second scrollbar. Only wraps that are their own scrollers (logs, audit,
+   synthesis-sidecar events, skillrunner/acp task tables) live outside a
+   .zs-scroll-region and keep their own overflow. */
+.zs-scroll-region .table-wrap {
+  max-height: none;
+  overflow: visible;
+}
+
+/* The running-task panel sits inside the home scroll region; the panel's
+   overflow:hidden would otherwise pin the sticky thead to a box that never
+   scrolls. */
+.home-running-panel {
+  overflow: visible;
+}
+
+.home-running-panel thead th:first-child {
+  border-top-left-radius: 10px;
+}
+
+.home-running-panel thead th:last-child {
+  border-top-right-radius: 10px;
+}
+
+.main .skillrunner-task-panel {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
 }
 
-.main.skillrunner-fill .skillrunner-task-panel .table-wrap {
+.main .skillrunner-task-panel .table-wrap {
   flex: 1;
   min-height: 0;
   max-height: none;
@@ -504,9 +523,9 @@ tr.clickable {
 
 .status {
   align-items: center;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  color: #64748b;
+  background: var(--zs-badge-muted-bg);
+  border: 1px solid var(--zs-badge-muted-border);
+  color: var(--zs-badge-muted-text);
   display: inline-flex;
   border-radius: 999px;
   font-size: 11px;
@@ -523,9 +542,9 @@ tr.clickable {
 .status.spawning,
 .status.initializing,
 .status.connecting {
-  color: #136f8f;
-  border-color: #b9dce7;
-  background: #eef8fb;
+  color: var(--zs-badge-accent-text);
+  border-color: var(--zs-badge-accent-border);
+  background: var(--zs-badge-accent-bg);
 }
 
 .status.is-warning,
@@ -537,9 +556,9 @@ tr.clickable {
 .status.waiting-auth,
 .status.permission-required,
 .status.auth-required {
-  color: #9a640e;
-  border-color: #f0d49b;
-  background: #fff7e8;
+  color: var(--zs-badge-warning-text);
+  border-color: var(--zs-badge-warning-border);
+  background: var(--zs-badge-warning-bg);
 }
 
 .status.is-success,
@@ -549,9 +568,9 @@ tr.clickable {
 .status.completed,
 .status.connected,
 .status.active {
-  color: #16815f;
-  border-color: #b9e2d2;
-  background: #eef9f5;
+  color: var(--zs-badge-success-text);
+  border-color: var(--zs-badge-success-border);
+  background: var(--zs-badge-success-bg);
 }
 
 .status.is-error,
@@ -560,15 +579,15 @@ tr.clickable {
 .status.errored,
 .status.disconnected,
 .status.closed {
-  color: #b8342d;
-  border-color: #f3beb5;
-  background: #fff1ee;
+  color: var(--zs-badge-danger-text);
+  border-color: var(--zs-badge-danger-border);
+  background: var(--zs-badge-danger-bg);
 }
 
 .status.is-muted {
-  color: #64748b;
-  border-color: #e2e8f0;
-  background: #f8fafc;
+  color: var(--zs-badge-muted-text);
+  border-color: var(--zs-badge-muted-border);
+  background: var(--zs-badge-muted-bg);
 }
 
 .log-level-badge {
@@ -1710,19 +1729,24 @@ tr.clickable {
   min-width: 140px;
 }
 
+/* The filter row is a fixed zone of the sidecar panel's fill column; it must
+   not grow into the events layout's space. */
 .synthesis-sidecar-filter-grow {
-  flex: 1 1 280px;
+  flex: none;
+  max-width: 420px;
 }
 
 .synthesis-sidecar-layout {
   display: grid;
   grid-template-columns: minmax(0, 3fr) minmax(280px, 2fr);
   gap: 12px;
+  flex: 1 1 auto;
   min-height: 0;
 }
 
 .synthesis-sidecar-events {
-  max-height: calc(100vh - 260px);
+  min-height: 0;
+  max-height: none;
   overflow: auto;
 }
 
@@ -1734,7 +1758,7 @@ tr.clickable {
 }
 
 .synthesis-sidecar-events tr.selected td {
-  background: color-mix(in srgb, var(--accent-color) 14%, transparent);
+  background: var(--zs-surface-selected);
 }
 
 .synthesis-sidecar-detail {
@@ -1742,6 +1766,8 @@ tr.clickable {
   flex-direction: column;
   gap: 12px;
   min-width: 0;
+  min-height: 0;
+  overflow: auto;
 }
 
 .synthesis-sidecar-detail-header {
@@ -1791,7 +1817,7 @@ tr.clickable {
 
 .synthesis-sidecar-span-table td {
   padding: 6px 8px;
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--line);
   overflow-wrap: anywhere;
   vertical-align: top;
 }
@@ -2448,14 +2474,19 @@ tr.clickable {
   }
 }
 
+/* Literature migration panel. Layout follows the scroll-ownership model (see
+   shared/page-chrome.css): fixed header/summary/filter zones, one scroll
+   region for the candidate list, drawer as an independent L4 scroller. */
 .region-managed-view > .dashboard-migrations[data-region-content] {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
-.dashboard-migrations-header,
 .dashboard-migrations-toolbar,
 .dashboard-migration-candidate-heading,
 .dashboard-migrations-pagination {
@@ -2464,17 +2495,12 @@ tr.clickable {
   gap: 10px;
 }
 
-.dashboard-migrations-header,
 .dashboard-migrations-pagination {
   justify-content: space-between;
-}
-
-.dashboard-migrations-header h2 {
-  margin: 0;
+  padding-top: 2px;
 }
 
 .dashboard-migrations-version {
-  color: var(--muted);
   font-family: var(--zs-font-mono);
   font-size: 11px;
 }
@@ -2483,9 +2509,14 @@ tr.clickable {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  flex: none;
 }
 
-.dashboard-migrations-summary > span,
+.dashboard-migrations-summary .attention {
+  align-self: center;
+  color: var(--warning);
+}
+
 .dashboard-migration-reasons > span {
   padding: 4px 8px;
   border: 1px solid var(--line);
@@ -2493,34 +2524,58 @@ tr.clickable {
   background: var(--zs-panel-alt);
 }
 
-.dashboard-migrations-summary .is-selected {
-  border-color: var(--zs-accent-soft-border);
-  color: var(--zs-accent-strong);
-}
-
 .dashboard-migration-progress {
   display: grid;
   gap: 6px;
+  flex: none;
   padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--zs-panel-alt);
 }
 
-.dashboard-migration-progress > div {
+.dashboard-migration-progress-info {
   display: flex;
-  justify-content: space-between;
+  align-items: center;
   gap: 12px;
 }
 
-.dashboard-migration-progress progress {
-  width: 100%;
+.dashboard-migration-progress-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--zs-accent-soft);
+  overflow: hidden;
+}
+
+.dashboard-migration-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--zs-accent);
+  transition: width 200ms ease;
+}
+
+.dashboard-migration-progress-fill.is-indeterminate {
+  width: 40%;
+  animation: dashboard-migration-progress-slide 1.4s ease-in-out infinite;
+}
+
+@keyframes dashboard-migration-progress-slide {
+  0% {
+    margin-left: 0;
+  }
+  50% {
+    margin-left: 60%;
+  }
+  100% {
+    margin-left: 0;
+  }
 }
 
 .dashboard-migrations-filters {
   display: grid;
   grid-template-columns: minmax(180px, 1fr) repeat(3, minmax(120px, auto));
   gap: 8px;
+  flex: none;
 }
 
 .dashboard-migrations-filters input,
@@ -2532,8 +2587,10 @@ tr.clickable {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 12px;
+  flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
+  overflow: hidden;
 }
 
 .dashboard-migrations-workspace.has-drawer {
@@ -2541,16 +2598,19 @@ tr.clickable {
 }
 
 .dashboard-migrations-results {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   min-width: 0;
+  min-height: 0;
 }
 
 .dashboard-migrations-candidates {
   display: grid;
   gap: 8px;
-  max-height: min(56vh, 620px);
-  min-height: 160px;
+  align-content: start;
+  min-height: 0;
   padding-right: 4px;
-  overflow-y: auto;
   overscroll-behavior: contain;
 }
 
@@ -2562,6 +2622,13 @@ tr.clickable {
   border-left: 3px solid var(--zs-accent-soft-border);
   border-radius: 8px;
   background: var(--panel);
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease;
+}
+
+.dashboard-migration-candidate:hover {
+  background: var(--zs-surface-hover);
 }
 
 .dashboard-migration-candidate.is-selected {
@@ -2587,8 +2654,8 @@ tr.clickable {
   display: grid;
   align-content: start;
   gap: 14px;
-  max-height: min(64vh, 700px);
   min-width: 0;
+  min-height: 0;
   padding: 14px;
   overflow-y: auto;
   border: 1px solid var(--line);
@@ -2644,11 +2711,8 @@ tr.clickable {
   color: var(--muted);
 }
 
-.dashboard-migration-candidate-heading .status {
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: var(--zs-panel-alt);
-  white-space: nowrap;
+.dashboard-migration-candidate-heading .zs-badge {
+  flex: none;
 }
 
 .dashboard-migration-facts,
@@ -2663,11 +2727,8 @@ tr.clickable {
   font-size: 11px;
 }
 
-.dashboard-migrations-pagination {
-  padding-top: 2px;
-}
-
 .dashboard-migrations-history {
+  flex: none;
   max-height: 180px;
   overflow: auto;
   border-top: 1px solid var(--line);

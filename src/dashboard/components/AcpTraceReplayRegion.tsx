@@ -1143,7 +1143,7 @@ export const AcpTraceReplayRegion = memo(
         data-region-content="dashboard-acp-trace-replay"
       >
         <h2 class="page-title">{selection.pageTitle}</h2>
-        <div class="acp-trace-replay-workflow">
+        <div class="acp-trace-replay-workflow zs-scroll-region">
           <section
             class="panel acp-trace-replay-step"
             data-region-content="dashboard-acp-trace-recorder"

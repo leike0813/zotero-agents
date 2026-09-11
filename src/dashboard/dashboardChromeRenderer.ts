@@ -143,27 +143,9 @@ function renderBackendLoadError(main: HTMLElement, message: string) {
   }
 }
 
-// Legacy render() dispatch: main gets the full-height flex class on the home
-// document view, products, runtime-logs, the SkillRunner audit, and the
-// skillrunner/acp backend surfaces.
-function shouldFillMain(panel: DashboardPanel): boolean {
-  const key = panel.selectedTabKey;
-  if (key === "home") return panel.home?.kind === "doc";
-  if (
-    key === "products" ||
-    key === "migrations" ||
-    key === "runtime-logs" ||
-    key === "skillrunner-connection-audit"
-  ) {
-    return true;
-  }
-  if (key.startsWith("backend:")) {
-    const kind = panel.views.backend?.kind;
-    return kind === "skillrunner" || kind === "acp";
-  }
-  return false;
-}
-
+// Scroll ownership: `.main` is always a fixed-height flex column that never
+// scrolls (see addon/content/shared/page-chrome.css); every panel keeps its
+// own fixed header zone and exactly one internal scroll region.
 export function createDashboardChromeRenderer(
   deps: DashboardChromeRendererDeps,
 ) {
@@ -223,10 +205,6 @@ export function createDashboardChromeRenderer(
     }
 
     renderBackendLoadError(skeleton.main, panel?.backendLoadError || "");
-    skeleton.main.classList.toggle(
-      "skillrunner-fill",
-      !!panel && shouldFillMain(panel),
-    );
 
     const main = skeleton.main;
     const renderMainRegion = (name: string, vnode: ComponentChildren) => {
