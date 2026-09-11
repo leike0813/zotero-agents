@@ -1,8 +1,6 @@
-import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
 import {
   SYNTHESIS_SIDECAR_RUNTIME_TARGETS,
   synthesisSidecarRuntimeTargetBundlePath,
@@ -15,6 +13,7 @@ import { checkSynthesisSidecarRuntimeFreshness } from "./check-synthesis-sidecar
 import {
   type CommandRunner,
   createGithubWorkflowRequestId,
+  defaultCommandRunner,
   dispatchAndResolveGithubWorkflowRun,
   downloadGithubWorkflowArtifact,
   viewGithubWorkflowRun,
@@ -24,16 +23,10 @@ import { resolveSynthesisSidecarVerification } from "./resolve-synthesis-sidecar
 import { syncSynthesisSidecarRuntimePrebuilds } from "./sync-synthesis-sidecar-runtime-prebuilds";
 import { computeSynthesisSidecarRuntimeIdentities } from "./synthesis-sidecar-runtime-release-governance";
 
-const execFileAsync = promisify(execFile);
 const WORKFLOW = "prebuild-synthesis-sidecar-runtime.yml";
 const RESULT_ARTIFACT = "synthesis-sidecar-runtime-prebuild-result";
 const RESULT_FILE = "prebuild-result.json";
 const DEFAULT_REPO = "leike0813/zotero-agents";
-
-async function runCommand(command: string, args: string[]) {
-  const result = await execFileAsync(command, args, { windowsHide: true });
-  return { stdout: result.stdout || "", stderr: result.stderr || "" };
-}
 
 function fullSha(value: string, label: string) {
   const normalized = value.trim().toLowerCase();
@@ -79,7 +72,7 @@ export async function assertSynthesisSidecarPrebuildSourceState(args: {
   sourceSha: string;
   commandRunner?: CommandRunner;
 }) {
-  const run = args.commandRunner || runCommand;
+  const run = args.commandRunner || defaultCommandRunner;
   const branch = (await run("git", ["branch", "--show-current"])).stdout.trim();
   if (!branch)
     throw new Error("Synthesis sidecar prebuild requires an attached branch");
@@ -150,7 +143,7 @@ export async function dispatchSynthesisSidecarPrebuild(args: {
   checkFreshness?: typeof checkSynthesisSidecarRuntimeFreshness;
   resolveVerification?: typeof resolveSynthesisSidecarVerification;
 }) {
-  const runCommand = args.commandRunner || runCommandDefault;
+  const runCommand = args.commandRunner || defaultCommandRunner;
   const source = await assertSynthesisSidecarPrebuildSourceState({
     ref: args.ref,
     sourceSha: args.sourceSha,
@@ -291,8 +284,6 @@ export async function dispatchSynthesisSidecarPrebuild(args: {
   });
 }
 
-const runCommandDefault = runCommand;
-
 async function fetchExactPrebuildStore(args: {
   repo: string;
   commit: string;
@@ -387,9 +378,11 @@ function help() {
 async function main() {
   if (process.argv.includes("--help")) return help();
   const branch = (
-    await runCommand("git", ["branch", "--show-current"])
+    await defaultCommandRunner("git", ["branch", "--show-current"])
   ).stdout.trim();
-  const head = (await runCommand("git", ["rev-parse", "HEAD"])).stdout.trim();
+  const head = (
+    await defaultCommandRunner("git", ["rev-parse", "HEAD"])
+  ).stdout.trim();
   const parsed = parseSynthesisSidecarPrebuildArgs(process.argv.slice(2));
   const result = await dispatchSynthesisSidecarPrebuild({
     repo: parsed.repo || process.env.GITHUB_REPOSITORY || DEFAULT_REPO,

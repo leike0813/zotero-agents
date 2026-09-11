@@ -1,16 +1,14 @@
-import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
-import { promisify } from "node:util";
 import {
   type CommandRunner,
   createGithubWorkflowRequestId,
+  defaultCommandRunner,
   dispatchAndResolveGithubWorkflowRun,
   selectGithubWorkflowRun,
   watchGithubWorkflowRun,
 } from "../github-workflow-run";
 
-const execFileAsync = promisify(execFile);
 const WORKFLOW = "release-host-bridge.yml";
 const DEFAULT_REPO = "leike0813/zotero-agents";
 
@@ -21,11 +19,6 @@ function argValue(name: string) {
     inline?.slice(name.length + 1) ||
     (index >= 0 ? process.argv[index + 1] : "")
   ).trim();
-}
-
-async function runCommand(command: string, args: string[]) {
-  const result = await execFileAsync(command, args, { windowsHide: true });
-  return { stdout: result.stdout || "", stderr: result.stderr || "" };
 }
 
 export function resolveHostBridgePublicationRef(ref?: string) {
@@ -189,7 +182,7 @@ export async function dispatchHostBridgeRelease(args: {
   commandRunner?: CommandRunner;
   runLocalChecks?: boolean;
 }) {
-  const commandRunner = args.commandRunner || runCommand;
+  const commandRunner = args.commandRunner || defaultCommandRunner;
   const ref = resolveHostBridgePublicationRef(args.ref);
   const releaseSet = JSON.parse(
     await readFile("releases/host-bridge/release-set.json", "utf8"),

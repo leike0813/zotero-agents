@@ -1,11 +1,10 @@
-import { execFile } from "node:child_process";
 import { mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { promisify } from "node:util";
 import {
   type CommandRunner,
   createGithubWorkflowRequestId,
+  defaultCommandRunner,
   dispatchAndResolveGithubWorkflowRun,
   downloadGithubWorkflowArtifact,
   viewGithubWorkflowRun,
@@ -19,7 +18,6 @@ import {
   syncHostBridgeCliPrebuilds,
 } from "./sync-host-bridge-cli-prebuilds";
 
-const execFileAsync = promisify(execFile);
 const WORKFLOW = "build-host-bridge-cli-prebuilds.yml";
 const RESULT_ARTIFACT = "host-bridge-cli-prebuild-result";
 const RESULT_FILE = "host-bridge-cli-prebuild-result.json";
@@ -73,11 +71,6 @@ export function parsePrebuildCliArgs(
   };
 }
 
-async function runCommand(command: string, args: string[]) {
-  const result = await execFileAsync(command, args, { windowsHide: true });
-  return { stdout: result.stdout || "", stderr: result.stderr || "" };
-}
-
 function requireFullSha(value: string, label: string) {
   const normalized = value.trim().toLowerCase();
   if (!/^[a-f0-9]{40}$/.test(normalized)) {
@@ -107,7 +100,7 @@ export async function assertPrebuildSourceState(args: {
   sourceSha: string;
   commandRunner?: CommandRunner;
 }) {
-  const commandRunner = args.commandRunner || runCommand;
+  const commandRunner = args.commandRunner || defaultCommandRunner;
   const branch = (
     await commandRunner("git", ["branch", "--show-current"])
   ).stdout.trim();
@@ -239,7 +232,7 @@ export async function prebuildZoteroBridgeCli(args: {
     [key: string]: unknown;
   }>;
 }) {
-  const commandRunner = args.commandRunner || runCommand;
+  const commandRunner = args.commandRunner || defaultCommandRunner;
   const source = await assertPrebuildSourceState({
     ref: args.ref,
     sourceSha: args.sourceSha,
@@ -353,7 +346,7 @@ export async function prebuildZoteroBridgeCli(args: {
 }
 
 async function main() {
-  const commandRunner = runCommand;
+  const commandRunner = defaultCommandRunner;
   const currentBranch = (
     await commandRunner("git", ["branch", "--show-current"])
   ).stdout.trim();

@@ -1,11 +1,10 @@
-import { execFile } from "node:child_process";
 import { pathToFileURL } from "node:url";
-import { promisify } from "node:util";
 
 import { bumpContentPackageVersion } from "./bump-content-package-version";
 import {
   type CommandRunner,
   createGithubWorkflowRequestId,
+  defaultCommandRunner,
   dispatchAndResolveGithubWorkflowRun,
   watchGithubWorkflowRun,
 } from "../github-workflow-run";
@@ -45,8 +44,6 @@ const DEFAULT_REPO = "leike0813/zotero-agents";
 const DEFAULT_REF = "main";
 const DEFAULT_VERSION_FILE = "content-package.version.json";
 const WORKFLOW_FILE = "publish-content-feed.yml";
-
-const execFileAsync = promisify(execFile);
 
 function usage() {
   return [
@@ -143,16 +140,6 @@ export function parseContentPackageReleaseArgs(
   return parsed;
 }
 
-async function runCommand(command: string, args: string[]) {
-  const result = await execFileAsync(command, args, {
-    windowsHide: true,
-  });
-  return {
-    stdout: result.stdout || "",
-    stderr: result.stderr || "",
-  };
-}
-
 async function assertCleanWorkingTree(commandRunner: RunCommand) {
   const status = await commandRunner("git", ["status", "--porcelain"]);
   if (status.stdout.trim()) {
@@ -196,7 +183,7 @@ function nextCommands(args: { repo: string; ref: string }) {
 export async function prepareContentPackageRelease(
   args: ContentPackageReleaseArgs,
 ): Promise<ContentPackageReleaseResult> {
-  const commandRunner = args.runCommand || runCommand;
+  const commandRunner = args.runCommand || defaultCommandRunner;
   const repo = args.repo || DEFAULT_REPO;
   const ref = args.ref || DEFAULT_REF;
   const result: ContentPackageReleaseResult = {

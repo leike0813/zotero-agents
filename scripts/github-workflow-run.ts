@@ -12,6 +12,7 @@ export type CommandResult = {
 export type CommandRunner = (
   command: string,
   args: string[],
+  options?: { maxBuffer?: number },
 ) => Promise<CommandResult>;
 
 export type GithubWorkflowRun = {
@@ -24,7 +25,7 @@ export type GithubWorkflowRun = {
   workflowPath?: string;
 };
 
-async function runCommand(
+export async function defaultCommandRunner(
   command: string,
   args: string[],
   options?: { maxBuffer?: number },
@@ -155,7 +156,7 @@ export async function resolveGithubWorkflowRun(args: {
   maxAttempts?: number;
   pollIntervalMs?: number;
 }) {
-  const commandRunner = args.commandRunner || runCommand;
+  const commandRunner = args.commandRunner || defaultCommandRunner;
   const maxAttempts = args.maxAttempts ?? 15;
   const pollIntervalMs = args.pollIntervalMs ?? 2_000;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
@@ -194,7 +195,7 @@ export async function dispatchAndResolveGithubWorkflowRun(args: {
   maxAttempts?: number;
   pollIntervalMs?: number;
 }) {
-  const commandRunner = args.commandRunner || runCommand;
+  const commandRunner = args.commandRunner || defaultCommandRunner;
   const requestId = String(args.inputs.request_id || "").trim();
   if (!requestId) {
     throw new Error("GitHub workflow dispatch requires request_id");
@@ -250,7 +251,7 @@ export async function viewGithubWorkflowRun(args: {
   expectedHeadSha: string;
   commandRunner?: CommandRunner;
 }) {
-  const commandRunner = args.commandRunner || runCommand;
+  const commandRunner = args.commandRunner || defaultCommandRunner;
   const response = await commandRunner("gh", [
     "api",
     `repos/${args.repo}/actions/runs/${args.runId}`,
@@ -297,7 +298,7 @@ export async function watchGithubWorkflowRun(args: {
   commandRunner?: CommandRunner;
   maxBufferBytes?: number;
 }) {
-  const commandRunner = args.commandRunner || runCommand;
+  const commandRunner = args.commandRunner || defaultCommandRunner;
   await commandRunner(
     "gh",
     ["run", "watch", String(args.runId), "--repo", args.repo, "--exit-status"],
@@ -312,7 +313,7 @@ export async function downloadGithubWorkflowArtifact(args: {
   directory: string;
   commandRunner?: CommandRunner;
 }) {
-  const commandRunner = args.commandRunner || runCommand;
+  const commandRunner = args.commandRunner || defaultCommandRunner;
   await commandRunner("gh", [
     "run",
     "download",
