@@ -4642,6 +4642,10 @@ th {
   background: var(--topic-panel);
 }
 
+.topic-report-panel:only-child {
+  grid-column: 1 / -1;
+}
+
 .topic-report-reader-frame {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);

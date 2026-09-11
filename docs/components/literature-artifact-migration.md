@@ -10,12 +10,12 @@ canonical-only.
 ## Ownership and boundary
 
 The migration is registered with the static identity
-`literature-artifacts` and definition version `3`. Its public runtime surface
+`literature-artifacts` and definition version `4`. Its public runtime surface
 is the service returned by `createLiteratureArtifactMigrationService()`:
 
 | Operation | Effect |
 | --- | --- |
-| `scan` | Reads one library and creates a process-local preview plus durable bounded history. |
+| `scan` | Reads one library, reports bounded item/candidate progress, and creates a process-local preview plus durable bounded history. |
 | `apply` | Accepts only the issued scan operation and candidate IDs, re-reads each set, and applies independent sets. |
 | `stop` | Stops claiming later sets while allowing the current set to settle. |
 | `continue` | Starts a fresh scan for retryable receipts after explicit user action. |
@@ -37,16 +37,20 @@ run exists, the Dashboard projection supplies `Zotero.Libraries.userLibraryID`;
 the region does not own a separate library selector or infer a library from UI
 selection.
 
-The Dashboard candidate page returns 25 candidates per page; `ready` sets are
-selected by default, `review_required` sets can be toggled manually, and
-`blocked` sets are not selectable. The page renders no library selector and
+The Dashboard filters the complete process-local plan by search,
+classification, reason, and disposition before returning 25 candidates per
+page. Ready sets start included. Review and blocked sets expose bounded issue
+choices in a details drawer and remain pending until every issue is resolved
+and the user approves the set; Skip leaves the source unchanged. The page
+shows real scan/apply progress, supports Stop during scans, and keeps the
+results list independently scrollable. It renders no library selector and
 stays within the personal library bound by the scan.
 
 ## Migratable payload
 
 The converter treats References and Citation payload blocks as the migratable
-target. Known non-target managed payloads (digest, score, conversation, custom
-markdown) are preserved on the target note and ignored by the migration. Any
+target. Known non-target managed payloads (digest, score, literature matching
+metadata, conversation, custom markdown) are preserved on the target note and ignored by the migration. Any
 unknown payload block not in the approved managed set still blocks the set
 with `unsupported_input`.
 
@@ -165,11 +169,13 @@ The focused Node migration and Dashboard tests are:
 ```text
 tests/tooling/264-literature-artifact-migration.test.ts
 tests/ui/264-literature-migration-region.test.ts
+tests/ui/264-literature-migration-browser.test.ts
 ```
 
 They cover deterministic identity, snapshot recovery, citation-only gates,
-file preview preservation, bounded receipts, single-flight, stop-at-set,
-fresh-scan restart, the bounded Dashboard projection, and the bundle
+file preview preservation, bounded receipts, single-flight, scan/apply stop,
+fresh-scan restart, complete-plan filtering, issue resolution, the bounded
+Dashboard projection and browser layout, and the bundle
 HTML/legacy-PNG preview-confirmation path. The bundle regression is in
 `tests/workflow-literature-workbench-package/47-workflow-literature-bundle.test.ts`.
 Node transaction and source-query seams do not establish native Zotero

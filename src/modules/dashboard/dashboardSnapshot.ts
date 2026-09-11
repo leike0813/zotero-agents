@@ -4,6 +4,7 @@ import { ACP_SKILL_RUN_REQUEST_KIND } from "../../config/defaults";
 import { workflowSubmissionQueue } from "../../jobQueue/workflowSubmissionQueue";
 import type {
   DashboardLiteratureArtifactMigrationView,
+  DashboardLiteratureArtifactMigrationCandidateQuery,
   DashboardLogRow,
   DashboardRow,
   DashboardRuntimeLogFilters,
@@ -80,6 +81,7 @@ export type DashboardState = {
   selectedTabKey: string;
   selectedLiteratureMigrationRunId: string;
   literatureMigrationReceiptCursor?: string;
+  literatureMigrationCandidateQuery: DashboardLiteratureArtifactMigrationCandidateQuery;
   selectedBackendSubviewById: Map<string, "runs" | "management">;
   selectedLogTaskByBackendId: Map<string, string>;
   selectedLogEntryByBackendId: Map<string, string>;
@@ -1034,17 +1036,27 @@ function buildLiteratureArtifactMigrationView(
       libraryId: 0,
       activeRun: null,
       activeOperationId: "",
+      activeRunId: "",
+      progress: null,
       candidatePage: {
         cursor: "",
         nextCursor: null,
         items: [],
         summary: {
           total: 0,
+          unfilteredTotal: 0,
           ready: 0,
           reviewRequired: 0,
           blocked: 0,
           selected: 0,
         },
+        query: {
+          search: "",
+          classification: "",
+          reasonCode: "",
+          disposition: "",
+        },
+        availableReasons: [],
       },
       history: [],
     };
@@ -1061,22 +1073,42 @@ function buildLiteratureArtifactMigrationView(
     .listHistory({ limit: 20 })
     .map(migrationRunToDashboardView);
   const receiptCursor = String(state?.literatureMigrationReceiptCursor || "");
+  const candidateQuery = state?.literatureMigrationCandidateQuery || {
+    search: "",
+    classification: "" as const,
+    reasonCode: "",
+    disposition: "" as const,
+  };
   const candidatePage = displayedEntry
     ? service.listCandidatePage({
         runId: displayedEntry.runId,
         limit: 25,
         ...(receiptCursor ? { cursor: receiptCursor } : {}),
+        query: {
+          ...(candidateQuery.search ? { search: candidateQuery.search } : {}),
+          ...(candidateQuery.classification
+            ? { classification: candidateQuery.classification }
+            : {}),
+          ...(candidateQuery.reasonCode
+            ? { reasonCode: candidateQuery.reasonCode }
+            : {}),
+          ...(candidateQuery.disposition
+            ? { disposition: candidateQuery.disposition }
+            : {}),
+        },
       })
     : {
         items: [],
         nextCursor: null,
         summary: {
           total: 0,
+          unfilteredTotal: 0,
           ready: 0,
           reviewRequired: 0,
           blocked: 0,
           selected: 0,
         },
+        availableReasons: [],
       };
   return {
     migrationId: LITERATURE_ARTIFACT_MIGRATION_ID,
@@ -1099,11 +1131,31 @@ function buildLiteratureArtifactMigrationView(
           : null,
     activeOperationId:
       activeSnapshot?.operationId || displayedEntry?.operationId || "",
+    activeRunId: activeSnapshot?.runId || "",
+    progress: activeSnapshot
+      ? activeSnapshot.phase === "scanning"
+        ? {
+            phase: "scanning",
+            completed: activeSnapshot.progress?.completed || 0,
+            total: activeSnapshot.progress?.total ?? null,
+            candidateCount: activeSnapshot.progress?.candidateCount || 0,
+          }
+        : activeEntry
+          ? {
+              phase: "applying",
+              completed: activeEntry.processedCount,
+              total: activeEntry.setCount,
+              candidateCount: activeEntry.setCount,
+            }
+          : null
+      : null,
     candidatePage: {
       cursor: receiptCursor,
       nextCursor: candidatePage.nextCursor,
       items: candidatePage.items,
       summary: candidatePage.summary,
+      query: candidateQuery,
+      availableReasons: candidatePage.availableReasons,
     },
     history,
   };
@@ -1307,6 +1359,85 @@ export async function buildDashboardSnapshot(args: {
     literatureMigrationDropped: localize(
       "task-dashboard-literature-migration-dropped",
       "Dropped",
+    ),
+    literatureMigrationSearchPlaceholder: localize(
+      "task-dashboard-literature-migration-search-placeholder",
+      "Search candidates",
+    ),
+    literatureMigrationAll: localize(
+      "task-dashboard-literature-migration-all",
+      "All",
+    ),
+    literatureMigrationClassificationFilter: localize(
+      "task-dashboard-literature-migration-classification-filter",
+      "Classification",
+    ),
+    literatureMigrationReasonFilter: localize(
+      "task-dashboard-literature-migration-reason-filter",
+      "Issue",
+    ),
+    literatureMigrationDispositionFilter: localize(
+      "task-dashboard-literature-migration-disposition-filter",
+      "Disposition",
+    ),
+    literatureMigrationDetails: localize(
+      "task-dashboard-literature-migration-details",
+      "Details",
+    ),
+    literatureMigrationClose: localize(
+      "task-dashboard-literature-migration-close",
+      "Close",
+    ),
+    literatureMigrationApprove: localize(
+      "task-dashboard-literature-migration-approve",
+      "Approve and include",
+    ),
+    literatureMigrationSkip: localize(
+      "task-dashboard-literature-migration-skip",
+      "Skip this set",
+    ),
+    literatureMigrationIssues: localize(
+      "task-dashboard-literature-migration-issues",
+      "Issues",
+    ),
+    literatureMigrationFiltered: localize(
+      "task-dashboard-literature-migration-filtered",
+      "Filtered",
+    ),
+    literatureMigrationPending: localize(
+      "task-dashboard-literature-migration-pending",
+      "Pending",
+    ),
+    literatureMigrationInclude: localize(
+      "task-dashboard-literature-migration-include",
+      "Included",
+    ),
+    literatureMigrationSkipped: localize(
+      "task-dashboard-literature-migration-skipped",
+      "Skipped",
+    ),
+    ...Object.fromEntries(
+      [
+        ["MergeDuplicates", "merge-duplicates", "Merge duplicate references"],
+        ["KeepUnresolved", "keep-unresolved", "Keep as unresolved"],
+        ["DropUnresolved", "drop-unresolved", "Discard unresolved mentions"],
+        ["AcceptRecovery", "accept-recovery", "Accept recovered reference"],
+        [
+          "ReplaceCanonical",
+          "replace-canonical",
+          "Replace conflicting canonical artifact",
+        ],
+        [
+          "PreserveSource",
+          "preserve-source",
+          "Preserve unrecognized source evidence",
+        ],
+        ["AcceptDataLoss", "accept-data-loss", "Accept the listed data loss"],
+        ["SkipCandidate", "skip-candidate", "Skip this set"],
+      ].map(([name, key, fallback]) => [
+        `literatureMigrationOption${name}`,
+        localize(`task-dashboard-literature-migration-option-${key}`, fallback),
+      ]),
     ),
     ...Object.fromEntries(
       [

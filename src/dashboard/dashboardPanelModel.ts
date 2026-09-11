@@ -1154,17 +1154,27 @@ function projectViews(
     libraryId: 0,
     activeRun: null,
     activeOperationId: "",
+    activeRunId: "",
+    progress: null,
     candidatePage: {
       cursor: "",
       nextCursor: null,
       items: [],
       summary: {
         total: 0,
+        unfilteredTotal: 0,
         ready: 0,
         reviewRequired: 0,
         blocked: 0,
         selected: 0,
       },
+      query: {
+        search: "",
+        classification: "",
+        reasonCode: "",
+        disposition: "",
+      },
+      availableReasons: [],
     },
     history: [],
   };
@@ -1232,6 +1242,64 @@ function projectViews(
       "Recovered",
     ),
     droppedLabel: labelText(labels, "literatureMigrationDropped", "Dropped"),
+    searchPlaceholder: labelText(
+      labels,
+      "literatureMigrationSearchPlaceholder",
+      "Search candidates",
+    ),
+    allLabel: labelText(labels, "literatureMigrationAll", "All"),
+    classificationFilterLabel: labelText(
+      labels,
+      "literatureMigrationClassificationFilter",
+      "Classification",
+    ),
+    reasonFilterLabel: labelText(
+      labels,
+      "literatureMigrationReasonFilter",
+      "Issue",
+    ),
+    dispositionFilterLabel: labelText(
+      labels,
+      "literatureMigrationDispositionFilter",
+      "Disposition",
+    ),
+    detailsLabel: labelText(labels, "literatureMigrationDetails", "Details"),
+    closeLabel: labelText(labels, "literatureMigrationClose", "Close"),
+    approveLabel: labelText(
+      labels,
+      "literatureMigrationApprove",
+      "Approve and include",
+    ),
+    skipLabel: labelText(labels, "literatureMigrationSkip", "Skip this set"),
+    issuesLabel: labelText(labels, "literatureMigrationIssues", "Issues"),
+    filteredLabel: labelText(labels, "literatureMigrationFiltered", "Filtered"),
+    dispositionLabels: {
+      pending: labelText(labels, "literatureMigrationPending", "Pending"),
+      include: labelText(labels, "literatureMigrationInclude", "Included"),
+      skip: labelText(labels, "literatureMigrationSkipped", "Skipped"),
+    },
+    optionLabels: Object.fromEntries(
+      [
+        ["merge_duplicates", "Merge duplicate references"],
+        ["keep_unresolved", "Keep as unresolved"],
+        ["drop_unresolved", "Discard unresolved mentions"],
+        ["accept_recovery", "Accept recovered reference"],
+        ["replace_canonical", "Replace conflicting canonical artifact"],
+        ["preserve_source", "Preserve unrecognized source evidence"],
+        ["accept_data_loss", "Accept the listed data loss"],
+        ["skip_candidate", "Skip this set"],
+      ].map(([kind, fallback]) => [
+        kind,
+        labelText(
+          labels,
+          `literatureMigrationOption${kind
+            .split("_")
+            .map((part) => part[0]?.toUpperCase() + part.slice(1))
+            .join("")}`,
+          fallback,
+        ),
+      ]),
+    ),
     reasonLabels: Object.fromEntries(
       [
         ["citation_only", "Citation without References"],

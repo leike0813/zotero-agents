@@ -30,7 +30,7 @@ describe("Dashboard literature migration region", function () {
     assert.equal(panel.views.migrations?.view.activeRun, null);
   });
 
-  it("renders bounded candidate facts and sends only runtime-issued refs", function () {
+  it("renders bounded candidate facts and sends only runtime-issued refs", async function () {
     const environment = createSidebarDomEnvironment();
     installSidebarDomGlobals(environment);
     const root = document.createElement("div");
@@ -60,6 +60,8 @@ describe("Dashboard literature migration region", function () {
           diagnostics: [],
         },
         activeOperationId: "op-1",
+        activeRunId: "",
+        progress: null,
         candidatePage: {
           cursor: "",
           nextCursor: "next-25",
@@ -76,6 +78,8 @@ describe("Dashboard literature migration region", function () {
               recoveredCount: 0,
               droppedCount: 0,
               selected: true,
+              disposition: "include",
+              issues: [],
             },
             {
               candidateId: "candidate-2",
@@ -89,6 +93,23 @@ describe("Dashboard literature migration region", function () {
               recoveredCount: 0,
               droppedCount: 0,
               selected: false,
+              disposition: "pending",
+              issues: [
+                {
+                  issueId: "issue-linkage",
+                  reasonCode: "unresolved_linkage",
+                  status: "pending",
+                  detail: "unresolved_linkage",
+                  selectedOptionId: "",
+                  options: [
+                    {
+                      optionId: "keep-unresolved",
+                      kind: "keep_unresolved",
+                      dataLoss: false,
+                    },
+                  ],
+                },
+              ],
             },
             {
               candidateId: "candidate-3",
@@ -102,15 +123,40 @@ describe("Dashboard literature migration region", function () {
               recoveredCount: 0,
               droppedCount: 0,
               selected: false,
+              disposition: "pending",
+              issues: [
+                {
+                  issueId: "issue-duplicate",
+                  reasonCode: "duplicate_reference",
+                  status: "pending",
+                  detail: "duplicate_reference",
+                  selectedOptionId: "",
+                  options: [
+                    {
+                      optionId: "merge-duplicates",
+                      kind: "merge_duplicates",
+                      dataLoss: false,
+                    },
+                  ],
+                },
+              ],
             },
           ],
           summary: {
             total: 28,
+            unfilteredTotal: 28,
             ready: 26,
             reviewRequired: 1,
             blocked: 1,
             selected: 26,
           },
+          query: {
+            search: "",
+            classification: "",
+            reasonCode: "",
+            disposition: "",
+          },
+          availableReasons: ["unresolved_linkage", "duplicate_reference"],
         },
         history: [],
       },
@@ -136,6 +182,26 @@ describe("Dashboard literature migration region", function () {
       unresolvedLabel: "Unresolved",
       recoveredLabel: "Recovered",
       droppedLabel: "Dropped",
+      searchPlaceholder: "Search candidates",
+      allLabel: "All",
+      classificationFilterLabel: "Classification",
+      reasonFilterLabel: "Issue",
+      dispositionFilterLabel: "Disposition",
+      detailsLabel: "Details",
+      closeLabel: "Close",
+      approveLabel: "Approve and include",
+      skipLabel: "Skip this set",
+      issuesLabel: "Issues",
+      filteredLabel: "Filtered",
+      dispositionLabels: {
+        pending: "Pending",
+        include: "Included",
+        skip: "Skipped",
+      },
+      optionLabels: {
+        keep_unresolved: "Keep as unresolved",
+        merge_duplicates: "Merge duplicate references",
+      },
       reasonLabels: {
         unresolved_linkage: "Unresolved linkage",
         duplicate_reference: "Duplicate reference",
@@ -158,12 +224,34 @@ describe("Dashboard literature migration region", function () {
     assert.lengthOf(checkboxes, 3);
     assert.isTrue(checkboxes[0].checked);
     assert.isFalse(checkboxes[1].checked);
-    assert.isFalse(checkboxes[1].disabled);
+    assert.isTrue(checkboxes[1].disabled);
     assert.isTrue(checkboxes[2].disabled);
-    checkboxes[1].checked = true;
-    checkboxes[1].dispatchEvent(
-      new document.defaultView!.Event("change", { bubbles: true }),
+    const search = root.querySelector<HTMLInputElement>(
+      '[data-role="migration-search"]',
     );
+    assert.exists(search);
+    search!.value = "review";
+    search!.dispatchEvent(
+      new document.defaultView!.Event("input", { bubbles: true }),
+    );
+    const details = root.querySelectorAll<HTMLButtonElement>(
+      '[data-action="migration-open-detail"]',
+    );
+    assert.lengthOf(details, 3);
+    details[1]!.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const drawer = root.querySelector('[data-role="migration-detail-drawer"]');
+    assert.exists(drawer);
+    assert.equal(details[1]!.getAttribute("aria-expanded"), "true");
+    assert.equal(
+      details[1]!.getAttribute("aria-controls"),
+      "migration-detail-drawer",
+    );
+    const resolution = drawer!.querySelector<HTMLButtonElement>(
+      '[data-option-id="keep-unresolved"]',
+    );
+    assert.exists(resolution);
+    resolution!.click();
     const apply = Array.from(root.querySelectorAll("button")).find(
       (button) => button.textContent === "Apply",
     );
@@ -176,11 +264,21 @@ describe("Dashboard literature migration region", function () {
     next?.click();
     assert.deepEqual(actions, [
       {
-        action: "literature-migration-set-selection",
+        action: "literature-migration-set-candidate-query",
+        payload: {
+          search: "review",
+          classification: "",
+          reasonCode: "",
+          disposition: "",
+        },
+      },
+      {
+        action: "literature-migration-resolve-issue",
         payload: {
           scanOperationId: "op-1",
           candidateId: "candidate-2",
-          selected: true,
+          issueId: "issue-linkage",
+          optionId: "keep-unresolved",
         },
       },
       {
@@ -217,21 +315,55 @@ describe("Dashboard literature migration region", function () {
           ...selection,
           view: {
             ...selection.view,
+            availability: "busy",
+            activeRunId: "run-1",
+            progress: {
+              phase: "scanning",
+              completed: 4,
+              total: 10,
+              candidateCount: 2,
+            },
+          },
+        },
+        onAction: () => assert.fail("progress refresh must not dispatch work"),
+      }),
+      root,
+    );
+    const progress = root.querySelector<HTMLProgressElement>("progress");
+    assert.equal(progress?.value, 4);
+    assert.equal(progress?.max, 10);
+    assert.include(root.textContent || "", "4/10");
+    render(
+      h(MigrationsRegion, {
+        selection: {
+          ...selection,
+          view: {
+            ...selection.view,
             definitionVersion: 2,
             availability: "unavailable",
             activeRun: null,
             activeOperationId: "",
+            activeRunId: "",
+            progress: null,
             candidatePage: {
               cursor: "",
               nextCursor: null,
               items: [],
               summary: {
                 total: 0,
+                unfilteredTotal: 0,
                 ready: 0,
                 reviewRequired: 0,
                 blocked: 0,
                 selected: 0,
               },
+              query: {
+                search: "",
+                classification: "",
+                reasonCode: "",
+                disposition: "",
+              },
+              availableReasons: [],
             },
           },
         },

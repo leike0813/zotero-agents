@@ -105,6 +105,8 @@ export type DashboardHostActionName =
   | "literature-migration-stop"
   | "literature-migration-continue"
   | "literature-migration-set-selection"
+  | "literature-migration-resolve-issue"
+  | "literature-migration-set-candidate-query"
   | "literature-migration-list-receipts"
   | "literature-migration-select-run";
 
@@ -288,6 +290,18 @@ export type DashboardActionPayloadMap = {
     scanOperationId: string;
     candidateId: string;
     selected: boolean;
+  }>;
+  "literature-migration-resolve-issue": DashboardActionPayloadShape<{
+    scanOperationId: string;
+    candidateId: string;
+    issueId: string;
+    optionId: string;
+  }>;
+  "literature-migration-set-candidate-query": DashboardActionPayloadShape<{
+    search?: string;
+    classification?: "" | "ready" | "review_required" | "blocked";
+    reasonCode?: string;
+    disposition?: "" | "pending" | "include" | "skip";
   }>;
   "literature-migration-list-receipts": DashboardActionPayloadShape<{
     runId: string;
@@ -1092,6 +1106,26 @@ export type DashboardLiteratureArtifactMigrationCandidate = {
   recoveredCount: number;
   droppedCount: number;
   selected: boolean;
+  disposition: "pending" | "include" | "skip";
+  issues: Array<{
+    issueId: string;
+    reasonCode: string;
+    status: "pending" | "resolved";
+    detail: string;
+    options: Array<{
+      optionId: string;
+      kind: string;
+      dataLoss: boolean;
+    }>;
+    selectedOptionId: string;
+  }>;
+};
+
+export type DashboardLiteratureArtifactMigrationCandidateQuery = {
+  search: string;
+  classification: "" | "ready" | "review_required" | "blocked";
+  reasonCode: string;
+  disposition: "" | "pending" | "include" | "skip";
 };
 
 export type DashboardLiteratureArtifactMigrationCandidatePage = {
@@ -1100,11 +1134,14 @@ export type DashboardLiteratureArtifactMigrationCandidatePage = {
   items: DashboardLiteratureArtifactMigrationCandidate[];
   summary: {
     total: number;
+    unfilteredTotal: number;
     ready: number;
     reviewRequired: number;
     blocked: number;
     selected: number;
   };
+  query: DashboardLiteratureArtifactMigrationCandidateQuery;
+  availableReasons: string[];
 };
 
 export type DashboardLiteratureArtifactMigrationRun = {
@@ -1137,6 +1174,13 @@ export type DashboardLiteratureArtifactMigrationView = {
   libraryId: number;
   activeRun: DashboardLiteratureArtifactMigrationRun | null;
   activeOperationId: string;
+  activeRunId: string;
+  progress: {
+    phase: "scanning" | "applying";
+    completed: number;
+    total: number | null;
+    candidateCount: number;
+  } | null;
   candidatePage: DashboardLiteratureArtifactMigrationCandidatePage;
   history: DashboardLiteratureArtifactMigrationRun[];
 };

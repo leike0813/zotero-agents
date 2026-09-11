@@ -1358,6 +1358,47 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
         await exported.locator(".topic-reading-surface").innerText(),
         "Offline report body",
       );
+      const reportPanel = exported.locator(".topic-report-panel");
+      const reportScrollBody = exported.locator(".topic-report-scroll-body");
+      await reportScrollBody.waitFor({ state: "visible", timeout: 10_000 });
+      const reportPanelBounds = await reportPanel.boundingBox();
+      const reportScrollBounds = await reportScrollBody.boundingBox();
+      const reportBodyBounds = await reportScrollBody
+        .locator(".reader-body")
+        .first()
+        .boundingBox();
+      assert.isNotNull(reportPanelBounds, "first Report panel should render");
+      assert.isNotNull(
+        reportScrollBounds,
+        "first Report scroll body should render",
+      );
+      assert.isNotNull(reportBodyBounds, "first Report body should render");
+      assert.isAbove(reportPanelBounds!.width, 0, "Report panel width");
+      assert.isAbove(reportScrollBounds!.width, 0, "Report scroll body width");
+      assert.isAbove(reportBodyBounds!.width, 0, "Report body width");
+      assert.isAbove(reportBodyBounds!.height, 0, "Report body height");
+      const reportScrollState = await reportScrollBody.evaluate(
+        (element: HTMLElement) => ({
+          clientHeight: element.clientHeight,
+          scrollHeight: element.scrollHeight,
+          overflowY: getComputedStyle(element).overflowY,
+        }),
+      );
+      assert.include(
+        ["auto", "scroll"],
+        reportScrollState.overflowY,
+        "Report scroll body should scroll",
+      );
+      assert.isAbove(
+        reportScrollState.clientHeight,
+        0,
+        "Report scroll body client height",
+      );
+      assert.isAtLeast(
+        reportScrollState.scrollHeight,
+        reportScrollState.clientHeight,
+        "Report scroll body should fit its content",
+      );
       await exported
         .locator(".topic-detail-tabs")
         .getByRole("button", { name: "Citation Graph", exact: true })

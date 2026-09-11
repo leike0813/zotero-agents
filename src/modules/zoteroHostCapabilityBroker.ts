@@ -17720,6 +17720,12 @@ async function getCanonicalNoteDetail(
         error.retryable,
       );
     }
+    if (error instanceof ZoteroNotePayloadResourceLimitError) {
+      throw capabilityError("resource_limited", error.message, {
+        resource: "bytes",
+        limit: error.limit,
+      });
+    }
     throw error;
   }
   throwIfWorkflowCallCanceled(control);

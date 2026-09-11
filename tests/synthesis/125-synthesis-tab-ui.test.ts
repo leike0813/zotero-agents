@@ -127,6 +127,7 @@ async function mountTestWorkbench(
 
   return {
     bridge,
+    frameSrc: String(frame.getAttribute("src") || ""),
     messages,
     refresh: mounted.refresh,
     unmount: mounted.cleanup,
@@ -4392,6 +4393,47 @@ describe("Synthesis tab UI model", function () {
     assert.isAbove(iconFiles[5].size, iconFiles[2].size);
   });
 
+  it("delivers the Workbench page, styles, and app bundle under one non-empty ui token", async function () {
+    const workbench = await mountTestWorkbench({
+      getSynthesisWorkbenchChromeInput: async () => ({}),
+      getSynthesisWorkbenchSurfaceInput: async () => ({}),
+    });
+    try {
+      const index = await fs.readFile(
+        "addon/content/synthesis/index.html",
+        "utf8",
+      );
+      const readToken = (source: string, pattern: RegExp, label: string) => {
+        const match = pattern.exec(source);
+        assert.isNotNull(match, `${label} should carry a ui token`);
+        const token = match?.[1] || "";
+        assert.isNotEmpty(token, `${label} ui token should not be empty`);
+        return token;
+      };
+      const pageToken = readToken(
+        workbench.frameSrc,
+        /index\.html\?ui=([^&\s"']+)/,
+        "Workbench page url",
+      );
+      const cssToken = readToken(
+        index,
+        /\.\/styles\.css\?ui=([^&\s"']+)/,
+        "styles.css",
+      );
+      const bundleToken = readToken(
+        index,
+        /\.\/app\.bundle\.js\?ui=([^&\s"']+)/,
+        "app.bundle.js",
+      );
+
+      assert.equal(pageToken, cssToken);
+      assert.equal(pageToken, bundleToken);
+      assert.equal(pageToken, "20260911-report-first-open-v3");
+    } finally {
+      await workbench.cleanup();
+    }
+  });
+
   it("loads shared theme tokens for Synthesis Workbench and structured Topic Detail", async function () {
     const index = await fs.readFile(
       "addon/content/synthesis/index.html",
@@ -4406,7 +4448,7 @@ describe("Synthesis tab UI model", function () {
 
     assert.include(index, "../shared/theme.js");
     assert.include(index, "../shared/theme.css?ui=20260520-controls-v8");
-    assert.include(index, "./styles.css?ui=20260617-taxonomy-axis-v2");
+    assert.include(index, "./styles.css?ui=20260911-report-first-open-v3");
     assert.include(css, "--topic-bg: var(--zs-bg)");
     assert.include(css, "--topic-panel: var(--zs-panel)");
     assert.include(css, "--topic-text: var(--zs-text)");

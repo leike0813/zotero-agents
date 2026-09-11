@@ -17,6 +17,8 @@ import {
   type ZoteroLibrarySourcePageQueryAdapter,
 } from "../../src/modules/zoteroHost/zoteroLibraryPageQuery";
 import { createMockZoteroLibraryPageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
+import { mkTempDir, writeUtf8 } from "../zotero/workflow-test-utils";
+import { joinPath } from "../../src/utils/path";
 
 function referencesArtifact(title: string) {
   return {
@@ -421,6 +423,48 @@ describe("Synthesis Host read capability ports", function () {
     assert.isUndefined(citation?.locator);
     assert.include(citation?.diagnostics.join("\n"), "resource_limited");
     assert.notInclude(JSON.stringify(scan), "文文文文");
+  });
+
+  it("keeps an oversized payload attachment as a bounded artifact diagnostic", async function () {
+    const libraryId = Zotero.Libraries.userLibraryID;
+    const paper = await createPaper("HSTATT01", "Host Oversized Attachment");
+    await addPayloadNote(
+      paper,
+      "references-json",
+      referencesArtifact("Readable Reference"),
+    );
+    const note = new Zotero.Item("note");
+    note.libraryID = libraryId;
+    note.parentItemID = paper.id;
+    note.setNote("<div><p>Note with an oversized payload attachment</p></div>");
+    await note.saveTx();
+    const tempDir = await mkTempDir("synthesis-oversized-payload");
+    const payloadPath = joinPath(tempDir, "payload.bin");
+    await writeUtf8(payloadPath, "x".repeat(1_100_000));
+    const attachment = new Zotero.Item("attachment");
+    attachment.libraryID = libraryId;
+    (attachment as any).parentItemID = note.id;
+    (attachment as any).attachmentContentType = "application/octet-stream";
+    (attachment as any).setFilePath(payloadPath);
+    await attachment.saveTx();
+    const port = createZoteroSynthesisHostReadPort({ libraryId });
+
+    const scan = await port.artifacts.scanPage({
+      libraryId,
+      paperRefs: [`${libraryId}:${paper.key}`],
+      artifactTypes: ["references", "citation_analysis"],
+      limit: 1,
+    });
+
+    const references = scan.artifacts.find(
+      (entry) => entry.artifactType === "references",
+    );
+    const citation = scan.artifacts.find(
+      (entry) => entry.artifactType === "citation_analysis",
+    );
+    assert.equal(references?.status, "available");
+    assert.equal(citation?.status, "decode_error");
+    assert.include(citation?.diagnostics.join("\n"), "resource_limited");
   });
 
   it("rejects invalid bounds before touching the Host", async function () {

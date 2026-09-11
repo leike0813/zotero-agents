@@ -93,8 +93,18 @@ export type LiteratureArtifactMigrationConversion = {
 
 type LiteratureArtifactMigrationClassification =
   LiteratureArtifactMigrationConversion["classification"];
-type LiteratureArtifactMigrationReasonCode =
+export type LiteratureArtifactMigrationReasonCode =
   LiteratureArtifactMigrationConversion["reasonCodes"][number];
+
+export type LiteratureArtifactMigrationResolutionKind =
+  | "merge_duplicates"
+  | "keep_unresolved"
+  | "drop_unresolved"
+  | "accept_recovery"
+  | "replace_canonical"
+  | "preserve_source"
+  | "accept_data_loss"
+  | "skip_candidate";
 
 export const MIGRATABLE_LEGACY_PAYLOAD_TYPES: ReadonlySet<string> = new Set([
   "references-json",
@@ -105,9 +115,31 @@ export const KNOWN_LEGACY_PAYLOAD_TYPES: ReadonlySet<string> = new Set([
   ...MIGRATABLE_LEGACY_PAYLOAD_TYPES,
   "digest-markdown",
   "literature-score-json",
+  "literature-matching-metadata-json",
   "conversation-note-markdown",
   "custom-markdown",
 ]);
+
+function classificationForReasons(
+  reasons: ReadonlySet<LiteratureArtifactMigrationReasonCode>,
+): LiteratureArtifactMigrationClassification {
+  return reasons.has("read_only_library") ||
+    reasons.has("citation_only") ||
+    reasons.has("unsupported_input") ||
+    reasons.has("no_references") ||
+    reasons.has("duplicate_reference") ||
+    reasons.has("conflicting_evidence") ||
+    reasons.has("damaged_input") ||
+    reasons.has("data_loss") ||
+    reasons.has("invalid_canonical_artifact") ||
+    reasons.has("canonical_conflict")
+    ? "blocked"
+    : reasons.has("unresolved_linkage") ||
+        reasons.has("ambiguous_linkage") ||
+        reasons.has("citation_snapshot_recovery")
+      ? "review_required"
+      : "ready";
+}
 
 function payloadMarkerTypes(html: string): string[] {
   const types = new Set<string>();
@@ -1122,23 +1154,7 @@ function classifyConversion(
       );
     }
   }
-  const classification: LiteratureArtifactMigrationClassification =
-    reasons.has("read_only_library") ||
-    reasons.has("citation_only") ||
-    reasons.has("unsupported_input") ||
-    reasons.has("no_references") ||
-    reasons.has("duplicate_reference") ||
-    reasons.has("conflicting_evidence") ||
-    reasons.has("damaged_input") ||
-    reasons.has("data_loss") ||
-    reasons.has("invalid_canonical_artifact") ||
-    reasons.has("canonical_conflict")
-      ? "blocked"
-      : reasons.has("unresolved_linkage") ||
-          reasons.has("ambiguous_linkage") ||
-          reasons.has("citation_snapshot_recovery")
-        ? "review_required"
-        : "ready";
+  const classification = classificationForReasons(reasons);
   return {
     classification,
     reasonCodes: [...reasons],
@@ -1160,4 +1176,143 @@ export function convertLegacyArtifactSet(
   options: LiteratureArtifactMigrationConverterOptions = {},
 ): LiteratureArtifactMigrationConversion {
   return classifyConversion(input, options);
+}
+
+export function resolveLiteratureArtifactMigrationConversion(
+  conversion: LiteratureArtifactMigrationConversion,
+  resolutions: ReadonlyArray<{
+    reasonCode: LiteratureArtifactMigrationReasonCode;
+    kind: LiteratureArtifactMigrationResolutionKind;
+  }>,
+): LiteratureArtifactMigrationConversion {
+  const reasons = new Set(conversion.reasonCodes);
+  let references = conversion.references.references;
+  let citation = conversion.citation;
+  let droppedCount = conversion.droppedCount;
+
+  for (const resolution of resolutions) {
+    if (!reasons.has(resolution.reasonCode)) continue;
+    if (
+      resolution.kind === "merge_duplicates" &&
+      resolution.reasonCode === "duplicate_reference"
+    ) {
+      const retainedByKey = new Map<string, string>();
+      const replacementById = new Map<string, string>();
+      const unique: SourceReference[] = [];
+      for (const reference of references) {
+        const keys = [
+          ...matchingKeys(reference),
+          `tuple:${referenceTuple(reference)}`,
+        ];
+        const retainedId = keys
+          .map((key) => retainedByKey.get(key))
+          .find(Boolean);
+        if (retainedId) {
+          replacementById.set(reference.sourceReferenceId, retainedId);
+          for (const key of keys) retainedByKey.set(key, retainedId);
+          continue;
+        }
+        unique.push(reference);
+        for (const key of keys)
+          retainedByKey.set(key, reference.sourceReferenceId);
+      }
+      references = unique;
+      if (citation && replacementById.size) {
+        const replace = (id: string) => replacementById.get(id) || id;
+        citation = parseCitationAnalysisArtifact({
+          ...citation,
+          items: citation.items.map((item) => ({
+            ...item,
+            sourceReferenceId: replace(item.sourceReferenceId),
+          })),
+          timeline: {
+            early: {
+              ...citation.timeline.early,
+              sourceReferenceIds: [
+                ...new Set(
+                  citation.timeline.early.sourceReferenceIds.map(replace),
+                ),
+              ],
+            },
+            mid: {
+              ...citation.timeline.mid,
+              sourceReferenceIds: [
+                ...new Set(
+                  citation.timeline.mid.sourceReferenceIds.map(replace),
+                ),
+              ],
+            },
+            recent: {
+              ...citation.timeline.recent,
+              sourceReferenceIds: [
+                ...new Set(
+                  citation.timeline.recent.sourceReferenceIds.map(replace),
+                ),
+              ],
+            },
+          },
+        });
+      }
+      reasons.delete("duplicate_reference");
+    } else if (
+      (resolution.kind === "keep_unresolved" ||
+        resolution.kind === "drop_unresolved") &&
+      (resolution.reasonCode === "unresolved_linkage" ||
+        resolution.reasonCode === "ambiguous_linkage")
+    ) {
+      if (resolution.kind === "drop_unresolved" && citation) {
+        droppedCount += citation.unresolved.length;
+        citation = parseCitationAnalysisArtifact({
+          ...citation,
+          unresolved: [],
+        });
+      }
+      reasons.delete("unresolved_linkage");
+      reasons.delete("ambiguous_linkage");
+    } else if (
+      resolution.kind === "accept_recovery" &&
+      resolution.reasonCode === "citation_snapshot_recovery"
+    ) {
+      reasons.delete("citation_snapshot_recovery");
+    } else if (
+      resolution.kind === "replace_canonical" &&
+      resolution.reasonCode === "canonical_conflict"
+    ) {
+      reasons.delete("canonical_conflict");
+    } else if (
+      resolution.kind === "preserve_source" &&
+      resolution.reasonCode === "unsupported_input"
+    ) {
+      reasons.delete(resolution.reasonCode);
+    } else if (
+      resolution.kind === "accept_data_loss" &&
+      resolution.reasonCode === "data_loss"
+    ) {
+      reasons.delete("data_loss");
+    }
+  }
+
+  const referencesArtifact = parseSourceReferenceArtifact({
+    schema: "source_reference_artifact.v1",
+    references,
+  });
+  return {
+    ...conversion,
+    classification: classificationForReasons(reasons),
+    reasonCodes: [...reasons],
+    diagnostics: boundedDiagnostics([
+      ...conversion.diagnostics,
+      ...resolutions
+        .filter((resolution) => resolution.kind !== "skip_candidate")
+        .map(
+          (resolution) =>
+            `resolved:${resolution.reasonCode}:${resolution.kind}`,
+        ),
+    ]),
+    references: referencesArtifact,
+    citation,
+    verifiedCount: referencesArtifact.references.length,
+    unresolvedCount: citation?.unresolved.length || 0,
+    droppedCount,
+  };
 }

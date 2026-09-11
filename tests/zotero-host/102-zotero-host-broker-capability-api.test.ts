@@ -1904,6 +1904,41 @@ describe("zotero host broker capability api", function () {
     assert.isAtLeast(Number(brokerError.details.observed), 1024 * 1024 + 1);
   });
 
+  it("normalizes an oversized payload attachment at the public detail boundary", async function () {
+    const parent = await createParentItem("Oversized payload attachment");
+    const note = new Zotero.Item("note");
+    note.parentID = parent.id;
+    note.setNote("<div><p>Note with an oversized payload attachment</p></div>");
+    await note.saveTx();
+    const tempDir = await mkTempDir("broker-oversized-payload");
+    const payloadPath = joinPath(tempDir, "payload.bin");
+    await writeUtf8(payloadPath, "x".repeat(1_100_000));
+    const attachment = new Zotero.Item("attachment");
+    (attachment as any).parentItemID = note.id;
+    (attachment as any).attachmentContentType = "application/octet-stream";
+    (attachment as any).setFilePath(payloadPath);
+    await attachment.saveTx();
+    const broker = createZoteroHostCapabilityBroker();
+
+    let rejected: unknown;
+    try {
+      await broker.library.getNoteDetail(
+        { libraryId: note.libraryID, key: note.key },
+        { format: "text" },
+      );
+    } catch (error) {
+      rejected = error;
+    }
+
+    assert.instanceOf(rejected, ZoteroHostCapabilityError);
+    const brokerError = rejected as ZoteroHostCapabilityError;
+    assert.equal(brokerError.code, "resource_limited");
+    assert.deepEqual(brokerError.details, {
+      resource: "bytes",
+      limit: 1024 * 1024,
+    });
+  });
+
   it("updates each literature singleton and rejects duplicates without removing either candidate", async function () {
     for (const kind of [
       "digest",

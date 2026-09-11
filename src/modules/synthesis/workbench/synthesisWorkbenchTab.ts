@@ -303,7 +303,7 @@ function resolveSynthesisPageUrl() {
   if (!addonRef) {
     return "about:blank";
   }
-  return `chrome://${addonRef}/content/synthesis/index.html?ui=20260617-taxonomy-axis-v2`;
+  return `chrome://${addonRef}/content/synthesis/index.html?ui=20260911-report-first-open-v3`;
 }
 
 function resolveWorkflowHostWindow(argsWindow?: _ZoteroTypes.MainWindow) {

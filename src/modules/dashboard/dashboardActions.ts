@@ -11,6 +11,7 @@ import { refreshSkillRunnerModelCacheForBackend } from "../../providers/skillrun
 import { isSkillRunnerRunTerminalClientError } from "../../providers/skillrunner/errors";
 import type {
   DashboardActionEnvelope,
+  DashboardLiteratureArtifactMigrationCandidateQuery,
   DashboardMessageType,
   DashboardRuntimeLogFilters,
 } from "../../shared/dashboardWireContract";
@@ -86,6 +87,7 @@ export type DashboardActionState = {
   selectedTabKey: string;
   selectedLiteratureMigrationRunId: string;
   literatureMigrationReceiptCursor?: string;
+  literatureMigrationCandidateQuery: DashboardLiteratureArtifactMigrationCandidateQuery;
   selectedBackendSubviewById: Map<string, "runs" | "management">;
   selectedLogTaskByBackendId: Map<string, string>;
   selectedLogEntryByBackendId: Map<string, string>;
@@ -318,11 +320,17 @@ export function createDashboardActionDispatcher(
             return;
           }
           const result = await service.scan({ libraryId });
-          if (!result.ok) {
+          if (!result.ok && result.code !== "stopped") {
             alertRuntimeWindow(result.message);
           } else {
-            state.selectedLiteratureMigrationRunId = result.runId;
+            state.selectedLiteratureMigrationRunId = result.runId || "";
             state.literatureMigrationReceiptCursor = "";
+            state.literatureMigrationCandidateQuery = {
+              search: "",
+              classification: "",
+              reasonCode: "",
+              disposition: "",
+            };
           }
         } else if (action === "literature-migration-apply") {
           const result = await service.apply({
@@ -358,6 +366,32 @@ export function createDashboardActionDispatcher(
             selected: payload.selected === true,
           });
           if (!result.ok) alertRuntimeWindow(result.message);
+        } else if (action === "literature-migration-resolve-issue") {
+          const result = service.resolveCandidateIssue({
+            scanOperationId: String(payload.scanOperationId || ""),
+            candidateId: String(payload.candidateId || ""),
+            issueId: String(payload.issueId || ""),
+            optionId: String(payload.optionId || ""),
+          });
+          if (!result.ok) alertRuntimeWindow(result.message);
+        } else if (action === "literature-migration-set-candidate-query") {
+          state.literatureMigrationCandidateQuery = {
+            search: String(payload.search || "").slice(0, 200),
+            classification:
+              payload.classification === "ready" ||
+              payload.classification === "review_required" ||
+              payload.classification === "blocked"
+                ? payload.classification
+                : "",
+            reasonCode: String(payload.reasonCode || "").slice(0, 80),
+            disposition:
+              payload.disposition === "pending" ||
+              payload.disposition === "include" ||
+              payload.disposition === "skip"
+                ? payload.disposition
+                : "",
+          };
+          state.literatureMigrationReceiptCursor = "";
         } else if (action === "literature-migration-list-receipts") {
           if (
             String(payload.runId || "") ===
@@ -370,6 +404,12 @@ export function createDashboardActionDispatcher(
         } else if (action === "literature-migration-select-run") {
           state.selectedLiteratureMigrationRunId = String(payload.runId || "");
           state.literatureMigrationReceiptCursor = "";
+          state.literatureMigrationCandidateQuery = {
+            search: "",
+            classification: "",
+            reasonCode: "",
+            disposition: "",
+          };
         }
         refresh("user-action");
       } catch (error) {

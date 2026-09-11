@@ -9,6 +9,7 @@ import {
 } from "../../src/modules/literatureArtifactMigration";
 import {
   convertLegacyArtifactSet,
+  resolveLiteratureArtifactMigrationConversion,
   type LegacyArtifactSetInput,
 } from "../../src/modules/literatureArtifactMigration/converter";
 import { hashSynthesisContractCanonicalJson } from "../../packages/synthesis-contracts/src/index";
@@ -47,6 +48,12 @@ describe("literature artifact migration", function () {
       backends: [],
       selectedTabKey: "migrations",
       selectedLiteratureMigrationRunId: "",
+      literatureMigrationCandidateQuery: {
+        search: "",
+        classification: "",
+        reasonCode: "",
+        disposition: "",
+      },
       selectedBackendSubviewById: new Map(),
       selectedLogTaskByBackendId: new Map(),
       selectedLogEntryByBackendId: new Map(),
@@ -465,6 +472,34 @@ describe("literature artifact migration", function () {
     assert.notInclude(sameNote.reasonCodes, "duplicate_reference");
   });
 
+  it("merges transitive duplicate reference evidence into one retained source", function () {
+    const conversion = convertLegacyArtifactSet({
+      libraryId: 1,
+      parentRef: { libraryId: 1, key: "PARENT" },
+      references: [
+        {
+          title: "Alpha",
+          year: 2020,
+          authors: ["Ada"],
+          doi: "10.1000/shared",
+        },
+        {
+          title: "Bridge",
+          year: 2021,
+          authors: ["Bob"],
+          doi: "10.1000/shared",
+        },
+        { title: "Bridge", year: 2021, authors: ["Bob"] },
+      ],
+    });
+
+    const resolved = resolveLiteratureArtifactMigrationConversion(conversion, [
+      { reasonCode: "duplicate_reference", kind: "merge_duplicates" },
+    ]);
+
+    assert.lengthOf(resolved.references.references, 1);
+  });
+
   it("preserves known non-target managed payload kinds", function () {
     const references = {
       items: [
@@ -481,6 +516,10 @@ describe("literature artifact migration", function () {
       filePayloads: [
         { payloadType: "references-json", value: references },
         { payloadType: "digest-markdown", value: "digest" },
+        {
+          payloadType: "literature-matching-metadata-json",
+          value: { matchedAt: "2026-09-11T00:00:00.000Z" },
+        },
       ],
       legacyNotes: [
         {
@@ -490,6 +529,10 @@ describe("literature artifact migration", function () {
           payloads: [
             { payloadType: "references-json", value: references },
             { payloadType: "digest-markdown", value: "digest" },
+            {
+              payloadType: "literature-matching-metadata-json",
+              value: { matchedAt: "2026-09-11T00:00:00.000Z" },
+            },
           ],
         },
       ],
@@ -499,6 +542,10 @@ describe("literature artifact migration", function () {
     assert.notInclude(
       plan.diagnostics,
       "unsupported legacy payload type: digest-markdown",
+    );
+    assert.notInclude(
+      plan.diagnostics,
+      "unsupported legacy payload type: literature-matching-metadata-json",
     );
   });
 
@@ -720,6 +767,52 @@ describe("literature artifact migration", function () {
     assert.notInclude(JSON.stringify(input), secret);
   });
 
+  it("stops the production scan before reading the next parent", async function () {
+    const parents = [
+      { libraryId: 1, key: "PARENT-1" },
+      { libraryId: 1, key: "PARENT-2" },
+    ];
+    let notePageReads = 0;
+    const broker = createFailClosedZoteroHostCapabilityBroker({
+      library: {
+        listItems: async () => ({
+          items: parents.map((ref) => ({ kind: "regular" as const, ref })),
+          hasMore: false,
+          nextCursor: null,
+          totalScanned: 2,
+        }),
+        getItemNotes: async () => {
+          notePageReads += 1;
+          return { notes: [], hasMore: false, nextCursor: null };
+        },
+      },
+    });
+    const host = createLiteratureArtifactMigrationHostFromZoteroBroker(broker, {
+      localControl: {
+        readLegacyForMigration: async () => ({ kind: "unmanaged" as const }),
+        applyParentSet: async () => {
+          throw new Error("not used by scan");
+        },
+      } as unknown as NonNullable<
+        Parameters<
+          typeof createLiteratureArtifactMigrationHostFromZoteroBroker
+        >[1]
+      >["localControl"],
+    });
+    const progress: Array<{ completed: number; total: number | null }> = [];
+
+    await host.scanLibrary({
+      libraryId: 1,
+      reportProgress: (entry) => {
+        progress.push({ completed: entry.completed, total: entry.total });
+        return entry.completed < 1;
+      },
+    });
+
+    assert.equal(notePageReads, 1);
+    assert.deepInclude(progress.at(-1), { completed: 1, total: 2 });
+  });
+
   it("accepts only an exact verified canonical parent set before cleanup", async function () {
     const parentRef = { libraryId: 1, key: "PARENT" };
     const legacyNoteRef = { libraryId: 1, key: "LEGACY-NOTE" };
@@ -733,6 +826,7 @@ describe("literature artifact migration", function () {
       ],
     };
     let wrongParent = false;
+    let preservedVisibleHtml = "";
     const broker = createFailClosedZoteroHostCapabilityBroker({
       library: {
         listItems: async () => ({
@@ -751,11 +845,20 @@ describe("literature artifact migration", function () {
     const localControl = {
       readLegacyForMigration: async () => ({
         kind: "legacy" as const,
-        html: '<span data-zs-payload="references-json"></span>',
+        html:
+          '<span data-zs-payload="references-json">legacy references</span>' +
+          '<span data-zs-payload="literature-matching-metadata-json">matching metadata</span>',
         revision: "legacy-1",
-        payloads: [{ payloadType: "references-json", value: legacyReferences }],
+        payloads: [
+          { payloadType: "references-json", value: legacyReferences },
+          {
+            payloadType: "literature-matching-metadata-json",
+            value: { score: 1 },
+          },
+        ],
       }),
-      applyParentSet: async () => {
+      applyParentSet: async (input) => {
+        preservedVisibleHtml = input.entries[0]?.visibleHtml || "";
         const conversion = convertLegacyArtifactSet(
           {
             libraryId: 1,
@@ -829,6 +932,8 @@ describe("literature artifact migration", function () {
     assert.isTrue(result.ok);
     if (!result.ok) throw new Error("expected migration result");
     assert.equal(result.state, "completed");
+    assert.notInclude(preservedVisibleHtml, "legacy references");
+    assert.include(preservedVisibleHtml, "matching metadata");
 
     resetPluginStateStoreForTests();
     resetLiteratureArtifactMigrationRuntimeForTests();
@@ -879,6 +984,49 @@ describe("literature artifact migration", function () {
       )?.diagnostics,
       "scan_failed:migration_error",
     );
+  });
+
+  it("publishes bounded scan progress and stops before later source work", async function () {
+    let continueScan: (() => void) | undefined;
+    const stopped = new Promise<void>((resolve) => {
+      continueScan = resolve;
+    });
+    let progressAllowedAfterStop = true;
+    const service = createLiteratureArtifactMigrationService({
+      host: {
+        scanLibrary: async ({ reportProgress }) => {
+          assert.equal(
+            reportProgress?.({ completed: 1, total: 3, candidateCount: 1 }),
+            true,
+          );
+          assert.equal(
+            reportProgress?.({ completed: 0, total: null, candidateCount: 0 }),
+            true,
+          );
+          await stopped;
+          progressAllowedAfterStop =
+            reportProgress?.({ completed: 2, total: 3, candidateCount: 1 }) ??
+            true;
+          return [];
+        },
+        applySet: async () => ({ outcome: "applied" as const }),
+      },
+    });
+    const scanning = service.scan({ libraryId: 1 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const active = service.getActiveSnapshot();
+    assert.deepInclude(active, {
+      phase: "scanning",
+      progress: { completed: 1, total: 3, candidateCount: 1 },
+    });
+    assert.isTrue(service.stop({ runId: active!.runId }).ok);
+    continueScan?.();
+    const result = await scanning;
+    assert.isFalse(result.ok);
+    if (result.ok) throw new Error("expected stopped scan");
+    assert.equal(result.code, "stopped");
+    assert.isFalse(progressAllowedAfterStop);
+    assert.isNull(service.getActiveSnapshot());
   });
 
   it("stores stable apply failure codes without raw host error details", async function () {
@@ -1025,6 +1173,7 @@ describe("literature artifact migration", function () {
     assert.isString(first.nextCursor);
     assert.deepEqual(first.summary, {
       total: 28,
+      unfilteredTotal: 28,
       ready: 26,
       reviewRequired: 1,
       blocked: 1,
@@ -1051,6 +1200,21 @@ describe("literature artifact migration", function () {
     );
     const reviewCandidate = second.items[1]!;
     const blockedCandidate = second.items[2]!;
+    for (const issue of reviewCandidate.issues) {
+      const option = issue.options.find(
+        (entry) =>
+          entry.kind === "keep_unresolved" || entry.kind === "accept_recovery",
+      );
+      assert.isOk(option);
+      assert.isTrue(
+        service.resolveCandidateIssue({
+          scanOperationId: preview.operationId,
+          candidateId: reviewCandidate.candidateId,
+          issueId: issue.issueId,
+          optionId: option!.optionId,
+        }).ok,
+      );
+    }
     assert.isTrue(
       service.setCandidateSelection({
         scanOperationId: preview.operationId,
@@ -1082,6 +1246,137 @@ describe("literature artifact migration", function () {
     });
     assert.isTrue(result.ok);
     assert.equal(applied, 27);
+  });
+
+  it("resolves duplicate and linkage issues before approving a candidate", async function () {
+    let appliedReferenceCount = 0;
+    let appliedUnresolvedCount = 0;
+    const service = createLiteratureArtifactMigrationService({
+      host: {
+        scanLibrary: async () => [
+          {
+            libraryId: 1,
+            parentRef: { libraryId: 1, key: "PARENT" },
+            parentTitle: "Needs review",
+            references: [
+              { title: "Same", year: 2024, authors: ["Ada"] },
+              { title: "Same", year: 2024, authors: ["Ada"] },
+            ],
+            citation: { mentions: [{ rawCitation: "Unknown (2020)" }] },
+          },
+        ],
+        applySet: async ({ candidate }) => {
+          appliedReferenceCount =
+            candidate.conversion.references.references.length;
+          appliedUnresolvedCount =
+            candidate.conversion.citation?.unresolved.length || 0;
+          return { outcome: "applied" as const };
+        },
+      },
+      candidateIdFactory: () => "candidate-1",
+    });
+    const preview = await service.scan({ libraryId: 1 });
+    assert.isTrue(preview.ok);
+    if (!preview.ok) throw new Error("expected migration preview");
+    const initial = service.listCandidatePage({ runId: preview.runId });
+    const candidate = initial.items[0]!;
+    assert.equal(candidate.classification, "blocked");
+    assert.equal(candidate.disposition, "pending");
+
+    const duplicate = candidate.issues.find(
+      (issue) => issue.reasonCode === "duplicate_reference",
+    )!;
+    const merged = duplicate.options.find(
+      (option) => option.kind === "merge_duplicates",
+    )!;
+    assert.isTrue(
+      service.resolveCandidateIssue({
+        scanOperationId: preview.operationId,
+        candidateId: candidate.candidateId,
+        issueId: duplicate.issueId,
+        optionId: merged.optionId,
+      }).ok,
+    );
+    const afterDuplicate = service.listCandidatePage({ runId: preview.runId });
+    assert.equal(afterDuplicate.items[0]?.classification, "review_required");
+
+    const linkage = afterDuplicate.items[0]!.issues.find(
+      (issue) => issue.reasonCode === "unresolved_linkage",
+    )!;
+    const preserve = linkage.options.find(
+      (option) => option.kind === "keep_unresolved",
+    )!;
+    assert.isTrue(
+      service.resolveCandidateIssue({
+        scanOperationId: preview.operationId,
+        candidateId: candidate.candidateId,
+        issueId: linkage.issueId,
+        optionId: preserve.optionId,
+      }).ok,
+    );
+    const resolved = service.listCandidatePage({ runId: preview.runId });
+    assert.equal(resolved.items[0]?.classification, "ready");
+    assert.isTrue(
+      service.setCandidateSelection({
+        scanOperationId: preview.operationId,
+        candidateId: candidate.candidateId,
+        selected: true,
+      }).ok,
+    );
+    const result = await service.apply({
+      scanOperationId: preview.operationId,
+    });
+    assert.isTrue(result.ok);
+    assert.equal(appliedReferenceCount, 1);
+    assert.equal(appliedUnresolvedCount, 1);
+  });
+
+  it("filters the complete runtime plan before pagination", async function () {
+    const service = createLiteratureArtifactMigrationService({
+      host: {
+        scanLibrary: async () => [
+          {
+            libraryId: 1,
+            parentRef: { libraryId: 1, key: "READY" },
+            parentTitle: "Ready paper",
+            references: [{ title: "Ready", year: 2024, authors: ["Ada"] }],
+          },
+          {
+            libraryId: 1,
+            parentRef: { libraryId: 1, key: "BLOCKED" },
+            parentTitle: "Blocked paper",
+            filePayloads: [
+              {
+                payloadType: "references-json",
+                value: { items: [{ title: "Blocked" }] },
+              },
+              { payloadType: "future-managed-json", value: {} },
+            ],
+          },
+        ],
+        applySet: async () => ({ outcome: "applied" as const }),
+      },
+    });
+    const preview = await service.scan({ libraryId: 1 });
+    assert.isTrue(preview.ok);
+    if (!preview.ok) throw new Error("expected migration preview");
+    const page = service.listCandidatePage({
+      runId: preview.runId,
+      query: {
+        search: "blocked",
+        classification: "blocked",
+        reasonCode: "unsupported_input",
+        disposition: "pending",
+      },
+    });
+    assert.deepEqual(
+      page.items.map((item) => item.title),
+      ["Blocked paper"],
+    );
+    assert.equal(page.summary.total, 1);
+    assert.equal(page.summary.unfilteredTotal, 2);
+    assert.equal(page.summary.selected, 1);
+    assert.include(page.availableReasons, "unsupported_input");
   });
 
   it("continues every retryable set across durable receipt pages", async function () {
