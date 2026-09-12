@@ -448,7 +448,7 @@ fn historical_topic_path_ids(topic_id: &str) -> Result<Vec<String>, String> {
     Ok(paths)
 }
 
-fn is_current_topic_path_id(path_id: &str) -> bool {
+fn has_current_topic_path_shape(path_id: &str) -> bool {
     let digest = path_id
         .rsplit_once('-')
         .map_or(path_id, |(_, digest)| digest);
@@ -1183,7 +1183,22 @@ impl CanonicalStore {
                 if definition.get("id").and_then(Value::as_str) != Some(topic_id.as_str()) {
                     return Err("canonical_legacy_topic_sources_mismatch".into());
                 }
-                let snapshot = read_topic_snapshot(root, topic_id)?;
+                let ResolvedCurrentTopic { path_id, current } =
+                    resolve_current_topic(root, topic_id)?;
+                let current = if current.exists() {
+                    current
+                } else {
+                    let candidates = historical_topic_path_ids(topic_id)?
+                        .into_iter()
+                        .map(|path_id| root.join("topics").join(path_id).join("current"))
+                        .filter(|current| current.exists())
+                        .collect::<Vec<_>>();
+                    if candidates.len() != 1 {
+                        return Err("canonical_legacy_topic_sources_mismatch".into());
+                    }
+                    candidates.into_iter().next().expect("one legacy candidate")
+                };
+                let snapshot = read_topic_snapshot_at(&current, topic_id, path_id)?;
                 if snapshot.topic_id.as_str() != topic_id
                     || snapshot.manifest.get("topic_id").and_then(Value::as_str)
                         != Some(topic_id.as_str())
@@ -1307,40 +1322,39 @@ impl CanonicalStore {
             if !current.is_dir() {
                 continue;
             }
-            if is_current_topic_path_id(&historical_path_id) {
-                let metadata_path = current.join("metadata.json");
-                if metadata_path.is_file() {
-                    let (metadata, _) = read_json_bytes(&metadata_path)?;
-                    if let Some(topic_id) =
-                        metadata.pointer("/data/topic_id").and_then(Value::as_str)
-                        && canonical_topic_path_id(topic_id)? != historical_path_id
-                    {
-                        return Err("canonical_path_identity_mismatch".into());
-                    }
+            let metadata_path = current.join("metadata.json");
+            let topic_id = if metadata_path.is_file() {
+                let (metadata, _) = read_json_bytes(&metadata_path)?;
+                metadata
+                    .pointer("/data/topic_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            } else {
+                None
+            };
+            let Some(topic_id) = topic_id else {
+                if has_current_topic_path_shape(&historical_path_id) {
+                    continue;
                 }
-                continue;
-            }
-            let (metadata, _) = read_json_bytes(&current.join("metadata.json"))?;
-            let topic_id = metadata
-                .pointer("/data/topic_id")
-                .and_then(Value::as_str)
-                .ok_or_else(|| "canonical_topic_identity_invalid".to_owned())?;
-            let path_id = canonical_topic_path_id(topic_id)?;
+                return Err("canonical_topic_identity_invalid".into());
+            };
+            let path_id = canonical_topic_path_id(&topic_id)?;
             if historical_path_id == path_id {
                 continue;
             }
-            if !historical_topic_path_ids(topic_id)?.contains(&historical_path_id) {
+            if !historical_topic_path_ids(&topic_id)?.contains(&historical_path_id) {
                 return Err("canonical_path_identity_mismatch".into());
             }
-            let snapshot = read_topic_snapshot_at(&current, topic_id, path_id.clone())?;
-            if snapshot.manifest.get("topic_id").and_then(Value::as_str) != Some(topic_id) {
+            let snapshot = read_topic_snapshot_at(&current, &topic_id, path_id.clone())?;
+            if snapshot.manifest.get("topic_id").and_then(Value::as_str) != Some(topic_id.as_str())
+            {
                 return Err("canonical_topic_identity_invalid".into());
             }
             validate_snapshot_representation(&snapshot)?;
             let basis = canonical_topic_view(&snapshot)?.basis;
             let canonical_current = topics_root.join(&path_id).join("current");
             if canonical_current.exists() {
-                let descriptor = descriptor(&canonical_current, topic_id, &path_id)?;
+                let descriptor = descriptor(&canonical_current, &topic_id, &path_id)?;
                 if descriptor["manifestHash"] != basis.manifest_hash
                     || descriptor["artifactHash"] != basis.artifact_hash
                 {
@@ -1354,7 +1368,7 @@ impl CanonicalStore {
                 expected_basis: None,
                 snapshot,
             })?;
-            let descriptor = descriptor(&canonical_current, topic_id, &path_id)?;
+            let descriptor = descriptor(&canonical_current, &topic_id, &path_id)?;
             if descriptor["manifestHash"] != basis.manifest_hash
                 || descriptor["artifactHash"] != basis.artifact_hash
             {
@@ -2384,6 +2398,46 @@ mod tests {
                 .join("topics/63974b299/current/artifact.json")
                 .is_file()
         );
+        store.close().expect("close");
+        fs::remove_dir_all(parent).expect("cleanup");
+    }
+
+    #[test]
+    fn historical_ascii_topic_id_with_sha256_suffix_remains_readable() {
+        let parent = root("legacy-current-shape-topic-path");
+        let production_root = parent.join("data/synthesis");
+        let topic_id = format!("topic-{}", "a".repeat(64));
+        let prepared = prepare_topic(CanonicalTopicDraft {
+            topic_id: topic_id.clone(),
+            manifest: json!({
+                "schema":"topic.manifest.v1",
+                "topic_id":topic_id,
+                "sections":{"summary":{"path":"summary.json"}}
+            }),
+            artifact: json!({"schema":"topic.artifact.v1","title":"Legacy shape"}),
+            metadata: json!({"data":{"topic_id":topic_id}}),
+            sections: BTreeMap::from([("summary".into(), json!({"text":"ready"}))]),
+            markdown: BTreeMap::new(),
+        })
+        .expect("prepare");
+        let current_path_id = prepared.view().path_id.clone();
+        let mut store = CanonicalStore::initialize_production(&production_root, identity())
+            .expect("initialize");
+        store
+            .promote_prepared(prepared.for_promotion(None))
+            .expect("promote");
+        store.close().expect("close");
+        fs::rename(
+            production_root.join("topics").join(&current_path_id),
+            production_root.join("topics").join(&topic_id),
+        )
+        .expect("install historical path");
+
+        let store = CanonicalStore::open_production(&production_root, identity()).expect("open");
+        let CanonicalTopicState::Ready(view) = store.read_topic(&topic_id).expect("read") else {
+            panic!("expected the historical topic to remain readable");
+        };
+        assert_eq!(view.path_id, current_path_id);
         store.close().expect("close");
         fs::remove_dir_all(parent).expect("cleanup");
     }

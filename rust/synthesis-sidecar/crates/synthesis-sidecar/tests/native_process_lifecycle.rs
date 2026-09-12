@@ -627,7 +627,9 @@ fn historical_unicode_topic_path_does_not_block_native_startup() {
         .expect("promote updated topic");
     assert!(
         canonical_root
-            .join("topics/63974b2998633977/current/artifact.json")
+            .join("topics")
+            .join(&canonical_path_id)
+            .join("current/artifact.json")
             .is_file()
     );
     assert!(
