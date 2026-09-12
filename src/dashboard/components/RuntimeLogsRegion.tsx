@@ -7,6 +7,7 @@ import {
   equalBySignature,
   stableRegionSignature,
 } from "../../shared/regionEquality";
+import { CustomMultiSelect } from "../../shared/customSelect";
 import type {
   DashboardActionHandler,
   DashboardHostActionName,
@@ -19,10 +20,10 @@ import type {
 // detail pane.
 //
 // The surface splits into a Preact boundary (toolbar) and imperative islands:
-// - The multi-select dropdowns wrap the legacy window.createMultiSelect
-//   custom-select; they are only rebuilt when the option list changes, and
-//   value-only updates go through setValue, so an open menu is never closed
-//   by a snapshot echo (legacy fast path, app.js:4747).
+// - The multi-select dropdowns are the shared controlled CustomMultiSelect
+//   (src/shared/customSelect.tsx); its apply-on-close draft means value-only
+//   snapshot echoes re-render in place and never close an open menu (legacy
+//   fast path, app.js:4747).
 // - The log table + detail pane are one imperative island reconciled by log
 //   id: unchanged rows keep their DOM nodes, at most 300 rows render, and the
 //   list/detail scroll positions survive snapshot updates (app.js:4731-4795).
@@ -185,72 +186,6 @@ function logLevelBadgeClass(level: string): string {
 
 function formatCopySuccess(template: string, count: number): string {
   return template.replace("{ $count }", String(count));
-}
-
-// ---------------------------------------------------------------------------
-// Multi-select dropdown island (window.createMultiSelect custom-select)
-// ---------------------------------------------------------------------------
-
-type MultiSelectHandle = {
-  element: HTMLElement;
-  setValue?: (values: string[]) => void;
-};
-
-type CreateMultiSelectFn = (
-  options: DashboardRuntimeLogsFilterOption[],
-  values: string[],
-  onChange: (values: string[]) => void,
-  placeholder: string,
-) => MultiSelectHandle;
-
-function createMultiSelectFactory(): CreateMultiSelectFn | null {
-  const host = window as unknown as { createMultiSelect?: unknown };
-  return typeof host.createMultiSelect === "function"
-    ? (host.createMultiSelect as CreateMultiSelectFn)
-    : null;
-}
-
-function MultiSelectIsland(props: {
-  options: DashboardRuntimeLogsFilterOption[];
-  values: string[];
-  placeholder: string;
-  onApply: (values: string[]) => void;
-}) {
-  const hostRef = useRef<HTMLSpanElement | null>(null);
-  const mountedRef = useRef<{
-    optionsSignature: string;
-    valuesSignature: string;
-    handle: MultiSelectHandle;
-  } | null>(null);
-  const applyRef = useRef(props.onApply);
-  applyRef.current = props.onApply;
-
-  const optionsSignature = stableRegionSignature(props.options);
-  const valuesSignature = stableRegionSignature(props.values);
-
-  useLayoutEffect(() => {
-    const host = hostRef.current;
-    if (!host) return;
-    const factory = createMultiSelectFactory();
-    if (!factory) return;
-    const mounted = mountedRef.current;
-    if (!mounted || mounted.optionsSignature !== optionsSignature) {
-      const handle = factory(
-        props.options,
-        props.values,
-        (nextValues) => applyRef.current(nextValues),
-        props.placeholder,
-      );
-      host.replaceChildren();
-      host.appendChild(handle.element);
-      mountedRef.current = { optionsSignature, valuesSignature, handle };
-    } else if (mounted.valuesSignature !== valuesSignature) {
-      mounted.handle.setValue?.(props.values);
-      mountedRef.current = { ...mounted, valuesSignature };
-    }
-  });
-
-  return <span class="logs-filter-multiselect" ref={hostRef} />;
 }
 
 // ---------------------------------------------------------------------------
@@ -820,11 +755,11 @@ export const RuntimeLogsRegion = memo(
                 <span class="logs-filter-label">
                   {selection.filterBackendLabel}
                 </span>
-                <MultiSelectIsland
+                <CustomMultiSelect
                   options={selection.backendOptions}
                   values={selection.selectedBackendIds}
                   placeholder={selection.filterAllLabel}
-                  onApply={(nextValues) =>
+                  onChange={(nextValues) =>
                     sendFilterPatch({
                       backendId:
                         nextValues.length >= selection.backendOptions.length
@@ -840,11 +775,11 @@ export const RuntimeLogsRegion = memo(
                 <span class="logs-filter-label">
                   {selection.filterWorkflowLabel}
                 </span>
-                <MultiSelectIsland
+                <CustomMultiSelect
                   options={selection.workflowOptions}
                   values={selection.selectedWorkflowIds}
                   placeholder={selection.filterAllLabel}
-                  onApply={(nextValues) =>
+                  onChange={(nextValues) =>
                     sendFilterPatch({
                       workflowId:
                         nextValues.length >= selection.workflowOptions.length

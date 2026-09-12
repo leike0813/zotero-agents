@@ -20,14 +20,12 @@ import {
 
 type CapturedAction = { action: string; payload: Record<string, unknown> };
 
-// The surface consumes the same vendor globals as the legacy page: the
-// number-validation contract and the imperative custom-select widget. Load
-// the real vendor sources into each test's jsdom window.
+// The surface consumes the number-validation vendor contract from the page
+// HTML; load the real vendor source into each test's jsdom window. (The
+// custom-select dropdowns are now the shared Preact components in
+// src/shared/customSelect.tsx and need no vendor script.)
 function installDashboardVendorScripts(environment: SidebarDomEnvironment) {
-  const files = [
-    "addon/content/shared/workflow-number-validation.js",
-    "addon/content/components/custom-select.js",
-  ];
+  const files = ["addon/content/shared/workflow-number-validation.js"];
   for (const file of files) {
     const source = readFileSync(
       fileURLToPath(new URL(`../../${file}`, import.meta.url)),
@@ -204,7 +202,7 @@ describe("dashboard WorkflowOptionsRegion (src/dashboard)", function () {
       container.querySelector(
         ".workflow-settings-banner-profile .workflow-settings-banner-profile-select.custom-select",
       ),
-      "editable profile renders the vendor custom select",
+      "editable profile renders the custom select",
     );
 
     const cards = container.querySelectorAll(".workflow-settings-card");
@@ -222,7 +220,7 @@ describe("dashboard WorkflowOptionsRegion (src/dashboard)", function () {
       7,
     );
 
-    // enum-only entry renders as a vendor custom select island.
+    // enum-only entry renders as a custom select.
     assert.ok(fieldRow(container, "mode").querySelector(".custom-select"));
     // number entry: min–max label suffix, numeric class and inputmode.
     const timeoutRow = fieldRow(container, "hard_timeout_seconds");

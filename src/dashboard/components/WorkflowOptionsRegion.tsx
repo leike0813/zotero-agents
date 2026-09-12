@@ -8,6 +8,7 @@ import {
   equalBySignature,
   stableRegionSignature,
 } from "../../shared/regionEquality";
+import { CustomSelect } from "../../shared/customSelect";
 import type {
   DashboardActionHandler,
   DashboardHostActionName,
@@ -200,21 +201,8 @@ type WorkflowNumberFieldsVendor = {
   }): WorkflowNumberFieldValidationContract;
 };
 
-type DashboardCustomSelectHandle = {
-  element: HTMLElement;
-  getValue(): string;
-  setValue(value: string): void;
-};
-
-type DashboardCustomSelectFactory = (
-  options: WorkflowSettingsFieldOption[],
-  currentValue: string,
-  onChange: (value: string) => void,
-) => DashboardCustomSelectHandle;
-
 type DashboardVendorGlobals = {
   zoteroAgentsWorkflowNumberFields?: WorkflowNumberFieldsVendor;
-  createCustomSelect?: DashboardCustomSelectFactory;
 };
 
 function dashboardVendorGlobals(): DashboardVendorGlobals {
@@ -460,10 +448,12 @@ export function workflowOptionsDraftResetKey(
 }
 
 // ---------------------------------------------------------------------------
-// Custom select island: the vendor window.createCustomSelect widget is
-// imperative, so it is mounted inside a display:contents host div that
-// Preact never diffs into. The island rebuilds only when its
-// options/value/classes signature changes.
+// Custom select wrapper: renders the shared controlled CustomSelect
+// (src/shared/customSelect.tsx) with the workflow-settings chrome props.
+// The select value is normalized against the options (first option when the
+// raw value matches none); the normalized value is reported through
+// onMountedValue once per change so the draft picks up the default without
+// emitting, matching the legacy render side effect.
 // ---------------------------------------------------------------------------
 
 export type CustomSelectIslandProps = {
@@ -478,80 +468,43 @@ export type CustomSelectIslandProps = {
   // markCustomSelectDisabled) instead of swapping in a placeholder.
   markDisabled?: boolean;
   onValueChange?: (value: string) => void;
-  // Fired once per island (re)build with the vendor-normalized value; the
-  // legacy renderer writes it back into the draft without emitting a change.
+  // Fired with the option-normalized value at mount and whenever it changes;
+  // the legacy renderer wrote it back into the draft without emitting a
+  // change, and this wrapper keeps that side effect.
   onMountedValue?: (value: string) => void;
 };
 
 export function CustomSelectIsland(props: CustomSelectIslandProps) {
-  const hostRef = useRef<HTMLDivElement | null>(null);
-  const latestRef = useRef(props);
-  latestRef.current = props;
-  const signature = stableRegionSignature([
-    props.options,
-    props.value,
-    props.controlClassName || "",
-    props.controlStyle || "",
-    props.ariaRequired === true,
-    props.controlKey || "",
-    props.markDisabled === true,
-  ]);
+  const options = Array.isArray(props.options) ? props.options : [];
+  const matched = options.find(
+    (option) =>
+      String(option.value) === String(props.value == null ? "" : props.value),
+  );
+  const normalizedValue = String(
+    (matched || options[0] || { value: "" }).value,
+  );
+  const onMountedValueRef = useRef(props.onMountedValue);
+  onMountedValueRef.current = props.onMountedValue;
   useLayoutEffect(() => {
-    const host = hostRef.current;
-    if (!host) {
-      return;
+    if (onMountedValueRef.current) {
+      onMountedValueRef.current(normalizedValue);
     }
-    const factory = dashboardVendorGlobals().createCustomSelect;
-    if (!factory) {
-      return;
-    }
-    const current = latestRef.current;
-    const select = factory(current.options, current.value, (value) => {
-      const next = latestRef.current.onValueChange;
-      if (next) {
-        next(String(value == null ? "" : value));
-      }
-    });
-    const element = select.element;
-    for (const name of String(current.controlClassName || "").split(" ")) {
-      if (name) {
-        element.classList.add(name);
-      }
-    }
-    if (current.controlStyle) {
-      element.style.cssText = current.controlStyle;
-    }
-    if (current.ariaRequired === true) {
-      element.setAttribute("aria-required", "true");
-    }
-    if (current.controlKey) {
-      element.setAttribute(
-        "data-workflow-settings-control-key",
-        current.controlKey,
-      );
-    }
-    if (current.markDisabled === true) {
-      element.classList.add("disabled");
-      element.setAttribute("aria-disabled", "true");
-      const trigger = element.querySelector(".custom-select-trigger");
-      if (trigger) {
-        trigger.setAttribute("aria-disabled", "true");
-        trigger.setAttribute("tabindex", "-1");
-      }
-    }
-    host.appendChild(element);
-    const onMountedValue = latestRef.current.onMountedValue;
-    if (onMountedValue) {
-      onMountedValue(select.getValue());
-    }
-    return () => {
-      if (element.parentNode === host) {
-        host.removeChild(element);
-      }
-    };
-  }, [signature]);
+  }, [normalizedValue]);
   return (
-    <div ref={hostRef} class="custom-select-island" style="display:contents" />
+    <CustomSelect
+      options={options}
+      value={normalizedValue}
+      className={props.controlClassName}
+      style={props.controlStyle}
+      ariaRequired={props.ariaRequired}
+      dataControlKey={props.controlKey}
+      disabled={props.markDisabled}
+      onChange={(value) => {
+        if (props.onValueChange) {
+          props.onValueChange(value);
+        }
+      }}
+    />
   );
 }
 

@@ -21,6 +21,7 @@ type ShardId =
   | "runtime-provider-execution"
   | "runtime-provider-products"
   | "runtime-task-queue"
+  | "shared"
   | "skillrunner-runtime"
   | "skillrunner-surface-release"
   | "synthesis-engine"
@@ -295,6 +296,12 @@ const SHARDS: ShardDefinition[] = [
     label: "UI tests",
     select: (filePath) =>
       filePath.startsWith("tests/ui/") && filePath.endsWith(".test.ts"),
+  },
+  {
+    id: "shared",
+    domain: "ui",
+    label: "Shared page primitives",
+    select: (filePath) => inDirectory(filePath, "shared"),
   },
   {
     id: "workflow-engine",

@@ -10,25 +10,17 @@ import {
 } from "../helpers/sidebarDomEnv";
 import {
   RuntimeLogsRegion,
-  type DashboardRuntimeLogsFilterOption,
   type DashboardRuntimeLogsRow,
   type DashboardRuntimeLogsSelection,
 } from "../../src/dashboard/components/RuntimeLogsRegion";
 
-// The multi-select dropdowns wrap the legacy window.createMultiSelect
-// custom-select (addon/content/components/custom-select.js); tests stub the
-// factory and record creation/setValue/apply calls.
+// The multi-select dropdowns are the shared controlled CustomMultiSelect
+// (src/shared/customSelect.tsx); tests drive the real component DOM: open
+// the menu, toggle checkboxes, close it, and observe the applied patch.
 
-type FakeMultiSelect = {
-  element: HTMLDivElement;
-  options: DashboardRuntimeLogsFilterOption[];
-  values: string[];
-  placeholder: string;
-  setValueCalls: string[][];
-  apply: (values: string[]) => void;
-};
-
-let multiSelects: FakeMultiSelect[];
+async function flushPreactUpdates() {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 function makeRow(
   id: string,
@@ -118,31 +110,6 @@ function setChecked(element: Element, checked: boolean) {
 describe("dashboard RuntimeLogsRegion (src/dashboard)", function () {
   beforeEach(function () {
     installSidebarDomGlobals(createSidebarDomEnvironment());
-    multiSelects = [];
-    (window as unknown as { createMultiSelect: unknown }).createMultiSelect = (
-      options: DashboardRuntimeLogsFilterOption[],
-      values: string[],
-      onChange: (values: string[]) => void,
-      placeholder: string,
-    ) => {
-      const element = document.createElement("div");
-      element.className = "custom-select custom-multi-select";
-      const fake: FakeMultiSelect = {
-        element,
-        options,
-        values: [...values],
-        placeholder,
-        setValueCalls: [],
-        apply: (nextValues) => onChange(nextValues),
-      };
-      multiSelects.push(fake);
-      return {
-        element,
-        setValue: (nextValues: string[]) => {
-          fake.setValueCalls.push([...nextValues]);
-        },
-      };
-    };
   });
 
   afterEach(function () {
@@ -185,19 +152,26 @@ describe("dashboard RuntimeLogsRegion (src/dashboard)", function () {
     assert.isTrue(levelBoxes[2].checked);
     assert.isTrue(levelBoxes[3].checked);
 
-    // Backend/workflow dropdowns are imperative custom-select islands.
-    assert.equal(multiSelects.length, 2);
-    assert.deepEqual(
-      multiSelects[0].options.map((option) => option.value),
-      ["b1", "b2"],
-    );
-    assert.deepEqual(multiSelects[0].values, ["b1", "b2"]);
-    assert.equal(multiSelects[0].placeholder, "All");
-    assert.deepEqual(multiSelects[1].values, ["wf-1"]);
+    // Backend/workflow dropdowns are controlled custom multi-selects.
     const dropdownWraps = region!.querySelectorAll(
       ".logs-filter-wrap .logs-filter-dropdown-wrap .custom-multi-select",
     );
     assert.equal(dropdownWraps.length, 2);
+    // Every option selected renders the "all" placeholder on the trigger.
+    assert.equal(
+      dropdownWraps[0].querySelector(".custom-select-trigger")?.textContent,
+      "All",
+    );
+    assert.equal(
+      dropdownWraps[1].querySelector(".custom-select-trigger")?.textContent,
+      "All",
+    );
+    const backendBoxes = dropdownWraps[0].querySelectorAll<HTMLInputElement>(
+      ".custom-multi-select-option input[type='checkbox']",
+    );
+    assert.equal(backendBoxes.length, 2);
+    assert.isTrue(backendBoxes[0].checked);
+    assert.isTrue(backendBoxes[1].checked);
 
     const diagBox = region!.querySelector<HTMLInputElement>(
       ".logs-filter-diagnostic input[type='checkbox']",
@@ -275,7 +249,7 @@ describe("dashboard RuntimeLogsRegion (src/dashboard)", function () {
     assert.isTrue(buttons[3].disabled);
   });
 
-  it("sends runtime-logs-set-filters patches merged onto the last published filters", function () {
+  it("sends runtime-logs-set-filters patches merged onto the last published filters", async function () {
     const { container, actions } = renderRegion(makeSelection());
     const levelBoxes = container.querySelectorAll(
       ".logs-filter-levels input[type='checkbox']",
@@ -290,10 +264,29 @@ describe("dashboard RuntimeLogsRegion (src/dashboard)", function () {
       },
     ]);
 
-    // Multi-select apply sends the subset; selecting every option clears the
+    // Multi-select apply-on-close: edits while the menu is open stay local,
+    // closing the menu applies the draft. Selecting every option clears the
     // filter (undefined), matching the legacy payload shape.
-    multiSelects[0].apply(["b1"]);
-    multiSelects[1].apply(["wf-1"]);
+    const dropdowns = container.querySelectorAll(
+      ".logs-filter-dropdown-wrap .custom-multi-select",
+    );
+    const backendTrigger = dropdowns[0].querySelector(
+      ".custom-select-trigger",
+    ) as HTMLElement;
+    backendTrigger.click();
+    await flushPreactUpdates();
+    const backendBoxes = dropdowns[0].querySelectorAll(
+      ".custom-multi-select-option input[type='checkbox']",
+    );
+    setChecked(backendBoxes[1], false); // uncheck Backend Two
+    await flushPreactUpdates();
+    assert.equal(
+      actions.length,
+      1,
+      "checkbox edits while open do not emit a patch",
+    );
+    backendTrigger.click();
+    await flushPreactUpdates();
     const backendPatch = actions[1];
     assert.equal(backendPatch.action, "runtime-logs-set-filters");
     const backendFilters = backendPatch.payload.filters as Record<
@@ -301,6 +294,15 @@ describe("dashboard RuntimeLogsRegion (src/dashboard)", function () {
       unknown
     >;
     assert.deepEqual(backendFilters.backendId, ["b1"]);
+
+    // The workflow dropdown applies its (unchanged) full selection on close.
+    const workflowTrigger = dropdowns[1].querySelector(
+      ".custom-select-trigger",
+    ) as HTMLElement;
+    workflowTrigger.click();
+    await flushPreactUpdates();
+    workflowTrigger.click();
+    await flushPreactUpdates();
     const workflowPatch = actions[2];
     const workflowFilters = workflowPatch.payload.filters as Record<
       string,
@@ -583,7 +585,7 @@ describe("dashboard RuntimeLogsRegion (src/dashboard)", function () {
     );
   });
 
-  it("does not rebuild the custom-select islands on value-only updates", function () {
+  it("keeps the multi-select mounted across value-only updates and refreshes options in place", function () {
     const { container, onAction, onToast } = renderRegion(makeSelection());
     const backendElement = container.querySelector(
       ".logs-filter-dropdown-wrap .custom-multi-select",
@@ -597,8 +599,6 @@ describe("dashboard RuntimeLogsRegion (src/dashboard)", function () {
       }),
       container,
     );
-    assert.equal(multiSelects.length, 2, "no dropdown was rebuilt");
-    assert.deepEqual(multiSelects[0].setValueCalls, [["b1"]]);
     assert.strictEqual(
       container.querySelector(
         ".logs-filter-dropdown-wrap .custom-multi-select",
@@ -606,8 +606,13 @@ describe("dashboard RuntimeLogsRegion (src/dashboard)", function () {
       backendElement,
       "custom-select element identity is preserved",
     );
+    assert.equal(
+      backendElement!.querySelector(".custom-select-trigger")?.textContent,
+      "Backend One",
+      "the trigger follows the echoed value",
+    );
 
-    // An option-list change does rebuild the dropdown.
+    // An option-list change updates the rendered options in place.
     render(
       h(RuntimeLogsRegion, {
         selection: makeSelection({
@@ -622,7 +627,11 @@ describe("dashboard RuntimeLogsRegion (src/dashboard)", function () {
       }),
       container,
     );
-    assert.equal(multiSelects.length, 3, "backend dropdown rebuilt once");
+    assert.equal(
+      backendElement!.querySelectorAll(".custom-multi-select-option").length,
+      3,
+      "the new option renders without remounting the dropdown",
+    );
   });
 
   it("carries the detail payload scroll position across a same-entry re-render", function (done) {

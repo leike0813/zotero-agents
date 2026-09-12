@@ -10,6 +10,7 @@
 import { memo } from "preact/compat";
 
 export type { BackendManagerActionEnvelope } from "../../shared/dashboardWireContract";
+import { CustomSelect } from "../../shared/customSelect";
 import { equalBySignature } from "../../shared/regionEquality";
 
 // ---------------------------------------------------------------------------
@@ -277,33 +278,6 @@ function TextField(props: {
           props.onInput((event.target as HTMLInputElement).value)
         }
       />
-    </div>
-  );
-}
-
-function SelectField(props: {
-  className?: string;
-  label: string;
-  value: string;
-  options: Array<{ value: string; label: string }>;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <div class={`backend-field ${props.className || ""}`}>
-      <label>{props.label}</label>
-      <select
-        class="backend-select"
-        value={props.value || ""}
-        onChange={(event) =>
-          props.onChange((event.target as HTMLSelectElement).value)
-        }
-      >
-        {props.options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
     </div>
   );
 }
@@ -664,19 +638,20 @@ function HttpRow(props: {
             }
           />
         ) : null}
-        <SelectField
-          className="backend-field-auth"
-          label={labelText(labels, "auth", "Auth")}
-          value={row.authKind}
-          options={[
-            { value: "none", label: labelText(labels, "authNone", "None") },
-            {
-              value: "bearer",
-              label: labelText(labels, "authBearer", "Bearer"),
-            },
-          ]}
-          onChange={(value) => handlers.patchRow(index, { authKind: value })}
-        />
+        <div class="backend-field backend-field-auth">
+          <label>{labelText(labels, "auth", "Auth")}</label>
+          <CustomSelect
+            value={row.authKind}
+            options={[
+              { value: "none", label: labelText(labels, "authNone", "None") },
+              {
+                value: "bearer",
+                label: labelText(labels, "authBearer", "Bearer"),
+              },
+            ]}
+            onChange={(value) => handlers.patchRow(index, { authKind: value })}
+          />
+        </div>
         <TokenField
           label={labelText(labels, "token", "Token")}
           value={row.authToken}
