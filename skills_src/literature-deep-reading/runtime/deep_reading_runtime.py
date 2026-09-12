@@ -1197,12 +1197,13 @@ def parse_markdown(markdown: str) -> tuple[list[dict[str, Any]], list[dict[str, 
             start = i
             collected = [raw]
             i += 1
-            while i < len(lines):
-                collected.append(lines[i])
-                if lines[i].strip().endswith("$$"):
+            if not (stripped != "$$" and stripped.endswith("$$")):
+                while i < len(lines):
+                    collected.append(lines[i])
+                    if lines[i].strip().endswith("$$"):
+                        i += 1
+                        break
                     i += 1
-                    break
-                i += 1
             source = "\n".join(collected)
             match = DISPLAY_MATH_RE.search(source)
             add_block("formula", source, current_anchor, start + 1, i, {"latex": match.group(1).strip() if match else source.strip().strip("$").strip()})

@@ -231,14 +231,12 @@ export function canonicalSynthesisTopicPathId(topicId: string) {
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 80);
-  return (
-    slug ||
-    hashSynthesisEngineCanonicalJson({ topic_id: identity }).slice(
-      "sha256:".length,
-      "sha256:".length + 16,
-    )
-  );
+    .slice(0, 15)
+    .replace(/-+$/g, "");
+  const digest = hashSynthesisEngineCanonicalJson({
+    topic_id: identity,
+  }).slice("sha256:".length);
+  return slug ? `${slug}-${digest}` : digest;
 }
 
 export function canonicalSynthesisTopicSectionFileName(section: string) {

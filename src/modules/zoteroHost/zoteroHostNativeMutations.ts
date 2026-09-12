@@ -2,8 +2,11 @@ import {
   copyRuntimeFile,
   ensureRuntimeDirectory,
   getRuntimePersistencePaths,
+  listRuntimeChildren,
   moveRuntimePath,
   readRuntimeBytes,
+  readRuntimeTextFile,
+  replacePrivateRuntimeTextFileAtomically,
   removeRuntimePath,
   runtimePathExists,
   scanRuntimeTree,
@@ -42,6 +45,116 @@ type NativeAttachmentFailure = Error & {
   cleanupErrors?: unknown[];
   nativeAttachmentFailureStatus?: NativeAttachmentFailureStatus;
 };
+
+type StoredAttachmentReplacementJournal = {
+  schema: "zotero-agents.stored-attachment-replacement.v1";
+  operationId: string;
+  libraryId: number;
+  attachmentKey: string;
+  storageRoot: string;
+  backupRoot: string;
+  stagingRoot: string;
+  oldFilename: string;
+  oldContentType: string;
+  newFilename: string;
+  newContentType: string;
+  oldDigest: string;
+  newDigest: string;
+  phase: "prepared" | "old_backed_up" | "new_promoted" | "metadata_committed";
+};
+
+const ATTACHMENT_REPLACEMENT_JOURNAL_SCHEMA =
+  "zotero-agents.stored-attachment-replacement.v1" as const;
+let attachmentReplacementTail = Promise.resolve();
+
+function serializeAttachmentReplacement<T>(work: () => Promise<T>) {
+  // ponytail: one global lock; split by attachment only if replacement throughput matters.
+  const result = attachmentReplacementTail.catch(() => undefined).then(work);
+  attachmentReplacementTail = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
+function replacementJournalDirectory() {
+  return joinPath(
+    getRuntimePersistencePaths().stateDir,
+    "stored-attachment-replacements",
+  );
+}
+
+async function replacementJournalPath(operationId: string) {
+  const digest = await sha256Hex(new TextEncoder().encode(operationId));
+  if (!digest) throw new Error("SHA-256 is unavailable");
+  return joinPath(replacementJournalDirectory(), `${digest}.json`);
+}
+
+async function writeReplacementJournal(
+  path: string,
+  journal: StoredAttachmentReplacementJournal,
+) {
+  await ensureRuntimeDirectory(replacementJournalDirectory());
+  await replacePrivateRuntimeTextFileAtomically(
+    path,
+    `${JSON.stringify(journal)}\n`,
+  );
+}
+
+function assertReplacementJournal(
+  value: unknown,
+): asserts value is StoredAttachmentReplacementJournal {
+  const journal = value as Partial<StoredAttachmentReplacementJournal> | null;
+  const strings = [
+    journal?.operationId,
+    journal?.attachmentKey,
+    journal?.storageRoot,
+    journal?.backupRoot,
+    journal?.stagingRoot,
+    journal?.oldFilename,
+    journal?.oldContentType,
+    journal?.newFilename,
+    journal?.newContentType,
+    journal?.oldDigest,
+    journal?.newDigest,
+  ];
+  if (
+    !journal ||
+    journal.schema !== ATTACHMENT_REPLACEMENT_JOURNAL_SCHEMA ||
+    !Number.isSafeInteger(journal.libraryId) ||
+    Number(journal.libraryId) <= 0 ||
+    strings.some((entry) => typeof entry !== "string") ||
+    !/^[a-f0-9]{64}$/.test(String(journal.oldDigest)) ||
+    !/^[a-f0-9]{64}$/.test(String(journal.newDigest)) ||
+    ![
+      "prepared",
+      "old_backed_up",
+      "new_promoted",
+      "metadata_committed",
+    ].includes(String(journal.phase))
+  ) {
+    throw new Error(
+      "repair_required: attachment replacement journal is invalid",
+    );
+  }
+  const normalized = (path: string) =>
+    path.replace(/\\/g, "/").replace(/\/+$/g, "");
+  const storageRoot = normalized(journal.storageRoot!);
+  const backupRoot = normalized(journal.backupRoot!);
+  const stagingRoot = normalized(journal.stagingRoot!);
+  const tmpRoot = normalized(
+    joinPath(getRuntimePersistencePaths().tmpDir, "workflow-attachment-import"),
+  );
+  if (
+    !storageRoot ||
+    !backupRoot.startsWith(`${storageRoot}.replace-backup-`) ||
+    !stagingRoot.startsWith(`${tmpRoot}/`)
+  ) {
+    throw new Error(
+      "repair_required: attachment replacement paths are invalid",
+    );
+  }
+}
 
 function nativeFailure(error: unknown, status: NativeAttachmentFailureStatus) {
   const failure: NativeAttachmentFailure =
@@ -366,6 +479,18 @@ async function importStoredAttachment(args: {
 }
 
 async function replaceStoredAttachment(args: {
+  operationId: string;
+  prepared: ResolvedPreparedStoredAttachment;
+  attachment: Zotero.Item;
+  admit: ZoteroNativeAdmission;
+}) {
+  return serializeAttachmentReplacement(() =>
+    replaceStoredAttachmentOnce(args),
+  );
+}
+
+async function replaceStoredAttachmentOnce(args: {
+  operationId: string;
   prepared: ResolvedPreparedStoredAttachment;
   attachment: Zotero.Item;
   admit: ZoteroNativeAdmission;
@@ -407,10 +532,9 @@ async function replaceStoredAttachment(args: {
     }
     throw primaryError;
   }
-  if (
-    (await fileSetDigest(args.prepared.stagingDirectory)) ===
-    (await fileSetDigest(storageRoot))
-  ) {
+  const newDigest = await fileSetDigest(args.prepared.stagingDirectory);
+  const oldDigest = await fileSetDigest(storageRoot);
+  if (newDigest === oldDigest) {
     try {
       await args.prepared.cleanup();
     } catch (error) {
@@ -420,17 +544,56 @@ async function replaceStoredAttachment(args: {
   }
 
   const backupRoot = storageRoot + ".replace-backup-" + Date.now().toString(36);
+  const storedAttachment = args.attachment as Zotero.Item & {
+    attachmentFilename: string;
+    attachmentContentType: string;
+  };
+  const oldFilename = String(storedAttachment.attachmentFilename || "");
+  const oldContentType = String(storedAttachment.attachmentContentType || "");
+  const newFilename = args.prepared.snapshot.main.relativePath;
+  const newContentType = derivedMimeType(newFilename);
+  const journalPath = await replacementJournalPath(args.operationId);
+  const journal: StoredAttachmentReplacementJournal = {
+    schema: ATTACHMENT_REPLACEMENT_JOURNAL_SCHEMA,
+    operationId: args.operationId,
+    libraryId: Number(args.attachment.libraryID),
+    attachmentKey: String(args.attachment.key || ""),
+    storageRoot,
+    backupRoot,
+    stagingRoot: args.prepared.stagingDirectory,
+    oldFilename,
+    oldContentType,
+    newFilename,
+    newContentType,
+    oldDigest,
+    newDigest,
+    phase: "prepared",
+  };
+  try {
+    await writeReplacementJournal(journalPath, journal);
+  } catch (error) {
+    try {
+      await args.prepared.cleanup();
+    } catch (cleanupError) {
+      throw attachCleanupFailure(error, cleanupError);
+    }
+    throw nativeFailure(error, "failed");
+  }
   let oldMoved = false;
   let newMoved = false;
   try {
     await args.admit(() => undefined, "effect");
     await moveRuntimePath({ sourcePath: storageRoot, targetPath: backupRoot });
     oldMoved = true;
+    journal.phase = "old_backed_up";
+    await writeReplacementJournal(journalPath, journal);
     await moveRuntimePath({
       sourcePath: args.prepared.stagingDirectory,
       targetPath: storageRoot,
     });
     newMoved = true;
+    journal.phase = "new_promoted";
+    await writeReplacementJournal(journalPath, journal);
   } catch (error) {
     let primaryError = nativeFailure(error, "failed");
     try {
@@ -441,6 +604,7 @@ async function replaceStoredAttachment(args: {
         });
       }
       await args.prepared.cleanup();
+      await removeRuntimePath(journalPath);
     } catch (cleanupError) {
       primaryError = attachCleanupFailure(
         primaryError,
@@ -451,21 +615,14 @@ async function replaceStoredAttachment(args: {
     throw primaryError;
   }
 
-  const storedAttachment = args.attachment as Zotero.Item & {
-    attachmentFilename: string;
-    attachmentContentType: string;
-  };
-  const oldFilename = String(storedAttachment.attachmentFilename || "");
-  const oldContentType = String(storedAttachment.attachmentContentType || "");
   try {
     await args.admit(async () => {
-      storedAttachment.attachmentFilename =
-        args.prepared.snapshot.main.relativePath;
-      storedAttachment.attachmentContentType = derivedMimeType(
-        args.prepared.snapshot.main.relativePath,
-      );
+      storedAttachment.attachmentFilename = newFilename;
+      storedAttachment.attachmentContentType = newContentType;
       await args.attachment.saveTx();
     }, "effect");
+    journal.phase = "metadata_committed";
+    await writeReplacementJournal(journalPath, journal);
   } catch (error) {
     let primaryError = nativeFailure(error, "failed");
     try {
@@ -483,6 +640,7 @@ async function replaceStoredAttachment(args: {
         await args.attachment.saveTx();
       }, "effect");
       await args.prepared.cleanup();
+      await removeRuntimePath(journalPath);
     } catch (cleanupError) {
       primaryError = attachCleanupFailure(
         primaryError,
@@ -499,6 +657,7 @@ async function replaceStoredAttachment(args: {
     if (removed === false) {
       throw new Error("Managed attachment backup remains");
     }
+    await removeRuntimePath(journalPath);
   } catch (error) {
     const primaryError = nativeFailure(
       "Managed attachment backup cleanup failed",
@@ -507,6 +666,124 @@ async function replaceStoredAttachment(args: {
     throw attachCleanupFailure(primaryError, error, "repair_required");
   }
   return args.attachment;
+}
+
+async function recoverStoredAttachmentReplacement(journalPath: string) {
+  let journal: unknown;
+  try {
+    journal = JSON.parse(await readRuntimeTextFile(journalPath));
+  } catch {
+    throw new Error(
+      "repair_required: attachment replacement journal is invalid",
+    );
+  }
+  assertReplacementJournal(journal);
+  if (journal.schema !== ATTACHMENT_REPLACEMENT_JOURNAL_SCHEMA) {
+    throw new Error(
+      "repair_required: attachment replacement journal is unsupported",
+    );
+  }
+  const attachment = Zotero.Items.getByLibraryAndKey(
+    journal.libraryId,
+    journal.attachmentKey,
+  ) as
+    | (Zotero.Item & {
+        attachmentFilename?: string;
+        attachmentContentType?: string;
+      })
+    | undefined;
+  if (!attachment) {
+    throw new Error("repair_required: replacement attachment is unavailable");
+  }
+  const filename = String(attachment.attachmentFilename || "");
+  const contentType = String(attachment.attachmentContentType || "");
+  const metadataIsOld =
+    filename === journal.oldFilename && contentType === journal.oldContentType;
+  const metadataIsNew =
+    filename === journal.newFilename && contentType === journal.newContentType;
+  const storageExists = await runtimePathExists(journal.storageRoot);
+  const backupExists = await runtimePathExists(journal.backupRoot);
+  const stagingExists = await runtimePathExists(journal.stagingRoot);
+  const storageDigest = storageExists
+    ? await fileSetDigest(journal.storageRoot)
+    : "";
+  const backupDigest = backupExists
+    ? await fileSetDigest(journal.backupRoot)
+    : "";
+  const stagingDigest = stagingExists
+    ? await fileSetDigest(journal.stagingRoot)
+    : "";
+
+  if (
+    metadataIsNew &&
+    (storageDigest === journal.newDigest ||
+      (!storageExists && stagingDigest === journal.newDigest))
+  ) {
+    if (!storageExists) {
+      await moveRuntimePath({
+        sourcePath: journal.stagingRoot,
+        targetPath: journal.storageRoot,
+      });
+    }
+    if ((await fileSetDigest(journal.storageRoot)) !== journal.newDigest) {
+      throw new Error(
+        "repair_required: promoted attachment content is invalid",
+      );
+    }
+    await removeRuntimePath(journal.backupRoot);
+    await removeRuntimePath(journal.stagingRoot);
+    await removeRuntimePath(journalPath);
+    return;
+  }
+
+  if (metadataIsOld && !backupExists && storageDigest === journal.oldDigest) {
+    await removeRuntimePath(journal.stagingRoot);
+    await removeRuntimePath(journalPath);
+    return;
+  }
+
+  if (
+    metadataIsOld &&
+    !metadataIsNew &&
+    backupDigest === journal.oldDigest &&
+    (!storageExists || storageDigest === journal.newDigest)
+  ) {
+    if (storageExists) {
+      if (stagingExists) {
+        throw new Error(
+          "repair_required: attachment replacement staging is ambiguous",
+        );
+      }
+      await moveRuntimePath({
+        sourcePath: journal.storageRoot,
+        targetPath: journal.stagingRoot,
+      });
+    }
+    await moveRuntimePath({
+      sourcePath: journal.backupRoot,
+      targetPath: journal.storageRoot,
+    });
+    if ((await fileSetDigest(journal.storageRoot)) !== journal.oldDigest) {
+      throw new Error(
+        "repair_required: restored attachment content is invalid",
+      );
+    }
+    await removeRuntimePath(journal.stagingRoot);
+    await removeRuntimePath(journalPath);
+    return;
+  }
+
+  throw new Error("repair_required: attachment replacement state is ambiguous");
+}
+
+export async function recoverStoredAttachmentReplacements() {
+  return serializeAttachmentReplacement(async () => {
+    const directory = replacementJournalDirectory();
+    for (const journalPath of await listRuntimeChildren(directory)) {
+      if (!journalPath.endsWith(".json")) continue;
+      await recoverStoredAttachmentReplacement(journalPath);
+    }
+  });
 }
 
 export const nativeMutations = Object.freeze({

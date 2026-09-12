@@ -72,19 +72,20 @@ must not be confused with the persistence-root `state/` directory.
 
 ### Topic canonical directory identity
 
-`topicPathId` is derived identically by TypeScript and Rust. Existing ASCII slug
-normalization is preserved and capped at 80 characters. If normalization produces
-an empty slug, the path is the first 16 lowercase hexadecimal characters of the
-SHA-256 of canonical JSON `{"topic_id": <topicId>}` after removing the
-`sha256:` prefix.
+`topicPathId` is derived identically by TypeScript and Rust from the SHA-256 of
+canonical JSON `{"topic_id": <topicId>}`. A non-empty lowercase ASCII slug is
+capped at 15 characters and followed by `-` plus the complete 64-character
+lowercase digest. A Topic ID without a slug uses the complete digest alone. The
+result is therefore identity-bearing and remains at most 80 characters.
 
-Profiles written by the historical TypeScript implementation may contain a
-9-character hash directory caused by its old fallback slice bounds. The canonical
-store may read that exact legacy directory when the current 16-character directory
-is absent, after validating Topic identity and snapshot hashes. New promotions always
-write the 16-character directory. Legacy bytes are not deleted or rewritten by
-startup compatibility handling, and an existing invalid current directory does not
-fall back to the legacy directory.
+Repository foundation v6 rewrites active, deleted-artifact, and concept-review
+Topic path fields to this formula. While the production lock is held, canonical
+startup also discovers directories produced by the previous 80-character slug,
+16-character hash, and historical 9-character TypeScript hash formulas. It
+validates the embedded Topic identity and snapshot basis, promotes and verifies
+the snapshot under the v2 path through the canonical transaction machinery, and
+keeps the historical bytes as recovery evidence. Conflicting or invalid current
+content fails startup; normal reads use only the v2 path after startup succeeds.
 
 `runtime/synthesis/service-runtime` is owned exclusively by the XPI runtime
 installer. Native manifest v3 binds the complete Rust file inventory,
@@ -95,7 +96,7 @@ are inert and remain untouched.
 The launch config directly supplies `state/synthesis.db`,
 `data/synthesis`, reverse Host, and session identity. Rust holds the production
 OS lock before opening either root. Marker, receipt, admission, activation, and
-lease files are not runtime inputs. The production repository foundation v5 has
+lease files are not runtime inputs. The production repository foundation v6 has
 62 tables and 51 indexes. One serialized writer owns mutation transactions and
 at most four read-only connections serve bounded reads while external Host,
 file, network, and worker work remains outside write transactions. Shutdown

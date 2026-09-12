@@ -126,6 +126,12 @@ async function makeSourceBundle(
       "a = b + c",
       "$$",
       "",
+      "$$x^2$$",
+      "",
+      "## Formula boundary",
+      "",
+      "Text after one-line display math.",
+      "",
       "<table><tr><td>Metric</td><td>Value</td></tr><tr><td>AP</td><td>$42 \\pm 1$</td></tr></table>",
       "",
       "Table 1. Main metric results.",
@@ -1287,6 +1293,7 @@ describe("Literature deep reading bootstrap skill", function () {
       await collectFileMap(skillB),
     );
     const generated = await collectFileMap(skillA);
+    assert.deepEqual(generated, await collectFileMap(skillRoot));
     assert.notInclude(
       generated["scripts/deep_reading_runtime.py"],
       "skills_src",
@@ -1395,6 +1402,19 @@ describe("Literature deep reading bootstrap skill", function () {
     assert.isTrue(
       blocks.blocks.some(
         (block: Record<string, unknown>) => block.kind === "formula",
+      ),
+    );
+    assert.isTrue(
+      blocks.blocks.some(
+        (block: Record<string, unknown>) =>
+          block.kind === "formula" && block.latex === "x^2",
+      ),
+    );
+    assert.isTrue(
+      blocks.blocks.some(
+        (block: Record<string, unknown>) =>
+          block.kind === "heading" &&
+          String(block.source_markdown).includes("Formula boundary"),
       ),
     );
     const imageBlock = blocks.blocks.find(

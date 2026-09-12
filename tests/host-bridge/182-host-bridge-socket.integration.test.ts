@@ -30,6 +30,7 @@ class FakeAsyncInputStream {
   private callback: any = null;
   waitCount = 0;
   closeCount = 0;
+  readBytes = 0;
 
   asyncWait(callback: any) {
     this.callback = callback;
@@ -45,8 +46,13 @@ class FakeAsyncInputStream {
 
   readByteArray(length: number) {
     const chunk = this.chunks.shift() || new Uint8Array();
-    assert.equal(chunk.byteLength, length);
-    return Array.from(chunk);
+    assert.isAtMost(length, chunk.byteLength);
+    const result = chunk.subarray(0, length);
+    if (length < chunk.byteLength) {
+      this.chunks.unshift(chunk.subarray(length));
+    }
+    this.readBytes += result.byteLength;
+    return Array.from(result);
   }
 
   push(bytes: Uint8Array) {
@@ -330,6 +336,48 @@ describe("host bridge socket lifecycle", function () {
         delete runtime.AbortController;
       }
     }
+  });
+
+  it("rejects unauthorized requests before consuming their declared body", async function () {
+    setPref("hostBridgeToken", "expected-token");
+    await restartHostBridgeServer();
+    const transport = new FakeTransport();
+    listeners[0].onSocketAccepted(null, transport);
+    transport.input.push(
+      rawRequest({
+        method: "POST",
+        path: "/bridge/v2/call",
+        body: new Uint8Array(64 * 1024),
+        headers: [
+          `Content-Length: ${64 * 1024}`,
+          "Authorization: Bearer invalid-token",
+        ],
+      }),
+    );
+
+    await waitUntil(() => transport.output.closeCount === 1);
+    assert.match(transport.output.text(), /^HTTP\/1\.1 401 /);
+    assert.isAtMost(transport.input.readBytes, 4 * 1024);
+  });
+
+  it("closes connections accepted beyond the fixed capacity", async function () {
+    await restartHostBridgeServer();
+    const capacity =
+      hostBridgeServerInternalsForTests.constants.MAX_ACCEPTED_CONNECTIONS;
+    const transports = Array.from(
+      { length: capacity + 1 },
+      () => new FakeTransport(),
+    );
+    for (const transport of transports) {
+      listeners[0].onSocketAccepted(null, transport);
+    }
+
+    assert.equal(
+      hostBridgeServerInternalsForTests.getAcceptedConnectionCount(),
+      capacity,
+    );
+    assert.equal(transports.at(-1)?.closeCount, 1);
+    assert.equal(transports.at(-1)?.input.waitCount, 0);
   });
 
   it("cleans a partial accept failure and serves the next connection", async function () {

@@ -115,6 +115,7 @@ import { initializeWorkflowProductStorage } from "./modules/workflow/catalog/wor
 import { shutdownAcpWebSocketBridgeService } from "./modules/acp/transport/acpWebSocketBridgeService";
 import { reconcileAcpSkillRunWorkflowTasksOnStartup } from "./modules/acp/skillRun/acpSkillRunStore";
 import { getRuntimePersistencePaths } from "./modules/runtimePersistence";
+import { recoverStoredAttachmentReplacements } from "./modules/zoteroHost/zoteroHostNativeMutations";
 import { shutdownRuntimeFileRangeReader } from "./modules/runtimeFileRangeReader";
 import {
   cleanupRuntimePersistenceCategory,
@@ -812,6 +813,7 @@ async function onStartup() {
     Zotero.uiReadyPromise,
   ]);
   await initializeRuntimeLogsPersistence();
+  await recoverStoredAttachmentReplacements();
 
   initLocale();
   installWorkflowEditorHostBridge();

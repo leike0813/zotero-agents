@@ -4,8 +4,10 @@ import { executeOneShotSubprocess } from "../platform/subprocess";
 import {
   ensureRuntimeDirectoryStrict,
   readRuntimeTextFileStrict,
+  removeRuntimePath,
   resolveRuntimeTemporaryDirectory,
 } from "../modules/runtimePersistence";
+import { WORKFLOW_ARCHIVE_LIMITS } from "./archive";
 
 function hasZoteroZipRuntime() {
   const runtime = globalThis as {
@@ -76,9 +78,11 @@ export class ZipBundleReader {
       const zipReader = runtime.Cc["@mozilla.org/libjar/zip-reader;1"].createInstance(
         runtime.Ci.nsIZipReader,
       );
-      zipReader.open(runtime.Zotero.File.pathToFile(this.bundlePath));
       try {
+        zipReader.open(runtime.Zotero.File.pathToFile(this.bundlePath));
         const entries = zipReader.findEntries(null);
+        const entryNames: string[] = [];
+        let totalBytes = 0;
         while (entries.hasMore()) {
           const rawEntryName = entries.getNext();
           const entryName = String(
@@ -89,6 +93,33 @@ export class ZipBundleReader {
           if (!entryName) {
             continue;
           }
+          const segments = safeZipEntrySegments(entryName);
+          entryNames.push(entryName);
+          if (entryNames.length > WORKFLOW_ARCHIVE_LIMITS.entries) {
+            throw new Error("Workflow bundle contains too many entries");
+          }
+          if (
+            entryName.length > WORKFLOW_ARCHIVE_LIMITS.entryNameLength ||
+            segments.length > WORKFLOW_ARCHIVE_LIMITS.depth
+          ) {
+            throw new Error(`Workflow bundle entry path exceeds limits: ${entryName}`);
+          }
+          if (!entryName.endsWith("/")) {
+            const entryBytes = Number(zipReader.getEntry(entryName)?.realSize);
+            if (
+              !Number.isSafeInteger(entryBytes) ||
+              entryBytes < 0 ||
+              entryBytes > WORKFLOW_ARCHIVE_LIMITS.entryBytes
+            ) {
+              throw new Error(`Workflow bundle entry size exceeds limits: ${entryName}`);
+            }
+            totalBytes += entryBytes;
+            if (totalBytes > WORKFLOW_ARCHIVE_LIMITS.totalBytes) {
+              throw new Error("Workflow bundle total size exceeds limits");
+            }
+          }
+        }
+        for (const entryName of entryNames) {
           const segments = safeZipEntrySegments(entryName);
           const targetPath = joinPath(extractedDir, ...segments);
           if (entryName.endsWith("/")) {
@@ -103,6 +134,9 @@ export class ZipBundleReader {
           }
           zipReader.extract(entryName, runtime.Zotero.File.pathToFile(targetPath));
         }
+      } catch (error) {
+        await removeRuntimePath(extractedDir);
+        throw error;
       } finally {
         zipReader.close();
       }

@@ -1190,6 +1190,76 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
     );
   });
 
+  it("drains work queued while an explicit flush is in flight", async function () {
+    let reads = 0;
+    let blockFirstRead = false;
+    let markFirstReadStarted = () => undefined;
+    const firstReadStarted = new Promise<void>((resolve) => {
+      markFirstReadStarted = resolve;
+    });
+    let releaseFirstRead = () => undefined;
+    const firstRead = new Promise<void>((resolve) => {
+      releaseFirstRead = resolve;
+    });
+    const adapter = defineAssistantWorkspacePublicationAdapter({
+      source: "acp-chat" as const,
+      supportedKinds: expectedKinds,
+      selectedOwner: () => chatOwner,
+      mapChange: () => ({
+        owner: chatOwner,
+        targetsActiveOwner: true,
+        publicationKinds: ["owner-control"] as const,
+      }),
+      readOwnerNavigation: async () => chatNavigation,
+      readOwnerRegions: async () => {
+        reads += 1;
+        if (blockFirstRead && reads === 1) {
+          markFirstReadStarted();
+          await firstRead;
+        }
+        return {};
+      },
+      readTranscriptPage: async () => chatTranscript,
+    });
+    const coordinator = new AssistantWorkspacePublicationCoordinator({
+      scopeKey: "in-flight-tail",
+      getActiveOwner: () => chatOwner,
+      post: (publication) => {
+        if (
+          publication.publicationKind === "transcript" &&
+          (publication.payload as { status?: string }).status === "loading"
+        ) {
+          queueMicrotask(() =>
+            coordinator.acknowledge({
+              publicationId: publication.publicationId,
+              stage: "render-complete",
+              outcome: "accepted",
+              reason: null,
+              failure: null,
+            }),
+          );
+        }
+        return true;
+      },
+    });
+    const runtime = new AssistantWorkspacePublicationRuntime({
+      coordinator,
+      activity: () => "matching-target",
+    });
+
+    await runtime.initialize({ adapter, context: {}, cause: "activation" });
+    reads = 0;
+    blockFirstRead = true;
+    runtime.schedule({ adapter, change: {}, context: {} });
+    const flush = runtime.flush();
+    await firstReadStarted;
+    runtime.schedule({ adapter, change: {}, context: {} });
+    releaseFirstRead();
+    await flush;
+
+    assert.equal(reads, 2);
+  });
+
   it("keeps diagnostic-only owner presentation reads out of transcript and other managed regions", async function () {
     const owner = chatOwner;
     const posts: AssistantWorkspacePublication[] = [];

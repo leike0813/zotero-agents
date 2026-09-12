@@ -1,16 +1,14 @@
 from __future__ import annotations
 
 import json
-import shutil
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 from .skill import SkillManifest, load_schema
 
 
 WARNING_OUTPUT_ARTIFACT_PATH_REWRITTEN = "OUTPUT_ARTIFACT_PATH_REWRITTEN"
-WARNING_OUTPUT_ARTIFACT_MOVED_INSIDE_RUN_DIR = "OUTPUT_ARTIFACT_MOVED_INSIDE_RUN_DIR"
 WARNING_OUTPUT_ARTIFACT_PATH_INVALID = "OUTPUT_ARTIFACT_PATH_INVALID"
 WARNING_OUTPUT_ARTIFACT_PATH_MISSING = "OUTPUT_ARTIFACT_PATH_MISSING"
 WARNING_OUTPUT_ARTIFACT_MANIFEST_PATH_REWRITTEN = (
@@ -74,11 +72,11 @@ def resolve_output_artifact_paths(
             continue
         resolved = source_path.resolve()
         if not _is_relative_to(resolved, root):
-            target = run_dir / "artifacts" / field.name / resolved.name
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(resolved), str(target))
-            resolved = target.resolve()
-            _append_unique(warnings, WARNING_OUTPUT_ARTIFACT_MOVED_INSIDE_RUN_DIR)
+            updated.pop(field.name, None)
+            _append_unique(warnings, WARNING_OUTPUT_ARTIFACT_PATH_INVALID)
+            if field.required:
+                missing.append(field.name)
+            continue
         rel = resolved.relative_to(root).as_posix()
         if updated.get(field.name) != rel:
             updated[field.name] = rel
@@ -237,7 +235,10 @@ def _expand_artifact_manifest(*, run_dir: Path, manifest_path: Path) -> dict[str
 
 
 def _resolve_run_local_path(*, run_dir: Path, raw_path: str) -> Path:
-    candidate = Path(raw_path.strip())
+    value = raw_path.strip()
+    if PureWindowsPath(value).is_absolute() and not Path(value).is_absolute():
+        raise ValueError("invalid path")
+    candidate = Path(value)
     if candidate.is_absolute():
         return candidate.resolve()
     normalized = PurePosixPath(raw_path.strip().replace("\\", "/"))
@@ -257,4 +258,3 @@ def _is_relative_to(path: Path, parent: Path) -> bool:
 def _append_unique(values: list[str], code: str) -> None:
     if code not in values:
         values.append(code)
-

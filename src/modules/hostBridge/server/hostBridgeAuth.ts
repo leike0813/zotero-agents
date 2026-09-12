@@ -138,14 +138,17 @@ function getOrCreateMasterKeyMaterial() {
   return material;
 }
 
-async function deriveMasterTokenKey(salt: Uint8Array) {
+async function deriveMasterTokenKey(
+  salt: Uint8Array,
+  keyMaterial = getOrCreateMasterKeyMaterial(),
+) {
   const crypto = cryptoLike();
   if (!crypto?.subtle || !crypto.getRandomValues) {
     throw new Error("WebCrypto AES-GCM is unavailable");
   }
   const material = await crypto.subtle.importKey(
     "raw",
-    textEncoder().encode(getOrCreateMasterKeyMaterial()),
+    textEncoder().encode(keyMaterial),
     "PBKDF2",
     false,
     ["deriveKey"],
@@ -226,6 +229,13 @@ export async function rotateHostBridgeMasterToken() {
   };
 }
 
+let masterTokenReadCache:
+  | {
+      key: string;
+      result: Promise<HostBridgeMasterTokenReadResult>;
+    }
+  | undefined;
+
 export async function readHostBridgeMasterToken(): Promise<HostBridgeMasterTokenReadResult> {
   const raw = String(
     getPref("hostBridgeMasterTokenEncryptedJson") || "",
@@ -245,37 +255,51 @@ export async function readHostBridgeMasterToken(): Promise<HostBridgeMasterToken
       message: "WebCrypto AES-GCM is unavailable.",
     };
   }
-  try {
-    const envelope = JSON.parse(raw) as HostBridgeMasterTokenEnvelope;
-    if (
-      envelope.schema_id !== MASTER_TOKEN_SCHEMA_ID ||
-      envelope.schema_version !== MASTER_TOKEN_SCHEMA_VERSION ||
-      envelope.algorithm !== "AES-GCM"
-    ) {
-      throw new Error("unsupported master token envelope");
-    }
-    const key = await deriveMasterTokenKey(base64ToBytes(envelope.salt));
-    const plaintext = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: base64ToBytes(envelope.iv) },
-      key,
-      base64ToBytes(envelope.ciphertext),
-    );
-    const token = new TextDecoder().decode(plaintext);
-    return {
-      ok: true,
-      token,
-      tokenMasked: redactHostBridgeToken(token),
-      updatedAt: String(
-        getPref("hostBridgeMasterTokenUpdatedAt") || envelope.created_at || "",
-      ),
-    };
-  } catch {
-    return {
-      ok: false,
-      code: "host_bridge_master_token_decrypt_failed",
-      message: "Host Bridge master token could not be decrypted.",
-    };
+  const keyMaterial = getOrCreateMasterKeyMaterial();
+  const cacheKey = `${raw}\n${keyMaterial}`;
+  if (masterTokenReadCache?.key === cacheKey) {
+    return masterTokenReadCache.result;
   }
+  const result = (async (): Promise<HostBridgeMasterTokenReadResult> => {
+    try {
+      const envelope = JSON.parse(raw) as HostBridgeMasterTokenEnvelope;
+      if (
+        envelope.schema_id !== MASTER_TOKEN_SCHEMA_ID ||
+        envelope.schema_version !== MASTER_TOKEN_SCHEMA_VERSION ||
+        envelope.algorithm !== "AES-GCM"
+      ) {
+        throw new Error("unsupported master token envelope");
+      }
+      const key = await deriveMasterTokenKey(
+        base64ToBytes(envelope.salt),
+        keyMaterial,
+      );
+      const plaintext = await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: base64ToBytes(envelope.iv) },
+        key,
+        base64ToBytes(envelope.ciphertext),
+      );
+      const token = new TextDecoder().decode(plaintext);
+      return {
+        ok: true,
+        token,
+        tokenMasked: redactHostBridgeToken(token),
+        updatedAt: String(
+          getPref("hostBridgeMasterTokenUpdatedAt") ||
+            envelope.created_at ||
+            "",
+        ),
+      };
+    } catch {
+      return {
+        ok: false,
+        code: "host_bridge_master_token_decrypt_failed",
+        message: "Host Bridge master token could not be decrypted.",
+      };
+    }
+  })();
+  masterTokenReadCache = { key: cacheKey, result };
+  return result;
 }
 
 export function rotateHostBridgeToken() {

@@ -566,6 +566,28 @@ Attachment replacement SHALL accept trusted prepared-file input only for stored-
 - **WHEN** a caller targets a linked-file attachment or provides a linked-path source
 - **THEN** the Broker SHALL fail as unsupported_operation before filesystem or Zotero mutation.
 
+### Requirement: Interrupted stored replacement SHALL recover before Host admission
+
+Stored-attachment replacement SHALL durably record each filesystem promotion phase before exposing the corresponding effect. Before Host Bridge or Workflow Host capabilities become available after startup, the runtime SHALL reconcile every incomplete replacement against validated managed paths and current attachment metadata. It SHALL restore the old content or complete the committed new content when one outcome is provable, and SHALL fail startup as `repair_required` while preserving all evidence when the state is ambiguous.
+
+#### Scenario: Process stops after old content is backed up
+
+- **WHEN** startup finds an incomplete replacement whose attachment metadata still identifies the old content
+- **THEN** recovery SHALL restore and verify the old managed content
+- **AND** it SHALL remove the journal only after verification.
+
+#### Scenario: Process stops after metadata commit
+
+- **WHEN** startup finds an incomplete replacement whose attachment metadata identifies the new content
+- **THEN** recovery SHALL finish promotion or cleanup without reverting committed metadata
+- **AND** it SHALL remove the journal only after verification.
+
+#### Scenario: Interrupted state is ambiguous
+
+- **WHEN** paths, journal identity, and attachment metadata cannot prove either old or new state
+- **THEN** startup SHALL fail with `repair_required`
+- **AND** it SHALL preserve the journal, staging, and backup evidence.
+
 ### Requirement: Literature ingest SHALL commit required core effects and classify optional enrichment
 
 Literature ingest SHALL require creation or verified reuse of the typed bibliographic item and membership in one explicit valid collection. If a required effect fails, the Broker SHALL restore preexisting state and remove only objects created by that invocation; it SHALL never remove a reused item or preexisting collection membership. PDF and landing attachment work are optional enrichment. A clean optional failure with no residual or uncertainty SHALL preserve core committed or unchanged evidence and report its failed or canceled enrichment attempt. Any residual or uncertain optional effect SHALL be repair_required or unknown and include bounded affected/residual refs.

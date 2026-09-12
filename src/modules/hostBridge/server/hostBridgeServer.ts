@@ -175,6 +175,7 @@ const RECOVERY_DELAY_MS = 1000;
 const SUPERVISOR_INTERVAL_MS = 30000;
 const MAX_REQUEST_BODY_BYTES = 1024 * 1024;
 const MAX_UPLOAD_BODY_BYTES = 16 * 1024 * 1024;
+const MAX_ACCEPTED_CONNECTIONS = 16;
 const WORKFLOW_PERMISSION_TIMEOUT_MS = 5 * 60 * 1000;
 
 type HostBridgeServerState = {
@@ -234,7 +235,9 @@ type AcceptedHostConnection = {
 };
 
 type ProfiledHostBridgeRequestReadOperation = {
+  head: Promise<HttpRequest>;
   completion: Promise<HttpRequest>;
+  continue: (maxBodyBytes: number) => void;
   abort: () => void;
 };
 
@@ -442,7 +445,7 @@ function createServerSocket(port: number, bindMode: HostBridgeBindMode) {
     throw new Error("Zotero nsIServerSocket is unavailable");
   }
   const socket = factory.createInstance(nsIServerSocket);
-  socket.init(port, bindMode === "loopback", -1);
+  socket.init(port, bindMode === "loopback", MAX_ACCEPTED_CONNECTIONS);
   return socket;
 }
 
@@ -1230,10 +1233,13 @@ function statsForReadResult(
 
 function beginProfiledHostBridgeRequestRead(
   inputStream: any,
+  deferBody = false,
 ): ProfiledHostBridgeRequestReadOperation {
-  const requestRead = beginHostHttpRequestRead(inputStream);
+  const requestRead = beginHostHttpRequestRead(inputStream, { deferBody });
   return {
+    head: requestRead.head.then((input) => parseHttpRequestBytes(input.bytes)),
     abort: requestRead.abort,
+    continue: requestRead.continue,
     completion: requestRead.completion.then(
       (input) => {
         const request = parseHttpRequestBytes(input.bytes);
@@ -1345,6 +1351,40 @@ function closeAllAcceptedConnections() {
 async function processAcceptedConnection(connection: AcceptedHostConnection) {
   let responseWriteStarted = false;
   try {
+    const headRequest = await connection.requestRead.head;
+    headRequest.signal = connection.requestControl.signal;
+    const isHealth = headRequest.path === "/bridge/v2/health";
+    const recognizedPath =
+      isBridgePath(headRequest.path) || isMcpPath(headRequest.path);
+    const authValid =
+      isHealth ||
+      !recognizedPath ||
+      (await isHostBridgeAuthorizationValid(headRequest.headers, state.token));
+    if (headRequest.parseError || !recognizedPath || !authValid || isHealth) {
+      void connection.requestRead.completion.catch(() => undefined);
+      connection.requestRead.abort();
+      const rawResponse = await handleHttpRequest(
+        headRequest,
+        connection.transportContext,
+      );
+      responseWriteStarted = true;
+      await writeOutputStream(
+        connection.outputStream,
+        rawResponse,
+        (transfer) => {
+          connection.responseTransfer = transfer;
+        },
+      );
+      connection.responseTransfer = undefined;
+      connection.outputClosed = true;
+      clearConnectionInitializationError();
+      return;
+    }
+    connection.requestRead.continue(
+      headRequest.path === "/bridge/v2/files/upload"
+        ? MAX_UPLOAD_BODY_BYTES
+        : MAX_REQUEST_BODY_BYTES,
+    );
     const request = await connection.requestRead.completion;
     request.signal = connection.requestControl.signal;
     if (connection.generation !== serverGeneration) {
@@ -1418,6 +1458,10 @@ function listen(serverSocket: any, generation: number) {
         rejectStaleTransport(transport);
         return;
       }
+      if (acceptedConnections.size >= MAX_ACCEPTED_CONNECTIONS) {
+        rejectStaleTransport(transport);
+        return;
+      }
       let inputStream: any;
       let outputStream: any;
       let requestRead: ProfiledHostBridgeRequestReadOperation | undefined;
@@ -1425,7 +1469,7 @@ function listen(serverSocket: any, generation: number) {
       try {
         outputStream = transport.openOutputStream(0, 0, 0);
         inputStream = transport.openInputStream(0, 0, 0);
-        requestRead = beginProfiledHostBridgeRequestRead(inputStream);
+        requestRead = beginProfiledHostBridgeRequestRead(inputStream, true);
         const connection: AcceptedHostConnection = {
           generation,
           transport,
@@ -1843,6 +1887,7 @@ export const hostBridgeServerInternalsForTests = {
     PINNED_PORT_MAX,
     RECOVERY_DELAY_MS,
     SUPERVISOR_INTERVAL_MS,
+    MAX_ACCEPTED_CONNECTIONS,
   },
   readProfiledHostBridgeRequest,
   getAcceptedConnectionCount() {

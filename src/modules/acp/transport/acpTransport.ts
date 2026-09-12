@@ -941,12 +941,11 @@ async function drainMozillaPipe(
   }
   let combined = "";
   while (true) {
-    const chunk = await Promise.race([
+    const chunk = await withTimeoutFallback(
       pipe.readString(),
-      new Promise<string>((resolve) => {
-        setTimeout(() => resolve(""), ACP_PIPE_DRAIN_TIMEOUT_MS);
-      }),
-    ]);
+      ACP_PIPE_DRAIN_TIMEOUT_MS,
+      "",
+    );
     if (!chunk) {
       break;
     }
@@ -1160,27 +1159,45 @@ async function waitForPromiseWithTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
 ) {
-  if (timeoutMs <= 0) {
-    return false;
-  }
-  return await Promise.race([
+  return await withTimeoutFallback(
     promise.then(
       () => true,
       () => true,
     ),
-    new Promise<boolean>((resolve) => {
-      setTimeout(() => resolve(false), timeoutMs);
-    }),
-  ]);
+    timeoutMs,
+    false,
+  );
 }
 
 async function withTimeoutValue<T>(promise: Promise<T>, timeoutMs: number) {
-  return await Promise.race<T | null>([
+  return await withTimeoutFallback(
     promise.catch(() => null),
-    new Promise<null>((resolve) => {
-      setTimeout(() => resolve(null), timeoutMs);
-    }),
-  ]);
+    timeoutMs,
+    null,
+  );
+}
+
+async function withTimeoutFallback<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  fallback: T,
+) {
+  if (timeoutMs <= 0) {
+    return fallback;
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((resolve) => {
+        timer = setTimeout(() => resolve(fallback), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+  }
 }
 
 async function captureMozillaPipeTail(
@@ -1315,12 +1332,11 @@ async function launchMozillaAcpTransport(
     if (typeof proc.wait === "function") {
       waited = await proc.wait();
     }
-    lifecycle.pipeDrainCompleted = await Promise.race([
+    lifecycle.pipeDrainCompleted = await withTimeoutFallback(
       Promise.allSettled([stderrCapture, stdoutCapture]).then(() => true),
-      new Promise<false>((resolve) => {
-        setTimeout(() => resolve(false), ACP_PIPE_DRAIN_TIMEOUT_MS);
-      }),
-    ]);
+      ACP_PIPE_DRAIN_TIMEOUT_MS,
+      false,
+    );
     lifecycle.pipeDrainTimedOut = !lifecycle.pipeDrainCompleted;
     lifecycle.closedAt = nowIso();
     lifecycle.exitCode = extractExitCode(waited) ?? extractExitCode(proc);

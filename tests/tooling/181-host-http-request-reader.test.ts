@@ -51,8 +51,12 @@ class FakeAsyncInputStream {
       throw this.readError;
     }
     const chunk = this.chunks.shift() || new Uint8Array();
-    assert.equal(length, chunk.byteLength);
-    return Array.from(chunk);
+    assert.isAtMost(length, chunk.byteLength);
+    const result = chunk.subarray(0, length);
+    if (length < chunk.byteLength) {
+      this.chunks.unshift(chunk.subarray(length));
+    }
+    return Array.from(result);
   }
 
   push(bytes: Uint8Array) {
@@ -217,6 +221,24 @@ describe("host HTTP request reader", function () {
       idleTimeoutMs: 500,
       totalTimeoutMs: 30_000,
     });
+  });
+
+  it("pauses after a bounded head until the route admits a body", async function () {
+    const stream = new FakeAsyncInputStream();
+    const operation = beginHostHttpRequestRead(stream, { deferBody: true });
+    stream.push(
+      requestBytes({
+        body: new Uint8Array(8 * 1024),
+        headers: ["Authorization: Bearer invalid", "Content-Length: 8192"],
+      }),
+    );
+
+    const head = await operation.head;
+    assert.equal(head.contentLength, 8 * 1024);
+    assert.isAtMost(head.bytes.byteLength, 4 * 1024);
+    operation.continue(1024);
+    await expectReadError(operation.completion, "body_too_large");
+    assert.equal(stream.closeCount, 1);
   });
 
   it("reads a complete request from one readiness callback", async function () {

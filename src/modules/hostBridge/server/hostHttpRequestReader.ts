@@ -16,6 +16,12 @@ export type HostHttpRequestReadResult = {
   maxCallbackDurationMs: number;
 };
 
+export type HostHttpRequestReadHead = {
+  bytes: Uint8Array;
+  headerBytes: number;
+  contentLength: number;
+};
+
 export type HostHttpRequestReadErrorCode =
   | "async_stream_unavailable"
   | "header_too_large"
@@ -59,12 +65,15 @@ export const DEFAULT_HOST_HTTP_REQUEST_READ_LIMITS: Readonly<HostHttpRequestRead
 
 type ReadOptions = {
   limits?: HostHttpRequestReadLimits;
+  deferBody?: boolean;
 };
 
 type ReadCompletion = Promise<HostHttpRequestReadResult>;
 
 export type HostHttpRequestReadOperation = {
+  head: Promise<HostHttpRequestReadHead>;
   completion: ReadCompletion;
+  continue: (maxBodyBytes: number) => void;
   abort: () => void;
 };
 
@@ -353,6 +362,7 @@ export function beginHostHttpRequestRead(
   let maxCallbackDurationMs = 0;
   let headerMatch = 0;
   let framing: Framing | null = null;
+  let bodyLimit: number | null = options.deferBody ? null : limits.maxBodyBytes;
   let settled = false;
   let inputClosed = false;
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -361,6 +371,14 @@ export function beginHostHttpRequestRead(
   let binaryStream: any;
   let mainThread: any;
   let abortRead: () => void = () => undefined;
+  let continueRead: (maxBodyBytes: number) => void = () => undefined;
+  let resolveHead: (head: HostHttpRequestReadHead) => void = () => undefined;
+  let rejectHead: (error: unknown) => void = () => undefined;
+  const head = new Promise<HostHttpRequestReadHead>((resolve, reject) => {
+    resolveHead = resolve;
+    rejectHead = reject;
+  });
+  void head.catch(() => undefined);
 
   const stats = (): HostHttpRequestReadStats => ({
     inputBytes: totalLength,
@@ -416,7 +434,11 @@ export function beginHostHttpRequestRead(
       if (settled) return;
       settled = true;
       cleanup();
-      reject(new HostHttpRequestReadError(code, message, stats(), { cause }));
+      const error = new HostHttpRequestReadError(code, message, stats(), {
+        cause,
+      });
+      rejectHead(error);
+      reject(error);
     };
 
     const settleSuccess = () => {
@@ -489,6 +511,11 @@ export function beginHostHttpRequestRead(
               };
             }
             framing = { headerBytes, contentLength: parsed.contentLength };
+            resolveHead({
+              bytes: concatPrefix(chunks, headerBytes),
+              headerBytes,
+              contentLength: parsed.contentLength,
+            });
             break;
           } else {
             headerMatch = value === 13 ? 1 : 0;
@@ -508,7 +535,14 @@ export function beginHostHttpRequestRead(
       }
 
       const bodyBytes = totalLength - framing.headerBytes;
-      if (bodyBytes > limits.maxBodyBytes) {
+      if (bodyLimit === null) {
+        return null;
+      }
+      if (
+        framing.contentLength > bodyLimit ||
+        bodyBytes > bodyLimit ||
+        bodyBytes > limits.maxBodyBytes
+      ) {
         return {
           kind: "error",
           code: "body_too_large",
@@ -549,8 +583,12 @@ export function beginHostHttpRequestRead(
         try {
           const available = Number(binaryStream.available?.() || 0);
           if (available > 0) {
+            const readLength =
+              options.deferBody && !framing
+                ? Math.min(available, 4 * 1024)
+                : available;
             const chunk = Uint8Array.from(
-              binaryStream.readByteArray(available) || [],
+              binaryStream.readByteArray(readLength) || [],
             );
             if (!chunk.byteLength) {
               outcome = {
@@ -591,10 +629,23 @@ export function beginHostHttpRequestRead(
           settleSuccess();
         } else if (outcome?.kind === "error") {
           settleError(outcome.code, outcome.message, outcome.cause);
-        } else {
+        } else if (!(framing && bodyLimit === null)) {
           registerWait();
         }
       },
+    };
+
+    continueRead = (maxBodyBytes) => {
+      if (settled || !framing) return;
+      bodyLimit = Math.max(0, Math.min(limits.maxBodyBytes, maxBodyBytes));
+      const bodyBytes = totalLength - framing.headerBytes;
+      if (framing.contentLength > bodyLimit || bodyBytes > bodyLimit) {
+        settleError("body_too_large", "Host HTTP request body is too large");
+      } else if (bodyBytes === framing.contentLength) {
+        settleSuccess();
+      } else {
+        registerWait();
+      }
     };
 
     asyncStream = resolveAsyncInputStream(inputStream);
@@ -635,7 +686,11 @@ export function beginHostHttpRequestRead(
     registerWait();
   });
   return {
+    head,
     completion,
+    continue(maxBodyBytes: number) {
+      continueRead(maxBodyBytes);
+    },
     abort() {
       abortRead();
     },

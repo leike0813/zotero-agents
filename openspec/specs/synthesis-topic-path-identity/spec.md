@@ -8,50 +8,53 @@ Defines the stable filesystem identity of structured Synthesis Topic snapshots a
 
 ### Requirement: Current Topic path identity is cross-language stable
 
-The canonical Topic path ID SHALL preserve the existing lowercase ASCII slug algorithm, including its 80-character bound. When a Topic ID produces no slug, the path ID SHALL be the first 16 lowercase hexadecimal characters of the SHA-256 hash of canonical JSON `{"topic_id": <topicId>}` after removing the `sha256:` prefix. TypeScript and Rust SHALL produce the same result.
+The canonical Topic path ID SHALL use the normalized lowercase ASCII slug algorithm as a human-readable prefix of at most 15 characters followed by `-` and the complete 64-character lowercase hexadecimal SHA-256 of canonical JSON `{"topic_id": <topicId>}`. When normalization produces no slug, the path ID SHALL be the complete 64-character hash. TypeScript and Rust SHALL produce the same result, and every path ID SHALL remain within 80 characters.
 
 #### Scenario: Sluggable Topic ID
 
 - **WHEN** a Topic ID contains ASCII letters, digits, `.`, `_`, or `-` after normalization
-- **THEN** the canonical path ID SHALL be the normalized slug
+- **THEN** the canonical path ID SHALL contain the bounded slug prefix and complete identity hash
+- **AND** two Topic IDs sharing the same first 80 normalized characters SHALL still produce different path IDs.
 
 #### Scenario: Non-sluggable Topic ID
 
 - **WHEN** a Topic ID produces an empty ASCII slug
-- **THEN** the canonical path ID SHALL contain exactly 16 hexadecimal characters
+- **THEN** the canonical path ID SHALL contain exactly 64 hexadecimal characters.
 
 ### Requirement: Historical TypeScript Topic directories remain readable
 
-The canonical store SHALL read a valid historical snapshot from the exact 9-character hash path produced by the historical TypeScript fallback when the current 16-character directory is absent. The returned public snapshot and projection SHALL use the current 16-character path ID.
+At startup, the canonical store SHALL discover supported historical Topic directories produced by the previous slug, 16-character hash, or 9-character hash formulas. It SHALL validate the recorded Topic identity and basis, migrate each active current snapshot to the new path identity through the canonical staged promotion path, and preserve the historical bytes until the new snapshot is verified. Runtime reads after successful startup SHALL use only the new identity.
 
 #### Scenario: Legacy directory is the only current snapshot
 
-- **WHEN** the current 16-character directory is absent and the historical 9-character directory contains a valid snapshot for the requested Topic
-- **THEN** inspect, read, capture, legacy preflight, and archive SHALL operate on that snapshot
-- **AND** the returned path ID SHALL be the current 16-character value
+- **WHEN** a supported historical directory contains a valid current snapshot for its recorded Topic
+- **THEN** startup SHALL promote and verify that snapshot under the new path ID
+- **AND** subsequent inspect, read, capture, preflight, and archive operations SHALL use the new path.
 
 #### Scenario: Current directory exists
 
-- **WHEN** the current 16-character directory exists
-- **THEN** it SHALL be authoritative
-- **AND** an invalid current directory SHALL fail closed without falling back to the historical directory
+- **WHEN** both a supported historical directory and the new directory exist
+- **THEN** startup SHALL require them to identify the same Topic and basis
+- **AND** any mismatch SHALL fail closed without deleting either copy.
 
 #### Scenario: Legacy candidate has the wrong Topic identity
 
-- **WHEN** the historical candidate exists but its manifest or metadata identifies another Topic
-- **THEN** the operation SHALL fail with the existing canonical identity/mismatch error path
+- **WHEN** a historical candidate's manifest or metadata does not match the identity implied by its supported old path
+- **THEN** startup SHALL fail through the canonical identity or mismatch error path
+- **AND** it SHALL preserve the candidate bytes.
 
 ### Requirement: New Topic writes use only the current identity
 
-Canonical Topic creation and update promotion SHALL write under the current 16-character path ID. Historical directories SHALL not be deleted, renamed, or overwritten automatically during startup or compatibility reads.
+Canonical Topic creation and update promotion SHALL write only under the new slug-plus-full-hash path identity. Historical path formulas SHALL be accepted only by startup migration and SHALL not remain a live read fallback.
 
 #### Scenario: New non-ASCII Topic is promoted
 
-- **WHEN** a valid non-sluggable Topic is created or updated
-- **THEN** its current snapshot SHALL be written under the 16-character canonical directory
-- **AND** subsequent reads SHALL prefer that directory
+- **WHEN** any valid Topic is created or updated
+- **THEN** its current snapshot SHALL be written under the new canonical directory
+- **AND** subsequent reads SHALL use that directory.
 
 #### Scenario: Historical bytes are inspected during startup
 
-- **WHEN** legacy preflight reads a valid historical snapshot
-- **THEN** it SHALL not rewrite or delete the historical snapshot bytes before migration publication
+- **WHEN** startup migrates a valid historical snapshot
+- **THEN** it SHALL retain the old snapshot until the new snapshot is durably promoted and verified
+- **AND** retrying an interrupted migration SHALL be idempotent.

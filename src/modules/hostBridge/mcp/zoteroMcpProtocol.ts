@@ -1459,7 +1459,7 @@ export async function handleZoteroMcpJsonRpc(
                 : "zotero_item_not_found"
             : isInvalidLibraryCursor
               ? error.code
-              : undefined;
+              : brokerError?.code;
         await options.onToolCall?.({
           toolName,
           arguments: toolArguments,
@@ -1476,7 +1476,7 @@ export async function handleZoteroMcpJsonRpc(
               tool: toolName,
               message,
               errorCode: structuredCode,
-              retryable: false,
+              retryable: brokerError?.retryable ?? false,
               details:
                 error instanceof ZoteroLibraryCursorError
                   ? error.details

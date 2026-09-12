@@ -32,7 +32,10 @@ import {
 } from "../../src/modules/runtimePersistence";
 import { joinPath } from "../../src/utils/path";
 import { createCancellationController } from "../../src/utils/wait";
-import type { ZoteroHostCanonicalMutationControl } from "../../src/modules/zoteroHostCapabilityBroker";
+import {
+  ZoteroHostCapabilityError,
+  type ZoteroHostCanonicalMutationControl,
+} from "../../src/modules/zoteroHostCapabilityBroker";
 import { createFailClosedZoteroHostCapabilityBroker } from "../helpers/zoteroHostCapabilityBrokerHarness";
 
 const ZOTERO_MCP_TOOL_GET_CURRENT_VIEW = "context.get_current_view";
@@ -1530,6 +1533,39 @@ describe("embedded Zotero MCP server protocol", function () {
       result.structuredContent.tool,
       ZOTERO_MCP_TOOL_GET_ITEM_NOTES,
     );
+  });
+
+  it("preserves structured broker failures in MCP tool results", async function () {
+    const response = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "structured-broker-error",
+        method: "tools/call",
+        params: { name: ZOTERO_MCP_TOOL_GET_CURRENT_VIEW, arguments: {} },
+      },
+      {
+        resolveZoteroHostCapabilityBroker: () =>
+          createFailClosedZoteroHostCapabilityBroker({
+            context: {
+              getCurrentView: () => {
+                throw new ZoteroHostCapabilityError(
+                  "unavailable",
+                  "Host is temporarily unavailable",
+                  { reason: "capability" },
+                  true,
+                );
+              },
+            },
+          }),
+      },
+    );
+
+    assert.strictEqual((response as any).result.isError, true);
+    assert.deepInclude((response as any).result.structuredContent, {
+      error_code: "unavailable",
+      retryable: true,
+      details: { reason: "capability" },
+    });
   });
 
   it("publishes string library cursors and returns non-retryable cursor errors", async function () {

@@ -2681,6 +2681,40 @@ describe("zotero host broker capability api", function () {
     } finally {
       brokerMutationPrimitives.collection.add = originalAdd;
     }
+
+    const staleCollection = await createCollection(
+      "Canonical Membership Stale Target",
+    );
+    let staleWrites = 0;
+    brokerMutationPrimitives.collection.add = (async (...args: any[]) => {
+      staleWrites += 1;
+      const result = await (originalAdd as any)(...args);
+      if (staleWrites === 1) {
+        second.setField("title", "Membership Second Changed Concurrently");
+      }
+      return result;
+    }) as typeof brokerMutationPrimitives.collection.add;
+    try {
+      const stale = await (broker.mutations.execute as any)(
+        {
+          operation: "collection.updateMembership",
+          operationId: "membership-stale-future-target",
+          collectionRef: {
+            libraryId: staleCollection.libraryID,
+            key: staleCollection.key,
+          },
+          add: refs,
+          remove: [],
+        },
+        scope,
+      );
+      assert.strictEqual(stale.outcome, "failed");
+      assert.strictEqual(staleWrites, 1);
+      assert.notInclude(first.getCollections(), staleCollection.id);
+      assert.notInclude(second.getCollections(), staleCollection.id);
+    } finally {
+      brokerMutationPrimitives.collection.add = originalAdd;
+    }
   });
 
   it("rejects collection placement cycles, cross-library parents, and invalid initial members", async function () {

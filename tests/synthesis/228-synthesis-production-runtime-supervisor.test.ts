@@ -282,6 +282,72 @@ describe("Synthesis production runtime supervisor", function () {
     await owner.shutdown();
   });
 
+  for (const failureStage of ["endpoint", "supervisor"] as const) {
+    it(`cleans a failed ${failureStage} setup and retries only through recover`, async function () {
+      const events: string[] = [];
+      let generation = 0;
+      const connection = {
+        discovery: {
+          host: "127.0.0.1" as const,
+          port: 9135,
+          serviceInstanceId: "service-recovered",
+        },
+        clientToken: "7".repeat(64),
+      };
+      const owner = createSynthesisProductionOwner({
+        createReverseHostEndpoint: () => {
+          generation += 1;
+          const current = generation;
+          return {
+            start: () => {
+              events.push(`endpoint:start:${current}`);
+              if (current === 1 && failureStage === "endpoint") {
+                throw new Error("endpoint_setup_failed");
+              }
+              return {
+                host: "127.0.0.1" as const,
+                port: 9134,
+                authorizationToken: "8".repeat(64),
+              };
+            },
+            bindServiceInstance: () => undefined,
+            stop: () => {
+              events.push(`endpoint:stop:${current}`);
+            },
+          };
+        },
+        startProductionSupervisor: () => {
+          events.push(`supervisor:start:${generation}`);
+          if (generation === 1 && failureStage === "supervisor") {
+            throw new Error("supervisor_setup_failed");
+          }
+          return {
+            subscribe: () => () => undefined,
+            getSnapshot: () => ({
+              status: "ready" as const,
+              recoveryState: "none" as const,
+              restartCount: 0,
+            }),
+            getDiagnosticEvidence: () => ({ stdoutTail: "", stderrTail: "" }),
+            getReadyConnection: () => connection,
+            recover: () => undefined,
+          };
+        },
+        stopProductionSupervisor: async () => undefined,
+      });
+
+      const first = await Promise.allSettled([owner.start()]);
+      const ordinaryRetry = await Promise.allSettled([owner.start()]);
+      assert.equal(first[0]?.status, "rejected");
+      assert.equal(ordinaryRetry[0]?.status, "rejected");
+      assert.equal(generation, 1);
+      assert.include(events, "endpoint:stop:1");
+      assert.equal(await owner.recover(), connection);
+      assert.equal(generation, 2);
+      await owner.shutdown();
+    });
+  }
+
   it("shares one automatic recovery after a ready runtime and latches failure until ready again", async function () {
     const connection = {
       discovery: {

@@ -1464,6 +1464,33 @@ pub fn canonical_sha256<T: Serialize>(value: &T) -> Result<String, &'static str>
     Ok(format!("sha256:{digest:x}"))
 }
 
+pub fn canonical_topic_path_id(topic_id: &str) -> Result<String, &'static str> {
+    let mut slug = String::new();
+    let mut pending_dash = false;
+    for character in topic_id.to_ascii_lowercase().chars() {
+        if character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-') {
+            if pending_dash && !slug.is_empty() && !slug.ends_with('-') {
+                slug.push('-');
+            }
+            pending_dash = false;
+            slug.push(character);
+        } else {
+            pending_dash = true;
+        }
+        if slug.len() >= 15 {
+            break;
+        }
+    }
+    let slug = slug.trim_matches('-');
+    let hash = canonical_sha256(&json!({"topic_id": topic_id}))?;
+    let digest = hash.trim_start_matches("sha256:");
+    Ok(if slug.is_empty() {
+        digest.to_owned()
+    } else {
+        format!("{slug}-{digest}")
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

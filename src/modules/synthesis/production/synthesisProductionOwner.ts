@@ -144,9 +144,16 @@ export function createSynthesisProductionOwner(
     supervisorTask ||= (async () => {
       const createdEndpoint = deps.createReverseHostEndpoint();
       endpoint = createdEndpoint;
-      const locator = await createdEndpoint.start();
-      supervisor = deps.startProductionSupervisor(locator);
-      return supervisor;
+      try {
+        const locator = await createdEndpoint.start();
+        supervisor = deps.startProductionSupervisor(locator);
+        return supervisor;
+      } catch (error) {
+        await Promise.resolve(createdEndpoint.stop()).catch(() => undefined);
+        if (endpoint === createdEndpoint) endpoint = null;
+        supervisor = null;
+        throw error;
+      }
     })();
     return supervisorTask;
   }
@@ -177,8 +184,13 @@ export function createSynthesisProductionOwner(
   }
 
   async function recover() {
-    const current = await ensureSupervisor();
-    current.recover();
+    if (!supervisor) {
+      await supervisorTask?.catch(() => undefined);
+      supervisorTask = null;
+      startTask = null;
+      return start();
+    }
+    supervisor.recover();
     startTask = null;
     return start();
   }

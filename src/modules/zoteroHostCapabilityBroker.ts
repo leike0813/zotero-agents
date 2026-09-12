@@ -6586,7 +6586,7 @@ async function executeOtherCanonicalMutation(
               }
               for (const { item, ref } of members) {
                 await withZoteroHostSlice(control, async () => {
-                  await beforeEffect?.("effect");
+                  await beforeEffect?.("effect", [{ kind: "item", ref }]);
                   await brokerMutationPrimitives.collection.add(item, created!);
                   beforeEffect?.markWritten([{ kind: "item", ref }]);
                 });
@@ -6796,7 +6796,10 @@ async function executeOtherCanonicalMutation(
             try {
               for (const { ref, item } of additions) {
                 await withZoteroHostSlice(control, async () => {
-                  await beforeEffect?.("effect");
+                  await beforeEffect?.("effect", [
+                    { kind: "item", ref },
+                    { kind: "collection", ref: collectionRef },
+                  ]);
                   await brokerMutationPrimitives.collection.add(
                     item,
                     collection,
@@ -6811,7 +6814,10 @@ async function executeOtherCanonicalMutation(
               }
               for (const { ref, item } of removals) {
                 await withZoteroHostSlice(control, async () => {
-                  await beforeEffect?.("effect");
+                  await beforeEffect?.("effect", [
+                    { kind: "item", ref },
+                    { kind: "collection", ref: collectionRef },
+                  ]);
                   await brokerMutationPrimitives.collection.remove(
                     item,
                     collection,
@@ -7316,6 +7322,7 @@ type CanonicalMutationEffectOptions = Readonly<{
 
 type CanonicalMutationEffectGuard = ((
   phase: "read" | "effect",
+  entities?: readonly MutationEntityRef[],
 ) => Promise<void>) & {
   markWritten(entities: readonly MutationEntityRef[]): void;
   markRemoved(entities: readonly MutationEntityRef[]): void;
@@ -9480,31 +9487,48 @@ function createCanonicalMutationControl(): ZoteroHostCanonicalMutationControl {
             semanticInput: input,
           });
         }
-        let expectedObservations = record.observations;
+        const expectedObservations = record.observations;
+        const expectedObservationIndexes = new Map(
+          expectedObservations.map((entry, index) => [
+            mutationObservationEntityKey(entry.entity),
+            index,
+          ]),
+        );
         const removedEntities = new Set<string>();
         let destructiveEffectStarted = false;
         let ingestRevalidated = false;
         const refreshExpectedEntities = (
           entities: readonly MutationEntityRef[],
         ) => {
-          const refreshed = new Map(
-            expectedObservations.map((entry) => [
-              mutationObservationEntityKey(entry.entity),
-              entry,
-            ]),
-          );
+          let added = false;
           for (const entity of entities) {
             const key = mutationObservationEntityKey(entity);
             if (removedEntities.has(key)) continue;
-            refreshed.set(key, currentMutationEntityObservation(entity));
+            const observation = currentMutationEntityObservation(entity);
+            const index = expectedObservationIndexes.get(key);
+            if (index === undefined) {
+              expectedObservations.push(observation);
+              added = true;
+            } else {
+              expectedObservations[index] = observation;
+            }
           }
-          expectedObservations = [...refreshed.values()].sort((left, right) =>
-            JSON.stringify(left.entity).localeCompare(
-              JSON.stringify(right.entity),
-            ),
-          );
+          if (added) {
+            expectedObservations.sort((left, right) =>
+              JSON.stringify(left.entity).localeCompare(
+                JSON.stringify(right.entity),
+              ),
+            );
+            expectedObservationIndexes.clear();
+            expectedObservations.forEach((entry, index) =>
+              expectedObservationIndexes.set(
+                mutationObservationEntityKey(entry.entity),
+                index,
+              ),
+            );
+          }
         };
-        const beforeEffect = (async (phase) => {
+        const beforeEffect = (async (phase, entities = []) => {
           if (record.destructivePrepared) {
             if (!destructiveEffectStarted) {
               await revalidateLegacyDestructiveMutation(
@@ -9541,10 +9565,20 @@ function createCanonicalMutationControl(): ZoteroHostCanonicalMutationControl {
             return;
           }
           if (!record.trashPrepared) {
-            assertCanonicalMutationObservations(
-              expectedObservations,
-              args.input,
-            );
+            if (entities.length) {
+              const keys = new Set(entities.map(mutationObservationEntityKey));
+              assertPreparedMutationEntityObservations(
+                expectedObservations.filter(({ entity }) =>
+                  keys.has(mutationObservationEntityKey(entity)),
+                ),
+                removedEntities,
+              );
+            } else {
+              assertCanonicalMutationObservations(
+                expectedObservations,
+                args.input,
+              );
+            }
           }
         }) as CanonicalMutationEffectGuard;
         beforeEffect.markWritten = (entities) => {
@@ -9555,9 +9589,7 @@ function createCanonicalMutationControl(): ZoteroHostCanonicalMutationControl {
             refreshExpectedEntities(entities);
             return;
           }
-          expectedObservations = collectCanonicalMutationObservations(
-            args.input,
-          );
+          refreshExpectedEntities(entities);
         };
         beforeEffect.markRemoved = (entities) => {
           for (const entity of entities) {
@@ -9595,8 +9627,9 @@ function createCanonicalMutationControl(): ZoteroHostCanonicalMutationControl {
                 metadata: request.metadata,
                 admit,
               }),
-            replaceFile: async (_request, attachment) =>
+            replaceFile: async (request, attachment) =>
               nativeMutations.attachments.replaceStoredAttachment({
+                operationId: request.operationId,
                 prepared: resolvedPreparedFile!,
                 attachment,
                 admit,

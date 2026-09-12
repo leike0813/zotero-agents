@@ -10,6 +10,7 @@ import {
   redactHostBridgeToken,
   resetHostBridgeServerForTests,
   restartHostBridgeServer,
+  readHostBridgeMasterTokenForCopy,
   rotateHostBridgeMasterToken,
   rotateHostBridgeToken,
   shutdownHostBridgeServer,
@@ -1415,6 +1416,46 @@ describe("host bridge server phase 1", function () {
       }),
     );
     assert.strictEqual(local.status, 200);
+  });
+
+  it("shares master-token derivation until encrypted material rotates", async function () {
+    const originalCrypto = globalThis.crypto;
+    const first = await rotateHostBridgeMasterToken();
+    let derives = 0;
+    const subtle = new Proxy(originalCrypto.subtle, {
+      get(target, property) {
+        const value = Reflect.get(target, property, target);
+        if (property === "deriveKey") {
+          return (...args: Parameters<SubtleCrypto["deriveKey"]>) => {
+            derives += 1;
+            return target.deriveKey(...args);
+          };
+        }
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    Object.defineProperty(globalThis, "crypto", {
+      value: {
+        subtle,
+        getRandomValues: originalCrypto.getRandomValues.bind(originalCrypto),
+      },
+      configurable: true,
+    });
+    try {
+      assert.isTrue((await readHostBridgeMasterTokenForCopy()).ok);
+      assert.isTrue((await readHostBridgeMasterTokenForCopy()).ok);
+      assert.equal(derives, 1);
+
+      const second = await rotateHostBridgeMasterToken();
+      assert.notEqual(second.token, first.token);
+      assert.isTrue((await readHostBridgeMasterTokenForCopy()).ok);
+      assert.equal(derives, 3);
+    } finally {
+      Object.defineProperty(globalThis, "crypto", {
+        value: originalCrypto,
+        configurable: true,
+      });
+    }
   });
 
   it("disables pin port and falls back to the random range on pinned port conflict", async function () {

@@ -104,7 +104,7 @@ type RuntimeZoteroFileApi = {
   pathToFile: (path: string) => unknown;
 };
 
-const WORKFLOW_ARCHIVE_LIMITS = Object.freeze({
+export const WORKFLOW_ARCHIVE_LIMITS = Object.freeze({
   entries: 20_000,
   entryBytes: 2 * 1024 * 1024 * 1024,
   totalBytes: 16 * 1024 * 1024 * 1024,

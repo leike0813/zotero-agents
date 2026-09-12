@@ -446,6 +446,9 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     new Set<AcpConnectionDiagnosticsListener>();
   private readonly permissionListeners =
     new Set<AcpConnectionPermissionListener>();
+  private readonly pendingPermissionSettlements = new Set<
+    (outcome: RequestPermissionOutcome) => void
+  >();
   private readonly authMethods: AcpAuthMethod[] = [];
   private connection: AcpClientConnection | null = null;
   private transport: Awaited<ReturnType<typeof launchAcpTransport>> | null =
@@ -1040,6 +1043,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     }
     const requestId = nextOpaqueId("acp-mcp-permission");
     const outcome = await new Promise<RequestPermissionOutcome>((resolve) => {
+      const settle = this.trackPermissionSettlement(resolve);
       const pending: AcpPendingPermissionRequest & {
         resolve: (outcome: RequestPermissionOutcome) => void;
       } = {
@@ -1074,7 +1078,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
             description: "Do not write to Zotero.",
           },
         ],
-        resolve,
+        resolve: settle,
       };
       if (
         __acp_runtime_semantic_trace_recorder_enabled__ &&
@@ -1230,6 +1234,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
         );
         const outcome = await new Promise<RequestPermissionOutcome>(
           (resolve) => {
+            const settle = this.trackPermissionSettlement(resolve);
             const request: AcpPendingPermissionRequest & {
               resolve: (outcome: RequestPermissionOutcome) => void;
             } = {
@@ -1243,7 +1248,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
               detail,
               requestedAt: nowIso(),
               options: normalizedOptions,
-              resolve,
+              resolve: settle,
             };
             if (
               __acp_runtime_semantic_trace_recorder_enabled__ &&
@@ -1666,7 +1671,32 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     this.permissionListeners.add(listener);
     return () => {
       this.permissionListeners.delete(listener);
+      if (this.permissionListeners.size === 0) {
+        this.cancelPendingPermissions();
+      }
     };
+  }
+
+  private trackPermissionSettlement(
+    resolve: (outcome: RequestPermissionOutcome) => void,
+  ) {
+    let settled = false;
+    const settle = (outcome: RequestPermissionOutcome) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      this.pendingPermissionSettlements.delete(settle);
+      resolve(outcome);
+    };
+    this.pendingPermissionSettlements.add(settle);
+    return settle;
+  }
+
+  private cancelPendingPermissions() {
+    for (const settle of [...this.pendingPermissionSettlements]) {
+      settle({ outcome: "cancelled" });
+    }
   }
 
   async newSession() {
@@ -2110,6 +2140,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     this.removeExternalStartupAbort();
     this.removeExternalStartupAbort = () => undefined;
     this.closing = true;
+    this.cancelPendingPermissions();
     this.closePromise = (async () => {
       try {
         this.unsubscribeZoteroMcpDiagnostics();

@@ -2,11 +2,15 @@ import { assert } from "chai";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { nativeMutations } from "../../src/modules/zoteroHost/zoteroHostNativeMutations";
+import {
+  nativeMutations,
+  recoverStoredAttachmentReplacements,
+} from "../../src/modules/zoteroHost/zoteroHostNativeMutations";
 import { brokerMutationPrimitives } from "../../src/modules/zoteroHost/zoteroHostBrokerPrimitives";
 import { createZoteroHostCapabilityBroker } from "../../src/modules/zoteroHostCapabilityBroker";
 import type { ResolvedPreparedStoredAttachment } from "../../src/modules/zoteroHost/zoteroHostPreparedFiles";
 import { sha256Hex } from "../../src/utils/sha256";
+import { getRuntimePersistencePaths } from "../../src/modules/runtimePersistence";
 
 function resolvedPrepared(args: {
   stagingDirectory: string;
@@ -36,9 +40,16 @@ function resolvedPrepared(args: {
 
 async function withTemporaryDirectory<T>(work: (root: string) => Promise<T>) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "zotero-native-"));
+  const previousRuntimeRoot = process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
+  process.env.ZOTERO_SKILLS_RUNTIME_ROOT = root;
   try {
     return await work(root);
   } finally {
+    if (previousRuntimeRoot === undefined) {
+      delete process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
+    } else {
+      process.env.ZOTERO_SKILLS_RUNTIME_ROOT = previousRuntimeRoot;
+    }
     await fs.rm(root, { recursive: true, force: true });
   }
 }
@@ -50,6 +61,13 @@ async function pathExists(filePath: string) {
   } catch {
     return false;
   }
+}
+
+async function singleFileSetDigest(name: string, content: string) {
+  const fileDigest = await sha256Hex(new TextEncoder().encode(content));
+  return sha256Hex(
+    new TextEncoder().encode(JSON.stringify([[name, fileDigest]])),
+  );
 }
 
 function installZoteroMock(
@@ -614,6 +632,7 @@ describe("Zotero host native attachment mutations", function () {
       let cleaned = 0;
       try {
         await nativeMutations.attachments.replaceStoredAttachment({
+          operationId: "linked-file-replacement",
           prepared: resolvedPrepared({
             stagingDirectory: stage,
             mainPath: path.join(stage, "new.pdf"),
@@ -672,6 +691,7 @@ describe("Zotero host native attachment mutations", function () {
       };
 
       await nativeMutations.attachments.replaceStoredAttachment({
+        operationId: "atomic-replacement",
         prepared: resolvedPrepared({
           stagingDirectory: stage,
           mainPath: path.join(stage, "new.pdf"),
@@ -726,6 +746,7 @@ describe("Zotero host native attachment mutations", function () {
 
       try {
         await nativeMutations.attachments.replaceStoredAttachment({
+          operationId: "failed-replacement",
           prepared: resolvedPrepared({
             stagingDirectory: stage,
             mainPath: path.join(stage, "new.pdf"),
@@ -758,12 +779,18 @@ describe("Zotero host native attachment mutations", function () {
   it("preserves backup cleanup errors for Broker repair classification", async function () {
     await withTemporaryDirectory(async (root) => {
       const storage = path.join(root, "storage");
-      const stage = path.join(root, "stage");
+      const stage = path.join(
+        getRuntimePersistencePaths().tmpDir,
+        "workflow-attachment-import",
+        "cleanup-failure",
+      );
       await fs.mkdir(storage);
-      await fs.mkdir(stage);
+      await fs.mkdir(stage, { recursive: true });
       await fs.writeFile(path.join(storage, "old.pdf"), "old");
       await fs.writeFile(path.join(stage, "new.pdf"), "new");
       const attachment = {
+        libraryID: 1,
+        key: "AAAA",
         attachmentLinkMode: 0,
         attachmentFilename: "old.pdf",
         attachmentContentType: "application/pdf",
@@ -800,6 +827,7 @@ describe("Zotero host native attachment mutations", function () {
       };
       try {
         await nativeMutations.attachments.replaceStoredAttachment({
+          operationId: "cleanup-failed-replacement",
           prepared: resolvedPrepared({
             stagingDirectory: stage,
             mainPath: path.join(stage, "new.pdf"),
@@ -823,10 +851,118 @@ describe("Zotero host native attachment mutations", function () {
       } finally {
         runtime.IOUtils = originalIOUtils;
       }
+      const previousZotero = Object.getOwnPropertyDescriptor(
+        globalThis,
+        "Zotero",
+      );
+      Object.defineProperty(globalThis, "Zotero", {
+        configurable: true,
+        value: { Items: { getByLibraryAndKey: () => attachment } },
+      });
+      try {
+        await recoverStoredAttachmentReplacements();
+      } finally {
+        if (previousZotero) {
+          Object.defineProperty(globalThis, "Zotero", previousZotero);
+        } else {
+          delete (globalThis as { Zotero?: unknown }).Zotero;
+        }
+      }
       assert.equal(
         await fs.readFile(path.join(storage, "new.pdf"), "utf8"),
         "new",
       );
+      assert.isFalse(
+        (await fs.readdir(root, { recursive: true })).some((entry) =>
+          String(entry).includes(".replace-backup-"),
+        ),
+      );
+    });
+  });
+
+  it("restores an interrupted stored replacement before Host admission", async function () {
+    await withTemporaryDirectory(async () => {
+      const persistence = getRuntimePersistencePaths();
+      const stagingRoot = path.join(
+        persistence.tmpDir,
+        "workflow-attachment-import",
+        "replacement",
+      );
+      const storageRoot = path.join(persistence.root, "zotero-storage", "AAAA");
+      const backupRoot = `${storageRoot}.replace-backup-test`;
+      const journalRoot = path.join(
+        persistence.stateDir,
+        "stored-attachment-replacements",
+      );
+      const journalPath = path.join(journalRoot, "replacement.json");
+      await fs.mkdir(stagingRoot, { recursive: true });
+      await fs.mkdir(backupRoot, { recursive: true });
+      await fs.mkdir(journalRoot, { recursive: true });
+      await fs.writeFile(path.join(stagingRoot, "new.pdf"), "new");
+      await fs.writeFile(path.join(backupRoot, "old.pdf"), "old");
+      await fs.writeFile(
+        journalPath,
+        JSON.stringify({
+          schema: "zotero-agents.stored-attachment-replacement.v1",
+          operationId: "replacement",
+          libraryId: 1,
+          attachmentKey: "AAAA",
+          storageRoot,
+          backupRoot,
+          stagingRoot,
+          oldFilename: "old.pdf",
+          oldContentType: "application/pdf",
+          newFilename: "new.pdf",
+          newContentType: "application/pdf",
+          oldDigest: await singleFileSetDigest("old.pdf", "old"),
+          newDigest: await singleFileSetDigest("new.pdf", "new"),
+          phase: "old_backed_up",
+        }),
+      );
+      const runtime = globalThis as { Zotero?: unknown };
+      let attachmentFilename = "unexpected.pdf";
+      const zoteroDescriptor = Object.getOwnPropertyDescriptor(
+        runtime,
+        "Zotero",
+      );
+      Object.defineProperty(runtime, "Zotero", {
+        configurable: true,
+        value: {
+          Items: {
+            getByLibraryAndKey: () => ({
+              attachmentFilename,
+              attachmentContentType: "application/pdf",
+            }),
+          },
+        },
+      });
+      try {
+        try {
+          await recoverStoredAttachmentReplacements();
+          assert.fail("expected ambiguous replacement rejection");
+        } catch (error) {
+          assert.match(String(error), /repair_required/);
+        }
+        assert.isTrue(await pathExists(stagingRoot));
+        assert.isTrue(await pathExists(backupRoot));
+        assert.isTrue(await pathExists(journalPath));
+        attachmentFilename = "old.pdf";
+        await recoverStoredAttachmentReplacements();
+      } finally {
+        if (zoteroDescriptor) {
+          Object.defineProperty(runtime, "Zotero", zoteroDescriptor);
+        } else {
+          delete runtime.Zotero;
+        }
+      }
+
+      assert.equal(
+        await fs.readFile(path.join(storageRoot, "old.pdf"), "utf8"),
+        "old",
+      );
+      assert.isFalse(await pathExists(stagingRoot));
+      assert.isFalse(await pathExists(backupRoot));
+      assert.isFalse(await pathExists(journalPath));
     });
   });
 });

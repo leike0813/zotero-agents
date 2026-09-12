@@ -42,7 +42,7 @@ describe("shared markdown renderer contract", function () {
           },
         );
         const documentHtml = renderer.renderToHtml(
-          '# Title\n\n<a href="javascript:alert(1)" onclick="bad()">bad</a>\n\n<script>bad()</script>',
+          '# Title\n\n<a href="javascript:alert(1)" onclick="bad()">bad</a>\n\n<a href="data:image/png;base64,bad">not an image</a>\n\n<svg><use xlink:href="javascript:alert(2)"></use></svg>\n\n<img src="data:image/png;base64,ok">\n\n<script>bad()</script>',
           { profile: "document" },
         );
         const root = document.getElementById("root")!;
@@ -68,6 +68,8 @@ describe("shared markdown renderer contract", function () {
       assert.notInclude(result.documentHtml, "<script");
       assert.notInclude(result.documentHtml, "onclick");
       assert.notInclude(result.documentHtml, "javascript:");
+      assert.notInclude(result.documentHtml, 'href="data:image');
+      assert.include(result.documentHtml, 'src="data:image/png;base64,ok"');
       assert.deepEqual(result.headingIds, ["contract-title", "contract-child"]);
       assert.equal(result.outlineLinks, 2);
     } finally {

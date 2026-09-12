@@ -254,6 +254,57 @@ function agentRunRequests(handoff: any) {
 }
 
 describe("host bridge workflow control", function () {
+  it("rejects an oversized Gecko zip entry before extraction", async function () {
+    const runtime = globalThis as any;
+    const previousCc = runtime.Cc;
+    const previousCi = runtime.Ci;
+    const previousFile = runtime.Zotero.File;
+    let extracted = 0;
+    let closed = 0;
+    runtime.Ci = { ...(previousCi || {}), nsIZipReader: {} };
+    runtime.Cc = {
+      ...(previousCc || {}),
+      "@mozilla.org/libjar/zip-reader;1": {
+        createInstance: () => ({
+          open: () => undefined,
+          findEntries: () => {
+            let pending = true;
+            return {
+              hasMore: () => pending,
+              getNext: () => {
+                pending = false;
+                return "huge.bin";
+              },
+            };
+          },
+          getEntry: () => ({ realSize: 2 * 1024 * 1024 * 1024 + 1 }),
+          extract: () => {
+            extracted += 1;
+          },
+          close: () => {
+            closed += 1;
+          },
+        }),
+      },
+    };
+    runtime.Zotero.File = { pathToFile: (value: string) => value };
+    try {
+      let failure: unknown;
+      try {
+        await new ZipBundleReader("oversized.zip").getExtractedDir();
+      } catch (error) {
+        failure = error;
+      }
+      assert.match(String(failure), /entry size exceeds limits/);
+      assert.equal(extracted, 0);
+      assert.equal(closed, 1);
+    } finally {
+      runtime.Cc = previousCc;
+      runtime.Ci = previousCi;
+      runtime.Zotero.File = previousFile;
+    }
+  });
+
   beforeEach(function () {
     setZoteroLibrarySourcePageQueryAdapterForTests(
       createMockZoteroLibrarySourcePageQueryAdapter(),

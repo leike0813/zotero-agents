@@ -242,7 +242,7 @@
     }
   }
 
-  function safeResolvedUrl(rawValue, options) {
+  function safeResolvedUrl(rawValue, options, allowDataImage = false) {
     const value = String(rawValue || "").trim();
     if (!value) {
       return "";
@@ -250,7 +250,7 @@
     if (value.startsWith("#")) {
       return value;
     }
-    if (ALLOWED_DATA_IMAGE.test(value)) {
+    if (allowDataImage && ALLOWED_DATA_IMAGE.test(value)) {
       return value;
     }
     try {
@@ -289,8 +289,12 @@
           node.removeAttribute(attr.name);
           return;
         }
-        if (name === "href" || name === "src") {
-          const resolved = safeResolvedUrl(value, options);
+        if (name === "href" || name === "src" || name === "xlink:href") {
+          const resolved = safeResolvedUrl(
+            value,
+            options,
+            name === "src" && node.tagName === "IMG",
+          );
           if (!resolved) {
             node.removeAttribute(attr.name);
           } else {

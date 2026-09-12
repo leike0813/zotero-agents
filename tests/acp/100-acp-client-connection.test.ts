@@ -163,11 +163,23 @@ async function createFakeClaudeAcpServerScript(root: string) {
       "const toolErrorUpdate = process.env.TOOL_ERROR_UPDATE === '1';",
       "const unknownFailedUpdate = process.env.UNKNOWN_FAILED_UPDATE === '1';",
       "const promptRequestError = process.env.PROMPT_REQUEST_ERROR === '1';",
+      "const requestPermission = process.env.REQUEST_PERMISSION === '1';",
+      "let pendingPromptId = null;",
       "function send(message) { process.stdout.write(JSON.stringify(message) + '\\n'); }",
       "const rl = readline.createInterface({ input: process.stdin });",
       "rl.on('line', (line) => {",
       "  if (!line.trim()) return;",
       "  const request = JSON.parse(line);",
+      "  if (request.id === 900 && request.result && pendingPromptId !== null) {",
+      "    send({ jsonrpc: '2.0', id: pendingPromptId, result: { stopReason: 'end_turn' } });",
+      "    pendingPromptId = null;",
+      "    return;",
+      "  }",
+      "  if (request.id === 900 && request.result && pendingPromptId !== null) {",
+      "    send({ jsonrpc: '2.0', id: pendingPromptId, result: { stopReason: 'end_turn' } });",
+      "    pendingPromptId = null;",
+      "    return;",
+      "  }",
       "  if (request.method === 'initialize') {",
       "    send({ jsonrpc: '2.0', id: request.id, result: { protocolVersion: 1, agentInfo: { name: 'fake', version: '1' }, agentCapabilities: { sessionCapabilities: { resume: {} }, loadSession: true, mcpCapabilities: { http: true } }, authMethods: [] } });",
       "    return;",
@@ -183,6 +195,16 @@ async function createFakeClaudeAcpServerScript(root: string) {
       "    return;",
       "  }",
       "  if (request.method === 'session/prompt') {",
+      "    if (requestPermission) {",
+      "      pendingPromptId = request.id;",
+      "      send({ jsonrpc: '2.0', id: 900, method: 'session/request_permission', params: { sessionId: request.params.sessionId, toolCall: { toolCallId: 'permission-1', title: 'Write item' }, options: [{ optionId: 'allow-once', kind: 'allow_once', name: 'Allow once' }] } });",
+      "      return;",
+      "    }",
+      "    if (requestPermission) {",
+      "      pendingPromptId = request.id;",
+      "      send({ jsonrpc: '2.0', id: 900, method: 'session/request_permission', params: { sessionId: request.params.sessionId, toolCall: { toolCallId: 'permission-1', title: 'Mutate Zotero' }, options: [{ optionId: 'allow-once', kind: 'allow_once', name: 'Allow once' }] } });",
+      "      return;",
+      "    }",
       "    if (promptRequestError) {",
       "      send({ jsonrpc: '2.0', id: request.id, error: { code: -32000, message: 'backend prompt failed', data: { reason: 'provider' } } });",
       "      return;",
@@ -1039,6 +1061,76 @@ describe("acp client connection", function () {
         maxRetries: 5,
         retryDelay: 100,
       });
+    }
+  });
+
+  it("settles pending adapter permissions when the final listener leaves or the adapter closes", async function () {
+    const adapter = await createAcpConnectionAdapter({
+      backend: createClaudeBackend("/unused"),
+      agentWorkspaceDir: "/tmp",
+      sessionCwd: "/tmp",
+      workspaceDir: "/tmp",
+      runtimeDir: "/tmp",
+    });
+    const unsubscribe = adapter.onPermissionRequest(() => undefined);
+    const embeddedPermission = (adapter as any).requestZoteroMcpToolPermission({
+      toolName: "item.update_metadata",
+      mutation: {},
+      preview: {},
+      summary: "Update metadata",
+      requestedAt: new Date().toISOString(),
+    });
+    unsubscribe();
+    assert.deepEqual(await embeddedPermission, {
+      outcome: "denied",
+      reason: "cancelled",
+    });
+
+    adapter.onPermissionRequest(() => undefined);
+    const closingPermission = (adapter as any).requestZoteroMcpToolPermission({
+      toolName: "item.update_metadata",
+      mutation: {},
+      preview: {},
+      summary: "Update metadata",
+      requestedAt: new Date().toISOString(),
+    });
+    await adapter.close();
+    assert.deepEqual(await closingPermission, {
+      outcome: "denied",
+      reason: "cancelled",
+    });
+  });
+
+  it("settles an ACP permission request when the final listener leaves", async function () {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-acp-client-"));
+    let adapter: Awaited<ReturnType<typeof createAcpConnectionAdapter>> | null =
+      null;
+    try {
+      const scriptPath = await createFakeClaudeAcpServerScript(root);
+      adapter = await createAcpConnectionAdapter({
+        backend: createClaudeBackend(scriptPath, { REQUEST_PERMISSION: "1" }),
+        agentWorkspaceDir: root,
+        sessionCwd: root,
+        workspaceDir: root,
+        runtimeDir: root,
+      });
+      await adapter.initialize();
+      const session = await adapter.newSession();
+      let received!: () => void;
+      const requested = new Promise<void>((resolve) => {
+        received = resolve;
+      });
+      const unsubscribe = adapter.onPermissionRequest(() => received());
+      const prompt = adapter.prompt({
+        sessionId: session.sessionId,
+        message: "request permission",
+      });
+      await requested;
+      unsubscribe();
+      assert.equal((await prompt).stopReason, "end_turn");
+    } finally {
+      await adapter?.close().catch(() => undefined);
+      await fs.rm(root, { recursive: true, force: true });
     }
   });
 

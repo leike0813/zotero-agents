@@ -28,7 +28,8 @@ const FOUNDATION_SCHEMA_V1: &str = "synthesis-repository-foundation.v1";
 const FOUNDATION_SCHEMA_V2: &str = "synthesis-repository-foundation.v2";
 const FOUNDATION_SCHEMA_V3: &str = "synthesis-repository-foundation.v3";
 const FOUNDATION_SCHEMA_V4: &str = "synthesis-repository-foundation.v4";
-pub const SCHEMA_VERSION: &str = "synthesis-repository-foundation.v5";
+const FOUNDATION_SCHEMA_V5: &str = "synthesis-repository-foundation.v5";
+pub const SCHEMA_VERSION: &str = "synthesis-repository-foundation.v6";
 pub const BUSY_TIMEOUT_MILLIS: u64 = 250;
 pub const JS_SAFE_INTEGER_MAX: i64 = 9_007_199_254_740_991;
 const IDENTITY_SCHEMA: &str = "synthesis-rust-shadow-repository.v1";
@@ -203,8 +204,13 @@ const REGISTERED_PRODUCTION_SCHEMA_MIGRATIONS: &[RegisteredProductionSchemaMigra
     },
     RegisteredProductionSchemaMigration {
         from: FOUNDATION_SCHEMA_V4,
-        to: SCHEMA_VERSION,
+        to: FOUNDATION_SCHEMA_V5,
         migrate: migrate_repository_foundation_v4_to_v5,
+    },
+    RegisteredProductionSchemaMigration {
+        from: FOUNDATION_SCHEMA_V5,
+        to: SCHEMA_VERSION,
+        migrate: migrate_repository_foundation_v5_to_v6,
     },
 ];
 
@@ -667,6 +673,53 @@ fn migrate_repository_foundation_v4_to_v5(connection: &Connection) -> Result<(),
                 "ALTER TABLE synt_reference_raw
                  ADD COLUMN source_reference_id TEXT NOT NULL DEFAULT ''",
                 [],
+            )
+            .map_err(map_sqlite_error)?;
+    }
+    connection
+        .execute(
+            "UPDATE synt_schema_meta SET value=?1
+             WHERE key='repository_foundation_schema_version'",
+            [FOUNDATION_SCHEMA_V5],
+        )
+        .map_err(map_sqlite_error)?;
+    Ok(())
+}
+
+fn migrate_repository_foundation_v5_to_v6(connection: &Connection) -> Result<(), String> {
+    let mut statement = connection
+        .prepare(
+            "SELECT topic_id FROM synt_topic_application_state
+             UNION SELECT topic_id FROM synt_topic_deleted_artifact
+             UNION SELECT topic_id FROM synt_concept_review_item
+             ORDER BY topic_id",
+        )
+        .map_err(map_sqlite_error)?;
+    let topic_ids = statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(map_sqlite_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(map_sqlite_error)?;
+    drop(statement);
+    for topic_id in topic_ids {
+        let path_id = synthesis_protocol::canonical_topic_path_id(&topic_id)
+            .map_err(|_| "repository_topic_path_identity_invalid".to_owned())?;
+        connection
+            .execute(
+                "UPDATE synt_topic_application_state SET path_id=?1 WHERE topic_id=?2",
+                params![path_id, topic_id],
+            )
+            .map_err(map_sqlite_error)?;
+        connection
+            .execute(
+                "UPDATE synt_topic_deleted_artifact SET path_id=?1 WHERE topic_id=?2",
+                params![path_id, topic_id],
+            )
+            .map_err(map_sqlite_error)?;
+        connection
+            .execute(
+                "UPDATE synt_concept_review_item SET topic_path_id=?1 WHERE topic_id=?2",
+                params![path_id, topic_id],
             )
             .map_err(map_sqlite_error)?;
     }
@@ -3389,6 +3442,62 @@ mod tests {
             SCHEMA_VERSION,
         );
         migrated.close().expect("close");
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn registered_v5_migration_rekeys_all_current_topic_path_fields() {
+        let root = root("production-schema-v6");
+        let database_path = root.join("state/synthesis.db");
+        Repository::initialize_production(&database_path, identity())
+            .expect("initialize")
+            .close()
+            .expect("close");
+        let connection = Connection::open(&database_path).expect("fixture");
+        connection
+            .execute_batch(
+                "INSERT INTO synt_topic_application_state(
+                   topic_id,path_id,manifest_hash,artifact_hash,metadata_hash,bundle_hash
+                 ) VALUES('topic:r7','topic-r7','m','a','d','b');
+                 INSERT INTO synt_topic_deleted_artifact(
+                   topic_id,path_id,deleted_path_id,manifest_hash,artifact_hash,
+                   metadata_hash,bundle_hash,deleted_at
+                 ) VALUES('topic:r7','topic-r7','deleted','m','a','d','b','now');
+                 INSERT INTO synt_concept_review_item(
+                   review_id,status,reason,topic_id,topic_path_id,label,confidence
+                 ) VALUES('review','pending','reason','topic:r7','topic-r7','label','high');",
+            )
+            .expect("insert v5 paths");
+        connection
+            .execute(
+                "UPDATE synt_schema_meta SET value=?1
+                 WHERE key='repository_foundation_schema_version'",
+                [FOUNDATION_SCHEMA_V5],
+            )
+            .expect("mark v5");
+        drop(connection);
+
+        prepare_production_schema(
+            &database_path,
+            &root.join("state/synthesis-migration-backups"),
+        )
+        .expect("migrate v6");
+        let connection = Connection::open(&database_path).expect("reopen");
+        let expected = synthesis_protocol::canonical_topic_path_id("topic:r7").expect("topic path");
+        for (table, column) in [
+            ("synt_topic_application_state", "path_id"),
+            ("synt_topic_deleted_artifact", "path_id"),
+            ("synt_concept_review_item", "topic_path_id"),
+        ] {
+            let value: String = connection
+                .query_row(
+                    &format!("SELECT {column} FROM {table} WHERE topic_id='topic:r7'"),
+                    [],
+                    |row| row.get(0),
+                )
+                .expect("migrated path");
+            assert_eq!(value, expected);
+        }
         fs::remove_dir_all(root).expect("cleanup");
     }
 

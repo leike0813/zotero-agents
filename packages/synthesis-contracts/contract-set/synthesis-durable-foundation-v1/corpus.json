@@ -1,6 +1,6 @@
 {
   "schema": "synthesis-durable-foundation-corpus.v1",
-  "schemaVersion": "synthesis-repository-foundation.v5",
+  "schemaVersion": "synthesis-repository-foundation.v6",
   "repository": {
     "pragmas": {
       "journalMode": "wal",
@@ -164,7 +164,7 @@
     "absentInspect": {
       "status": "absent",
       "topicId": "r7-canary",
-      "pathId": "r7-canary",
+      "pathId": "r7-canary-b5f39102b26023fab9f7c5f06811df5eabd879f920eee05434b7a62b07e44c56",
       "manifestHash": null,
       "artifactHash": null,
       "metadataHash": null,
@@ -174,18 +174,28 @@
     "topicPathIds": [
       {
         "topicId": "topic:r7",
-        "pathId": "topic-r7",
+        "pathId": "topic-r7-282ef74b5ec52d7d9582e63580b07030cc515798825d476e8f89552f0b4ce5d7",
         "historicalTypeScriptPathId": "topic-r7"
       },
       {
         "topicId": "中文主题",
-        "pathId": "63974b2998633977",
+        "pathId": "63974b299863397763099294ac60e626519809def440d94427b0d4f4f249ed4b",
         "historicalTypeScriptPathId": "63974b299"
       },
       {
         "topicId": "主题分类",
-        "pathId": "587094eaada43728",
+        "pathId": "587094eaada437285b390a8015b314ffbb9dc01e67731fd14f75bff8e8dc45c2",
         "historicalTypeScriptPathId": "587094eaa"
+      },
+      {
+        "topicId": "aaaaaaaaaaaaaaaaX",
+        "pathId": "aaaaaaaaaaaaaaa-9ef5f1b0e4ea0cf70016b30adab4f5555ca193b75b8e2becdebeda4f436e8229",
+        "historicalTypeScriptPathId": "aaaaaaaaaaaaaaaax"
+      },
+      {
+        "topicId": "aaaaaaaaaaaaaaaaY",
+        "pathId": "aaaaaaaaaaaaaaa-e595dd47aca1f71061786a6fc4dafd8c2b29ec7f973f769d05866c133f1a4d4e",
+        "historicalTypeScriptPathId": "aaaaaaaaaaaaaaaay"
       }
     ]
   },

@@ -905,7 +905,11 @@ export class AssistantWorkspacePublicationRuntime {
       this.flushTimer = null;
     }
     if (this.flushing) return this.flushing;
-    const run = this.flushPending();
+    const run = (async () => {
+      do {
+        await this.flushPending();
+      } while (this.pending.size > 0);
+    })();
     this.flushing = run;
     try {
       await run;
@@ -1009,7 +1013,7 @@ export class AssistantWorkspacePublicationRuntime {
     } else {
       this.pending.set(key, lane);
     }
-    if (this.flushTimer) return;
+    if (this.flushTimer || this.flushing) return;
     this.flushTimer = setTimeout(() => {
       this.flushTimer = null;
       void this.flush();

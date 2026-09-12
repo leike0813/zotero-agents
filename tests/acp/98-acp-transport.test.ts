@@ -829,6 +829,31 @@ describe("acp transport", function () {
     let killCount = 0;
     let stdinCloseCount = 0;
     let stderrReadCount = 0;
+    const pendingDrainTimers = new Set<ReturnType<typeof setTimeout>>();
+    const nativeSetTimeout = globalThis.setTimeout;
+    const nativeClearTimeout = globalThis.clearTimeout;
+    const previousSetTimeout = redefineGlobalProperty("setTimeout", ((
+      handler: TimerHandler,
+      timeout?: number,
+      ...args: unknown[]
+    ) => {
+      const token = nativeSetTimeout(
+        ((...callbackArgs: unknown[]) => {
+          pendingDrainTimers.delete(token);
+          if (typeof handler === "function") handler(...callbackArgs);
+        }) as TimerHandler,
+        timeout,
+        ...args,
+      );
+      if (timeout === 2_000) pendingDrainTimers.add(token);
+      return token;
+    }) as typeof setTimeout);
+    const previousClearTimeout = redefineGlobalProperty("clearTimeout", ((
+      token: ReturnType<typeof setTimeout>,
+    ) => {
+      pendingDrainTimers.delete(token);
+      return nativeClearTimeout(token);
+    }) as typeof clearTimeout);
     const previousChromeUtils = redefineGlobalProperty("ChromeUtils", {
       import: () => ({
         Subprocess: {
@@ -895,7 +920,10 @@ describe("acp transport", function () {
         closeInvocationCount: 2,
         closeReused: true,
       });
+      assert.equal(pendingDrainTimers.size, 0);
     } finally {
+      restoreGlobalProperty("clearTimeout", previousClearTimeout);
+      restoreGlobalProperty("setTimeout", previousSetTimeout);
       restoreGlobalProperty("Zotero", previousZotero);
       restoreGlobalProperty("ChromeUtils", previousChromeUtils);
     }
