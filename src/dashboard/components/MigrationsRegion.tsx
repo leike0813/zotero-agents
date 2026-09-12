@@ -158,17 +158,9 @@ export const MigrationsRegion = memo(
         data-region-content="dashboard-migrations"
         data-availability={view.availability}
       >
-        <header class="dashboard-migrations-header zs-panel-header">
-          <div class="zs-panel-header-main">
-            <h2 class="zs-panel-header-title">{selection.pageTitle}</h2>
-            {view.definitionVersion > 0 &&
-            view.availability !== "unavailable" ? (
-              <span class="dashboard-migrations-version zs-panel-header-subtitle">
-                {view.migrationId} · {view.definitionVersion}
-              </span>
-            ) : null}
-          </div>
-          <div class="dashboard-migrations-toolbar zs-panel-header-actions">
+        <h2 class="page-title">{selection.pageTitle}</h2>
+        <div class="dashboard-migrations-toolbar-row">
+          <div class="dashboard-migrations-actions">
             <button
               type="button"
               class="btn"
@@ -225,93 +217,40 @@ export const MigrationsRegion = memo(
               </button>
             ) : null}
           </div>
-        </header>
-        {view.availability === "unavailable" ? (
-          <p class="empty">
-            {view.availabilityReason || selection.unavailableText}
-          </p>
-        ) : null}
-
-        {view.progress ? (
-          <div class="dashboard-migration-progress" aria-live="polite">
-            <div class="dashboard-migration-progress-info">
-              <strong>{selection.progressLabel}</strong>
-              <span>
-                {view.progress.completed}/
-                {view.progress.total === null ? "…" : view.progress.total}
-              </span>
-              <span>
-                {view.progress.candidateCount} {selection.candidateLabel}
-              </span>
-            </div>
-            <div
-              class="dashboard-migration-progress-track"
-              role="progressbar"
-              aria-valuemin={0}
-              aria-valuemax={view.progress.total ?? undefined}
-              aria-valuenow={
-                view.progress.total === null
-                  ? undefined
-                  : view.progress.completed
-              }
-            >
-              <div
-                class={`dashboard-migration-progress-fill${
-                  view.progress.total === null ? " is-indeterminate" : ""
-                }`}
-                style={
-                  view.progress.total
-                    ? {
-                        width: `${Math.min(
-                          100,
-                          Math.round(
-                            (view.progress.completed / view.progress.total) *
-                              100,
-                          ),
-                        )}%`,
-                      }
-                    : undefined
-                }
-              />
-            </div>
-          </div>
-        ) : null}
-
-        {active ? (
-          <>
-            <div class="dashboard-migrations-summary" aria-live="polite">
-              <span class="zs-badge">
-                <strong>{candidatePage.summary.total}</strong>{" "}
-                {selection.candidateLabel}
-              </span>
-              {candidatePage.summary.total !==
-              candidatePage.summary.unfilteredTotal ? (
+          {active ? (
+            <>
+              <div class="dashboard-migrations-summary" aria-live="polite">
                 <span class="zs-badge">
-                  {selection.filteredLabel} {candidatePage.summary.total}/
-                  {candidatePage.summary.unfilteredTotal}
+                  <strong>{candidatePage.summary.total}</strong>{" "}
+                  {selection.candidateLabel}
                 </span>
-              ) : null}
-              <span class="zs-badge zs-badge--success">
-                <strong>{candidatePage.summary.ready}</strong>{" "}
-                {selection.readyLabel}
-              </span>
-              <span class="zs-badge zs-badge--warning">
-                <strong>{candidatePage.summary.reviewRequired}</strong>{" "}
-                {selection.reviewLabel}
-              </span>
-              <span class="zs-badge zs-badge--danger">
-                <strong>{candidatePage.summary.blocked}</strong>{" "}
-                {selection.blockedLabel}
-              </span>
-              <span class="zs-badge zs-badge--accent">
-                <strong>{candidatePage.summary.selected}</strong>{" "}
-                {selection.selectedLabel}
-              </span>
-              {active.reason ? (
-                <span class="attention">{active.reason}</span>
-              ) : null}
-            </div>
-            <div class="dashboard-migrations-filters" role="search">
+                {candidatePage.summary.total !==
+                candidatePage.summary.unfilteredTotal ? (
+                  <span class="zs-badge">
+                    {selection.filteredLabel} {candidatePage.summary.total}/
+                    {candidatePage.summary.unfilteredTotal}
+                  </span>
+                ) : null}
+                <span class="zs-badge zs-badge--success">
+                  <strong>{candidatePage.summary.ready}</strong>{" "}
+                  {selection.readyLabel}
+                </span>
+                <span class="zs-badge zs-badge--warning">
+                  <strong>{candidatePage.summary.reviewRequired}</strong>{" "}
+                  {selection.reviewLabel}
+                </span>
+                <span class="zs-badge zs-badge--danger">
+                  <strong>{candidatePage.summary.blocked}</strong>{" "}
+                  {selection.blockedLabel}
+                </span>
+                <span class="zs-badge zs-badge--accent">
+                  <strong>{candidatePage.summary.selected}</strong>{" "}
+                  {selection.selectedLabel}
+                </span>
+                {active.reason ? (
+                  <span class="attention">{active.reason}</span>
+                ) : null}
+              </div>
               <input
                 type="search"
                 class="text-input"
@@ -380,8 +319,58 @@ export const MigrationsRegion = memo(
                   ),
                 )}
               </select>
+            </>
+          ) : null}
+        </div>
+        {view.availability === "unavailable" ? (
+          <p class="empty">
+            {view.availabilityReason || selection.unavailableText}
+          </p>
+        ) : null}
+
+        {view.progress ? (
+          <div class="dashboard-migration-progress" aria-live="polite">
+            <div class="dashboard-migration-progress-info">
+              <strong>{selection.progressLabel}</strong>
+              <span>
+                {view.progress.completed}/
+                {view.progress.total === null ? "…" : view.progress.total}
+              </span>
+              <span>
+                {view.progress.candidateCount} {selection.candidateLabel}
+              </span>
             </div>
-          </>
+            <div
+              class="dashboard-migration-progress-track"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={view.progress.total ?? undefined}
+              aria-valuenow={
+                view.progress.total === null
+                  ? undefined
+                  : view.progress.completed
+              }
+            >
+              <div
+                class={`dashboard-migration-progress-fill${
+                  view.progress.total === null ? " is-indeterminate" : ""
+                }`}
+                style={
+                  view.progress.total
+                    ? {
+                        width: `${Math.min(
+                          100,
+                          Math.round(
+                            (view.progress.completed / view.progress.total) *
+                              100,
+                          ),
+                        )}%`,
+                      }
+                    : undefined
+                }
+              />
+            </div>
+          </div>
         ) : null}
 
         <div
@@ -396,6 +385,15 @@ export const MigrationsRegion = memo(
                       class={`dashboard-migration-candidate${candidate.candidateId === selectedCandidateId ? " is-selected" : ""}`}
                       key={candidate.candidateId}
                       data-classification={candidate.classification}
+                      tabIndex={0}
+                      onClick={() =>
+                        setSelectedCandidateId(candidate.candidateId)
+                      }
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter" && event.key !== " ") return;
+                        event.preventDefault();
+                        setSelectedCandidateId(candidate.candidateId);
+                      }}
                     >
                       <div class="dashboard-migration-candidate-heading">
                         <input
@@ -412,6 +410,7 @@ export const MigrationsRegion = memo(
                             ) ||
                             workerActive
                           }
+                          onClick={(event) => event.stopPropagation()}
                           onChange={(event) =>
                             onAction("literature-migration-set-selection", {
                               scanOperationId: active?.operationId || "",
@@ -443,20 +442,6 @@ export const MigrationsRegion = memo(
                         >
                           {stateLabel(selection, candidate.classification)}
                         </span>
-                        <button
-                          type="button"
-                          class="btn"
-                          data-action="migration-open-detail"
-                          aria-controls="migration-detail-drawer"
-                          aria-expanded={
-                            candidate.candidateId === selectedCandidateId
-                          }
-                          onClick={() =>
-                            setSelectedCandidateId(candidate.candidateId)
-                          }
-                        >
-                          {selection.detailsLabel}
-                        </button>
                       </div>
                       <CandidateFacts
                         candidate={candidate}
@@ -545,6 +530,16 @@ export const MigrationsRegion = memo(
                         {selection.reasonLabels[issue.reasonCode] ||
                           issue.reasonCode}
                       </strong>
+                      {issue.affectedItems?.length ? (
+                        <ul class="dashboard-migration-issue-items">
+                          {issue.affectedItems.map((item, itemIndex) => (
+                            <li key={itemIndex}>
+                              <span>{item.label}</span>
+                              {item.hint ? <small>{item.hint}</small> : null}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
                       <div class="dashboard-migration-issue-options">
                         {issue.options.map((option) => (
                           <button

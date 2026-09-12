@@ -33,6 +33,16 @@
   transform: rotate(-90deg);
 }
 
+.zs-icon-arrow-up {
+  -webkit-mask-image: url("../icons/material-symbols/keyboard_arrow_up.svg");
+  mask-image: url("../icons/material-symbols/keyboard_arrow_up.svg");
+}
+
+.zs-icon-arrow-down {
+  -webkit-mask-image: url("../icons/material-symbols/keyboard_arrow_down.svg");
+  mask-image: url("../icons/material-symbols/keyboard_arrow_down.svg");
+}
+
 .zs-icon-dashboard {
   -webkit-mask-image: url("../icons/material-symbols/dashboard.svg");
   mask-image: url("../icons/material-symbols/dashboard.svg");

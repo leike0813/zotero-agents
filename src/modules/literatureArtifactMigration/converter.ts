@@ -89,6 +89,8 @@ export type LiteratureArtifactMigrationConversion = {
   droppedCount: number;
   originalReferenceCount: number;
   originalMentionCount: number;
+  /** Affected source entries per reason code, recorded during conversion. */
+  issueItems: Partial<Record<string, Array<{ label: string; hint?: string }>>>;
 };
 
 type LiteratureArtifactMigrationClassification =
@@ -1049,11 +1051,25 @@ function classifyConversion(
   if (!originalReferenceCount && !citationValue) reasons.add("no_references");
   const references: SourceReference[] = [];
   const duplicateKeys = new Set<string>();
+  const issueItems: LiteratureArtifactMigrationConversion["issueItems"] = {};
+  const recordIssueItem = (
+    reasonCode: string,
+    item: { label: string; hint?: string },
+  ) => {
+    (issueItems[reasonCode] ||= []).push(item);
+  };
   let droppedCount = 0;
-  for (const value of values.references) {
+  for (const [referenceIndex, value] of values.references.entries()) {
     const reference = makeSourceReference(value, idFactory, diagnostics);
     if (!reference) {
       droppedCount += 1;
+      const row = object(value);
+      const droppedTitle = row
+        ? firstText(object(row.bibliography)?.title, row.title)
+        : "";
+      recordIssueItem("data_loss", {
+        label: `#${referenceIndex + 1} ${droppedTitle || "untitled"}`,
+      });
       continue;
     }
     const identityKeys = [
@@ -1063,6 +1079,9 @@ function classifyConversion(
     if (identityKeys.some((key) => duplicateKeys.has(key))) {
       reasons.add("duplicate_reference");
       diagnostics.push("duplicate reference evidence");
+      recordIssueItem("duplicate_reference", {
+        label: reference.bibliography.title,
+      });
     }
     identityKeys.forEach((key) => duplicateKeys.add(key));
     references.push(reference);
@@ -1092,6 +1111,9 @@ function classifyConversion(
     references.push(recovered);
     recoveredCount += 1;
     reasons.add("citation_snapshot_recovery");
+    recordIssueItem("citation_snapshot_recovery", {
+      label: recovered.bibliography.title,
+    });
   }
   const citationResult = citationValue
     ? normalizeCitation(
@@ -1168,6 +1190,7 @@ function classifyConversion(
     droppedCount,
     originalReferenceCount,
     originalMentionCount,
+    issueItems,
   };
 }
 

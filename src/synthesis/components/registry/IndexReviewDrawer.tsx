@@ -575,7 +575,14 @@ export function IndexReviewDrawer(props: {
         <div class="review-drawer-controls">
           <RegistryActionButton
             t={t}
-            label="↑"
+            label={
+              <span
+                class="zs-icon zs-icon-sm zs-icon-arrow-up"
+                aria-hidden="true"
+              />
+            }
+            ariaLabel="↑"
+            className="zs-icon-btn"
             disabled={items.length <= 1}
             onClick={() =>
               onAction("setFilters", {
@@ -588,7 +595,14 @@ export function IndexReviewDrawer(props: {
           />
           <RegistryActionButton
             t={t}
-            label="↓"
+            label={
+              <span
+                class="zs-icon zs-icon-sm zs-icon-arrow-down"
+                aria-hidden="true"
+              />
+            }
+            ariaLabel="↓"
+            className="zs-icon-btn"
             disabled={items.length <= 1}
             onClick={() =>
               onAction("setFilters", {

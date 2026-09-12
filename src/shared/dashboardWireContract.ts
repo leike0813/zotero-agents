@@ -1112,6 +1112,7 @@ export type DashboardLiteratureArtifactMigrationCandidate = {
     reasonCode: string;
     status: "pending" | "resolved";
     detail: string;
+    affectedItems?: Array<{ label: string; hint?: string }>;
     options: Array<{
       optionId: string;
       kind: string;

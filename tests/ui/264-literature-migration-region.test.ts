@@ -100,6 +100,9 @@ describe("Dashboard literature migration region", function () {
                   reasonCode: "unresolved_linkage",
                   status: "pending",
                   detail: "unresolved_linkage",
+                  affectedItems: [
+                    { label: "Unknown (2020)", hint: "#3 · 2020" },
+                  ],
                   selectedOptionId: "",
                   options: [
                     {
@@ -226,6 +229,15 @@ describe("Dashboard literature migration region", function () {
     assert.isFalse(checkboxes[1].checked);
     assert.isTrue(checkboxes[1].disabled);
     assert.isTrue(checkboxes[2].disabled);
+    checkboxes[0].click();
+    assert.isNull(
+      root.querySelector('[data-role="migration-detail-drawer"]'),
+      "checkbox toggle must not open the detail drawer",
+    );
+    // jsdom does not fire change for checkboxes in a detached tree.
+    checkboxes[0].dispatchEvent(
+      new document.defaultView!.Event("change", { bubbles: true }),
+    );
     const search = root.querySelector<HTMLInputElement>(
       '[data-role="migration-search"]',
     );
@@ -234,19 +246,31 @@ describe("Dashboard literature migration region", function () {
     search!.dispatchEvent(
       new document.defaultView!.Event("input", { bubbles: true }),
     );
-    const details = root.querySelectorAll<HTMLButtonElement>(
-      '[data-action="migration-open-detail"]',
+    assert.isNull(root.querySelector('[data-action="migration-open-detail"]'));
+    const articles = root.querySelectorAll<HTMLElement>(
+      ".dashboard-migration-candidate",
     );
-    assert.lengthOf(details, 3);
-    details[1]!.click();
+    assert.lengthOf(articles, 3);
+    articles[1]!.click();
     await new Promise((resolve) => setTimeout(resolve, 0));
     const drawer = root.querySelector('[data-role="migration-detail-drawer"]');
     assert.exists(drawer);
-    assert.equal(details[1]!.getAttribute("aria-expanded"), "true");
-    assert.equal(
-      details[1]!.getAttribute("aria-controls"),
-      "migration-detail-drawer",
+    assert.include(drawer!.textContent || "", "Review paper");
+    const issueItems = drawer!.querySelectorAll(
+      ".dashboard-migration-issue-items li",
     );
+    assert.lengthOf(issueItems, 1);
+    assert.include(issueItems[0]!.textContent || "", "Unknown (2020)");
+    articles[2]!.dispatchEvent(
+      new document.defaultView!.KeyboardEvent("keydown", {
+        key: "Enter",
+        bubbles: true,
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.include(drawer!.textContent || "", "Blocked paper");
+    articles[1]!.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     const resolution = drawer!.querySelector<HTMLButtonElement>(
       '[data-option-id="keep-unresolved"]',
     );
@@ -263,6 +287,14 @@ describe("Dashboard literature migration region", function () {
     assert.exists(next);
     next?.click();
     assert.deepEqual(actions, [
+      {
+        action: "literature-migration-set-selection",
+        payload: {
+          scanOperationId: "op-1",
+          candidateId: "candidate-1",
+          selected: false,
+        },
+      },
       {
         action: "literature-migration-set-candidate-query",
         payload: {

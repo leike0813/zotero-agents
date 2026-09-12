@@ -851,17 +851,27 @@ export const ConceptsRegion = memo(function ConceptsRegion(
           <div class="review-drawer-controls">
             <button
               type="button"
+              class="zs-icon-btn"
+              aria-label="↑"
               disabled={total <= 1}
               onClick={() => setReviewIndex(wrapReviewIndex(index - 1, total))}
             >
-              {"↑"}
+              <span
+                class="zs-icon zs-icon-sm zs-icon-arrow-up"
+                aria-hidden="true"
+              />
             </button>
             <button
               type="button"
+              class="zs-icon-btn"
+              aria-label="↓"
               disabled={total <= 1}
               onClick={() => setReviewIndex(wrapReviewIndex(index + 1, total))}
             >
-              {"↓"}
+              <span
+                class="zs-icon zs-icon-sm zs-icon-arrow-down"
+                aria-hidden="true"
+              />
             </button>
             <button
               type="button"

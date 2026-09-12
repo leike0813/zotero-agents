@@ -1008,13 +1008,27 @@ function CanonicalEditDrawer(props: {
                 </span>
                 <RegistryActionButton
                   t={t}
-                  label="↑"
+                  label={
+                    <span
+                      class="zs-icon zs-icon-sm zs-icon-arrow-up"
+                      aria-hidden="true"
+                    />
+                  }
+                  ariaLabel="↑"
+                  className="zs-icon-btn"
                   disabled={currentIndex <= 0}
                   onClick={() => props.onCompareIndex(currentIndex - 1)}
                 />
                 <RegistryActionButton
                   t={t}
-                  label="↓"
+                  label={
+                    <span
+                      class="zs-icon zs-icon-sm zs-icon-arrow-down"
+                      aria-hidden="true"
+                    />
+                  }
+                  ariaLabel="↓"
+                  className="zs-icon-btn"
                   disabled={currentIndex >= compareSources.length - 1}
                   onClick={() => props.onCompareIndex(currentIndex + 1)}
                 />

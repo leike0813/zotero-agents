@@ -134,7 +134,7 @@ describe("Dashboard literature migration browser UI", function () {
 
     assert.isTrue(await page.getByPlaceholder("Search candidates").isVisible());
     assert.equal(
-      await page.locator(".dashboard-migrations-filters select").count(),
+      await page.locator(".dashboard-migrations-toolbar-row select").count(),
       3,
     );
     const listBounds = await page
@@ -147,11 +147,7 @@ describe("Dashboard literature migration browser UI", function () {
     assert.include(["auto", "scroll"], listBounds.overflowY);
     assert.isAbove(listBounds.scrollHeight, listBounds.clientHeight);
 
-    await page
-      .locator(".dashboard-migration-candidate")
-      .first()
-      .getByRole("button", { name: "Details" })
-      .click();
+    await page.locator(".dashboard-migration-candidate").first().click();
     const drawer = page.locator(".dashboard-migration-drawer");
     await drawer.waitFor();
     assert.isAbove((await drawer.boundingBox())?.width || 0, 200);

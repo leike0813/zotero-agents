@@ -307,7 +307,7 @@ function TopicInspector(props: GraphProps) {
                 <div class="relation-row" key={index}>
                   <TopicsBadge
                     value={entry.relation}
-                    tone={topicToneFor(entry.status)}
+                    className={`relation-${entry.relation}`}
                     t={t}
                   />
                   <span>{entry.node.title}</span>
@@ -404,17 +404,27 @@ function TopicRelationReviewPanel(props: {
         <div class="review-drawer-controls">
           <button
             type="button"
+            class="zs-icon-btn"
+            aria-label="↑"
             disabled={total <= 1}
             onClick={() => setRawIndex(wrapReviewIndex(index - 1, total))}
           >
-            {"↑"}
+            <span
+              class="zs-icon zs-icon-sm zs-icon-arrow-up"
+              aria-hidden="true"
+            />
           </button>
           <button
             type="button"
+            class="zs-icon-btn"
+            aria-label="↓"
             disabled={total <= 1}
             onClick={() => setRawIndex(wrapReviewIndex(index + 1, total))}
           >
-            {"↓"}
+            <span
+              class="zs-icon zs-icon-sm zs-icon-arrow-down"
+              aria-hidden="true"
+            />
           </button>
           <button type="button" onClick={() => setCollapsed(!collapsed)}>
             {collapsed
@@ -434,7 +444,9 @@ function TopicRelationReviewPanel(props: {
             <div class="topic-relation-review-arrow" aria-hidden="true">
               <span class="topic-relation-review-arrow-icon" />
             </div>
-            <div class="topic-relation-review-relation">
+            <div
+              class={`topic-relation-review-relation relation-${selected.relation}`}
+            >
               <strong>{localizedEnumText(selected.relation, t) || "-"}</strong>
             </div>
             <div class="topic-relation-review-arrow" aria-hidden="true">

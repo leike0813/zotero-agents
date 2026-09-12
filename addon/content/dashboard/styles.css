@@ -2475,8 +2475,8 @@ tr.clickable {
 }
 
 /* Literature migration panel. Layout follows the scroll-ownership model (see
-   shared/page-chrome.css): fixed header/summary/filter zones, one scroll
-   region for the candidate list, drawer as an independent L4 scroller. */
+   shared/page-chrome.css): fixed title/toolbar zones, one scroll region for
+   the candidate list, drawer as an independent L4 scroller. */
 .region-managed-view > .dashboard-migrations[data-region-content] {
   display: flex;
   flex-direction: column;
@@ -2487,7 +2487,6 @@ tr.clickable {
   overflow: hidden;
 }
 
-.dashboard-migrations-toolbar,
 .dashboard-migration-candidate-heading,
 .dashboard-migrations-pagination {
   display: flex;
@@ -2495,14 +2494,30 @@ tr.clickable {
   gap: 10px;
 }
 
+.dashboard-migrations-toolbar-row,
+.dashboard-migrations-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.dashboard-migrations-toolbar-row {
+  flex: none;
+}
+
+.dashboard-migrations-toolbar-row input[data-role="migration-search"] {
+  width: 220px;
+  flex: none;
+}
+
+.dashboard-migrations-toolbar-row select {
+  min-width: 0;
+}
+
 .dashboard-migrations-pagination {
   justify-content: space-between;
   padding-top: 2px;
-}
-
-.dashboard-migrations-version {
-  font-family: var(--zs-font-mono);
-  font-size: 11px;
 }
 
 .dashboard-migrations-summary {
@@ -2571,18 +2586,6 @@ tr.clickable {
   }
 }
 
-.dashboard-migrations-filters {
-  display: grid;
-  grid-template-columns: minmax(180px, 1fr) repeat(3, minmax(120px, auto));
-  gap: 8px;
-  flex: none;
-}
-
-.dashboard-migrations-filters input,
-.dashboard-migrations-filters select {
-  min-width: 0;
-}
-
 .dashboard-migrations-workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -2622,6 +2625,7 @@ tr.clickable {
   border-left: 3px solid var(--zs-accent-soft-border);
   border-radius: 8px;
   background: var(--panel);
+  cursor: pointer;
   transition:
     border-color 160ms ease,
     background-color 160ms ease;
@@ -2629,6 +2633,11 @@ tr.clickable {
 
 .dashboard-migration-candidate:hover {
   background: var(--zs-surface-hover);
+}
+
+.dashboard-migration-candidate:focus-visible {
+  outline: 2px solid var(--zs-accent);
+  outline-offset: 1px;
 }
 
 .dashboard-migration-candidate.is-selected {
@@ -2690,6 +2699,34 @@ tr.clickable {
   background: var(--zs-panel-alt);
 }
 
+.dashboard-migration-issue-items {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.dashboard-migration-issue-items li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dashboard-migration-issue-items li > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-migration-issue-items small {
+  flex: none;
+  color: var(--muted);
+}
+
 .dashboard-migration-issue-options button {
   width: 100%;
   text-align: left;
@@ -2749,9 +2786,12 @@ tr.clickable {
 }
 
 @container main-view (max-width: 560px) {
-  .dashboard-migrations-header,
+  .dashboard-migrations-toolbar-row,
   .dashboard-migration-candidate-heading {
     align-items: flex-start;
+  }
+
+  .dashboard-migration-candidate-heading {
     flex-wrap: wrap;
   }
 
@@ -2759,7 +2799,6 @@ tr.clickable {
     min-width: calc(100% - 34px);
   }
 
-  .dashboard-migrations-filters,
   .dashboard-migrations-workspace.has-drawer {
     grid-template-columns: minmax(0, 1fr);
   }

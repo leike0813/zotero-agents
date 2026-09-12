@@ -1286,6 +1286,13 @@ describe("literature artifact migration", function () {
     const duplicate = candidate.issues.find(
       (issue) => issue.reasonCode === "duplicate_reference",
     )!;
+    assert.deepEqual(duplicate.affectedItems, [{ label: "Same" }]);
+    const initialLinkage = candidate.issues.find(
+      (issue) => issue.reasonCode === "unresolved_linkage",
+    )!;
+    assert.lengthOf(initialLinkage.affectedItems || [], 1);
+    assert.include(initialLinkage.affectedItems![0]!.label, "Unknown (2020)");
+
     const merged = duplicate.options.find(
       (option) => option.kind === "merge_duplicates",
     )!;
@@ -1303,19 +1310,26 @@ describe("literature artifact migration", function () {
     const linkage = afterDuplicate.items[0]!.issues.find(
       (issue) => issue.reasonCode === "unresolved_linkage",
     )!;
-    const preserve = linkage.options.find(
-      (option) => option.kind === "keep_unresolved",
+    const drop = linkage.options.find(
+      (option) => option.kind === "drop_unresolved",
     )!;
     assert.isTrue(
       service.resolveCandidateIssue({
         scanOperationId: preview.operationId,
         candidateId: candidate.candidateId,
         issueId: linkage.issueId,
-        optionId: preserve.optionId,
+        optionId: drop.optionId,
       }).ok,
     );
     const resolved = service.listCandidatePage({ runId: preview.runId });
     assert.equal(resolved.items[0]?.classification, "ready");
+    const resolvedLinkage = resolved.items[0]!.issues.find(
+      (issue) => issue.reasonCode === "unresolved_linkage",
+    )!;
+    assert.isUndefined(
+      resolvedLinkage.affectedItems,
+      "dropped unresolved mentions must clear the affected item list",
+    );
     assert.isTrue(
       service.setCandidateSelection({
         scanOperationId: preview.operationId,
@@ -1328,7 +1342,7 @@ describe("literature artifact migration", function () {
     });
     assert.isTrue(result.ok);
     assert.equal(appliedReferenceCount, 1);
-    assert.equal(appliedUnresolvedCount, 1);
+    assert.equal(appliedUnresolvedCount, 0);
   });
 
   it("filters the complete runtime plan before pagination", async function () {

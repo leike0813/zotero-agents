@@ -33,12 +33,13 @@ export function RegistryBadge(props: {
  */
 export function RegistryActionButton(props: {
   t: SynthesisRegistryText;
-  label: string;
+  label: preact.ComponentChildren;
   active?: boolean;
   disabled?: boolean;
   pending?: boolean;
   pendingCommand?: string;
   title?: string;
+  ariaLabel?: string;
   className?: string;
   onClick: (event: MouseEvent) => void;
   children?: preact.ComponentChildren;
@@ -62,6 +63,7 @@ export function RegistryActionButton(props: {
       class={className}
       disabled={props.disabled || pending}
       aria-busy={pending ? "true" : undefined}
+      aria-label={props.ariaLabel}
       title={title}
       onClick={(event) => {
         event.preventDefault();

@@ -950,6 +950,37 @@ function issuesForConversion(
   }));
 }
 
+function affectedItemsForIssue(
+  conversion: LiteratureArtifactMigrationConversion,
+  reasonCode: string,
+): Array<{ label: string; hint?: string }> | undefined {
+  if (
+    reasonCode === "unresolved_linkage" ||
+    reasonCode === "ambiguous_linkage"
+  ) {
+    const mentions = (conversion.citation?.unresolved || []).filter(
+      (mention) => mention.reason === reasonCode,
+    );
+    if (!mentions.length) return undefined;
+    return mentions.map((mention) => {
+      const snippet = text(mention.snippet);
+      const label =
+        text(mention.marker) ||
+        (snippet.length > 80 ? `${snippet.slice(0, 80)}…` : snippet);
+      const hint = [
+        mention.ref_number_hint === null ? "" : `#${mention.ref_number_hint}`,
+        mention.year_hint === null ? "" : String(mention.year_hint),
+        text(mention.surname_hint),
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      return hint ? { label, hint } : { label };
+    });
+  }
+  const recorded = conversion.issueItems[reasonCode];
+  return recorded?.length ? recorded : undefined;
+}
+
 function applyRuntimeCandidateResolutions(runtimeCandidate: RuntimeCandidate) {
   const selectedOptions = runtimeCandidate.candidate.issues.flatMap((issue) => {
     const option = issue.options.find(
@@ -1783,23 +1814,26 @@ export function createLiteratureArtifactMigrationService(
     if (plan) {
       const search = text(options.query?.search).toLocaleLowerCase();
       const filtered = [...plan.candidates.values()]
-        .map((entry) => entry.candidate)
         .filter(
-          (candidate) =>
-            (!search || candidate.title.toLocaleLowerCase().includes(search)) &&
+          (entry) =>
+            (!search ||
+              entry.candidate.title.toLocaleLowerCase().includes(search)) &&
             (!options.query?.classification ||
-              candidate.classification === options.query.classification) &&
+              entry.candidate.classification ===
+                options.query.classification) &&
             (!options.query?.reasonCode ||
-              candidate.issues.some(
+              entry.candidate.issues.some(
                 (issue) => issue.reasonCode === options.query?.reasonCode,
               )) &&
             (!options.query?.disposition ||
-              candidate.disposition === options.query.disposition),
+              entry.candidate.disposition === options.query.disposition),
         )
-        .sort((left, right) => left.ordinal - right.ordinal);
+        .sort(
+          (left, right) => left.candidate.ordinal - right.candidate.ordinal,
+        );
       const afterOrdinal = migrationCursorOrdinal(options.cursor);
       const nextIndex = afterOrdinal
-        ? filtered.findIndex((candidate) => candidate.ordinal > afterOrdinal)
+        ? filtered.findIndex((entry) => entry.candidate.ordinal > afterOrdinal)
         : 0;
       const start = nextIndex < 0 ? filtered.length : nextIndex;
       const slice = filtered.slice(start, start + limit);
@@ -1808,35 +1842,44 @@ export function createLiteratureArtifactMigrationService(
         total: filtered.length,
         unfilteredTotal: plan.candidates.size,
         ready: filtered.filter(
-          (candidate) => candidate.classification === "ready",
+          (entry) => entry.candidate.classification === "ready",
         ).length,
         reviewRequired: filtered.filter(
-          (candidate) => candidate.classification === "review_required",
+          (entry) => entry.candidate.classification === "review_required",
         ).length,
         blocked: filtered.filter(
-          (candidate) => candidate.classification === "blocked",
+          (entry) => entry.candidate.classification === "blocked",
         ).length,
         selected: plan.selectedCandidateIds.size,
       };
       return {
-        items: slice.map((candidate) => ({
-          candidateId: candidate.candidateId,
-          ordinal: candidate.ordinal,
-          title: candidate.title,
-          classification: candidate.classification,
-          outcome: candidate.outcome,
-          reasonCodes: candidate.reasonCodes,
-          verifiedCount: candidate.verifiedCount,
-          unresolvedCount: candidate.unresolvedCount,
-          recoveredCount: candidate.recoveredCount,
-          droppedCount: candidate.droppedCount,
-          selected: candidate.disposition === "include",
-          disposition: candidate.disposition,
-          issues: candidate.issues,
-        })),
+        items: slice.map((entry) => {
+          const candidate = entry.candidate;
+          return {
+            candidateId: candidate.candidateId,
+            ordinal: candidate.ordinal,
+            title: candidate.title,
+            classification: candidate.classification,
+            outcome: candidate.outcome,
+            reasonCodes: candidate.reasonCodes,
+            verifiedCount: candidate.verifiedCount,
+            unresolvedCount: candidate.unresolvedCount,
+            recoveredCount: candidate.recoveredCount,
+            droppedCount: candidate.droppedCount,
+            selected: candidate.disposition === "include",
+            disposition: candidate.disposition,
+            issues: candidate.issues.map((issue) => ({
+              ...issue,
+              affectedItems: affectedItemsForIssue(
+                entry.conversion,
+                issue.reasonCode,
+              ),
+            })),
+          };
+        }),
         nextCursor:
           start + slice.length < filtered.length && last
-            ? opaqueMigrationCursor({ ordinal: last.ordinal })
+            ? opaqueMigrationCursor({ ordinal: last.candidate.ordinal })
             : null,
         summary,
         availableReasons: [
