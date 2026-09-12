@@ -819,7 +819,8 @@ async function main() {
     if (
       canonical.response.status !== 200 ||
       canonicalData.status !== "absent" ||
-      canonicalData.pathId !== "r7-canary" ||
+      canonicalData.pathId !==
+        "r7-canary-b5f39102b26023fab9f7c5f06811df5eabd879f920eee05434b7a62b07e44c56" ||
       canonicalData.manifestHash !== null ||
       canonicalData.sections?.length !== 0 ||
       JSON.stringify(canonical.body).length > 1024 * 1024

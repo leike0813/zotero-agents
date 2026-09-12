@@ -897,7 +897,10 @@ fn canonical_inspect_serves_the_raw_topic_descriptor_shape() {
     assert_eq!(inspected["ok"], true);
     assert_eq!(inspected["data"]["status"], "absent");
     assert_eq!(inspected["data"]["topicId"], "r7-canary");
-    assert_eq!(inspected["data"]["pathId"], "r7-canary");
+    assert_eq!(
+        inspected["data"]["pathId"],
+        "r7-canary-b5f39102b26023fab9f7c5f06811df5eabd879f920eee05434b7a62b07e44c56"
+    );
     assert_eq!(inspected["data"]["manifestHash"], Value::Null);
     assert_eq!(inspected["data"]["sections"], json!([]));
     assert_eq!(inspected["data"]["diagnostics"], json!([]));
