@@ -361,6 +361,36 @@ fn prepare_legacy_startup_fixture_for_topic(
         .commit_import_batch(receipt_id, &source_hash)
         .expect("commit canonical topic");
     canonical.close().expect("close canonical");
+    let current = canonical_root
+        .join("topics")
+        .join(&canonical_path_id)
+        .join("current");
+    let metadata_path = current.join("metadata.json");
+    let mut metadata: Value =
+        serde_json::from_slice(&fs::read(&metadata_path).expect("read metadata"))
+            .expect("parse metadata");
+    let data = metadata["data"].as_object_mut().expect("metadata data");
+    let legacy_metadata_hash =
+        canonical_sha256(&Value::Object(data.clone())).expect("metadata hash");
+    data.insert("metadata_hash".into(), json!(legacy_metadata_hash));
+    fs::write(
+        &metadata_path,
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(&metadata).expect("encode metadata")
+        ),
+    )
+    .expect("write metadata");
+    let manifest_path = current.join("manifest.json");
+    let mut manifest: Value =
+        serde_json::from_slice(&fs::read(&manifest_path).expect("read manifest"))
+            .expect("parse manifest");
+    manifest["metadata_hash"] = json!(legacy_metadata_hash);
+    fs::write(
+        &manifest_path,
+        format!("{}\n", canonical_json(&manifest).expect("encode manifest")),
+    )
+    .expect("write manifest");
     fs::remove_file(canonical_root.join("identity.json")).expect("remove canonical identity");
 
     let sidecar_root = canonical_root.join("sidecar");
@@ -595,6 +625,8 @@ fn historical_unicode_topic_path_does_not_block_native_startup() {
     fs::rename(&canonical_topic_root, &legacy_topic_root).expect("install historical path");
     let artifact_path = legacy_topic_root.join("current/artifact.json");
     let artifact_before = fs::read(&artifact_path).expect("legacy artifact before");
+    let metadata_path = legacy_topic_root.join("current/metadata.json");
+    let metadata_before = fs::read(&metadata_path).expect("legacy metadata before");
     let (config_path, discovery_path, lifecycle_token) =
         write_launch_config(&root, reverse_host.port);
 
@@ -641,6 +673,10 @@ fn historical_unicode_topic_path_does_not_block_native_startup() {
     assert_eq!(
         fs::read(artifact_path).expect("legacy artifact after"),
         artifact_before
+    );
+    assert_eq!(
+        fs::read(metadata_path).expect("legacy metadata after"),
+        metadata_before
     );
     assert!(
         canonical_root

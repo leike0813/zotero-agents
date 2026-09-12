@@ -470,6 +470,32 @@ fn section_file_name(name: &str) -> Result<String, String> {
     Ok(format!("{}.json", name.replace('_', "-")))
 }
 
+fn validated_metadata_hash(
+    manifest: &serde_json::Map<String, Value>,
+    metadata: &Value,
+) -> Result<String, String> {
+    let metadata_hash = hash_json(metadata)?;
+    let declared = manifest.get("metadata_hash").and_then(Value::as_str);
+    if declared != Some(metadata_hash.as_str()) {
+        let data = metadata
+            .get("data")
+            .and_then(Value::as_object)
+            .ok_or_else(|| "canonical_hash_mismatch".to_owned())?;
+        let legacy_declared = data
+            .get("metadata_hash")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "canonical_hash_mismatch".to_owned())?;
+        let mut legacy_basis = data.clone();
+        legacy_basis.remove("metadata_hash");
+        if declared != Some(legacy_declared)
+            || hash_json(&Value::Object(legacy_basis))? != legacy_declared
+        {
+            return Err("canonical_hash_mismatch".into());
+        }
+    }
+    Ok(metadata_hash)
+}
+
 fn validate_declared_hashes(snapshot: &TopicSnapshot) -> Result<(), String> {
     let manifest = snapshot
         .manifest
@@ -485,12 +511,10 @@ fn validate_declared_hashes(snapshot: &TopicSnapshot) -> Result<(), String> {
         return Err("canonical_snapshot_incomplete".into());
     }
     let artifact_hash = hash_json(&snapshot.artifact)?;
-    let metadata_hash = hash_json(&snapshot.metadata)?;
-    if manifest.get("artifact_hash").and_then(Value::as_str) != Some(&artifact_hash)
-        || manifest.get("metadata_hash").and_then(Value::as_str) != Some(&metadata_hash)
-    {
+    if manifest.get("artifact_hash").and_then(Value::as_str) != Some(&artifact_hash) {
         return Err("canonical_hash_mismatch".into());
     }
+    validated_metadata_hash(manifest, &snapshot.metadata)?;
     let declared_hashes = manifest
         .get("section_hashes")
         .and_then(Value::as_object)
@@ -993,27 +1017,8 @@ fn descriptor(current: &Path, topic_id: &str, path_id: &str) -> Result<Value, St
         .as_object()
         .ok_or_else(|| "canonical_snapshot_invalid".to_owned())?;
     let artifact_hash = hash_json(&artifact_value)?;
-    let metadata_hash = hash_json(&metadata_value)?;
-    let legacy_metadata_hash = metadata_value
-        .get("data")
-        .and_then(Value::as_object)
-        .and_then(|data| {
-            let declared = data.get("metadata_hash")?.as_str()?.to_owned();
-            let mut basis = data.clone();
-            basis.remove("metadata_hash");
-            Some((declared, Value::Object(basis)))
-        })
-        .map(|(declared, basis)| hash_json(&basis).map(|computed| (declared, computed)))
-        .transpose()?;
-    let declared_metadata_hash = manifest_object.get("metadata_hash").and_then(Value::as_str);
-    let metadata_hash_matches = declared_metadata_hash == Some(metadata_hash.as_str())
-        || legacy_metadata_hash
-            .as_ref()
-            .is_some_and(|(declared, computed)| {
-                declared == computed && declared_metadata_hash == Some(declared.as_str())
-            });
+    let metadata_hash = validated_metadata_hash(manifest_object, &metadata_value)?;
     if manifest_object.get("artifact_hash").and_then(Value::as_str) != Some(artifact_hash.as_str())
-        || !metadata_hash_matches
     {
         return Err("canonical_hash_mismatch".into());
     }
@@ -1090,7 +1095,7 @@ fn descriptor(current: &Path, topic_id: &str, path_id: &str) -> Result<Value, St
         "pathId": path_id,
         "manifestHash": hash_json(&manifest_value)?,
         "artifactHash": hash_json(&artifact_value)?,
-        "metadataHash": hash_json(&metadata_value)?,
+        "metadataHash": metadata_hash,
         "sections": sections,
         "diagnostics": [],
     }))
@@ -2427,17 +2432,55 @@ mod tests {
             .promote_prepared(prepared.for_promotion(None))
             .expect("promote");
         store.close().expect("close");
+        let current = production_root
+            .join("topics")
+            .join(&current_path_id)
+            .join("current");
+        let metadata_path = current.join("metadata.json");
+        let mut metadata: Value =
+            serde_json::from_slice(&fs::read(&metadata_path).expect("read metadata"))
+                .expect("parse metadata");
+        let data = metadata["data"].as_object_mut().expect("metadata data");
+        let legacy_metadata_hash = hash_json(&Value::Object(data.clone())).expect("metadata hash");
+        data.insert("metadata_hash".into(), json!(legacy_metadata_hash));
+        fs::write(
+            &metadata_path,
+            format!(
+                "{}\n",
+                serde_json::to_string_pretty(&metadata).expect("encode metadata")
+            ),
+        )
+        .expect("write metadata");
+        let manifest_path = current.join("manifest.json");
+        let mut manifest: Value =
+            serde_json::from_slice(&fs::read(&manifest_path).expect("read manifest"))
+                .expect("parse manifest");
+        manifest["metadata_hash"] = json!(legacy_metadata_hash);
+        fs::write(
+            &manifest_path,
+            json_bytes(&manifest).expect("encode manifest"),
+        )
+        .expect("write manifest");
         fs::rename(
             production_root.join("topics").join(&current_path_id),
             production_root.join("topics").join(&topic_id),
         )
         .expect("install historical path");
+        let historical_metadata = production_root
+            .join("topics")
+            .join(&topic_id)
+            .join("current/metadata.json");
+        let metadata_before = fs::read(&historical_metadata).expect("historical metadata");
 
         let store = CanonicalStore::open_production(&production_root, identity()).expect("open");
         let CanonicalTopicState::Ready(view) = store.read_topic(&topic_id).expect("read") else {
             panic!("expected the historical topic to remain readable");
         };
         assert_eq!(view.path_id, current_path_id);
+        assert_eq!(
+            fs::read(historical_metadata).expect("historical metadata after"),
+            metadata_before
+        );
         store.close().expect("close");
         fs::remove_dir_all(parent).expect("cleanup");
     }
