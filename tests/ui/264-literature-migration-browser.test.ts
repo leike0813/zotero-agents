@@ -11,6 +11,7 @@ function migrationSnapshot(busy = false) {
     classification: index === 0 ? "review_required" : "ready",
     outcome: "preview",
     reasonCodes: index === 0 ? ["unresolved_linkage"] : [],
+    diagnostics: [],
     verifiedCount: 2,
     unresolvedCount: index === 0 ? 1 : 0,
     recoveredCount: 0,
@@ -163,5 +164,58 @@ describe("Dashboard literature migration browser UI", function () {
     );
     assert.equal(await progress.getAttribute("aria-valuenow"), "7");
     assert.equal(await progress.getAttribute("aria-valuemax"), "25");
+  });
+
+  it("fills one toolbar row when wide and wraps filters below at narrow widths", async function () {
+    await page.setViewportSize({ width: 1600, height: 700 });
+    await postSnapshot(page, migrationSnapshot());
+    const rows = async () =>
+      page.locator(".dashboard-migrations-toolbar-row").evaluate((toolbar) => {
+        const actions = toolbar.querySelector(".dashboard-migrations-actions")!;
+        const summary = toolbar.querySelector(".dashboard-migrations-summary")!;
+        const filters = toolbar.querySelector(".dashboard-migrations-filters")!;
+        return [actions, summary, filters].map((element) => {
+          const bounds = element.getBoundingClientRect();
+          return {
+            top: Math.round(bounds.top),
+            bottom: Math.round(bounds.bottom),
+            center: Math.round(bounds.top + bounds.height / 2),
+          };
+        });
+      });
+    const wideRows = await rows();
+    assert.isAtMost(
+      Math.max(...wideRows.map(({ center }) => center)) -
+        Math.min(...wideRows.map(({ center }) => center)),
+      2,
+    );
+
+    await page.setViewportSize({ width: 900, height: 700 });
+    const mediumRows = await rows();
+    assert.isAtMost(Math.abs(mediumRows[0]!.top - mediumRows[1]!.top), 2);
+    assert.isAtLeast(
+      mediumRows[2]!.top,
+      Math.max(mediumRows[0]!.bottom, mediumRows[1]!.bottom),
+    );
+    const mediumWidths = await page
+      .locator(".dashboard-migrations-filters > *")
+      .evaluateAll((elements) =>
+        elements.map((element) =>
+          Math.round(element.getBoundingClientRect().width),
+        ),
+      );
+    assert.isTrue(mediumWidths.every((width) => width > 100));
+
+    await page.setViewportSize({ width: 520, height: 700 });
+    const small = await page
+      .locator(".dashboard-migrations-filters > *")
+      .evaluateAll((elements) =>
+        elements.map((element) => ({
+          top: Math.round(element.getBoundingClientRect().top),
+          width: Math.round(element.getBoundingClientRect().width),
+        })),
+      );
+    assert.isAbove(small[0]!.width, small[1]!.width);
+    assert.equal(small[1]!.top, small[2]!.top);
   });
 });

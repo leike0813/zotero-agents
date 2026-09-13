@@ -176,7 +176,7 @@ export type LiteratureArtifactMigrationHost = {
     candidate: LiteratureArtifactMigrationApplyCandidate;
     operationId: string;
   }) => Promise<{
-    outcome: "applied" | "changed_since_scan" | "repair_required";
+    outcome: "applied" | "changed_since_scan" | "repair_required" | "failed";
     reason?: string;
     diagnostics?: string[];
   }>;
@@ -322,7 +322,7 @@ function migrationParentSetEntries(
 function mutationResultToMigrationOutcome(
   result: MutationExecutionResult<JsonObject>,
 ): {
-  outcome: "applied" | "repair_required";
+  outcome: "applied" | "repair_required" | "failed";
   reason?: string;
   diagnostics?: string[];
 } {
@@ -334,9 +334,14 @@ function mutationResultToMigrationOutcome(
   }
   const diagnostics = [
     `mutation:${migrationFailureCode(result.attempt.error)}`,
+    `phase:${result.attempt.error.phase}`,
+    `recovery:${result.attempt.error.recovery}`,
   ];
   return {
-    outcome: "repair_required",
+    outcome:
+      result.outcome === "repair_required" || result.outcome === "unknown"
+        ? "repair_required"
+        : "failed",
     reason: result.outcome,
     diagnostics,
   };
@@ -374,6 +379,8 @@ const MIGRATION_FAILURE_CODES = new Set([
   "conflict",
   "not_found",
   "invalid_request",
+  "unavailable",
+  "canceled",
   "cancelled",
 ]);
 
@@ -790,7 +797,7 @@ type RuntimeActive = {
   runId: string;
   operationId: string;
   stopped: boolean;
-  phase: "scanning" | "preview" | "applying";
+  phase: "scanning" | "applying";
   progress?: LiteratureArtifactMigrationScanProgress;
 };
 
@@ -1074,6 +1081,7 @@ function persistCandidate(
     candidateId: candidate.candidateId,
     operationId,
     ordinal: candidate.ordinal,
+    title: candidate.title,
     parentRef: JSON.stringify(candidate.parentRef),
     refs: conversion.references.references.map(
       (reference) => reference.sourceReferenceId,
@@ -1143,6 +1151,7 @@ export function createLiteratureArtifactMigrationService(
     libraryId: number;
     candidateIds?: string[];
     parentRefs?: MigrationPortableItemRef[];
+    onProgress?: (progress: LiteratureArtifactMigrationScanProgress) => void;
   }): Promise<
     LiteratureArtifactMigrationPreview | LiteratureArtifactMigrationFailure
   > {
@@ -1213,6 +1222,7 @@ export function createLiteratureArtifactMigrationService(
               Math.floor(progress.candidateCount),
             ),
           };
+          args.onProgress?.({ ...runtimeActive.progress });
           return true;
         },
       });
@@ -1303,6 +1313,7 @@ export function createLiteratureArtifactMigrationService(
     candidateIds?: string[];
     migrationId?: string;
     definitionVersion?: number;
+    onProgress?: (progress: LiteratureArtifactMigrationScanProgress) => void;
   }): Promise<
     LiteratureArtifactMigrationRunResult | LiteratureArtifactMigrationFailure
   > {
@@ -1363,12 +1374,19 @@ export function createLiteratureArtifactMigrationService(
       "literature-migration-apply",
       idFactory,
     );
+    const initialApplyProgress: LiteratureArtifactMigrationScanProgress = {
+      completed: 0,
+      total: requestedIds.length,
+      candidateCount: requestedIds.length,
+    };
     runtimeActive = {
       runId: plan.preview.runId,
       operationId: applyOperationId,
       stopped: false,
       phase: "applying",
+      progress: initialApplyProgress,
     };
+    args.onProgress?.({ ...initialApplyProgress });
     const selected = requestedIds.map((candidateId) => known.get(candidateId)!);
     const blocked = selected.filter(
       (candidate) => candidate.classification === "blocked",
@@ -1380,6 +1398,17 @@ export function createLiteratureArtifactMigrationService(
       candidate: LiteratureArtifactMigrationCandidate,
     ) =>
       newRuntimeId(`literature-migration-set-${candidate.ordinal}`, idFactory);
+    let applyProgress = 0;
+    const publishApplyProgress = () => {
+      applyProgress += 1;
+      if (runtimeActive?.runId !== plan.preview.runId) return;
+      runtimeActive.progress = {
+        completed: applyProgress,
+        total: requestedIds.length,
+        candidateCount: requestedIds.length,
+      };
+      args.onProgress?.({ ...runtimeActive.progress });
+    };
     for (const candidate of blocked) {
       const runtimeCandidate = plan.candidates.get(candidate.candidateId);
       if (runtimeCandidate) {
@@ -1391,6 +1420,7 @@ export function createLiteratureArtifactMigrationService(
           "blocked",
           ["blocked_candidate_requires_no_force_apply"],
         );
+        publishApplyProgress();
       }
     }
     for (const candidate of skippedReview) {
@@ -1404,6 +1434,7 @@ export function createLiteratureArtifactMigrationService(
           "skipped",
           ["review_confirmation_required"],
         );
+        publishApplyProgress();
       }
     }
     const toApply = selected.filter(
@@ -1425,6 +1456,8 @@ export function createLiteratureArtifactMigrationService(
       : skippedReview.length
         ? "review_required"
         : "";
+    let failed = false;
+    let failureDiagnostics: string[] = [];
     try {
       for (const candidate of toApply) {
         if (runtimeActive?.stopped || plan.stopped) {
@@ -1436,12 +1469,36 @@ export function createLiteratureArtifactMigrationService(
         if (!runtimeCandidate)
           throw new Error("candidate input is no longer available");
         const setOperationId = receiptOperationId(candidate);
-        const applied = await options.host.applySet({
-          libraryId: plan.preview.libraryId,
-          parentRef: candidate.parentRef,
-          candidate: { ...candidate, conversion: runtimeCandidate.conversion },
-          operationId: setOperationId,
-        });
+        let applied: Awaited<
+          ReturnType<LiteratureArtifactMigrationHost["applySet"]>
+        >;
+        try {
+          applied = await options.host.applySet({
+            libraryId: plan.preview.libraryId,
+            parentRef: candidate.parentRef,
+            candidate: {
+              ...candidate,
+              conversion: runtimeCandidate.conversion,
+            },
+            operationId: setOperationId,
+          });
+        } catch (error) {
+          processedCount += 1;
+          remainingCount = Math.max(
+            0,
+            plan.preview.candidates.length - processedCount,
+          );
+          persistCandidate(
+            plan.preview.runId,
+            setOperationId,
+            candidate,
+            runtimeCandidate.conversion,
+            "failed",
+            [`apply_failed:${migrationFailureCode(error)}`],
+          );
+          publishApplyProgress();
+          throw error;
+        }
         processedCount += 1;
         remainingCount = Math.max(
           0,
@@ -1460,6 +1517,20 @@ export function createLiteratureArtifactMigrationService(
           );
           attention = true;
           reason = reason || "repair_required";
+        } else if (applied.outcome === "failed") {
+          failureDiagnostics = applied.diagnostics || [
+            applied.reason || "apply_failed",
+          ];
+          persistCandidate(
+            plan.preview.runId,
+            setOperationId,
+            candidate,
+            runtimeCandidate.conversion,
+            "failed",
+            failureDiagnostics,
+          );
+          failed = true;
+          reason = applied.reason || "apply_failed";
         } else if (applied.outcome === "changed_since_scan") {
           persistCandidate(
             plan.preview.runId,
@@ -1481,6 +1552,7 @@ export function createLiteratureArtifactMigrationService(
             applied.diagnostics,
           );
         }
+        publishApplyProgress();
         const current = getLiteratureArtifactMigrationRun(plan.preview.runId);
         if (current) {
           upsertLiteratureArtifactMigrationRun({
@@ -1492,6 +1564,7 @@ export function createLiteratureArtifactMigrationService(
             updatedAt: nowIso(),
           });
         }
+        if (failed) break;
       }
     } catch (error) {
       const current = getLiteratureArtifactMigrationRun(plan.preview.runId);
@@ -1516,8 +1589,9 @@ export function createLiteratureArtifactMigrationService(
         runId: plan.preview.runId,
       });
     }
-    const finalState =
-      reason === "user_stopped" || attention
+    const finalState = failed
+      ? "failed"
+      : reason === "user_stopped" || attention
         ? "completed_with_attention"
         : "completed";
     const current = getLiteratureArtifactMigrationRun(plan.preview.runId);
@@ -1531,6 +1605,10 @@ export function createLiteratureArtifactMigrationService(
         remainingCount,
         terminalAt: nowIso(),
         updatedAt: nowIso(),
+        diagnostics: boundedDiagnostics([
+          ...(current.diagnostics || []),
+          ...failureDiagnostics,
+        ]),
       });
     }
     runtimePlans.delete(scanOperationId);
@@ -1862,6 +1940,7 @@ export function createLiteratureArtifactMigrationService(
             classification: candidate.classification,
             outcome: candidate.outcome,
             reasonCodes: candidate.reasonCodes,
+            diagnostics: candidate.diagnostics,
             verifiedCount: candidate.verifiedCount,
             unresolvedCount: candidate.unresolvedCount,
             recoveredCount: candidate.recoveredCount,
@@ -1897,10 +1976,11 @@ export function createLiteratureArtifactMigrationService(
         return {
           candidateId: receipt.candidateId,
           ordinal: receipt.ordinal,
-          title: "",
+          title: receipt.title,
           classification: receipt.classification,
           outcome: receipt.outcome,
           reasonCodes: receipt.reasonCodes,
+          diagnostics: receipt.diagnostics,
           verifiedCount: receipt.verifiedCount,
           unresolvedCount: receipt.unresolvedCount,
           recoveredCount: receipt.recoveredCount,

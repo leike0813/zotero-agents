@@ -319,7 +319,12 @@ export function createDashboardActionDispatcher(
             alertRuntimeWindow("A valid library is required for migration.");
             return;
           }
-          const result = await service.scan({ libraryId });
+          const pending = service.scan({
+            libraryId,
+            onProgress: () => refresh("queue-update"),
+          });
+          refresh("user-action");
+          const result = await pending;
           if (!result.ok && result.code !== "stopped") {
             alertRuntimeWindow(result.message);
           } else {
@@ -333,14 +338,17 @@ export function createDashboardActionDispatcher(
             };
           }
         } else if (action === "literature-migration-apply") {
-          const result = await service.apply({
+          const pending = service.apply({
             scanOperationId: String(payload.scanOperationId || ""),
             migrationId: String(payload.migrationId || "") || undefined,
             definitionVersion:
               typeof payload.definitionVersion === "number"
                 ? payload.definitionVersion
                 : undefined,
+            onProgress: () => refresh("queue-update"),
           });
+          refresh("user-action");
+          const result = await pending;
           if (!result.ok) alertRuntimeWindow(result.message);
         } else if (action === "literature-migration-stop") {
           const result = service.stop({ runId: String(payload.runId || "") });

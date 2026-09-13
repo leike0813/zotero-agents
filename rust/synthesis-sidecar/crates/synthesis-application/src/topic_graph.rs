@@ -1006,7 +1006,7 @@ impl TopicGraphApplication {
                 source_topic_id: review.source_topic_id,
                 target_topic_id: review.target_topic_id,
                 relation: review.relation,
-                status: "suggested".into(),
+                status: "confirmed".into(),
                 confidence: review.confidence,
                 provenance_json: review.provenance_json,
                 evidence_refs_json: review.evidence_refs_json,
@@ -2020,7 +2020,7 @@ mod tests {
     }
 
     #[test]
-    fn review_is_two_stage_diagnostic_filtered_and_marks_index_stale() {
+    fn approving_a_suggested_review_confirms_the_edge_and_closes_the_review() {
         let root = root();
         let owner = Arc::new(Mutex::new(
             Repository::open(
@@ -2073,10 +2073,17 @@ mod tests {
             action: TopicGraphReviewAction::ApproveSuggested,
         });
         assert_eq!(approved.status, TopicGraphMutationStatus::Committed);
-        let suggested = app.load().expect("suggested");
-        assert_eq!(suggested.state.index_stale, 1);
-        assert_eq!(suggested.reviews[0].status, "approved");
-        assert_eq!(suggested.edges[0].status, "suggested");
+        let approved_snapshot = app.load().expect("approved");
+        assert_eq!(approved_snapshot.state.index_stale, 1);
+        assert_eq!(approved_snapshot.reviews[0].status, "approved");
+        assert_eq!(
+            approved_snapshot.edges[0].status, "confirmed",
+            "approval is terminal: it confirms the edge instead of re-suggesting it"
+        );
+        assert_eq!(
+            approved_snapshot.edges[0].edge_id,
+            topic_graph_edge_id("topic:one", "topic:two", "broader_than")
+        );
         let (open_page, open_edges, open_reviews) = app
             .load_review_page(&ReviewPageQuery {
                 status: "open".into(),
@@ -2087,15 +2094,33 @@ mod tests {
                 ..ReviewPageQuery::default()
             })
             .expect("open review page");
-        assert_eq!((open_edges, open_reviews), (1, 0));
-        assert_eq!(open_page.nodes.len(), 2);
+        assert_eq!((open_edges, open_reviews), (0, 0));
+        assert!(open_page.nodes.is_empty());
+        let (accepted_page, accepted_edges, accepted_reviews) = app
+            .load_review_page(&ReviewPageQuery {
+                status: "accepted".into(),
+                kind: "all".into(),
+                confidence: "all".into(),
+                search: "broader_than".into(),
+                limit: 10,
+                ..ReviewPageQuery::default()
+            })
+            .expect("accepted review page");
+        assert_eq!((accepted_edges, accepted_reviews), (1, 1));
+        assert_eq!(accepted_page.nodes.len(), 2);
         let confirmed = app.decide_relation(&TopicGraphRelationDecisionRequest {
-            expected_manifest_hash: suggested.state.manifest_hash,
-            edge_id: suggested.edges[0].edge_id.clone(),
+            expected_manifest_hash: approved_snapshot.state.manifest_hash.clone(),
+            edge_id: approved_snapshot.edges[0].edge_id.clone(),
             status: TopicGraphRelationStatus::Confirmed,
         });
-        assert_eq!(confirmed.status, TopicGraphMutationStatus::Committed);
-        let current = app.load().expect("confirmed");
+        assert_eq!(
+            confirmed
+                .diagnostic
+                .expect("already confirmed diagnostic")
+                .code,
+            "topic_graph_edge_not_suggested"
+        );
+        let current = app.load().expect("current");
         assert_eq!(current.edges[0].status, "confirmed");
         let closed = app.review(&TopicGraphReviewRequest {
             expected_manifest_hash: current.state.manifest_hash,

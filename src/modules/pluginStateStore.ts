@@ -193,6 +193,7 @@ export type LiteratureArtifactMigrationSetEntry = {
   candidateId: string;
   operationId: string;
   ordinal: number;
+  title: string;
   parentRef: string;
   refs: string[];
   basisHash: string;
@@ -1113,7 +1114,7 @@ export function exportPluginStateStoreRowsForTests() {
     ),
     literatureMigrationSets: db.all(
       `
-        SELECT run_id, candidate_id, operation_id, ordinal, parent_ref_json, refs_json,
+        SELECT run_id, candidate_id, operation_id, ordinal, title, parent_ref_json, refs_json,
           basis_hash, classification, outcome, reason_codes_json,
           verified_count, unresolved_count, recovered_count, dropped_count,
           created_at, updated_at, diagnostics_json

@@ -824,6 +824,61 @@ describe("synthesis review center region (src/synthesis/components/reviewCenter)
     ]);
   });
 
+  it("excludes terminal topic graph entries from Open and shows them under Accepted", function () {
+    const snapshot = makeSnapshot({ reviews: { activeTab: "topic_graph" } });
+    snapshot.topicGraph.edges.push({
+      edge_id: "e-confirmed",
+      source_topic_id: "t1",
+      target_topic_id: "t2",
+      relation: "broader_than",
+      status: "confirmed",
+    } as never);
+    snapshot.topicGraph.edges.push({
+      edge_id: "e-legacy-suggested",
+      source_topic_id: "t1",
+      target_topic_id: "t2",
+      relation: "broader_than",
+      status: "suggested",
+    } as never);
+    snapshot.topicGraph.reviewItems.push({
+      review_id: "tr-approved",
+      source_topic_id: "t1",
+      target_topic_id: "t2",
+      relation: "broader_than",
+      status: "approved",
+      reason: "",
+    } as never);
+
+    const open = project(snapshot).topicGraph.rows;
+    assert.deepEqual(
+      open.map((row) => row.reviewId),
+      ["e1", "tr1"],
+      "confirmed edges and approved reviews leave the Open filter",
+    );
+
+    const accepted = project({
+      ...snapshot,
+      reviews: {
+        ...snapshot.reviews,
+        filters: { ...snapshot.reviews.filters, status: "accepted" },
+      },
+    }).topicGraph.rows;
+    assert.deepEqual(
+      accepted.map((row) => row.reviewId).sort(),
+      ["e-confirmed", "tr-approved"],
+      "Accepted still surfaces confirmed edges and approved reviews",
+    );
+
+    const all = project({
+      ...snapshot,
+      reviews: {
+        ...snapshot.reviews,
+        filters: { ...snapshot.reviews.filters, status: "all" },
+      },
+    }).topicGraph.rows;
+    assert.equal(all.length, 4, "All keeps every topic graph review row");
+  });
+
   it("hides canonical revision actions optimistically until a failure echo", async function () {
     const { container, actions, rerender } = renderRegion(
       project(makeSnapshot()),

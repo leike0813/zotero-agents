@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { DatabaseSync } from "node:sqlite";
 import {
   LITERATURE_ARTIFACT_MIGRATION_DEFINITION_VERSION,
   LITERATURE_ARTIFACT_MIGRATION_ID,
@@ -31,6 +32,7 @@ import {
   createDefaultRuntimeLogFilters,
   type DashboardState,
 } from "../../src/modules/dashboard/dashboardSnapshot";
+import { ensureLiteratureMigrationTablesSchema } from "../../src/modules/pluginStateStore/literatureMigrationTables";
 
 describe("literature artifact migration", function () {
   beforeEach(function () {
@@ -962,6 +964,89 @@ describe("literature artifact migration", function () {
     );
   });
 
+  it("maps a pre-commit Broker mutation failure to a failed migration set", async function () {
+    const parentRef = { libraryId: 1, key: "PARENT" };
+    const noteRef = { libraryId: 1, key: "LEGACY-NOTE" };
+    const references = {
+      items: [{ title: "A Study", year: 2024, authors: ["Ada"] }],
+    };
+    const broker = createFailClosedZoteroHostCapabilityBroker({
+      library: {
+        listItems: async () => ({
+          items: [{ kind: "regular", ref: parentRef, title: "Parent paper" }],
+          hasMore: false,
+          nextCursor: null,
+        }),
+        getItemNotes: async () => ({
+          notes: [{ ref: noteRef }],
+          hasMore: false,
+          nextCursor: null,
+        }),
+      },
+    });
+    const localControl = {
+      readLegacyForMigration: async () => ({
+        kind: "legacy" as const,
+        html: '<span data-zs-payload="references-json"></span>',
+        revision: "legacy-1",
+        payloads: [{ payloadType: "references-json", value: references }],
+      }),
+      applyParentSet: async () =>
+        ({
+          outcome: "failed",
+          attempt: {
+            schema: "zotero-agents.mutation-attempt.v1",
+            attemptId: "attempt-1",
+            operationId: "operation-1",
+            operation: "managed_note.apply_parent_set",
+            status: "failed",
+            error: {
+              code: "execution_failed",
+              phase: "commit",
+              recovery: "retry_same_operation",
+              details: {
+                phase: "commit",
+                recovery: "retry_same_operation",
+              },
+            },
+            affectedRefs: [],
+            residualRefs: [],
+          },
+        }) as unknown as MutationExecutionResult<LiteratureArtifactApplyAnalysisResultDto>,
+    } as unknown as NonNullable<
+      Parameters<
+        typeof createLiteratureArtifactMigrationHostFromZoteroBroker
+      >[1]
+    >["localControl"];
+    const service = createLiteratureArtifactMigrationService({
+      host: createLiteratureArtifactMigrationHostFromZoteroBroker(broker, {
+        localControl,
+      }),
+    });
+    const preview = await service.scan({ libraryId: 1 });
+    assert.isTrue(preview.ok);
+    if (!preview.ok) throw new Error("expected migration preview");
+
+    const result = await service.apply({
+      scanOperationId: preview.operationId,
+      candidateIds: [preview.candidates[0]!.candidateId],
+    });
+
+    assert.isTrue(result.ok);
+    if (!result.ok) throw new Error("expected durable failed result");
+    assert.equal(result.state, "failed");
+    const receipt = listLiteratureArtifactMigrationSets({
+      runId: result.runId,
+      limit: 10,
+    })[0];
+    assert.equal(receipt?.outcome, "failed");
+    assert.deepEqual(receipt?.diagnostics, [
+      "mutation:execution_failed",
+      "phase:commit",
+      "recovery:retry_same_operation",
+    ]);
+  });
+
   it("stores stable scan failure codes without raw host error details", async function () {
     const secret = "/private/library/raw-note.html";
     const service = createLiteratureArtifactMigrationService({
@@ -992,6 +1077,11 @@ describe("literature artifact migration", function () {
       continueScan = resolve;
     });
     let progressAllowedAfterStop = true;
+    const publishedProgress: Array<{
+      completed: number;
+      total: number | null;
+      candidateCount: number;
+    }> = [];
     const service = createLiteratureArtifactMigrationService({
       host: {
         scanLibrary: async ({ reportProgress }) => {
@@ -1012,7 +1102,10 @@ describe("literature artifact migration", function () {
         applySet: async () => ({ outcome: "applied" as const }),
       },
     });
-    const scanning = service.scan({ libraryId: 1 });
+    const scanning = service.scan({
+      libraryId: 1,
+      onProgress: (progress) => publishedProgress.push(progress),
+    });
     await new Promise((resolve) => setTimeout(resolve, 0));
     const active = service.getActiveSnapshot();
     assert.deepInclude(active, {
@@ -1026,7 +1119,167 @@ describe("literature artifact migration", function () {
     if (result.ok) throw new Error("expected stopped scan");
     assert.equal(result.code, "stopped");
     assert.isFalse(progressAllowedAfterStop);
+    assert.deepEqual(publishedProgress, [
+      { completed: 1, total: 3, candidateCount: 1 },
+      { completed: 1, total: 3, candidateCount: 1 },
+    ]);
     assert.isNull(service.getActiveSnapshot());
+  });
+
+  it("fails the run on a failed set, stops later writes, and publishes apply progress", async function () {
+    const sets: LegacyArtifactSetInput[] = ["A", "B", "C"].map(
+      (suffix, index) => ({
+        libraryId: 1,
+        parentRef: { libraryId: 1, key: `PARENT-${suffix}` },
+        parentTitle: `Paper ${suffix}`,
+        references: [
+          { title: `Study ${index + 1}`, year: 2024, authors: ["Ada"] },
+        ],
+      }),
+    );
+    const appliedParents: string[] = [];
+    const progress: Array<{
+      completed: number;
+      total: number | null;
+      candidateCount: number;
+    }> = [];
+    const service = createLiteratureArtifactMigrationService({
+      host: {
+        scanLibrary: async () => sets,
+        applySet: async ({ parentRef }) => {
+          appliedParents.push(parentRef.key);
+          return parentRef.key === "PARENT-B"
+            ? {
+                outcome: "failed" as const,
+                reason: "failed",
+                diagnostics: [
+                  "mutation:execution_failed",
+                  "phase:commit",
+                  "recovery:retry_same_operation",
+                ],
+              }
+            : { outcome: "applied" as const };
+        },
+      },
+      candidateIdFactory: (ordinal) => `candidate-${ordinal}`,
+    });
+    const preview = await service.scan({ libraryId: 1 });
+    assert.isTrue(preview.ok);
+    if (!preview.ok) throw new Error("expected migration preview");
+
+    const result = await service.apply({
+      scanOperationId: preview.operationId,
+      candidateIds: preview.candidates.map(({ candidateId }) => candidateId),
+      onProgress: (entry) => progress.push(entry),
+    });
+
+    assert.isTrue(result.ok);
+    if (!result.ok) throw new Error("expected durable failed result");
+    assert.equal(result.state, "failed");
+    assert.equal(result.processedCount, 2);
+    assert.equal(result.remainingCount, 1);
+    assert.deepEqual(appliedParents, ["PARENT-A", "PARENT-B"]);
+    assert.include(
+      getLiteratureArtifactMigrationRun(result.runId)?.diagnostics,
+      "mutation:execution_failed",
+    );
+    assert.deepEqual(
+      progress.map(({ completed, total }) => ({ completed, total })),
+      [
+        { completed: 0, total: 3 },
+        { completed: 1, total: 3 },
+        { completed: 2, total: 3 },
+      ],
+    );
+    assert.deepEqual(
+      listLiteratureArtifactMigrationSets({
+        runId: result.runId,
+        limit: 10,
+      }).map(({ outcome }) => outcome),
+      ["applied", "failed", "preview"],
+    );
+  });
+
+  it("keeps candidate titles and diagnostics in durable history pages", async function () {
+    const service = createLiteratureArtifactMigrationService({
+      host: {
+        scanLibrary: async () => [
+          {
+            libraryId: 1,
+            parentRef: { libraryId: 1, key: "PARENT" },
+            parentTitle: "Durable paper title",
+            references: [{ title: "Study", year: 2024, authors: ["Ada"] }],
+          },
+        ],
+        applySet: async () => ({
+          outcome: "failed" as const,
+          diagnostics: ["mutation:execution_failed", "phase:commit"],
+        }),
+      },
+    });
+    const preview = await service.scan({ libraryId: 1 });
+    assert.isTrue(preview.ok);
+    if (!preview.ok) throw new Error("expected migration preview");
+    const result = await service.apply({
+      scanOperationId: preview.operationId,
+      candidateIds: [preview.candidates[0]!.candidateId],
+    });
+    assert.isTrue(result.ok);
+    if (!result.ok) throw new Error("expected durable failed result");
+
+    resetLiteratureArtifactMigrationRuntimeForTests();
+    const page = service.listCandidatePage({ runId: result.runId });
+    assert.equal(page.items[0]?.title, "Durable paper title");
+    assert.deepEqual(page.items[0]?.diagnostics, [
+      "mutation:execution_failed",
+      "phase:commit",
+    ]);
+  });
+
+  it("adds the durable title column to an existing migration receipt table", function () {
+    const database = new DatabaseSync(":memory:");
+    database.exec(`
+      CREATE TABLE plugin_literature_artifact_migration_sets (
+        run_id TEXT NOT NULL,
+        candidate_id TEXT NOT NULL,
+        operation_id TEXT NOT NULL DEFAULT '',
+        ordinal INTEGER NOT NULL,
+        parent_ref_json TEXT NOT NULL,
+        refs_json TEXT NOT NULL DEFAULT '[]',
+        basis_hash TEXT NOT NULL DEFAULT '',
+        classification TEXT NOT NULL,
+        outcome TEXT NOT NULL,
+        reason_codes_json TEXT NOT NULL DEFAULT '[]',
+        verified_count INTEGER NOT NULL DEFAULT 0,
+        unresolved_count INTEGER NOT NULL DEFAULT 0,
+        recovered_count INTEGER NOT NULL DEFAULT 0,
+        dropped_count INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        diagnostics_json TEXT NOT NULL DEFAULT '[]',
+        PRIMARY KEY (run_id, candidate_id)
+      );
+    `);
+    ensureLiteratureMigrationTablesSchema({
+      run: (sql, params) => {
+        database.prepare(sql).run(params || {});
+      },
+      all: (sql, params) =>
+        database.prepare(sql).all(params || {}) as Record<string, unknown>[],
+      get: (sql, params) =>
+        (database.prepare(sql).get(params || {}) as Record<string, unknown>) ||
+        null,
+      transaction: (run) => run(),
+      close: () => database.close(),
+    });
+    const columns = database
+      .prepare("PRAGMA table_info(plugin_literature_artifact_migration_sets)")
+      .all() as Array<{ name: string }>;
+    assert.include(
+      columns.map(({ name }) => name),
+      "title",
+    );
+    database.close();
   });
 
   it("stores stable apply failure codes without raw host error details", async function () {
@@ -1059,6 +1312,17 @@ describe("literature artifact migration", function () {
     assert.include(
       getLiteratureArtifactMigrationRun(preview.runId)?.diagnostics,
       "apply_failed:migration_error",
+    );
+    assert.deepInclude(
+      listLiteratureArtifactMigrationSets({
+        runId: preview.runId,
+        limit: 10,
+      })[0],
+      {
+        title: "",
+        outcome: "failed",
+        diagnostics: ["apply_failed:migration_error"],
+      },
     );
   });
 

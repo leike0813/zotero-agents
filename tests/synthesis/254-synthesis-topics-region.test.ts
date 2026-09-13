@@ -700,6 +700,70 @@ describe("synthesis topics region (src/synthesis/components/TopicsRegion)", func
     );
   });
 
+  it("topic relation review queue keeps only suggested edges and open reviews", function () {
+    const queue = buildTopicRelationReviewQueue({
+      suggestions: [
+        {
+          edgeId: "e-suggested",
+          sourceTopicId: "t-a",
+          targetTopicId: "t-b",
+          relation: "broader_than",
+          status: "suggested",
+        },
+        {
+          edgeId: "e-confirmed",
+          sourceTopicId: "t-a",
+          targetTopicId: "t-c",
+          relation: "broader_than",
+          status: "confirmed",
+        },
+        {
+          edgeId: "e-rejected",
+          sourceTopicId: "t-a",
+          targetTopicId: "t-d",
+          relation: "related_to",
+          status: "rejected",
+        },
+      ],
+      relationReviews: [
+        {
+          reviewId: "r-open",
+          sourceTopicId: "t-a",
+          targetTopicId: "t-b",
+          targetTitle: "",
+          relation: "overlaps_with",
+          status: "open",
+          reason: "low confidence",
+        },
+        {
+          reviewId: "r-approved",
+          sourceTopicId: "t-a",
+          targetTopicId: "t-b",
+          targetTitle: "",
+          relation: "broader_than",
+          status: "approved",
+          reason: "",
+        },
+        {
+          reviewId: "r-rejected",
+          sourceTopicId: "t-a",
+          targetTopicId: "t-b",
+          targetTitle: "",
+          relation: "related_to",
+          status: "rejected",
+          reason: "",
+        },
+      ],
+      nodes: [],
+      isResolved: () => false,
+    });
+    assert.deepEqual(
+      queue.map((entry) => entry.key),
+      ["review:r-open"],
+      "resolved edges and closed reviews leave the Topics review area",
+    );
+  });
+
   it("narrowers drop non-record wire entries defensively", function () {
     assert.deepEqual(narrowTopicArtifactRows([null, 42, "x"]), []);
     assert.equal(narrowTopicArtifactRows(undefined).length, 0);

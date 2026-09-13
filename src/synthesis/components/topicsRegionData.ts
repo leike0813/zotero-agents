@@ -319,6 +319,10 @@ export type TopicRelationReviewEntry = {
  * optimistically resolved. Title resolution walks all topic-graph nodes, then
  * falls back to the raw topic id; the component applies the final localized
  * "Source topic"/"Target topic" fallback for empty titles.
+ *
+ * The area only reviews work that is still open: resolved edges
+ * (`confirmed`/`rejected`) and closed reviews (`approved`/`rejected`) are
+ * terminal and leave the queue.
  */
 export function buildTopicRelationReviewQueue(args: {
   suggestions: TopicGraphSuggestedRelationView[];
@@ -327,8 +331,25 @@ export function buildTopicRelationReviewQueue(args: {
   isResolved: (kind: "topic-edge" | "topic-review", id: string) => boolean;
 }): TopicRelationReviewEntry[] {
   const nodesById = new Map(args.nodes.map((node) => [node.topicId, node]));
+  const closedReviewTuples = new Set(
+    args.relationReviews
+      .filter(
+        (item) => item.status === "approved" || item.status === "rejected",
+      )
+      .map(
+        (item) =>
+          `${item.sourceTopicId}\n${item.targetTopicId}\n${item.relation}`,
+      ),
+  );
   const suggestions = args.suggestions
-    .filter((relation) => !args.isResolved("topic-edge", relation.edgeId))
+    .filter(
+      (relation) =>
+        relation.status === "suggested" &&
+        !closedReviewTuples.has(
+          `${relation.sourceTopicId}\n${relation.targetTopicId}\n${relation.relation}`,
+        ) &&
+        !args.isResolved("topic-edge", relation.edgeId),
+    )
     .map(
       (relation): TopicRelationReviewEntry => ({
         key: `suggestion:${relation.edgeId}`,
@@ -349,7 +370,11 @@ export function buildTopicRelationReviewQueue(args: {
       }),
     );
   const reviews = args.relationReviews
-    .filter((item) => !args.isResolved("topic-review", item.reviewId))
+    .filter(
+      (item) =>
+        item.status === "open" &&
+        !args.isResolved("topic-review", item.reviewId),
+    )
     .map(
       (item): TopicRelationReviewEntry => ({
         key: `review:${item.reviewId}`,

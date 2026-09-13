@@ -2,6 +2,12 @@ import { assert } from "chai";
 import { createZoteroHostCapabilityBroker } from "../../../../src/modules/zoteroHostCapabilityBroker";
 import { getZoteroManagedNoteLocalControl } from "../../../../src/modules/zoteroHost/zoteroManagedNotes";
 import { runtimePathExists } from "../../../../src/modules/runtimePersistence";
+import {
+  createLiteratureArtifactMigrationHostFromZoteroBroker,
+  createLiteratureArtifactMigrationService,
+  resetLiteratureArtifactMigrationRuntimeForTests,
+} from "../../../../src/modules/literatureArtifactMigration";
+import { resetPluginStateStoreForTests } from "../../../../src/modules/pluginStateStore";
 
 function isRealZoteroRuntime() {
   const runtime = globalThis as {
@@ -63,6 +69,74 @@ async function queryChildIds(parentId: number) {
 }
 
 describeZotero("managed note transaction in Zotero", function () {
+  it("migrates a real legacy References and Citation pair through the Dashboard service", async function () {
+    this.timeout(120000);
+    const parent = await createParent("Dashboard migration transaction");
+    const encode = (value: unknown) => btoa(JSON.stringify(value));
+    const references = {
+      items: [{ title: "A Study", year: 2024, authors: ["Ada Lovelace"] }],
+    };
+    const citation = {
+      items: [
+        {
+          title: "A Study",
+          year: 2024,
+          authors: ["Ada Lovelace"],
+          mentions: [{ rawCitation: "Lovelace (2024)" }],
+        },
+      ],
+    };
+    await createLegacyNote(
+      parent,
+      `<div><h1>References</h1><span data-zs-block="payload" data-zs-payload="references-json" data-zs-version="1" data-zs-encoding="base64" data-zs-value="${encode(references)}"></span></div>`,
+    );
+    await createLegacyNote(
+      parent,
+      `<div><h1>Citation Analysis</h1><span data-zs-block="payload" data-zs-payload="citation-analysis-json" data-zs-version="1" data-zs-encoding="base64" data-zs-value="${encode(citation)}"></span></div>`,
+    );
+    try {
+      const broker = createZoteroHostCapabilityBroker();
+      const service = createLiteratureArtifactMigrationService({
+        host: createLiteratureArtifactMigrationHostFromZoteroBroker(broker),
+      });
+      const preview = await service.scan({ libraryId: parent.libraryID });
+      assert.isTrue(preview.ok);
+      if (!preview.ok) throw new Error("expected migration preview");
+      const candidate = preview.candidates.find(
+        (entry) => entry.parentRef.key === parent.key,
+      );
+      assert.isOk(candidate);
+      assert.equal(candidate?.classification, "ready");
+
+      const result = await service.apply({
+        scanOperationId: preview.operationId,
+        candidateIds: [candidate!.candidateId],
+      });
+      assert.isTrue(result.ok);
+      if (!result.ok) throw new Error("expected migration result");
+      assert.equal(result.state, "completed");
+
+      const control = getZoteroManagedNoteLocalControl(broker);
+      const kinds = await Promise.all(
+        (await queryChildIds(parent.id)).map(async (itemId) => {
+          const note = Zotero.Items.get(itemId)!;
+          const transfer = await control.readForTransfer({
+            libraryId: note.libraryID,
+            key: note.key,
+          });
+          return transfer.detail.kind === "managed"
+            ? transfer.detail.noteKind
+            : transfer.detail.kind;
+        }),
+      );
+      assert.sameMembers(kinds, ["references", "citation-analysis"]);
+    } finally {
+      resetLiteratureArtifactMigrationRuntimeForTests();
+      resetPluginStateStoreForTests();
+      await Zotero.Items.trashTx([parent.id]);
+    }
+  });
+
   it("commits the private parent set and its payload attachment in one native transaction", async function () {
     this.timeout(120000);
     const parent = await createParent("Managed note transaction success");

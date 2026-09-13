@@ -39,6 +39,7 @@ export function ensureLiteratureMigrationTablesSchema(db: SqlAdapter) {
       candidate_id TEXT NOT NULL,
       operation_id TEXT NOT NULL DEFAULT '',
       ordinal INTEGER NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
       parent_ref_json TEXT NOT NULL,
       refs_json TEXT NOT NULL DEFAULT '[]',
       basis_hash TEXT NOT NULL DEFAULT '',
@@ -55,6 +56,16 @@ export function ensureLiteratureMigrationTablesSchema(db: SqlAdapter) {
       PRIMARY KEY (run_id, candidate_id)
     );
   `);
+  const setColumns = new Set(
+    db
+      .all("PRAGMA table_info(plugin_literature_artifact_migration_sets)")
+      .map((row) => normalizeString(row.name)),
+  );
+  if (!setColumns.has("title")) {
+    db.run(
+      "ALTER TABLE plugin_literature_artifact_migration_sets ADD COLUMN title TEXT NOT NULL DEFAULT ''",
+    );
+  }
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_plugin_literature_migration_runs_updated
       ON plugin_literature_artifact_migration_runs(updated_at DESC, run_id DESC);
@@ -114,6 +125,7 @@ export function createLiteratureMigrationTables(getAdapter: () => SqlAdapter) {
       candidateId: normalizeString(row.candidate_id),
       operationId: normalizeString(row.operation_id),
       ordinal: Number(row.ordinal || 0),
+      title: normalizeString(row.title),
       parentRef: normalizeString(row.parent_ref_json),
       refs: parseStringArrayJson(row.refs_json),
       basisHash: normalizeString(row.basis_hash),
@@ -274,11 +286,11 @@ export function createLiteratureMigrationTables(getAdapter: () => SqlAdapter) {
     db.run(
       `
         INSERT OR REPLACE INTO plugin_literature_artifact_migration_sets
-        (run_id, candidate_id, operation_id, ordinal, parent_ref_json, refs_json,
+        (run_id, candidate_id, operation_id, ordinal, title, parent_ref_json, refs_json,
          basis_hash, classification, outcome, reason_codes_json, verified_count,
          unresolved_count, recovered_count, dropped_count, created_at, updated_at,
          diagnostics_json)
-        VALUES (@run_id, @candidate_id, @operation_id, @ordinal, @parent_ref_json, @refs_json,
+        VALUES (@run_id, @candidate_id, @operation_id, @ordinal, @title, @parent_ref_json, @refs_json,
          @basis_hash, @classification, @outcome, @reason_codes_json,
          @verified_count, @unresolved_count, @recovered_count, @dropped_count,
          @created_at, @updated_at, @diagnostics_json)
@@ -288,6 +300,7 @@ export function createLiteratureMigrationTables(getAdapter: () => SqlAdapter) {
         candidate_id: candidateId,
         operation_id: normalizeString(entry.operationId),
         ordinal: Math.max(0, Math.floor(Number(entry.ordinal) || 0)),
+        title: normalizeString(entry.title),
         parent_ref_json: normalizeString(entry.parentRef) || "{}",
         refs_json: jsonStringArray(entry.refs),
         basis_hash: normalizeString(entry.basisHash),
@@ -323,7 +336,7 @@ export function createLiteratureMigrationTables(getAdapter: () => SqlAdapter) {
     if (!runId || !candidateId) return null;
     const row = getAdapter().get(
       `
-        SELECT run_id, candidate_id, operation_id, ordinal, parent_ref_json, refs_json,
+        SELECT run_id, candidate_id, operation_id, ordinal, title, parent_ref_json, refs_json,
           basis_hash, classification, outcome, reason_codes_json, verified_count,
           unresolved_count, recovered_count, dropped_count, created_at, updated_at,
           diagnostics_json
@@ -352,7 +365,7 @@ export function createLiteratureMigrationTables(getAdapter: () => SqlAdapter) {
     params.limit = limit;
     const rows = getAdapter().all(
       `
-        SELECT run_id, candidate_id, operation_id, ordinal, parent_ref_json, refs_json,
+        SELECT run_id, candidate_id, operation_id, ordinal, title, parent_ref_json, refs_json,
           basis_hash, classification, outcome, reason_codes_json, verified_count,
           unresolved_count, recovered_count, dropped_count, created_at, updated_at,
           diagnostics_json

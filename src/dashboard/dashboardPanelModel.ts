@@ -1278,6 +1278,34 @@ function projectViews(
       include: labelText(labels, "literatureMigrationInclude", "Included"),
       skip: labelText(labels, "literatureMigrationSkipped", "Skipped"),
     },
+    outcomeLabels: {
+      preview: labelText(labels, "literatureMigrationPending", "Pending"),
+      applied: labelText(labels, "literatureMigrationInclude", "Included"),
+      skipped: labelText(labels, "literatureMigrationSkipped", "Skipped"),
+      changed_since_scan: labelText(
+        labels,
+        "literatureMigrationAttention",
+        "Attention required",
+      ),
+      repair_required: labelText(
+        labels,
+        "literatureMigrationAttention",
+        "Attention required",
+      ),
+      blocked: labelText(labels, "literatureMigrationBlocked", "Blocked"),
+      failed: labelText(labels, "statusFailed", "Failed"),
+    },
+    runStateLabels: {
+      preview: labelText(labels, "literatureMigrationPending", "Pending"),
+      applying: labelText(labels, "literatureMigrationProgress", "Progress"),
+      completed: labelText(labels, "statusSucceeded", "Completed"),
+      completed_with_attention: labelText(
+        labels,
+        "literatureMigrationAttention",
+        "Attention required",
+      ),
+      failed: labelText(labels, "statusFailed", "Failed"),
+    },
     optionLabels: Object.fromEntries(
       [
         ["merge_duplicates", "Merge duplicate references"],

@@ -42,9 +42,21 @@ classification, reason, and disposition before returning 25 candidates per
 page. Ready sets start included. Review and blocked sets expose bounded issue
 choices in a details drawer and remain pending until every issue is resolved
 and the user approves the set; Skip leaves the source unchanged. The page
-shows real scan/apply progress, supports Stop during scans, and keeps the
-results list independently scrollable. It renders no library selector and
-stays within the personal library bound by the scan.
+shows real scan/apply progress immediately, marks the initiating command busy,
+and locks filters, history selection, paging, and candidate controls until the
+active transaction settles; Stop remains available. Its full-width toolbar
+keeps commands, summary pills, search, and three filters on one row when wide,
+moves search and filters to a second row below 1100 px, and uses a two-column
+filter grid below 560 px. It renders no library selector and stays within the
+personal library bound by the scan.
+
+Migration history is a run-list/detail view rather than a flat operation log.
+Selecting a run projects its status, timestamps, processed/remaining counts,
+reason and bounded diagnostics, followed by paged set receipts with the
+persisted parent title, classification, outcome, counts, reason codes, and
+diagnostics. Terminal receipts render outcome badges instead of selection
+checkboxes. Failed and attention-required runs offer Continue, which always
+starts from a fresh scan.
 
 ## Migratable payload
 
@@ -136,6 +148,12 @@ is retained and the set is `repair_required`; a failed cleanup never deletes or
 overwrites the original representation. Ordinary notes and ordinary
 `notes.updateContent` remain protected by the Broker.
 
+Mutation authority outcomes retain their side-effect meaning. `committed` and
+`unchanged` become `applied`; `repair_required` and `unknown` remain
+repair-required because an effect may exist; pre-commit `failed` and `canceled`
+become a failed set and failed run. A failed set stops admission of later sets,
+while earlier committed set receipts remain intact.
+
 ## Durable lifecycle
 
 `pluginStateStore/literatureMigrationTables.ts` owns the private SQLite records,
@@ -143,7 +161,7 @@ while `pluginStateStore.ts` keeps their public composition seam:
 `plugin_literature_artifact_migration_runs` and
 `plugin_literature_artifact_migration_sets`. A run stores the migration ID,
 definition version, library, state, counts, timestamps, and bounded
-diagnostics. A set receipt stores its candidate refs, basis hash,
+diagnostics. A set receipt stores its parent title, candidate refs, basis hash,
 classification, outcome, counts, timestamps, and bounded diagnostics. Full
 payloads, hidden backup notes, and a permanent migrated flag are not stored.
 Failure diagnostics are stable reason codes; native exception messages, paths,
@@ -178,6 +196,6 @@ fresh-scan restart, complete-plan filtering, issue resolution, the bounded
 Dashboard projection and browser layout, and the bundle
 HTML/legacy-PNG preview-confirmation path. The bundle regression is in
 `tests/workflow-literature-workbench-package/47-workflow-literature-bundle.test.ts`.
-Node transaction and source-query seams do not establish native Zotero
-rollback evidence. A native transaction run, upstream renderer pin, and
-sidecar build identity remain separate completion gates.
+The real Zotero References/Citation migration path is covered by
+`tests/zotero/core/lite/275-managed-note-transaction.zotero.test.ts`. Upstream
+renderer pins and sidecar build identity remain separate completion gates.

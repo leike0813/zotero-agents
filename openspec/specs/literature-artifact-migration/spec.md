@@ -90,11 +90,12 @@ The UI SHALL submit only a scan operation identity and runtime-issued candidate 
 #### Scenario: An infrastructure failure occurs before a set commits
 - **WHEN** a database or transaction failure prevents the set's commit
 - **THEN** the set and run SHALL report a typed failure
+- **AND** the runtime SHALL stop claiming later sets while preserving every earlier committed receipt
 - **AND** independently committed sets SHALL not be rolled back by a global coordinator.
 
 ### Requirement: Migration lifecycle SHALL be durable, single-flight, and restart-safe
 
-The migration runtime SHALL permit at most one active scan/apply in a process and SHALL share its active snapshot with multiple Dashboard windows. It SHALL persist an envelope and one receipt per completed set with library, migration ID, definition version, refs, basis/hash, classification, outcome, timestamps, bounded counts, and bounded diagnostics. Terminal run states SHALL be `completed`, `completed_with_attention`, or `failed`.
+The migration runtime SHALL permit at most one active scan/apply in a process and SHALL share its active snapshot with multiple Dashboard windows. It SHALL persist an envelope and one receipt per completed set with library, migration ID, definition version, parent title, refs, basis/hash, classification, outcome, timestamps, bounded counts, and bounded diagnostics. Terminal run states SHALL be `completed`, `completed_with_attention`, or `failed`.
 
 #### Scenario: A second run starts while one is active
 - **WHEN** a user starts a scan or apply while another migration is active
@@ -193,6 +194,22 @@ The Dashboard migration view SHALL expose scan progress from real library item c
 - **WHEN** the first bounded library page supplies the total item count
 - **THEN** the Dashboard SHALL show completed items, total items, and discovered candidate count
 - **AND** progress SHALL advance monotonically without an invented percentage.
+
+#### Scenario: Scan or apply is active
+- **WHEN** a scan or apply command has entered the migration runtime
+- **THEN** the initiating command SHALL show a busy state and the Dashboard SHALL immediately show real progress
+- **AND** filters, history selection, paging, and candidate mutation controls SHALL remain locked until the operation settles
+- **AND** Stop SHALL remain available for the active run.
+
+### Requirement: Migration history SHALL expose bounded run and set outcomes
+
+The Dashboard SHALL present migration history as a run list and selected-run detail. Run detail SHALL include state, timestamps, processed and remaining counts, reason, and bounded diagnostics. Its paged set receipts SHALL include the persisted parent title, classification, outcome, counts, reason codes, and bounded diagnostics without exposing raw payloads or native refs. Terminal set rows SHALL display their outcome rather than an unchecked selection control.
+
+#### Scenario: A user inspects a failed migration
+- **WHEN** the user selects a failed run in migration history
+- **THEN** the Dashboard SHALL identify which sets applied, failed, were skipped, changed, or still remained pending
+- **AND** it SHALL expose the stable failure phase and recovery diagnostics
+- **AND** Continue SHALL start a fresh scan rather than replaying the old plan.
 
 ### Requirement: Migration review SHALL operate on the complete bounded plan
 

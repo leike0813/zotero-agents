@@ -672,10 +672,27 @@ function topicGraphReviewRows(
   view: ReviewCenterWireView,
 ): TopicGraphReviewIntermediate[] {
   const titles = topicGraphNodeTitleById(view);
+  const closedReviewTuples = new Set(
+    view.topicGraphReviewItems
+      .filter((item) => {
+        const status = reviewCenterTextValue(item.status);
+        return status === "approved" || status === "rejected";
+      })
+      .map(
+        (item) =>
+          `${reviewCenterTextValue(item.source_topic_id)}\n${reviewCenterTextValue(item.target_topic_id)}\n${reviewCenterTextValue(item.relation)}`,
+      ),
+  );
   const edgeRows = view.topicGraphEdges
     .filter(
       (edge: ReviewCenterTopicGraphEdgeWire) =>
-        reviewCenterTextValue(edge.status) !== "deleted",
+        reviewCenterTextValue(edge.status) !== "deleted" &&
+        !(
+          reviewCenterTextValue(edge.status) === "suggested" &&
+          closedReviewTuples.has(
+            `${reviewCenterTextValue(edge.source_topic_id)}\n${reviewCenterTextValue(edge.target_topic_id)}\n${reviewCenterTextValue(edge.relation)}`,
+          )
+        ),
     )
     .map((edge) => {
       const sourceId = reviewCenterTextValue(edge.source_topic_id);

@@ -1101,6 +1101,7 @@ export type DashboardLiteratureArtifactMigrationCandidate = {
     | "blocked"
     | "failed";
   reasonCodes: string[];
+  diagnostics: string[];
   verifiedCount: number;
   unresolvedCount: number;
   recoveredCount: number;

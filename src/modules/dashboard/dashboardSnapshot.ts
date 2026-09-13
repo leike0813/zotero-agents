@@ -1133,21 +1133,12 @@ function buildLiteratureArtifactMigrationView(
       activeSnapshot?.operationId || displayedEntry?.operationId || "",
     activeRunId: activeSnapshot?.runId || "",
     progress: activeSnapshot
-      ? activeSnapshot.phase === "scanning"
-        ? {
-            phase: "scanning",
-            completed: activeSnapshot.progress?.completed || 0,
-            total: activeSnapshot.progress?.total ?? null,
-            candidateCount: activeSnapshot.progress?.candidateCount || 0,
-          }
-        : activeEntry
-          ? {
-              phase: "applying",
-              completed: activeEntry.processedCount,
-              total: activeEntry.setCount,
-              candidateCount: activeEntry.setCount,
-            }
-          : null
+      ? {
+          phase: activeSnapshot.phase,
+          completed: activeSnapshot.progress?.completed || 0,
+          total: activeSnapshot.progress?.total ?? null,
+          candidateCount: activeSnapshot.progress?.candidateCount || 0,
+        }
       : null,
     candidatePage: {
       cursor: receiptCursor,

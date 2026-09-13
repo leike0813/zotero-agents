@@ -106,6 +106,28 @@ Synthesis Topic Graph SHALL allow Workbench users to accept or reject suggested 
 - **THEN** the service SHALL return a structured diagnostic
 - **AND** no canonical graph rows SHALL be changed.
 
+#### Scenario: Low-confidence review approval is terminal
+
+- **WHEN** an open low-confidence review item is approved
+- **THEN** the canonical edge for that tuple SHALL become `confirmed` in the
+  same transaction
+- **AND** the review item SHALL become `approved`
+- **AND** no `suggested` edge SHALL remain for that tuple.
+
+#### Scenario: Approved hierarchy review cascades discovery candidates
+
+- **WHEN** an open review item whose relation is `broader_than` is approved and
+  the confirmation commits
+- **THEN** the persisted topic discovery cascade SHALL be refreshed exactly as
+  for a direct edge acceptance
+- **AND** a refresh failure SHALL be reported as a post-commit warning without
+  rolling back the confirmed edge.
+
+#### Scenario: Non-hierarchy review approval skips the discovery refresh
+
+- **WHEN** an open review item whose relation is not `broader_than` is approved
+- **THEN** the persisted topic discovery cascade SHALL NOT be refreshed.
+
 ### Requirement: Confirmed hierarchy relations cascade discovery candidates
 
 Synthesis read models SHALL use confirmed `broader_than` topic graph relations

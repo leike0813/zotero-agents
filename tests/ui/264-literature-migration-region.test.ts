@@ -73,6 +73,7 @@ describe("Dashboard literature migration region", function () {
               classification: "ready",
               outcome: "preview",
               reasonCodes: [],
+              diagnostics: [],
               verifiedCount: 1,
               unresolvedCount: 0,
               recoveredCount: 0,
@@ -88,6 +89,7 @@ describe("Dashboard literature migration region", function () {
               classification: "review_required",
               outcome: "preview",
               reasonCodes: ["unresolved_linkage"],
+              diagnostics: [],
               verifiedCount: 1,
               unresolvedCount: 1,
               recoveredCount: 0,
@@ -121,6 +123,7 @@ describe("Dashboard literature migration region", function () {
               classification: "blocked",
               outcome: "preview",
               reasonCodes: ["duplicate_reference"],
+              diagnostics: [],
               verifiedCount: 1,
               unresolvedCount: 0,
               recoveredCount: 0,
@@ -200,6 +203,22 @@ describe("Dashboard literature migration region", function () {
         pending: "Pending",
         include: "Included",
         skip: "Skipped",
+      },
+      outcomeLabels: {
+        preview: "Pending",
+        applied: "Applied",
+        skipped: "Skipped",
+        changed_since_scan: "Changed since scan",
+        repair_required: "Repair required",
+        blocked: "Blocked",
+        failed: "Failed",
+      },
+      runStateLabels: {
+        preview: "Pending",
+        applying: "Applying",
+        completed: "Completed",
+        completed_with_attention: "Attention required",
+        failed: "Failed",
       },
       optionLabels: {
         keep_unresolved: "Keep as unresolved",
@@ -367,6 +386,75 @@ describe("Dashboard literature migration region", function () {
     assert.equal(progress?.getAttribute("aria-valuenow"), "4");
     assert.equal(progress?.getAttribute("aria-valuemax"), "10");
     assert.include(root.textContent || "", "4/10");
+    const busyScan = Array.from(root.querySelectorAll("button")).find(
+      (button) => button.textContent === selection.scanLabel,
+    );
+    assert.isTrue(busyScan?.classList.contains("is-busy"));
+    assert.equal(busyScan?.getAttribute("aria-busy"), "true");
+    assert.equal(
+      root.querySelector(".dashboard-migrations")?.getAttribute("aria-busy"),
+      "true",
+    );
+    assert.isTrue(
+      root.querySelector<HTMLInputElement>('[data-role="migration-search"]')
+        ?.disabled,
+    );
+
+    const failedRun = {
+      ...selection.view.activeRun!,
+      state: "failed" as const,
+      reason: "apply_failed",
+      processedCount: 1,
+      remainingCount: 1,
+      terminalAt: "2026-01-01T00:01:00.000Z",
+      diagnostics: ["mutation:execution_failed"],
+    };
+    render(
+      h(MigrationsRegion, {
+        selection: {
+          ...selection,
+          view: {
+            ...selection.view,
+            availability: "available",
+            activeRun: failedRun,
+            activeOperationId: failedRun.operationId,
+            activeRunId: "",
+            progress: null,
+            candidatePage: {
+              ...selection.view.candidatePage,
+              nextCursor: null,
+              items: [
+                {
+                  ...selection.view.candidatePage.items[0]!,
+                  outcome: "failed",
+                  diagnostics: ["mutation:execution_failed", "phase:commit"],
+                  selected: false,
+                  disposition: "pending",
+                },
+              ],
+            },
+            history: [failedRun],
+          },
+        },
+        onAction: () => undefined,
+      }),
+      root,
+    );
+    assert.lengthOf(
+      root.querySelectorAll(
+        '.dashboard-migration-candidate input[type="checkbox"]',
+      ),
+      0,
+    );
+    assert.include(root.textContent || "", "Failed");
+    assert.include(root.textContent || "", "mutation:execution_failed");
+    assert.exists(
+      Array.from(root.querySelectorAll("button")).find(
+        (button) => button.textContent === selection.continueLabel,
+      ),
+    );
+    assert.exists(root.querySelector('[data-role="migration-history-list"]'));
+    assert.exists(root.querySelector('[data-role="migration-run-detail"]'));
     render(
       h(MigrationsRegion, {
         selection: {

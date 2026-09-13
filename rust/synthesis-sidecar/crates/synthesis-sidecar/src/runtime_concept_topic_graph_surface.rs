@@ -409,33 +409,60 @@ fn decide_relation(
             edge_id,
             status,
         });
-    if result.status == TopicGraphMutationStatus::Committed && refresh_discovery {
-        let refreshed = apps
-            .repository
-            .owner()
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .refresh_topic_discovery_projections(&synthesis_protocol::utc_now_iso8601());
-        if let Err(error) = refreshed {
-            result
-                .warnings
-                .push(format!("topic_discovery_projection_failed:{error}"));
-        }
+    if refresh_discovery {
+        refresh_topic_discovery(apps, &mut result);
     }
     topic_graph_mutation_wire(result)
 }
 
+/// A newly confirmed `broader_than` relation changes which topics the discovery
+/// cascade aggregates. This is a post-commit refresh: a failure is a warning
+/// and never rolls back the committed edge.
+fn refresh_topic_discovery(apps: &ProductionApplications, result: &mut TopicGraphMutationResult) {
+    if result.status != TopicGraphMutationStatus::Committed {
+        return;
+    }
+    let refreshed = apps
+        .repository
+        .owner()
+        .lock()
+        .map_err(|_| "repository_unavailable".to_owned())
+        .and_then(|mut repository| {
+            repository.refresh_topic_discovery_projections(&synthesis_protocol::utc_now_iso8601())
+        });
+    if let Err(error) = refreshed {
+        result
+            .warnings
+            .push(format!("topic_discovery_projection_failed:{error}"));
+    }
+}
+
 fn review_topic_graph(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
     let request: TopicGraphReviewWireRequest = one_request(args)?;
+    let review_id = bounded_text(&request.review_id)?;
     let action = match request.action {
         TopicGraphReviewWireAction::ApproveSuggested => TopicGraphReviewAction::ApproveSuggested,
         TopicGraphReviewWireAction::Reject => TopicGraphReviewAction::Reject,
     };
-    topic_graph_mutation_wire(apps.topic_graph.review(&TopicGraphReviewRequest {
+    // Approval commits a confirmed edge directly, so it must refresh the
+    // discovery cascade exactly like a direct accept: only when the open
+    // review being approved is a `broader_than` relation. The relation is read
+    // from the pre-mutation snapshot, mirroring `decide_relation`.
+    let refresh_discovery = action == TopicGraphReviewAction::ApproveSuggested
+        && apps.topic_graph.load()?.reviews.iter().any(|review| {
+            review.review_id == review_id
+                && review.status == "open"
+                && review.relation == "broader_than"
+        });
+    let mut result = apps.topic_graph.review(&TopicGraphReviewRequest {
         expected_manifest_hash: topic_graph_basis(apps)?,
-        review_id: bounded_text(&request.review_id)?,
+        review_id,
         action,
-    }))
+    });
+    if refresh_discovery {
+        refresh_topic_discovery(apps, &mut result);
+    }
+    topic_graph_mutation_wire(result)
 }
 
 #[derive(Debug, Deserialize)]
@@ -494,4 +521,217 @@ enum TopicGraphReviewWireAction {
 struct TopicGraphReviewWireRequest {
     review_id: String,
     action: TopicGraphReviewWireAction,
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+    use std::sync::{Arc, Mutex};
+
+    use synthesis_canonical_store::{CanonicalIdentity, CanonicalStore};
+    use synthesis_repository::{
+        Repository, RepositoryIdentity, TopicApplicationProjectionRecord,
+        TopicGraphApplicationStateRecord, TopicGraphNodeRecord, TopicGraphReplacement,
+        TopicGraphReviewItemRecord,
+    };
+
+    use crate::runtime_production_ports::build_production_applications;
+    use crate::runtime_worker_pool::NativeComputePool;
+
+    use super::*;
+
+    fn seed_open_review(apps: &ProductionApplications, relation: &str, discovery_json: &str) {
+        let nodes = ["parent", "child"]
+            .into_iter()
+            .map(|id| TopicGraphNodeRecord {
+                topic_id: format!("topic:{id}"),
+                title: id.into(),
+                aliases_json: "[]".into(),
+                node_type: "topic".into(),
+                created_at: "before".into(),
+                updated_at: "before".into(),
+                ..TopicGraphNodeRecord::default()
+            })
+            .collect::<Vec<_>>();
+        let seeded = apps.topic_graph.replace_snapshot(
+            None,
+            &TopicGraphReplacement {
+                state: TopicGraphApplicationStateRecord {
+                    singleton_id: 1,
+                    manifest_hash: "graph:review-refresh".into(),
+                    index_json: "{}".into(),
+                    updated_at: "before".into(),
+                    ..TopicGraphApplicationStateRecord::default()
+                },
+                nodes,
+                edges: Vec::new(),
+                reviews: vec![TopicGraphReviewItemRecord {
+                    review_id: "review:relation".into(),
+                    status: "open".into(),
+                    source_topic_id: "topic:parent".into(),
+                    target_topic_id: "topic:child".into(),
+                    target_title: "child".into(),
+                    relation: relation.into(),
+                    confidence: Some(0.4),
+                    provenance_json: "[]".into(),
+                    evidence_refs_json: "[]".into(),
+                    created_at: "before".into(),
+                    updated_at: "before".into(),
+                    ..TopicGraphReviewItemRecord::default()
+                }],
+            },
+        );
+        assert_eq!(seeded.status, TopicGraphMutationStatus::Committed);
+        let owner = apps.repository.owner();
+        let repository = owner.lock().expect("repository");
+        repository
+            .upsert_topic_application_projection(&TopicApplicationProjectionRecord {
+                topic_id: "topic:parent".into(),
+                topic_graph_json: "{}".into(),
+                concepts_json: "{}".into(),
+                interest_metadata_json: "{}".into(),
+                discovery_json: discovery_json.into(),
+                updated_at: "before".into(),
+            })
+            .expect("projection");
+        repository
+            .execute(
+                "INSERT INTO synt_topic_discovery_hint(hint_id,payload_json,updated_at)
+                 VALUES(?1,?2,?3)",
+                &[
+                    json!("hint:child"),
+                    json!("{\"topic_id\":\"topic:child\",\"literature_item_id\":\"1:ABC\",\"status\":\"open\"}"),
+                    json!("before"),
+                ],
+            )
+            .expect("hint");
+    }
+
+    fn discovery_cascade(apps: &ProductionApplications) -> Value {
+        let projection = apps
+            .repository
+            .owner()
+            .lock()
+            .expect("repository")
+            .get_topic_application_projection("topic:parent")
+            .expect("projection read")
+            .expect("projection");
+        serde_json::from_str::<Value>(&projection.discovery_json).expect("discovery json")
+            ["cascade_topic_ids"]
+            .clone()
+    }
+
+    fn approve_review(apps: &ProductionApplications) -> Value {
+        dispatch_owned(
+            apps,
+            "client.applyTopicGraphReviewAction",
+            &[json!({"reviewId": "review:relation", "action": "approve_suggested"})],
+        )
+        .expect("approved review")
+    }
+
+    fn warnings(result: &Value) -> Vec<String> {
+        result["diagnostics"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|row| row["severity"] == "warning")
+            .filter_map(|row| row["code"].as_str())
+            .map(str::to_owned)
+            .collect()
+    }
+
+    fn test_applications(root: &Path) -> ProductionApplications {
+        let repository = Repository::open(
+            root,
+            RepositoryIdentity {
+                profile_id: "profile".into(),
+                data_root_id: "data".into(),
+            },
+        )
+        .expect("repository");
+        let canonical = CanonicalStore::open(
+            root,
+            CanonicalIdentity {
+                profile_id: "profile".into(),
+                data_root_id: "data".into(),
+            },
+        )
+        .expect("canonical");
+        build_production_applications(
+            Arc::new(synthesis_application::RepositoryPort::new(Arc::new(
+                Mutex::new(repository),
+            ))),
+            Arc::new(Mutex::new(canonical)),
+            Arc::new(NativeComputePool::new()),
+            None,
+            "service".into(),
+            root.join("webdav-state.json"),
+        )
+        .expect("applications")
+    }
+
+    fn dispatch_owned(
+        apps: &ProductionApplications,
+        capability: &str,
+        args: &[Value],
+    ) -> Result<Value, String> {
+        let route = CONCEPT_TOPIC_GRAPH_CLIENT_ROUTES
+            .iter()
+            .find(|route| route.capability == capability)
+            .expect("owned capability");
+        (route.handler)(apps, args)
+    }
+
+    /// Approving a low-confidence narrower-topic review is terminal: the review
+    /// commits a confirmed `broader_than` edge and that new confirmation must
+    /// refresh the topic discovery cascade exactly like a direct edge accept.
+    #[test]
+    fn approving_a_broader_relation_review_refreshes_topic_discovery() {
+        let root = synthesis_test_support::TestRoot::new("synthesis-concept-topic-graph-surface");
+        let apps = test_applications(&root);
+        seed_open_review(&apps, "broader_than", "{\"source_paper_refs\":[]}");
+
+        let approved = approve_review(&apps);
+        assert_eq!(approved["status"], "committed");
+        assert!(
+            warnings(&approved).is_empty(),
+            "discovery refresh must not degrade into a warning: {approved}"
+        );
+        let graph = apps.topic_graph.load().expect("graph");
+        assert_eq!(graph.reviews[0].status, "approved");
+        assert_eq!(graph.edges[0].status, "confirmed");
+        assert_eq!(
+            discovery_cascade(&apps),
+            json!(["topic:child", "topic:parent"]),
+            "the newly confirmed broader_than edge refreshes the discovery cascade"
+        );
+        drop(apps);
+    }
+
+    /// Only `broader_than` confirmations change the discovery cascade, so an
+    /// approved non-hierarchy review must not refresh it.
+    #[test]
+    fn approving_a_non_broader_relation_review_skips_the_discovery_refresh() {
+        let root = synthesis_test_support::TestRoot::new("synthesis-concept-topic-graph-surface");
+        let apps = test_applications(&root);
+        seed_open_review(
+            &apps,
+            "related_to",
+            "{\"cascade_topic_ids\":[\"sentinel\"]}",
+        );
+
+        let approved = approve_review(&apps);
+        assert_eq!(approved["status"], "committed");
+        assert!(warnings(&approved).is_empty(), "{approved}");
+        let graph = apps.topic_graph.load().expect("graph");
+        assert_eq!(graph.reviews[0].status, "approved");
+        assert_eq!(graph.edges[0].status, "confirmed");
+        assert_eq!(
+            discovery_cascade(&apps),
+            json!(["sentinel"]),
+            "a non-broader_than approval leaves the discovery projection untouched"
+        );
+        drop(apps);
+    }
 }
