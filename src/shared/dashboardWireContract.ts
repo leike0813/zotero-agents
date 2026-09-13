@@ -108,7 +108,8 @@ export type DashboardHostActionName =
   | "literature-migration-resolve-issue"
   | "literature-migration-set-candidate-query"
   | "literature-migration-list-receipts"
-  | "literature-migration-select-run";
+  | "literature-migration-select-run"
+  | "literature-migration-copy-diagnostics";
 
 /** Actions handled by the Dashboard controller without a host round-trip. */
 export type DashboardLocalActionName =
@@ -309,6 +310,9 @@ export type DashboardActionPayloadMap = {
     cursor?: string;
   }>;
   "literature-migration-select-run": DashboardActionPayloadShape<{
+    runId: string;
+  }>;
+  "literature-migration-copy-diagnostics": DashboardActionPayloadShape<{
     runId: string;
   }>;
   "synthesis-sidecar-select-trace": DashboardActionPayloadShape<{

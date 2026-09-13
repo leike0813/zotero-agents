@@ -33,16 +33,22 @@ import {
   type DashboardState,
 } from "../../src/modules/dashboard/dashboardSnapshot";
 import { ensureLiteratureMigrationTablesSchema } from "../../src/modules/pluginStateStore/literatureMigrationTables";
+import {
+  listRuntimeLogs,
+  resetRuntimeLogHydrationForTests,
+} from "../../src/modules/runtimeLogManager";
 
 describe("literature artifact migration", function () {
   beforeEach(function () {
     resetPluginStateStoreForTests();
     resetLiteratureArtifactMigrationRuntimeForTests();
+    resetRuntimeLogHydrationForTests();
   });
 
   afterEach(function () {
     resetPluginStateStoreForTests();
     resetLiteratureArtifactMigrationRuntimeForTests();
+    resetRuntimeLogHydrationForTests();
   });
 
   it("projects the current migration version and personal library", async function () {
@@ -1002,14 +1008,20 @@ describe("literature artifact migration", function () {
             status: "failed",
             error: {
               code: "execution_failed",
-              phase: "commit",
+              phase: "compensation",
               recovery: "retry_same_operation",
+              message: "managed note payload is ambiguous",
               details: {
                 phase: "commit",
                 recovery: "retry_same_operation",
+                affectedCount: 2,
+                residualCount: 0,
               },
             },
-            affectedRefs: [],
+            affectedRefs: [
+              { kind: "item", ref: noteRef },
+              { kind: "item", ref: { libraryId: 1, key: "CITATION-NOTE" } },
+            ],
             residualRefs: [],
           },
         }) as unknown as MutationExecutionResult<LiteratureArtifactApplyAnalysisResultDto>,
@@ -1042,9 +1054,65 @@ describe("literature artifact migration", function () {
     assert.equal(receipt?.outcome, "failed");
     assert.deepEqual(receipt?.diagnostics, [
       "mutation:execution_failed",
-      "phase:commit",
+      "phase:compensation",
       "recovery:retry_same_operation",
+      "message:managed note payload is ambiguous",
+      "mutation_operation:managed_note.apply_parent_set",
+      "operation_id:operation-1",
+      "attempt_id:attempt-1",
+      "effect_phase:commit",
+      "affected_count:2",
+      "residual_count:0",
     ]);
+    const logs = listRuntimeLogs({ runId: result.runId });
+    assert.lengthOf(logs, 1);
+    assert.deepInclude(logs[0], {
+      level: "error",
+      scope: "state-machine",
+      runId: result.runId,
+      component: "literature-artifact-migration",
+      operation: "managed_note.apply_parent_set",
+      phase: "compensation",
+      stage: "set-failed",
+      message: "managed note payload is ambiguous",
+    });
+    assert.deepInclude(logs[0]?.details as Record<string, unknown>, {
+      candidateId: preview.candidates[0]?.candidateId,
+      operationId: "operation-1",
+      attemptId: "attempt-1",
+      code: "execution_failed",
+      recovery: "retry_same_operation",
+      effectPhase: "commit",
+      affectedCount: 2,
+      residualCount: 0,
+    });
+
+    const bundle = service.buildDiagnosticBundle({ runId: result.runId });
+    assert.isTrue(bundle.ok);
+    if (!bundle.ok) throw new Error("expected migration diagnostic bundle");
+    assert.equal(
+      bundle.bundle.schemaVersion,
+      "literature-artifact-migration-diagnostic-bundle/v1",
+    );
+    assert.deepInclude(bundle.bundle.run, {
+      runId: result.runId,
+      state: "failed",
+      processedCount: 1,
+    });
+    assert.deepEqual(bundle.bundle.sets, [
+      {
+        candidateId: preview.candidates[0]?.candidateId,
+        operationId: receipt?.operationId,
+        ordinal: 1,
+        outcome: "failed",
+        diagnostics: receipt?.diagnostics,
+      },
+    ]);
+    assert.deepEqual(bundle.bundle.authorities, [
+      { operationId: receipt?.operationId, state: "unavailable" },
+    ]);
+    assert.equal(bundle.bundle.omittedSetCount, 0);
+    assert.equal(bundle.bundle.runtime.context.runIds[0], result.runId);
   });
 
   it("stores stable scan failure codes without raw host error details", async function () {

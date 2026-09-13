@@ -1203,6 +1203,11 @@ function projectViews(
       "Stop after current set",
     ),
     continueLabel: labelText(labels, "literatureMigrationContinue", "Continue"),
+    copyDiagnosticBundleLabel: labelText(
+      labels,
+      "runtimeLogsCopyDiagnosticBundle",
+      "Copy Diagnostic Bundle",
+    ),
     reviewLabel: labelText(
       labels,
       "literatureMigrationReview",

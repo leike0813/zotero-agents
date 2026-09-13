@@ -888,8 +888,8 @@ export async function queryZoteroChildItemPage(
     | { id: number }
     | undefined;
   const table = domain === "notes" ? "itemNotes" : "itemAttachments";
-  const countSql = `SELECT COUNT(*) AS total FROM ${table} child JOIN items i ON i.itemID = child.itemID WHERE child.parentItemID = ? AND i.libraryID = ?`;
-  const pageSql = `SELECT i.itemID AS itemID FROM ${table} child JOIN items i ON i.itemID = child.itemID WHERE child.parentItemID = ? AND i.libraryID = ? AND i.itemID > ? ORDER BY i.itemID ASC LIMIT ?`;
+  const countSql = `SELECT COUNT(*) AS total FROM ${table} child JOIN items i ON i.itemID = child.itemID WHERE child.parentItemID = ? AND i.libraryID = ? AND NOT EXISTS (SELECT 1 FROM deletedItems d WHERE d.itemID = i.itemID)`;
+  const pageSql = `SELECT i.itemID AS itemID FROM ${table} child JOIN items i ON i.itemID = child.itemID WHERE child.parentItemID = ? AND i.libraryID = ? AND NOT EXISTS (SELECT 1 FROM deletedItems d WHERE d.itemID = i.itemID) AND i.itemID > ? ORDER BY i.itemID ASC LIMIT ?`;
   const page = await sourceCountAndPage(
     domain,
     criteria,

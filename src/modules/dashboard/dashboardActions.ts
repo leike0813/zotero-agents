@@ -418,6 +418,21 @@ export function createDashboardActionDispatcher(
             reasonCode: "",
             disposition: "",
           };
+        } else if (action === "literature-migration-copy-diagnostics") {
+          const result = service.buildDiagnosticBundle({
+            runId: String(payload.runId || ""),
+          });
+          if (!result.ok) {
+            alertRuntimeWindow(result.message);
+            return;
+          }
+          const helper = (Components as any).classes?.[
+            "@mozilla.org/widget/clipboardhelper;1"
+          ]?.getService(Components.interfaces.nsIClipboardHelper) as {
+            copyString?: (value: string) => void;
+          };
+          helper?.copyString?.(JSON.stringify(result.bundle, null, 2));
+          return;
         }
         refresh("user-action");
       } catch (error) {

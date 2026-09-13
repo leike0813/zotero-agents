@@ -82,6 +82,12 @@ The UI SHALL submit only a scan operation identity and runtime-issued candidate 
 - **THEN** the canonical pair SHALL be visible as one committed semantic result
 - **AND** only then MAY old inline payloads be removed and old user payload attachments moved to Trash.
 
+#### Scenario: A reused migration target temporarily contains v1 and v2 payload attachments
+- **WHEN** a canonical v2 payload has been written to a reused legacy note while its exact legacy v1 payload attachment is retained for compensation
+- **THEN** migration verification SHALL ignore only that identified v1 attachment after verifying the v2 logical hash
+- **AND** ordinary managed-note reads SHALL retain their strict ambiguous-payload behavior
+- **AND** the identified v1 attachment SHALL remain part of the required cleanup tail.
+
 #### Scenario: Cleanup fails after canonical commit
 - **WHEN** canonical verification succeeds but cleanup cannot be completed
 - **THEN** the canonical result SHALL be retained
@@ -208,7 +214,9 @@ The Dashboard SHALL present migration history as a run list and selected-run det
 #### Scenario: A user inspects a failed migration
 - **WHEN** the user selects a failed run in migration history
 - **THEN** the Dashboard SHALL identify which sets applied, failed, were skipped, changed, or still remained pending
-- **AND** it SHALL expose the stable failure phase and recovery diagnostics
+- **AND** it SHALL expose the safe failure message, stable phase, recovery, operation identity, attempt identity, and affected/residual counts
+- **AND** it SHALL offer one bounded diagnostic export containing the run, non-success set receipts, mutation authority summaries, and correlated runtime issue logs
+- **AND** the export SHALL NOT contain raw payloads, parent or native refs, titles, paths, or unsanitized exceptions
 - **AND** Continue SHALL start a fresh scan rather than replaying the old plan.
 
 ### Requirement: Migration review SHALL operate on the complete bounded plan

@@ -119,6 +119,8 @@ export type ManagedNoteReadOptions = Readonly<{
   checkCanceled?: () => void;
   /** Broker-owned canonical revision SSOT, evaluated inside the native slice. */
   readRevision?: () => string;
+  /** Migration-only verification may hide exact legacy v1 attachments queued for cleanup. */
+  ignoredLegacyPayloadAttachmentKeys?: ReadonlySet<string>;
 }>;
 
 export type ZoteroManagedNoteLocalControl = Readonly<{
@@ -1509,7 +1511,16 @@ export async function inspectManagedNote(
         checkCanceled: options.checkCanceled,
       },
     );
-    blocks.push(...page.blocks);
+    blocks.push(
+      ...page.blocks.filter(
+        (block) =>
+          !(
+            block.payloadStorageVersion === 1 &&
+            block.attachmentKey &&
+            options.ignoredLegacyPayloadAttachmentKeys?.has(block.attachmentKey)
+          ),
+      ),
+    );
     if (!page.hasMore) break;
     if (!page.nextCursor) {
       throw new ManagedNoteOwnerError(

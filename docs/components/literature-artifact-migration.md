@@ -56,7 +56,10 @@ reason and bounded diagnostics, followed by paged set receipts with the
 persisted parent title, classification, outcome, counts, reason codes, and
 diagnostics. Terminal receipts render outcome badges instead of selection
 checkboxes. Failed and attention-required runs offer Continue, which always
-starts from a fresh scan.
+starts from a fresh scan. They also offer a diagnostic export that combines
+the bounded run and non-success set facts, mutation authority attempt
+summaries, and runtime issue logs correlated by run ID. The export omits raw
+payloads, titles, parent or native refs, paths, and unsanitized exceptions.
 
 ## Migratable payload
 
@@ -148,6 +151,14 @@ is retained and the set is `repair_required`; a failed cleanup never deletes or
 overwrites the original representation. Ordinary notes and ordinary
 `notes.updateContent` remain protected by the Broker.
 
+When a legacy note is reused, its old attachment-backed v1 payload and the new
+v2 payload coexist until verification finishes. The parent-set writer first
+verifies the exact v2 logical hash, then excludes only the matching v1
+attachment already queued for cleanup from its migration-local detail read.
+The normal managed-note reader remains strict and continues to reject mixed or
+ambiguous payloads. Cleanup moves the identified v1 attachment to Trash, and
+source pagination excludes trashed child items from later payload reads.
+
 Mutation authority outcomes retain their side-effect meaning. `committed` and
 `unchanged` become `applied`; `repair_required` and `unknown` remain
 repair-required because an effect may exist; pre-commit `failed` and `canceled`
@@ -164,8 +175,10 @@ definition version, library, state, counts, timestamps, and bounded
 diagnostics. A set receipt stores its parent title, candidate refs, basis hash,
 classification, outcome, counts, timestamps, and bounded diagnostics. Full
 payloads, hidden backup notes, and a permanent migrated flag are not stored.
-Failure diagnostics are stable reason codes; native exception messages, paths,
-and raw payload details do not enter durable history.
+Failure diagnostics retain stable reason codes plus the sanitized public
+message, phase/recovery, operation and attempt IDs, and affected/residual
+counts. Native exception text, paths, refs, titles, and raw payload details do
+not enter durable history or the migration diagnostic bundle.
 
 Only one scan or apply is active in a process. A completed preview releases
 the active gate; apply obtains it again. Each set gets its own operation ID.

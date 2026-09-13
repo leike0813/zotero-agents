@@ -20,7 +20,15 @@ import {
   type ZoteroManagedNoteLocalControl,
 } from "./zoteroHost/zoteroManagedNotes";
 import type { ZoteroHostCapabilityBroker } from "./zoteroHostCapabilityBroker";
-import type { ZoteroHostMutationCallerScope } from "./zoteroHostMutationAuthority";
+import {
+  getMutationOperation,
+  type ZoteroHostMutationCallerScope,
+} from "./zoteroHostMutationAuthority";
+import {
+  appendRuntimeLog,
+  buildRuntimeIssueDiagnosticBundle,
+  type RuntimeIssueDiagnosticBundleV1,
+} from "./runtimeLogManager";
 import {
   getLiteratureArtifactMigrationRun,
   listLiteratureArtifactMigrationRuns,
@@ -155,6 +163,54 @@ export type LiteratureArtifactMigrationRunResult = {
   setCount: number;
 };
 
+export type LiteratureArtifactMigrationDiagnosticBundleV1 = {
+  schemaVersion: "literature-artifact-migration-diagnostic-bundle/v1";
+  generatedAt: string;
+  run: {
+    runId: string;
+    libraryId: string;
+    state: LiteratureArtifactMigrationRunEntry["state"];
+    reason: string;
+    processedCount: number;
+    remainingCount: number;
+    setCount: number;
+    createdAt: string;
+    terminalAt: string;
+    diagnostics: string[];
+  };
+  sets: Array<{
+    candidateId: string;
+    operationId: string;
+    ordinal: number;
+    outcome: LiteratureArtifactMigrationSetEntry["outcome"];
+    diagnostics: string[];
+  }>;
+  authorities: Array<{
+    operationId: string;
+    state: "running" | "terminal" | "unavailable";
+    operation?: string;
+    outcome?: string;
+    attempt?: {
+      attemptId: string;
+      status: string;
+      code: string;
+      phase: string;
+      recovery: string;
+      message: string;
+      details: {
+        phase?: string;
+        recovery?: string;
+        affectedCount?: number;
+        residualCount?: number;
+      };
+      affectedCount: number;
+      residualCount: number;
+    };
+  }>;
+  omittedSetCount: number;
+  runtime: RuntimeIssueDiagnosticBundleV1;
+};
+
 export type LiteratureArtifactMigrationScanProgress = {
   completed: number;
   total: number | null;
@@ -171,6 +227,7 @@ export type LiteratureArtifactMigrationHost = {
     ) => boolean;
   }) => Promise<LegacyArtifactSetInput[]>;
   applySet: (args: {
+    runId: string;
     libraryId: number;
     parentRef: MigrationPortableItemRef;
     candidate: LiteratureArtifactMigrationApplyCandidate;
@@ -321,6 +378,11 @@ function migrationParentSetEntries(
 
 function mutationResultToMigrationOutcome(
   result: MutationExecutionResult<JsonObject>,
+  context: {
+    runId: string;
+    candidateId: string;
+    ordinal: number;
+  },
 ): {
   outcome: "applied" | "repair_required" | "failed";
   reason?: string;
@@ -332,11 +394,45 @@ function mutationResultToMigrationOutcome(
   if (!("attempt" in result)) {
     return { outcome: "repair_required", reason: result.outcome };
   }
+  const details = object(result.attempt.error.details);
+  const message = text(result.attempt.error.message);
+  const effectPhase = text(details?.phase);
   const diagnostics = [
     `mutation:${migrationFailureCode(result.attempt.error)}`,
     `phase:${result.attempt.error.phase}`,
     `recovery:${result.attempt.error.recovery}`,
+    ...(message ? [`message:${message}`] : []),
+    `mutation_operation:${result.attempt.operation}`,
+    `operation_id:${result.attempt.operationId}`,
+    `attempt_id:${result.attempt.attemptId}`,
+    ...(effectPhase ? [`effect_phase:${effectPhase}`] : []),
+    `affected_count:${result.attempt.affectedRefs.length}`,
+    `residual_count:${result.attempt.residualRefs.length}`,
   ];
+  appendRuntimeLog({
+    level:
+      result.outcome === "repair_required" || result.outcome === "unknown"
+        ? "warn"
+        : "error",
+    scope: "state-machine",
+    runId: context.runId,
+    component: "literature-artifact-migration",
+    operation: result.attempt.operation,
+    phase: result.attempt.error.phase,
+    stage: `set-${result.outcome}`,
+    message: message || `Literature migration set ${result.outcome}`,
+    details: {
+      candidateId: context.candidateId,
+      ordinal: context.ordinal,
+      operationId: result.attempt.operationId,
+      attemptId: result.attempt.attemptId,
+      code: result.attempt.error.code,
+      recovery: result.attempt.error.recovery,
+      ...(effectPhase ? { effectPhase } : {}),
+      affectedCount: result.attempt.affectedRefs.length,
+      residualCount: result.attempt.residualRefs.length,
+    },
+  });
   return {
     outcome:
       result.outcome === "repair_required" || result.outcome === "unknown"
@@ -695,7 +791,13 @@ export function createLiteratureArtifactMigrationHostFromZoteroBroker(
         { libraryId, parentRefs, reportProgress },
         options.workflowControl,
       ),
-    applySet: async ({ libraryId, parentRef, candidate, operationId }) => {
+    applySet: async ({
+      runId,
+      libraryId,
+      parentRef,
+      candidate,
+      operationId,
+    }) => {
       const current = await readLegacyParentSet(
         library,
         localControl,
@@ -767,7 +869,11 @@ export function createLiteratureArtifactMigrationHostFromZoteroBroker(
         normalizeMigrationScope(libraryId),
         options.workflowControl,
       );
-      const applied = mutationResultToMigrationOutcome(result);
+      const applied = mutationResultToMigrationOutcome(result, {
+        runId,
+        candidateId: candidate.candidateId,
+        ordinal: candidate.ordinal,
+      });
       if (applied.outcome !== "applied") return applied;
       if (!hasVerifiedCanonicalParentSet(result, parentRef, entries)) {
         return {
@@ -1474,6 +1580,7 @@ export function createLiteratureArtifactMigrationService(
         >;
         try {
           applied = await options.host.applySet({
+            runId: plan.preview.runId,
             libraryId: plan.preview.libraryId,
             parentRef: candidate.parentRef,
             candidate: {
@@ -1725,6 +1832,127 @@ export function createLiteratureArtifactMigrationService(
         (plan) => plan.preview.runId === normalizedRunId,
       )?.preview || null
     );
+  }
+
+  function buildDiagnosticBundle(args: { runId: string }):
+    | {
+        ok: true;
+        bundle: LiteratureArtifactMigrationDiagnosticBundleV1;
+      }
+    | LiteratureArtifactMigrationFailure {
+    const run = getLiteratureArtifactMigrationRun(text(args.runId));
+    if (!run) {
+      return failure("not_found", "migration run receipt is unavailable", {
+        runId: args.runId,
+      });
+    }
+    const sets: LiteratureArtifactMigrationDiagnosticBundleV1["sets"] = [];
+    let omittedSetCount = 0;
+    let cursor: string | undefined;
+    for (;;) {
+      const page = listReceiptsPage({
+        runId: run.runId,
+        limit: 100,
+        ...(cursor ? { cursor } : {}),
+      });
+      for (const receipt of page.items) {
+        if (receipt.outcome === "applied" || receipt.outcome === "preview") {
+          continue;
+        }
+        if (sets.length >= 100) {
+          omittedSetCount += 1;
+          continue;
+        }
+        sets.push({
+          candidateId: receipt.candidateId,
+          operationId: receipt.operationId,
+          ordinal: receipt.ordinal,
+          outcome: receipt.outcome,
+          diagnostics: [...receipt.diagnostics],
+        });
+      }
+      if (!page.nextCursor || page.nextCursor === cursor) break;
+      cursor = page.nextCursor;
+    }
+    const authorities: LiteratureArtifactMigrationDiagnosticBundleV1["authorities"] =
+      sets.map((set) => {
+        const observation = getMutationOperation({
+          scope: normalizeMigrationScope(Number(run.libraryId)),
+          operationId: set.operationId,
+        });
+        if (observation.state !== "settled") {
+          return {
+            operationId: set.operationId,
+            state: observation.state,
+          };
+        }
+        const result = observation.result;
+        if (!("attempt" in result)) {
+          return {
+            operationId: set.operationId,
+            state: "terminal" as const,
+            outcome: result.outcome,
+          };
+        }
+        const details = object(result.attempt.error.details);
+        const numberDetail = (key: "affectedCount" | "residualCount") => {
+          const value = Number(details?.[key]);
+          return Number.isFinite(value) && value >= 0
+            ? Math.floor(value)
+            : undefined;
+        };
+        const affectedCount = numberDetail("affectedCount");
+        const residualCount = numberDetail("residualCount");
+        return {
+          operationId: set.operationId,
+          state: "terminal" as const,
+          operation: result.attempt.operation,
+          outcome: result.outcome,
+          attempt: {
+            attemptId: result.attempt.attemptId,
+            status: result.attempt.status,
+            code: result.attempt.error.code,
+            phase: result.attempt.error.phase,
+            recovery: result.attempt.error.recovery,
+            message: text(result.attempt.error.message),
+            details: {
+              ...(text(details?.phase) ? { phase: text(details?.phase) } : {}),
+              ...(text(details?.recovery)
+                ? { recovery: text(details?.recovery) }
+                : {}),
+              ...(affectedCount !== undefined ? { affectedCount } : {}),
+              ...(residualCount !== undefined ? { residualCount } : {}),
+            },
+            affectedCount: result.attempt.affectedRefs.length,
+            residualCount: result.attempt.residualRefs.length,
+          },
+        };
+      });
+    return {
+      ok: true,
+      bundle: {
+        schemaVersion: "literature-artifact-migration-diagnostic-bundle/v1",
+        generatedAt: nowIso(),
+        run: {
+          runId: run.runId,
+          libraryId: run.libraryId,
+          state: run.state,
+          reason: run.reason,
+          processedCount: run.processedCount,
+          remainingCount: run.remainingCount,
+          setCount: run.setCount,
+          createdAt: run.createdAt,
+          terminalAt: run.terminalAt,
+          diagnostics: [...run.diagnostics],
+        },
+        sets,
+        authorities,
+        omittedSetCount,
+        runtime: buildRuntimeIssueDiagnosticBundle({
+          filters: { runId: run.runId },
+        }),
+      },
+    };
   }
 
   function resolveCandidateIssue(args: {
@@ -2011,6 +2239,7 @@ export function createLiteratureArtifactMigrationService(
     getRun,
     getPreview,
     getPreviewForRun,
+    buildDiagnosticBundle,
     resolveCandidateIssue,
     setCandidateSelection,
     listHistory,

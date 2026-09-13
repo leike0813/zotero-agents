@@ -1,6 +1,10 @@
 import { assert } from "chai";
 import { createZoteroHostCapabilityBroker } from "../../../../src/modules/zoteroHostCapabilityBroker";
 import { getZoteroManagedNoteLocalControl } from "../../../../src/modules/zoteroHost/zoteroManagedNotes";
+import {
+  encodeBase64Utf8,
+  WORKBENCH_EMBEDDED_PAYLOAD_MARKER,
+} from "../../../../src/modules/zoteroHost/notePayloadCodec";
 import { runtimePathExists } from "../../../../src/modules/runtimePersistence";
 import {
   createLiteratureArtifactMigrationHostFromZoteroBroker,
@@ -48,6 +52,49 @@ async function createLegacyNote(parent: Zotero.Item, content: string) {
   return note;
 }
 
+async function createLegacyAttachmentPayloadNote(args: {
+  parent: Zotero.Item;
+  title: string;
+  noteKind: "references" | "citation-analysis";
+  payloadType: "references-json" | "citation-analysis-json";
+  payload: unknown;
+}) {
+  const note = await createLegacyNote(
+    args.parent,
+    `<div><h1>${args.title}</h1></div>`,
+  );
+  const envelope = {
+    schemaVersion: 1,
+    kind: "zotero-skills-workbench-note-payload",
+    noteKind: args.noteKind,
+    payloadType: args.payloadType,
+    payload: args.payload,
+  };
+  const png = Uint8Array.from(
+    atob(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+    ),
+    (character) => character.charCodeAt(0),
+  );
+  const suffix = new TextEncoder().encode(
+    `\n${WORKBENCH_EMBEDDED_PAYLOAD_MARKER}${encodeBase64Utf8(
+      JSON.stringify(envelope),
+    )}\n`,
+  );
+  const bytes = new Uint8Array(png.length + suffix.length);
+  bytes.set(png);
+  bytes.set(suffix, png.length);
+  const attachment = await Zotero.Attachments.importEmbeddedImage({
+    blob: new Blob([bytes], { type: "image/png" }),
+    parentItemID: note.id,
+  });
+  note.setNote(
+    `<div><h1>${args.title}</h1><p data-zs-payload-anchor-container="1"><img data-attachment-key="${attachment.key}" data-zs-payload-anchor="${args.payloadType}"></p></div>`,
+  );
+  await note.saveTx();
+  return { note, attachment };
+}
+
 function parentRef(parent: Zotero.Item) {
   return { libraryId: parent.libraryID, key: parent.key };
 }
@@ -72,7 +119,6 @@ describeZotero("managed note transaction in Zotero", function () {
   it("migrates a real legacy References and Citation pair through the Dashboard service", async function () {
     this.timeout(120000);
     const parent = await createParent("Dashboard migration transaction");
-    const encode = (value: unknown) => btoa(JSON.stringify(value));
     const references = {
       items: [{ title: "A Study", year: 2024, authors: ["Ada Lovelace"] }],
     };
@@ -86,14 +132,20 @@ describeZotero("managed note transaction in Zotero", function () {
         },
       ],
     };
-    await createLegacyNote(
+    const legacyReferences = await createLegacyAttachmentPayloadNote({
       parent,
-      `<div><h1>References</h1><span data-zs-block="payload" data-zs-payload="references-json" data-zs-version="1" data-zs-encoding="base64" data-zs-value="${encode(references)}"></span></div>`,
-    );
-    await createLegacyNote(
+      title: "References",
+      noteKind: "references",
+      payloadType: "references-json",
+      payload: references,
+    });
+    const legacyCitation = await createLegacyAttachmentPayloadNote({
       parent,
-      `<div><h1>Citation Analysis</h1><span data-zs-block="payload" data-zs-payload="citation-analysis-json" data-zs-version="1" data-zs-encoding="base64" data-zs-value="${encode(citation)}"></span></div>`,
-    );
+      title: "Citation Analysis",
+      noteKind: "citation-analysis",
+      payloadType: "citation-analysis-json",
+      payload: citation,
+    });
     try {
       const broker = createZoteroHostCapabilityBroker();
       const service = createLiteratureArtifactMigrationService({
@@ -130,6 +182,12 @@ describeZotero("managed note transaction in Zotero", function () {
         }),
       );
       assert.sameMembers(kinds, ["references", "citation-analysis"]);
+      assert.isTrue(
+        Boolean(Zotero.Items.get(legacyReferences.attachment.id)?.deleted),
+      );
+      assert.isTrue(
+        Boolean(Zotero.Items.get(legacyCitation.attachment.id)?.deleted),
+      );
     } finally {
       resetLiteratureArtifactMigrationRuntimeForTests();
       resetPluginStateStoreForTests();

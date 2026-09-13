@@ -23,6 +23,7 @@ export type DashboardMigrationsSelection = {
   applyLabel: string;
   stopLabel: string;
   continueLabel: string;
+  copyDiagnosticBundleLabel: string;
   reviewLabel: string;
   readyLabel: string;
   blockedLabel: string;
@@ -67,6 +68,7 @@ export type DashboardMigrationsAction = Extract<
   | "literature-migration-set-candidate-query"
   | "literature-migration-list-receipts"
   | "literature-migration-select-run"
+  | "literature-migration-copy-diagnostics"
 >;
 
 type Props = {
@@ -471,6 +473,20 @@ export const MigrationsRegion = memo(
                     <span class={`zs-badge ${outcomeBadgeClass(active.state)}`}>
                       {active.processedCount}/{active.setCount}
                     </span>
+                    {active.state === "failed" ||
+                    active.state === "completed_with_attention" ? (
+                      <button
+                        type="button"
+                        class="btn"
+                        onClick={() =>
+                          onAction("literature-migration-copy-diagnostics", {
+                            runId: active.runId,
+                          })
+                        }
+                      >
+                        {selection.copyDiagnosticBundleLabel}
+                      </button>
+                    ) : null}
                   </header>
                   <div class="dashboard-migration-run-facts">
                     <span>{active.createdAt}</span>

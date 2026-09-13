@@ -173,6 +173,7 @@ describe("Dashboard literature migration region", function () {
       applyLabel: "Apply",
       stopLabel: "Stop",
       continueLabel: "Continue",
+      copyDiagnosticBundleLabel: "Copy diagnostic bundle",
       reviewLabel: "Review",
       readyLabel: "Ready",
       blockedLabel: "Blocked",
@@ -229,6 +230,10 @@ describe("Dashboard literature migration region", function () {
         duplicate_reference: "Duplicate reference",
       },
     };
+    const failedActions: Array<{
+      action: string;
+      payload: Record<string, unknown>;
+    }> = [];
     render(
       h(MigrationsRegion, {
         selection,
@@ -436,7 +441,11 @@ describe("Dashboard literature migration region", function () {
             history: [failedRun],
           },
         },
-        onAction: () => undefined,
+        onAction: (action, payload) =>
+          failedActions.push({
+            action,
+            payload: (payload || {}) as Record<string, unknown>,
+          }),
       }),
       root,
     );
@@ -453,6 +462,17 @@ describe("Dashboard literature migration region", function () {
         (button) => button.textContent === selection.continueLabel,
       ),
     );
+    const copyDiagnostics = Array.from(root.querySelectorAll("button")).find(
+      (button) => button.textContent === selection.copyDiagnosticBundleLabel,
+    );
+    assert.exists(copyDiagnostics);
+    copyDiagnostics?.click();
+    assert.deepEqual(failedActions, [
+      {
+        action: "literature-migration-copy-diagnostics",
+        payload: { runId: failedRun.runId },
+      },
+    ]);
     assert.exists(root.querySelector('[data-role="migration-history-list"]'));
     assert.exists(root.querySelector('[data-role="migration-run-detail"]'));
     render(

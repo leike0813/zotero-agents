@@ -5305,9 +5305,7 @@ async function upsertNotePayloadAttachment(
           (oldAttachment as unknown as { parentItemID?: unknown }).parentItemID,
       );
       if (Number(parentId) === Number(note.id)) {
-        if (options.deferLegacyAttachmentCleanup) {
-          removedAttachment = oldAttachment;
-        } else {
+        if (!options.deferLegacyAttachmentCleanup) {
           try {
             await native(async () => {
               await beforeEffect?.("effect");
@@ -11497,6 +11495,10 @@ async function executeManagedParentSetMutation(
             // cleanup tail. The cleanup remains part of this parent-set authority
             // operation; it never claims a second receipt.
             const legacyPayloadRefs = new Map<string, ZoteroHostItemRefInput>();
+            const legacyPayloadAttachmentKeys = new Map<
+              PreparedParentSetEntry,
+              Set<string>
+            >();
             for (const plan of plans) {
               if (!plan.entry.migrationSourceRef) continue;
               const blocks = await listMutationPayloadBlocks(
@@ -11538,8 +11540,13 @@ async function executeManagedParentSetMutation(
                   libraryId: normalizeLibraryId(plan.note!.libraryID),
                   key: trimText(block.attachmentKey),
                 };
-                if (ref.key)
+                if (ref.key) {
                   legacyPayloadRefs.set(`${ref.libraryId}:${ref.key}`, ref);
+                  const keys =
+                    legacyPayloadAttachmentKeys.get(plan) || new Set<string>();
+                  keys.add(ref.key);
+                  legacyPayloadAttachmentKeys.set(plan, keys);
+                }
               }
             }
             // Verify and normalize every canonical detail before starting any
@@ -11558,6 +11565,8 @@ async function executeManagedParentSetMutation(
                     runNativeSlice: (run) => withZoteroHostSlice(control, run),
                     checkCanceled: () => throwIfWorkflowCallCanceled(control),
                     readRevision: () => canonicalNoteVersion(note).revision,
+                    ignoredLegacyPayloadAttachmentKeys:
+                      legacyPayloadAttachmentKeys.get(plan),
                   },
                 );
               } catch (error) {
