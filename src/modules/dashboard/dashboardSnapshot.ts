@@ -1999,6 +1999,42 @@ export async function buildDashboardSnapshot(args: {
       "task-dashboard-synthesis-sidecar-copy-toast",
       "Trace copied",
     ),
+    synthesisSidecarFilterOutcome: localize(
+      "task-dashboard-synthesis-sidecar-filter-outcome",
+      "Outcome",
+    ),
+    synthesisSidecarFilterOperation: localize(
+      "task-dashboard-synthesis-sidecar-filter-operation",
+      "Operation",
+    ),
+    synthesisSidecarOutcomeStarted: localize(
+      "task-dashboard-synthesis-sidecar-outcome-started",
+      "Started",
+    ),
+    synthesisSidecarOutcomeFailed: localize(
+      "task-dashboard-synthesis-sidecar-outcome-failed",
+      "Failed",
+    ),
+    synthesisSidecarOutcomeSucceeded: localize(
+      "task-dashboard-synthesis-sidecar-outcome-succeeded",
+      "Succeeded",
+    ),
+    synthesisSidecarResultCount: localize(
+      "task-dashboard-synthesis-sidecar-result-count",
+      "Showing { $visible } of { $total }",
+    ),
+    synthesisSidecarStatusLabel: localize(
+      "task-dashboard-synthesis-sidecar-status-label",
+      "Sidecar status",
+    ),
+    synthesisSidecarStatusRecovery: localize(
+      "task-dashboard-synthesis-sidecar-status-recovery",
+      "Recovery",
+    ),
+    synthesisSidecarStatusReason: localize(
+      "task-dashboard-synthesis-sidecar-status-reason",
+      "Reason",
+    ),
     synthesisSidecarSummaryTraces: localize(
       "task-dashboard-synthesis-sidecar-summary-traces",
       "Traces",
@@ -2431,8 +2467,25 @@ export async function buildDashboardSnapshot(args: {
   ) {
     const { readSynthesisSidecarTraceSnapshot } =
       await import("../synthesis/sidecar/synthesisSidecarTrace");
+    const { getSynthesisWorkbenchSidecarStatus } =
+      await import("../synthesis/sidecar/synthesisSidecarRuntimeSupervisor");
+    const sidecarStatus = getSynthesisWorkbenchSidecarStatus();
     snapshot.synthesisSidecarView = {
       traceSnapshot: readSynthesisSidecarTraceSnapshot(),
+      status: {
+        lifecycle: sidecarStatus.lifecycle,
+        recoveryState: sidecarStatus.recoveryState,
+        ...(sidecarStatus.reasonCode
+          ? { reasonCode: sidecarStatus.reasonCode }
+          : {}),
+        ...(sidecarStatus.healthObservedAt
+          ? { healthObservedAt: sidecarStatus.healthObservedAt }
+          : {}),
+        ...(sidecarStatus.serviceVersion
+          ? { serviceVersion: sidecarStatus.serviceVersion }
+          : {}),
+        ...(sidecarStatus.bundleId ? { bundleId: sidecarStatus.bundleId } : {}),
+      },
     };
     return finalizeDashboardSnapshot(snapshot);
   }

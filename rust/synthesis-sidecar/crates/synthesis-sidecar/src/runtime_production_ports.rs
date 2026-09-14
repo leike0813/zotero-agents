@@ -65,13 +65,16 @@ use synthesis_repository::{
 use crate::runtime_canonical_autosync::{
     CANONICAL_AUTOSYNC_DEBOUNCE, CanonicalAutosyncCoordinator,
 };
-use crate::runtime_diagnostics::{NativeDiagnosticEvent, emit_debug};
+use crate::runtime_diagnostics::{
+    NativeDiagnosticEvent, ObservationContextGuard, TraceContext, child_observation_context,
+    emit_debug,
+};
 use crate::runtime_reverse_host::call_reverse_host;
 use crate::runtime_webdav_runtime::{FileWebDavStateStore, InterruptibleWebDavRetryScheduler};
 use crate::runtime_worker_pool::NativeComputePool;
 use synthesis_application::reference::{
     ReferenceHostArtifactRead, ReferenceHostArtifactsPage, ReferenceHostPort, ReferenceObservation,
-    ReferenceObservationPort,
+    ReferenceObservationContext, ReferenceObservationPort, ReferenceObservationScope,
 };
 
 pub(crate) struct ProductionApplications {
@@ -1856,7 +1859,27 @@ impl ReferenceObservationPort for NativeReferenceObservationPort {
         }
         emit_debug(|| event);
     }
+
+    fn capture_observation_context(&self) -> Option<ReferenceObservationContext> {
+        child_observation_context()
+            .and_then(|context| serde_json::to_value(context).ok())
+            .map(ReferenceObservationContext::from_json)
+    }
+
+    fn observation_scope(
+        &self,
+        context: Option<&ReferenceObservationContext>,
+    ) -> Box<dyn ReferenceObservationScope> {
+        let context = context
+            .and_then(|context| {
+                serde_json::from_value::<TraceContext>(context.as_json().clone()).ok()
+            })
+            .filter(|context| context.is_valid());
+        Box::new(ObservationContextGuard::install(context.as_ref()))
+    }
 }
+
+impl ReferenceObservationScope for ObservationContextGuard {}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

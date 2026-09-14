@@ -37,6 +37,8 @@ export type SynthesisSidecarBusinessAuditDetails = {
     | "internal";
   semanticStatus?: string;
   surface?: SynthesisWorkbenchSurfaceName;
+  reason?: string;
+  sidecarCode?: string;
   schemaRef?: string;
   violations?: Array<{ keyword: string; pointer: string }>;
 };
@@ -200,6 +202,12 @@ export function beginSynthesisSidecarBusinessAudit(args: {
           : null;
       finish("failed", {
         classification: stableCode(error),
+        ...(typeof record?.reason === "string"
+          ? { reason: record.reason }
+          : {}),
+        ...(typeof record?.sidecarCode === "string"
+          ? { sidecarCode: record.sidecarCode }
+          : {}),
         ...(record?.sidecarReason === "protocol_result_invalid" &&
         typeof record.location === "string"
           ? { schemaRef: record.location }

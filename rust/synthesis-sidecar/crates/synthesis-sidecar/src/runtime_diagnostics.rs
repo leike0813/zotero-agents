@@ -75,6 +75,20 @@ pub(crate) fn child_observation_context() -> Option<TraceContext> {
     debug_events_enabled().then(current_child_context)
 }
 
+pub(crate) fn root_observation_context() -> Option<TraceContext> {
+    debug_events_enabled().then(|| TraceContext {
+        schema: "synthesis-sidecar-observation.v2".to_owned(),
+        trace_id: next_hex(32),
+        span_id: next_hex(16),
+        parent_span_id: None,
+        attempt: 0,
+    })
+}
+
+pub(crate) fn has_observation_context() -> bool {
+    OBSERVATION_CONTEXT.with(|current| current.borrow().is_some())
+}
+
 pub(crate) fn with_observation_context<T>(
     context: Option<&TraceContext>,
     operation: impl FnOnce() -> T,
@@ -91,6 +105,23 @@ pub(crate) fn install_observation_context(context: Option<&TraceContext>) {
     OBSERVATION_CONTEXT.with(|current| {
         current.replace(context.cloned());
     });
+}
+
+pub(crate) struct ObservationContextGuard {
+    previous: Option<TraceContext>,
+}
+
+impl ObservationContextGuard {
+    pub(crate) fn install(context: Option<&TraceContext>) -> Self {
+        let previous = OBSERVATION_CONTEXT.with(|current| current.replace(context.cloned()));
+        Self { previous }
+    }
+}
+
+impl Drop for ObservationContextGuard {
+    fn drop(&mut self) {
+        OBSERVATION_CONTEXT.with(|current| current.replace(self.previous.take()));
+    }
 }
 
 fn map_is_empty(value: &BTreeMap<&'static str, Value>) -> bool {
@@ -165,6 +196,14 @@ impl NativeDiagnosticEvent {
 
     pub(crate) fn capability(mut self, value: impl Into<String>) -> Self {
         self.identities.insert("capability", json!(value.into()));
+        self
+    }
+
+    pub(crate) fn context(mut self, context: &TraceContext) -> Self {
+        self.trace_id = context.trace_id.clone();
+        self.span_id = context.span_id.clone();
+        self.parent_span_id = context.parent_span_id.clone();
+        self.attempt = context.attempt;
         self
     }
 
@@ -334,8 +373,24 @@ pub(crate) fn emit(event: NativeDiagnosticEvent) {
         return;
     }
     if let Ok(source) = serde_json::to_string(&event) {
+        #[cfg(test)]
+        {
+            CAPTURED_EVENTS
+                .lock()
+                .expect("captured diagnostic events")
+                .push(source);
+        }
+        #[cfg(not(test))]
         eprintln!("{source}");
     }
+}
+
+#[cfg(test)]
+static CAPTURED_EVENTS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+#[cfg(test)]
+pub(crate) fn take_captured_diagnostic_events() -> Vec<String> {
+    std::mem::take(&mut CAPTURED_EVENTS.lock().expect("captured diagnostic events"))
 }
 
 pub(crate) fn emit_startup(event: NativeDiagnosticEvent) {
@@ -436,6 +491,35 @@ mod tests {
             }))
             .is_err()
         );
+    }
+
+    #[test]
+    fn event_at_given_context_keeps_that_context_identity() {
+        configure_debug_events(true);
+        let root = root_observation_context().expect("root context");
+        let event = NativeDiagnosticEvent::new("reverse-host", "call-started", "started")
+            .context(&root)
+            .capability("library.artifacts.read");
+        let source = serde_json::to_value(&event).expect("diagnostic event");
+        assert_eq!(source["traceId"], root.trace_id);
+        assert_eq!(source["spanId"], root.span_id);
+        assert!(source.get("parentSpanId").is_none());
+        assert_eq!(source["attempt"], 0);
+    }
+
+    #[test]
+    fn observation_context_guard_restores_the_previous_context() {
+        configure_debug_events(true);
+        assert!(!has_observation_context());
+        let root = root_observation_context().expect("root context");
+        {
+            let _guard = ObservationContextGuard::install(Some(&root));
+            assert!(has_observation_context());
+            let child = child_observation_context().expect("child context");
+            assert_eq!(child.trace_id, root.trace_id);
+            assert_eq!(child.parent_span_id.as_deref(), Some(root.span_id.as_str()));
+        }
+        assert!(!has_observation_context());
     }
 
     #[test]

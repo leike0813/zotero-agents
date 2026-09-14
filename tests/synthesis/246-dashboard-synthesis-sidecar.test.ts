@@ -9,12 +9,15 @@ import {
   restoreSidebarDomGlobals,
 } from "../helpers/sidebarDomEnv";
 import {
+  filterSynthesisSidecarTraces,
+  narrowSynthesisSidecarStatus,
   narrowSynthesisSidecarTraceSnapshot,
   rankSynthesisSidecarTraces,
   reconcileSynthesisSidecarTraceRows,
   resolveSynthesisSidecarVisibleTraces,
   SynthesisSidecarRegion,
   synthesisSidecarEventDepths,
+  synthesisSidecarOperationOptions,
   synthesisSidecarTraceDetailSignature,
   synthesisSidecarTraceOutcome,
   synthesisSidecarTraceRootOperation,
@@ -88,6 +91,35 @@ function makeSelection(
     filterLabel: "Trace / operation / capability",
     filterPlaceholder: "Filter traces",
     filterValue: "",
+    filterOutcomeLabel: "Outcome",
+    outcomeOptions: [
+      { value: "started", label: "Started" },
+      { value: "failed", label: "Failed" },
+      { value: "succeeded", label: "Succeeded" },
+    ],
+    activeOutcomes: ["started", "failed", "succeeded"],
+    filterOperationLabel: "Operation",
+    operationOptions: [
+      {
+        value: "op-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        label: "op-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      },
+      {
+        value: "op-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        label: "op-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      },
+    ],
+    selectedOperations: [
+      "op-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "op-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    ],
+    filterAllLabel: "All",
+    resultCountText: "Showing 2 of 2",
+    status: null,
+    statusLabel: "Sidecar status",
+    statusBadgeClass: "",
+    statusRecoveryLabel: "Recovery",
+    statusReasonLabel: "Reason",
     columns: ["Outcome", "Trace", "Operation", "Started", "Spans", "Dropped"],
     rows: [
       makeRow("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", {
@@ -648,5 +680,277 @@ describe("dashboard synthesis sidecar region", function () {
     )!;
     rowT2.click();
     assert.deepEqual(selected, ["t1", "t2"]);
+  });
+
+  it("renders the toolbar with outcome checkboxes, the operation multi-select and the result count", function () {
+    const { container } = renderRegion(makeSelection());
+    const toolbar = container.querySelector(
+      ".toolbar.logs-toolbar.synthesis-sidecar-toolbar",
+    );
+    assert.ok(toolbar, "the filter input lives in a fixed toolbar strip");
+    assert.ok(toolbar!.querySelector(".synthesis-sidecar-filter input"));
+
+    const outcomeBoxes = toolbar!.querySelectorAll<HTMLInputElement>(
+      ".synthesis-sidecar-outcome-filter input[type='checkbox']",
+    );
+    assert.equal(outcomeBoxes.length, 3);
+    outcomeBoxes.forEach((box) => assert.isTrue(box.checked));
+    assert.equal(
+      toolbar!.querySelector(
+        ".synthesis-sidecar-outcome-filter .logs-filter-label",
+      )?.textContent,
+      "Outcome",
+    );
+
+    const multiSelect = toolbar!.querySelector(".custom-multi-select");
+    assert.ok(multiSelect, "operation multi-select renders");
+    assert.equal(
+      multiSelect!.querySelector(".custom-select-trigger")?.textContent,
+      "All",
+      "every option selected renders the all placeholder",
+    );
+
+    assert.equal(
+      toolbar!.querySelector(".synthesis-sidecar-result-count")?.textContent,
+      "Showing 2 of 2",
+    );
+  });
+
+  it("emits outcome and operation filter intents through onAction", async function () {
+    const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+    const setChecked = (element: Element, checked: boolean) => {
+      (element as HTMLInputElement).checked = checked;
+      element.dispatchEvent(new window.Event("change", { bubbles: true }));
+    };
+    const { container, actions } = renderRegion(makeSelection());
+
+    const outcomeBoxes = container.querySelectorAll(
+      ".synthesis-sidecar-outcome-filter input[type='checkbox']",
+    );
+    setChecked(outcomeBoxes[2], false); // uncheck Succeeded
+    assert.deepEqual(actions, [
+      {
+        action: "synthesis-sidecar-set-outcome-filter",
+        payload: { outcomes: ["started", "failed"] },
+      },
+    ]);
+
+    // Multi-select apply-on-close: edits while open stay local; closing
+    // applies the draft. A full selection collapses to the empty set (all).
+    const multiSelect = container.querySelector(".custom-multi-select")!;
+    const trigger = multiSelect.querySelector(
+      ".custom-select-trigger",
+    ) as HTMLElement;
+    trigger.click();
+    await flush();
+    const optionBoxes = multiSelect.querySelectorAll(
+      ".custom-multi-select-option input[type='checkbox']",
+    );
+    setChecked(optionBoxes[1], false);
+    await flush();
+    assert.equal(actions.length, 1, "no patch while the menu is open");
+    trigger.click();
+    await flush();
+    assert.deepEqual(actions[1], {
+      action: "synthesis-sidecar-set-operation-filter",
+      payload: { operations: ["op-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"] },
+    });
+  });
+
+  it("reverts the copy button label after the feedback window", async function () {
+    const { container } = renderRegion(makeSelection());
+    const button = container.querySelector<HTMLButtonElement>(
+      ".synthesis-sidecar-detail-header .btn",
+    )!;
+    button.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(button.textContent, "Copied");
+    await new Promise((resolve) => setTimeout(resolve, 980));
+    assert.equal(button.textContent, "Copy trace");
+  });
+
+  it("reverts the copy failure label after the feedback window", async function () {
+    const { container } = renderRegion(makeSelection(), {
+      onCopyText: () => Promise.reject(new Error("denied")),
+    });
+    const button = container.querySelector<HTMLButtonElement>(
+      ".synthesis-sidecar-detail-header .btn",
+    )!;
+    button.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(button.textContent, "Copy failed");
+    await new Promise((resolve) => setTimeout(resolve, 980));
+    assert.equal(button.textContent, "Copy trace");
+  });
+
+  it("renders a prominent status banner while the lifecycle is not ready", function () {
+    const { container } = renderRegion(
+      makeSelection({
+        status: {
+          lifecycle: "unavailable",
+          recoveryState: "manual-recovery-required",
+          reasonCode: "bundle-incompatible",
+          serviceVersion: "1.2.3",
+          bundleId: "bundle-9",
+          healthObservedAt: "2026-09-05T00:00:00.000Z",
+        },
+        statusBadgeClass: "status unavailable is-error",
+      }),
+    );
+    const banner = container.querySelector(".synthesis-sidecar-status-banner");
+    assert.ok(banner, "banner renders");
+    assert.equal(
+      banner!.querySelector(".synthesis-sidecar-status-banner-label")
+        ?.textContent,
+      "Sidecar status",
+    );
+    assert.equal(banner!.querySelector(".status")?.textContent, "unavailable");
+    const items = Array.from(
+      banner!.querySelectorAll(".synthesis-sidecar-status-banner-item"),
+      (item) => item.textContent,
+    );
+    assert.deepEqual(items, [
+      "Recovery: manual-recovery-required",
+      "Reason: bundle-incompatible",
+    ]);
+  });
+
+  it("renders no status banner when the supervisor is ready or status is absent", function () {
+    const ready = renderRegion(
+      makeSelection({
+        status: {
+          lifecycle: "ready",
+          recoveryState: "none",
+          reasonCode: "",
+          serviceVersion: "1.2.3",
+          bundleId: "bundle-9",
+          healthObservedAt: "2026-09-05T00:00:00.000Z",
+        },
+      }),
+    );
+    assert.isNull(
+      ready.container.querySelector(".synthesis-sidecar-status-banner"),
+    );
+
+    const absent = renderRegion(makeSelection({ status: null }));
+    assert.isNull(
+      absent.container.querySelector(".synthesis-sidecar-status-banner"),
+    );
+  });
+
+  it("renders the status banner above the empty state when no traces are available", function () {
+    const { container } = renderRegion(
+      makeSelection({
+        kind: "empty",
+        rows: [],
+        detail: null,
+        status: {
+          lifecycle: "starting",
+          recoveryState: "scheduled",
+          reasonCode: "",
+          serviceVersion: "",
+          bundleId: "",
+          healthObservedAt: "",
+        },
+        statusBadgeClass: "status starting is-accent",
+      }),
+    );
+    const banner = container.querySelector(".synthesis-sidecar-status-banner");
+    assert.ok(banner, "banner renders in the empty state");
+    assert.equal(banner!.querySelector(".status")?.textContent, "starting");
+    const items = banner!.querySelectorAll(
+      ".synthesis-sidecar-status-banner-item",
+    );
+    assert.equal(items.length, 1, "reason is omitted when absent");
+    assert.equal(items[0].textContent, "Recovery: scheduled");
+  });
+
+  it("filters ranked traces by outcome set and operation set", function () {
+    const active = makeTrace("t-live", { active: true, updatedAtMs: 10 });
+    const failed = makeTrace("t-bad", {
+      updatedAtMs: 50,
+      events: [{ ...makeTrace("t-bad").events[0], outcome: "failed" }],
+    });
+    const succeeded = makeTrace("t-ok", { updatedAtMs: 300 });
+    const traces = [active, failed, succeeded];
+
+    assert.deepEqual(
+      filterSynthesisSidecarTraces(traces, {
+        outcomes: ["failed", "succeeded"],
+        operations: [],
+      }).map((trace) => trace.traceId),
+      ["t-bad", "t-ok"],
+      "the outcome set excludes unchecked outcomes",
+    );
+    assert.deepEqual(
+      filterSynthesisSidecarTraces(traces, {
+        outcomes: ["started", "failed", "succeeded"],
+        operations: ["op-t-ok"],
+      }).map((trace) => trace.traceId),
+      ["t-ok"],
+      "the operation set keeps only matching root operations",
+    );
+    assert.deepEqual(
+      filterSynthesisSidecarTraces(traces, {
+        outcomes: [],
+        operations: [],
+      }),
+      [],
+      "an empty outcome set hides every trace",
+    );
+    assert.deepEqual(
+      filterSynthesisSidecarTraces(traces, {
+        outcomes: ["started", "failed", "succeeded"],
+        operations: [],
+      }).map((trace) => trace.traceId),
+      ["t-live", "t-bad", "t-ok"],
+      "an empty operation set keeps all operations",
+    );
+  });
+
+  it("derives operation options from the root operations in first-seen order", function () {
+    const options = synthesisSidecarOperationOptions([
+      makeTrace("t1"),
+      makeTrace("t2"),
+      makeTrace("t1-copy", {
+        events: [
+          {
+            ...makeTrace("t1-copy").events[0],
+            operation: "op-t1",
+          },
+        ],
+      }),
+    ]);
+    assert.deepEqual(options, ["op-t1", "op-t2"]);
+  });
+
+  it("narrows the optional supervisor status defensively", function () {
+    assert.isNull(narrowSynthesisSidecarStatus(null));
+    assert.isNull(narrowSynthesisSidecarStatus({}));
+    assert.isNull(narrowSynthesisSidecarStatus({ status: "ready" }));
+
+    const narrowed = narrowSynthesisSidecarStatus({
+      status: {
+        lifecycle: "incompatible",
+        recoveryState: "manual-recovery-required",
+        reasonCode: "schema-mismatch",
+        serviceVersion: "2.0.0",
+        bundleId: "bundle-3",
+        healthObservedAt: "2026-09-05T00:00:00.000Z",
+      },
+    });
+    assert.deepEqual(narrowed, {
+      lifecycle: "incompatible",
+      recoveryState: "manual-recovery-required",
+      reasonCode: "schema-mismatch",
+      serviceVersion: "2.0.0",
+      bundleId: "bundle-3",
+      healthObservedAt: "2026-09-05T00:00:00.000Z",
+    });
+
+    const partial = narrowSynthesisSidecarStatus({ status: {} });
+    assert.equal(partial!.lifecycle, "unknown");
+    assert.equal(partial!.recoveryState, "none");
+    assert.equal(partial!.reasonCode, "");
   });
 });

@@ -2688,10 +2688,20 @@ function reportWorkbenchError(error: unknown, win?: _ZoteroTypes.MainWindow) {
   if (!hostWindow) {
     return;
   }
-  alertWindow(
-    hostWindow,
-    error instanceof Error ? error.message : String(error || "unknown error"),
+  const message =
+    error instanceof Error ? error.message : String(error || "unknown error");
+  const details =
+    error && typeof error === "object"
+      ? (error as { details?: unknown }).details
+      : undefined;
+  const record =
+    details && typeof details === "object" && !Array.isArray(details)
+      ? (details as Record<string, unknown>)
+      : undefined;
+  const code = [record?.reason, record?.sidecarCode].find(
+    (value): value is string => typeof value === "string" && value.length > 0,
   );
+  alertWindow(hostWindow, code ? `${message} (reason: ${code})` : message);
 }
 
 function confirmWorkbenchAction(

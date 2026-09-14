@@ -1,7 +1,7 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 import { memo } from "preact/compat";
-import { useEffect, useLayoutEffect, useRef } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import {
   equalBySignature,
@@ -108,6 +108,7 @@ export type DashboardRuntimeLogsSelection = {
   copySuccessTemplate: string;
   copySuccessBundleText: string;
   copySuccessIssueText: string;
+  copiedLabel: string;
   selectedEntryIds: string[];
   columns: string[];
   emptyText: string;
@@ -185,7 +186,51 @@ function logLevelBadgeClass(level: string): string {
 }
 
 function formatCopySuccess(template: string, count: number): string {
-  return template.replace("{ $count }", String(count));
+  // The host localizes FTL messages without args, so Fluent renders the
+  // missing variable as "{$count}"; tolerate any inner whitespace.
+  return template.replace(/\{\s*\$count\s*\}/, String(count));
+}
+
+// Optimistic copy-button feedback (ProductsRegion pattern): the host action
+// channel has no ack, so the label swaps to the copied state on click and
+// reverts after a short window. The timer is cleaned up on unmount.
+const COPY_FEEDBACK_REVERT_MS = 900;
+
+function LogsCopyButton(props: {
+  label: string;
+  copiedLabel: string;
+  disabled: boolean;
+  onCopy: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (timerRef.current !== null) {
+        clearTimeout(timerRef.current);
+      }
+    },
+    [],
+  );
+  return (
+    <button
+      class="btn"
+      disabled={props.disabled}
+      onClick={() => {
+        props.onCopy();
+        setCopied(true);
+        if (timerRef.current !== null) {
+          clearTimeout(timerRef.current);
+        }
+        timerRef.current = setTimeout(() => {
+          timerRef.current = null;
+          setCopied(false);
+        }, COPY_FEEDBACK_REVERT_MS);
+      }}
+    >
+      {copied ? props.copiedLabel : props.label}
+    </button>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -203,6 +248,7 @@ type RuntimeLogsIslandView = {
   detailCloseLabel: string;
   exceptionTitle: string;
   copySuccessTemplate: string;
+  copiedLabel: string;
 };
 
 type RuntimeLogsIslandHooks = {
@@ -229,6 +275,7 @@ class RuntimeLogsTableIsland {
   private readingId: string | null = null;
   private detailScrollTop = 0;
   private detailRestoreTimer: ReturnType<typeof setTimeout> | null = null;
+  private copyFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
 
   constructor(container: HTMLElement, hooks: RuntimeLogsIslandHooks) {
@@ -265,10 +312,18 @@ class RuntimeLogsTableIsland {
       clearTimeout(this.detailRestoreTimer);
       this.detailRestoreTimer = null;
     }
+    this.clearCopyFeedbackTimer();
     this.view = null;
     this.rowNodes.clear();
     this.emptyRow = null;
     this.detailPane.replaceChildren();
+  }
+
+  private clearCopyFeedbackTimer(): void {
+    if (this.copyFeedbackTimer !== null) {
+      clearTimeout(this.copyFeedbackTimer);
+      this.copyFeedbackTimer = null;
+    }
   }
 
   private syncHead(view: RuntimeLogsIslandView): void {
@@ -461,6 +516,7 @@ class RuntimeLogsTableIsland {
       clearTimeout(this.detailRestoreTimer);
       this.detailRestoreTimer = null;
     }
+    this.clearCopyFeedbackTimer();
     this.readingId = null;
     this.renderedDetailRowId = null;
     this.detailScrollTop = 0;
@@ -493,6 +549,7 @@ class RuntimeLogsTableIsland {
           view.detailCloseLabel,
           view.exceptionTitle,
           view.copySuccessTemplate,
+          view.copiedLabel,
         ])
       : "empty\n" + view.selectToViewText;
     if (!force && signature === this.detailSignature) return;
@@ -506,6 +563,7 @@ class RuntimeLogsTableIsland {
     }
     this.detailSignature = signature;
     this.renderedDetailRowId = row ? row.id : null;
+    this.clearCopyFeedbackTimer();
     this.detailPane.replaceChildren();
     if (!row) {
       this.detailPane.classList.remove("visible");
@@ -533,6 +591,14 @@ class RuntimeLogsTableIsland {
         format: "pretty-json",
       });
       this.hooks.onToast(formatCopySuccess(view.copySuccessTemplate, 1));
+      // Optimistic feedback: no ack on the host action channel, so the label
+      // swaps on click and reverts after a short window.
+      copyButton.textContent = view.copiedLabel;
+      this.clearCopyFeedbackTimer();
+      this.copyFeedbackTimer = setTimeout(() => {
+        this.copyFeedbackTimer = null;
+        copyButton.textContent = view.copyDetailLabel;
+      }, COPY_FEEDBACK_REVERT_MS);
     });
     actions.appendChild(copyButton);
     const closeButton = document.createElement("button");
@@ -621,6 +687,7 @@ function LogsTableIsland(props: {
       detailCloseLabel: selection.detailCloseLabel,
       exceptionTitle: selection.exceptionTitle,
       copySuccessTemplate: selection.copySuccessTemplate,
+      copiedLabel: selection.copiedLabel,
     });
   });
   useEffect(
@@ -832,40 +899,36 @@ export const RuntimeLogsRegion = memo(
           </div>
           <div class="logs-action-wrap">
             <div class="logs-copy-group">
-              <button
-                class="btn"
+              <LogsCopyButton
+                label={selection.copySelectedLabel}
+                copiedLabel={selection.copiedLabel}
                 disabled={selectedCount === 0}
-                onClick={copySelected}
-              >
-                {selection.copySelectedLabel}
-              </button>
-              <button
-                class="btn"
+                onCopy={copySelected}
+              />
+              <LogsCopyButton
+                label={selection.copyVisibleNdjsonLabel}
+                copiedLabel={selection.copiedLabel}
                 disabled={!hasLogs}
-                onClick={copyVisibleNdjson}
-              >
-                {selection.copyVisibleNdjsonLabel}
-              </button>
-              <button
-                class="btn"
+                onCopy={copyVisibleNdjson}
+              />
+              <LogsCopyButton
+                label={selection.copyDiagnosticBundleLabel}
+                copiedLabel={selection.copiedLabel}
                 disabled={!hasLogs}
-                onClick={() => {
+                onCopy={() => {
                   onAction("runtime-logs-copy-diagnostic-bundle", {});
                   onToast(selection.copySuccessBundleText);
                 }}
-              >
-                {selection.copyDiagnosticBundleLabel}
-              </button>
-              <button
-                class="btn"
+              />
+              <LogsCopyButton
+                label={selection.copyIssueSummaryLabel}
+                copiedLabel={selection.copiedLabel}
                 disabled={!hasLogs}
-                onClick={() => {
+                onCopy={() => {
                   onAction("runtime-logs-copy-issue-summary", {});
                   onToast(selection.copySuccessIssueText);
                 }}
-              >
-                {selection.copyIssueSummaryLabel}
-              </button>
+              />
             </div>
             <button class="btn clear" onClick={clearLogs}>
               {selection.clearLabel}

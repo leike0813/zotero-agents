@@ -204,6 +204,7 @@ export function createTaskDashboardRuntime(args: {
   let unsubscribeAcpSkillRuns: (() => void) | undefined;
   let unsubscribeWorkflowQueue: (() => void) | undefined;
   let unsubscribeSynthesisDiagnostics: (() => void) | undefined;
+  let unsubscribeSynthesisSidecarStatus: (() => void) | undefined;
   let refreshTimer: number | undefined;
   let deferredDashboardRefreshTimer: number | undefined;
   let dashboardRefreshQueued = false;
@@ -801,6 +802,10 @@ export function createTaskDashboardRuntime(args: {
       unsubscribeSynthesisDiagnostics();
       unsubscribeSynthesisDiagnostics = undefined;
     }
+    if (unsubscribeSynthesisSidecarStatus) {
+      unsubscribeSynthesisSidecarStatus();
+      unsubscribeSynthesisSidecarStatus = undefined;
+    }
     frameOwner?.cleanup();
     for (const workflowId of Array.from(
       state.workflowSettingsSaveTimerById.keys(),
@@ -881,6 +886,16 @@ export function createTaskDashboardRuntime(args: {
         ({ subscribeSynthesisSidecarTracePatches }) => {
           unsubscribeSynthesisDiagnostics =
             subscribeSynthesisSidecarTracePatches(() => {
+              if (state.selectedTabKey === "synthesis-sidecar") {
+                refresh("diagnostic-update");
+              }
+            });
+        },
+      );
+      void import("../synthesis/sidecar/synthesisSidecarRuntimeSupervisor").then(
+        ({ subscribeSynthesisWorkbenchSidecarStatus }) => {
+          unsubscribeSynthesisSidecarStatus =
+            subscribeSynthesisWorkbenchSidecarStatus(() => {
               if (state.selectedTabKey === "synthesis-sidecar") {
                 refresh("diagnostic-update");
               }

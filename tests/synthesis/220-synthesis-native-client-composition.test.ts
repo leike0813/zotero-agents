@@ -335,6 +335,45 @@ describe("Synthesis native client composition", function () {
     }
   });
 
+  it("preserves failure reason and sidecar code from client error details", function () {
+    beginSynthesisSidecarBusinessAudit({
+      operation: "client.listTopics",
+    }).failed(
+      new SynthesisClientError(
+        "unavailable",
+        "The native Synthesis owner is unavailable",
+        { reason: "service_not_ready" },
+      ),
+    );
+    beginSynthesisSidecarBusinessAudit({
+      operation: "client.listTopics",
+    }).failed(
+      new SynthesisClientError("unavailable", "The native Synthesis request failed", {
+        sidecarCode: "worker_unavailable",
+        sidecarReason: "repository_unavailable",
+      }),
+    );
+
+    const entries = listRuntimeLogs({
+      component: "synthesis-sidecar-business",
+      order: "asc",
+    });
+    assert.lengthOf(entries, 2);
+    assert.deepInclude(entries[0]?.details as Record<string, unknown>, {
+      classification: "unavailable",
+      reason: "service_not_ready",
+    });
+    assert.notProperty(
+      entries[0]?.details as Record<string, unknown>,
+      "sidecarCode",
+    );
+    assert.deepInclude(entries[1]?.details as Record<string, unknown>, {
+      classification: "unavailable",
+      sidecarCode: "worker_unavailable",
+    });
+    assert.notProperty(entries[1]?.details as Record<string, unknown>, "reason");
+  });
+
   it("classifies public maintenance receipts by lifecycle state for every receipt operation", function () {
     const receiptCapabilities =
       SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES.filter(

@@ -167,7 +167,12 @@ function makeSnapshot(
 function idleUi(): DashboardUiState {
   return {
     selectedTabKey: "",
-    synthesisSidecar: { traceFilter: "", selectedTraceId: "" },
+    synthesisSidecar: {
+      traceFilter: "",
+      selectedTraceId: "",
+      outcomeFilter: ["started", "failed", "succeeded"],
+      operationFilter: [],
+    },
     backendTaskScrollTopByTabKey: Object.create(null) as Record<string, number>,
     homeWorkflowDocScroll: { workflowId: "", scrollTop: 0 },
   };
@@ -460,6 +465,22 @@ describe("dashboard A2c integration (src/dashboard)", function () {
       "trace-1",
     );
 
+    controller.dispatch("synthesis-sidecar-set-outcome-filter", {
+      outcomes: ["failed"],
+    });
+    assert.equal(sentActions.length, 0, "outcome filter stays local");
+    assert.deepEqual(controller.state.ui.synthesisSidecar.outcomeFilter, [
+      "failed",
+    ]);
+
+    controller.dispatch("synthesis-sidecar-set-operation-filter", {
+      operations: ["op-trace-1"],
+    });
+    assert.equal(sentActions.length, 0, "operation filter stays local");
+    assert.deepEqual(controller.state.ui.synthesisSidecar.operationFilter, [
+      "op-trace-1",
+    ]);
+
     controller.dispatch("open-running-task", { taskId: "task-1" });
     assert.deepEqual(sentActions, [
       { action: "open-running-task", payload: { taskId: "task-1" } },
@@ -486,6 +507,159 @@ describe("dashboard A2c integration (src/dashboard)", function () {
       '[data-region-mount="synthesis-sidecar"] [data-trace-id="trace-1"]',
     );
     assert.ok(detail, "detail pane renders the effective trace");
+  });
+
+  it("projects sidecar filters, result count and supervisor status", function () {
+    const makeSidecarSnapshot = (
+      overrides: Partial<DashboardPageSnapshot> = {},
+    ) =>
+      makeSnapshot({
+        selectedTabKey: "synthesis-sidecar",
+        synthesisSidecarView: {
+          traceSnapshot: {
+            eventCount: 2,
+            traces: [
+              {
+                traceId: "trace-ok",
+                active: false,
+                startedAtMs: 1000,
+                updatedAtMs: 2000,
+                droppedCount: 0,
+                events: [
+                  {
+                    spanId: "s-ok",
+                    parentSpanId: "",
+                    outcome: "succeeded",
+                    identities: { operation: "op-alpha", capability: "cap" },
+                  },
+                ],
+              },
+              {
+                traceId: "trace-bad",
+                active: false,
+                startedAtMs: 1000,
+                updatedAtMs: 3000,
+                droppedCount: 0,
+                events: [
+                  {
+                    spanId: "s-bad",
+                    parentSpanId: "",
+                    outcome: "failed",
+                    identities: { operation: "op-beta", capability: "cap" },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+        ...overrides,
+      });
+    const sidecarUi = (
+      patch: Partial<DashboardUiState["synthesisSidecar"]>,
+    ) => {
+      const ui = idleUi();
+      ui.selectedTabKey = "synthesis-sidecar";
+      Object.assign(ui.synthesisSidecar, patch);
+      return ui;
+    };
+    const sidecarOf = (
+      snapshot: DashboardPageSnapshot,
+      ui: DashboardUiState,
+    ) => {
+      const selection = projectDashboardPanel(snapshot, ui).views
+        .synthesisSidecar;
+      assert.ok(selection, "sidecar selection projects");
+      return selection!;
+    };
+
+    // Default: both traces visible, all operations selected, count template
+    // interpolates the no-args Fluent rendering ("{$visible}"/"{$total}").
+    const base = sidecarOf(
+      makeSidecarSnapshot({
+        labels: {
+          ...makeSnapshot().labels,
+          synthesisSidecarResultCount: "Showing {$visible} of {$total}",
+        },
+      }),
+      sidecarUi({}),
+    );
+    assert.equal(base.kind, "traces");
+    assert.deepEqual(
+      base.rows.map((row) => row.traceId),
+      ["trace-bad", "trace-ok"],
+      "failed ranks above succeeded",
+    );
+    assert.equal(base.resultCountText, "Showing 2 of 2");
+    assert.deepEqual(
+      base.operationOptions.map((option) => option.value),
+      ["op-alpha", "op-beta"],
+    );
+    assert.deepEqual(base.selectedOperations, ["op-alpha", "op-beta"]);
+    assert.deepEqual(base.activeOutcomes, ["started", "failed", "succeeded"]);
+
+    // Outcome filter: only failed traces remain; ranking is untouched.
+    const failedOnly = sidecarOf(
+      makeSidecarSnapshot(),
+      sidecarUi({ outcomeFilter: ["failed"] }),
+    );
+    assert.deepEqual(
+      failedOnly.rows.map((row) => row.traceId),
+      ["trace-bad"],
+    );
+    assert.equal(failedOnly.resultCountText, "Showing 1 of 2");
+
+    // Operation filter: only the matching root operation remains.
+    const alphaOnly = sidecarOf(
+      makeSidecarSnapshot(),
+      sidecarUi({ operationFilter: ["op-alpha"] }),
+    );
+    assert.deepEqual(
+      alphaOnly.rows.map((row) => row.traceId),
+      ["trace-ok"],
+    );
+    assert.deepEqual(alphaOnly.selectedOperations, ["op-alpha"]);
+
+    // Ready supervisor: a plain status card in the summary, no banner state.
+    const ready = sidecarOf(
+      makeSidecarSnapshot({
+        synthesisSidecarView: {
+          ...makeSidecarSnapshot().synthesisSidecarView!,
+          status: {
+            lifecycle: "ready",
+            recoveryState: "none",
+            serviceVersion: "1.2.3",
+          },
+        } as DashboardPageSnapshot["synthesisSidecarView"],
+      }),
+      sidecarUi({}),
+    );
+    assert.equal(ready.status?.lifecycle, "ready");
+    assert.equal(ready.summaryCards[0].label, "Sidecar status");
+    assert.equal(ready.summaryCards[0].value, "ready · 1.2.3");
+
+    // Non-ready supervisor: the selection carries the banner fields.
+    const unavailable = sidecarOf(
+      makeSidecarSnapshot({
+        synthesisSidecarView: {
+          ...makeSidecarSnapshot().synthesisSidecarView!,
+          status: {
+            lifecycle: "unavailable",
+            recoveryState: "manual-recovery-required",
+            reasonCode: "bundle-incompatible",
+          },
+        } as DashboardPageSnapshot["synthesisSidecarView"],
+      }),
+      sidecarUi({}),
+    );
+    assert.equal(unavailable.status?.lifecycle, "unavailable");
+    assert.equal(unavailable.status?.recoveryState, "manual-recovery-required");
+    assert.equal(unavailable.status?.reasonCode, "bundle-incompatible");
+    assert.ok(unavailable.statusBadgeClass);
+    assert.equal(
+      unavailable.summaryCards[0].label,
+      "Traces",
+      "no status card while the lifecycle is not ready",
+    );
   });
 
   it("disposes the bootstrap listener and ignores host snapshots after disposal", function () {

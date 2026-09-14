@@ -217,8 +217,40 @@ pub struct ReferenceObservation {
     pub fields: BTreeMap<String, Value>,
 }
 
+/// Opaque diagnostic observation context captured on one thread so host
+/// calls running on spawned threads can attach to the same trace.
+#[derive(Clone, Debug)]
+pub struct ReferenceObservationContext(Value);
+
+impl ReferenceObservationContext {
+    pub fn from_json(value: Value) -> Self {
+        Self(value)
+    }
+
+    pub fn as_json(&self) -> &Value {
+        &self.0
+    }
+}
+
+/// Restores the previous observation context when dropped.
+pub trait ReferenceObservationScope {}
+
+struct NoopObservationScope;
+
+impl ReferenceObservationScope for NoopObservationScope {}
+
 pub trait ReferenceObservationPort: Send + Sync {
     fn emit(&self, observation: ReferenceObservation);
+    fn capture_observation_context(&self) -> Option<ReferenceObservationContext> {
+        None
+    }
+    fn observation_scope(
+        &self,
+        context: Option<&ReferenceObservationContext>,
+    ) -> Box<dyn ReferenceObservationScope> {
+        let _ = context;
+        Box::new(NoopObservationScope)
+    }
 }
 
 #[derive(Default)]

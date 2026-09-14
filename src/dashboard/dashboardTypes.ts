@@ -18,6 +18,7 @@ import type { DashboardProductsSelection } from "./components/ProductsRegion";
 import type { DashboardWorkflowOptionsSelection } from "./components/WorkflowOptionsRegion";
 import type { DashboardRuntimeLogsSelection } from "./components/RuntimeLogsRegion";
 import type {
+  DashboardSynthesisSidecarActionSender,
   DashboardSynthesisSidecarSelection,
   DashboardSynthesisSidecarUiState,
 } from "./components/SynthesisSidecarRegion";
@@ -32,9 +33,13 @@ export type DashboardPageSnapshot = DashboardSnapshot;
 export type DashboardActionSender =
   DashboardActionHandler<DashboardHostActionName>;
 
-/** Controller action channel, including page-local synthesis trace actions. */
+/** Controller action channel: the wire actions (host-bound and wire-local)
+ *  plus the region-declared page-local actions (synthesis sidecar filters),
+ *  which the controller handles without a host round-trip. Declared
+ *  page-side so the wire contract's action union stays untouched. */
 export type DashboardActionDispatcher =
-  DashboardActionHandler<DashboardActionName>;
+  DashboardActionHandler<DashboardActionName> &
+    DashboardSynthesisSidecarActionSender;
 
 // Local UI state owned by the dashboard controller (plain object, no Preact
 // store). These fields mirror the legacy page's imperative `state` slots

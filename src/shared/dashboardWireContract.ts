@@ -864,6 +864,20 @@ export type DashboardSynthesisSidecarTraceSnapshot = {
   eventCount: number;
 };
 
+export type DashboardSynthesisSidecarStatus = {
+  lifecycle: string;
+  recoveryState: string;
+  reasonCode?: string;
+  healthObservedAt?: string;
+  serviceVersion?: string;
+  bundleId?: string;
+};
+
+export type DashboardSynthesisSidecarView = {
+  traceSnapshot: DashboardSynthesisSidecarTraceSnapshot;
+  status?: DashboardSynthesisSidecarStatus;
+};
+
 export type DashboardSkillRunnerConnectionLane =
   | "submit"
   | "foreground-stream"
@@ -1245,9 +1259,7 @@ export type DashboardSnapshot = {
   workflowOptionsView?: DashboardWorkflowOptionsView;
   backendView?: DashboardBackendView;
   runtimeLogsView?: DashboardRuntimeLogsView;
-  synthesisSidecarView?: {
-    traceSnapshot: DashboardSynthesisSidecarTraceSnapshot;
-  };
+  synthesisSidecarView?: DashboardSynthesisSidecarView;
   skillRunnerConnectionAuditView?: {
     generatedAt: string;
     governor: DashboardSkillRunnerConnectionGovernorSnapshot;

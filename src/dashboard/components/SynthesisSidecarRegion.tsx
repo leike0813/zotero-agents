@@ -4,10 +4,8 @@ import { memo } from "preact/compat";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import { equalBySignature } from "../../shared/regionEquality";
-import type {
-  DashboardActionHandler,
-  DashboardLocalActionName,
-} from "../../shared/dashboardWireContract";
+import { CustomMultiSelect } from "../../shared/customSelect";
+import type { DashboardActionPayloadMap } from "../../shared/dashboardWireContract";
 
 // Synthesis Sidecar trace surface of the dashboard page: summary cards, the
 // trace search filter, the imperative trace-table island, and the causal
@@ -61,11 +59,29 @@ export type DashboardSynthesisSidecarTraceSnapshotView = {
   eventCount: number;
 };
 
+// Defensive page-side view of DashboardSynthesisSidecarView.status: the wire
+// slot is optional and its fields are best-effort strings. null when the
+// host does not publish a status block at all.
+export type DashboardSynthesisSidecarStatusView = {
+  lifecycle: string;
+  recoveryState: string;
+  reasonCode: string;
+  serviceVersion: string;
+  bundleId: string;
+  healthObservedAt: string;
+};
+
 // Controller-owned UI state for this surface (the legacy page-local
-// state.synthesisTraceFilter / state.synthesisTraceId slots).
+// state.synthesisTraceFilter / state.synthesisTraceId slots, plus the
+// outcome checkbox set and the operation multi-select).
 export type DashboardSynthesisSidecarUiState = {
   traceFilter: string;
   selectedTraceId: string;
+  // Active outcome set (subset of "started" | "failed" | "succeeded"); an
+  // empty set hides every trace, mirroring the runtime-logs level checkboxes.
+  outcomeFilter: string[];
+  // Operation multi-select; an empty set means "all operations".
+  operationFilter: string[];
 };
 
 // ---------------------------------------------------------------------------
@@ -123,6 +139,19 @@ export type DashboardSynthesisSidecarSelection = {
   filterLabel: string;
   filterPlaceholder: string;
   filterValue: string;
+  filterOutcomeLabel: string;
+  outcomeOptions: DashboardSynthesisSidecarFilterOption[];
+  activeOutcomes: string[];
+  filterOperationLabel: string;
+  operationOptions: DashboardSynthesisSidecarFilterOption[];
+  selectedOperations: string[];
+  filterAllLabel: string;
+  resultCountText: string;
+  status: DashboardSynthesisSidecarStatusView | null;
+  statusLabel: string;
+  statusBadgeClass: string;
+  statusRecoveryLabel: string;
+  statusReasonLabel: string;
   columns: string[];
   rows: DashboardSynthesisSidecarTraceRow[];
   detailTitle: string;
@@ -134,10 +163,40 @@ export type DashboardSynthesisSidecarSelection = {
   detail: DashboardSynthesisSidecarDetailView | null;
 };
 
-export type DashboardSynthesisSidecarAction = Extract<
-  DashboardLocalActionName,
+export type DashboardSynthesisSidecarFilterOption = {
+  value: string;
+  label: string;
+};
+
+// Page-local filter actions: they ride the controller's dispatch channel
+// exactly like the wire-local select/filter actions but never reach the
+// host, so they are declared page-side instead of in the wire contract.
+export type DashboardSynthesisSidecarPageActionPayloadMap = {
+  "synthesis-sidecar-set-outcome-filter": { outcomes: string[] } & Record<
+    string,
+    unknown
+  >;
+  "synthesis-sidecar-set-operation-filter": { operations: string[] } & Record<
+    string,
+    unknown
+  >;
+};
+
+export type DashboardSynthesisSidecarActionPayloadMap = Pick<
+  DashboardActionPayloadMap,
   "synthesis-sidecar-select-trace" | "synthesis-sidecar-set-trace-filter"
->;
+> &
+  DashboardSynthesisSidecarPageActionPayloadMap;
+
+export type DashboardSynthesisSidecarAction =
+  keyof DashboardSynthesisSidecarActionPayloadMap & string;
+
+export type DashboardSynthesisSidecarActionSender = <
+  Action extends DashboardSynthesisSidecarAction,
+>(
+  action: Action,
+  payload?: DashboardSynthesisSidecarActionPayloadMap[Action],
+) => void;
 
 export type SynthesisSidecarCopyHandler = (
   text: string,
@@ -147,7 +206,7 @@ export type SynthesisSidecarCopyHandler = (
 
 export type SynthesisSidecarRegionProps = {
   selection: DashboardSynthesisSidecarSelection;
-  onAction: DashboardActionHandler<DashboardSynthesisSidecarAction>;
+  onAction: DashboardSynthesisSidecarActionSender;
   onCopyText: SynthesisSidecarCopyHandler;
 };
 
@@ -283,6 +342,25 @@ export function synthesisSidecarTraceOutcome(
     : "succeeded";
 }
 
+// Defensive narrowing of the optional synthesisSidecarView.status wire slot;
+// accepts the whole view (typed on the wire as carrying only traceSnapshot)
+// and returns null when no status block is published.
+export function narrowSynthesisSidecarStatus(
+  view: unknown,
+): DashboardSynthesisSidecarStatusView | null {
+  const record = asRecord(view);
+  const status = record ? asRecord(record.status) : null;
+  if (!status) return null;
+  return {
+    lifecycle: asString(status.lifecycle) || "unknown",
+    recoveryState: asString(status.recoveryState) || "none",
+    reasonCode: asString(status.reasonCode),
+    healthObservedAt: asString(status.healthObservedAt),
+    serviceVersion: asString(status.serviceVersion),
+    bundleId: asString(status.bundleId),
+  };
+}
+
 export function synthesisSidecarTraceRootOperation(
   trace: DashboardSynthesisSidecarTraceView,
 ): string {
@@ -324,6 +402,46 @@ export function rankSynthesisSidecarTraces(
 }
 
 export const SYNTHESIS_SIDECAR_VISIBLE_TRACE_LIMIT = 100;
+
+export const SYNTHESIS_SIDECAR_OUTCOME_VALUES = [
+  "started",
+  "failed",
+  "succeeded",
+] as const;
+
+// Outcome/operation filtering applied on top of the text-filtered ranking;
+// the ranking itself is untouched. An empty operations set means "all".
+export function filterSynthesisSidecarTraces(
+  traces: readonly DashboardSynthesisSidecarTraceView[],
+  args: { outcomes: readonly string[]; operations: readonly string[] },
+): DashboardSynthesisSidecarTraceView[] {
+  const outcomeSet = new Set(args.outcomes);
+  const operationSet = new Set(args.operations);
+  return traces.filter(
+    (trace) =>
+      outcomeSet.has(synthesisSidecarTraceOutcome(trace)) &&
+      (operationSet.size === 0 ||
+        operationSet.has(synthesisSidecarTraceRootOperation(trace))),
+  );
+}
+
+// Operation multi-select options: the root-operation values of the loaded
+// traces (the same derivation as the table's Operation column), deduped in
+// first-seen order.
+export function synthesisSidecarOperationOptions(
+  traces: readonly DashboardSynthesisSidecarTraceView[],
+): string[] {
+  const seen = new Set<string>();
+  const options: string[] = [];
+  for (const trace of traces) {
+    const operation = synthesisSidecarTraceRootOperation(trace);
+    if (!seen.has(operation)) {
+      seen.add(operation);
+      options.push(operation);
+    }
+  }
+  return options;
+}
 
 // Legacy selection resolution: the state-pinned trace wins; otherwise the
 // top-ranked trace; otherwise the most recently updated trace. The selected
@@ -537,8 +655,10 @@ export function SynthesisSidecarTraceTableIsland(
 // a changed detail is remounted wholesale while an unchanged one diffs to a
 // DOM no-op (the legacy fast path replaced the panel on the same condition).
 // The copy button label swap after copy is an imperative mutation, matching
-// the legacy textContent updates.
+// the legacy textContent updates, and reverts after a short window.
 // ---------------------------------------------------------------------------
+
+const COPY_LABEL_REVERT_MS = 900;
 
 export type SynthesisSidecarTraceDetailProps = {
   detail: DashboardSynthesisSidecarDetailView | null;
@@ -555,6 +675,18 @@ export function SynthesisSidecarTraceDetail(
   props: SynthesisSidecarTraceDetailProps,
 ) {
   const { detail } = props;
+  // The copy label swap is imperative (legacy textContent updates); the
+  // revert timer is cleaned up on unmount — the detail panel remounts
+  // wholesale on trace change, which also cancels pending reverts.
+  const revertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (revertTimerRef.current !== null) {
+        clearTimeout(revertTimerRef.current);
+      }
+    },
+    [],
+  );
   return (
     <section
       class="panel synthesis-sidecar-detail"
@@ -574,6 +706,15 @@ export function SynthesisSidecarTraceDetail(
             type="button"
             onClick={(event) => {
               const button = event.currentTarget as HTMLButtonElement;
+              const scheduleRevert = () => {
+                if (revertTimerRef.current !== null) {
+                  clearTimeout(revertTimerRef.current);
+                }
+                revertTimerRef.current = setTimeout(() => {
+                  revertTimerRef.current = null;
+                  button.textContent = props.copyLabel;
+                }, COPY_LABEL_REVERT_MS);
+              };
               props
                 .onCopyText(
                   detail.copyJson,
@@ -583,9 +724,11 @@ export function SynthesisSidecarTraceDetail(
                 .then(
                   () => {
                     button.textContent = props.copiedLabel;
+                    scheduleRevert();
                   },
                   () => {
                     button.textContent = props.copyFailedLabel;
+                    scheduleRevert();
                   },
                 );
             }}
@@ -629,7 +772,7 @@ function SynthesisSidecarFilterInput(props: {
   filterLabel: string;
   filterValue: string;
   filterPlaceholder: string;
-  onAction: DashboardActionHandler<DashboardSynthesisSidecarAction>;
+  onAction: DashboardSynthesisSidecarActionSender;
 }) {
   const [draft, setDraft] = useState(props.filterValue);
   const lastSentRef = useRef(props.filterValue);
@@ -669,6 +812,33 @@ function SynthesisSidecarFilterInput(props: {
   );
 }
 
+// Supervisor status notice: a prominent banner while the lifecycle is not
+// "ready" (lifecycle + recoveryState + reasonCode when present). The ready
+// state is rendered by the panel model as a plain summary card instead.
+function SynthesisSidecarStatusNotice(props: {
+  selection: DashboardSynthesisSidecarSelection;
+}) {
+  const { selection } = props;
+  const status = selection.status;
+  if (!status || status.lifecycle === "ready") {
+    return null;
+  }
+  return (
+    <div class="synthesis-sidecar-status-banner" role="alert">
+      <span class="synthesis-sidecar-status-banner-label">
+        {selection.statusLabel}
+      </span>
+      <span class={selection.statusBadgeClass}>{status.lifecycle}</span>
+      {status.recoveryState && status.recoveryState !== "none" ? (
+        <span class="synthesis-sidecar-status-banner-item">{`${selection.statusRecoveryLabel}: ${status.recoveryState}`}</span>
+      ) : null}
+      {status.reasonCode ? (
+        <span class="synthesis-sidecar-status-banner-item">{`${selection.statusReasonLabel}: ${status.reasonCode}`}</span>
+      ) : null}
+    </div>
+  );
+}
+
 export const SynthesisSidecarRegion = memo(
   function SynthesisSidecarRegion(props: SynthesisSidecarRegionProps) {
     const { selection, onAction, onCopyText } = props;
@@ -679,6 +849,7 @@ export const SynthesisSidecarRegion = memo(
           data-region-content="dashboard-synthesis-sidecar"
         >
           <h2 class="page-title">{selection.pageTitle}</h2>
+          <SynthesisSidecarStatusNotice selection={selection} />
           <div class="empty-state">{selection.emptyText}</div>
         </div>
       );
@@ -686,12 +857,25 @@ export const SynthesisSidecarRegion = memo(
     const detailKey = selection.detail
       ? `${selection.detail.traceId}\n${selection.detail.signature}`
       : "none";
+    const toggleOutcome = (value: string, checked: boolean) => {
+      const active = new Set(selection.activeOutcomes);
+      if (checked) {
+        active.add(value);
+      } else {
+        active.delete(value);
+      }
+      const outcomes = selection.outcomeOptions
+        .map((option) => option.value)
+        .filter((optionValue) => active.has(optionValue));
+      onAction("synthesis-sidecar-set-outcome-filter", { outcomes });
+    };
     return (
       <div
         class="dashboard-synthesis-sidecar"
         data-region-content="dashboard-synthesis-sidecar"
       >
         <h2 class="page-title">{selection.pageTitle}</h2>
+        <SynthesisSidecarStatusNotice selection={selection} />
         <section class="synthesis-sidecar-summary">
           {selection.summaryCards.map((card) => (
             <div class="card" key={card.label}>
@@ -700,12 +884,59 @@ export const SynthesisSidecarRegion = memo(
             </div>
           ))}
         </section>
-        <SynthesisSidecarFilterInput
-          filterLabel={selection.filterLabel}
-          filterValue={selection.filterValue}
-          filterPlaceholder={selection.filterPlaceholder}
-          onAction={onAction}
-        />
+        <div class="toolbar logs-toolbar synthesis-sidecar-toolbar">
+          <div class="logs-filter-wrap synthesis-sidecar-toolbar-filters">
+            <SynthesisSidecarFilterInput
+              filterLabel={selection.filterLabel}
+              filterValue={selection.filterValue}
+              filterPlaceholder={selection.filterPlaceholder}
+              onAction={onAction}
+            />
+            <div class="logs-filter-levels synthesis-sidecar-outcome-filter">
+              <span class="logs-filter-label">
+                {selection.filterOutcomeLabel}
+              </span>
+              {selection.outcomeOptions.map((option) => (
+                <label key={option.value} class="logs-filter-checkbox-label">
+                  <input
+                    type="checkbox"
+                    value={option.value}
+                    checked={
+                      selection.activeOutcomes.indexOf(option.value) !== -1
+                    }
+                    onChange={(event) =>
+                      toggleOutcome(option.value, event.currentTarget.checked)
+                    }
+                  />
+                  <span class="logs-filter-text">{option.label}</span>
+                </label>
+              ))}
+            </div>
+            {selection.operationOptions.length > 0 ? (
+              <div class="logs-filter-dropdown-wrap">
+                <span class="logs-filter-label">
+                  {selection.filterOperationLabel}
+                </span>
+                <CustomMultiSelect
+                  options={selection.operationOptions}
+                  values={selection.selectedOperations}
+                  placeholder={selection.filterAllLabel}
+                  onChange={(nextValues) =>
+                    onAction("synthesis-sidecar-set-operation-filter", {
+                      operations:
+                        nextValues.length >= selection.operationOptions.length
+                          ? []
+                          : nextValues,
+                    })
+                  }
+                />
+              </div>
+            ) : null}
+          </div>
+          <div class="logs-budget-status synthesis-sidecar-result-count">
+            {selection.resultCountText}
+          </div>
+        </div>
         <div class="synthesis-sidecar-layout">
           <SynthesisSidecarTraceTableIsland
             columns={selection.columns}

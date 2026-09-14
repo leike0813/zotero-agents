@@ -53,11 +53,15 @@ import {
   type DashboardRuntimeLogsSelection,
 } from "./components/RuntimeLogsRegion";
 import {
+  filterSynthesisSidecarTraces,
   findSynthesisSidecarRawTrace,
+  narrowSynthesisSidecarStatus,
   narrowSynthesisSidecarTraceSnapshot,
   rankSynthesisSidecarTraces,
   resolveSynthesisSidecarVisibleTraces,
+  SYNTHESIS_SIDECAR_OUTCOME_VALUES,
   synthesisSidecarEventDepths,
+  synthesisSidecarOperationOptions,
   synthesisSidecarTraceDetailSignature,
   synthesisSidecarTraceOutcome,
   synthesisSidecarTraceRootOperation,
@@ -584,11 +588,13 @@ function projectRuntimeLogs(
       (key) => typeof filters[key] === "string" && filters[key],
     ).map((key) => ({ key, value: String(filters[key]) })),
     clearContextLabel: labelText(labels, "runtimeLogsClearContext"),
+    // The host localizes FTL without args, so Fluent renders the missing
+    // variable as "{$value}"; tolerate any inner whitespace.
     budgetText: labelText(
       labels,
       "runtimeLogsBudget",
       "Budget: { $value }",
-    ).replace("{ $value }", budgetValue),
+    ).replace(/\{\s*\$value\s*\}/, budgetValue),
     copySelectedLabel: labelText(labels, "runtimeLogsCopySelected"),
     copyVisibleNdjsonLabel: labelText(labels, "runtimeLogsCopyVisibleNDJSON"),
     copyDiagnosticBundleLabel: labelText(
@@ -609,6 +615,7 @@ function projectRuntimeLogs(
     ),
     copySuccessBundleText: labelText(labels, "runtimeLogsCopySuccessBundle"),
     copySuccessIssueText: labelText(labels, "runtimeLogsCopySuccessIssue"),
+    copiedLabel: labelText(labels, "productsViewerCopied", "Copied"),
     selectedEntryIds: Array.isArray(view.selectedEntryIds)
       ? view.selectedEntryIds
       : [],
@@ -676,6 +683,19 @@ if (
 ): DashboardSynthesisSidecarSelection => {
   const view = snapshot.synthesisSidecarView;
   const traceSnapshot = narrowSynthesisSidecarTraceSnapshot(view?.traceSnapshot);
+  const status = narrowSynthesisSidecarStatus(view);
+  const outcomeOptions = SYNTHESIS_SIDECAR_OUTCOME_VALUES.map((value) => ({
+    value,
+    label: labelText(
+      labels,
+      value === "started"
+        ? "synthesisSidecarOutcomeStarted"
+        : value === "failed"
+          ? "synthesisSidecarOutcomeFailed"
+          : "synthesisSidecarOutcomeSucceeded",
+      value.charAt(0).toUpperCase() + value.slice(1),
+    ),
+  }));
   const empty: DashboardSynthesisSidecarSelection = {
     kind: "empty",
     pageTitle: labelText(
@@ -700,6 +720,39 @@ if (
       "Filter traces",
     ),
     filterValue: String(ui.synthesisSidecar.traceFilter || ""),
+    filterOutcomeLabel: labelText(
+      labels,
+      "synthesisSidecarFilterOutcome",
+      "Outcome",
+    ),
+    outcomeOptions,
+    activeOutcomes: [...ui.synthesisSidecar.outcomeFilter],
+    filterOperationLabel: labelText(
+      labels,
+      "synthesisSidecarFilterOperation",
+      "Operation",
+    ),
+    operationOptions: [],
+    selectedOperations: [],
+    filterAllLabel: labelText(labels, "runtimeLogsFilterAll", "All"),
+    resultCountText: "",
+    status,
+    statusLabel: labelText(
+      labels,
+      "synthesisSidecarStatusLabel",
+      "Sidecar status",
+    ),
+    statusBadgeClass: status ? dashboardStatusBadgeClass(status.lifecycle) : "",
+    statusRecoveryLabel: labelText(
+      labels,
+      "synthesisSidecarStatusRecovery",
+      "Recovery",
+    ),
+    statusReasonLabel: labelText(
+      labels,
+      "synthesisSidecarStatusReason",
+      "Reason",
+    ),
     columns: [
       labelText(labels, "synthesisSidecarColOutcome", "Outcome"),
       labelText(labels, "synthesisSidecarColTrace", "Trace"),
@@ -733,9 +786,13 @@ if (
     traces,
     ui.synthesisSidecar.traceFilter,
   );
+  const filtered = filterSynthesisSidecarTraces(ranked, {
+    outcomes: empty.activeOutcomes,
+    operations: ui.synthesisSidecar.operationFilter,
+  });
   const { visible, selected } = resolveSynthesisSidecarVisibleTraces({
     traces,
-    ranked,
+    ranked: filtered,
     selectedTraceId: ui.synthesisSidecar.selectedTraceId,
   });
   const selectedRaw = selected
@@ -744,29 +801,62 @@ if (
   const spanDepths = selected
     ? synthesisSidecarEventDepths(selected.events)
     : [];
+  const operationOptions = synthesisSidecarOperationOptions(traces).map(
+    (operation) => ({ value: operation, label: operation }),
+  );
+  const summaryCards = [
+    {
+      label: labelText(labels, "synthesisSidecarSummaryTraces", "Traces"),
+      value: String(traces.length),
+    },
+    {
+      label: labelText(labels, "synthesisSidecarSummaryEvents", "Events"),
+      value: String(Number(traceSnapshot.eventCount || 0)),
+    },
+    {
+      label: labelText(labels, "synthesisSidecarSummaryActive", "Active"),
+      value: String(traces.filter((trace) => trace.active === true).length),
+    },
+    {
+      label: labelText(labels, "synthesisSidecarSummaryDropped", "Dropped"),
+      value: String(
+        traces.reduce((sum, trace) => sum + Number(trace.droppedCount || 0), 0),
+      ),
+    },
+  ];
+  // A ready supervisor shows as a plain status card; any other lifecycle is
+  // surfaced by the region as a prominent banner instead.
+  if (status && status.lifecycle === "ready") {
+    summaryCards.unshift({
+      label: empty.statusLabel,
+      value: status.serviceVersion
+        ? `${status.lifecycle} · ${status.serviceVersion}`
+        : status.lifecycle,
+    });
+  }
   return {
     ...empty,
     kind: "traces",
-    summaryCards: [
-      {
-        label: labelText(labels, "synthesisSidecarSummaryTraces", "Traces"),
-        value: String(traces.length),
-      },
-      {
-        label: labelText(labels, "synthesisSidecarSummaryEvents", "Events"),
-        value: String(Number(traceSnapshot.eventCount || 0)),
-      },
-      {
-        label: labelText(labels, "synthesisSidecarSummaryActive", "Active"),
-        value: String(traces.filter((trace) => trace.active === true).length),
-      },
-      {
-        label: labelText(labels, "synthesisSidecarSummaryDropped", "Dropped"),
-        value: String(
-          traces.reduce((sum, trace) => sum + Number(trace.droppedCount || 0), 0),
-        ),
-      },
-    ],
+    summaryCards,
+    operationOptions,
+    // An empty operation filter means "all": the multi-select renders every
+    // option as selected, matching the runtime-logs dropdown semantics.
+    selectedOperations:
+      ui.synthesisSidecar.operationFilter.length > 0
+        ? operationOptions
+            .map((option) => option.value)
+            .filter(
+              (operation) =>
+                ui.synthesisSidecar.operationFilter.indexOf(operation) !== -1,
+            )
+        : operationOptions.map((option) => option.value),
+    resultCountText: labelText(
+      labels,
+      "synthesisSidecarResultCount",
+      "Showing { $visible } of { $total }",
+    )
+      .replace(/\{\s*\$visible\s*\}/, String(visible.length))
+      .replace(/\{\s*\$total\s*\}/, String(traces.length)),
     rows: visible.map((trace) => {
       const outcome = synthesisSidecarTraceOutcome(trace);
       const operation = synthesisSidecarTraceRootOperation(trace);

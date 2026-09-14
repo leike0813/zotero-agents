@@ -23,7 +23,9 @@ import {
   readSynthesisSidecarTraceSnapshot,
   recordSynthesisSidecarTraceEvent,
   resetSynthesisSidecarTraceForTests,
+  setSynthesisSidecarTraceClockForTests,
   subscribeSynthesisSidecarTracePatches,
+  SYNTHESIS_SIDECAR_STALE_ACTIVE_MS,
 } from "../../src/modules/synthesis/sidecar/synthesisSidecarTrace";
 
 describe("Synthesis sidecar debug observability", function () {
@@ -386,6 +388,7 @@ describe("Synthesis sidecar debug observability", function () {
   });
 
   it("unpins an accepted maintenance trace when its durable terminal arrives on a later trace", function () {
+    setSynthesisSidecarTraceClockForTests(() => 10_000);
     const root = createSynthesisSidecarTraceContext()!;
     const maintenance = createSynthesisSidecarTraceContext({ parent: root })!;
     recordSynthesisSidecarTraceEvent({
@@ -477,6 +480,77 @@ describe("Synthesis sidecar debug observability", function () {
           event.phase === "maintenance-terminal" &&
           event.code === "worker_timeout",
       ),
+    );
+  });
+
+  it("ages stale active traces out of snapshots and eviction", function () {
+    const baseMs = 100_000;
+    setSynthesisSidecarTraceClockForTests(() => baseMs);
+    const stale = createSynthesisSidecarTraceContext()!;
+    recordSynthesisSidecarTraceEvent({
+      context: stale,
+      source: "host",
+      boundary: "host-rpc",
+      phase: "request",
+      outcome: "started",
+      occurredAtMs: baseMs,
+    });
+    const fresh = createSynthesisSidecarTraceContext()!;
+    recordSynthesisSidecarTraceEvent({
+      context: fresh,
+      source: "host",
+      boundary: "host-rpc",
+      phase: "request",
+      outcome: "started",
+      occurredAtMs: baseMs,
+    });
+    assert.isTrue(
+      readSynthesisSidecarTraceSnapshot().traces.every((trace) => trace.active),
+    );
+
+    const nowMs = baseMs + SYNTHESIS_SIDECAR_STALE_ACTIVE_MS + 1;
+    setSynthesisSidecarTraceClockForTests(() => nowMs);
+    recordSynthesisSidecarTraceEvent({
+      context: createSynthesisSidecarTraceContext({ parent: fresh })!,
+      source: "host",
+      boundary: "host-rpc",
+      phase: "heartbeat",
+      outcome: "succeeded",
+      occurredAtMs: nowMs,
+    });
+    let snapshot = readSynthesisSidecarTraceSnapshot();
+    assert.isFalse(
+      snapshot.traces.find((trace) => trace.traceId === stale.traceId)!.active,
+    );
+    assert.isTrue(
+      snapshot.traces.find((trace) => trace.traceId === fresh.traceId)!.active,
+    );
+
+    for (let index = 0; index < 520; index += 1) {
+      const completed = createSynthesisSidecarTraceContext()!;
+      recordSynthesisSidecarTraceEvent({
+        context: completed,
+        source: "host",
+        boundary: "host-rpc",
+        phase: "request",
+        outcome: "started",
+        occurredAtMs: nowMs + index * 2,
+      });
+      recordSynthesisSidecarTraceEvent({
+        context: completed,
+        source: "host",
+        boundary: "host-rpc",
+        phase: "terminal",
+        outcome: "succeeded",
+        occurredAtMs: nowMs + index * 2 + 1,
+      });
+    }
+    snapshot = readSynthesisSidecarTraceSnapshot();
+    assert.isUndefined(
+      snapshot.traces.find((trace) => trace.traceId === stale.traceId),
+    );
+    assert.isDefined(
+      snapshot.traces.find((trace) => trace.traceId === fresh.traceId),
     );
   });
 

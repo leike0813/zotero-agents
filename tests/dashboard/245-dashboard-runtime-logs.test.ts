@@ -13,6 +13,8 @@ import {
   type DashboardRuntimeLogsRow,
   type DashboardRuntimeLogsSelection,
 } from "../../src/dashboard/components/RuntimeLogsRegion";
+import { projectDashboardPanel } from "../../src/dashboard/dashboardPanelModel";
+import type { DashboardPageSnapshot } from "../../src/dashboard/dashboardTypes";
 
 // The multi-select dropdowns are the shared controlled CustomMultiSelect
 // (src/shared/customSelect.tsx); tests drive the real component DOM: open
@@ -78,6 +80,7 @@ function makeSelection(
     copySuccessTemplate: "Copied { $count } log entries to clipboard!",
     copySuccessBundleText: "Diagnostic bundle copied to clipboard!",
     copySuccessIssueText: "Issue summary copied to clipboard!",
+    copiedLabel: "Copied",
     selectedEntryIds: ["log-1"],
     columns: ["Time", "Level", "Stage", "Scope", "Message"],
     emptyText: "No logs",
@@ -480,6 +483,100 @@ describe("dashboard RuntimeLogsRegion (src/dashboard)", function () {
     assert.notOk(detail.classList.contains("visible"));
     assert.equal(detail.childNodes.length, 0);
     assert.isNull(container.querySelector(".logs-table tbody tr.reading"));
+  });
+
+  it("substitutes Fluent placeholders regardless of inner whitespace", function () {
+    // The host localizes FTL messages without args, so Fluent renders missing
+    // variables without spaces ("{$count}"). Both shapes must interpolate.
+    for (const template of [
+      "Copied { $count } log entries!",
+      "Copied {$count} log entries!",
+      "Copied {  $count  } log entries!",
+    ]) {
+      const { container, toasts } = renderRegion(
+        makeSelection({ copySuccessTemplate: template }),
+      );
+      const copySelected = container.querySelector<HTMLButtonElement>(
+        ".logs-copy-group button",
+      )!;
+      copySelected.click();
+      assert.deepEqual(toasts, ["Copied 1 log entries!"], template);
+    }
+  });
+
+  it("substitutes the no-space budget placeholder in the panel projection", function () {
+    const panel = projectDashboardPanel(
+      {
+        labels: {
+          runtimeLogsTabTitle: "Runtime Logs",
+          runtimeLogsBudget: "Budget: {$value}",
+        },
+        runtimeLogsView: {
+          filters: {},
+          diagnosticMode: false,
+          totalEntries: 2,
+          budget: {
+            maxEntries: 1000,
+            maxImportantEntries: 50,
+            importantEntryCount: 1,
+          },
+          logs: [],
+          selectedEntryIds: [],
+          filterOptions: { backends: [], workflows: [] },
+        },
+      } as unknown as DashboardPageSnapshot,
+      {
+        selectedTabKey: "runtime-logs",
+        synthesisSidecar: {
+          traceFilter: "",
+          selectedTraceId: "",
+          outcomeFilter: [],
+          operationFilter: [],
+        },
+        backendTaskScrollTopByTabKey: Object.create(null) as Record<
+          string,
+          number
+        >,
+        homeWorkflowDocScroll: { workflowId: "", scrollTop: 0 },
+      },
+    );
+    assert.equal(
+      panel.views.runtimeLogs?.budgetText,
+      "Budget: warn/error 1/50 · total 2/1000",
+    );
+  });
+
+  it("swaps the toolbar copy button label to the copied state and reverts", function (done) {
+    const { container } = renderRegion(makeSelection());
+    const copySelected = container.querySelector<HTMLButtonElement>(
+      ".logs-copy-group button",
+    )!;
+    assert.equal(copySelected.textContent, "Copy Selected");
+    copySelected.click();
+    setTimeout(() => {
+      assert.equal(copySelected.textContent, "Copied");
+      setTimeout(() => {
+        assert.equal(copySelected.textContent, "Copy Selected");
+        done();
+      }, 980);
+    }, 0);
+  });
+
+  it("swaps the detail copy button label to the copied state and reverts", function (done) {
+    const { container } = renderRegion(makeSelection());
+    const row = container.querySelector(
+      ".logs-table tbody tr.log-row",
+    ) as HTMLElement;
+    row.click();
+    const copyButton =
+      container.querySelector<HTMLButtonElement>(".logs-detail-copy")!;
+    assert.equal(copyButton.textContent, "Copy Log");
+    copyButton.click();
+    assert.equal(copyButton.textContent, "Copied");
+    setTimeout(() => {
+      assert.equal(copyButton.textContent, "Copy Log");
+      done();
+    }, 980);
   });
 
   it("keeps the region subtree identity when an equal selection re-renders", function () {

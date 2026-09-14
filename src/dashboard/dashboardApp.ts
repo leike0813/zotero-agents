@@ -13,8 +13,6 @@
 
 import type {
   DashboardActionEnvelopeFor,
-  DashboardActionName,
-  DashboardActionPayload,
   DashboardHostActionName,
   DashboardHostActionPayload,
   DashboardHostMessage,
@@ -59,7 +57,12 @@ export type DashboardControllerDeps = {
 function createInitialUiState(): DashboardUiState {
   return {
     selectedTabKey: "",
-    synthesisSidecar: { traceFilter: "", selectedTraceId: "" },
+    synthesisSidecar: {
+      traceFilter: "",
+      selectedTraceId: "",
+      outcomeFilter: ["started", "failed", "succeeded"],
+      operationFilter: [],
+    },
     backendTaskScrollTopByTabKey: Object.create(null) as Record<string, number>,
     homeWorkflowDocScroll: { workflowId: "", scrollTop: 0 },
   };
@@ -79,6 +82,8 @@ export function createDashboardController(deps: DashboardControllerDeps) {
     selectedTabKey: string;
     traceFilter: string;
     selectedTraceId: string;
+    outcomeFilter: string;
+    operationFilter: string;
   } | null = null;
   let lastPanel: ReturnType<typeof projectDashboardPanel> | null = null;
 
@@ -96,7 +101,10 @@ export function createDashboardController(deps: DashboardControllerDeps) {
       lastProjectionKey.snapshot === snapshot &&
       lastProjectionKey.selectedTabKey === state.ui.selectedTabKey &&
       lastProjectionKey.traceFilter === sidecarUi.traceFilter &&
-      lastProjectionKey.selectedTraceId === sidecarUi.selectedTraceId;
+      lastProjectionKey.selectedTraceId === sidecarUi.selectedTraceId &&
+      lastProjectionKey.outcomeFilter === sidecarUi.outcomeFilter.join("\n") &&
+      lastProjectionKey.operationFilter ===
+        sidecarUi.operationFilter.join("\n");
     const panel =
       keyMatches && lastPanel
         ? lastPanel
@@ -117,6 +125,8 @@ export function createDashboardController(deps: DashboardControllerDeps) {
       selectedTabKey: state.ui.selectedTabKey,
       traceFilter: sidecarUi.traceFilter,
       selectedTraceId: state.ui.synthesisSidecar.selectedTraceId,
+      outcomeFilter: sidecarUi.outcomeFilter.join("\n"),
+      operationFilter: sidecarUi.operationFilter.join("\n"),
     };
     lastPanel = panel;
     deps.renderPanel(panel);
@@ -151,11 +161,9 @@ export function createDashboardController(deps: DashboardControllerDeps) {
     },
     // Action fan-out: page-local UI intents are written back to controller
     // state and re-projected synchronously; everything else goes to the
-    // host verbatim.
-    dispatch<Action extends DashboardActionName>(
-      action: Action,
-      payload?: DashboardActionPayload<Action>,
-    ): void {
+    // host verbatim. The loose implementation signature is assignable to the
+    // generic DashboardActionDispatcher seam at the chrome renderer.
+    dispatch(action: string, payload?: Record<string, unknown>): void {
       if (action === "synthesis-sidecar-select-trace") {
         state.ui.synthesisSidecar.selectedTraceId = String(
           payload?.traceId || "",
@@ -165,6 +173,24 @@ export function createDashboardController(deps: DashboardControllerDeps) {
       }
       if (action === "synthesis-sidecar-set-trace-filter") {
         state.ui.synthesisSidecar.traceFilter = String(payload?.filter || "");
+        renderCurrentPanel();
+        return;
+      }
+      if (action === "synthesis-sidecar-set-outcome-filter") {
+        state.ui.synthesisSidecar.outcomeFilter = Array.isArray(
+          payload?.outcomes,
+        )
+          ? (payload!.outcomes as unknown[]).map((value) => String(value))
+          : [];
+        renderCurrentPanel();
+        return;
+      }
+      if (action === "synthesis-sidecar-set-operation-filter") {
+        state.ui.synthesisSidecar.operationFilter = Array.isArray(
+          payload?.operations,
+        )
+          ? (payload!.operations as unknown[]).map((value) => String(value))
+          : [];
         renderCurrentPanel();
         return;
       }
@@ -210,7 +236,8 @@ export function bootstrapDashboardApp(): () => void {
   });
   const chromeRenderer = createDashboardChromeRenderer({
     sendAction: sendDashboardAction,
-    dispatchAction: (action, payload) => controller.dispatch(action, payload),
+    dispatchAction: (action: string, payload?: Record<string, unknown>) =>
+      controller.dispatch(action, payload),
     onUiChange(patch) {
       controller.applyUiPatch(patch);
     },

@@ -7,7 +7,8 @@ use std::time::Duration;
 
 use crate::runtime_deadline::bounded_timeout;
 use crate::runtime_diagnostics::{
-    NativeDiagnosticEvent, child_observation_context, correlate, emit_debug,
+    NativeDiagnosticEvent, TraceContext, child_observation_context, correlate, emit_debug,
+    has_observation_context, root_observation_context, with_observation_context,
 };
 
 const REVERSE_HOST_PATH: &str = "/synthesis/v1/host-call";
@@ -151,6 +152,52 @@ pub(crate) fn call_reverse_host(
     capability: &str,
     payload: Value,
 ) -> Result<Value, String> {
+    call_reverse_host_with_transport(
+        config,
+        service_instance_id,
+        capability,
+        payload,
+        send_reverse_host_request,
+    )
+}
+
+fn call_reverse_host_with_transport(
+    config: &NativeLaunchConfig,
+    service_instance_id: &str,
+    capability: &str,
+    payload: Value,
+    send: impl FnOnce(&NativeLaunchConfig, Duration, &[u8], u64) -> Result<(Value, usize), String>,
+) -> Result<Value, String> {
+    let orphan_root = if has_observation_context() {
+        None
+    } else {
+        root_observation_context()
+    };
+    match orphan_root {
+        Some(root) => with_observation_context(Some(&root), || {
+            call_reverse_host_traced(
+                config,
+                service_instance_id,
+                capability,
+                payload,
+                Some(&root),
+                send,
+            )
+        }),
+        None => {
+            call_reverse_host_traced(config, service_instance_id, capability, payload, None, send)
+        }
+    }
+}
+
+fn call_reverse_host_traced(
+    config: &NativeLaunchConfig,
+    service_instance_id: &str,
+    capability: &str,
+    payload: Value,
+    orphan_root: Option<&TraceContext>,
+    send: impl FnOnce(&NativeLaunchConfig, Duration, &[u8], u64) -> Result<(Value, usize), String>,
+) -> Result<Value, String> {
     let now = current_time_ms()?;
     let sequence = REVERSE_HOST_REQUEST_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let request_id = format!("native:{now}:{sequence}");
@@ -181,6 +228,16 @@ pub(crate) fn call_reverse_host(
             serde_json::to_value(trace).map_err(|_| "reverse_host_request_invalid".to_owned())?;
     }
     let body = serde_json::to_vec(&call).map_err(|_| "reverse_host_request_invalid".to_owned())?;
+    if let Some(root) = orphan_root {
+        emit_debug(|| {
+            correlate(
+                NativeDiagnosticEvent::new("reverse-host", "call-started", "started")
+                    .context(root)
+                    .capability(capability)
+                    .operation_id(&operation_id),
+            )
+        });
+    }
     emit_debug(|| {
         correlate(
             NativeDiagnosticEvent::new("reverse-host", "call-started", "started")
@@ -190,7 +247,7 @@ pub(crate) fn call_reverse_host(
                 .request_bytes(body.len()),
         )
     });
-    let result = send_reverse_host_request(config, timeout, &body, max_response_body_bytes);
+    let result = send(config, timeout, &body, max_response_body_bytes);
     match result {
         Ok((result, response_bytes)) => {
             let duration_ms = current_time_ms()?.saturating_sub(now);
@@ -199,12 +256,23 @@ pub(crate) fn call_reverse_host(
                     NativeDiagnosticEvent::new("reverse-host", "call-completed", "succeeded")
                         .capability(capability)
                         .request_id(request_id)
-                        .operation_id(operation_id)
+                        .operation_id(&operation_id)
                         .duration_ms(duration_ms)
                         .response_bytes(response_bytes)
                         .http_status(200),
                 )
             });
+            if let Some(root) = orphan_root {
+                emit_debug(|| {
+                    correlate(
+                        NativeDiagnosticEvent::new("reverse-host", "call-completed", "succeeded")
+                            .context(root)
+                            .capability(capability)
+                            .operation_id(&operation_id)
+                            .duration_ms(duration_ms),
+                    )
+                });
+            }
             Ok(result)
         }
         Err(error) => {
@@ -213,11 +281,23 @@ pub(crate) fn call_reverse_host(
                     NativeDiagnosticEvent::new("reverse-host", "call-failed", "failed")
                         .capability(capability)
                         .request_id(request_id)
-                        .operation_id(operation_id)
+                        .operation_id(&operation_id)
                         .code(&error)
                         .duration_ms(current_time_ms().unwrap_or(now).saturating_sub(now)),
                 )
             });
+            if let Some(root) = orphan_root {
+                emit_debug(|| {
+                    correlate(
+                        NativeDiagnosticEvent::new("reverse-host", "call-failed", "failed")
+                            .context(root)
+                            .capability(capability)
+                            .operation_id(&operation_id)
+                            .code(&error)
+                            .duration_ms(current_time_ms().unwrap_or(now).saturating_sub(now)),
+                    )
+                });
+            }
             Err(error)
         }
     }
@@ -236,7 +316,214 @@ pub(crate) fn probe_reverse_host(config: &NativeLaunchConfig) -> Result<(), Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runtime_contract::ProductionReverseHost;
+    use crate::runtime_diagnostics::{
+        configure_debug_events, root_observation_context, take_captured_diagnostic_events,
+    };
     use std::io::{Cursor, Error, ErrorKind};
+    use std::path::PathBuf;
+    use std::sync::Mutex;
+
+    static OBSERVATION_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn test_config() -> NativeLaunchConfig {
+        NativeLaunchConfig {
+            schema: "synthesis-sidecar-launch-config.v4".into(),
+            profile_id: "1".repeat(64),
+            library_id: 1,
+            profile_runtime_root: PathBuf::new(),
+            runtime_root_id: "2".repeat(64),
+            data_root_id: "3".repeat(64),
+            bundle_id: "4".repeat(64),
+            implementation: "rust-native".into(),
+            target: "linux-x64".into(),
+            target_triple: "x86_64-unknown-linux-gnu".into(),
+            build_fingerprint: "5".repeat(64),
+            platform_signature: json!({
+                "scheme":"not-applicable",
+                "status":"not-applicable",
+                "signer":null
+            }),
+            service_version: env!("CARGO_PKG_VERSION").into(),
+            protocol_version: "synthesis-sidecar.v1".into(),
+            schema_version: "test-schema".into(),
+            supervisor_instance_id: "supervisor-1".into(),
+            diagnostics_enabled: true,
+            startup_trace: None,
+            repository_db_path: PathBuf::new(),
+            canonical_root: PathBuf::new(),
+            reverse_host: ProductionReverseHost {
+                host: "127.0.0.1".into(),
+                port: 9134,
+                authorization_token: "6".repeat(64),
+            },
+            client_token: "7".repeat(64),
+            lifecycle_token: "8".repeat(64),
+            port: 0,
+        }
+    }
+
+    fn events_for_trace(trace_id: &str) -> Vec<Value> {
+        take_captured_diagnostic_events()
+            .into_iter()
+            .map(|source| serde_json::from_str::<Value>(&source).expect("diagnostic event"))
+            .filter(|event| event["traceId"] == trace_id)
+            .collect()
+    }
+
+    #[test]
+    fn contextless_call_emits_one_complete_rooted_trace() {
+        let _lock = OBSERVATION_TEST_LOCK.lock().expect("observation test lock");
+        configure_debug_events(true);
+        take_captured_diagnostic_events();
+        let config = test_config();
+        let request_body = Mutex::new(Vec::new());
+        let result = call_reverse_host_with_transport(
+            &config,
+            "service-instance",
+            "library.artifacts.read",
+            json!({"locator":"reference:a"}),
+            |_config, _timeout, body, _max_response| {
+                *request_body.lock().expect("request body") = body.to_vec();
+                Ok((json!({"artifact":"ok"}), 128))
+            },
+        )
+        .expect("reverse host call");
+        configure_debug_events(false);
+        assert_eq!(result, json!({"artifact":"ok"}));
+
+        let call: Value = serde_json::from_slice(&request_body.lock().expect("request body"))
+            .expect("reverse host call body");
+        let trace_id = call["trace"]["traceId"]
+            .as_str()
+            .expect("trace id")
+            .to_owned();
+        let events = events_for_trace(&trace_id);
+        assert_eq!(
+            events.len(),
+            4,
+            "one rooted trace: root span and child span, each opened and closed",
+        );
+        let root_span_id = call["trace"]["parentSpanId"]
+            .as_str()
+            .expect("call trace hangs under the root span")
+            .to_owned();
+        let roots = events
+            .iter()
+            .filter(|event| event.get("parentSpanId").is_none())
+            .collect::<Vec<_>>();
+        assert_eq!(roots.len(), 2, "exactly one root span, opened and closed");
+        assert_eq!(roots[0]["spanId"], root_span_id);
+        assert_eq!(roots[0]["boundary"], "reverse-host");
+        assert_eq!(roots[0]["outcome"], "started");
+        assert_eq!(
+            roots[0]["identities"]["capability"],
+            "library.artifacts.read"
+        );
+        assert_eq!(roots[1]["spanId"], root_span_id);
+        assert_eq!(roots[1]["outcome"], "succeeded");
+        assert!(roots[1]["metrics"]["durationMs"].is_number());
+        let children = events
+            .iter()
+            .filter(|event| event.get("parentSpanId").is_some())
+            .collect::<Vec<_>>();
+        assert_eq!(children.len(), 2);
+        assert!(
+            children
+                .iter()
+                .all(|event| event["parentSpanId"] == root_span_id),
+            "child events hang under the root span",
+        );
+        assert_eq!(children[0]["outcome"], "started");
+        assert_eq!(children[1]["outcome"], "succeeded");
+    }
+
+    #[test]
+    fn contextless_call_closes_the_root_trace_on_failure() {
+        let _lock = OBSERVATION_TEST_LOCK.lock().expect("observation test lock");
+        configure_debug_events(true);
+        take_captured_diagnostic_events();
+        let config = test_config();
+        let request_body = Mutex::new(Vec::new());
+        let error = call_reverse_host_with_transport(
+            &config,
+            "service-instance",
+            "webdav.describe",
+            json!({}),
+            |_config, _timeout, body, _max_response| {
+                *request_body.lock().expect("request body") = body.to_vec();
+                Err("reverse_host_unavailable".to_owned())
+            },
+        )
+        .expect_err("reverse host call");
+        configure_debug_events(false);
+        assert_eq!(error, "reverse_host_unavailable");
+
+        let call: Value = serde_json::from_slice(&request_body.lock().expect("request body"))
+            .expect("reverse host call body");
+        let trace_id = call["trace"]["traceId"]
+            .as_str()
+            .expect("trace id")
+            .to_owned();
+        let events = events_for_trace(&trace_id);
+        assert_eq!(events.len(), 4);
+        let roots = events
+            .iter()
+            .filter(|event| event.get("parentSpanId").is_none())
+            .collect::<Vec<_>>();
+        assert_eq!(roots.len(), 2);
+        assert_eq!(roots[0]["outcome"], "started");
+        assert_eq!(roots[1]["outcome"], "failed");
+        assert_eq!(roots[1]["code"], "reverse_host_unavailable");
+        assert_eq!(roots[0]["spanId"], roots[1]["spanId"]);
+    }
+
+    #[test]
+    fn installed_context_keeps_child_only_events() {
+        let _lock = OBSERVATION_TEST_LOCK.lock().expect("observation test lock");
+        configure_debug_events(true);
+        take_captured_diagnostic_events();
+        let parent = root_observation_context().expect("parent context");
+        let parent_json = serde_json::to_value(&parent).expect("parent context json");
+        let parent_trace_id = parent_json["traceId"]
+            .as_str()
+            .expect("trace id")
+            .to_owned();
+        let parent_span_id = parent_json["spanId"].as_str().expect("span id").to_owned();
+        let config = test_config();
+        let request_body = Mutex::new(Vec::new());
+        with_observation_context(Some(&parent), || {
+            call_reverse_host_with_transport(
+                &config,
+                "service-instance",
+                "webdav.describe",
+                json!({}),
+                |_config, _timeout, body, _max_response| {
+                    *request_body.lock().expect("request body") = body.to_vec();
+                    Ok((json!({"ok":true}), 64))
+                },
+            )
+            .expect("reverse host call");
+        });
+        configure_debug_events(false);
+
+        let call: Value = serde_json::from_slice(&request_body.lock().expect("request body"))
+            .expect("reverse host call body");
+        assert_eq!(call["trace"]["traceId"], parent_trace_id);
+        assert_eq!(call["trace"]["parentSpanId"], parent_span_id);
+        let events = events_for_trace(&parent_trace_id);
+        assert_eq!(
+            events.len(),
+            2,
+            "no orphan root span when a context is installed",
+        );
+        assert!(
+            events
+                .iter()
+                .all(|event| event["parentSpanId"] == parent_span_id),
+            "events derive as children of the installed context",
+        );
+    }
 
     #[test]
     fn selects_capability_specific_reverse_host_timeouts() {

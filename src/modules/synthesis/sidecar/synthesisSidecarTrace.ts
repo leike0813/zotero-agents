@@ -19,6 +19,7 @@ import { isSynthesisSidecarDiagnosticsAvailable } from "../../debugMode";
 export const SYNTHESIS_SIDECAR_TRACE_EVENT_LIMIT = 1_000;
 export const SYNTHESIS_SIDECAR_TRACE_PER_TRACE_LIMIT = 128;
 export const SYNTHESIS_SIDECAR_TRACE_PATCH_INTERVAL_MS = 200;
+export const SYNTHESIS_SIDECAR_STALE_ACTIVE_MS = 60_000;
 
 export type SynthesisSidecarTrace = DashboardSynthesisSidecarTrace;
 export type SynthesisSidecarTraceSnapshot =
@@ -46,8 +47,15 @@ const pendingAdded = new Set<string>();
 const pendingUpdated = new Set<string>();
 const pendingEvicted = new Set<string>();
 let publishTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
+let traceClock: () => number = Date.now;
 
-function cloneTrace(trace: MutableTrace): SynthesisSidecarTrace {
+function isTraceEffectivelyActive(trace: MutableTrace, nowMs: number) {
+  return (
+    trace.active && nowMs - trace.updatedAtMs <= SYNTHESIS_SIDECAR_STALE_ACTIVE_MS
+  );
+}
+
+function cloneTrace(trace: MutableTrace, nowMs: number): SynthesisSidecarTrace {
   return {
     traceId: trace.traceId,
     events: trace.events.map((event) => ({
@@ -57,7 +65,7 @@ function cloneTrace(trace: MutableTrace): SynthesisSidecarTrace {
       ...(event.facts ? { facts: { ...event.facts } } : {}),
     })),
     droppedCount: trace.droppedCount,
-    active: trace.active,
+    active: isTraceEffectivelyActive(trace, nowMs),
     startedAtMs: trace.startedAtMs,
     updatedAtMs: trace.updatedAtMs,
   };
@@ -83,17 +91,18 @@ function flush() {
     pendingEvicted.clear();
     return;
   }
+  const nowMs = traceClock();
   const patch: SynthesisSidecarTracePatch = {
     schema: "synthesis-sidecar-trace-patch.v2",
     added: [...pendingAdded]
       .map((id) => traces.get(id))
       .filter((value): value is MutableTrace => Boolean(value))
-      .map(cloneTrace),
+      .map((trace) => cloneTrace(trace, nowMs)),
     updated: [...pendingUpdated]
       .filter((id) => !pendingAdded.has(id))
       .map((id) => traces.get(id))
       .filter((value): value is MutableTrace => Boolean(value))
-      .map(cloneTrace),
+      .map((trace) => cloneTrace(trace, nowMs)),
     evicted: [...pendingEvicted],
   };
   pendingAdded.clear();
@@ -116,10 +125,10 @@ function totalEvents() {
   return total;
 }
 
-function evictCompletedTraces() {
+function evictCompletedTraces(nowMs: number) {
   while (totalEvents() > SYNTHESIS_SIDECAR_TRACE_EVENT_LIMIT) {
     const candidate = [...traces.values()]
-      .filter((trace) => !trace.active)
+      .filter((trace) => !isTraceEffectivelyActive(trace, nowMs))
       .sort((left, right) => left.updatedAtMs - right.updatedAtMs)[0];
     if (!candidate) return;
     traces.delete(candidate.traceId);
@@ -202,7 +211,7 @@ function retainEvent(event: SynthesisSidecarObservationEvent) {
   if (isRootTerminal) trace.rootActive = false;
   trace.active =
     trace.rootActive || trace.activeMaintenanceOperationIds.size > 0;
-  evictCompletedTraces();
+  evictCompletedTraces(traceClock());
   schedulePublish();
   return event;
 }
@@ -265,9 +274,10 @@ export function readSynthesisSidecarTraceSnapshot(): SynthesisSidecarTraceSnapsh
       eventCount: 0,
     };
   }
+  const nowMs = traceClock();
   const values = [...traces.values()]
     .sort((left, right) => left.startedAtMs - right.startedAtMs)
-    .map(cloneTrace);
+    .map((trace) => cloneTrace(trace, nowMs));
   return {
     schema: "synthesis-sidecar-trace-snapshot.v2",
     traces: values,
@@ -286,9 +296,14 @@ export function flushSynthesisSidecarTracePatchesForTests() {
   flush();
 }
 
+export function setSynthesisSidecarTraceClockForTests(clock?: () => number) {
+  traceClock = clock ?? Date.now;
+}
+
 export function resetSynthesisSidecarTraceForTests() {
   if (publishTimer !== undefined) globalThis.clearTimeout(publishTimer);
   publishTimer = undefined;
+  traceClock = Date.now;
   traces.clear();
   maintenanceOperationOrigins.clear();
   subscribers.clear();

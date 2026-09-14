@@ -1549,11 +1549,16 @@ impl ReferenceApplication {
                         .total(prepared.reads.len())
                 });
             }
+            let observation_context = self.observations.capture_observation_context();
             let results = std::thread::scope(|scope| {
                 group
                     .iter()
                     .map(|read| {
-                        scope.spawn(|| {
+                        let observation_context = observation_context.clone();
+                        scope.spawn(move || {
+                            let _observation_scope = self
+                                .observations
+                                .observation_scope(observation_context.as_ref());
                             self.host
                                 .read_artifact(&read.locator, &read.expected_hash)
                                 .and_then(|payload| refresh_payload(read, payload))
@@ -4147,6 +4152,7 @@ mod tests {
     use crate::RepositoryPort;
     use crate::reference::{
         ReferenceHostArtifactsPage, ReferenceHostItemsByRef, ReferenceHostItemsPage,
+        ReferenceObservationContext, ReferenceObservationScope,
     };
     use crate::reference_matching::{ReferenceMatchConfidence, ReferenceMatchDisposition};
     use crate::reference_matching::{
@@ -4820,6 +4826,68 @@ mod tests {
         assert_eq!(rows[0]["references"][0]["parsedTitle"], "External A");
         assert_eq!(rows[1]["paper_ref"], "1:BBBB2222");
         assert_eq!(rows[1]["references"][0]["parsedTitle"], "External B");
+    }
+
+    #[derive(Default)]
+    struct RecordingObservations {
+        capture_thread: Mutex<Option<std::thread::ThreadId>>,
+        scopes: Mutex<Vec<(std::thread::ThreadId, Option<Value>)>>,
+    }
+
+    impl ReferenceObservationPort for RecordingObservations {
+        fn emit(&self, _observation: ReferenceObservation) {}
+
+        fn capture_observation_context(&self) -> Option<ReferenceObservationContext> {
+            *self.capture_thread.lock().expect("capture thread") =
+                Some(std::thread::current().id());
+            Some(ReferenceObservationContext::from_json(
+                json!({"traceId":"1".repeat(32)}),
+            ))
+        }
+
+        fn observation_scope(
+            &self,
+            context: Option<&ReferenceObservationContext>,
+        ) -> Box<dyn ReferenceObservationScope> {
+            self.scopes.lock().expect("observation scopes").push((
+                std::thread::current().id(),
+                context.map(|context| context.as_json().clone()),
+            ));
+            Box::new(NoopTestObservationScope)
+        }
+    }
+
+    struct NoopTestObservationScope;
+
+    impl ReferenceObservationScope for NoopTestObservationScope {}
+
+    #[test]
+    fn refresh_batch_attaches_concurrent_reads_to_the_captured_observation_context() {
+        let root = test_root("refresh-read-observation-scope");
+        let host = Arc::new(FakeHost::new());
+        let observations = Arc::new(RecordingObservations::default());
+        let app = application(&root, host, Arc::new(AtomicBool::new(false)))
+            .with_observations(observations.clone());
+
+        let refreshed = app.refresh_now().expect("reference refresh");
+        assert_eq!(refreshed["status"], "promoted");
+
+        let capture_thread = observations
+            .capture_thread
+            .lock()
+            .expect("capture thread")
+            .expect("context captured before spawning reads");
+        let expected_trace_id = "1".repeat(32);
+        let scopes = observations.scopes.lock().expect("observation scopes");
+        assert_eq!(scopes.len(), 2, "one observation scope per concurrent read");
+        assert!(
+            scopes.iter().all(|(thread, token)| {
+                *thread != capture_thread
+                    && token.as_ref().and_then(|token| token["traceId"].as_str())
+                        == Some(expected_trace_id.as_str())
+            }),
+            "each read thread installs the context captured on the refresh worker",
+        );
     }
 
     #[test]
