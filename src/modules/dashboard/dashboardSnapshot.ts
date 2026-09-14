@@ -1088,6 +1088,7 @@ function buildLiteratureArtifactMigrationView(
           reasonCode: "",
           disposition: "",
         },
+        batchActions: [],
         availableReasons: [],
       },
       history: [],
@@ -1147,6 +1148,7 @@ function buildLiteratureArtifactMigrationView(
           filteredSelected: 0,
           filteredSelectable: 0,
         },
+        batchActions: [],
         availableReasons: [],
       };
   const primaryDiagnostic = displayedEntry
@@ -1193,6 +1195,7 @@ function buildLiteratureArtifactMigrationView(
       summary: candidatePage.summary,
       query: candidateQuery,
       availableReasons: candidatePage.availableReasons,
+      batchActions: candidatePage.batchActions,
     },
     history,
   };
@@ -1464,6 +1467,42 @@ export async function buildDashboardSnapshot(args: {
     literatureMigrationDropped: localize(
       "task-dashboard-literature-migration-dropped",
       "Dropped",
+    ),
+    literatureMigrationVerifiedHint: localize(
+      "task-dashboard-literature-migration-verified-hint",
+      "References that were converted and passed contract validation.",
+    ),
+    literatureMigrationUnresolvedHint: localize(
+      "task-dashboard-literature-migration-unresolved-hint",
+      "Citation mentions that could not be linked to any reference.",
+    ),
+    literatureMigrationRecoveredHint: localize(
+      "task-dashboard-literature-migration-recovered-hint",
+      "References recovered only from citation snapshots.",
+    ),
+    literatureMigrationDroppedHint: localize(
+      "task-dashboard-literature-migration-dropped-hint",
+      "Entries discarded because the title is missing or the year is invalid.",
+    ),
+    literatureMigrationOptionAcceptDamagedInput: localize(
+      "task-dashboard-literature-migration-option-accept-damaged-input",
+      "Migrate readable content (ignore read failures)",
+    ),
+    literatureMigrationBatchLabel: localize(
+      "task-dashboard-literature-migration-batch-label",
+      "Batch decisions",
+    ),
+    literatureMigrationBatchHint: localize(
+      "task-dashboard-literature-migration-batch-hint",
+      "Apply to every undecided issue of this kind in the current filter.",
+    ),
+    literatureMigrationDiagnosticsLabel: localize(
+      "task-dashboard-literature-migration-diagnostics-label",
+      "Diagnostic details",
+    ),
+    literatureMigrationDuplicateOf: localize(
+      "task-dashboard-literature-migration-duplicate-of",
+      "Duplicates",
     ),
     literatureMigrationSearchPlaceholder: localize(
       "task-dashboard-literature-migration-search-placeholder",

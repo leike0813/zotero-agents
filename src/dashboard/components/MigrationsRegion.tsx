@@ -42,6 +42,14 @@ export type DashboardMigrationsSelection = {
   unresolvedLabel: string;
   recoveredLabel: string;
   droppedLabel: string;
+  verifiedHint: string;
+  unresolvedHint: string;
+  recoveredHint: string;
+  droppedHint: string;
+  batchLabel: string;
+  batchHint: string;
+  diagnosticsLabel: string;
+  duplicateOfLabel: string;
   searchPlaceholder: string;
   allLabel: string;
   classificationFilterLabel: string;
@@ -83,6 +91,7 @@ export type DashboardMigrationsAction = Extract<
   | "literature-migration-set-selection"
   | "literature-migration-set-filter-selection"
   | "literature-migration-resolve-issue"
+  | "literature-migration-resolve-issues-bulk"
   | "literature-migration-set-candidate-query"
   | "literature-migration-list-receipts"
   | "literature-migration-select-run"
@@ -135,22 +144,62 @@ function CandidateFacts(props: {
   selection: DashboardMigrationsSelection;
 }) {
   const { candidate, selection } = props;
+  const facts = [
+    {
+      key: "verified",
+      value: candidate.verifiedCount,
+      label: selection.verifiedLabel,
+      hint: selection.verifiedHint,
+      always: true,
+    },
+    {
+      key: "unresolved",
+      value: candidate.unresolvedCount,
+      label: selection.unresolvedLabel,
+      hint: selection.unresolvedHint,
+      always: false,
+    },
+    {
+      key: "recovered",
+      value: candidate.recoveredCount,
+      label: selection.recoveredLabel,
+      hint: selection.recoveredHint,
+      always: false,
+    },
+    {
+      key: "dropped",
+      value: candidate.droppedCount,
+      label: selection.droppedLabel,
+      hint: selection.droppedHint,
+      always: false,
+    },
+  ].filter((fact) => fact.always || fact.value > 0);
   return (
     <div class="dashboard-migration-facts">
-      <span>
-        {candidate.verifiedCount} {selection.verifiedLabel}
-      </span>
-      <span>
-        {candidate.unresolvedCount} {selection.unresolvedLabel}
-      </span>
-      <span>
-        {candidate.recoveredCount} {selection.recoveredLabel}
-      </span>
-      <span>
-        {candidate.droppedCount} {selection.droppedLabel}
-      </span>
+      {facts.map((fact) => (
+        <span key={fact.key} title={fact.hint || undefined}>
+          {fact.value} {fact.label}
+        </span>
+      ))}
     </div>
   );
+}
+
+function issueItemHint(
+  selection: DashboardMigrationsSelection,
+  reasonCode: string,
+  hint: string | undefined,
+) {
+  if (!hint) return "";
+  return reasonCode === "duplicate_reference"
+    ? `${selection.duplicateOfLabel}: ${hint}`
+    : hint;
+}
+
+function decisionKindClass(entry: { kind: string; dataLoss: boolean }) {
+  if (entry.kind === "skip_candidate") return "is-danger";
+  if (entry.dataLoss) return "is-warning";
+  return "is-success";
 }
 
 export const MigrationsRegion = memo(
@@ -203,10 +252,17 @@ export const MigrationsRegion = memo(
     const { candidatePage } = view;
     const runIdRef = useRef(active?.runId);
     const selectAllRef = useRef<HTMLInputElement | null>(null);
-    const [selectedCandidateId, setSelectedCandidateId] = useState("");
-    const selectedCandidate = candidatePage.items.find(
-      (candidate) => candidate.candidateId === selectedCandidateId,
-    );
+    const [selectedCandidateSnapshot, setSelectedCandidateSnapshot] =
+      useState<DashboardLiteratureArtifactMigrationCandidate | null>(null);
+    // The drawer follows the selected candidate, not the current page: paging
+    // or filtering must not close it. Fresh page data wins when present;
+    // otherwise the last snapshot keeps the drawer readable.
+    const selectedCandidate = selectedCandidateSnapshot
+      ? candidatePage.items.find(
+          (candidate) =>
+            candidate.candidateId === selectedCandidateSnapshot.candidateId,
+        ) || selectedCandidateSnapshot
+      : null;
     const filteredSelected = candidatePage.summary.filteredSelected;
     const filteredSelectable = candidatePage.summary.filteredSelectable;
     const allFilteredSelected =
@@ -215,7 +271,7 @@ export const MigrationsRegion = memo(
     useEffect(() => {
       if (runIdRef.current === active?.runId) return;
       runIdRef.current = active?.runId;
-      setSelectedCandidateId("");
+      setSelectedCandidateSnapshot(null);
     }, [active?.runId]);
 
     useEffect(() => {
@@ -236,7 +292,6 @@ export const MigrationsRegion = memo(
       Boolean(view.activeOperationId) &&
       candidatePage.summary.selected > 0;
     const updateQuery = (patch: Partial<typeof candidatePage.query>) => {
-      setSelectedCandidateId("");
       onAction("literature-migration-set-candidate-query", {
         ...candidatePage.query,
         ...patch,
@@ -249,7 +304,6 @@ export const MigrationsRegion = memo(
         Math.min(candidatePage.pageCount - 1, Math.floor(page)),
       );
       if (!Number.isFinite(target) || target === candidatePage.page) return;
-      setSelectedCandidateId("");
       onAction("literature-migration-list-receipts", {
         runId: active.runId,
         page: target,
@@ -657,18 +711,66 @@ export const MigrationsRegion = memo(
                         {selection.selectedLabel} {filteredSelected}/
                         {filteredSelectable}
                       </span>
+                      {candidatePage.batchActions.length ? (
+                        <div
+                          class="dashboard-migrations-batch"
+                          role="group"
+                          aria-label={selection.batchLabel}
+                        >
+                          {candidatePage.batchActions.map((group) => (
+                            <span
+                              class="dashboard-migration-batch-group"
+                              key={group.reasonCode}
+                            >
+                              <span class="dashboard-migration-batch-reason">
+                                {selection.reasonLabels[group.reasonCode] ||
+                                  group.reasonCode}
+                              </span>
+                              {group.kinds.map((entry) => (
+                                <button
+                                  type="button"
+                                  key={`${group.reasonCode}:${entry.kind}`}
+                                  class={`btn dashboard-migration-batch-btn ${decisionKindClass(entry)}`}
+                                  data-role="migration-batch-resolve"
+                                  data-reason-code={group.reasonCode}
+                                  data-kind={entry.kind}
+                                  title={selection.batchHint}
+                                  disabled={
+                                    active?.state !== "preview" || workerActive
+                                  }
+                                  onClick={() =>
+                                    onAction(
+                                      "literature-migration-resolve-issues-bulk",
+                                      {
+                                        scanOperationId:
+                                          active?.operationId || "",
+                                        reasonCode: group.reasonCode,
+                                        kind: entry.kind,
+                                      },
+                                    )
+                                  }
+                                >
+                                  {selection.optionLabels[entry.kind] ||
+                                    entry.kind}{" "}
+                                  ×{group.pendingCount}
+                                </button>
+                              ))}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
                   <div class="dashboard-migrations-candidates zs-scroll-region">
                     {candidatePage.items.map((candidate) => (
                       <article
-                        class={`dashboard-migration-candidate${candidate.candidateId === selectedCandidateId ? " is-selected" : ""}`}
+                        class={`dashboard-migration-candidate${candidate.candidateId === selectedCandidateSnapshot?.candidateId ? " is-selected" : ""}`}
                         key={candidate.candidateId}
                         data-classification={candidate.classification}
                         tabIndex={workerActive ? -1 : 0}
                         onClick={() => {
                           if (!workerActive) {
-                            setSelectedCandidateId(candidate.candidateId);
+                            setSelectedCandidateSnapshot(candidate);
                           }
                         }}
                         onKeyDown={(event) => {
@@ -676,7 +778,7 @@ export const MigrationsRegion = memo(
                           if (event.key !== "Enter" && event.key !== " ")
                             return;
                           event.preventDefault();
-                          setSelectedCandidateId(candidate.candidateId);
+                          setSelectedCandidateSnapshot(candidate);
                         }}
                       >
                         <div class="dashboard-migration-candidate-heading">
@@ -749,13 +851,6 @@ export const MigrationsRegion = memo(
                               <span key={reason} title={reason}>
                                 {selection.reasonLabels[reason] || reason}
                               </span>
-                            ))}
-                          </div>
-                        ) : null}
-                        {candidate.diagnostics.length ? (
-                          <div class="dashboard-migration-diagnostics">
-                            {candidate.diagnostics.map((diagnostic) => (
-                              <code key={diagnostic}>{diagnostic}</code>
                             ))}
                           </div>
                         ) : null}
@@ -867,7 +962,7 @@ export const MigrationsRegion = memo(
                     type="button"
                     class="btn clear"
                     aria-label={selection.closeLabel}
-                    onClick={() => setSelectedCandidateId("")}
+                    onClick={() => setSelectedCandidateSnapshot(null)}
                   >
                     {selection.closeLabel}
                   </button>
@@ -894,10 +989,36 @@ export const MigrationsRegion = memo(
                               <ul class="dashboard-migration-issue-items">
                                 {issue.affectedItems.map((item, itemIndex) => (
                                   <li key={itemIndex}>
-                                    <span>{item.label}</span>
-                                    {item.hint ? (
-                                      <small>{item.hint}</small>
-                                    ) : null}
+                                    {item.detail ? (
+                                      <details class="dashboard-migration-issue-item">
+                                        <summary>
+                                          <span>{item.label}</span>
+                                          {item.hint ? (
+                                            <small>
+                                              {issueItemHint(
+                                                selection,
+                                                issue.reasonCode,
+                                                item.hint,
+                                              )}
+                                            </small>
+                                          ) : null}
+                                        </summary>
+                                        <p>{item.detail}</p>
+                                      </details>
+                                    ) : (
+                                      <>
+                                        <span>{item.label}</span>
+                                        {item.hint ? (
+                                          <small>
+                                            {issueItemHint(
+                                              selection,
+                                              issue.reasonCode,
+                                              item.hint,
+                                            )}
+                                          </small>
+                                        ) : null}
+                                      </>
+                                    )}
                                   </li>
                                 ))}
                               </ul>
@@ -908,13 +1029,19 @@ export const MigrationsRegion = memo(
                                   type="button"
                                   key={option.optionId}
                                   data-option-id={option.optionId}
-                                  class={`btn${
+                                  class={`btn ${decisionKindClass(option)}${
                                     issue.selectedOptionId === option.optionId
                                       ? " is-selected"
                                       : ""
                                   }`}
                                   aria-pressed={
                                     issue.selectedOptionId === option.optionId
+                                  }
+                                  title={
+                                    option.dataLoss
+                                      ? selection.reasonLabels.data_loss ||
+                                        "Data loss"
+                                      : undefined
                                   }
                                   disabled={
                                     active?.state !== "preview" || workerActive
@@ -935,9 +1062,6 @@ export const MigrationsRegion = memo(
                                 >
                                   {selection.optionLabels[option.kind] ||
                                     option.kind}
-                                  {option.dataLoss
-                                    ? ` · ${selection.reasonLabels.data_loss || "Data loss"}`
-                                    : ""}
                                 </button>
                               ))}
                             </div>
@@ -947,6 +1071,16 @@ export const MigrationsRegion = memo(
                         <p class="empty">{selection.readyLabel}</p>
                       )}
                     </section>
+                    {selectedCandidate.diagnostics.length ? (
+                      <details class="dashboard-migration-drawer-diagnostics">
+                        <summary>{selection.diagnosticsLabel}</summary>
+                        <div class="dashboard-migration-diagnostics">
+                          {selectedCandidate.diagnostics.map((diagnostic) => (
+                            <code key={diagnostic}>{diagnostic}</code>
+                          ))}
+                        </div>
+                      </details>
+                    ) : null}
                     <footer>
                       <button
                         type="button"
@@ -1001,11 +1135,14 @@ export const MigrationsRegion = memo(
                       </ul>
                     ) : null}
                     {selectedCandidate.diagnostics.length ? (
-                      <ul>
-                        {selectedCandidate.diagnostics.map((diagnostic) => (
-                          <li key={diagnostic}>{diagnostic}</li>
-                        ))}
-                      </ul>
+                      <details class="dashboard-migration-drawer-diagnostics">
+                        <summary>{selection.diagnosticsLabel}</summary>
+                        <ul>
+                          {selectedCandidate.diagnostics.map((diagnostic) => (
+                            <li key={diagnostic}>{diagnostic}</li>
+                          ))}
+                        </ul>
+                      </details>
                     ) : null}
                   </section>
                 )}

@@ -1177,6 +1177,7 @@ function projectViews(
         reasonCode: "",
         disposition: "",
       },
+      batchActions: [],
       availableReasons: [],
     },
     primaryDiagnostic: null,
@@ -1254,6 +1255,46 @@ function projectViews(
       "Recovered",
     ),
     droppedLabel: labelText(labels, "literatureMigrationDropped", "Dropped"),
+    verifiedHint: labelText(
+      labels,
+      "literatureMigrationVerifiedHint",
+      "References that were converted and passed contract validation.",
+    ),
+    unresolvedHint: labelText(
+      labels,
+      "literatureMigrationUnresolvedHint",
+      "Citation mentions that could not be linked to any reference.",
+    ),
+    recoveredHint: labelText(
+      labels,
+      "literatureMigrationRecoveredHint",
+      "References recovered only from citation snapshots.",
+    ),
+    droppedHint: labelText(
+      labels,
+      "literatureMigrationDroppedHint",
+      "Entries discarded because the title is missing or the year is invalid.",
+    ),
+    batchLabel: labelText(
+      labels,
+      "literatureMigrationBatchLabel",
+      "Batch decisions",
+    ),
+    batchHint: labelText(
+      labels,
+      "literatureMigrationBatchHint",
+      "Apply to every undecided issue of this kind in the current filter.",
+    ),
+    diagnosticsLabel: labelText(
+      labels,
+      "literatureMigrationDiagnosticsLabel",
+      "Diagnostic details",
+    ),
+    duplicateOfLabel: labelText(
+      labels,
+      "literatureMigrationDuplicateOf",
+      "Duplicates",
+    ),
     searchPlaceholder: labelText(
       labels,
       "literatureMigrationSearchPlaceholder",
@@ -1397,6 +1438,10 @@ function projectViews(
         ["replace_canonical", "Replace conflicting canonical artifact"],
         ["preserve_source", "Preserve unrecognized source evidence"],
         ["accept_data_loss", "Accept the listed data loss"],
+        [
+          "accept_damaged_input",
+          "Migrate readable content (ignore read failures)",
+        ],
         ["skip_candidate", "Skip this set"],
       ].map(([kind, fallback]) => [
         kind,

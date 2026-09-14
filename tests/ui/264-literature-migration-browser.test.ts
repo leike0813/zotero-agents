@@ -98,6 +98,7 @@ function migrationSnapshot(busy = false) {
           disposition: "",
         },
         availableReasons: ["unresolved_linkage"],
+        batchActions: [],
       },
       history: [],
     },

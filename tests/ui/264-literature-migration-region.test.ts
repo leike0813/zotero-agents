@@ -68,7 +68,7 @@ function buildMigrationsSelection(
             classification: "review_required",
             outcome: "preview",
             reasonCodes: ["unresolved_linkage"],
-            diagnostics: [],
+            diagnostics: ["citation item linkage is unresolved"],
             verifiedCount: 1,
             unresolvedCount: 1,
             recoveredCount: 0,
@@ -82,7 +82,11 @@ function buildMigrationsSelection(
                 status: "pending",
                 detail: "unresolved_linkage",
                 affectedItems: [
-                  { label: "Unknown (2020)", hint: "#3 · 2020" },
+                  {
+                    label: "Unknown (2020)",
+                    hint: "#3 · 2020",
+                    detail: "The full snippet of the unresolved citation mention.",
+                  },
                 ],
                 selectedOptionId: "",
                 options: [
@@ -102,7 +106,7 @@ function buildMigrationsSelection(
             classification: "blocked",
             outcome: "preview",
             reasonCodes: ["duplicate_reference"],
-            diagnostics: [],
+            diagnostics: ["duplicate reference evidence"],
             verifiedCount: 1,
             unresolvedCount: 0,
             recoveredCount: 0,
@@ -115,6 +119,13 @@ function buildMigrationsSelection(
                 reasonCode: "duplicate_reference",
                 status: "pending",
                 detail: "duplicate_reference",
+                affectedItems: [
+                  {
+                    label: "Later copy",
+                    hint: "First copy",
+                    detail: "DOI:10.0000/example",
+                  },
+                ],
                 selectedOptionId: "",
                 options: [
                   {
@@ -144,6 +155,24 @@ function buildMigrationsSelection(
           disposition: "",
         },
         availableReasons: ["unresolved_linkage", "duplicate_reference"],
+        batchActions: [
+          {
+            reasonCode: "unresolved_linkage",
+            pendingCount: 1,
+            kinds: [
+              { kind: "keep_unresolved", dataLoss: false },
+              { kind: "drop_unresolved", dataLoss: true },
+            ],
+          },
+          {
+            reasonCode: "duplicate_reference",
+            pendingCount: 1,
+            kinds: [
+              { kind: "merge_duplicates", dataLoss: false },
+              { kind: "skip_candidate", dataLoss: false },
+            ],
+          },
+        ],
       },
       history: [],
     },
@@ -173,6 +202,14 @@ function buildMigrationsSelection(
     unresolvedLabel: "Unresolved",
     recoveredLabel: "Recovered",
     droppedLabel: "Dropped",
+    verifiedHint: "References that were converted and validated.",
+    unresolvedHint: "Citation mentions without a matching reference.",
+    recoveredHint: "References recovered only from citation snapshots.",
+    droppedHint: "Entries discarded for missing title or invalid year.",
+    batchLabel: "Batch decisions",
+    batchHint: "Apply to every undecided issue of this kind in the current filter.",
+    diagnosticsLabel: "Diagnostic details",
+    duplicateOfLabel: "Duplicates",
     searchPlaceholder: "Search candidates",
     allLabel: "All",
     classificationFilterLabel: "Classification",
@@ -221,7 +258,9 @@ function buildMigrationsSelection(
     },
     optionLabels: {
       keep_unresolved: "Keep as unresolved",
+      drop_unresolved: "Discard unresolved mentions",
       merge_duplicates: "Merge duplicate references",
+      skip_candidate: "Skip this set",
     },
     reasonLabels: {
       unresolved_linkage: "Unresolved linkage",
@@ -574,6 +613,7 @@ describe("Dashboard literature migration region", function () {
                 reasonCode: "",
                 disposition: "",
               },
+              batchActions: [],
               availableReasons: [],
             },
           },
@@ -824,6 +864,184 @@ describe("Dashboard literature migration region", function () {
       { action: "literature-migration-list-receipts", payload: { runId: "run-1", page: 2 } },
       { action: "literature-migration-list-receipts", payload: { runId: "run-1", page: 2 } },
     ]);
+    render(null, root);
+    restoreSidebarDomGlobals();
+    environment.dom.window.close();
+  });
+
+  it("hides row diagnostics, compacts facts, and renders batch decisions", async function () {
+    const environment = createSidebarDomEnvironment();
+    installSidebarDomGlobals(environment);
+    const root = document.createElement("div");
+    const actions: Array<{ action: string; payload: Record<string, unknown> }> =
+      [];
+    const selection = buildMigrationsSelection();
+    render(
+      h(MigrationsRegion, {
+        selection,
+        onAction: (action, payload) =>
+          actions.push({
+            action,
+            payload: (payload || {}) as Record<string, unknown>,
+          }),
+      }),
+      root,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const list = root.querySelector(".dashboard-migrations-candidates");
+    assert.exists(list);
+    assert.isNull(
+      list!.querySelector(".dashboard-migration-diagnostics"),
+      "candidate rows must not expose raw diagnostics",
+    );
+    assert.notInclude(list!.textContent || "", "duplicate reference evidence");
+    assert.notInclude(
+      list!.textContent || "",
+      "citation item linkage is unresolved",
+    );
+
+    const facts = root.querySelectorAll(
+      ".dashboard-migration-candidate .dashboard-migration-facts",
+    );
+    assert.lengthOf(facts[0]!.querySelectorAll("span"), 1);
+    assert.lengthOf(facts[1]!.querySelectorAll("span"), 2);
+    assert.notInclude(facts[0]!.textContent || "", "0");
+
+    const batchButtons = root.querySelectorAll<HTMLButtonElement>(
+      '[data-role="migration-batch-resolve"]',
+    );
+    assert.lengthOf(batchButtons, 4);
+    const batchGroups = root.querySelectorAll(".dashboard-migration-batch-group");
+    assert.lengthOf(batchGroups, 2);
+    const mergeAll = Array.from(batchButtons).find(
+      (button) => button.dataset.kind === "merge_duplicates",
+    )!;
+    assert.include(mergeAll.textContent || "", "×1");
+    assert.isTrue(mergeAll.classList.contains("is-success"));
+    const mergeGroup = mergeAll.closest(".dashboard-migration-batch-group")!;
+    assert.include(
+      mergeGroup.querySelector(".dashboard-migration-batch-reason")!
+        .textContent || "",
+      "Duplicate reference",
+    );
+    const dropAll = Array.from(batchButtons).find(
+      (button) => button.dataset.kind === "drop_unresolved",
+    )!;
+    assert.isTrue(dropAll.classList.contains("is-warning"));
+    const skipAll = Array.from(batchButtons).find(
+      (button) => button.dataset.kind === "skip_candidate",
+    )!;
+    assert.isTrue(skipAll.classList.contains("is-danger"));
+    mergeAll.click();
+    assert.deepEqual(actions, [
+      {
+        action: "literature-migration-resolve-issues-bulk",
+        payload: {
+          scanOperationId: "op-1",
+          reasonCode: "duplicate_reference",
+          kind: "merge_duplicates",
+        },
+      },
+    ]);
+
+    const articles = root.querySelectorAll<HTMLElement>(
+      ".dashboard-migration-candidate",
+    );
+    articles[2]!.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const drawer = root.querySelector('[data-role="migration-detail-drawer"]')!;
+    const expandable = drawer.querySelector(
+      ".dashboard-migration-issue-item",
+    ) as HTMLDetailsElement | null;
+    assert.exists(expandable);
+    assert.include(
+      expandable!.querySelector("summary")!.textContent || "",
+      "Duplicates: First copy",
+    );
+    assert.include(
+      expandable!.querySelector("p")!.textContent || "",
+      "DOI:10.0000/example",
+    );
+    const drawerDiagnostics = drawer.querySelector(
+      ".dashboard-migration-drawer-diagnostics",
+    ) as HTMLDetailsElement | null;
+    assert.exists(drawerDiagnostics);
+    assert.isFalse(drawerDiagnostics!.open);
+    assert.include(
+      drawerDiagnostics!.textContent || "",
+      "duplicate reference evidence",
+    );
+
+    const mergeOption = drawer.querySelector<HTMLButtonElement>(
+      '[data-option-id="merge-duplicates"]',
+    )!;
+    assert.isTrue(mergeOption.classList.contains("is-success"));
+    assert.isFalse(mergeOption.classList.contains("is-selected"));
+
+    // A resolved issue shows a prominent selected state on the chosen option.
+    const resolvedSelection = buildMigrationsSelection();
+    const resolvedIssue =
+      resolvedSelection.view.candidatePage.items[2]!.issues[0]!;
+    resolvedIssue.selectedOptionId = "merge-duplicates";
+    resolvedIssue.status = "resolved";
+    render(
+      h(MigrationsRegion, {
+        selection: resolvedSelection,
+        onAction: () => {},
+      }),
+      root,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const selectedOption = root.querySelector<HTMLButtonElement>(
+      '[data-option-id="merge-duplicates"]',
+    )!;
+    assert.isTrue(selectedOption.classList.contains("is-selected"));
+    render(null, root);
+    restoreSidebarDomGlobals();
+    environment.dom.window.close();
+  });
+
+  it("keeps the detail drawer open across pagination", async function () {
+    const environment = createSidebarDomEnvironment();
+    installSidebarDomGlobals(environment);
+    const root = document.createElement("div");
+    const selection = buildMigrationsSelection();
+    render(h(MigrationsRegion, { selection, onAction: () => {} }), root);
+    const articles = root.querySelectorAll<HTMLElement>(
+      ".dashboard-migration-candidate",
+    );
+    articles[1]!.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.exists(root.querySelector('[data-role="migration-detail-drawer"]'));
+    assert.isTrue(
+      root
+        .querySelectorAll(".dashboard-migration-candidate")[1]!
+        .classList.contains("is-selected"),
+    );
+
+    // The host re-renders with another page that lacks the selected candidate.
+    render(
+      h(MigrationsRegion, {
+        selection: {
+          ...selection,
+          view: {
+            ...selection.view,
+            candidatePage: {
+              ...selection.view.candidatePage,
+              page: 1,
+              items: [],
+            },
+          },
+        },
+        onAction: () => {},
+      }),
+      root,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const drawer = root.querySelector('[data-role="migration-detail-drawer"]');
+    assert.exists(drawer, "pagination must not close the detail drawer");
+    assert.include(drawer!.textContent || "", "Review paper");
     render(null, root);
     restoreSidebarDomGlobals();
     environment.dom.window.close();

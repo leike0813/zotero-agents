@@ -1691,7 +1691,9 @@ describe("literature artifact migration", function () {
     const duplicate = candidate.issues.find(
       (issue) => issue.reasonCode === "duplicate_reference",
     )!;
-    assert.deepEqual(duplicate.affectedItems, [{ label: "Same" }]);
+    assert.deepEqual(duplicate.affectedItems, [
+      { label: "Same", hint: "Same", detail: "title+year+authors" },
+    ]);
     const initialLinkage = candidate.issues.find(
       (issue) => issue.reasonCode === "unresolved_linkage",
     )!;
@@ -1748,6 +1750,138 @@ describe("literature artifact migration", function () {
     assert.isTrue(result.ok);
     assert.equal(appliedReferenceCount, 1);
     assert.equal(appliedUnresolvedCount, 0);
+  });
+
+  it("accepts damaged input and bulk-resolves pending issues inside the filter", async function () {
+    const service = createLiteratureArtifactMigrationService({
+      host: {
+        scanLibrary: async () => [
+          {
+            libraryId: 1,
+            parentRef: { libraryId: 1, key: "DAMAGED-1" },
+            parentTitle: "Damaged one",
+            references: [{ title: "Alpha", year: 2024, authors: ["Ada"] }],
+            readErrors: ["digest-markdown: payload_read_failed"],
+          },
+          {
+            libraryId: 1,
+            parentRef: { libraryId: 1, key: "DAMAGED-2" },
+            parentTitle: "Damaged two",
+            references: [{ title: "Beta", year: 2024, authors: ["Ada"] }],
+            readErrors: ["read_failed"],
+          },
+          {
+            libraryId: 1,
+            parentRef: { libraryId: 1, key: "DUP" },
+            parentTitle: "Duplicate paper",
+            references: [
+              { title: "Same", year: 2024, authors: ["Ada"] },
+              { title: "Same", year: 2024, authors: ["Ada"] },
+            ],
+          },
+        ],
+        applySet: async () => ({ outcome: "applied" as const }),
+      },
+      candidateIdFactory: (ordinal) => `candidate-${ordinal}`,
+    });
+    const preview = await service.scan({ libraryId: 1 });
+    assert.isTrue(preview.ok);
+    if (!preview.ok) throw new Error("expected migration preview");
+
+    const page = service.listCandidatePage({ runId: preview.runId });
+    const damaged = page.items.find((item) => item.title === "Damaged one")!;
+    assert.equal(damaged.classification, "blocked");
+    const damagedIssue = damaged.issues.find(
+      (issue) => issue.reasonCode === "damaged_input",
+    )!;
+    assert.deepEqual(
+      damagedIssue.options.map((option) => option.kind),
+      ["accept_damaged_input", "skip_candidate"],
+    );
+    assert.isTrue(damagedIssue.options[0]!.dataLoss);
+    assert.deepEqual(damagedIssue.affectedItems, [
+      { label: "digest-markdown: payload_read_failed" },
+    ]);
+
+    const batchDamaged = page.batchActions.find(
+      (entry) => entry.reasonCode === "damaged_input",
+    )!;
+    assert.equal(batchDamaged.pendingCount, 2);
+    assert.deepEqual(
+      batchDamaged.kinds.map((entry) => entry.kind),
+      ["accept_damaged_input", "skip_candidate"],
+    );
+    const batchDuplicate = page.batchActions.find(
+      (entry) => entry.reasonCode === "duplicate_reference",
+    )!;
+    assert.equal(batchDuplicate.pendingCount, 1);
+
+    const bulk = service.resolveCandidateIssuesBulk({
+      scanOperationId: preview.operationId,
+      reasonCode: "damaged_input",
+      kind: "accept_damaged_input",
+    });
+    assert.isTrue(bulk.ok);
+    if (!bulk.ok) throw new Error("expected bulk resolution");
+    assert.equal(bulk.affected, 2);
+    const after = service.listCandidatePage({ runId: preview.runId });
+    assert.equal(
+      after.items.find((item) => item.title === "Damaged one")
+        ?.classification,
+      "ready",
+    );
+    assert.equal(
+      after.items.find((item) => item.title === "Damaged two")
+        ?.classification,
+      "ready",
+    );
+    assert.isUndefined(
+      after.batchActions.find((entry) => entry.reasonCode === "damaged_input"),
+    );
+
+    const alreadyResolved = service.resolveCandidateIssuesBulk({
+      scanOperationId: preview.operationId,
+      reasonCode: "damaged_input",
+      kind: "skip_candidate",
+    });
+    assert.isTrue(alreadyResolved.ok);
+    if (!alreadyResolved.ok) throw new Error("expected bulk result");
+    assert.equal(alreadyResolved.affected, 0);
+
+    const scoped = service.resolveCandidateIssuesBulk({
+      scanOperationId: preview.operationId,
+      reasonCode: "duplicate_reference",
+      kind: "merge_duplicates",
+      query: { search: "no-such-paper" },
+    });
+    assert.isTrue(scoped.ok);
+    if (!scoped.ok) throw new Error("expected scoped bulk result");
+    assert.equal(scoped.affected, 0);
+
+    const merged = service.resolveCandidateIssuesBulk({
+      scanOperationId: preview.operationId,
+      reasonCode: "duplicate_reference",
+      kind: "merge_duplicates",
+    });
+    assert.isTrue(merged.ok);
+    if (!merged.ok) throw new Error("expected merge bulk result");
+    assert.equal(merged.affected, 1);
+    assert.equal(
+      service
+        .listCandidatePage({ runId: preview.runId })
+        .items.find((item) => item.title === "Duplicate paper")
+        ?.classification,
+      "ready",
+    );
+
+    const stale = service.resolveCandidateIssuesBulk({
+      scanOperationId: "missing-operation",
+      reasonCode: "damaged_input",
+      kind: "accept_damaged_input",
+    });
+    assert.isFalse(stale.ok);
+    if (stale.ok) throw new Error("stale plan must fail");
+    assert.equal(stale.code, "fresh_scan_required");
   });
 
   it("filters the complete runtime plan before pagination", async function () {

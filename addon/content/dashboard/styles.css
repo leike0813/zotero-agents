@@ -2491,7 +2491,7 @@ tr.clickable {
 .dashboard-migrations-pagination {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .dashboard-migrations-actions {
@@ -2531,7 +2531,76 @@ tr.clickable {
 .dashboard-migrations-select-all {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+.dashboard-migrations-batch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.dashboard-migration-batch-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--zs-panel-alt);
+}
+
+.dashboard-migration-batch-reason {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.dashboard-migration-batch-btn {
+  min-width: 0;
+  height: 24px;
+  padding: 2px 10px;
+  font-size: 12px;
+}
+
+.dashboard-migration-batch-btn.is-success,
+.dashboard-migration-issue-options button.is-success {
+  color: var(--zs-badge-success-text);
+  border-color: var(--zs-badge-success-border);
+  background: var(--panel);
+}
+
+.dashboard-migration-batch-btn.is-success:hover,
+.dashboard-migration-issue-options button.is-success:hover {
+  background: var(--zs-badge-success-bg);
+}
+
+.dashboard-migration-batch-btn.is-warning,
+.dashboard-migration-issue-options button.is-warning {
+  color: var(--zs-badge-warning-text);
+  border-color: var(--zs-badge-warning-border);
+  background: var(--panel);
+}
+
+.dashboard-migration-batch-btn.is-warning:hover,
+.dashboard-migration-issue-options button.is-warning:hover {
+  background: var(--zs-badge-warning-bg);
+}
+
+.dashboard-migration-batch-btn.is-danger,
+.dashboard-migration-issue-options button.is-danger {
+  color: var(--zs-badge-danger-text);
+  border-color: var(--zs-badge-danger-border);
+  background: var(--panel);
+}
+
+.dashboard-migration-batch-btn.is-danger:hover,
+.dashboard-migration-issue-options button.is-danger:hover {
+  background: var(--zs-badge-danger-bg);
 }
 
 .dashboard-migrations-page-input {
@@ -2631,7 +2700,7 @@ tr.clickable {
 }
 
 .dashboard-migrations-workspace.has-drawer {
-  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  grid-template-columns: minmax(0, 1fr) minmax(380px, 520px);
 }
 
 .dashboard-migrations-results {
@@ -2644,7 +2713,7 @@ tr.clickable {
 
 .dashboard-migrations-candidates {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   align-content: start;
   min-height: 0;
   padding-right: 4px;
@@ -2653,8 +2722,8 @@ tr.clickable {
 
 .dashboard-migration-candidate {
   display: grid;
-  gap: 8px;
-  padding: 12px;
+  gap: 4px;
+  padding: 8px 10px;
   border: 1px solid var(--line);
   border-left: 3px solid var(--zs-accent-soft-border);
   border-radius: 8px;
@@ -2675,8 +2744,9 @@ tr.clickable {
 }
 
 .dashboard-migration-candidate.is-selected {
-  border-color: var(--zs-accent-soft-border);
-  box-shadow: 0 0 0 1px var(--zs-accent-soft-border);
+  border-color: var(--zs-accent);
+  background: var(--zs-surface-selected);
+  box-shadow: 0 0 0 1px var(--zs-accent);
 }
 
 .dashboard-migration-candidate[data-classification="review_required"] {
@@ -2735,11 +2805,11 @@ tr.clickable {
 
 .dashboard-migration-issue-items {
   display: grid;
-  gap: 4px;
+  gap: 2px;
   margin: 0;
   padding: 0;
   list-style: none;
-  max-height: 160px;
+  max-height: 240px;
   overflow-y: auto;
 }
 
@@ -2748,6 +2818,15 @@ tr.clickable {
   align-items: baseline;
   gap: 8px;
   min-width: 0;
+  padding-block: 3px;
+}
+
+.dashboard-migration-issue-items li + li {
+  border-top: 1px solid var(--line);
+}
+
+.dashboard-migration-issue-items li:has(.dashboard-migration-issue-item) {
+  display: block;
 }
 
 .dashboard-migration-issue-items li > span {
@@ -2761,14 +2840,90 @@ tr.clickable {
   color: var(--muted);
 }
 
+.dashboard-migration-issue-item summary {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  cursor: pointer;
+  list-style: none;
+  border-radius: 4px;
+}
+
+.dashboard-migration-issue-item summary::before {
+  content: "";
+  flex: none;
+  align-self: center;
+  border-left: 5px solid var(--muted);
+  border-block: 4px solid transparent;
+  transition: transform 120ms ease;
+}
+
+.dashboard-migration-issue-item[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.dashboard-migration-issue-item summary:hover {
+  color: var(--zs-accent-strong);
+}
+
+.dashboard-migration-issue-item summary:hover::before {
+  border-left-color: var(--zs-accent-strong);
+}
+
+.dashboard-migration-issue-item summary > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-migration-issue-item[open] summary > span {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.dashboard-migration-issue-item > p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.dashboard-migration-drawer-diagnostics > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.dashboard-migration-drawer-diagnostics > ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.dashboard-migration-drawer-diagnostics > .dashboard-migration-diagnostics {
+  margin-top: 8px;
+}
+
 .dashboard-migration-issue-options button {
   width: 100%;
   text-align: left;
 }
 
 .dashboard-migration-issue-options button.is-selected {
-  border-color: var(--zs-accent-soft-border);
+  border-color: var(--zs-accent);
+  background: var(--zs-surface-selected);
   color: var(--zs-accent-strong);
+  font-weight: 600;
+  box-shadow: 0 0 0 1px var(--zs-accent);
+}
+
+.dashboard-migration-issue-options button.is-selected::before {
+  content: "✓";
+  margin-right: 6px;
+  font-weight: 700;
 }
 
 .dashboard-migration-candidate-heading strong {
@@ -2790,11 +2945,15 @@ tr.clickable {
 .dashboard-migration-reasons {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 12px;
+  gap: 2px 10px;
+}
+
+.dashboard-migration-facts {
+  font-size: 12px;
 }
 
 .dashboard-migration-reasons > span {
-  padding-block: 2px;
+  padding-block: 1px;
   font-size: 11px;
 }
 
@@ -2944,6 +3103,12 @@ tr.clickable {
 
   .dashboard-migrations-filters {
     grid-column: 1 / -1;
+  }
+}
+
+@container main-view (max-width: 900px) {
+  .dashboard-migrations-workspace.has-drawer {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

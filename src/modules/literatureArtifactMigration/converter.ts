@@ -90,7 +90,9 @@ export type LiteratureArtifactMigrationConversion = {
   originalReferenceCount: number;
   originalMentionCount: number;
   /** Affected source entries per reason code, recorded during conversion. */
-  issueItems: Partial<Record<string, Array<{ label: string; hint?: string }>>>;
+  issueItems: Partial<
+    Record<string, Array<{ label: string; hint?: string; detail?: string }>>
+  >;
 };
 
 type LiteratureArtifactMigrationClassification =
@@ -106,6 +108,7 @@ export type LiteratureArtifactMigrationResolutionKind =
   | "replace_canonical"
   | "preserve_source"
   | "accept_data_loss"
+  | "accept_damaged_input"
   | "skip_candidate";
 
 export const MIGRATABLE_LEGACY_PAYLOAD_TYPES: ReadonlySet<string> = new Set([
@@ -960,6 +963,13 @@ function classifyConversion(
     options.mentionIdFactory || ((index) => `mention-${index + 1}`);
   const diagnostics: string[] = [];
   const reasons = new Set<LiteratureArtifactMigrationReasonCode>();
+  const issueItems: LiteratureArtifactMigrationConversion["issueItems"] = {};
+  const recordIssueItem = (
+    reasonCode: string,
+    item: { label: string; hint?: string; detail?: string },
+  ) => {
+    (issueItems[reasonCode] ||= []).push(item);
+  };
   const values = resolveLegacyValues(input);
   const legacyKinds = new Set(
     (input.legacyNotes || []).flatMap((note) =>
@@ -986,6 +996,9 @@ function classifyConversion(
   if (input.readErrors?.length) {
     reasons.add("damaged_input");
     diagnostics.push(...input.readErrors);
+    for (const error of input.readErrors) {
+      recordIssueItem("damaged_input", { label: text(error) });
+    }
   }
   const unsupportedPayloadTypes = new Set<string>();
   const recordPayloadType = (value: unknown) => {
@@ -1050,14 +1063,7 @@ function classifyConversion(
     reasons.add("citation_only");
   if (!originalReferenceCount && !citationValue) reasons.add("no_references");
   const references: SourceReference[] = [];
-  const duplicateKeys = new Set<string>();
-  const issueItems: LiteratureArtifactMigrationConversion["issueItems"] = {};
-  const recordIssueItem = (
-    reasonCode: string,
-    item: { label: string; hint?: string },
-  ) => {
-    (issueItems[reasonCode] ||= []).push(item);
-  };
+  const firstByKey = new Map<string, SourceReference>();
   let droppedCount = 0;
   for (const [referenceIndex, value] of values.references.entries()) {
     const reference = makeSourceReference(value, idFactory, diagnostics);
@@ -1076,14 +1082,22 @@ function classifyConversion(
       ...matchingKeys(reference),
       `tuple:${referenceTuple(reference)}`,
     ];
-    if (identityKeys.some((key) => duplicateKeys.has(key))) {
+    const duplicateKey = identityKeys.find((key) => firstByKey.has(key));
+    if (duplicateKey) {
+      const first = firstByKey.get(duplicateKey)!;
       reasons.add("duplicate_reference");
       diagnostics.push("duplicate reference evidence");
       recordIssueItem("duplicate_reference", {
         label: reference.bibliography.title,
+        hint: first.bibliography.title,
+        detail: duplicateKey.startsWith("tuple:")
+          ? "title+year+authors"
+          : duplicateKey,
       });
     }
-    identityKeys.forEach((key) => duplicateKeys.add(key));
+    identityKeys.forEach((key) => {
+      if (!firstByKey.has(key)) firstByKey.set(key, reference);
+    });
     references.push(reference);
   }
   if (droppedCount) reasons.add("data_loss");
@@ -1312,6 +1326,11 @@ export function resolveLiteratureArtifactMigrationConversion(
       resolution.reasonCode === "data_loss"
     ) {
       reasons.delete("data_loss");
+    } else if (
+      resolution.kind === "accept_damaged_input" &&
+      resolution.reasonCode === "damaged_input"
+    ) {
+      reasons.delete("damaged_input");
     }
   }
 

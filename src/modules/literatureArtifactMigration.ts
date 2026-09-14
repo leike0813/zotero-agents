@@ -1107,6 +1107,9 @@ function issueOptionKinds(
   if (reasonCode === "data_loss") {
     return ["accept_data_loss", "skip_candidate"];
   }
+  if (reasonCode === "damaged_input") {
+    return ["accept_damaged_input", "skip_candidate"];
+  }
   return ["skip_candidate"];
 }
 
@@ -1121,7 +1124,10 @@ function issuesForConversion(
     options: issueOptionKinds(reasonCode).map((kind, optionIndex) => ({
       optionId: `option-${index + 1}-${optionIndex + 1}-${kind}`,
       kind,
-      dataLoss: kind === "drop_unresolved" || kind === "accept_data_loss",
+      dataLoss:
+        kind === "drop_unresolved" ||
+        kind === "accept_data_loss" ||
+        kind === "accept_damaged_input",
     })),
     selectedOptionId: "",
   }));
@@ -1130,7 +1136,7 @@ function issuesForConversion(
 function affectedItemsForIssue(
   conversion: LiteratureArtifactMigrationConversion,
   reasonCode: string,
-): Array<{ label: string; hint?: string }> | undefined {
+): Array<{ label: string; hint?: string; detail?: string }> | undefined {
   if (
     reasonCode === "unresolved_linkage" ||
     reasonCode === "ambiguous_linkage"
@@ -1151,7 +1157,12 @@ function affectedItemsForIssue(
       ]
         .filter(Boolean)
         .join(" · ");
-      return hint ? { label, hint } : { label };
+      const detail = snippet && snippet !== label ? snippet : undefined;
+      return {
+        label,
+        ...(hint ? { hint } : {}),
+        ...(detail ? { detail } : {}),
+      };
     });
   }
   const recorded = conversion.issueItems[reasonCode];
@@ -1241,6 +1252,47 @@ function filterPlanCandidates(
           entry.candidate.disposition === query.disposition),
     )
     .sort((left, right) => left.candidate.ordinal - right.candidate.ordinal);
+}
+
+export type LiteratureArtifactMigrationBatchAction = {
+  reasonCode: string;
+  pendingCount: number;
+  kinds: Array<{ kind: string; dataLoss: boolean }>;
+};
+
+function collectBatchActions(
+  filtered: RuntimeCandidate[],
+): LiteratureArtifactMigrationBatchAction[] {
+  const groups = new Map<
+    string,
+    { pendingCount: number; kinds: Map<string, boolean> }
+  >();
+  for (const entry of filtered) {
+    for (const issue of entry.candidate.issues) {
+      if (issue.status !== "pending") continue;
+      let group = groups.get(issue.reasonCode);
+      if (!group) {
+        group = { pendingCount: 0, kinds: new Map() };
+        groups.set(issue.reasonCode, group);
+      }
+      group.pendingCount += 1;
+      for (const option of issue.options) {
+        if (!group.kinds.has(option.kind)) {
+          group.kinds.set(option.kind, option.dataLoss);
+        }
+      }
+    }
+  }
+  return [...groups.entries()]
+    .map(([reasonCode, group]) => ({
+      reasonCode,
+      pendingCount: group.pendingCount,
+      kinds: [...group.kinds.entries()].map(([kind, dataLoss]) => ({
+        kind,
+        dataLoss,
+      })),
+    }))
+    .sort((left, right) => right.pendingCount - left.pendingCount);
 }
 
 function stateRunEntry(
@@ -2020,6 +2072,28 @@ export function createLiteratureArtifactMigrationService(
     };
   }
 
+  function applyIssueSelection(
+    plan: RuntimePlan,
+    runtimeCandidate: RuntimeCandidate,
+    issue: LiteratureArtifactMigrationIssue,
+    option: LiteratureArtifactMigrationIssueOption,
+  ) {
+    issue.selectedOptionId = option.optionId;
+    issue.status = "resolved";
+    plan.selectedCandidateIds.delete(runtimeCandidate.candidate.candidateId);
+    runtimeCandidate.candidate.disposition = runtimeCandidate.candidate.issues
+      .some(
+        (entry) =>
+          entry.options.find(
+            (candidateOption) =>
+              candidateOption.optionId === entry.selectedOptionId,
+          )?.kind === "skip_candidate",
+      )
+        ? "skip"
+        : "pending";
+    applyRuntimeCandidateResolutions(runtimeCandidate);
+  }
+
   function resolveCandidateIssue(args: {
     scanOperationId: string;
     candidateId: string;
@@ -2061,21 +2135,40 @@ export function createLiteratureArtifactMigrationService(
         { runId: plan.preview.runId },
       );
     }
-    issue.selectedOptionId = option.optionId;
-    issue.status = "resolved";
-    plan.selectedCandidateIds.delete(runtimeCandidate.candidate.candidateId);
-    runtimeCandidate.candidate.disposition =
-      runtimeCandidate.candidate.issues.some(
-        (entry) =>
-          entry.options.find(
-            (candidateOption) =>
-              candidateOption.optionId === entry.selectedOptionId,
-          )?.kind === "skip_candidate",
-      )
-        ? "skip"
-        : "pending";
-    applyRuntimeCandidateResolutions(runtimeCandidate);
+    applyIssueSelection(plan, runtimeCandidate, issue, option);
     return { ok: true };
+  }
+
+  function resolveCandidateIssuesBulk(args: {
+    scanOperationId: string;
+    reasonCode: string;
+    kind: string;
+    query?: LiteratureArtifactMigrationCandidateQuery;
+  }): { ok: true; affected: number } | LiteratureArtifactMigrationFailure {
+    const plan = runtimePlans.get(text(args.scanOperationId));
+    if (!plan) {
+      return failure(
+        "fresh_scan_required",
+        "migration preview is process-local and must be rescanned",
+      );
+    }
+    const reasonCode = text(args.reasonCode);
+    const kind = text(args.kind);
+    let affected = 0;
+    for (const entry of filterPlanCandidates(plan, args.query)) {
+      const issue = entry.candidate.issues.find(
+        (candidate) =>
+          candidate.reasonCode === reasonCode && candidate.status === "pending",
+      );
+      if (!issue) continue;
+      const option = issue.options.find(
+        (candidate) => candidate.kind === kind,
+      );
+      if (!option) continue;
+      applyIssueSelection(plan, entry, issue, option);
+      affected += 1;
+    }
+    return { ok: true, affected };
   }
 
   function setCandidateSelection(args: {
@@ -2269,6 +2362,7 @@ export function createLiteratureArtifactMigrationService(
           };
         }),
         summary,
+        batchActions: collectBatchActions(filtered),
         availableReasons: [
           ...new Set(
             [...plan.candidates.values()].flatMap((entry) =>
@@ -2318,6 +2412,7 @@ export function createLiteratureArtifactMigrationService(
         filteredSelected: 0,
         filteredSelectable: 0,
       },
+      batchActions: [],
       availableReasons: [],
     };
   }
@@ -2333,6 +2428,7 @@ export function createLiteratureArtifactMigrationService(
     getPrimaryDiagnostic,
     buildDiagnosticBundle,
     resolveCandidateIssue,
+    resolveCandidateIssuesBulk,
     setCandidateSelection,
     setCandidateFilterSelection,
     listHistory,

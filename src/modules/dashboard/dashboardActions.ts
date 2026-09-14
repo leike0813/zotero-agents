@@ -408,6 +408,33 @@ export function createDashboardActionDispatcher(
             optionId: String(payload.optionId || ""),
           });
           if (!result.ok) alertRuntimeWindow(result.message);
+        } else if (action === "literature-migration-resolve-issues-bulk") {
+          const result = service.resolveCandidateIssuesBulk({
+            scanOperationId: String(payload.scanOperationId || ""),
+            reasonCode: String(payload.reasonCode || ""),
+            kind: String(payload.kind || ""),
+            query: {
+              ...(state.literatureMigrationCandidateQuery.search
+                ? { search: state.literatureMigrationCandidateQuery.search }
+                : {}),
+              ...(state.literatureMigrationCandidateQuery.classification
+                ? {
+                    classification:
+                      state.literatureMigrationCandidateQuery.classification,
+                  }
+                : {}),
+              ...(state.literatureMigrationCandidateQuery.reasonCode
+                ? { reasonCode: state.literatureMigrationCandidateQuery.reasonCode }
+                : {}),
+              ...(state.literatureMigrationCandidateQuery.disposition
+                ? {
+                    disposition:
+                      state.literatureMigrationCandidateQuery.disposition,
+                  }
+                : {}),
+            },
+          });
+          if (!result.ok) alertRuntimeWindow(result.message);
         } else if (action === "literature-migration-set-candidate-query") {
           state.literatureMigrationCandidateQuery = {
             search: String(payload.search || "").slice(0, 200),

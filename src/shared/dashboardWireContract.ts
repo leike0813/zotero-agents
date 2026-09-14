@@ -107,6 +107,7 @@ export type DashboardHostActionName =
   | "literature-migration-set-selection"
   | "literature-migration-set-filter-selection"
   | "literature-migration-resolve-issue"
+  | "literature-migration-resolve-issues-bulk"
   | "literature-migration-set-candidate-query"
   | "literature-migration-list-receipts"
   | "literature-migration-select-run"
@@ -302,6 +303,11 @@ export type DashboardActionPayloadMap = {
     candidateId: string;
     issueId: string;
     optionId: string;
+  }>;
+  "literature-migration-resolve-issues-bulk": DashboardActionPayloadShape<{
+    scanOperationId: string;
+    reasonCode: string;
+    kind: string;
   }>;
   "literature-migration-set-candidate-query": DashboardActionPayloadShape<{
     search?: string;
@@ -1122,7 +1128,7 @@ export type DashboardLiteratureArtifactMigrationCandidate = {
     reasonCode: string;
     status: "pending" | "resolved";
     detail: string;
-    affectedItems?: Array<{ label: string; hint?: string }>;
+    affectedItems?: Array<{ label: string; hint?: string; detail?: string }>;
     options: Array<{
       optionId: string;
       kind: string;
@@ -1156,6 +1162,11 @@ export type DashboardLiteratureArtifactMigrationCandidatePage = {
   };
   query: DashboardLiteratureArtifactMigrationCandidateQuery;
   availableReasons: string[];
+  batchActions: Array<{
+    reasonCode: string;
+    pendingCount: number;
+    kinds: Array<{ kind: string; dataLoss: boolean }>;
+  }>;
 };
 
 export type DashboardLiteratureArtifactMigrationRun = {
