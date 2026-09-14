@@ -122,7 +122,10 @@ export type ManagedNoteReadOptions = Readonly<{
   readRevision?: () => string;
   /** Migration-only verification may hide exact legacy v1 attachments queued for cleanup. */
   ignoredLegacyPayloadAttachmentKeys?: ReadonlySet<string>;
+  maxPayloadBytes?: number;
 }>;
+
+export const MIGRATION_NOTE_PAYLOAD_MAX_BYTES = 4 * 1024 * 1024;
 
 export type ZoteroManagedNoteLocalControl = Readonly<{
   /** Host-only library mutability fact used by the migration planner. */
@@ -207,6 +210,7 @@ async function readAllPayloadBlocksForMigration(
       {
         runNativeSlice: options.runNativeSlice,
         checkCanceled: options.checkCanceled,
+        maxPayloadBytes: options.maxPayloadBytes,
       },
     );
     blocks.push(...page.blocks);
@@ -269,6 +273,7 @@ export async function readLegacyManagedNoteForMigration(
     blocks = await readAllPayloadBlocksForMigration(note, {
       ...options,
       runNativeSlice,
+      maxPayloadBytes: MIGRATION_NOTE_PAYLOAD_MAX_BYTES,
     });
   } catch (error) {
     if (error instanceof ZoteroNotePayloadResourceLimitError) {
@@ -1354,6 +1359,7 @@ export function assertLiteratureArtifactApplyAnalysisRequest(
       "digest",
       "references",
       "citationAnalysis",
+      "compactCitationSnippets",
       "score",
       "matchingMetadata",
     ],
@@ -1374,6 +1380,16 @@ export function assertLiteratureArtifactApplyAnalysisRequest(
     );
   }
   ownerPortableRef(request.parentRef, "parentRef");
+  if (
+    request.compactCitationSnippets !== undefined &&
+    request.compactCitationSnippets !== true
+  ) {
+    throw new ManagedNoteOwnerError(
+      "invalid_request",
+      "compactCitationSnippets is invalid",
+      { reason: "invalid_value", field: "compactCitationSnippets" },
+    );
+  }
   const digest = request.digest;
   if (digest !== undefined) {
     const value = ownerRecord(digest, "digest");
@@ -1745,6 +1761,7 @@ export function managedArtifactContent(
   noteKind: Exclude<ManagedNoteKind, "custom" | "conversation-note">,
   title: string,
   payload: JsonValue,
+  visibleHtml?: string,
 ) {
   const digestMarkdown =
     noteKind === "digest" &&
@@ -1757,7 +1774,7 @@ export function managedArtifactContent(
           title,
         )
       : undefined;
-  const body =
+  const renderBody = () =>
     noteKind === "digest"
       ? renderMarkdownToHtml(
           digestMarkdown !== undefined ? digestMarkdown : String(payload),
@@ -1827,16 +1844,18 @@ export function managedArtifactContent(
                 .replaceAll(">", "&gt;")}</pre>`;
   const storedValue =
     noteKind === "digest" ? (digestMarkdown ?? payload) : payload;
-  const storedContent = buildStructuredNoteContent({
-    noteKind,
-    title,
-    viewName: `${noteKind}-html`,
-    bodyHtml: body,
-    payloadType: MANAGED_NOTE_PAYLOAD_TYPES[noteKind],
-    payload: storedValue,
-    payloadFormat:
-      noteKind === "digest" ? ("text" as const) : ("json" as const),
-  });
+  const storedContent =
+    visibleHtml ??
+    buildStructuredNoteContent({
+      noteKind,
+      title,
+      viewName: `${noteKind}-html`,
+      bodyHtml: renderBody(),
+      payloadType: MANAGED_NOTE_PAYLOAD_TYPES[noteKind],
+      payload: storedValue,
+      payloadFormat:
+        noteKind === "digest" ? ("text" as const) : ("json" as const),
+    });
   assertManagedWriteWithinLimit({
     noteKind,
     title,
@@ -1920,6 +1939,8 @@ export function canonicalManagedPayloadHash(payload: JsonValue) {
 
 export type ManagedParentSetSemanticInput = {
   parentRef: PortableItemRef;
+  /** Trusted apply/migration policy; direct public Citation upsert stays strict. */
+  compactCitationSnippets?: true;
   entries?: Array<{
     sourceNoteId?: string;
     /** Private migration target; never accepted by public note DTOs. */

@@ -145,7 +145,10 @@ export async function upsertLiteratureDigestGeneratedNotes(args) {
         : {}),
       ...(args.references ? { references: args.references.payload } : {}),
       ...(args.citationAnalysis
-        ? { citationAnalysis: args.citationAnalysis.payload }
+        ? {
+            citationAnalysis: args.citationAnalysis.payload,
+            compactCitationSnippets: true,
+          }
         : {}),
       ...(args.literatureScore ? { score: args.literatureScore.payload } : {}),
       ...(args.digest?.literatureMatchingMetadata
@@ -153,7 +156,7 @@ export async function upsertLiteratureDigestGeneratedNotes(args) {
         : {}),
     });
   const result = requireCommittedMutation(execution);
-  return { notes: result.notes, representative_image: representativeImage };
+  return { ...result, representative_image: representativeImage };
 }
 
 export async function resolveLiteratureMatchingMetadataForDigestNote(args) {

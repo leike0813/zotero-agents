@@ -13,6 +13,7 @@ import {
   resetLiteratureArtifactMigrationRuntimeForTests,
 } from "../../../../src/modules/literatureArtifactMigration";
 import { resetPluginStateStoreForTests } from "../../../../src/modules/pluginStateStore";
+import { convertLegacyArtifactSet } from "../../../../src/modules/literatureArtifactMigration/converter";
 
 function isRealZoteroRuntime() {
   const runtime = globalThis as {
@@ -406,6 +407,348 @@ describeZotero("managed note transaction in Zotero", function () {
         resetPluginStateStoreForTests();
         await Zotero.Items.trashTx([parent.id]);
       }
+    }
+  });
+
+  it("repairs an oversized nested Citation against canonical References", async function () {
+    this.timeout(180000);
+    const parent = await createParent("Managed oversized Citation repair");
+    try {
+      const conversion = convertLegacyArtifactSet(
+        {
+          libraryId: parent.libraryID,
+          parentRef: parentRef(parent),
+          references: [
+            { title: "A Study", year: 2024, authors: ["Ada Lovelace"] },
+          ],
+        },
+        { idFactory: () => "source-reference-1" },
+      );
+      const broker = createZoteroHostCapabilityBroker();
+      const control = getZoteroManagedNoteLocalControl(broker);
+      const referencesWrite = await control.applyParentSet(
+        {
+          operationId: operationId("canonical-references"),
+          parentRef: parentRef(parent),
+          references: conversion.references,
+        },
+        { ownerId: "test-managed-note-transaction" },
+      );
+      assert.oneOf(referencesWrite.outcome, ["committed", "unchanged"]);
+
+      const canonicalReferencesNote = (
+        await Promise.all(
+          (await queryChildIds(parent.id)).map(async (itemId) => {
+            const note = Zotero.Items.get(itemId)!;
+            const transfer = await control.readForTransfer({
+              libraryId: note.libraryID,
+              key: note.key,
+            });
+            return transfer.detail.kind === "managed" &&
+              transfer.detail.noteKind === "references"
+              ? note
+              : null;
+          }),
+        )
+      ).find(Boolean)!;
+      const snippet = `${"x".repeat(900)} [1] ${"y".repeat(900)}`;
+      const oversizedCitation = await createLegacyAttachmentPayloadNote({
+        parent,
+        title: "Citation Analysis",
+        noteKind: "citation-analysis",
+        payloadType: "citation-analysis-json",
+        payload: {
+          items: [
+            {
+              reference: {
+                title: "A Study",
+                year: 2024,
+                authors: ["Ada Lovelace"],
+              },
+              metadata: { role_in_context: "baseline" },
+              mentions: Array.from({ length: 800 }, () => ({
+                marker: "[1]",
+                snippet,
+              })),
+            },
+          ],
+        },
+        storageVersion: 2,
+      });
+      const sourceBytes = await IOUtils.read(
+        await oversizedCitation.attachment.getFilePathAsync(),
+      );
+      assert.isAbove(sourceBytes.byteLength, 1024 * 1024);
+      assert.isBelow(sourceBytes.byteLength, 4 * 1024 * 1024);
+
+      const service = createLiteratureArtifactMigrationService({
+        host: createLiteratureArtifactMigrationHostFromZoteroBroker(broker),
+      });
+      const preview = await service.scan({ libraryId: parent.libraryID });
+      assert.isTrue(preview.ok);
+      if (!preview.ok) throw new Error("expected migration preview");
+      const candidate = preview.candidates.find(
+        (entry) => entry.parentRef.key === parent.key,
+      );
+      assert.equal(candidate?.classification, "ready");
+
+      const result = await service.apply({
+        scanOperationId: preview.operationId,
+        candidateIds: [candidate!.candidateId],
+      });
+      assert.isTrue(result.ok);
+      if (!result.ok) throw new Error("expected migration result");
+      const diagnostics = service.buildDiagnosticBundle({
+        runId: result.runId,
+      });
+      assert.equal(
+        result.state,
+        "completed",
+        JSON.stringify(diagnostics.ok ? diagnostics.bundle : diagnostics),
+      );
+
+      const managed = await Promise.all(
+        (await queryChildIds(parent.id)).map(async (itemId) => {
+          const note = Zotero.Items.get(itemId)!;
+          return {
+            note,
+            transfer: await control.readForTransfer({
+              libraryId: note.libraryID,
+              key: note.key,
+            }),
+          };
+        }),
+      );
+      const references = managed.find(
+        ({ transfer }) =>
+          transfer.detail.kind === "managed" &&
+          transfer.detail.noteKind === "references",
+      );
+      const citation = managed.find(
+        ({ transfer }) =>
+          transfer.detail.kind === "managed" &&
+          transfer.detail.noteKind === "citation-analysis",
+      );
+      assert.equal(references?.note.key, canonicalReferencesNote.key);
+      assert.isOk(citation);
+      if (citation?.transfer.detail.kind !== "managed") {
+        throw new Error("expected managed Citation");
+      }
+      const payload = citation.transfer.detail.payload as {
+        items: Array<{
+          sourceReferenceId: string;
+          role_in_context: string | null;
+          mentions: Array<{ marker: string; snippet: string }>;
+        }>;
+      };
+      assert.equal(payload.items[0]?.sourceReferenceId, "source-reference-1");
+      assert.equal(payload.items[0]?.role_in_context, "baseline");
+      assert.equal(payload.items[0]?.mentions.length, 800);
+      assert.isTrue(
+        payload.items[0]!.mentions.every(
+          (mention) =>
+            Array.from(mention.snippet).length <= 512 &&
+            mention.snippet.includes(mention.marker),
+        ),
+      );
+      assert.isTrue(
+        !Zotero.Items.get(oversizedCitation.attachment.id) ||
+          Boolean(Zotero.Items.get(oversizedCitation.attachment.id)?.deleted),
+      );
+    } finally {
+      resetLiteratureArtifactMigrationRuntimeForTests();
+      resetPluginStateStoreForTests();
+      await Zotero.Items.trashTx([parent.id]);
+    }
+  });
+
+  it("returns canonical Citation detail when optional enrichment exceeds the limit", async function () {
+    this.timeout(120000);
+    const parent = await createParent("Managed Citation preserved view");
+    try {
+      const conversion = convertLegacyArtifactSet(
+        {
+          libraryId: parent.libraryID,
+          parentRef: parentRef(parent),
+          references: [
+            {
+              sourceReferenceId: "REF-A",
+              title: "A Study",
+              year: 2024,
+              authors: ["Ada Lovelace"],
+            },
+          ],
+          citation: {
+            items: [
+              {
+                sourceReferenceId: "REF-A",
+                mentions: [{ rawCitation: "Lovelace (2024)" }],
+              },
+            ],
+          },
+        },
+        { idFactory: () => "REF-A" },
+      );
+      const citation = {
+        ...conversion.citation!,
+        items: Array.from({ length: 5 }, (_, index) => ({
+          ...conversion.citation!.items[0],
+          role_in_context: "&".repeat(30_000),
+          topic: "&".repeat(30_000),
+          usage: "&".repeat(30_000),
+          summary: "&".repeat(50_000),
+          key_reference_reason: "&".repeat(30_000),
+          mentions: conversion.citation!.items[0]!.mentions.map((mention) => ({
+            ...mention,
+            mention_id: `${mention.mention_id}-${index}`,
+          })),
+        })),
+      };
+      const visibleHtml =
+        "<div><h1>Citation Analysis</h1><p>Preserved migration view</p></div>";
+      const result = await getZoteroManagedNoteLocalControl(
+        createZoteroHostCapabilityBroker(),
+      ).applyParentSet(
+        {
+          operationId: operationId("preserved-citation-view"),
+          parentRef: parentRef(parent),
+          entries: [
+            {
+              noteKind: "references",
+              title: "References",
+              payload: conversion.references,
+            },
+            {
+              noteKind: "citation-analysis",
+              title: "Citation Analysis",
+              payload: citation,
+              visibleHtml,
+            },
+          ],
+        },
+        { ownerId: "test-managed-note-transaction" },
+      );
+
+      assert.oneOf(
+        result.outcome,
+        ["committed", "unchanged"],
+        JSON.stringify(result),
+      );
+      if (result.outcome !== "committed" && result.outcome !== "unchanged") {
+        throw new Error("Citation parent-set write must commit");
+      }
+      assert.isUndefined(result.result.notes[1]?.markdown);
+      const citationNote = (await queryChildIds(parent.id))
+        .map((itemId) => Zotero.Items.get(itemId))
+        .find((note) => note?.getNote().includes("Preserved migration view"));
+      assert.isOk(citationNote);
+    } finally {
+      resetPluginStateStoreForTests();
+      await Zotero.Items.trashTx([parent.id]);
+    }
+  });
+
+  it("tightens opted-in Citation snippets until the exact managed envelope fits", async function () {
+    this.timeout(120000);
+    const parent = await createParent("Managed Citation snippet compaction");
+    try {
+      const conversion = convertLegacyArtifactSet(
+        {
+          libraryId: parent.libraryID,
+          parentRef: parentRef(parent),
+          references: [
+            {
+              sourceReferenceId: "REF-A",
+              title: "A Study",
+              year: 2024,
+              authors: ["Ada Lovelace"],
+            },
+          ],
+          citation: {
+            items: [
+              {
+                sourceReferenceId: "REF-A",
+                mentions: [{ rawCitation: "Lovelace (2024)" }],
+              },
+            ],
+          },
+        },
+        { idFactory: () => "REF-A" },
+      );
+      const citation = {
+        ...conversion.citation!,
+        unresolved: Array.from({ length: 1_000 }, (_, index) => ({
+          mention_id: `unresolved-${index}`,
+          marker: null,
+          style: null,
+          line_start: null,
+          line_end: null,
+          snippet: "&".repeat(512),
+          ref_number_hint: null,
+          year_hint: null,
+          surname_hint: null,
+          citation_label_hint: null,
+          citekey_hint: null,
+          reason: "unmatched",
+        })),
+      };
+      const broker = createZoteroHostCapabilityBroker();
+      const control = getZoteroManagedNoteLocalControl(broker);
+      const strict = await control.applyParentSet(
+        {
+          operationId: operationId("strict-citation-size"),
+          parentRef: parentRef(parent),
+          references: conversion.references,
+          citationAnalysis: citation,
+        },
+        { ownerId: "test-managed-note-transaction" },
+      );
+      assert.equal(strict.outcome, "failed");
+      if (strict.outcome !== "failed") {
+        throw new Error(
+          "strict Citation write must reject the oversized envelope",
+        );
+      }
+      assert.equal(strict.attempt.error.code, "resource_limited");
+
+      const compacted = await control.applyParentSet(
+        {
+          operationId: operationId("compact-citation-size"),
+          parentRef: parentRef(parent),
+          compactCitationSnippets: true,
+          references: conversion.references,
+          citationAnalysis: citation,
+        },
+        { ownerId: "test-managed-note-transaction" },
+      );
+      assert.oneOf(
+        compacted.outcome,
+        ["committed", "unchanged"],
+        JSON.stringify(compacted),
+      );
+      if (
+        compacted.outcome !== "committed" &&
+        compacted.outcome !== "unchanged"
+      ) {
+        throw new Error("compacted Citation write must commit");
+      }
+      const report = compacted.result.citationSnippetCompaction!;
+      assert.isBelow(report.finalMaxCharacters, 512);
+      assert.equal(report.truncatedSnippetCount, 1_000);
+      assert.isBelow(report.finalPayloadBytes, report.originalPayloadBytes);
+      const storedCitation = compacted.result.notes.find(
+        (note) => note.noteKind === "citation-analysis",
+      )!;
+      assert.isTrue(
+        (storedCitation.payload as any).unresolved.every(
+          (mention: any) =>
+            Array.from(String(mention.snippet || "")).length <=
+            report.finalMaxCharacters,
+        ),
+      );
+    } finally {
+      resetPluginStateStoreForTests();
+      await Zotero.Items.trashTx([parent.id]);
     }
   });
 

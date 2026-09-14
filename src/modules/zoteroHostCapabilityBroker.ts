@@ -137,6 +137,7 @@ import type {
 } from "../workflows/types";
 import {
   attachReferencesBasis,
+  compactCitationAnalysisSnippets,
   validateCitationAgainstReferences,
   validateCitationAnalysisArtifact,
   validateSourceReferenceArtifact,
@@ -162,6 +163,7 @@ import {
   transferPayloadValueFromBlock,
   deriveCitationHealth,
   readLegacyManagedNoteForMigration,
+  MIGRATION_NOTE_PAYLOAD_MAX_BYTES,
   managedNotePayloadSemanticHash,
   type LegacyMigrationCleanupPlan,
   ManagedNoteOwnerError,
@@ -5540,6 +5542,7 @@ function mutationAdmissionError(error: MutationAuthorityAdmissionError) {
 async function listMutationPayloadBlocks(
   note: Zotero.Item,
   control?: WorkflowCallControl,
+  maxPayloadBytes?: number,
 ) {
   const blocks: ZoteroNotePayloadBlock[] = [];
   let cursor: string | undefined;
@@ -5551,6 +5554,7 @@ async function listMutationPayloadBlocks(
       {
         runNativeSlice: (run) => withZoteroHostSlice(control, run),
         checkCanceled: () => throwIfWorkflowCallCanceled(control),
+        ...(maxPayloadBytes ? { maxPayloadBytes } : {}),
       },
     );
     blocks.push(...page.blocks);
@@ -10076,6 +10080,7 @@ async function executeManagedParentSetMutation(
     : undefined;
   const semanticInput = strictJsonObject({
     parentRef: input.parentRef,
+    ...(input.compactCitationSnippets ? { compactCitationSnippets: true } : {}),
     ...(input.entries ? { entries: input.entries } : {}),
     ...(input.references ? { references: input.references } : {}),
     ...(input.citationAnalysis
@@ -10240,7 +10245,9 @@ async function executeManagedParentSetMutation(
         },
         execute: async () => {
           try {
-            const entries = [...(input.entries || [])];
+            const entries = (input.entries || []).map((entry) => ({
+              ...entry,
+            }));
             if (input.references) {
               entries.push({
                 noteKind: "references",
@@ -10326,6 +10333,10 @@ async function executeManagedParentSetMutation(
             const plans: PreparedParentSetEntry[] = [];
             let referencesBasis: string | undefined;
             let dependentStale = false;
+            let citationCompactionSource: CitationAnalysisArtifact | undefined;
+            let citationSnippetCompaction:
+              | LiteratureArtifactApplyAnalysisResultDto["citationSnippetCompaction"]
+              | undefined;
             const referenceEntry = entries.find(
               (entry) => entry.noteKind === "references",
             );
@@ -10351,10 +10362,12 @@ async function executeManagedParentSetMutation(
               referencesBasis =
                 hashSynthesisContractCanonicalJson(referencePayload);
               if (citationEntryIndex < 0) {
-                const existingCitation = await managedSingleton(
-                  input.parentRef,
-                  "citation-analysis",
-                  control,
+                const existingCitation = await callManagedOwner(() =>
+                  managedSingleton(
+                    input.parentRef,
+                    "citation-analysis",
+                    control,
+                  ),
                 );
                 if (existingCitation.inspection?.kind === "managed") {
                   const existingPayload = existingCitation.inspection
@@ -10371,13 +10384,30 @@ async function executeManagedParentSetMutation(
                 raw && typeof raw === "object" && !Array.isArray(raw)
                   ? raw
                   : { value: raw };
-              const validated = validateCitationAnalysisArtifact(canonical);
+              let validated = validateCitationAnalysisArtifact(canonical);
               if (!validated.ok) {
                 throw capabilityError(
                   "invalid_request",
                   "citation analysis artifact is invalid",
                   { reason: "invalid_schema", field: "entries.payload" },
                 );
+              }
+              if (input.compactCitationSnippets) {
+                citationCompactionSource = validated.value;
+                const compacted = compactCitationAnalysisSnippets(
+                  validated.value,
+                  512,
+                );
+                validated = validateCitationAnalysisArtifact(
+                  compacted.artifact,
+                );
+                if (!validated.ok) {
+                  throw capabilityError(
+                    "invalid_request",
+                    "compacted citation analysis artifact is invalid",
+                    { reason: "invalid_schema", field: "entries.payload" },
+                  );
+                }
               }
               let refsForCitation = referencePayload;
               if (!refsForCitation) {
@@ -10530,14 +10560,107 @@ async function executeManagedParentSetMutation(
                   String(semantic.markdown || ""),
                 );
               } else {
-                built = managedArtifactContent(
-                  artifactKind as Exclude<
-                    ManagedNoteKind,
-                    "custom" | "conversation-note"
-                  >,
-                  entry.title,
-                  entry.payload,
-                );
+                if (
+                  artifactKind === "citation-analysis" &&
+                  input.compactCitationSnippets &&
+                  citationCompactionSource &&
+                  referencesBasis
+                ) {
+                  const buildAt = (maxCharacters: number) => {
+                    const compacted = compactCitationAnalysisSnippets(
+                      citationCompactionSource!,
+                      maxCharacters,
+                    );
+                    const payload = attachReferencesBasis(
+                      compacted.artifact,
+                      referencesBasis!,
+                    ) as unknown as JsonValue;
+                    try {
+                      return {
+                        maxCharacters,
+                        compacted,
+                        payload,
+                        built: managedArtifactContent(
+                          "citation-analysis",
+                          entry.title,
+                          payload,
+                          entry.visibleHtml,
+                        ),
+                      };
+                    } catch (error) {
+                      if (
+                        error instanceof ZoteroNotePayloadResourceLimitError ||
+                        (error instanceof ManagedNoteOwnerError &&
+                          error.code === "resource_limited")
+                      ) {
+                        return null;
+                      }
+                      throw error;
+                    }
+                  };
+                  let selected = buildAt(512);
+                  if (!selected) {
+                    selected = buildAt(0);
+                    if (!selected) {
+                      await callManagedOwner(() =>
+                        Promise.resolve(
+                          managedArtifactContent(
+                            "citation-analysis",
+                            entry.title,
+                            attachReferencesBasis(
+                              compactCitationAnalysisSnippets(
+                                citationCompactionSource!,
+                                0,
+                              ).artifact,
+                              referencesBasis!,
+                            ) as unknown as JsonValue,
+                            entry.visibleHtml,
+                          ),
+                        ),
+                      );
+                      throw new Error("unreachable managed Citation size gate");
+                    }
+                    let low = 1;
+                    let high = 511;
+                    while (low <= high) {
+                      const middle = Math.floor((low + high) / 2);
+                      const candidate = buildAt(middle);
+                      if (candidate) {
+                        selected = candidate;
+                        low = middle + 1;
+                      } else {
+                        high = middle - 1;
+                      }
+                    }
+                  }
+                  entry.payload = selected.payload;
+                  built = selected.built;
+                  citationSnippetCompaction = {
+                    truncatedSnippetCount:
+                      selected.compacted.truncatedSnippetCount,
+                    finalMaxCharacters: selected.maxCharacters,
+                    originalPayloadBytes: new TextEncoder().encode(
+                      JSON.stringify(citationCompactionSource),
+                    ).byteLength,
+                    finalPayloadBytes: new TextEncoder().encode(
+                      JSON.stringify(selected.compacted.artifact),
+                    ).byteLength,
+                  };
+                } else {
+                  built = await callManagedOwner(() =>
+                    Promise.resolve(
+                      managedArtifactContent(
+                        artifactKind as Exclude<
+                          ManagedNoteKind,
+                          "custom" | "conversation-note"
+                        >,
+                        entry.title,
+                        entry.payload,
+                        entry.visibleHtml,
+                      ),
+                    ),
+                  );
+                }
               }
               const migrationTarget = entry.migrationSourceRef
                 ? await withZoteroHostSlice(control, () => {
@@ -10968,6 +11091,9 @@ async function executeManagedParentSetMutation(
                 const blocks = await listMutationPayloadBlocks(
                   plan.note,
                   control,
+                  plan.entry.migrationSourceRef
+                    ? MIGRATION_NOTE_PAYLOAD_MAX_BYTES
+                    : undefined,
                 );
                 plan.legacyPayloadBlocks = blocks;
                 plan.payloadBlocks = blocks.filter(
@@ -11152,6 +11278,7 @@ async function executeManagedParentSetMutation(
                   const currentBlocks = await listMutationPayloadBlocks(
                     plan.note,
                     control,
+                    MIGRATION_NOTE_PAYLOAD_MAX_BYTES,
                   );
                   if (
                     migrationPayloadSourceFacts(currentBlocks) !==
@@ -11520,6 +11647,7 @@ async function executeManagedParentSetMutation(
               const blocks = await listMutationPayloadBlocks(
                 plan.note!,
                 control,
+                MIGRATION_NOTE_PAYLOAD_MAX_BYTES,
               );
               const canonicalBlocks = blocks.filter(
                 (block) =>
@@ -11589,7 +11717,6 @@ async function executeManagedParentSetMutation(
                 await compensate(error);
                 throw error;
               }
-              detail = await enrichManagedNoteDetail(detail, control || {});
               if (detail.kind !== "managed") {
                 await compensate(
                   new Error(
@@ -11698,6 +11825,9 @@ async function executeManagedParentSetMutation(
                 notes,
                 ...(referencesBasis ? { referencesBasis } : {}),
                 ...(dependentStale ? { dependentStale: true } : {}),
+                ...(citationSnippetCompaction
+                  ? { citationSnippetCompaction }
+                  : {}),
               },
             };
           } catch (error) {
@@ -11743,6 +11873,13 @@ async function callManagedOwner<T extends object>(
   try {
     return await run();
   } catch (error) {
+    if (error instanceof ZoteroNotePayloadResourceLimitError) {
+      throw capabilityError(
+        "resource_limited",
+        "managed note payload exceeds the Broker limit",
+        { resource: "bytes", limit: error.limit },
+      );
+    }
     if (!(error instanceof ManagedNoteOwnerError)) throw error;
     const knownCodes = new Set<ZoteroHostCapabilityErrorCode>([
       "invalid_request",

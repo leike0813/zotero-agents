@@ -364,6 +364,127 @@ describe("literature artifact migration", function () {
     );
   });
 
+  it("repairs nested legacy Citation against canonical References", function () {
+    const parentRef = { libraryId: 1, key: "PARENT" };
+    const references = convertLegacyArtifactSet({
+      libraryId: 1,
+      parentRef,
+      references: [{ title: "A Study", year: 2024, authors: ["Ada Lovelace"] }],
+    }).references;
+    const plan = convertLegacyArtifactSet({
+      libraryId: 1,
+      parentRef,
+      canonicalNotes: [
+        {
+          ref: { libraryId: 1, key: "REFERENCES" },
+          noteKind: "references",
+          revision: "canonical-1",
+          payload: references,
+        },
+      ],
+      filePayloads: [
+        {
+          payloadType: "citation-analysis-json",
+          value: {
+            items: [
+              {
+                reference: {
+                  title: "A Study",
+                  year: 2024,
+                  author: ["Ada Lovelace"],
+                },
+                metadata: {
+                  role_in_context: "baseline evidence",
+                  key_reference_reason: "central comparison",
+                },
+                mentions: [{ marker: "[1]", snippet: "x".repeat(700) }],
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    assert.equal(plan.classification, "ready");
+    assert.notInclude(plan.reasonCodes, "citation_only");
+    assert.notInclude(plan.reasonCodes, "no_references");
+    assert.equal(plan.verifiedCount, 1);
+    assert.deepEqual(plan.references, references);
+    assert.equal(
+      plan.citation?.items[0]?.sourceReferenceId,
+      references.references[0]?.sourceReferenceId,
+    );
+    assert.equal(plan.citation?.items[0]?.role_in_context, "baseline evidence");
+    assert.equal(
+      plan.citation?.items[0]?.key_reference_reason,
+      "central comparison",
+    );
+    assert.lengthOf(
+      Array.from(plan.citation?.items[0]?.mentions[0]?.snippet || ""),
+      512,
+    );
+  });
+
+  it("shrinks a recoverable legacy Citation below the canonical byte limit", function () {
+    const parentRef = { libraryId: 1, key: "PARENT" };
+    const references = convertLegacyArtifactSet({
+      libraryId: 1,
+      parentRef,
+      references: [{ title: "A Study", year: 2024, authors: ["Ada Lovelace"] }],
+    }).references;
+    const plan = convertLegacyArtifactSet(
+      {
+        libraryId: 1,
+        parentRef,
+        canonicalNotes: [
+          {
+            ref: { libraryId: 1, key: "REFERENCES" },
+            noteKind: "references",
+            revision: "canonical-1",
+            payload: references,
+          },
+        ],
+        filePayloads: [
+          {
+            payloadType: "citation-analysis-json",
+            value: {
+              items: [
+                {
+                  reference: {
+                    title: "A Study",
+                    year: 2024,
+                    authors: ["Ada Lovelace"],
+                  },
+                  mentions: Array.from({ length: 1_600 }, (_, index) => ({
+                    mention_id: `mention-${index}`,
+                    marker: "[1]",
+                    snippet: "x".repeat(700),
+                  })),
+                },
+              ],
+            },
+          },
+        ],
+      },
+      { mentionIdFactory: (index) => `generated-${index}` },
+    );
+
+    assert.equal(plan.classification, "ready");
+    assert.equal(plan.citation?.items[0]?.mentions.length, 1_600);
+    assert.isBelow(
+      new TextEncoder().encode(JSON.stringify(plan.citation)).byteLength,
+      1024 * 1024 + 1,
+    );
+    assert.isBelow(
+      Math.max(
+        ...(plan.citation?.items[0]?.mentions || []).map(
+          (mention) => Array.from(mention.snippet || "").length,
+        ),
+      ),
+      512,
+    );
+  });
+
   it("previews legacy file payloads without consuming the import files", function () {
     const referencesFile = {
       payloadType: "references-json",
@@ -779,6 +900,114 @@ describe("literature artifact migration", function () {
     assert.notInclude(JSON.stringify(input), secret);
   });
 
+  it("repairs Citation without rewriting canonical References or forwarding damage acceptance", async function () {
+    const parentRef = { libraryId: 1, key: "PARENT" };
+    const referencesNoteRef = { libraryId: 1, key: "REFERENCES" };
+    const citationNoteRef = { libraryId: 1, key: "LEGACY-CITATION" };
+    const references = convertLegacyArtifactSet({
+      libraryId: 1,
+      parentRef,
+      references: [{ title: "A Study", year: 2024, authors: ["Ada"] }],
+    }).references;
+    const legacyCitation = {
+      items: [
+        {
+          reference: { title: "A Study", year: 2024, author: ["Ada"] },
+          metadata: { role_in_context: "baseline" },
+          mentions: [{ marker: "[1]", snippet: "x".repeat(700) }],
+        },
+      ],
+    };
+    const capturedInputs: Array<Record<string, unknown>> = [];
+    const broker = createFailClosedZoteroHostCapabilityBroker({
+      library: {
+        listItems: async () => ({
+          items: [{ kind: "regular" as const, ref: parentRef }],
+          hasMore: false,
+          nextCursor: null,
+        }),
+        getItemNotes: async () => ({
+          notes: [{ ref: referencesNoteRef }, { ref: citationNoteRef }],
+          hasMore: false,
+          nextCursor: null,
+        }),
+      },
+    });
+    const localControl = {
+      readLegacyForMigration: async (ref: { key: string }) =>
+        ref.key === referencesNoteRef.key
+          ? {
+              kind: "canonical_managed" as const,
+              html: '<div data-zs-note-kind="references"></div>',
+              revision: "canonical-1",
+              payloads: [{ payloadType: "references-json", value: references }],
+            }
+          : {
+              kind: "legacy" as const,
+              html: '<span data-zs-payload="citation-analysis-json"></span>',
+              revision: "legacy-1",
+              payloads: [
+                {
+                  payloadType: "citation-analysis-json",
+                  value: legacyCitation,
+                },
+              ],
+            },
+      applyParentSet: async (input: Record<string, unknown>) => {
+        capturedInputs.push(input);
+        throw new Error("captured parent-set input");
+      },
+    } as unknown as NonNullable<
+      Parameters<
+        typeof createLiteratureArtifactMigrationHostFromZoteroBroker
+      >[1]
+    >["localControl"];
+    const host = createLiteratureArtifactMigrationHostFromZoteroBroker(broker, {
+      localControl,
+    });
+    const [input] = await host.scanLibrary({ libraryId: 1 });
+    assert.isOk(input);
+    const conversion = convertLegacyArtifactSet(input!, {
+      idFactory: () => "source-id",
+    });
+    assert.equal(conversion.classification, "ready");
+    assert.equal(conversion.verifiedCount, 1);
+    try {
+      await host.applySet({
+        runId: "run-1",
+        libraryId: 1,
+        parentRef,
+        operationId: "operation-repair-citation",
+        candidate: {
+          ...conversion,
+          candidateId: "candidate-1",
+          ordinal: 1,
+          title: "Parent",
+          parentRef,
+          libraryId: 1,
+          disposition: "include",
+          issues: [],
+          outcome: "preview",
+          conversion,
+        },
+      });
+      assert.fail("parent-set capture must stop the adapter");
+    } catch (error) {
+      assert.equal((error as Error).message, "captured parent-set input");
+    }
+
+    const entries = capturedInputs[0]?.entries as Array<{
+      noteKind: string;
+      payload: unknown;
+    }>;
+    assert.deepEqual(
+      entries.map((entry) => entry.noteKind),
+      ["citation-analysis"],
+    );
+    assert.isTrue(capturedInputs[0]?.compactCitationSnippets);
+    assert.notProperty(capturedInputs[0]!, "acceptedDamagedInput");
+  });
+
   it("stops the production scan before reading the next parent", async function () {
     const parents = [
       { libraryId: 1, key: "PARENT-1" },
@@ -974,7 +1203,7 @@ describe("literature artifact migration", function () {
     );
   });
 
-  it("maps a pre-commit Broker mutation failure to a failed migration set", async function () {
+  it("marks a zero-residual resource limit as safe for batch continuation", async function () {
     const parentRef = { libraryId: 1, key: "PARENT" };
     const noteRef = { libraryId: 1, key: "LEGACY-NOTE" };
     const references = {
@@ -1011,7 +1240,7 @@ describe("literature artifact migration", function () {
             operation: "managed_note.apply_parent_set",
             status: "failed",
             error: {
-              code: "execution_failed",
+              code: "resource_limited",
               phase: "compensation",
               recovery: "retry_same_operation",
               message: "managed note payload is ambiguous",
@@ -1050,14 +1279,14 @@ describe("literature artifact migration", function () {
 
     assert.isTrue(result.ok);
     if (!result.ok) throw new Error("expected durable failed result");
-    assert.equal(result.state, "failed");
+    assert.equal(result.state, "completed_with_attention");
     const receipt = listLiteratureArtifactMigrationSets({
       runId: result.runId,
       limit: 10,
     })[0];
     assert.equal(receipt?.outcome, "failed");
     assert.deepEqual(receipt?.diagnostics, [
-      "mutation:execution_failed",
+      "mutation:resource_limited",
       "phase:compensation",
       "recovery:retry_same_operation",
       "message:managed note payload is ambiguous",
@@ -1084,7 +1313,7 @@ describe("literature artifact migration", function () {
       candidateId: preview.candidates[0]?.candidateId,
       operationId: "operation-1",
       attemptId: "attempt-1",
-      code: "execution_failed",
+      code: "resource_limited",
       recovery: "retry_same_operation",
       effectPhase: "commit",
       affectedCount: 2,
@@ -1100,7 +1329,7 @@ describe("literature artifact migration", function () {
     );
     assert.deepInclude(bundle.bundle.run, {
       runId: result.runId,
-      state: "failed",
+      state: "completed_with_attention",
       processedCount: 1,
     });
     assert.deepEqual(bundle.bundle.sets, [
@@ -1335,6 +1564,132 @@ describe("literature artifact migration", function () {
       }).map(({ outcome }) => outcome),
       ["applied", "failed", "preview"],
     );
+  });
+
+  it("continues later sets after a safe candidate-local failure", async function () {
+    const sets: LegacyArtifactSetInput[] = ["A", "B", "C"].map(
+      (suffix, index) => ({
+        libraryId: 1,
+        parentRef: { libraryId: 1, key: `PARENT-${suffix}` },
+        references: [
+          { title: `Study ${index + 1}`, year: 2024, authors: ["Ada"] },
+        ],
+      }),
+    );
+    const appliedParents: string[] = [];
+    const service = createLiteratureArtifactMigrationService({
+      host: {
+        scanLibrary: async () => sets,
+        applySet: async ({ parentRef }) => {
+          appliedParents.push(parentRef.key);
+          return parentRef.key === "PARENT-B"
+            ? {
+                outcome: "failed" as const,
+                reason: "failed",
+                diagnostics: ["mutation:resource_limited"],
+                continueSafe: true as const,
+              }
+            : { outcome: "applied" as const };
+        },
+      },
+      candidateIdFactory: (ordinal) => `candidate-${ordinal}`,
+    });
+    const preview = await service.scan({ libraryId: 1 });
+    assert.isTrue(preview.ok);
+    if (!preview.ok) throw new Error("expected migration preview");
+
+    const result = await service.apply({
+      scanOperationId: preview.operationId,
+      candidateIds: preview.candidates.map(({ candidateId }) => candidateId),
+    });
+
+    assert.isTrue(result.ok);
+    if (!result.ok) throw new Error("expected durable attention result");
+    assert.equal(result.state, "completed_with_attention");
+    assert.equal(result.processedCount, 3);
+    assert.equal(result.remainingCount, 0);
+    assert.deepEqual(appliedParents, ["PARENT-A", "PARENT-B", "PARENT-C"]);
+    assert.deepEqual(
+      listLiteratureArtifactMigrationSets({
+        runId: result.runId,
+        limit: 10,
+      }).map(({ outcome }) => outcome),
+      ["applied", "failed", "applied"],
+    );
+  });
+
+  it("stops later writes for every unsafe terminal outcome", async function () {
+    const scenarios = [
+      {
+        label: "repair-required",
+        result: { outcome: "repair_required" as const, reason: "cleanup" },
+        state: "completed_with_attention",
+      },
+      {
+        label: "residual-effect",
+        result: { outcome: "failed" as const, reason: "residual_effect" },
+        state: "failed",
+      },
+      {
+        label: "ambiguous",
+        result: { outcome: "failed" as const, reason: "ambiguous" },
+        state: "failed",
+      },
+      {
+        label: "infrastructure",
+        result: { outcome: "failed" as const, reason: "execution_failed" },
+        state: "failed",
+      },
+      {
+        label: "canceled",
+        result: { outcome: "failed" as const, reason: "canceled" },
+        state: "failed",
+      },
+      {
+        label: "authority-unavailable",
+        result: { outcome: "failed" as const, reason: "unavailable" },
+        state: "failed",
+      },
+    ];
+    for (const scenario of scenarios) {
+      const appliedParents: string[] = [];
+      const service = createLiteratureArtifactMigrationService({
+        host: {
+          scanLibrary: async () =>
+            ["A", "B"].map((suffix, index) => ({
+              libraryId: 1,
+              parentRef: {
+                libraryId: 1,
+                key: `${scenario.label}-${suffix}`,
+              },
+              references: [
+                {
+                  title: `${scenario.label} ${index}`,
+                  year: 2024,
+                  authors: ["Ada"],
+                },
+              ],
+            })),
+          applySet: async ({ parentRef }) => {
+            appliedParents.push(parentRef.key);
+            return scenario.result;
+          },
+        },
+      });
+      const preview = await service.scan({ libraryId: 1 });
+      assert.isTrue(preview.ok);
+      if (!preview.ok) throw new Error("expected migration preview");
+      const result = await service.apply({
+        scanOperationId: preview.operationId,
+        candidateIds: preview.candidates.map(({ candidateId }) => candidateId),
+      });
+      assert.isTrue(result.ok);
+      if (!result.ok) throw new Error("expected terminal migration result");
+      assert.equal(result.state, scenario.state, scenario.label);
+      assert.equal(result.processedCount, 1, scenario.label);
+      assert.equal(result.remainingCount, 1, scenario.label);
+      assert.deepEqual(appliedParents, [`${scenario.label}-A`], scenario.label);
+    }
   });
 
   it("keeps candidate titles and diagnostics in durable history pages", async function () {
@@ -1752,7 +2107,7 @@ describe("literature artifact migration", function () {
     assert.equal(appliedUnresolvedCount, 0);
   });
 
-  it("accepts damaged input and bulk-resolves pending issues inside the filter", async function () {
+  it("offers only skip for damaged input and bulk-resolves it inside the filter", async function () {
     const service = createLiteratureArtifactMigrationService({
       host: {
         scanLibrary: async () => [
@@ -1796,9 +2151,9 @@ describe("literature artifact migration", function () {
     )!;
     assert.deepEqual(
       damagedIssue.options.map((option) => option.kind),
-      ["accept_damaged_input", "skip_candidate"],
+      ["skip_candidate"],
     );
-    assert.isTrue(damagedIssue.options[0]!.dataLoss);
+    assert.isFalse(damagedIssue.options[0]!.dataLoss);
     assert.deepEqual(damagedIssue.affectedItems, [
       { label: "digest-markdown: payload_read_failed" },
     ]);
@@ -1809,7 +2164,7 @@ describe("literature artifact migration", function () {
     assert.equal(batchDamaged.pendingCount, 2);
     assert.deepEqual(
       batchDamaged.kinds.map((entry) => entry.kind),
-      ["accept_damaged_input", "skip_candidate"],
+      ["skip_candidate"],
     );
     const batchDuplicate = page.batchActions.find(
       (entry) => entry.reasonCode === "duplicate_reference",
@@ -1819,21 +2174,19 @@ describe("literature artifact migration", function () {
     const bulk = service.resolveCandidateIssuesBulk({
       scanOperationId: preview.operationId,
       reasonCode: "damaged_input",
-      kind: "accept_damaged_input",
+      kind: "skip_candidate",
     });
     assert.isTrue(bulk.ok);
     if (!bulk.ok) throw new Error("expected bulk resolution");
     assert.equal(bulk.affected, 2);
     const after = service.listCandidatePage({ runId: preview.runId });
     assert.equal(
-      after.items.find((item) => item.title === "Damaged one")
-        ?.classification,
-      "ready",
+      after.items.find((item) => item.title === "Damaged one")?.disposition,
+      "skip",
     );
     assert.equal(
-      after.items.find((item) => item.title === "Damaged two")
-        ?.classification,
-      "ready",
+      after.items.find((item) => item.title === "Damaged two")?.disposition,
+      "skip",
     );
     assert.isUndefined(
       after.batchActions.find((entry) => entry.reasonCode === "damaged_input"),
@@ -1869,15 +2222,14 @@ describe("literature artifact migration", function () {
     assert.equal(
       service
         .listCandidatePage({ runId: preview.runId })
-        .items.find((item) => item.title === "Duplicate paper")
-        ?.classification,
+        .items.find((item) => item.title === "Duplicate paper")?.classification,
       "ready",
     );
 
     const stale = service.resolveCandidateIssuesBulk({
       scanOperationId: "missing-operation",
       reasonCode: "damaged_input",
-      kind: "accept_damaged_input",
+      kind: "skip_candidate",
     });
     assert.isFalse(stale.ok);
     if (stale.ok) throw new Error("stale plan must fail");

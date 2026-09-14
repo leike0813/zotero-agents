@@ -55,6 +55,7 @@ async function readAttachmentPath(attachment: any, checkCanceled?: () => void) {
 async function readAttachmentBytes(
   attachment: any,
   checkCanceled?: () => void,
+  maxBytes = NOTE_PAYLOAD_MAX_BYTES,
 ) {
   const path = await readAttachmentPath(attachment, checkCanceled);
   if (!path) {
@@ -65,8 +66,8 @@ async function readAttachmentBytes(
   if (!stat.exists || stat.isDir) {
     throw new Error("embedded payload attachment is unavailable");
   }
-  if (stat.size > NOTE_PAYLOAD_MAX_BYTES) {
-    throw new ZoteroNotePayloadResourceLimitError("attachment");
+  if (stat.size > maxBytes) {
+    throw new ZoteroNotePayloadResourceLimitError("attachment", maxBytes);
   }
   const bytes = await readRuntimeBytes(path);
   checkCanceled?.();
@@ -266,6 +267,7 @@ async function attachmentSourceBasis(
   attachments: AttachmentSourceDescriptor[],
   contentDigests?: ReadonlyMap<number, string>,
   checkCanceled?: () => void,
+  maxBytes = NOTE_PAYLOAD_MAX_BYTES,
 ) {
   const entries: Array<Record<string, unknown>> = [];
   const yieldBudget = createPayloadReadYieldBudget();
@@ -276,7 +278,7 @@ async function attachmentSourceBasis(
     const contentDigest =
       contentDigests?.get(attachment.id) ||
       (await sha256Hex(
-        await readAttachmentBytes(attachment.item, checkCanceled),
+        await readAttachmentBytes(attachment.item, checkCanceled, maxBytes),
       ));
     checkCanceled?.();
     if (!contentDigest) {
@@ -312,6 +314,7 @@ export type ZoteroNotePayloadSourcePage = {
 export type ZoteroNotePayloadPageOptions = {
   runNativeSlice?: NativeSlice;
   checkCanceled?: () => void;
+  maxPayloadBytes?: number;
 };
 
 export async function listNotePayloadBlocksForItemPage(
@@ -389,6 +392,7 @@ export async function listNotePayloadBlocksForItemPage(
       previousAttachments,
       undefined,
       options.checkCanceled,
+      options.maxPayloadBytes,
     );
     if (previousBasis !== cursor.attachmentBasis) {
       throw new ZoteroNotePayloadCursorError(
@@ -461,6 +465,7 @@ export async function listNotePayloadBlocksForItemPage(
     const bytes = await readAttachmentBytes(
       attachment.item,
       options.checkCanceled,
+      options.maxPayloadBytes,
     );
     const contentDigest = await sha256Hex(bytes);
     options.checkCanceled?.();
@@ -468,10 +473,14 @@ export async function listNotePayloadBlocksForItemPage(
       throw new Error("payload attachment content basis is unavailable");
     }
     contentDigests.set(attachment.id, contentDigest);
-    const parsed = parseEmbeddedNotePayloadBlock(bytes, {
-      key: attachment.key,
-      id: attachment.id,
-    });
+    const parsed = parseEmbeddedNotePayloadBlock(
+      bytes,
+      {
+        key: attachment.key,
+        id: attachment.id,
+      },
+      options.maxPayloadBytes,
+    );
     if (parsed) {
       const expectedKey = parsed.payloadType
         ? anchors.get(parsed.payloadType)
@@ -489,6 +498,7 @@ export async function listNotePayloadBlocksForItemPage(
     attachments,
     contentDigests,
     options.checkCanceled,
+    options.maxPayloadBytes,
   );
   const hasMore = childPage.hasMore;
   return {

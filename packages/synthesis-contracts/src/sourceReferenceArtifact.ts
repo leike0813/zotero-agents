@@ -246,6 +246,7 @@ const citationAnalysisValidator = createValidator(
  */
 export function validateCanonicalArtifactJson(
   value: unknown,
+  maxBytes: number = CANONICAL_ARTIFACT_MAX_BYTES,
 ): ContractValidationResult<ReturnType<typeof toSynthesisJsonValue>> {
   let normalized: ReturnType<typeof toSynthesisJsonValue>;
   try {
@@ -268,7 +269,7 @@ export function validateCanonicalArtifactJson(
   const serialized = JSON.stringify(normalized);
   if (
     serialized === undefined ||
-    byteLengthSynthesisContractText(serialized) > CANONICAL_ARTIFACT_MAX_BYTES
+    byteLengthSynthesisContractText(serialized) > maxBytes
   ) {
     return {
       ok: false,
@@ -276,7 +277,7 @@ export function validateCanonicalArtifactJson(
         {
           path: "/",
           code: "resource_limited",
-          message: `canonical artifact exceeds ${CANONICAL_ARTIFACT_MAX_BYTES} bytes`,
+          message: `canonical artifact exceeds ${maxBytes} bytes`,
         },
       ],
     };
@@ -287,8 +288,9 @@ export function validateCanonicalArtifactJson(
 function validateArtifact<T>(
   value: unknown,
   validator: ValidateFunction,
+  maxBytes: number = CANONICAL_ARTIFACT_MAX_BYTES,
 ): ContractValidationResult<T> {
-  const preflight = validateCanonicalArtifactJson(value);
+  const preflight = validateCanonicalArtifactJson(value, maxBytes);
   if (!preflight.ok) return preflight;
   if (!validator(preflight.value)) {
     return { ok: false, issues: validationIssues(validator.errors) };
@@ -330,10 +332,12 @@ export function parseSourceReferenceArtifact(
 
 export function validateCitationAnalysisArtifact(
   value: unknown,
+  maxBytes: number = CANONICAL_ARTIFACT_MAX_BYTES,
 ): ContractValidationResult<CitationAnalysisArtifact> {
   const result = validateArtifact<CitationAnalysisArtifact>(
     value,
     citationAnalysisValidator,
+    maxBytes,
   );
   if (!result.ok) return result;
   const seen = new Set<string>();
@@ -365,11 +369,88 @@ export function validateCitationAnalysisArtifact(
 
 export function parseCitationAnalysisArtifact(
   value: unknown,
+  maxBytes: number = CANONICAL_ARTIFACT_MAX_BYTES,
 ): CitationAnalysisArtifact {
-  const result = validateCitationAnalysisArtifact(value);
+  const result = validateCitationAnalysisArtifact(value, maxBytes);
   if (!result.ok)
     throw new CanonicalLiteratureArtifactValidationError(result.issues);
   return result.value;
+}
+
+function snippetWithMarkerContext(
+  snippet: string,
+  marker: string | null,
+  maxCharacters: number,
+) {
+  const characters = Array.from(snippet);
+  if (characters.length <= maxCharacters) return snippet;
+  if (maxCharacters === 0) return "";
+  const markerCharacters = Array.from(marker || "");
+  let markerIndex = -1;
+  if (markerCharacters.length) {
+    markerIndex = characters.findIndex((_, index) =>
+      markerCharacters.every(
+        (character, offset) => characters[index + offset] === character,
+      ),
+    );
+  }
+  if (markerIndex < 0 || maxCharacters < 3) {
+    return `${characters.slice(0, maxCharacters - 1).join("")}…`;
+  }
+  if (markerIndex + markerCharacters.length <= maxCharacters - 1) {
+    return `${characters.slice(0, maxCharacters - 1).join("")}…`;
+  }
+  if (characters.length - markerIndex <= maxCharacters - 1) {
+    return `…${characters.slice(-(maxCharacters - 1)).join("")}`;
+  }
+  const windowLength = maxCharacters - 2;
+  const start = Math.max(
+    1,
+    Math.min(
+      characters.length - windowLength - 1,
+      markerIndex - Math.floor((windowLength - markerCharacters.length) / 2),
+    ),
+  );
+  return `…${characters.slice(start, start + windowLength).join("")}…`;
+}
+
+export function compactCitationAnalysisSnippets(
+  value: unknown,
+  maxCharacters: number,
+  maxInputBytes: number = CANONICAL_ARTIFACT_MAX_BYTES,
+): {
+  artifact: CitationAnalysisArtifact;
+  truncatedSnippetCount: number;
+  maxSnippetCharacters: number;
+} {
+  if (!Number.isSafeInteger(maxCharacters) || maxCharacters < 0) {
+    throw new RangeError("maxCharacters must be a non-negative safe integer");
+  }
+  const artifact = parseCitationAnalysisArtifact(value, maxInputBytes);
+  let truncatedSnippetCount = 0;
+  const compactMention = <T extends CitationMention>(mention: T): T => {
+    const snippet = mention.snippet;
+    if (snippet === null || Array.from(snippet).length <= maxCharacters) {
+      return mention;
+    }
+    truncatedSnippetCount += 1;
+    return {
+      ...mention,
+      snippet: snippetWithMarkerContext(snippet, mention.marker, maxCharacters),
+    };
+  };
+  return {
+    artifact: {
+      ...artifact,
+      items: artifact.items.map((item) => ({
+        ...item,
+        mentions: item.mentions.map(compactMention),
+      })),
+      unresolved: artifact.unresolved.map(compactMention),
+    },
+    truncatedSnippetCount,
+    maxSnippetCharacters: maxCharacters,
+  };
 }
 
 export function validateCitationAgainstReferences(

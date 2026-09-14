@@ -4,6 +4,7 @@ import {
   CITATION_ANALYSIS_ARTIFACT_SCHEMA,
   SOURCE_REFERENCE_ARTIFACT_SCHEMA,
   attachReferencesBasis,
+  compactCitationAnalysisSnippets,
   ensureSourceReferenceId,
   exportCanonicalCitationAnalysisArtifact,
   generateSourceReferenceId,
@@ -216,6 +217,62 @@ describe("canonical literature artifact contract", function () {
 
   it("reports the Broker domain byte bound without applying the ToolResult gate", function () {
     assert.strictEqual(CANONICAL_ARTIFACT_MAX_BYTES, 1_048_576);
+  });
+
+  it("compacts Citation snippets by Unicode code point without changing structure", function () {
+    const original = citationArtifact();
+    original.items[0].mentions[0].snippet =
+      "😀prefix text before [1] and trailing context";
+    original.unresolved.push({
+      ...structuredClone(original.items[0].mentions[0]),
+      mention_id: "mention-2",
+      marker: null,
+      snippet: "abcdefghijklmnop",
+      reason: "unmatched",
+    });
+    const before = structuredClone(original);
+
+    const result = compactCitationAnalysisSnippets(original, 12);
+
+    assert.strictEqual(result.truncatedSnippetCount, 2);
+    assert.isAtMost(
+      Array.from(result.artifact.items[0].mentions[0].snippet!).length,
+      12,
+    );
+    assert.include(result.artifact.items[0].mentions[0].snippet!, "[1]");
+    assert.match(result.artifact.items[0].mentions[0].snippet!, /^….*…$/u);
+    assert.strictEqual(result.artifact.unresolved[0].snippet, "abcdefghijk…");
+    assert.deepEqual(original, before);
+    assert.deepEqual(
+      {
+        ...result.artifact,
+        items: result.artifact.items.map((item) => ({
+          ...item,
+          mentions: item.mentions.map((mention) => ({
+            ...mention,
+            snippet: null,
+          })),
+        })),
+        unresolved: result.artifact.unresolved.map((mention) => ({
+          ...mention,
+          snippet: null,
+        })),
+      },
+      {
+        ...before,
+        items: before.items.map((item) => ({
+          ...item,
+          mentions: item.mentions.map((mention) => ({
+            ...mention,
+            snippet: null,
+          })),
+        })),
+        unresolved: before.unresolved.map((mention) => ({
+          ...mention,
+          snippet: null,
+        })),
+      },
+    );
   });
 
   it("rejects values JSON.stringify would erase or cannot represent", function () {

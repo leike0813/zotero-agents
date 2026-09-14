@@ -10,7 +10,7 @@ canonical-only.
 ## Ownership and boundary
 
 The migration is registered with the static identity
-`literature-artifacts` and definition version `4`. Its public runtime surface
+`literature-artifacts` and definition version `6`. Its public runtime surface
 is the service returned by `createLiteratureArtifactMigrationService()`:
 
 | Operation | Effect |
@@ -87,7 +87,11 @@ DOI wrapper/case, author array or semicolon forms, and strict integer year
 forms. Positional `ref_number`, fuzzy or model matching, punctuation removal,
 year tolerance, and cross-parent lookup cannot establish identity.
 
-Every converted reference has an opaque `sourceReferenceId`. An explicit valid
+Every converted reference has an opaque `sourceReferenceId`. Existing
+canonical References are converter input and remain the identity source for a
+Citation-only repair. Legacy Citation items may keep bibliographic facts under
+`reference` and role fields under `metadata`; the converter normalizes those
+nested facts before the same deterministic matcher runs. An explicit valid
 canonical ID is retained; a legacy ID or positional number is never treated
 as a canonical identity. Citation mentions preserve their evidence fields,
 while function category and `role_in_context` remain separate. A recovered
@@ -139,9 +143,14 @@ For each selected set the adapter performs this sequence:
 1. Re-read the current legacy facts, permission, revision, and basis.
 2. Return `changed_since_scan` without a write when the basis changed or the
    legacy representation disappeared.
-3. Submit References and Citation together to the trusted private
-   `applyParentSet` seam. The Broker performs one parent-set admission, one
+3. Submit only the changed managed kinds to the trusted private
+   `applyParentSet` seam. A Citation-only repair reuses the canonical References
+   basis without rewriting its note. The Broker performs one parent-set admission, one
    Zotero transaction, one operation identity, and one durable mutation receipt.
+   When a migration entry carries preserved visible HTML, the managed artifact
+   builder validates that actual HTML with the canonical payload and skips the
+   unused default render. This prevents HTML escaping in a generated Citation
+   view from rejecting an otherwise bounded migration write.
 4. Verify that the committed result contains managed canonical notes.
 5. Pass the optional cleanup tail with the same private parent-set operation.
    After canonical verification, that operation removes legacy machine markup
@@ -149,6 +158,17 @@ For each selected set the adapter performs this sequence:
    target note's visible HTML, images, and auxiliary content remain on the
    reused note. Cleanup failure keeps the canonical pair and settles the same
    authority receipt as `repair_required`.
+
+The private migration reader accepts legacy payload sources up to 4 MiB during
+scan, staging revalidation, canonical verification, and cleanup discovery.
+Ordinary Broker payload and managed-detail reads retain the 1 MiB limit. A
+recoverable Citation is normalized and its mention snippets are first limited
+to 512 Unicode code points. The parent-set owner then lowers one uniform snippet
+limit only when the exact canonical payload and embedded envelope still exceed
+the managed-note bound. If the zero-snippet artifact cannot fit, the write fails
+`resource_limited` before native mutation. Damaged or unreadable input can only
+be skipped; it cannot be accepted into canonical state. Version 5 previews are
+history-only and require a fresh version 6 scan.
 
 Canonical verification must precede cleanup. If cleanup fails, canonical data
 is retained and the set is `repair_required`; a failed cleanup never deletes or
@@ -197,9 +217,13 @@ written before the transaction starts.
 
 Mutation authority outcomes retain their side-effect meaning. `committed` and
 `unchanged` become `applied`; `repair_required` and `unknown` remain
-repair-required because an effect may exist; pre-commit `failed` and `canceled`
-become a failed set and failed run. A failed set stops admission of later sets,
-while earlier committed set receipts remain intact.
+repair-required because an effect may exist. A typed candidate-local failure is
+continuation-safe only when it has no residual refs and its code is
+`resource_limited`, `invalid_artifact`, `legacy_artifact_requires_migration`,
+`conflict`, or `not_found`; later sets continue and the run completes with
+attention. Residual, ambiguous, infrastructure, canceled, unavailable, and
+repair-required outcomes stop later admissions. Earlier set receipts remain
+intact in every case.
 
 ## Durable lifecycle
 
@@ -247,7 +271,10 @@ HTML/legacy-PNG preview-confirmation path. The bundle regression is in
 `tests/workflow-literature-workbench-package/47-workflow-literature-bundle.test.ts`.
 The real Zotero References/Citation migration path is covered by
 `tests/zotero/core/lite/275-managed-note-transaction.zotero.test.ts`, including
-v1/v2 and dual-v2 replacement pairs and a newly created payload attachment
+v1/v2 and dual-v2 replacement pairs, recoverable 1–4 MiB nested Citation
+payloads against retained canonical References, exact Citation envelope
+compaction, a bounded preserved Citation view whose unused default
+rendering would exceed the write limit, and a newly created payload attachment
 becoming unreadable after transaction commit. The Broker regression separately
 models an attachment becoming unreadable immediately after erase in
 `tests/zotero-host/102-zotero-host-broker-capability-api.test.ts`. Upstream

@@ -41,6 +41,7 @@ import {
   classifyReferenceExtractionQuality,
   filterReferencesForDigestApply,
 } from "../../workflows_builtin/literature-workbench-package/lib/referenceQualityGate.mjs";
+import { compactCitationAnalysisSnippets } from "../../packages/synthesis-contracts/src/sourceReferenceArtifact";
 
 const literatureScoreArtifact = {
   schema: "literature_score.v1",
@@ -1909,7 +1910,7 @@ describe("workflow: literature-analysis", function () {
   );
 
   itNodeOnly(
-    "passes citation analysis payload to the Synthesis sidecar apply hook",
+    "stores and forwards the same compacted Citation payload",
     async function () {
       const parent = await handlers.item.create({
         itemType: "journalArticle",
@@ -1923,8 +1924,9 @@ describe("workflow: literature-analysis", function () {
       assert.isOk(workflow, "missing literature-analysis workflow");
 
       let capturedSidecarInput: any = null;
+      let capturedApplyInput: any = null;
       const baseHostApi = createWorkflowHostApi();
-      await executeApplyResult({
+      const applied = (await executeApplyResult({
         workflow: workflow!,
         parent: itemRef(parent),
         bundleReader: {
@@ -1950,11 +1952,23 @@ describe("workflow: literature-analysis", function () {
               );
             }
             if (entryPath === "artifacts/citation_analysis.json") {
-              return JSON.stringify(
-                canonicalCitationArtifact([
-                  { id: "ref-1", function: "baseline" },
-                ]),
-              );
+              const citation = canonicalCitationArtifact([
+                { id: "ref-1", function: "baseline" },
+              ]);
+              citation.items[0].mentions.push({
+                mention_id: "mention-long",
+                marker: "[1]",
+                style: "numeric",
+                line_start: 1,
+                line_end: 1,
+                snippet: `${"a".repeat(300)}[1]${"b".repeat(300)}`,
+                ref_number_hint: 1,
+                year_hint: null,
+                surname_hint: null,
+                citation_label_hint: null,
+                citekey_hint: null,
+              });
+              return JSON.stringify(citation);
             }
             throw new Error(`missing bundle entry: ${entryPath}`);
           },
@@ -1966,6 +1980,42 @@ describe("workflow: literature-analysis", function () {
         runtime: {
           hostApi: {
             ...baseHostApi,
+            literatureArtifacts: {
+              ...baseHostApi.literatureArtifacts,
+              async applyAnalysis(request: any, control: any) {
+                capturedApplyInput = request;
+                const compacted = compactCitationAnalysisSnippets(
+                  request.citationAnalysis,
+                  512,
+                );
+                return {
+                  outcome: "committed",
+                  changes: [],
+                  result: {
+                    notes: [
+                      {
+                        kind: "managed",
+                        noteKind: "citation-analysis",
+                        ref: { libraryId: 1, key: "CITATION" },
+                        parentRef: request.parentRef,
+                        title: "Citation Analysis",
+                        payload: compacted.artifact,
+                      },
+                    ],
+                    citationSnippetCompaction: {
+                      truncatedSnippetCount: compacted.truncatedSnippetCount,
+                      finalMaxCharacters: 512,
+                      originalPayloadBytes: new TextEncoder().encode(
+                        JSON.stringify(request.citationAnalysis),
+                      ).byteLength,
+                      finalPayloadBytes: new TextEncoder().encode(
+                        JSON.stringify(compacted.artifact),
+                      ).byteLength,
+                    },
+                  },
+                };
+              },
+            },
             synthesis: {
               ...(baseHostApi as any).synthesis,
               workflowApply: {
@@ -1978,11 +2028,23 @@ describe("workflow: literature-analysis", function () {
             },
           } as any,
         },
-      });
+      })) as any;
 
       assert.equal(
         capturedSidecarInput?.citationAnalysis?.items?.[0]?.function,
         "baseline",
+      );
+      assert.isTrue(capturedApplyInput?.compactCitationSnippets);
+      const forwardedSnippet =
+        capturedSidecarInput?.citationAnalysis?.items?.[0]?.mentions?.[0]
+          ?.snippet;
+      assert.isAtMost(Array.from(forwardedSnippet).length, 512);
+      assert.include(forwardedSnippet, "[1]");
+      assert.equal(applied.citationSnippetCompaction?.truncatedSnippetCount, 1);
+      assert.deepEqual(
+        applied.notes.find((note: any) => note.noteKind === "citation-analysis")
+          ?.payload,
+        capturedSidecarInput.citationAnalysis,
       );
     },
   );

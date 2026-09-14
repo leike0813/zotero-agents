@@ -472,6 +472,9 @@ export function createWorkflowHostApi(
             ...(request.citationAnalysis
               ? { citationAnalysis: request.citationAnalysis }
               : {}),
+            ...(request.compactCitationSnippets
+              ? { compactCitationSnippets: true }
+              : {}),
             ...(request.matchingMetadata
               ? { matchingMetadata: request.matchingMetadata }
               : {}),

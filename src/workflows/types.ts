@@ -1541,6 +1541,7 @@ export type LiteratureScoreUpsertRequestDto = {
 export type LiteratureArtifactApplyAnalysisRequestDto = {
   operationId: string;
   parentRef: PortableItemRef;
+  compactCitationSnippets?: true;
   digest?: {
     markdown: string;
     sourceRef?: PortableItemRef;
@@ -1569,6 +1570,12 @@ export type LiteratureArtifactApplyAnalysisResultDto = {
   notes: ManagedNoteDetailDto[];
   dependentStale?: boolean;
   referencesBasis?: string;
+  citationSnippetCompaction?: {
+    truncatedSnippetCount: number;
+    finalMaxCharacters: number;
+    originalPayloadBytes: number;
+    finalPayloadBytes: number;
+  };
 };
 
 export type NoteRemovalResultDto = JsonObject & {

@@ -700,6 +700,10 @@ Literature Score 使用 `literatureArtifacts` 的四个 upsert；同父条目同
 文献分析使用 Workflow 本地 `literatureArtifacts.applyAnalysis` 提交父集合。
 References 与 Citation 共用操作身份与终态证据，调用方通过
 `mutations.getOperation` 观察结果。这个组合入口不属于 Bridge/MCP 的公开操作。
+内置 literature-analysis 会显式启用 Citation snippet 压缩：默认上限为 512 个
+Unicode code point，最终 envelope 若仍超限则由 Broker 继续收紧。返回值携带压缩
+计数与最终上限；sidecar 只接收已经落库并带 References basis 的 Citation payload。
+直接 Citation upsert 不启用该策略，仍严格拒绝超限输入。
 普通 `notes.create` / `updateContent` 不能承载受管理标记或改写 Managed Note。
 
 References 使用闭合的 `source_reference_artifact.v1`：引用身份为

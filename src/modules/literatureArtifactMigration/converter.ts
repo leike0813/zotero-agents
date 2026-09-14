@@ -1,4 +1,5 @@
 import {
+  compactCitationAnalysisSnippets,
   ensureSourceReferenceId,
   generateSourceReferenceId,
   parseCitationAnalysisArtifact,
@@ -108,8 +109,55 @@ export type LiteratureArtifactMigrationResolutionKind =
   | "replace_canonical"
   | "preserve_source"
   | "accept_data_loss"
-  | "accept_damaged_input"
   | "skip_candidate";
+
+const MIGRATION_CANONICAL_ARTIFACT_MAX_BYTES = 4 * 1024 * 1024;
+
+function compactMigrationCitation(
+  value: CitationAnalysisArtifact,
+): CitationAnalysisArtifact {
+  const source = parseCitationAnalysisArtifact(
+    value,
+    MIGRATION_CANONICAL_ARTIFACT_MAX_BYTES,
+  );
+  const fitAt = (maxCharacters: number) => {
+    const artifact = compactCitationAnalysisSnippets(
+      source,
+      maxCharacters,
+      MIGRATION_CANONICAL_ARTIFACT_MAX_BYTES,
+    ).artifact;
+    try {
+      return parseCitationAnalysisArtifact(artifact);
+    } catch {
+      return null;
+    }
+  };
+  let selected = fitAt(512);
+  if (selected) return selected;
+  selected = fitAt(0);
+  if (!selected) {
+    return parseCitationAnalysisArtifact(
+      compactCitationAnalysisSnippets(
+        source,
+        0,
+        MIGRATION_CANONICAL_ARTIFACT_MAX_BYTES,
+      ).artifact,
+    );
+  }
+  let low = 1;
+  let high = 511;
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    const candidate = fitAt(middle);
+    if (candidate) {
+      selected = candidate;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return selected;
+}
 
 export const MIGRATABLE_LEGACY_PAYLOAD_TYPES: ReadonlySet<string> = new Set([
   "references-json",
@@ -671,6 +719,24 @@ function matchReference(
   };
 }
 
+function legacyCitationItem(value: unknown): Record<string, unknown> {
+  const row = object(value) || {};
+  const reference = object(row.reference) || {};
+  const metadata = object(row.metadata) || {};
+  return {
+    ...reference,
+    ...metadata,
+    ...row,
+    bibliography:
+      object(row.bibliography) || object(reference.bibliography) || reference,
+    matching: {
+      ...(object(reference.matching) || {}),
+      ...(object(metadata.matching) || {}),
+      ...(object(row.matching) || {}),
+    },
+  };
+}
+
 function referenceFactsConflict(
   row: Record<string, unknown>,
   reference: SourceReference,
@@ -779,7 +845,7 @@ function normalizeCitation(
   let conflicting = false;
   let mentionIndex = 0;
   for (const rawItem of rawItems) {
-    const item = object(rawItem) || {};
+    const item = legacyCitationItem(rawItem);
     const matched = matchReference(item, references);
     if (matched.ambiguous) ambiguous = true;
     if (matched.conflicting) conflicting = true;
@@ -1043,12 +1109,31 @@ function classifyConversion(
   }
   const originalReferenceCount = values.references.length;
   const citationValue = values.citation;
-  const existing = (input.existingReferences || []).filter(
-    (reference) => !!reference?.sourceReferenceId,
+  const canonicalReferences = (input.canonicalNotes || []).flatMap((note) => {
+    if (note.noteKind !== "references") return [];
+    try {
+      return parseSourceReferenceArtifact(note.payload).references;
+    } catch {
+      reasons.add("invalid_canonical_artifact");
+      diagnostics.push("canonical References artifact failed validation");
+      return [];
+    }
+  });
+  const existing = [
+    ...(input.existingReferences || []),
+    ...canonicalReferences,
+  ].filter(
+    (reference, index, all) =>
+      !!reference?.sourceReferenceId &&
+      all.findIndex(
+        (candidate) =>
+          candidate.sourceReferenceId === reference.sourceReferenceId,
+      ) === index,
   );
   const citationHasExistingBasis =
-    options.allowCitationOnlyWithExistingReferences === true &&
-    existing.length > 0;
+    existing.length > 0 &&
+    (canonicalReferences.length > 0 ||
+      options.allowCitationOnlyWithExistingReferences === true);
   const originalMentionCount = citationValue
     ? list(citationValue.mentions ?? citationValue.unmapped_mentions).length +
       list(citationValue.items).reduce(
@@ -1061,7 +1146,8 @@ function classifyConversion(
     reasons.add("read_only_library");
   if (!originalReferenceCount && citationValue && !citationHasExistingBasis)
     reasons.add("citation_only");
-  if (!originalReferenceCount && !citationValue) reasons.add("no_references");
+  if (!originalReferenceCount && !citationValue && !existing.length)
+    reasons.add("no_references");
   const references: SourceReference[] = [];
   const firstByKey = new Map<string, SourceReference>();
   let droppedCount = 0;
@@ -1169,7 +1255,7 @@ function classifyConversion(
   const basisHash = hashText(stableJson(basisInput));
   let referencesArtifact: SourceReferenceArtifact = {
     schema: "source_reference_artifact.v1",
-    references,
+    references: references.length ? references : existing,
   };
   try {
     referencesArtifact = parseSourceReferenceArtifact(referencesArtifact);
@@ -1182,7 +1268,7 @@ function classifyConversion(
   let citationArtifact = citationResult?.citation || null;
   if (citationArtifact) {
     try {
-      citationArtifact = parseCitationAnalysisArtifact(citationArtifact);
+      citationArtifact = compactMigrationCitation(citationArtifact);
     } catch {
       reasons.add("invalid_canonical_artifact");
       diagnostics.push(
@@ -1198,7 +1284,7 @@ function classifyConversion(
     references: referencesArtifact,
     citation: citationArtifact,
     basisHash,
-    verifiedCount: references.length,
+    verifiedCount: referencesArtifact.references.length,
     unresolvedCount: citationResult?.unresolved || 0,
     recoveredCount,
     droppedCount,
@@ -1326,11 +1412,6 @@ export function resolveLiteratureArtifactMigrationConversion(
       resolution.reasonCode === "data_loss"
     ) {
       reasons.delete("data_loss");
-    } else if (
-      resolution.kind === "accept_damaged_input" &&
-      resolution.reasonCode === "damaged_input"
-    ) {
-      reasons.delete("damaged_input");
     }
   }
 

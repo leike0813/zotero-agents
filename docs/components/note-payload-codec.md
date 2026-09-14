@@ -20,7 +20,9 @@ Managed detail carries the complete canonical payload, `payloadBytes`, and
 `detailBytes`, with a 1 MiB serialized UTF-8 ceiling. Ordinary detail carries
 HTML or text. Bundle transfer alone uses the private owner capture of visible
 HTML, embedded images, and auxiliary payloads; the public detail API has no
-managed raw-HTML option.
+managed raw-HTML option. The library migration owner alone may read a legacy
+payload source up to 4 MiB while scanning and revalidating a conversion; the
+canonical artifact it writes must still satisfy the normal 1 MiB bound.
 
 ---
 

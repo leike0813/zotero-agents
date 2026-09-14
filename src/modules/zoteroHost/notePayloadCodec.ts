@@ -96,7 +96,10 @@ export function encodeBase64Utf8(value: string) {
   return btoa(binary);
 }
 
-export function decodeBase64Utf8(value: string) {
+export function decodeBase64Utf8(
+  value: string,
+  maxBytes = NOTE_PAYLOAD_MAX_BYTES,
+) {
   const normalized = String(value || "").trim();
   if (
     !/^[A-Za-z0-9+/]*={0,2}$/.test(normalized) ||
@@ -104,7 +107,7 @@ export function decodeBase64Utf8(value: string) {
   ) {
     throw new Error("Invalid base64 payload value");
   }
-  assertUtf8Bytes(normalized, "encoded");
+  assertUtf8Bytes(normalized, "encoded", maxBytes);
   const padding = normalized.endsWith("==")
     ? 2
     : normalized.endsWith("=")
@@ -113,13 +116,13 @@ export function decodeBase64Utf8(value: string) {
   const estimatedDecodedBytes = Math.floor(
     ((normalized.length - padding) * 3) / 4,
   );
-  if (estimatedDecodedBytes > NOTE_PAYLOAD_MAX_BYTES) {
-    throw new ZoteroNotePayloadResourceLimitError("decoded");
+  if (estimatedDecodedBytes > maxBytes) {
+    throw new ZoteroNotePayloadResourceLimitError("decoded", maxBytes);
   }
   const buffer = getBuffer();
   if (buffer) {
     const decoded = buffer.from(normalized, "base64").toString("utf8");
-    assertUtf8Bytes(decoded, "decoded");
+    assertUtf8Bytes(decoded, "decoded", maxBytes);
     return decoded;
   }
   const binary = atob(normalized);
@@ -128,7 +131,7 @@ export function decodeBase64Utf8(value: string) {
     bytes[index] = binary.charCodeAt(index);
   }
   const decoded = new TextDecoder().decode(bytes);
-  assertUtf8Bytes(decoded, "decoded");
+  assertUtf8Bytes(decoded, "decoded", maxBytes);
   return decoded;
 }
 
@@ -351,18 +354,18 @@ export function buildWorkbenchPayloadPngBytes(
   throw new Error("workbench payload base PNG is missing IEND chunk");
 }
 
-function parseV2PayloadEnvelope(bytes: Uint8Array) {
+function parseV2PayloadEnvelope(bytes: Uint8Array, maxBytes: number) {
   const chunk = findPngChunk(bytes, WORKBENCH_EMBEDDED_PAYLOAD_CHUNK);
   if (!chunk) {
     return null;
   }
-  if (chunk.byteLength > NOTE_PAYLOAD_MAX_BYTES) {
-    throw new ZoteroNotePayloadResourceLimitError("attachment");
+  if (chunk.byteLength > maxBytes) {
+    throw new ZoteroNotePayloadResourceLimitError("attachment", maxBytes);
   }
   return JSON.parse(new TextDecoder("utf-8").decode(chunk));
 }
 
-function parseV1TailPayloadEnvelope(bytes: Uint8Array) {
+function parseV1TailPayloadEnvelope(bytes: Uint8Array, maxBytes: number) {
   const marker = encodeAsciiBytes(WORKBENCH_EMBEDDED_PAYLOAD_MARKER);
   const start = indexOfBytes(bytes, marker);
   if (start < 0) {
@@ -385,7 +388,7 @@ function parseV1TailPayloadEnvelope(bytes: Uint8Array) {
     end += 1;
   }
   const encoded = decodeAsciiBytes(bytes.slice(cursor, end));
-  return JSON.parse(decodeBase64Utf8(encoded));
+  return JSON.parse(decodeBase64Utf8(encoded, maxBytes));
 }
 
 function indexOfBytes(haystack: Uint8Array, needle: Uint8Array) {
@@ -665,10 +668,11 @@ export function listNotePayloadBlocks(
 export function parseEmbeddedNotePayloadBlock(
   bytesInput: unknown,
   attachment?: { key?: unknown; id?: unknown } | null,
+  maxBytes = NOTE_PAYLOAD_MAX_BYTES,
 ): ZoteroNotePayloadBlock | null {
   const bytes = toUint8Array(bytesInput);
-  if (bytes.byteLength > NOTE_PAYLOAD_MAX_BYTES) {
-    throw new ZoteroNotePayloadResourceLimitError("attachment");
+  if (bytes.byteLength > maxBytes) {
+    throw new ZoteroNotePayloadResourceLimitError("attachment", maxBytes);
   }
   const hasV2PayloadChunk = Boolean(
     findPngChunk(bytes, WORKBENCH_EMBEDDED_PAYLOAD_CHUNK),
@@ -680,8 +684,8 @@ export function parseEmbeddedNotePayloadBlock(
   let v2Envelope: any = null;
   let envelopeError: string | null = null;
   try {
-    v2Envelope = parseV2PayloadEnvelope(bytes);
-    envelope = v2Envelope || parseV1TailPayloadEnvelope(bytes);
+    v2Envelope = parseV2PayloadEnvelope(bytes, maxBytes);
+    envelope = v2Envelope || parseV1TailPayloadEnvelope(bytes, maxBytes);
   } catch (error) {
     if (error instanceof ZoteroNotePayloadResourceLimitError) {
       throw error;
@@ -763,7 +767,7 @@ export function parseEmbeddedNotePayloadBlock(
         : format === "json"
           ? JSON.stringify(payload || {})
           : String(payload?.content || "");
-    assertUtf8Bytes(decodedText, "decoded");
+    assertUtf8Bytes(decodedText, "decoded", maxBytes);
     block.payloadType = payloadType;
     block.noteKind = String(envelope?.noteKind || "").trim();
     block.version = logicalSchemaVersion || "1";

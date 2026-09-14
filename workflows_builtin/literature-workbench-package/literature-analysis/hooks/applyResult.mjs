@@ -580,7 +580,7 @@ async function applyResultImpl({
         referencesEntryPath: referencesResolved.entryPath,
         citationAnalysisEntryPath: citationAnalysisResolved.entryPath,
         referencesPayload: referencesPayload.payload,
-        citationAnalysisPayload: citationPayload,
+        citationAnalysisPayload: citationAnalysisNote?.payload,
         literatureScorePayload,
         literatureMatchingMetadata: literatureMatchingMetadataResolved.payload,
       }),

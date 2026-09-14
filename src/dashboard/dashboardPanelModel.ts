@@ -1438,10 +1438,6 @@ function projectViews(
         ["replace_canonical", "Replace conflicting canonical artifact"],
         ["preserve_source", "Preserve unrecognized source evidence"],
         ["accept_data_loss", "Accept the listed data loss"],
-        [
-          "accept_damaged_input",
-          "Migrate readable content (ignore read failures)",
-        ],
         ["skip_candidate", "Skip this set"],
       ].map(([kind, fallback]) => [
         kind,

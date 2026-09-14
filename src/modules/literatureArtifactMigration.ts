@@ -1,5 +1,7 @@
 import {
+  compactCitationAnalysisSnippets,
   generateSourceReferenceId,
+  parseSourceReferenceArtifact,
   type CitationAnalysisArtifact,
   type SourceReferenceArtifact,
 } from "../../packages/synthesis-contracts/src/sourceReferenceArtifact";
@@ -50,7 +52,7 @@ import {
 } from "./literatureArtifactMigration/converter";
 
 export const LITERATURE_ARTIFACT_MIGRATION_ID = "literature-artifacts" as const;
-export const LITERATURE_ARTIFACT_MIGRATION_DEFINITION_VERSION = 4 as const;
+export const LITERATURE_ARTIFACT_MIGRATION_DEFINITION_VERSION = 6 as const;
 
 export type MigrationPortableItemRef = PortableItemRef;
 
@@ -248,6 +250,7 @@ export type LiteratureArtifactMigrationHost = {
     outcome: "applied" | "changed_since_scan" | "repair_required" | "failed";
     reason?: string;
     diagnostics?: string[];
+    continueSafe?: true;
   }>;
 };
 
@@ -371,13 +374,27 @@ function migrationParentSetEntries(
         : {}),
     });
   };
-  add(
-    "references",
-    "References",
-    conversion.references as unknown as JsonValue,
-    "references-json",
+  const canonicalKinds = new Set(
+    (input.canonicalNotes || []).map((note) => note.noteKind),
   );
-  if (conversion.citation) {
+  const legacyKinds = new Set(
+    (input.legacyNotes || []).flatMap((note) =>
+      note.payloads.map((payload) => payload.payloadType),
+    ),
+  );
+  if (!canonicalKinds.has("references") || legacyKinds.has("references-json")) {
+    add(
+      "references",
+      "References",
+      conversion.references as unknown as JsonValue,
+      "references-json",
+    );
+  }
+  if (
+    conversion.citation &&
+    (!canonicalKinds.has("citation-analysis") ||
+      legacyKinds.has("citation-analysis-json"))
+  ) {
     add(
       "citation-analysis",
       "Citation Analysis",
@@ -399,6 +416,7 @@ function mutationResultToMigrationOutcome(
   outcome: "applied" | "repair_required" | "failed";
   reason?: string;
   diagnostics?: string[];
+  continueSafe?: true;
 } {
   if (result.outcome === "committed" || result.outcome === "unchanged") {
     return { outcome: "applied" };
@@ -452,6 +470,11 @@ function mutationResultToMigrationOutcome(
         : "failed",
     reason: result.outcome,
     diagnostics,
+    ...(result.outcome === "failed" &&
+    result.attempt.residualRefs.length === 0 &&
+    CONTINUATION_SAFE_MIGRATION_CODES.has(result.attempt.error.code)
+      ? { continueSafe: true as const }
+      : {}),
   };
 }
 
@@ -492,6 +515,14 @@ const MIGRATION_FAILURE_CODES = new Set([
   "cancelled",
 ]);
 
+const CONTINUATION_SAFE_MIGRATION_CODES = new Set([
+  "resource_limited",
+  "invalid_artifact",
+  "legacy_artifact_requires_migration",
+  "conflict",
+  "not_found",
+]);
+
 function migrationFailureCode(error: unknown): string {
   const code = String(object(error)?.code || "");
   return MIGRATION_FAILURE_CODES.has(code) ? code : "migration_error";
@@ -514,7 +545,7 @@ function hasVerifiedCanonicalParentSet(
     | undefined;
   const expectedReferencesBasis = expectedReferences
     ? hashSynthesisContractCanonicalJson(expectedReferences)
-    : undefined;
+    : result.result.referencesBasis;
   if (
     expectedReferencesBasis &&
     result.result.referencesBasis !== expectedReferencesBasis
@@ -542,7 +573,15 @@ function hasVerifiedCanonicalParentSet(
     ) {
       return false;
     }
-    if (stableJson(note.payload) !== stableJson(entry.payload)) return false;
+    const expectedPayload =
+      entry.noteKind === "citation-analysis" &&
+      result.result.citationSnippetCompaction
+        ? compactCitationAnalysisSnippets(
+            entry.payload,
+            result.result.citationSnippetCompaction.finalMaxCharacters,
+          ).artifact
+        : entry.payload;
+    if (stableJson(note.payload) !== stableJson(expectedPayload)) return false;
     if (
       entry.noteKind === "citation-analysis" &&
       note.provenance?.referencesBasis !== expectedReferencesBasis
@@ -737,6 +776,14 @@ async function readLegacyParentSet(
   if (!noteContents.length && !filePayloads.length && !readErrors.length) {
     return null;
   }
+  const existingReferences = canonicalNotes.flatMap((note) => {
+    if (note.noteKind !== "references") return [];
+    try {
+      return parseSourceReferenceArtifact(note.payload).references;
+    } catch {
+      return [];
+    }
+  });
   return {
     libraryId: parentRef.libraryId,
     parentRef,
@@ -745,6 +792,7 @@ async function readLegacyParentSet(
     legacyNoteRefs,
     legacyNotes,
     ...(canonicalNotes.length ? { canonicalNotes } : {}),
+    ...(existingReferences.length ? { existingReferences } : {}),
     ...(readErrors.length ? { readErrors } : {}),
   };
 }
@@ -926,6 +974,9 @@ export function createLiteratureArtifactMigrationHostFromZoteroBroker(
         parentRef,
         operationId,
         entries,
+        ...(entries.some((entry) => entry.noteKind === "citation-analysis")
+          ? { compactCitationSnippets: true as const }
+          : {}),
         ...(migrationCleanup ? { migrationCleanup } : {}),
       };
       const result = await localControl.applyParentSet(
@@ -1108,7 +1159,7 @@ function issueOptionKinds(
     return ["accept_data_loss", "skip_candidate"];
   }
   if (reasonCode === "damaged_input") {
-    return ["accept_damaged_input", "skip_candidate"];
+    return ["skip_candidate"];
   }
   return ["skip_candidate"];
 }
@@ -1124,10 +1175,7 @@ function issuesForConversion(
     options: issueOptionKinds(reasonCode).map((kind, optionIndex) => ({
       optionId: `option-${index + 1}-${optionIndex + 1}-${kind}`,
       kind,
-      dataLoss:
-        kind === "drop_unresolved" ||
-        kind === "accept_data_loss" ||
-        kind === "accept_damaged_input",
+      dataLoss: kind === "drop_unresolved" || kind === "accept_data_loss",
     })),
     selectedOptionId: "",
   }));
@@ -1710,6 +1758,7 @@ export function createLiteratureArtifactMigrationService(
         ? "review_required"
         : "";
     let failed = false;
+    let stopScheduling = false;
     let failureDiagnostics: string[] = [];
     try {
       for (const candidate of toApply) {
@@ -1771,20 +1820,27 @@ export function createLiteratureArtifactMigrationService(
           );
           attention = true;
           reason = reason || "repair_required";
+          stopScheduling = true;
         } else if (applied.outcome === "failed") {
-          failureDiagnostics = applied.diagnostics || [
+          const diagnostics = applied.diagnostics || [
             applied.reason || "apply_failed",
           ];
+          failureDiagnostics.push(...diagnostics);
           persistCandidate(
             plan.preview.runId,
             setOperationId,
             candidate,
             runtimeCandidate.conversion,
             "failed",
-            failureDiagnostics,
+            diagnostics,
           );
-          failed = true;
-          reason = applied.reason || "apply_failed";
+          if (applied.continueSafe) {
+            attention = true;
+            reason = reason || applied.reason || "apply_failed";
+          } else {
+            failed = true;
+            reason = applied.reason || "apply_failed";
+          }
         } else if (applied.outcome === "changed_since_scan") {
           persistCandidate(
             plan.preview.runId,
@@ -1818,7 +1874,7 @@ export function createLiteratureArtifactMigrationService(
             updatedAt: nowIso(),
           });
         }
-        if (failed) break;
+        if (failed || stopScheduling) break;
       }
     } catch (error) {
       const current = getLiteratureArtifactMigrationRun(plan.preview.runId);
@@ -2081,8 +2137,8 @@ export function createLiteratureArtifactMigrationService(
     issue.selectedOptionId = option.optionId;
     issue.status = "resolved";
     plan.selectedCandidateIds.delete(runtimeCandidate.candidate.candidateId);
-    runtimeCandidate.candidate.disposition = runtimeCandidate.candidate.issues
-      .some(
+    runtimeCandidate.candidate.disposition =
+      runtimeCandidate.candidate.issues.some(
         (entry) =>
           entry.options.find(
             (candidateOption) =>
@@ -2161,9 +2217,7 @@ export function createLiteratureArtifactMigrationService(
           candidate.reasonCode === reasonCode && candidate.status === "pending",
       );
       if (!issue) continue;
-      const option = issue.options.find(
-        (candidate) => candidate.kind === kind,
-      );
+      const option = issue.options.find((candidate) => candidate.kind === kind);
       if (!option) continue;
       applyIssueSelection(plan, entry, issue, option);
       affected += 1;
