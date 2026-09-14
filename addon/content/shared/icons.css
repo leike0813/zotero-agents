@@ -43,6 +43,26 @@
   mask-image: url("../icons/material-symbols/keyboard_arrow_down.svg");
 }
 
+.zs-icon-first-page {
+  -webkit-mask-image: url("../icons/material-symbols/first_page.svg");
+  mask-image: url("../icons/material-symbols/first_page.svg");
+}
+
+.zs-icon-last-page {
+  -webkit-mask-image: url("../icons/material-symbols/last_page.svg");
+  mask-image: url("../icons/material-symbols/last_page.svg");
+}
+
+.zs-icon-chevron-left {
+  -webkit-mask-image: url("../icons/material-symbols/chevron_left.svg");
+  mask-image: url("../icons/material-symbols/chevron_left.svg");
+}
+
+.zs-icon-chevron-right {
+  -webkit-mask-image: url("../icons/material-symbols/chevron_right.svg");
+  mask-image: url("../icons/material-symbols/chevron_right.svg");
+}
+
 .zs-icon-dashboard {
   -webkit-mask-image: url("../icons/material-symbols/dashboard.svg");
   mask-image: url("../icons/material-symbols/dashboard.svg");

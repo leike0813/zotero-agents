@@ -35,6 +35,7 @@ import {
   getLiteratureArtifactMigrationService,
   LITERATURE_ARTIFACT_MIGRATION_DEFINITION_VERSION,
   LITERATURE_ARTIFACT_MIGRATION_ID,
+  type LiteratureArtifactMigrationPrimaryDiagnostic,
 } from "../literatureArtifactMigration";
 import { readRuntimeTextFileStrict } from "../runtimePersistence";
 import { listRuntimeLogs } from "../runtimeLogManager";
@@ -80,7 +81,7 @@ export type DashboardState = {
   backendLoadError?: string;
   selectedTabKey: string;
   selectedLiteratureMigrationRunId: string;
-  literatureMigrationReceiptCursor?: string;
+  literatureMigrationReceiptPage?: number;
   literatureMigrationCandidateQuery: DashboardLiteratureArtifactMigrationCandidateQuery;
   selectedBackendSubviewById: Map<string, "runs" | "management">;
   selectedLogTaskByBackendId: Map<string, string>;
@@ -1006,6 +1007,33 @@ function migrationRunToDashboardView(entry: {
   };
 }
 
+function migrationDiagnosticToDashboardView(
+  diagnostic: LiteratureArtifactMigrationPrimaryDiagnostic,
+) {
+  const authority = diagnostic.authority;
+  const attempt = authority.attempt;
+  return {
+    candidateId: diagnostic.candidateId,
+    ordinal: diagnostic.ordinal,
+    outcome: diagnostic.outcome,
+    operationId: diagnostic.operationId,
+    authorityState: authority.state,
+    operation: authority.operation || "",
+    attemptId: attempt?.attemptId || "",
+    status: attempt?.status || authority.outcome || "",
+    code: attempt?.code || "",
+    phase: attempt?.phase || "",
+    effectPhase: attempt?.details.phase || "",
+    recovery: attempt?.recovery || "",
+    message: attempt?.message || "",
+    affectedCount:
+      attempt?.details.affectedCount ?? attempt?.affectedCount ?? null,
+    residualCount:
+      attempt?.details.residualCount ?? attempt?.residualCount ?? null,
+    diagnostics: [...diagnostic.diagnostics],
+  };
+}
+
 export function resolveDashboardLiteratureMigrationService() {
   const configured = getLiteratureArtifactMigrationService();
   if (configured) return configured;
@@ -1038,9 +1066,11 @@ function buildLiteratureArtifactMigrationView(
       activeOperationId: "",
       activeRunId: "",
       progress: null,
+      primaryDiagnostic: null,
       candidatePage: {
-        cursor: "",
-        nextCursor: null,
+        page: 0,
+        pageSize: 25,
+        pageCount: 0,
         items: [],
         summary: {
           total: 0,
@@ -1049,6 +1079,8 @@ function buildLiteratureArtifactMigrationView(
           reviewRequired: 0,
           blocked: 0,
           selected: 0,
+          filteredSelected: 0,
+          filteredSelectable: 0,
         },
         query: {
           search: "",
@@ -1072,7 +1104,10 @@ function buildLiteratureArtifactMigrationView(
   const history = service
     .listHistory({ limit: 20 })
     .map(migrationRunToDashboardView);
-  const receiptCursor = String(state?.literatureMigrationReceiptCursor || "");
+  const receiptPage = Math.max(
+    0,
+    Math.floor(Number(state?.literatureMigrationReceiptPage) || 0),
+  );
   const candidateQuery = state?.literatureMigrationCandidateQuery || {
     search: "",
     classification: "" as const,
@@ -1083,7 +1118,7 @@ function buildLiteratureArtifactMigrationView(
     ? service.listCandidatePage({
         runId: displayedEntry.runId,
         limit: 25,
-        ...(receiptCursor ? { cursor: receiptCursor } : {}),
+        page: receiptPage,
         query: {
           ...(candidateQuery.search ? { search: candidateQuery.search } : {}),
           ...(candidateQuery.classification
@@ -1098,8 +1133,10 @@ function buildLiteratureArtifactMigrationView(
         },
       })
     : {
+        page: 0,
+        pageSize: 25,
+        pageCount: 0,
         items: [],
-        nextCursor: null,
         summary: {
           total: 0,
           unfilteredTotal: 0,
@@ -1107,9 +1144,14 @@ function buildLiteratureArtifactMigrationView(
           reviewRequired: 0,
           blocked: 0,
           selected: 0,
+          filteredSelected: 0,
+          filteredSelectable: 0,
         },
         availableReasons: [],
       };
+  const primaryDiagnostic = displayedEntry
+    ? service.getPrimaryDiagnostic({ runId: displayedEntry.runId })
+    : null;
   return {
     migrationId: LITERATURE_ARTIFACT_MIGRATION_ID,
     definitionVersion: LITERATURE_ARTIFACT_MIGRATION_DEFINITION_VERSION,
@@ -1140,9 +1182,13 @@ function buildLiteratureArtifactMigrationView(
           candidateCount: activeSnapshot.progress?.candidateCount || 0,
         }
       : null,
+    primaryDiagnostic: primaryDiagnostic
+      ? migrationDiagnosticToDashboardView(primaryDiagnostic)
+      : null,
     candidatePage: {
-      cursor: receiptCursor,
-      nextCursor: candidatePage.nextCursor,
+      page: candidatePage.page,
+      pageSize: candidatePage.pageSize,
+      pageCount: candidatePage.pageCount,
       items: candidatePage.items,
       summary: candidatePage.summary,
       query: candidateQuery,
@@ -1287,6 +1333,62 @@ export async function buildDashboardSnapshot(args: {
       "task-dashboard-literature-migration-continue",
       "Continue",
     ),
+    literatureMigrationDiagnosticTitle: localize(
+      "task-dashboard-literature-migration-diagnostic-title",
+      "Primary diagnostic",
+    ),
+    literatureMigrationDiagnosticCause: localize(
+      "task-dashboard-literature-migration-diagnostic-cause",
+      "Cause",
+    ),
+    literatureMigrationDiagnosticOperation: localize(
+      "task-dashboard-literature-migration-diagnostic-operation",
+      "Operation",
+    ),
+    literatureMigrationDiagnosticOperationId: localize(
+      "task-dashboard-literature-migration-diagnostic-operation-id",
+      "Operation ID",
+    ),
+    literatureMigrationDiagnosticAttemptId: localize(
+      "task-dashboard-literature-migration-diagnostic-attempt-id",
+      "Attempt ID",
+    ),
+    literatureMigrationDiagnosticPhase: localize(
+      "task-dashboard-literature-migration-diagnostic-phase",
+      "Phase",
+    ),
+    literatureMigrationDiagnosticEffectPhase: localize(
+      "task-dashboard-literature-migration-diagnostic-effect-phase",
+      "Effect phase",
+    ),
+    literatureMigrationDiagnosticRecovery: localize(
+      "task-dashboard-literature-migration-diagnostic-recovery",
+      "Recovery",
+    ),
+    literatureMigrationDiagnosticAffected: localize(
+      "task-dashboard-literature-migration-diagnostic-affected",
+      "Affected",
+    ),
+    literatureMigrationDiagnosticResidual: localize(
+      "task-dashboard-literature-migration-diagnostic-residual",
+      "Residual",
+    ),
+    literatureMigrationDiagnosticUnavailable: localize(
+      "task-dashboard-literature-migration-diagnostic-unavailable",
+      "Durable mutation evidence is unavailable for this run.",
+    ),
+    literatureMigrationDiagnosticRetry: localize(
+      "task-dashboard-literature-migration-diagnostic-retry",
+      "Retry the same operation after checking the cause.",
+    ),
+    literatureMigrationDiagnosticFreshScan: localize(
+      "task-dashboard-literature-migration-diagnostic-fresh-scan",
+      "Run a fresh scan before retrying.",
+    ),
+    literatureMigrationDiagnosticManualRepair: localize(
+      "task-dashboard-literature-migration-diagnostic-manual-repair",
+      "Manual repair is required before retrying.",
+    ),
     literatureMigrationReview: localize(
       "task-dashboard-literature-migration-review",
       "Review required",
@@ -1330,6 +1432,18 @@ export async function buildDashboardSnapshot(args: {
     literatureMigrationNext: localize(
       "task-dashboard-literature-migration-next",
       "Next",
+    ),
+    literatureMigrationFirstPage: localize(
+      "task-dashboard-literature-migration-first-page",
+      "First page",
+    ),
+    literatureMigrationLastPage: localize(
+      "task-dashboard-literature-migration-last-page",
+      "Last page",
+    ),
+    literatureMigrationPage: localize(
+      "task-dashboard-literature-migration-page",
+      "Page",
     ),
     literatureMigrationSelected: localize(
       "task-dashboard-literature-migration-selected",

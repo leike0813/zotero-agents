@@ -220,6 +220,7 @@ export type LiteratureArtifactMigrationSetListOptions = {
   runId: string;
   limit?: number;
   cursor?: string;
+  offset?: number;
 };
 
 const SQLITE_MIGRATION_META_KEY = "migration_task_state_v1";
@@ -920,6 +921,7 @@ const {
   listLiteratureArtifactMigrationRuns,
   upsertLiteratureArtifactMigrationSet,
   getLiteratureArtifactMigrationSet,
+  getPrimaryLiteratureArtifactMigrationIssue,
   listLiteratureArtifactMigrationSets,
 } = createLiteratureMigrationTables(getAdapter);
 
@@ -929,6 +931,7 @@ export {
   listLiteratureArtifactMigrationRuns,
   upsertLiteratureArtifactMigrationSet,
   getLiteratureArtifactMigrationSet,
+  getPrimaryLiteratureArtifactMigrationIssue,
   listLiteratureArtifactMigrationSets,
 };
 

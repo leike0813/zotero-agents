@@ -105,6 +105,7 @@ export type DashboardHostActionName =
   | "literature-migration-stop"
   | "literature-migration-continue"
   | "literature-migration-set-selection"
+  | "literature-migration-set-filter-selection"
   | "literature-migration-resolve-issue"
   | "literature-migration-set-candidate-query"
   | "literature-migration-list-receipts"
@@ -292,6 +293,10 @@ export type DashboardActionPayloadMap = {
     candidateId: string;
     selected: boolean;
   }>;
+  "literature-migration-set-filter-selection": DashboardActionPayloadShape<{
+    scanOperationId: string;
+    selected: boolean;
+  }>;
   "literature-migration-resolve-issue": DashboardActionPayloadShape<{
     scanOperationId: string;
     candidateId: string;
@@ -307,7 +312,7 @@ export type DashboardActionPayloadMap = {
   "literature-migration-list-receipts": DashboardActionPayloadShape<{
     runId: string;
     limit?: number;
-    cursor?: string;
+    page?: number;
   }>;
   "literature-migration-select-run": DashboardActionPayloadShape<{
     runId: string;
@@ -1135,8 +1140,9 @@ export type DashboardLiteratureArtifactMigrationCandidateQuery = {
 };
 
 export type DashboardLiteratureArtifactMigrationCandidatePage = {
-  cursor: string;
-  nextCursor: string | null;
+  page: number;
+  pageSize: number;
+  pageCount: number;
   items: DashboardLiteratureArtifactMigrationCandidate[];
   summary: {
     total: number;
@@ -1145,6 +1151,8 @@ export type DashboardLiteratureArtifactMigrationCandidatePage = {
     reviewRequired: number;
     blocked: number;
     selected: number;
+    filteredSelected: number;
+    filteredSelectable: number;
   };
   query: DashboardLiteratureArtifactMigrationCandidateQuery;
   availableReasons: string[];
@@ -1172,6 +1180,25 @@ export type DashboardLiteratureArtifactMigrationRun = {
   diagnostics: string[];
 };
 
+export type DashboardLiteratureArtifactMigrationDiagnostic = {
+  candidateId: string;
+  ordinal: number;
+  outcome: string;
+  operationId: string;
+  authorityState: "running" | "terminal" | "unavailable";
+  operation: string;
+  attemptId: string;
+  status: string;
+  code: string;
+  phase: string;
+  effectPhase: string;
+  recovery: string;
+  message: string;
+  affectedCount: number | null;
+  residualCount: number | null;
+  diagnostics: string[];
+};
+
 export type DashboardLiteratureArtifactMigrationView = {
   migrationId: string;
   definitionVersion: number;
@@ -1187,6 +1214,7 @@ export type DashboardLiteratureArtifactMigrationView = {
     total: number | null;
     candidateCount: number;
   } | null;
+  primaryDiagnostic: DashboardLiteratureArtifactMigrationDiagnostic | null;
   candidatePage: DashboardLiteratureArtifactMigrationCandidatePage;
   history: DashboardLiteratureArtifactMigrationRun[];
 };

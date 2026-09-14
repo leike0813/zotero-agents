@@ -669,6 +669,32 @@ describe("library artifacts column", function () {
     );
   });
 
+  it("reads the exact historical score storage envelope without rewriting it", async function () {
+    const parent = await createParentItem("Historically Scored Paper");
+    const note = await createNote(
+      parent,
+      "Literature Score",
+      '<div data-zs-note-kind="literature-score"><h1>Literature Score</h1></div>',
+    );
+    const historicalPayload = {
+      version: 1,
+      entry: "artifacts/literature_score.json",
+      format: "json",
+      literature_score: scorePayload(69.5),
+    };
+    await createEmbeddedPayloadAttachment(note, {
+      noteKind: "literature-score",
+      payloadType: "literature-score-json",
+      payload: historicalPayload,
+    });
+
+    const readiness = await resolveLibraryArtifactReadiness(parent);
+
+    assert.equal(readiness.literatureScore.status, "available");
+    assert.equal(readiness.literatureScore.summary?.overallScore, 69.5);
+    assert.equal(parseLiteratureScore(historicalPayload)?.overallScore, 69.5);
+  });
+
   it("renders rated and missing star states with one accessible label", function () {
     const doc = createTinyDocument();
     const rated = libraryArtifactsColumnInternalsForTests.renderRatingCell(

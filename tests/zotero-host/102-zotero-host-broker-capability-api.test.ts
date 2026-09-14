@@ -93,6 +93,7 @@ import type {
   SourceReferenceArtifact,
 } from "../../packages/synthesis-contracts/src/sourceReferenceArtifact";
 import type { LiteratureScoreArtifact } from "../../packages/synthesis-contracts/src/literatureArtifacts";
+import { hashSynthesisContractCanonicalJson } from "../../packages/synthesis-contracts/src/index";
 
 const HOST_BRIDGE_CONTEXT_GET_CURRENT_VIEW = "context.get_current_view";
 
@@ -2020,6 +2021,69 @@ describe("zotero host broker capability api", function () {
     }
   });
 
+  it("keeps an unrelated damaged Score out of Citation dependency discovery", async function () {
+    const parent = await createParentItem(
+      "Citation with damaged Score sibling",
+    );
+    const broker = createZoteroHostCapabilityBroker();
+    const referencesPayload = sourceReferences();
+    const references = new Zotero.Item("note");
+    references.parentID = parent.id;
+    references.setNote(
+      `<div data-zs-note-kind="references">${renderPayloadBlock({
+        payloadType: "references-json",
+        payload: referencesPayload,
+      })}</div>`,
+    );
+    await references.saveTx();
+    const citation = new Zotero.Item("note");
+    citation.parentID = parent.id;
+    citation.setNote(
+      `<div data-zs-note-kind="citation-analysis">${renderPayloadBlock({
+        payloadType: "citation-analysis-json",
+        payload: {
+          ...citationAnalysis(),
+          referencesBasis:
+            hashSynthesisContractCanonicalJson(referencesPayload),
+        },
+      })}</div>`,
+    );
+    await citation.saveTx();
+    const damagedScore = new Zotero.Item("note");
+    damagedScore.parentID = parent.id;
+    damagedScore.setNote(
+      `<div data-zs-note-kind="literature-score">${renderPayloadBlock({
+        payloadType: "literature-score-json",
+        payload: { invalid: true },
+      })}</div>`,
+    );
+    await damagedScore.saveTx();
+
+    const detail = await broker.library.getNoteDetail(
+      { libraryId: citation.libraryID, key: citation.key },
+      { format: "html" },
+    );
+
+    assert.equal(detail.kind, "managed");
+    if (detail.kind === "managed") {
+      assert.equal(detail.noteKind, "citation-analysis");
+      assert.equal(detail.health?.state, "current");
+    }
+    let scoreError: unknown;
+    try {
+      await broker.library.getNoteDetail(
+        { libraryId: damagedScore.libraryID, key: damagedScore.key },
+        { format: "html" },
+      );
+    } catch (error) {
+      scoreError = error;
+    }
+    assert.equal(
+      (scoreError as { code?: string } | undefined)?.code,
+      "invalid_artifact",
+    );
+  });
+
   it("replays a managed receipt before preparing a now-damaged target", async function () {
     const parent = await createParentItem("Managed replay");
     const broker = createZoteroHostCapabilityBroker();
@@ -2376,6 +2440,7 @@ describe("zotero host broker capability api", function () {
     const broker = createZoteroHostCapabilityBroker();
     const scope = { ownerId: "logical-payload-test" };
     const originalImport = Zotero.Attachments.importEmbeddedImage;
+    const originalRemove = brokerMutationPrimitives.attachment.remove;
     let imports = 0;
     Zotero.Attachments.importEmbeddedImage = async (args) => {
       imports += 1;
@@ -2417,6 +2482,12 @@ describe("zotero host broker capability api", function () {
       assert.strictEqual((unchanged.result as any).outcome, "unchanged");
       assert.strictEqual(imports, 1);
 
+      brokerMutationPrimitives.attachment.remove = async (item, options) => {
+        await originalRemove(item, options);
+        item.getField = () => {
+          throw new Error("erased attachment is unloaded");
+        };
+      };
       const replaced = await broker.notes.upsertPayload(
         {
           operationId: "logical-payload-replace",
@@ -2426,10 +2497,19 @@ describe("zotero host broker capability api", function () {
         scope,
       );
       assert.strictEqual(replaced.outcome, "committed");
+      if (replaced.outcome !== "committed") assert.fail("expected replace");
       assert.strictEqual((replaced.result as any).outcome, "replaced");
+      const deleted = replaced.receipt.changes.find(
+        (change) => change.effect === "deleted",
+      );
+      assert.isOk(deleted);
+      assert.strictEqual(deleted?.before?.state, "active");
+      assert.strictEqual(deleted?.after?.state, "deleted");
+      assertStrictJsonValue(replaced);
       assert.strictEqual(imports, 2);
     } finally {
       Zotero.Attachments.importEmbeddedImage = originalImport;
+      brokerMutationPrimitives.attachment.remove = originalRemove;
     }
   });
 

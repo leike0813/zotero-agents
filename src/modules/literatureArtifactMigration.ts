@@ -31,6 +31,7 @@ import {
 } from "./runtimeLogManager";
 import {
   getLiteratureArtifactMigrationRun,
+  getPrimaryLiteratureArtifactMigrationIssue,
   listLiteratureArtifactMigrationRuns,
   listLiteratureArtifactMigrationSets,
   upsertLiteratureArtifactMigrationRun,
@@ -163,6 +164,38 @@ export type LiteratureArtifactMigrationRunResult = {
   setCount: number;
 };
 
+export type LiteratureArtifactMigrationAuthorityDiagnostic = {
+  operationId: string;
+  state: "running" | "terminal" | "unavailable";
+  operation?: string;
+  outcome?: string;
+  attempt?: {
+    attemptId: string;
+    status: string;
+    code: string;
+    phase: string;
+    recovery: string;
+    message: string;
+    details: {
+      phase?: string;
+      recovery?: string;
+      affectedCount?: number;
+      residualCount?: number;
+    };
+    affectedCount: number;
+    residualCount: number;
+  };
+};
+
+export type LiteratureArtifactMigrationPrimaryDiagnostic = {
+  candidateId: string;
+  operationId: string;
+  ordinal: number;
+  outcome: LiteratureArtifactMigrationSetEntry["outcome"];
+  diagnostics: string[];
+  authority: LiteratureArtifactMigrationAuthorityDiagnostic;
+};
+
 export type LiteratureArtifactMigrationDiagnosticBundleV1 = {
   schemaVersion: "literature-artifact-migration-diagnostic-bundle/v1";
   generatedAt: string;
@@ -185,28 +218,7 @@ export type LiteratureArtifactMigrationDiagnosticBundleV1 = {
     outcome: LiteratureArtifactMigrationSetEntry["outcome"];
     diagnostics: string[];
   }>;
-  authorities: Array<{
-    operationId: string;
-    state: "running" | "terminal" | "unavailable";
-    operation?: string;
-    outcome?: string;
-    attempt?: {
-      attemptId: string;
-      status: string;
-      code: string;
-      phase: string;
-      recovery: string;
-      message: string;
-      details: {
-        phase?: string;
-        recovery?: string;
-        affectedCount?: number;
-        residualCount?: number;
-      };
-      affectedCount: number;
-      residualCount: number;
-    };
-  }>;
+  authorities: LiteratureArtifactMigrationAuthorityDiagnostic[];
   omittedSetCount: number;
   runtime: RuntimeIssueDiagnosticBundleV1;
 };
@@ -545,6 +557,58 @@ function normalizeMigrationScope(
   libraryId: number,
 ): ZoteroHostMutationCallerScope {
   return { ownerId: `dashboard:literature-artifact-migration:${libraryId}` };
+}
+
+function projectMigrationAuthority(
+  libraryId: number,
+  operationId: string,
+): LiteratureArtifactMigrationAuthorityDiagnostic {
+  const observation = getMutationOperation({
+    scope: normalizeMigrationScope(libraryId),
+    operationId,
+  });
+  if (observation.state !== "settled") {
+    return { operationId, state: observation.state };
+  }
+  const result = observation.result;
+  if (!("attempt" in result)) {
+    return {
+      operationId,
+      state: "terminal",
+      outcome: result.outcome,
+    };
+  }
+  const details = object(result.attempt.error.details);
+  const numberDetail = (key: "affectedCount" | "residualCount") => {
+    const value = Number(details?.[key]);
+    return Number.isFinite(value) && value >= 0 ? Math.floor(value) : undefined;
+  };
+  const affectedCount = numberDetail("affectedCount");
+  const residualCount = numberDetail("residualCount");
+  return {
+    operationId,
+    state: "terminal",
+    operation: result.attempt.operation,
+    outcome: result.outcome,
+    attempt: {
+      attemptId: result.attempt.attemptId,
+      status: result.attempt.status,
+      code: result.attempt.error.code,
+      phase: result.attempt.error.phase,
+      recovery: result.attempt.error.recovery,
+      message: text(result.attempt.error.message),
+      details: {
+        ...(text(details?.phase) ? { phase: text(details?.phase) } : {}),
+        ...(text(details?.recovery)
+          ? { recovery: text(details?.recovery) }
+          : {}),
+        ...(affectedCount !== undefined ? { affectedCount } : {}),
+        ...(residualCount !== undefined ? { residualCount } : {}),
+      },
+      affectedCount: result.attempt.affectedRefs.length,
+      residualCount: result.attempt.residualRefs.length,
+    },
+  };
 }
 
 async function readLegacyParentSet(
@@ -1146,6 +1210,37 @@ function migrationCursorOrdinal(cursor: string | undefined): number {
   } catch {
     return 0;
   }
+}
+
+function candidateSelectable(
+  candidate: LiteratureArtifactMigrationCandidate,
+): boolean {
+  return (
+    candidate.classification === "ready" &&
+    !candidate.issues.some((issue) => issue.status !== "resolved")
+  );
+}
+
+function filterPlanCandidates(
+  plan: RuntimePlan,
+  query?: LiteratureArtifactMigrationCandidateQuery,
+) {
+  const search = text(query?.search).toLocaleLowerCase();
+  return [...plan.candidates.values()]
+    .filter(
+      (entry) =>
+        (!search ||
+          entry.candidate.title.toLocaleLowerCase().includes(search)) &&
+        (!query?.classification ||
+          entry.candidate.classification === query.classification) &&
+        (!query?.reasonCode ||
+          entry.candidate.issues.some(
+            (issue) => issue.reasonCode === query.reasonCode,
+          )) &&
+        (!query?.disposition ||
+          entry.candidate.disposition === query.disposition),
+    )
+    .sort((left, right) => left.candidate.ordinal - right.candidate.ordinal);
 }
 
 function stateRunEntry(
@@ -1875,59 +1970,9 @@ export function createLiteratureArtifactMigrationService(
       cursor = page.nextCursor;
     }
     const authorities: LiteratureArtifactMigrationDiagnosticBundleV1["authorities"] =
-      sets.map((set) => {
-        const observation = getMutationOperation({
-          scope: normalizeMigrationScope(Number(run.libraryId)),
-          operationId: set.operationId,
-        });
-        if (observation.state !== "settled") {
-          return {
-            operationId: set.operationId,
-            state: observation.state,
-          };
-        }
-        const result = observation.result;
-        if (!("attempt" in result)) {
-          return {
-            operationId: set.operationId,
-            state: "terminal" as const,
-            outcome: result.outcome,
-          };
-        }
-        const details = object(result.attempt.error.details);
-        const numberDetail = (key: "affectedCount" | "residualCount") => {
-          const value = Number(details?.[key]);
-          return Number.isFinite(value) && value >= 0
-            ? Math.floor(value)
-            : undefined;
-        };
-        const affectedCount = numberDetail("affectedCount");
-        const residualCount = numberDetail("residualCount");
-        return {
-          operationId: set.operationId,
-          state: "terminal" as const,
-          operation: result.attempt.operation,
-          outcome: result.outcome,
-          attempt: {
-            attemptId: result.attempt.attemptId,
-            status: result.attempt.status,
-            code: result.attempt.error.code,
-            phase: result.attempt.error.phase,
-            recovery: result.attempt.error.recovery,
-            message: text(result.attempt.error.message),
-            details: {
-              ...(text(details?.phase) ? { phase: text(details?.phase) } : {}),
-              ...(text(details?.recovery)
-                ? { recovery: text(details?.recovery) }
-                : {}),
-              ...(affectedCount !== undefined ? { affectedCount } : {}),
-              ...(residualCount !== undefined ? { residualCount } : {}),
-            },
-            affectedCount: result.attempt.affectedRefs.length,
-            residualCount: result.attempt.residualRefs.length,
-          },
-        };
-      });
+      sets.map((set) =>
+        projectMigrationAuthority(Number(run.libraryId), set.operationId),
+      );
     return {
       ok: true,
       bundle: {
@@ -1952,6 +1997,26 @@ export function createLiteratureArtifactMigrationService(
           filters: { runId: run.runId },
         }),
       },
+    };
+  }
+
+  function getPrimaryDiagnostic(args: {
+    runId: string;
+  }): LiteratureArtifactMigrationPrimaryDiagnostic | null {
+    const run = getLiteratureArtifactMigrationRun(text(args.runId));
+    if (!run) return null;
+    const receipt = getPrimaryLiteratureArtifactMigrationIssue(run.runId);
+    if (!receipt) return null;
+    return {
+      candidateId: receipt.candidateId,
+      operationId: receipt.operationId,
+      ordinal: receipt.ordinal,
+      outcome: receipt.outcome,
+      diagnostics: [...receipt.diagnostics],
+      authority: projectMigrationAuthority(
+        Number(run.libraryId),
+        receipt.operationId,
+      ),
     };
   }
 
@@ -2036,11 +2101,7 @@ export function createLiteratureArtifactMigrationService(
         },
       );
     }
-    if (
-      args.selected &&
-      (candidate.classification !== "ready" ||
-        candidate.issues.some((issue) => issue.status !== "resolved"))
-    ) {
+    if (args.selected && !candidateSelectable(candidate)) {
       return failure(
         "candidate_not_selectable",
         "candidate issues must be resolved before approval",
@@ -2055,6 +2116,38 @@ export function createLiteratureArtifactMigrationService(
       candidate.disposition = "skip";
     }
     return { ok: true };
+  }
+
+  function setCandidateFilterSelection(args: {
+    scanOperationId: string;
+    selected: boolean;
+    query?: LiteratureArtifactMigrationCandidateQuery;
+  }): { ok: true; affected: number } | LiteratureArtifactMigrationFailure {
+    const plan = runtimePlans.get(text(args.scanOperationId));
+    if (!plan) {
+      return failure(
+        "fresh_scan_required",
+        "migration preview is process-local and must be rescanned",
+      );
+    }
+    const filtered = filterPlanCandidates(plan, args.query);
+    let affected = 0;
+    for (const entry of filtered) {
+      const candidate = entry.candidate;
+      if (args.selected) {
+        if (!candidateSelectable(candidate)) continue;
+        if (candidate.disposition === "include") continue;
+        plan.selectedCandidateIds.add(candidate.candidateId);
+        candidate.disposition = "include";
+        affected += 1;
+      } else {
+        if (candidate.disposition === "skip") continue;
+        plan.selectedCandidateIds.delete(candidate.candidateId);
+        candidate.disposition = "skip";
+        affected += 1;
+      }
+    }
+    return { ok: true, affected };
   }
 
   function listHistory(
@@ -2109,7 +2202,7 @@ export function createLiteratureArtifactMigrationService(
   function listCandidatePage(options: {
     runId: string;
     limit?: number;
-    cursor?: string;
+    page?: number;
     query?: LiteratureArtifactMigrationCandidateQuery;
   }) {
     const plan = [...runtimePlans.values()].find(
@@ -2117,33 +2210,15 @@ export function createLiteratureArtifactMigrationService(
     );
     const run = getLiteratureArtifactMigrationRun(options.runId);
     const limit = Math.min(25, Math.max(1, Math.floor(options.limit || 25)));
+    const clampPage = (pageCount: number) => {
+      const requested = Math.max(0, Math.floor(Number(options.page) || 0));
+      return Math.min(requested, Math.max(1, pageCount) - 1);
+    };
     if (plan) {
-      const search = text(options.query?.search).toLocaleLowerCase();
-      const filtered = [...plan.candidates.values()]
-        .filter(
-          (entry) =>
-            (!search ||
-              entry.candidate.title.toLocaleLowerCase().includes(search)) &&
-            (!options.query?.classification ||
-              entry.candidate.classification ===
-                options.query.classification) &&
-            (!options.query?.reasonCode ||
-              entry.candidate.issues.some(
-                (issue) => issue.reasonCode === options.query?.reasonCode,
-              )) &&
-            (!options.query?.disposition ||
-              entry.candidate.disposition === options.query.disposition),
-        )
-        .sort(
-          (left, right) => left.candidate.ordinal - right.candidate.ordinal,
-        );
-      const afterOrdinal = migrationCursorOrdinal(options.cursor);
-      const nextIndex = afterOrdinal
-        ? filtered.findIndex((entry) => entry.candidate.ordinal > afterOrdinal)
-        : 0;
-      const start = nextIndex < 0 ? filtered.length : nextIndex;
-      const slice = filtered.slice(start, start + limit);
-      const last = slice.at(-1);
+      const filtered = filterPlanCandidates(plan, options.query);
+      const pageCount = Math.max(1, Math.ceil(filtered.length / limit));
+      const page = clampPage(pageCount);
+      const slice = filtered.slice(page * limit, page * limit + limit);
       const summary = {
         total: filtered.length,
         unfilteredTotal: plan.candidates.size,
@@ -2157,8 +2232,17 @@ export function createLiteratureArtifactMigrationService(
           (entry) => entry.candidate.classification === "blocked",
         ).length,
         selected: plan.selectedCandidateIds.size,
+        filteredSelected: filtered.filter(
+          (entry) => entry.candidate.disposition === "include",
+        ).length,
+        filteredSelectable: filtered.filter((entry) =>
+          candidateSelectable(entry.candidate),
+        ).length,
       };
       return {
+        page,
+        pageSize: limit,
+        pageCount,
         items: slice.map((entry) => {
           const candidate = entry.candidate;
           return {
@@ -2184,10 +2268,6 @@ export function createLiteratureArtifactMigrationService(
             })),
           };
         }),
-        nextCursor:
-          start + slice.length < filtered.length && last
-            ? opaqueMigrationCursor({ ordinal: last.candidate.ordinal })
-            : null,
         summary,
         availableReasons: [
           ...new Set(
@@ -2198,9 +2278,19 @@ export function createLiteratureArtifactMigrationService(
         ].sort(),
       };
     }
-    const page = listReceiptsPage({ ...options, limit });
+    const total = run?.setCount || 0;
+    const pageCount = Math.max(1, Math.ceil(total / limit));
+    const page = clampPage(pageCount);
+    const receipts = listLiteratureArtifactMigrationSets({
+      runId: text(options.runId),
+      limit,
+      offset: page * limit,
+    });
     return {
-      items: page.items.map((receipt) => {
+      page,
+      pageSize: limit,
+      pageCount,
+      items: receipts.map((receipt) => {
         return {
           candidateId: receipt.candidateId,
           ordinal: receipt.ordinal,
@@ -2218,14 +2308,15 @@ export function createLiteratureArtifactMigrationService(
           issues: [],
         };
       }),
-      nextCursor: page.nextCursor,
       summary: {
-        total: run?.setCount || 0,
-        unfilteredTotal: run?.setCount || 0,
+        total,
+        unfilteredTotal: total,
         ready: 0,
         reviewRequired: 0,
         blocked: 0,
         selected: 0,
+        filteredSelected: 0,
+        filteredSelectable: 0,
       },
       availableReasons: [],
     };
@@ -2239,9 +2330,11 @@ export function createLiteratureArtifactMigrationService(
     getRun,
     getPreview,
     getPreviewForRun,
+    getPrimaryDiagnostic,
     buildDiagnosticBundle,
     resolveCandidateIssue,
     setCandidateSelection,
+    setCandidateFilterSelection,
     listHistory,
     listHistoryPage,
     listReceipts,

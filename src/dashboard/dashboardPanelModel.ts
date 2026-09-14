@@ -1157,8 +1157,9 @@ function projectViews(
     activeRunId: "",
     progress: null,
     candidatePage: {
-      cursor: "",
-      nextCursor: null,
+      page: 0,
+      pageSize: 25,
+      pageCount: 0,
       items: [],
       summary: {
         total: 0,
@@ -1167,6 +1168,8 @@ function projectViews(
         reviewRequired: 0,
         blocked: 0,
         selected: 0,
+        filteredSelected: 0,
+        filteredSelectable: 0,
       },
       query: {
         search: "",
@@ -1176,6 +1179,7 @@ function projectViews(
       },
       availableReasons: [],
     },
+    primaryDiagnostic: null,
     history: [],
   };
   const migrations: DashboardMigrationsSelection = {
@@ -1234,6 +1238,9 @@ function projectViews(
     ),
     previousLabel: labelText(labels, "literatureMigrationPrevious", "Previous"),
     nextLabel: labelText(labels, "literatureMigrationNext", "Next"),
+    firstLabel: labelText(labels, "literatureMigrationFirstPage", "First page"),
+    lastLabel: labelText(labels, "literatureMigrationLastPage", "Last page"),
+    pageLabel: labelText(labels, "literatureMigrationPage", "Page"),
     selectedLabel: labelText(labels, "literatureMigrationSelected", "Selected"),
     verifiedLabel: labelText(labels, "literatureMigrationVerified", "Verified"),
     unresolvedLabel: labelText(
@@ -1278,6 +1285,76 @@ function projectViews(
     skipLabel: labelText(labels, "literatureMigrationSkip", "Skip this set"),
     issuesLabel: labelText(labels, "literatureMigrationIssues", "Issues"),
     filteredLabel: labelText(labels, "literatureMigrationFiltered", "Filtered"),
+    diagnosticTitle: labelText(
+      labels,
+      "literatureMigrationDiagnosticTitle",
+      "Primary diagnostic",
+    ),
+    diagnosticCauseLabel: labelText(
+      labels,
+      "literatureMigrationDiagnosticCause",
+      "Cause",
+    ),
+    diagnosticOperationLabel: labelText(
+      labels,
+      "literatureMigrationDiagnosticOperation",
+      "Operation",
+    ),
+    diagnosticOperationIdLabel: labelText(
+      labels,
+      "literatureMigrationDiagnosticOperationId",
+      "Operation ID",
+    ),
+    diagnosticAttemptIdLabel: labelText(
+      labels,
+      "literatureMigrationDiagnosticAttemptId",
+      "Attempt ID",
+    ),
+    diagnosticPhaseLabel: labelText(
+      labels,
+      "literatureMigrationDiagnosticPhase",
+      "Phase",
+    ),
+    diagnosticEffectPhaseLabel: labelText(
+      labels,
+      "literatureMigrationDiagnosticEffectPhase",
+      "Effect phase",
+    ),
+    diagnosticRecoveryLabel: labelText(
+      labels,
+      "literatureMigrationDiagnosticRecovery",
+      "Recovery",
+    ),
+    diagnosticAffectedLabel: labelText(
+      labels,
+      "literatureMigrationDiagnosticAffected",
+      "Affected",
+    ),
+    diagnosticResidualLabel: labelText(
+      labels,
+      "literatureMigrationDiagnosticResidual",
+      "Residual",
+    ),
+    diagnosticUnavailableText: labelText(
+      labels,
+      "literatureMigrationDiagnosticUnavailable",
+      "Durable mutation evidence is unavailable for this run.",
+    ),
+    diagnosticRetryHint: labelText(
+      labels,
+      "literatureMigrationDiagnosticRetry",
+      "Retry the same operation after checking the cause.",
+    ),
+    diagnosticFreshScanHint: labelText(
+      labels,
+      "literatureMigrationDiagnosticFreshScan",
+      "Run a fresh scan before retrying.",
+    ),
+    diagnosticManualRepairHint: labelText(
+      labels,
+      "literatureMigrationDiagnosticManualRepair",
+      "Manual repair is required before retrying.",
+    ),
     dispositionLabels: {
       pending: labelText(labels, "literatureMigrationPending", "Pending"),
       include: labelText(labels, "literatureMigrationInclude", "Included"),

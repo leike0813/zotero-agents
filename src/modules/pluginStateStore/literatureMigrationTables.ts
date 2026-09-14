@@ -349,6 +349,31 @@ export function createLiteratureMigrationTables(getAdapter: () => SqlAdapter) {
     return row ? normalizeLiteratureArtifactMigrationSetRow(row) : null;
   }
 
+  function getPrimaryLiteratureArtifactMigrationIssue(runIdRaw: string) {
+    const runId = normalizeString(runIdRaw);
+    if (!runId) return null;
+    const row = getAdapter().get(
+      `
+        SELECT run_id, candidate_id, operation_id, ordinal, title, parent_ref_json, refs_json,
+          basis_hash, classification, outcome, reason_codes_json, verified_count,
+          unresolved_count, recovered_count, dropped_count, created_at, updated_at,
+          diagnostics_json
+        FROM plugin_literature_artifact_migration_sets
+        WHERE run_id=@run_id
+          AND outcome IN ('failed', 'repair_required', 'changed_since_scan', 'blocked')
+        ORDER BY CASE outcome
+          WHEN 'failed' THEN 0
+          WHEN 'repair_required' THEN 1
+          WHEN 'changed_since_scan' THEN 2
+          ELSE 3
+        END, ordinal ASC
+        LIMIT 1
+      `,
+      { run_id: runId },
+    );
+    return row ? normalizeLiteratureArtifactMigrationSetRow(row) : null;
+  }
+
   function listLiteratureArtifactMigrationSets(
     options: LiteratureArtifactMigrationSetListOptions,
   ) {
@@ -363,6 +388,8 @@ export function createLiteratureMigrationTables(getAdapter: () => SqlAdapter) {
     }
     const limit = Math.min(100, normalizeRowLimit(options.limit) || 50);
     params.limit = limit;
+    const offset = Math.max(0, Math.floor(Number(options.offset) || 0));
+    if (offset > 0) params.offset = offset;
     const rows = getAdapter().all(
       `
         SELECT run_id, candidate_id, operation_id, ordinal, title, parent_ref_json, refs_json,
@@ -373,6 +400,7 @@ export function createLiteratureMigrationTables(getAdapter: () => SqlAdapter) {
         WHERE ${where.join(" AND ")}
         ORDER BY ordinal ASC
         LIMIT @limit
+        ${offset > 0 ? "OFFSET @offset" : ""}
       `,
       params,
     );
@@ -385,6 +413,7 @@ export function createLiteratureMigrationTables(getAdapter: () => SqlAdapter) {
     listLiteratureArtifactMigrationRuns,
     upsertLiteratureArtifactMigrationSet,
     getLiteratureArtifactMigrationSet,
+    getPrimaryLiteratureArtifactMigrationIssue,
     listLiteratureArtifactMigrationSets,
   };
 }

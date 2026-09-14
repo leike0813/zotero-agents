@@ -2523,8 +2523,26 @@ tr.clickable {
 }
 
 .dashboard-migrations-pagination {
-  justify-content: space-between;
+  justify-content: center;
+  flex-wrap: wrap;
   padding-top: 2px;
+}
+
+.dashboard-migrations-select-all {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dashboard-migrations-page-input {
+  width: 64px;
+}
+
+.dashboard-migrations-pagination [data-role="migration-page-range"] {
+  min-width: 19ch;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .dashboard-migrations-summary {
@@ -2819,6 +2837,49 @@ tr.clickable {
   justify-content: flex-start;
   color: var(--muted);
   font-size: 12px;
+}
+
+.dashboard-migration-primary-diagnostic {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--danger);
+  border-radius: 6px;
+  background: var(--zs-panel-alt);
+}
+
+.dashboard-migration-primary-diagnostic > header,
+.dashboard-migration-primary-diagnostic dl > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dashboard-migration-primary-diagnostic h4,
+.dashboard-migration-primary-diagnostic dl,
+.dashboard-migration-primary-diagnostic dd {
+  margin: 0;
+}
+
+.dashboard-migration-primary-diagnostic dl {
+  display: grid;
+  gap: 4px;
+}
+
+.dashboard-migration-primary-diagnostic dt {
+  color: var(--muted);
+}
+
+.dashboard-migration-primary-diagnostic dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.dashboard-migration-recovery-hint {
+  font-weight: 600;
 }
 
 .dashboard-migrations-history {

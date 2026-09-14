@@ -77,8 +77,9 @@ function migrationSnapshot(busy = false) {
         ? { phase: "scanning", completed: 7, total: 25, candidateCount: 3 }
         : null,
       candidatePage: {
-        cursor: "",
-        nextCursor: null,
+        page: 0,
+        pageSize: 25,
+        pageCount: 1,
         items,
         summary: {
           total: 25,
@@ -87,6 +88,8 @@ function migrationSnapshot(busy = false) {
           reviewRequired: 1,
           blocked: 0,
           selected: 24,
+          filteredSelected: 24,
+          filteredSelectable: 24,
         },
         query: {
           search: "",
@@ -217,5 +220,108 @@ describe("Dashboard literature migration browser UI", function () {
       );
     assert.isAbove(small[0]!.width, small[1]!.width);
     assert.equal(small[1]!.top, small[2]!.top);
+  });
+
+  it("dispatches bulk selection and bounded page jumps from real DOM interactions", async function () {
+    const snapshot = migrationSnapshot();
+    snapshot.literatureArtifactMigrationView.candidatePage.pageCount = 2;
+    snapshot.literatureArtifactMigrationView.candidatePage.summary.total = 51;
+    snapshot.literatureArtifactMigrationView.candidatePage.summary.filteredSelected = 23;
+    snapshot.literatureArtifactMigrationView.candidatePage.summary.selected = 23;
+    const actions: Array<{ action: string; payload: unknown }> = [];
+    page.on("console", (message) => {
+      const text = message.text();
+      if (!text.startsWith("dashboard-action:")) return;
+      actions.push(JSON.parse(text.slice("dashboard-action:".length)));
+    });
+    await page.evaluate(() => {
+      window.addEventListener("message", (event) => {
+        const data = event.data as {
+          type?: string;
+          action?: string;
+          payload?: unknown;
+        };
+        if (data?.type === "dashboard:action") {
+          console.log("dashboard-action:" + JSON.stringify({
+            action: data.action || "",
+            payload: data.payload,
+          }));
+        }
+      });
+    });
+    await postSnapshot(page, snapshot);
+    const waitForAction = async (action: string, count = 1) => {
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        if (actions.filter((entry) => entry.action === action).length >= count) {
+          return;
+        }
+        await page.waitForTimeout(50);
+      }
+    };
+    const selectAll = page.locator('[data-role="migration-select-all"]');
+    await selectAll.waitFor();
+    assert.isFalse(await selectAll.isChecked());
+    assert.isTrue(
+      await selectAll.evaluate(
+        (element) => (element as HTMLInputElement).indeterminate,
+      ),
+    );
+    await selectAll.click();
+    await waitForAction("literature-migration-set-filter-selection");
+    const bulk = (actions).find(
+      (entry) => entry.action === "literature-migration-set-filter-selection",
+    );
+    assert.exists(bulk);
+    assert.deepEqual(bulk!.payload, {
+      scanOperationId: "scan-1",
+      selected: await selectAll.isChecked(),
+    });
+
+    assert.isTrue(
+      await page.locator('[data-role="migration-first-page"]').isDisabled(),
+    );
+    assert.isTrue(
+      await page.locator('[data-role="migration-prev-page"]').isDisabled(),
+    );
+    const beforeNext = (actions).filter(
+      (entry) => entry.action === "literature-migration-list-receipts",
+    );
+    assert.lengthOf(beforeNext, 0, "first/prev on page zero must not dispatch");
+
+    await page.locator('[data-role="migration-next-page"]').click();
+    await page.locator('[data-role="migration-last-page"]').click();
+    await waitForAction("literature-migration-list-receipts", 2);
+    const pageJumps = (actions).filter(
+      (entry) => entry.action === "literature-migration-list-receipts",
+    );
+    assert.deepEqual(pageJumps, [
+      { action: "literature-migration-list-receipts", payload: { runId: "run-1", page: 1 } },
+      { action: "literature-migration-list-receipts", payload: { runId: "run-1", page: 1 } },
+    ]);
+
+    const pageInput = page.locator('[data-role="migration-page-input"]');
+    await pageInput.fill("12");
+    await pageInput.press("Enter");
+    await waitForAction("literature-migration-list-receipts", 3);
+    const afterInput = (actions).filter(
+      (entry) => entry.action === "literature-migration-list-receipts",
+    );
+    assert.deepEqual(afterInput[2], {
+      action: "literature-migration-list-receipts",
+      payload: { runId: "run-1", page: 1 },
+    });
+
+    await page.locator('[data-role="migration-search"]').fill("migration set 1");
+    await waitForAction("literature-migration-set-candidate-query");
+    const query = (actions).find(
+      (entry) => entry.action === "literature-migration-set-candidate-query",
+    );
+    assert.exists(query);
+    assert.deepEqual(query!.payload, {
+      search: "migration set 1",
+      classification: "",
+      reasonCode: "",
+      disposition: "",
+    });
   });
 });

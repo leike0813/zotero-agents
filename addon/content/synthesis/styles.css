@@ -1582,15 +1582,6 @@ button.is-busy {
   justify-content: flex-end;
 }
 
-.zs-icon-btn {
-  display: inline-grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  min-height: 26px;
-  padding: 0;
-}
-
 .review-center-toolbar .segmented {
   display: inline-flex;
   align-items: center;

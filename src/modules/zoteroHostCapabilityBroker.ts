@@ -151,6 +151,7 @@ import {
 import {
   registerZoteroManagedNoteLocalControl,
   inspectManagedNote,
+  managedNoteKindHint,
   managedArtifactContent,
   managedArtifactTitle,
   managedMarkdownPayload,
@@ -5063,8 +5064,8 @@ async function upsertNotePayloadAttachment(
   options: {
     inNativeTransaction?: boolean;
     stagedFile?: PreparedNativeAttachmentFile;
-    /** Migration keeps legacy attachments until post-verification Trash. */
-    deferLegacyAttachmentCleanup?: boolean;
+    /** Migration keeps exact v1 attachments until post-verification Trash. */
+    deferV1MigrationAttachmentCleanup?: boolean;
   } = {},
 ) {
   const native = <T>(run: () => Promise<T> | T) =>
@@ -5192,7 +5193,9 @@ async function upsertNotePayloadAttachment(
       "staging",
       "retry_same_operation",
       { phase: "staging", recovery: "retry_same_operation" },
-      error instanceof Error ? error.message : "payload staging failed",
+      error instanceof Error
+        ? error.message
+        : "attachment record staging failed",
       [
         {
           kind: "item",
@@ -5281,7 +5284,10 @@ async function upsertNotePayloadAttachment(
       residualRefs,
     );
   }
-  let removedAttachment: Zotero.Item | null = null;
+  let removedAttachment: {
+    ref: ReturnType<typeof canonicalItemRef>;
+    before: ReturnType<typeof canonicalItemVersion>;
+  } | null = null;
   const old = previousBlock;
   if (old?.attachmentKey && old.attachmentKey !== attachmentKey) {
     const oldAttachment = await native(
@@ -5305,7 +5311,14 @@ async function upsertNotePayloadAttachment(
           (oldAttachment as unknown as { parentItemID?: unknown }).parentItemID,
       );
       if (Number(parentId) === Number(note.id)) {
-        if (!options.deferLegacyAttachmentCleanup) {
+        const oldAttachmentEvidence = await native(() => ({
+          ref: canonicalItemRef(oldAttachment),
+          before: canonicalItemVersion(oldAttachment),
+        }));
+        if (
+          !options.deferV1MigrationAttachmentCleanup ||
+          old.payloadStorageVersion !== 1
+        ) {
           try {
             await native(async () => {
               await beforeEffect?.("effect");
@@ -5316,14 +5329,11 @@ async function upsertNotePayloadAttachment(
                 },
               );
             });
-            removedAttachment = oldAttachment;
+            removedAttachment = oldAttachmentEvidence;
           } catch (error) {
             const residualRef = {
               kind: "item" as const,
-              ref: {
-                libraryId: normalizeLibraryId(oldAttachment.libraryID),
-                key: trimText(oldAttachment.key),
-              },
+              ref: oldAttachmentEvidence.ref,
             };
             throw new MutationAuthorityExecutionError(
               "repair_required",
@@ -5356,6 +5366,11 @@ async function upsertNotePayloadAttachment(
       }
     }
   }
+  const createdAttachment = await native(() => ({
+    item: attachment,
+    ref: canonicalItemRef(attachment),
+    after: canonicalItemVersion(attachment),
+  }));
   return {
     note,
     payload: canonicalPayloadSummary(
@@ -5388,7 +5403,7 @@ async function upsertNotePayloadAttachment(
     ),
     outcome:
       previous.length === 0 ? ("created" as const) : ("replaced" as const),
-    createdAttachment: attachment,
+    createdAttachment,
     removedAttachment,
     attachmentStoragePath: attachmentStoragePath || null,
   };
@@ -7664,6 +7679,7 @@ function normalizeManagedSemanticRequest(
 
 async function managedChildNotes(
   parent: Zotero.Item,
+  kind: ManagedNoteKind,
   control?: WorkflowCallControl,
 ) {
   const ids = await withZoteroHostSlice(control, () =>
@@ -7689,6 +7705,10 @@ async function managedChildNotes(
       resolveZotero().Items.get(id),
     );
     if (!note?.isNote?.()) continue;
+    const kindHint = await withZoteroHostSlice(control, () =>
+      managedNoteKindHint(note.getNote?.()),
+    );
+    if (kindHint && kindHint !== kind) continue;
     const inspection = await inspectManagedNote(note, {
       runNativeSlice: (run) => withZoteroHostSlice(control, run),
       checkCanceled: () => throwIfWorkflowCallCanceled(control),
@@ -7713,7 +7733,7 @@ async function managedSingleton(
       "artifact parent must be a regular item",
     );
   }
-  const matches = (await managedChildNotes(parent, control)).filter(
+  const matches = (await managedChildNotes(parent, kind, control)).filter(
     ({ inspection }) =>
       inspection.kind === "managed" && inspection.noteKind === kind,
   );
@@ -8402,19 +8422,19 @@ async function executeManagedSemanticMutationEffects(
           attachmentChanges.push({
             entity: {
               kind: "item",
-              ref: canonicalItemRef(payloadResult.createdAttachment),
+              ref: payloadResult.createdAttachment.ref,
             },
             effect: "created",
             before: null,
-            after: canonicalItemVersion(payloadResult.createdAttachment),
+            after: payloadResult.createdAttachment.after,
           });
         }
         if (payloadResult.removedAttachment) {
-          const removedRef = canonicalItemRef(payloadResult.removedAttachment);
+          const removedRef = payloadResult.removedAttachment.ref;
           attachmentChanges.push({
             entity: { kind: "item", ref: removedRef },
             effect: "deleted",
-            before: canonicalItemVersion(payloadResult.removedAttachment),
+            before: payloadResult.removedAttachment.before,
             after: {
               revision: hashSynthesisContractCanonicalJson({
                 ref: removedRef,
@@ -11004,8 +11024,6 @@ async function executeManagedParentSetMutation(
                     );
                     const file = await stageNativeAttachmentFile({
                       bytes,
-                      operationId: input.operationId,
-                      label: `image-${binding.slot}`,
                       libraryId: normalizeLibraryId(plan.parent.libraryID),
                       contentType: binding.blob.type || "image/png",
                     });
@@ -11039,8 +11057,6 @@ async function executeManagedParentSetMutation(
                   });
                   const file = await stageNativeAttachmentFile({
                     bytes: buildWorkbenchPayloadImageBytes(envelope),
-                    operationId: input.operationId,
-                    label: `payload-${payload.payloadType}`,
                     libraryId: normalizeLibraryId(plan.parent.libraryID),
                     contentType: "image/png",
                   });
@@ -11235,20 +11251,20 @@ async function executeManagedParentSetMutation(
                 try {
                   const existing = await withZoteroHostSlice(control, () =>
                     resolveZotero().Items.getByLibraryAndKey?.(
-                      normalizeLibraryId(result.createdAttachment!.libraryID),
-                      trimText(result.createdAttachment!.key),
+                      result.createdAttachment!.ref.libraryId,
+                      result.createdAttachment!.ref.key,
                     ),
                   );
                   if (!existing) continue;
                   await withZoteroHostSlice(control, () =>
                     brokerMutationPrimitives.attachment.remove(
-                      result.createdAttachment!,
+                      result.createdAttachment!.item,
                     ),
                   );
                 } catch {
                   residualRefs.push({
                     kind: "item",
-                    ref: canonicalItemRef(result.createdAttachment),
+                    ref: result.createdAttachment.ref,
                   });
                 }
               }
@@ -11429,7 +11445,7 @@ async function executeManagedParentSetMutation(
                           stagedFile: plan.stagedPayloadFiles?.get(
                             plan.payload.payloadType,
                           ),
-                          deferLegacyAttachmentCleanup: Boolean(
+                          deferV1MigrationAttachmentCleanup: Boolean(
                             plan.entry.migrationSourceRef,
                           ),
                         },
@@ -11448,7 +11464,7 @@ async function executeManagedParentSetMutation(
                             stagedFile: plan.stagedPayloadFiles?.get(
                               auxiliary.payload.payloadType,
                             ),
-                            deferLegacyAttachmentCleanup: Boolean(
+                            deferV1MigrationAttachmentCleanup: Boolean(
                               plan.entry.migrationSourceRef,
                             ),
                           },
@@ -11606,19 +11622,19 @@ async function executeManagedParentSetMutation(
                   changes.push({
                     entity: {
                       kind: "item",
-                      ref: canonicalItemRef(result.createdAttachment),
+                      ref: result.createdAttachment.ref,
                     },
                     effect: "created",
                     before: null,
-                    after: canonicalItemVersion(result.createdAttachment),
+                    after: result.createdAttachment.after,
                   });
                 }
                 if (result.removedAttachment) {
-                  const removedRef = canonicalItemRef(result.removedAttachment);
+                  const removedRef = result.removedAttachment.ref;
                   changes.push({
                     entity: { kind: "item", ref: removedRef },
                     effect: "deleted",
-                    before: canonicalItemVersion(result.removedAttachment),
+                    before: result.removedAttachment.before,
                     after: {
                       revision: hashSynthesisContractCanonicalJson({
                         ref: removedRef,
@@ -12101,29 +12117,23 @@ type PreparedNativeAttachmentFile = Readonly<{
 function stagedNoteFileId() {
   const crypto = (globalThis as { crypto?: { randomUUID?: () => string } })
     .crypto;
-  if (typeof crypto?.randomUUID === "function") return crypto.randomUUID();
-  return [
-    Date.now().toString(36),
-    Math.random().toString(36).slice(2),
-    Math.random().toString(36).slice(2),
-  ].join("-");
+  if (typeof crypto?.randomUUID === "function") {
+    return crypto.randomUUID().replaceAll("-", "").slice(0, 16);
+  }
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`.slice(
+    0,
+    16,
+  );
 }
 
-async function stageNoteAttachmentBytes(
-  bytes: Uint8Array,
-  operationId: string,
-  label: string,
-) {
-  const operationToken = String(operationId || "operation")
-    .replace(/[^A-Za-z0-9._-]/g, "_")
-    .slice(0, 64);
+async function stageNoteAttachmentBytes(bytes: Uint8Array) {
   const directory = joinPath(
     getRuntimePersistencePaths().tmpDir,
-    "managed-note-parent-set",
-    `${operationToken}-${stagedNoteFileId()}`,
+    "mnp",
+    stagedNoteFileId(),
   );
   await ensureRuntimeDirectory(directory);
-  const path = joinPath(directory, `${label}-${stagedNoteFileId()}.bin`);
+  const path = joinPath(directory, `${stagedNoteFileId()}.bin`);
   await writeRuntimeBytes(path, bytes, { overwrite: false });
   return path;
 }
@@ -12164,8 +12174,6 @@ async function prepareNativeAttachmentFile(args: {
   stagedPath: string;
   libraryId: number;
   contentType: string;
-  operationId: string;
-  label: string;
 }): Promise<PreparedNativeAttachmentFile> {
   const zotero = resolveZotero() as typeof Zotero & {
     Attachments?: typeof Zotero.Attachments & {
@@ -12236,21 +12244,36 @@ async function prepareNativeAttachmentFile(args: {
 
 async function stageNativeAttachmentFile(args: {
   bytes: Uint8Array;
-  operationId: string;
-  label: string;
   libraryId: number;
   contentType: string;
 }): Promise<PreparedNativeAttachmentFile> {
-  const stagedPath = await stageNoteAttachmentBytes(
-    args.bytes,
-    args.operationId,
-    args.label,
-  );
+  let stagedPath: string;
+  try {
+    stagedPath = await stageNoteAttachmentBytes(args.bytes);
+  } catch (error) {
+    if (error instanceof MutationAuthorityExecutionError) throw error;
+    throw new MutationAuthorityExecutionError(
+      "failed",
+      "execution_failed",
+      "staging",
+      "retry_same_operation",
+      { phase: "staging", recovery: "retry_same_operation" },
+      "managed-note temporary payload staging failed",
+    );
+  }
   try {
     return await prepareNativeAttachmentFile({ ...args, stagedPath });
   } catch (error) {
     await cleanupStagedNoteAttachmentPaths([stagedPath]);
-    throw error;
+    if (error instanceof MutationAuthorityExecutionError) throw error;
+    throw new MutationAuthorityExecutionError(
+      "failed",
+      "execution_failed",
+      "staging",
+      "retry_same_operation",
+      { phase: "staging", recovery: "retry_same_operation" },
+      "managed-note Zotero storage preparation failed",
+    );
   }
 }
 
@@ -12295,7 +12318,7 @@ async function importPreparedNoteImageInNativeTransaction(
   (attachment as unknown as { libraryID: number }).libraryID =
     normalizeLibraryId(note.libraryID);
   (attachment as unknown as { parentID: number }).parentID = note.id;
-  (attachment as unknown as { key: string }).key = args.preparedFile.key;
+  (attachment as unknown as { _key: string })._key = args.preparedFile.key;
   (attachment as unknown as { attachmentLinkMode: number }).attachmentLinkMode =
     zotero.Attachments.LINK_MODE_EMBEDDED_IMAGE ?? 4;
   (attachment as unknown as { attachmentPath: string }).attachmentPath =
@@ -12969,24 +12992,25 @@ async function executeNoteMutation(
               attachmentChanges.push({
                 entity: {
                   kind: "item" as const,
-                  ref: canonicalItemRef(payloadResult.createdAttachment),
+                  ref: payloadResult.createdAttachment.ref,
                 },
                 effect: "created" as const,
                 before: null,
-                after: canonicalItemVersion(payloadResult.createdAttachment),
+                after: payloadResult.createdAttachment.after,
               });
             }
             if (payloadResult.removedAttachment) {
+              const removedRef = payloadResult.removedAttachment.ref;
               attachmentChanges.push({
                 entity: {
                   kind: "item" as const,
-                  ref: canonicalItemRef(payloadResult.removedAttachment),
+                  ref: removedRef,
                 },
                 effect: "deleted" as const,
-                before: canonicalItemVersion(payloadResult.removedAttachment),
+                before: payloadResult.removedAttachment.before,
                 after: {
                   revision: hashSynthesisContractCanonicalJson({
-                    ref: canonicalItemRef(payloadResult.removedAttachment),
+                    ref: removedRef,
                     state: "deleted",
                     operationId,
                   }),

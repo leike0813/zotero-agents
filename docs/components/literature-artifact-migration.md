@@ -56,10 +56,14 @@ reason and bounded diagnostics, followed by paged set receipts with the
 persisted parent title, classification, outcome, counts, reason codes, and
 diagnostics. Terminal receipts render outcome badges instead of selection
 checkboxes. Failed and attention-required runs offer Continue, which always
-starts from a fresh scan. They also offer a diagnostic export that combines
-the bounded run and non-success set facts, mutation authority attempt
-summaries, and runtime issue logs correlated by run ID. The export omits raw
-payloads, titles, parent or native refs, paths, and unsanitized exceptions.
+starts from a fresh scan. The selected run also shows its primary non-success
+set inline, including the sanitized authority message, error code,
+mutation/effect phases, recovery, operation and attempt IDs, and
+affected/residual counts. This evidence is read directly from the durable
+mutation authority and remains available when correlated runtime logs are
+empty. The diagnostic export combines the same bounded facts with runtime
+issue logs correlated by run ID. It omits raw payloads, titles, parent or
+native refs, paths, and unsanitized exceptions.
 
 ## Migratable payload
 
@@ -151,13 +155,45 @@ is retained and the set is `repair_required`; a failed cleanup never deletes or
 overwrites the original representation. Ordinary notes and ordinary
 `notes.updateContent` remain protected by the Broker.
 
-When a legacy note is reused, its old attachment-backed v1 payload and the new
-v2 payload coexist until verification finishes. The parent-set writer first
-verifies the exact v2 logical hash, then excludes only the matching v1
-attachment already queued for cleanup from its migration-local detail read.
-The normal managed-note reader remains strict and continues to reject mixed or
-ambiguous payloads. Cleanup moves the identified v1 attachment to Trash, and
-source pagination excludes trashed child items from later payload reads.
+When a legacy note is reused, only its old attachment-backed v1 payload and the
+new v2 payload may coexist until verification finishes. A superseded v2
+attachment is replaced inside the parent-set transaction; retaining it would
+make the subsequent canonical read ambiguous. The writer verifies the exact
+new v2 logical hash and excludes only the matching v1 attachment already
+queued for cleanup from its migration-local detail read. The normal
+managed-note reader remains strict. Cleanup moves the identified v1 attachment
+to Trash, and source pagination excludes trashed child items from later payload
+reads.
+
+Zotero may unload erased and newly created attachment objects when its
+transaction commits. The writer therefore captures each attachment's portable
+ref and active version while the object is still readable: immediately before
+erase for the old attachment and before leaving the write helper for the new
+one. Post-commit receipt construction uses only that immutable evidence, so a
+successful replacement cannot be reclassified as a generic commit failure
+while projecting either receipt change. The native item for a new attachment
+is retained only for failure compensation.
+
+Parent-set verification is scoped to the requested managed-note kind. Citation
+health may read the paired References note, but singleton discovery skips a
+child whose visible managed markers consistently identify Score, Digest, or
+another different known kind. Unknown, conflicting, and same-kind content is
+still inspected and fails closed when invalid. An unrelated damaged artifact
+therefore cannot turn an already committed References/Citation set into a
+failed receipt.
+
+Migration does not convert or rewrite Literature Score. Managed reads accept
+both the current bare `literature_score.v1` payload and the exact historical
+`{ version: 1, entry, format: "json", literature_score }` storage envelope,
+normalizing the latter to its canonical inner artifact. Generic wrappers and
+external producer/import contracts remain strict. Score notes and attachments
+are preserved byte-for-byte by References/Citation migration.
+
+Native attachment bytes are staged under short opaque temporary names before
+the Zotero transaction. Operation and attempt identity belongs to durable
+authority records, not staging paths; keeping it out of filenames avoids the
+Windows path-length failure that otherwise prevents payload files from being
+written before the transaction starts.
 
 Mutation authority outcomes retain their side-effect meaning. `committed` and
 `unchanged` become `applied`; `repair_required` and `unknown` remain
@@ -210,5 +246,9 @@ Dashboard projection and browser layout, and the bundle
 HTML/legacy-PNG preview-confirmation path. The bundle regression is in
 `tests/workflow-literature-workbench-package/47-workflow-literature-bundle.test.ts`.
 The real Zotero References/Citation migration path is covered by
-`tests/zotero/core/lite/275-managed-note-transaction.zotero.test.ts`. Upstream
+`tests/zotero/core/lite/275-managed-note-transaction.zotero.test.ts`, including
+v1/v2 and dual-v2 replacement pairs and a newly created payload attachment
+becoming unreadable after transaction commit. The Broker regression separately
+models an attachment becoming unreadable immediately after erase in
+`tests/zotero-host/102-zotero-host-broker-capability-api.test.ts`. Upstream
 renderer pins and sidecar build identity remain separate completion gates.

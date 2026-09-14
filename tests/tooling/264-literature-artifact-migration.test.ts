@@ -37,6 +37,10 @@ import {
   listRuntimeLogs,
   resetRuntimeLogHydrationForTests,
 } from "../../src/modules/runtimeLogManager";
+import {
+  MutationAuthorityExecutionError,
+  executeReservedMutation,
+} from "../../src/modules/zoteroHostMutationAuthority";
 
 describe("literature artifact migration", function () {
   beforeEach(function () {
@@ -1113,6 +1117,71 @@ describe("literature artifact migration", function () {
     ]);
     assert.equal(bundle.bundle.omittedSetCount, 0);
     assert.equal(bundle.bundle.runtime.context.runIds[0], result.runId);
+
+    const unavailable = service.getPrimaryDiagnostic({ runId: result.runId });
+    assert.deepInclude(unavailable, {
+      candidateId: preview.candidates[0]?.candidateId,
+      operationId: receipt?.operationId,
+      ordinal: 1,
+      outcome: "failed",
+    });
+    assert.equal(unavailable?.authority.state, "unavailable");
+
+    await executeReservedMutation({
+      scope: { ownerId: "dashboard:literature-artifact-migration:1" },
+      operationId: receipt!.operationId,
+      operation: "managed_note.apply_parent_set",
+      semanticInput: { test: "migration-primary-diagnostic" },
+      execute: async () => {
+        throw new MutationAuthorityExecutionError(
+          "failed",
+          "execution_failed",
+          "compensation",
+          "retry_same_operation",
+          {
+            phase: "commit",
+            recovery: "retry_same_operation",
+            affectedCount: 2,
+            residualCount: 0,
+          },
+          "managed note payload is ambiguous",
+          [
+            { kind: "item", ref: noteRef },
+            {
+              kind: "item",
+              ref: { libraryId: 1, key: "CITATION-NOTE" },
+            },
+          ],
+        );
+      },
+    });
+    const settled = service.getPrimaryDiagnostic({ runId: result.runId });
+    assert.deepInclude(settled, {
+      candidateId: preview.candidates[0]?.candidateId,
+      operationId: receipt?.operationId,
+      ordinal: 1,
+      outcome: "failed",
+    });
+    assert.deepInclude(settled?.authority, {
+      state: "terminal",
+      operation: "managed_note.apply_parent_set",
+      outcome: "failed",
+    });
+    assert.deepInclude(settled?.authority.attempt, {
+      status: "failed",
+      code: "execution_failed",
+      phase: "compensation",
+      recovery: "retry_same_operation",
+      message: "managed note payload is ambiguous",
+      details: {
+        phase: "commit",
+        recovery: "retry_same_operation",
+        affectedCount: 2,
+        residualCount: 0,
+      },
+      affectedCount: 2,
+      residualCount: 0,
+    });
   });
 
   it("stores stable scan failure codes without raw host error details", async function () {
@@ -1502,7 +1571,9 @@ describe("literature artifact migration", function () {
       limit: 25,
     });
     assert.lengthOf(first.items, 25);
-    assert.isString(first.nextCursor);
+    assert.equal(first.page, 0);
+    assert.equal(first.pageSize, 25);
+    assert.equal(first.pageCount, 2);
     assert.deepEqual(first.summary, {
       total: 28,
       unfilteredTotal: 28,
@@ -1510,6 +1581,8 @@ describe("literature artifact migration", function () {
       reviewRequired: 1,
       blocked: 1,
       selected: 26,
+      filteredSelected: 26,
+      filteredSelectable: 26,
     });
     assert.equal(first.items[0]?.title, "Ready paper 1");
     assert.isTrue(first.items.every((candidate) => candidate.selected));
@@ -1517,7 +1590,7 @@ describe("literature artifact migration", function () {
     const second = service.listCandidatePage({
       runId: preview.runId,
       limit: 25,
-      cursor: first.nextCursor || undefined,
+      page: 1,
     });
     assert.deepEqual(
       second.items.map(({ classification, selected }) => ({
@@ -1567,7 +1640,7 @@ describe("literature artifact migration", function () {
     const selected = service.listCandidatePage({
       runId: preview.runId,
       limit: 25,
-      cursor: first.nextCursor || undefined,
+      page: 1,
     });
     assert.equal(selected.summary.selected, 27);
     assert.isTrue(selected.items[1]?.selected);
@@ -1723,6 +1796,246 @@ describe("literature artifact migration", function () {
     assert.equal(page.summary.unfilteredTotal, 2);
     assert.equal(page.summary.selected, 1);
     assert.include(page.availableReasons, "unsupported_input");
+    assert.equal(page.page, 0);
+    assert.equal(page.pageSize, 25);
+    assert.equal(page.pageCount, 1);
+    assert.equal(page.summary.filteredSelected, 0);
+    assert.equal(page.summary.filteredSelectable, 0);
+  });
+
+  it("pages the runtime plan by zero-based page under an active filter", async function () {
+    const service = createLiteratureArtifactMigrationService({
+      host: {
+        scanLibrary: async () => [
+          {
+            libraryId: 1,
+            parentRef: { libraryId: 1, key: "ALPHA" },
+            parentTitle: "Alpha paper",
+            references: [{ title: "Alpha", year: 2024, authors: ["Ada"] }],
+          },
+          {
+            libraryId: 1,
+            parentRef: { libraryId: 1, key: "BETA" },
+            parentTitle: "Beta paper",
+            references: [{ title: "Beta", year: 2024, authors: ["Ada"] }],
+          },
+          {
+            libraryId: 1,
+            parentRef: { libraryId: 1, key: "BLOGS" },
+            parentTitle: "Blogs paper",
+            references: [{ title: "Blogs", year: 2024, authors: ["Ada"] }],
+          },
+        ],
+        applySet: async () => ({ outcome: "applied" as const }),
+      },
+      candidateIdFactory: (ordinal) => `candidate-${ordinal}`,
+    });
+    const preview = await service.scan({ libraryId: 1 });
+    assert.isTrue(preview.ok);
+    if (!preview.ok) throw new Error("expected migration preview");
+    service.setCandidateFilterSelection({
+      scanOperationId: preview.operationId,
+      selected: false,
+    });
+
+    const first = service.listCandidatePage({
+      runId: preview.runId,
+      limit: 2,
+      page: 0,
+      query: { search: "paper" },
+    });
+    assert.equal(first.page, 0);
+    assert.equal(first.pageSize, 2);
+    assert.equal(first.pageCount, 2);
+    assert.equal(first.summary.total, 3);
+    assert.equal(first.summary.filteredSelected, 0);
+    assert.equal(first.summary.filteredSelectable, 3);
+    assert.deepEqual(
+      first.items.map((item) => item.title),
+      ["Alpha paper", "Beta paper"],
+    );
+
+    const second = service.listCandidatePage({
+      runId: preview.runId,
+      limit: 2,
+      page: 1,
+      query: { search: "paper" },
+    });
+    assert.deepEqual(
+      second.items.map((item) => item.title),
+      ["Blogs paper"],
+    );
+    assert.equal(second.summary.filteredSelected, 0);
+
+    const clamped = service.listCandidatePage({
+      runId: preview.runId,
+      limit: 2,
+      page: -3,
+    });
+    assert.equal(clamped.page, 0);
+    const last = service.listCandidatePage({
+      runId: preview.runId,
+      limit: 2,
+      page: 9,
+    });
+    assert.equal(last.page, 1);
+    assert.lengthOf(last.items, 1);
+  });
+
+  it("bulk select only marks ready resolved candidates inside the current filter", async function () {
+    const review: LegacyArtifactSetInput = {
+      libraryId: 1,
+      parentRef: { libraryId: 1, key: "REVIEW" },
+      parentTitle: "Review paper",
+      references: [
+        { title: "Same", year: 2024, authors: ["Ada"] },
+        { title: "Same", year: 2024, authors: ["Ada"] },
+      ],
+    };
+    const blocked: LegacyArtifactSetInput = {
+      libraryId: 1,
+      parentRef: { libraryId: 1, key: "BLOCKED" },
+      parentTitle: "Blocked paper",
+      filePayloads: [
+        {
+          payloadType: "references-json",
+          value: { items: [{ title: "Blocked" }] },
+        },
+        { payloadType: "future-managed-json", value: {} },
+      ],
+    };
+    const service = createLiteratureArtifactMigrationService({
+      host: {
+        scanLibrary: async () => [
+          {
+            libraryId: 1,
+            parentRef: { libraryId: 1, key: "ALPHA" },
+            parentTitle: "Alpha paper",
+            references: [{ title: "Alpha", year: 2024, authors: ["Ada"] }],
+          },
+          {
+            libraryId: 1,
+            parentRef: { libraryId: 1, key: "BETA" },
+            parentTitle: "Beta paper",
+            references: [{ title: "Beta", year: 2024, authors: ["Ada"] }],
+          },
+          review,
+          blocked,
+        ],
+        applySet: async () => ({ outcome: "applied" as const }),
+      },
+      candidateIdFactory: (ordinal) => `candidate-${ordinal}`,
+    });
+    const preview = await service.scan({ libraryId: 1 });
+    assert.isTrue(preview.ok);
+    if (!preview.ok) throw new Error("expected migration preview");
+    service.setCandidateFilterSelection({
+      scanOperationId: preview.operationId,
+      selected: false,
+    });
+
+    const all = service.setCandidateFilterSelection({
+      scanOperationId: preview.operationId,
+      selected: true,
+    });
+    assert.isTrue(all.ok);
+    if (!all.ok) throw new Error("expected bulk selection");
+    assert.equal(all.affected, 2);
+    const page = service.listCandidatePage({ runId: preview.runId });
+    const dispositions = Object.fromEntries(
+      page.items.map((item) => [item.title, item.disposition]),
+    );
+    assert.equal(dispositions["Alpha paper"], "include");
+    assert.equal(dispositions["Beta paper"], "include");
+    assert.equal(dispositions["Review paper"], "skip");
+    assert.equal(dispositions["Blocked paper"], "skip");
+    assert.equal(page.summary.selected, 2);
+    assert.equal(page.summary.filteredSelected, 2);
+    assert.equal(page.summary.filteredSelectable, 2);
+
+    const filtered = service.setCandidateFilterSelection({
+      scanOperationId: preview.operationId,
+      selected: false,
+      query: { search: "alpha" },
+    });
+    assert.isTrue(filtered.ok);
+    if (!filtered.ok) throw new Error("expected filtered bulk deselection");
+    assert.equal(filtered.affected, 1);
+    const after = service.listCandidatePage({ runId: preview.runId });
+    assert.equal(after.summary.selected, 1);
+    const alpha = after.items.find((item) => item.title === "Alpha paper");
+    assert.equal(alpha?.disposition, "skip");
+    const beta = after.items.find((item) => item.title === "Beta paper");
+    assert.equal(beta?.disposition, "include");
+
+    const stale = service.setCandidateFilterSelection({
+      scanOperationId: "missing-operation",
+      selected: true,
+    });
+    assert.isFalse(stale.ok);
+    if (stale.ok) throw new Error("stale operation must not bulk select");
+    assert.equal(stale.code, "fresh_scan_required");
+  });
+
+  it("pages durable receipts by zero-based page with SQL offsets", async function () {
+    const sets: LegacyArtifactSetInput[] = Array.from(
+      { length: 3 },
+      (_, index) => ({
+        libraryId: 1,
+        parentRef: { libraryId: 1, key: `PARENT-${index + 1}` },
+        parentTitle: `Study ${index + 1}`,
+        references: [
+          { title: `Study ${index + 1}`, year: 2024, authors: ["Ada"] },
+        ],
+      }),
+    );
+    const service = createLiteratureArtifactMigrationService({
+      host: {
+        scanLibrary: async () => sets,
+        applySet: async () => ({ outcome: "applied" as const }),
+      },
+    });
+    const preview = await service.scan({ libraryId: 1 });
+    assert.isTrue(preview.ok);
+    if (!preview.ok) throw new Error("expected migration preview");
+    const result = await service.apply({
+      scanOperationId: preview.operationId,
+      candidateIds: preview.candidates.map(
+        (candidate) => candidate.candidateId,
+      ),
+    });
+    assert.isTrue(result.ok);
+    if (!result.ok) throw new Error("expected migration result");
+
+    const first = service.listCandidatePage({
+      runId: result.runId,
+      limit: 2,
+      page: 0,
+    });
+    assert.equal(first.page, 0);
+    assert.equal(first.pageSize, 2);
+    assert.equal(first.pageCount, 2);
+    assert.lengthOf(first.items, 2);
+    assert.equal(first.summary.total, 3);
+    assert.equal(first.summary.filteredSelected, 0);
+    assert.equal(first.summary.filteredSelectable, 0);
+
+    const second = service.listCandidatePage({
+      runId: result.runId,
+      limit: 2,
+      page: 1,
+    });
+    assert.equal(second.page, 1);
+    assert.lengthOf(second.items, 1);
+    assert.equal(second.items[0]?.title, "Study 3");
+
+    const offsetRows = listLiteratureArtifactMigrationSets({
+      runId: result.runId,
+      limit: 2,
+      offset: 2,
+    });
+    assert.lengthOf(offsetRows, 1);
+    assert.equal(offsetRows[0]?.title, "Study 3");
   });
 
   it("continues every retryable set across durable receipt pages", async function () {

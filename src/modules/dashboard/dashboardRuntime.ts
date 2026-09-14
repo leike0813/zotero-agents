@@ -160,7 +160,7 @@ export function createTaskDashboardRuntime(args: {
     backends: [],
     selectedTabKey: String(args.initialTabKey || "home").trim() || "home",
     selectedLiteratureMigrationRunId: "",
-    literatureMigrationReceiptCursor: "",
+    literatureMigrationReceiptPage: 0,
     literatureMigrationCandidateQuery: {
       search: "",
       classification: "",

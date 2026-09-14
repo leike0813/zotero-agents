@@ -86,7 +86,7 @@ export type DashboardActionState = {
   backends: BackendInstance[];
   selectedTabKey: string;
   selectedLiteratureMigrationRunId: string;
-  literatureMigrationReceiptCursor?: string;
+  literatureMigrationReceiptPage?: number;
   literatureMigrationCandidateQuery: DashboardLiteratureArtifactMigrationCandidateQuery;
   selectedBackendSubviewById: Map<string, "runs" | "management">;
   selectedLogTaskByBackendId: Map<string, string>;
@@ -329,7 +329,7 @@ export function createDashboardActionDispatcher(
             alertRuntimeWindow(result.message);
           } else {
             state.selectedLiteratureMigrationRunId = result.runId || "";
-            state.literatureMigrationReceiptCursor = "";
+            state.literatureMigrationReceiptPage = 0;
             state.literatureMigrationCandidateQuery = {
               search: "",
               classification: "",
@@ -365,13 +365,39 @@ export function createDashboardActionDispatcher(
           if (!result.ok) alertRuntimeWindow(result.message);
           else {
             state.selectedLiteratureMigrationRunId = result.runId;
-            state.literatureMigrationReceiptCursor = "";
+            state.literatureMigrationReceiptPage = 0;
           }
         } else if (action === "literature-migration-set-selection") {
           const result = service.setCandidateSelection({
             scanOperationId: String(payload.scanOperationId || ""),
             candidateId: String(payload.candidateId || ""),
             selected: payload.selected === true,
+          });
+          if (!result.ok) alertRuntimeWindow(result.message);
+        } else if (action === "literature-migration-set-filter-selection") {
+          const result = service.setCandidateFilterSelection({
+            scanOperationId: String(payload.scanOperationId || ""),
+            selected: payload.selected === true,
+            query: {
+              ...(state.literatureMigrationCandidateQuery.search
+                ? { search: state.literatureMigrationCandidateQuery.search }
+                : {}),
+              ...(state.literatureMigrationCandidateQuery.classification
+                ? {
+                    classification:
+                      state.literatureMigrationCandidateQuery.classification,
+                  }
+                : {}),
+              ...(state.literatureMigrationCandidateQuery.reasonCode
+                ? { reasonCode: state.literatureMigrationCandidateQuery.reasonCode }
+                : {}),
+              ...(state.literatureMigrationCandidateQuery.disposition
+                ? {
+                    disposition:
+                      state.literatureMigrationCandidateQuery.disposition,
+                  }
+                : {}),
+            },
           });
           if (!result.ok) alertRuntimeWindow(result.message);
         } else if (action === "literature-migration-resolve-issue") {
@@ -399,19 +425,20 @@ export function createDashboardActionDispatcher(
                 ? payload.disposition
                 : "",
           };
-          state.literatureMigrationReceiptCursor = "";
+          state.literatureMigrationReceiptPage = 0;
         } else if (action === "literature-migration-list-receipts") {
           if (
             String(payload.runId || "") ===
             state.selectedLiteratureMigrationRunId
           ) {
-            state.literatureMigrationReceiptCursor = String(
-              payload.cursor || "",
+            state.literatureMigrationReceiptPage = Math.max(
+              0,
+              Math.floor(Number(payload.page) || 0),
             );
           }
         } else if (action === "literature-migration-select-run") {
           state.selectedLiteratureMigrationRunId = String(payload.runId || "");
-          state.literatureMigrationReceiptCursor = "";
+          state.literatureMigrationReceiptPage = 0;
           state.literatureMigrationCandidateQuery = {
             search: "",
             classification: "",
@@ -426,12 +453,14 @@ export function createDashboardActionDispatcher(
             alertRuntimeWindow(result.message);
             return;
           }
-          const helper = (Components as any).classes?.[
-            "@mozilla.org/widget/clipboardhelper;1"
-          ]?.getService(Components.interfaces.nsIClipboardHelper) as {
-            copyString?: (value: string) => void;
-          };
-          helper?.copyString?.(JSON.stringify(result.bundle, null, 2));
+          const { copyText } = await import("../../utils/ztoolkit");
+          copyText(JSON.stringify(result.bundle, null, 2));
+          alertRuntimeWindow(
+            localize(
+              "task-dashboard-runtime-logs-copy-success-bundle",
+              "Diagnostic bundle copied to clipboard!",
+            ),
+          );
           return;
         }
         refresh("user-action");

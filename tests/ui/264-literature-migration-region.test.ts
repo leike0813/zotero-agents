@@ -10,6 +10,227 @@ import {
   restoreSidebarDomGlobals,
 } from "../helpers/sidebarDomEnv";
 
+function buildMigrationsSelection(
+  patch?: Partial<DashboardMigrationsSelection>,
+): DashboardMigrationsSelection {
+  return {
+    view: {
+      migrationId: "literature-artifacts",
+      definitionVersion: 7,
+      availability: "available",
+      availabilityReason: "",
+      libraryId: 1,
+      activeRun: {
+        runId: "run-1",
+        operationId: "op-1",
+        migrationId: "literature-artifacts",
+        definitionVersion: 7,
+        libraryId: 1,
+        state: "preview",
+        reason: "",
+        processedCount: 0,
+        remainingCount: 1,
+        setCount: 1,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        terminalAt: "",
+        diagnostics: [],
+      },
+      activeOperationId: "op-1",
+      activeRunId: "",
+      progress: null,
+      primaryDiagnostic: null,
+      candidatePage: {
+        page: 0,
+        pageSize: 25,
+        pageCount: 2,
+        items: [
+          {
+            candidateId: "candidate-1",
+            ordinal: 1,
+            title: "Ready paper",
+            classification: "ready",
+            outcome: "preview",
+            reasonCodes: [],
+            diagnostics: [],
+            verifiedCount: 1,
+            unresolvedCount: 0,
+            recoveredCount: 0,
+            droppedCount: 0,
+            selected: true,
+            disposition: "include",
+            issues: [],
+          },
+          {
+            candidateId: "candidate-2",
+            ordinal: 2,
+            title: "Review paper",
+            classification: "review_required",
+            outcome: "preview",
+            reasonCodes: ["unresolved_linkage"],
+            diagnostics: [],
+            verifiedCount: 1,
+            unresolvedCount: 1,
+            recoveredCount: 0,
+            droppedCount: 0,
+            selected: false,
+            disposition: "pending",
+            issues: [
+              {
+                issueId: "issue-linkage",
+                reasonCode: "unresolved_linkage",
+                status: "pending",
+                detail: "unresolved_linkage",
+                affectedItems: [
+                  { label: "Unknown (2020)", hint: "#3 · 2020" },
+                ],
+                selectedOptionId: "",
+                options: [
+                  {
+                    optionId: "keep-unresolved",
+                    kind: "keep_unresolved",
+                    dataLoss: false,
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            candidateId: "candidate-3",
+            ordinal: 3,
+            title: "Blocked paper",
+            classification: "blocked",
+            outcome: "preview",
+            reasonCodes: ["duplicate_reference"],
+            diagnostics: [],
+            verifiedCount: 1,
+            unresolvedCount: 0,
+            recoveredCount: 0,
+            droppedCount: 0,
+            selected: false,
+            disposition: "pending",
+            issues: [
+              {
+                issueId: "issue-duplicate",
+                reasonCode: "duplicate_reference",
+                status: "pending",
+                detail: "duplicate_reference",
+                selectedOptionId: "",
+                options: [
+                  {
+                    optionId: "merge-duplicates",
+                    kind: "merge_duplicates",
+                    dataLoss: false,
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+        summary: {
+          total: 28,
+          unfilteredTotal: 28,
+          ready: 26,
+          reviewRequired: 1,
+          blocked: 1,
+          selected: 26,
+          filteredSelected: 26,
+          filteredSelectable: 26,
+        },
+        query: {
+          search: "",
+          classification: "",
+          reasonCode: "",
+          disposition: "",
+        },
+        availableReasons: ["unresolved_linkage", "duplicate_reference"],
+      },
+      history: [],
+    },
+    pageTitle: "Migrations",
+    migrationTitle: "No preview",
+    unavailableText: "Unavailable",
+    scanLabel: "Scan",
+    applyLabel: "Apply",
+    stopLabel: "Stop",
+    continueLabel: "Continue",
+    copyDiagnosticBundleLabel: "Copy diagnostic bundle",
+    reviewLabel: "Review",
+    readyLabel: "Ready",
+    blockedLabel: "Blocked",
+    historyTitle: "History",
+    emptyHistoryText: "Empty",
+    candidateLabel: "Set",
+    progressLabel: "Progress",
+    attentionLabel: "Attention",
+    previousLabel: "Previous",
+    nextLabel: "Next",
+    firstLabel: "First page",
+    lastLabel: "Last page",
+    pageLabel: "Page",
+    selectedLabel: "Selected",
+    verifiedLabel: "Verified",
+    unresolvedLabel: "Unresolved",
+    recoveredLabel: "Recovered",
+    droppedLabel: "Dropped",
+    searchPlaceholder: "Search candidates",
+    allLabel: "All",
+    classificationFilterLabel: "Classification",
+    reasonFilterLabel: "Issue",
+    dispositionFilterLabel: "Disposition",
+    detailsLabel: "Details",
+    closeLabel: "Close",
+    approveLabel: "Approve and include",
+    skipLabel: "Skip this set",
+    issuesLabel: "Issues",
+    filteredLabel: "Filtered",
+    diagnosticTitle: "Primary diagnostic",
+    diagnosticCauseLabel: "Cause",
+    diagnosticOperationLabel: "Operation",
+    diagnosticOperationIdLabel: "Operation ID",
+    diagnosticAttemptIdLabel: "Attempt ID",
+    diagnosticPhaseLabel: "Phase",
+    diagnosticEffectPhaseLabel: "Effect phase",
+    diagnosticRecoveryLabel: "Recovery",
+    diagnosticAffectedLabel: "Affected",
+    diagnosticResidualLabel: "Residual",
+    diagnosticUnavailableText: "Authority evidence unavailable",
+    diagnosticRetryHint: "Retry the same operation after checking the cause.",
+    diagnosticFreshScanHint: "Run a fresh scan before retrying.",
+    diagnosticManualRepairHint: "Manual repair is required before retrying.",
+    dispositionLabels: {
+      pending: "Pending",
+      include: "Included",
+      skip: "Skipped",
+    },
+    outcomeLabels: {
+      preview: "Pending",
+      applied: "Applied",
+      skipped: "Skipped",
+      changed_since_scan: "Changed since scan",
+      repair_required: "Repair required",
+      blocked: "Blocked",
+      failed: "Failed",
+    },
+    runStateLabels: {
+      preview: "Pending",
+      applying: "Applying",
+      completed: "Completed",
+      completed_with_attention: "Attention required",
+      failed: "Failed",
+    },
+    optionLabels: {
+      keep_unresolved: "Keep as unresolved",
+      merge_duplicates: "Merge duplicate references",
+    },
+    reasonLabels: {
+      unresolved_linkage: "Unresolved linkage",
+      duplicate_reference: "Duplicate reference",
+    },
+    ...patch,
+  };
+}
+
 describe("Dashboard literature migration region", function () {
   it("uses an unknown non-actionable version when the host view is absent", function () {
     const panel = projectDashboardPanel(
@@ -36,200 +257,7 @@ describe("Dashboard literature migration region", function () {
     const root = document.createElement("div");
     const actions: Array<{ action: string; payload: Record<string, unknown> }> =
       [];
-    const selection: DashboardMigrationsSelection = {
-      view: {
-        migrationId: "literature-artifacts",
-        definitionVersion: 7,
-        availability: "available",
-        availabilityReason: "",
-        libraryId: 1,
-        activeRun: {
-          runId: "run-1",
-          operationId: "op-1",
-          migrationId: "literature-artifacts",
-          definitionVersion: 7,
-          libraryId: 1,
-          state: "preview",
-          reason: "",
-          processedCount: 0,
-          remainingCount: 1,
-          setCount: 1,
-          createdAt: "2026-01-01T00:00:00.000Z",
-          updatedAt: "2026-01-01T00:00:00.000Z",
-          terminalAt: "",
-          diagnostics: [],
-        },
-        activeOperationId: "op-1",
-        activeRunId: "",
-        progress: null,
-        candidatePage: {
-          cursor: "",
-          nextCursor: "next-25",
-          items: [
-            {
-              candidateId: "candidate-1",
-              ordinal: 1,
-              title: "Ready paper",
-              classification: "ready",
-              outcome: "preview",
-              reasonCodes: [],
-              diagnostics: [],
-              verifiedCount: 1,
-              unresolvedCount: 0,
-              recoveredCount: 0,
-              droppedCount: 0,
-              selected: true,
-              disposition: "include",
-              issues: [],
-            },
-            {
-              candidateId: "candidate-2",
-              ordinal: 2,
-              title: "Review paper",
-              classification: "review_required",
-              outcome: "preview",
-              reasonCodes: ["unresolved_linkage"],
-              diagnostics: [],
-              verifiedCount: 1,
-              unresolvedCount: 1,
-              recoveredCount: 0,
-              droppedCount: 0,
-              selected: false,
-              disposition: "pending",
-              issues: [
-                {
-                  issueId: "issue-linkage",
-                  reasonCode: "unresolved_linkage",
-                  status: "pending",
-                  detail: "unresolved_linkage",
-                  affectedItems: [
-                    { label: "Unknown (2020)", hint: "#3 · 2020" },
-                  ],
-                  selectedOptionId: "",
-                  options: [
-                    {
-                      optionId: "keep-unresolved",
-                      kind: "keep_unresolved",
-                      dataLoss: false,
-                    },
-                  ],
-                },
-              ],
-            },
-            {
-              candidateId: "candidate-3",
-              ordinal: 3,
-              title: "Blocked paper",
-              classification: "blocked",
-              outcome: "preview",
-              reasonCodes: ["duplicate_reference"],
-              diagnostics: [],
-              verifiedCount: 1,
-              unresolvedCount: 0,
-              recoveredCount: 0,
-              droppedCount: 0,
-              selected: false,
-              disposition: "pending",
-              issues: [
-                {
-                  issueId: "issue-duplicate",
-                  reasonCode: "duplicate_reference",
-                  status: "pending",
-                  detail: "duplicate_reference",
-                  selectedOptionId: "",
-                  options: [
-                    {
-                      optionId: "merge-duplicates",
-                      kind: "merge_duplicates",
-                      dataLoss: false,
-                    },
-                  ],
-                },
-              ],
-            },
-          ],
-          summary: {
-            total: 28,
-            unfilteredTotal: 28,
-            ready: 26,
-            reviewRequired: 1,
-            blocked: 1,
-            selected: 26,
-          },
-          query: {
-            search: "",
-            classification: "",
-            reasonCode: "",
-            disposition: "",
-          },
-          availableReasons: ["unresolved_linkage", "duplicate_reference"],
-        },
-        history: [],
-      },
-      pageTitle: "Migrations",
-      migrationTitle: "No preview",
-      unavailableText: "Unavailable",
-      scanLabel: "Scan",
-      applyLabel: "Apply",
-      stopLabel: "Stop",
-      continueLabel: "Continue",
-      copyDiagnosticBundleLabel: "Copy diagnostic bundle",
-      reviewLabel: "Review",
-      readyLabel: "Ready",
-      blockedLabel: "Blocked",
-      historyTitle: "History",
-      emptyHistoryText: "Empty",
-      candidateLabel: "Set",
-      progressLabel: "Progress",
-      attentionLabel: "Attention",
-      previousLabel: "Previous",
-      nextLabel: "Next",
-      selectedLabel: "Selected",
-      verifiedLabel: "Verified",
-      unresolvedLabel: "Unresolved",
-      recoveredLabel: "Recovered",
-      droppedLabel: "Dropped",
-      searchPlaceholder: "Search candidates",
-      allLabel: "All",
-      classificationFilterLabel: "Classification",
-      reasonFilterLabel: "Issue",
-      dispositionFilterLabel: "Disposition",
-      detailsLabel: "Details",
-      closeLabel: "Close",
-      approveLabel: "Approve and include",
-      skipLabel: "Skip this set",
-      issuesLabel: "Issues",
-      filteredLabel: "Filtered",
-      dispositionLabels: {
-        pending: "Pending",
-        include: "Included",
-        skip: "Skipped",
-      },
-      outcomeLabels: {
-        preview: "Pending",
-        applied: "Applied",
-        skipped: "Skipped",
-        changed_since_scan: "Changed since scan",
-        repair_required: "Repair required",
-        blocked: "Blocked",
-        failed: "Failed",
-      },
-      runStateLabels: {
-        preview: "Pending",
-        applying: "Applying",
-        completed: "Completed",
-        completed_with_attention: "Attention required",
-        failed: "Failed",
-      },
-      optionLabels: {
-        keep_unresolved: "Keep as unresolved",
-        merge_duplicates: "Merge duplicate references",
-      },
-      reasonLabels: {
-        unresolved_linkage: "Unresolved linkage",
-        duplicate_reference: "Duplicate reference",
-      },
-    };
+    const selection = buildMigrationsSelection();
     const failedActions: Array<{
       action: string;
       payload: Record<string, unknown>;
@@ -305,8 +333,8 @@ describe("Dashboard literature migration region", function () {
     );
     assert.exists(apply);
     apply?.click();
-    const next = Array.from(root.querySelectorAll("button")).find(
-      (button) => button.textContent === "Next",
+    const next = root.querySelector<HTMLButtonElement>(
+      '[data-role="migration-next-page"]',
     );
     assert.exists(next);
     next?.click();
@@ -347,7 +375,7 @@ describe("Dashboard literature migration region", function () {
       },
       {
         action: "literature-migration-list-receipts",
-        payload: { runId: "run-1", cursor: "next-25" },
+        payload: { runId: "run-1", page: 1 },
       },
     ]);
     assert.notInclude(root.textContent || "", "sourceReferenceId");
@@ -425,9 +453,29 @@ describe("Dashboard literature migration region", function () {
             activeOperationId: failedRun.operationId,
             activeRunId: "",
             progress: null,
+            primaryDiagnostic: {
+              candidateId: "candidate-1",
+              ordinal: 1,
+              outcome: "failed",
+              operationId: "set-op-1",
+              authorityState: "terminal",
+              operation: "managed_note.apply_parent_set",
+              attemptId: "attempt-1",
+              status: "failed",
+              code: "execution_failed",
+              phase: "compensation",
+              effectPhase: "commit",
+              recovery: "retry_same_operation",
+              message: "managed note payload is ambiguous",
+              affectedCount: 2,
+              residualCount: 0,
+              diagnostics: ["mutation:execution_failed"],
+            },
             candidatePage: {
               ...selection.view.candidatePage,
-              nextCursor: null,
+              page: 0,
+              pageSize: 25,
+              pageCount: 1,
               items: [
                 {
                   ...selection.view.candidatePage.items[0]!,
@@ -457,6 +505,23 @@ describe("Dashboard literature migration region", function () {
     );
     assert.include(root.textContent || "", "Failed");
     assert.include(root.textContent || "", "mutation:execution_failed");
+    const diagnostic = root.querySelector(
+      '[data-role="migration-primary-diagnostic"]',
+    );
+    assert.exists(diagnostic);
+    assert.include(
+      diagnostic!.textContent || "",
+      "managed note payload is ambiguous",
+    );
+    assert.include(diagnostic!.textContent || "", "execution_failed");
+    assert.include(diagnostic!.textContent || "", "compensation");
+    assert.include(diagnostic!.textContent || "", "commit");
+    assert.include(diagnostic!.textContent || "", "retry_same_operation");
+    assert.include(diagnostic!.textContent || "", "set-op-1");
+    assert.include(
+      diagnostic!.textContent || "",
+      "Retry the same operation after checking the cause.",
+    );
     assert.exists(
       Array.from(root.querySelectorAll("button")).find(
         (button) => button.textContent === selection.continueLabel,
@@ -487,9 +552,11 @@ describe("Dashboard literature migration region", function () {
             activeOperationId: "",
             activeRunId: "",
             progress: null,
+            primaryDiagnostic: null,
             candidatePage: {
-              cursor: "",
-              nextCursor: null,
+              page: 0,
+              pageSize: 25,
+              pageCount: 0,
               items: [],
               summary: {
                 total: 0,
@@ -498,6 +565,8 @@ describe("Dashboard literature migration region", function () {
                 reviewRequired: 0,
                 blocked: 0,
                 selected: 0,
+                filteredSelected: 0,
+                filteredSelectable: 0,
               },
               query: {
                 search: "",
@@ -524,6 +593,237 @@ describe("Dashboard literature migration region", function () {
         (button) => button.textContent === selection.applyLabel,
       ),
     );
+    render(null, root);
+    restoreSidebarDomGlobals();
+    environment.dom.window.close();
+  });
+
+  it("renders a tri-state select-all checkbox and dispatches the filter selection", async function () {
+    const environment = createSidebarDomEnvironment();
+    installSidebarDomGlobals(environment);
+    const root = document.createElement("div");
+    const actions: Array<{ action: string; payload: Record<string, unknown> }> =
+      [];
+    const summary = (filteredSelected: number) => ({
+      total: 28,
+      unfilteredTotal: 28,
+      ready: 26,
+      reviewRequired: 1,
+      blocked: 1,
+      selected: filteredSelected,
+      filteredSelected,
+      filteredSelectable: 26,
+    });
+    const renderWith = (filteredSelected: number) => {
+      const base = buildMigrationsSelection().view;
+      render(
+        h(MigrationsRegion, {
+          selection: buildMigrationsSelection({
+            view: {
+              ...base,
+              candidatePage: {
+                ...base.candidatePage,
+                summary: summary(filteredSelected),
+              },
+            },
+          }),
+          onAction: (action, payload) =>
+            actions.push({
+              action,
+              payload: (payload || {}) as Record<string, unknown>,
+            }),
+        }),
+        root,
+      );
+      return root.querySelector<HTMLInputElement>(
+        '[data-role="migration-select-all"]',
+      )!;
+    };
+
+    const indeterminateBox = renderWith(13);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.isFalse(indeterminateBox.checked);
+    assert.isTrue(indeterminateBox.indeterminate);
+
+    // jsdom does not fire change for checkboxes in a detached tree.
+    indeterminateBox.click();
+    indeterminateBox.dispatchEvent(
+      new document.defaultView!.Event("change", { bubbles: true }),
+    );
+    assert.deepEqual(actions, [
+      {
+        action: "literature-migration-set-filter-selection",
+        payload: {
+          scanOperationId: "op-1",
+          selected: indeterminateBox.checked,
+        },
+      },
+    ]);
+
+    // The host re-renders after a bulk deselect: nothing is selected anymore.
+    const emptyBox = renderWith(0);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.isFalse(emptyBox.checked);
+    assert.isFalse(emptyBox.indeterminate);
+    emptyBox.click();
+    emptyBox.dispatchEvent(
+      new document.defaultView!.Event("change", { bubbles: true }),
+    );
+    assert.deepEqual(actions[1], {
+      action: "literature-migration-set-filter-selection",
+      payload: { scanOperationId: "op-1", selected: true },
+    });
+
+    // The host re-renders after a bulk select: the box is fully checked.
+    const fullBox = renderWith(26);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.isTrue(fullBox.checked);
+    assert.isFalse(fullBox.indeterminate);
+    fullBox.click();
+    fullBox.dispatchEvent(
+      new document.defaultView!.Event("change", { bubbles: true }),
+    );
+    assert.deepEqual(actions[2], {
+      action: "literature-migration-set-filter-selection",
+      payload: { scanOperationId: "op-1", selected: false },
+    });
+    render(null, root);
+    restoreSidebarDomGlobals();
+    environment.dom.window.close();
+  });
+
+  it("only shows the select-all checkbox in the preview state", async function () {
+    const environment = createSidebarDomEnvironment();
+    installSidebarDomGlobals(environment);
+    const root = document.createElement("div");
+    const activeRun = buildMigrationsSelection().view.activeRun!;
+    render(
+      h(MigrationsRegion, {
+        selection: buildMigrationsSelection({
+          view: {
+            ...buildMigrationsSelection().view,
+            activeRun: { ...activeRun, state: "completed" },
+          },
+        }),
+        onAction: () => assert.fail("terminal view must not bulk select"),
+      }),
+      root,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.isNull(
+      root.querySelector('[data-role="migration-select-all"]'),
+      "terminal runs do not offer bulk selection",
+    );
+
+    render(
+      h(MigrationsRegion, {
+        selection: buildMigrationsSelection({
+          view: {
+            ...buildMigrationsSelection().view,
+            availability: "busy",
+            activeRunId: "run-1",
+            progress: {
+              phase: "scanning",
+              completed: 1,
+              total: 3,
+              candidateCount: 1,
+            },
+          },
+        }),
+        onAction: () => assert.fail("busy view must not bulk select"),
+      }),
+      root,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const busyBox = root.querySelector<HTMLInputElement>(
+      '[data-role="migration-select-all"]',
+    );
+    assert.exists(busyBox);
+    assert.isTrue(busyBox!.disabled);
+    render(null, root);
+    restoreSidebarDomGlobals();
+    environment.dom.window.close();
+  });
+
+  it("dispatches bounded page jumps and renders the filtered range text", async function () {
+    const environment = createSidebarDomEnvironment();
+    installSidebarDomGlobals(environment);
+    const root = document.createElement("div");
+    const actions: Array<{ action: string; payload: Record<string, unknown> }> =
+      [];
+    const base = buildMigrationsSelection().view.candidatePage;
+    render(
+      h(MigrationsRegion, {
+        selection: buildMigrationsSelection({
+          view: {
+            ...buildMigrationsSelection().view,
+            candidatePage: {
+              ...base,
+              page: 1,
+              pageSize: 25,
+              pageCount: 3,
+              items: base.items.slice(0, 2),
+              summary: { ...base.summary, total: 51 },
+            },
+          },
+        }),
+        onAction: (action, payload) =>
+          actions.push({
+            action,
+            payload: (payload || {}) as Record<string, unknown>,
+          }),
+      }),
+      root,
+    );
+    const range = root.querySelector(
+      '[data-role="migration-page-range"]',
+    )?.textContent;
+    assert.include(range, "26");
+    assert.include(range, "27");
+    assert.include(range, "51");
+
+    const first = root.querySelector<HTMLButtonElement>(
+      '[data-role="migration-first-page"]',
+    );
+    const prev = root.querySelector<HTMLButtonElement>(
+      '[data-role="migration-prev-page"]',
+    );
+    const next = root.querySelector<HTMLButtonElement>(
+      '[data-role="migration-next-page"]',
+    );
+    const last = root.querySelector<HTMLButtonElement>(
+      '[data-role="migration-last-page"]',
+    );
+    assert.isFalse(first!.disabled);
+    assert.isFalse(prev!.disabled);
+    assert.isFalse(next!.disabled);
+    assert.isFalse(last!.disabled);
+
+    prev!.click();
+    next!.click();
+    last!.click();
+    first!.click();
+    const pageInput = root.querySelector<HTMLInputElement>(
+      '[data-role="migration-page-input"]',
+    );
+    assert.exists(pageInput);
+    assert.equal(pageInput!.value, "2");
+    pageInput!.value = "3";
+    pageInput!.dispatchEvent(
+      new document.defaultView!.Event("input", { bubbles: true }),
+    );
+    pageInput!.value = "99";
+    pageInput!.dispatchEvent(
+      new document.defaultView!.Event("input", { bubbles: true }),
+    );
+    assert.deepEqual(actions, [
+      { action: "literature-migration-list-receipts", payload: { runId: "run-1", page: 0 } },
+      { action: "literature-migration-list-receipts", payload: { runId: "run-1", page: 2 } },
+      { action: "literature-migration-list-receipts", payload: { runId: "run-1", page: 2 } },
+      { action: "literature-migration-list-receipts", payload: { runId: "run-1", page: 0 } },
+      { action: "literature-migration-list-receipts", payload: { runId: "run-1", page: 2 } },
+      { action: "literature-migration-list-receipts", payload: { runId: "run-1", page: 2 } },
+    ]);
     render(null, root);
     restoreSidebarDomGlobals();
     environment.dom.window.close();

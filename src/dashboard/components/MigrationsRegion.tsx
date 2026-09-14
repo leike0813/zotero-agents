@@ -34,6 +34,9 @@ export type DashboardMigrationsSelection = {
   attentionLabel: string;
   previousLabel: string;
   nextLabel: string;
+  firstLabel: string;
+  lastLabel: string;
+  pageLabel: string;
   selectedLabel: string;
   verifiedLabel: string;
   unresolvedLabel: string;
@@ -50,6 +53,20 @@ export type DashboardMigrationsSelection = {
   skipLabel: string;
   issuesLabel: string;
   filteredLabel: string;
+  diagnosticTitle: string;
+  diagnosticCauseLabel: string;
+  diagnosticOperationLabel: string;
+  diagnosticOperationIdLabel: string;
+  diagnosticAttemptIdLabel: string;
+  diagnosticPhaseLabel: string;
+  diagnosticEffectPhaseLabel: string;
+  diagnosticRecoveryLabel: string;
+  diagnosticAffectedLabel: string;
+  diagnosticResidualLabel: string;
+  diagnosticUnavailableText: string;
+  diagnosticRetryHint: string;
+  diagnosticFreshScanHint: string;
+  diagnosticManualRepairHint: string;
   dispositionLabels: Record<string, string>;
   outcomeLabels: Record<string, string>;
   runStateLabels: Record<string, string>;
@@ -64,6 +81,7 @@ export type DashboardMigrationsAction = Extract<
   | "literature-migration-stop"
   | "literature-migration-continue"
   | "literature-migration-set-selection"
+  | "literature-migration-set-filter-selection"
   | "literature-migration-resolve-issue"
   | "literature-migration-set-candidate-query"
   | "literature-migration-list-receipts"
@@ -100,6 +118,18 @@ function outcomeBadgeClass(outcome: string) {
   return "";
 }
 
+function diagnosticRecoveryHint(selection: DashboardMigrationsSelection) {
+  const diagnostic = selection.view.primaryDiagnostic;
+  if (!diagnostic) return "";
+  if (diagnostic.residualCount || diagnostic.recovery === "manual_repair") {
+    return selection.diagnosticManualRepairHint;
+  }
+  if (diagnostic.recovery === "refresh_and_retry_new_operation") {
+    return selection.diagnosticFreshScanHint;
+  }
+  return selection.diagnosticRetryHint;
+}
+
 function CandidateFacts(props: {
   candidate: DashboardLiteratureArtifactMigrationCandidate;
   selection: DashboardMigrationsSelection;
@@ -127,20 +157,71 @@ export const MigrationsRegion = memo(
   function MigrationsRegion({ selection, onAction }: Props) {
     const { view } = selection;
     const active = view.activeRun;
+    const primaryDiagnostic = view.primaryDiagnostic;
+    const diagnosticFacts = primaryDiagnostic
+      ? [
+          {
+            label: selection.diagnosticOperationLabel,
+            value: primaryDiagnostic.operation,
+          },
+          {
+            label: selection.diagnosticOperationIdLabel,
+            value: primaryDiagnostic.operationId,
+          },
+          {
+            label: selection.diagnosticAttemptIdLabel,
+            value: primaryDiagnostic.attemptId,
+          },
+          {
+            label: selection.diagnosticPhaseLabel,
+            value: primaryDiagnostic.phase,
+          },
+          {
+            label: selection.diagnosticEffectPhaseLabel,
+            value: primaryDiagnostic.effectPhase,
+          },
+          {
+            label: selection.diagnosticRecoveryLabel,
+            value: primaryDiagnostic.recovery,
+          },
+          {
+            label: selection.diagnosticAffectedLabel,
+            value:
+              primaryDiagnostic.affectedCount === null
+                ? ""
+                : String(primaryDiagnostic.affectedCount),
+          },
+          {
+            label: selection.diagnosticResidualLabel,
+            value:
+              primaryDiagnostic.residualCount === null
+                ? ""
+                : String(primaryDiagnostic.residualCount),
+          },
+        ].filter((fact) => fact.value)
+      : [];
     const { candidatePage } = view;
-    const cursorHistory = useRef<string[]>([]);
     const runIdRef = useRef(active?.runId);
+    const selectAllRef = useRef<HTMLInputElement | null>(null);
     const [selectedCandidateId, setSelectedCandidateId] = useState("");
     const selectedCandidate = candidatePage.items.find(
       (candidate) => candidate.candidateId === selectedCandidateId,
     );
+    const filteredSelected = candidatePage.summary.filteredSelected;
+    const filteredSelectable = candidatePage.summary.filteredSelectable;
+    const allFilteredSelected =
+      filteredSelectable > 0 && filteredSelected === filteredSelectable;
 
     useEffect(() => {
       if (runIdRef.current === active?.runId) return;
       runIdRef.current = active?.runId;
-      cursorHistory.current = [];
       setSelectedCandidateId("");
     }, [active?.runId]);
+
+    useEffect(() => {
+      const box = selectAllRef.current;
+      if (box) box.indeterminate = filteredSelected > 0 && !allFilteredSelected;
+    });
 
     const workerActive = view.availability === "busy";
     const scanning = workerActive && view.progress?.phase === "scanning";
@@ -155,29 +236,30 @@ export const MigrationsRegion = memo(
       Boolean(view.activeOperationId) &&
       candidatePage.summary.selected > 0;
     const updateQuery = (patch: Partial<typeof candidatePage.query>) => {
-      cursorHistory.current = [];
       setSelectedCandidateId("");
       onAction("literature-migration-set-candidate-query", {
         ...candidatePage.query,
         ...patch,
       });
     };
-    const previousPage = () => {
-      const cursor = cursorHistory.current.pop();
-      if (cursor === undefined || !active) return;
-      onAction("literature-migration-list-receipts", {
-        runId: active.runId,
-        cursor,
-      });
-    };
-    const nextPage = () => {
-      if (!candidatePage.nextCursor || !active) return;
-      cursorHistory.current.push(candidatePage.cursor);
+    const gotoPage = (page: number) => {
+      if (!active) return;
+      const target = Math.max(
+        0,
+        Math.min(candidatePage.pageCount - 1, Math.floor(page)),
+      );
+      if (!Number.isFinite(target) || target === candidatePage.page) return;
       setSelectedCandidateId("");
       onAction("literature-migration-list-receipts", {
         runId: active.runId,
-        cursor: candidatePage.nextCursor,
+        page: target,
       });
+    };
+    const commitPageInput = (event: Event) => {
+      const input = event.currentTarget as HTMLInputElement;
+      const value = Math.floor(Number(input.value) || 0);
+      if (!Number.isFinite(value) || value < 1) return;
+      gotoPage(value - 1);
     };
 
     return (
@@ -498,6 +580,49 @@ export const MigrationsRegion = memo(
                     </span>
                   </div>
                   {active.reason ? <p>{active.reason}</p> : null}
+                  {primaryDiagnostic ? (
+                    <section
+                      class="dashboard-migration-primary-diagnostic"
+                      data-role="migration-primary-diagnostic"
+                    >
+                      <header>
+                        <h4>{selection.diagnosticTitle}</h4>
+                        {primaryDiagnostic.code ? (
+                          <code>{primaryDiagnostic.code}</code>
+                        ) : null}
+                      </header>
+                      {primaryDiagnostic.message ? (
+                        <p>
+                          <strong>{selection.diagnosticCauseLabel}:</strong>{" "}
+                          {primaryDiagnostic.message}
+                        </p>
+                      ) : primaryDiagnostic.authorityState === "unavailable" ? (
+                        <p>{selection.diagnosticUnavailableText}</p>
+                      ) : null}
+                      {diagnosticFacts.length ? (
+                        <dl>
+                          {diagnosticFacts.map((fact) => (
+                            <div key={fact.label}>
+                              <dt>{fact.label}</dt>
+                              <dd>
+                                <code>{fact.value}</code>
+                              </dd>
+                            </div>
+                          ))}
+                        </dl>
+                      ) : null}
+                      {primaryDiagnostic.diagnostics.length ? (
+                        <div class="dashboard-migration-diagnostics">
+                          {primaryDiagnostic.diagnostics.map((diagnostic) => (
+                            <code key={diagnostic}>{diagnostic}</code>
+                          ))}
+                        </div>
+                      ) : null}
+                      <p class="dashboard-migration-recovery-hint">
+                        {diagnosticRecoveryHint(selection)}
+                      </p>
+                    </section>
+                  ) : null}
                   {active.diagnostics.length ? (
                     <ul>
                       {active.diagnostics.map((diagnostic) => (
@@ -509,6 +634,31 @@ export const MigrationsRegion = memo(
               ) : null}
               {candidatePage.items.length ? (
                 <>
+                  {active && !terminalView ? (
+                    <div class="dashboard-migrations-select-all">
+                      <input
+                        type="checkbox"
+                        ref={selectAllRef}
+                        data-role="migration-select-all"
+                        checked={allFilteredSelected}
+                        disabled={active?.state !== "preview" || workerActive}
+                        aria-label={selection.selectedLabel}
+                        onChange={(event) =>
+                          onAction(
+                            "literature-migration-set-filter-selection",
+                            {
+                              scanOperationId: active?.operationId || "",
+                              selected: event.currentTarget.checked,
+                            },
+                          )
+                        }
+                      />
+                      <span>
+                        {selection.selectedLabel} {filteredSelected}/
+                        {filteredSelectable}
+                      </span>
+                    </div>
+                  ) : null}
                   <div class="dashboard-migrations-candidates zs-scroll-region">
                     {candidatePage.items.map((candidate) => (
                       <article
@@ -618,24 +768,77 @@ export const MigrationsRegion = memo(
                   >
                     <button
                       type="button"
-                      class="btn"
-                      disabled={workerActive || !cursorHistory.current.length}
-                      onClick={previousPage}
+                      class="btn zs-icon-btn"
+                      data-role="migration-first-page"
+                      title={selection.firstLabel}
+                      aria-label={selection.firstLabel}
+                      disabled={workerActive || candidatePage.page <= 0}
+                      onClick={() => gotoPage(0)}
                     >
-                      {selection.previousLabel}
+                      <span class="zs-icon zs-icon-sm zs-icon-first-page" />
                     </button>
-                    <span>
-                      {candidatePage.items[0]?.ordinal || 0}–
-                      {candidatePage.items.at(-1)?.ordinal || 0} /{" "}
-                      {candidatePage.summary.total}
-                    </span>
                     <button
                       type="button"
-                      class="btn"
-                      disabled={workerActive || !candidatePage.nextCursor}
-                      onClick={nextPage}
+                      class="btn zs-icon-btn"
+                      data-role="migration-prev-page"
+                      title={selection.previousLabel}
+                      aria-label={selection.previousLabel}
+                      disabled={workerActive || candidatePage.page <= 0}
+                      onClick={() => gotoPage(candidatePage.page - 1)}
                     >
-                      {selection.nextLabel}
+                      <span class="zs-icon zs-icon-sm zs-icon-chevron-left" />
+                    </button>
+                    <span data-role="migration-page-range">
+                      {candidatePage.page * candidatePage.pageSize + 1}–
+                      {candidatePage.page * candidatePage.pageSize +
+                        candidatePage.items.length}{" "}
+                      / {candidatePage.summary.total}
+                    </span>
+                    <input
+                      type="number"
+                      class="text-input dashboard-migrations-page-input"
+                      data-role="migration-page-input"
+                      key={`${active?.runId || ""}:${candidatePage.page}`}
+                      defaultValue={candidatePage.page + 1}
+                      min={1}
+                      max={Math.max(1, candidatePage.pageCount)}
+                      aria-label={selection.pageLabel}
+                      disabled={workerActive}
+                      onInput={commitPageInput}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter") return;
+                        event.preventDefault();
+                        commitPageInput(event);
+                      }}
+                    />
+                    <span>/ {candidatePage.pageCount}</span>
+                    <button
+                      type="button"
+                      class="btn zs-icon-btn"
+                      data-role="migration-next-page"
+                      title={selection.nextLabel}
+                      aria-label={selection.nextLabel}
+                      disabled={
+                        workerActive ||
+                        candidatePage.page >= candidatePage.pageCount - 1
+                      }
+                      onClick={() => gotoPage(candidatePage.page + 1)}
+                    >
+                      <span class="zs-icon zs-icon-sm zs-icon-chevron-right" />
+                    </button>
+                    <button
+                      type="button"
+                      class="btn zs-icon-btn"
+                      data-role="migration-last-page"
+                      title={selection.lastLabel}
+                      aria-label={selection.lastLabel}
+                      disabled={
+                        workerActive ||
+                        candidatePage.page >= candidatePage.pageCount - 1
+                      }
+                      onClick={() => gotoPage(candidatePage.pageCount - 1)}
+                    >
+                      <span class="zs-icon zs-icon-sm zs-icon-last-page" />
                     </button>
                   </nav>
                 </>

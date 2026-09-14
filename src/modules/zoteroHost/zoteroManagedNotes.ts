@@ -5,6 +5,7 @@ import {
   validateSourceReferenceArtifact,
 } from "../../../packages/synthesis-contracts/src/sourceReferenceArtifact";
 import { validateLiteratureScoreArtifact } from "../../../packages/synthesis-contracts/src/literatureArtifacts";
+import { parseStoredLiteratureScoreArtifact } from "../../shared/literatureScore";
 import {
   buildMarkdownBackedNoteContent,
   buildStructuredNoteContent,
@@ -686,6 +687,33 @@ function knownKind(block: ZoteroNotePayloadBlock): ManagedNoteKind | null {
   return match ? (match[0] as ManagedNoteKind) : null;
 }
 
+export function managedNoteKindHint(noteHtml: unknown): ManagedNoteKind | null {
+  const html = String(noteHtml || "");
+  const kinds = new Set<ManagedNoteKind>();
+  const addKind = (value: string) => {
+    const direct = value as ManagedNoteKind;
+    if (MANAGED_NOTE_KINDS.has(direct)) {
+      kinds.add(direct);
+      return;
+    }
+    const entry = Object.entries(MANAGED_NOTE_PAYLOAD_TYPES).find(
+      ([, payloadType]) => payloadType === value,
+    );
+    if (entry) kinds.add(entry[0] as ManagedNoteKind);
+  };
+  for (const match of html.matchAll(
+    /data-zs-note-kind\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/giu,
+  )) {
+    addKind(String(match[1] || match[2] || match[3] || "").trim());
+  }
+  for (const match of html.matchAll(
+    /data-zs-(?:payload|payload-anchor)\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/giu,
+  )) {
+    addKind(String(match[1] || match[2] || match[3] || "").trim());
+  }
+  return kinds.size === 1 ? Array.from(kinds)[0] : null;
+}
+
 function reservedMarker(html: string) {
   const payloadAnchor = html.match(
     /data-zs-payload-anchor\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/iu,
@@ -1206,15 +1234,15 @@ function normalizePayload(
     };
   }
   if (kind === "literature-score") {
-    const validated = validateLiteratureScoreArtifact(payload);
-    if (!validated.ok) {
+    const score = parseStoredLiteratureScoreArtifact(payload);
+    if (!score) {
       throw new ManagedNoteOwnerError(
         "invalid_artifact",
         "literature score artifact is invalid",
         { managedType: kind, noteKind: kind },
       );
     }
-    return validated.value as unknown as JsonValue;
+    return score as unknown as JsonValue;
   }
   return payload;
 }

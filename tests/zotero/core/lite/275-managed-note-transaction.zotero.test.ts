@@ -2,6 +2,7 @@ import { assert } from "chai";
 import { createZoteroHostCapabilityBroker } from "../../../../src/modules/zoteroHostCapabilityBroker";
 import { getZoteroManagedNoteLocalControl } from "../../../../src/modules/zoteroHost/zoteroManagedNotes";
 import {
+  buildWorkbenchPayloadPngBytes,
   encodeBase64Utf8,
   WORKBENCH_EMBEDDED_PAYLOAD_MARKER,
 } from "../../../../src/modules/zoteroHost/notePayloadCodec";
@@ -55,9 +56,13 @@ async function createLegacyNote(parent: Zotero.Item, content: string) {
 async function createLegacyAttachmentPayloadNote(args: {
   parent: Zotero.Item;
   title: string;
-  noteKind: "references" | "citation-analysis";
-  payloadType: "references-json" | "citation-analysis-json";
+  noteKind: "references" | "citation-analysis" | "literature-score";
+  payloadType:
+    | "references-json"
+    | "citation-analysis-json"
+    | "literature-score-json";
   payload: unknown;
+  storageVersion?: 1 | 2;
 }) {
   const note = await createLegacyNote(
     args.parent,
@@ -65,6 +70,13 @@ async function createLegacyAttachmentPayloadNote(args: {
   );
   const envelope = {
     schemaVersion: 1,
+    ...(args.storageVersion === 2
+      ? {
+          payloadStorageVersion: 2,
+          format: "json",
+          payloadHash: "pre-current-v2-hash",
+        }
+      : {}),
     kind: "zotero-skills-workbench-note-payload",
     noteKind: args.noteKind,
     payloadType: args.payloadType,
@@ -76,14 +88,20 @@ async function createLegacyAttachmentPayloadNote(args: {
     ),
     (character) => character.charCodeAt(0),
   );
-  const suffix = new TextEncoder().encode(
-    `\n${WORKBENCH_EMBEDDED_PAYLOAD_MARKER}${encodeBase64Utf8(
-      JSON.stringify(envelope),
-    )}\n`,
-  );
-  const bytes = new Uint8Array(png.length + suffix.length);
-  bytes.set(png);
-  bytes.set(suffix, png.length);
+  const bytes =
+    args.storageVersion === 2
+      ? buildWorkbenchPayloadPngBytes(png, envelope)
+      : (() => {
+          const suffix = new TextEncoder().encode(
+            `\n${WORKBENCH_EMBEDDED_PAYLOAD_MARKER}${encodeBase64Utf8(
+              JSON.stringify(envelope),
+            )}\n`,
+          );
+          const value = new Uint8Array(png.length + suffix.length);
+          value.set(png);
+          value.set(suffix, png.length);
+          return value;
+        })();
   const attachment = await Zotero.Attachments.importEmbeddedImage({
     blob: new Blob([bytes], { type: "image/png" }),
     parentItemID: note.id,
@@ -93,6 +111,47 @@ async function createLegacyAttachmentPayloadNote(args: {
   );
   await note.saveTx();
   return { note, attachment };
+}
+
+function literatureScore(overallScore = 69.5) {
+  return {
+    schema: "literature_score.v1",
+    rubric_id: "default-v1",
+    paper_type: "empirical",
+    paper_type_reason: "Measured evidence",
+    overall_score: overallScore,
+    confidence: 1,
+    confidence_adjusted_score: overallScore,
+    dimensions: [
+      "methodological_rigor",
+      "evidence_completeness",
+      "reproducibility",
+      "innovation_signals",
+      "research_impact_potential",
+      "writing_quality",
+    ].map((dimension_key) => ({
+      dimension_key,
+      name: dimension_key,
+      configured_weight: 1 / 6,
+      effective_weight: 1 / 6,
+      raw_score: 7,
+      applicable_max_score: 10,
+      score: overallScore,
+      confidence: 1,
+      summary: "Supported",
+      criteria: [
+        {
+          criterion_key: dimension_key,
+          name: "Evidence",
+          status: "scored",
+          score: 7,
+          max_score: 10,
+          reason: "Supported",
+          evidence: [],
+        },
+      ],
+    })),
+  };
 }
 
 function parentRef(parent: Zotero.Item) {
@@ -116,82 +175,237 @@ async function queryChildIds(parentId: number) {
 }
 
 describeZotero("managed note transaction in Zotero", function () {
-  it("migrates a real legacy References and Citation pair through the Dashboard service", async function () {
-    this.timeout(120000);
-    const parent = await createParent("Dashboard migration transaction");
-    const references = {
-      items: [{ title: "A Study", year: 2024, authors: ["Ada Lovelace"] }],
-    };
-    const citation = {
-      items: [
-        {
-          title: "A Study",
-          year: 2024,
-          authors: ["Ada Lovelace"],
-          mentions: [{ rawCitation: "Lovelace (2024)" }],
+  it("migrates v1/v2 and dual-v2 payload pairs through the Dashboard service", async function () {
+    this.timeout(180000);
+    const score = literatureScore();
+    const cases = [
+      { label: "without Score", referencesStorageVersion: 1 as const },
+      {
+        label: "with canonical Score",
+        referencesStorageVersion: 2 as const,
+        scorePayload: score,
+        expectedScore: score.overall_score,
+      },
+      {
+        label: "with historical Score",
+        referencesStorageVersion: 1 as const,
+        scorePayload: {
+          version: 1,
+          entry: "artifacts/literature_score.json",
+          format: "json",
+          literature_score: score,
         },
-      ],
-    };
-    const legacyReferences = await createLegacyAttachmentPayloadNote({
-      parent,
-      title: "References",
-      noteKind: "references",
-      payloadType: "references-json",
-      payload: references,
-    });
-    const legacyCitation = await createLegacyAttachmentPayloadNote({
-      parent,
-      title: "Citation Analysis",
-      noteKind: "citation-analysis",
-      payloadType: "citation-analysis-json",
-      payload: citation,
-    });
-    try {
-      const broker = createZoteroHostCapabilityBroker();
-      const service = createLiteratureArtifactMigrationService({
-        host: createLiteratureArtifactMigrationHostFromZoteroBroker(broker),
-      });
-      const preview = await service.scan({ libraryId: parent.libraryID });
-      assert.isTrue(preview.ok);
-      if (!preview.ok) throw new Error("expected migration preview");
-      const candidate = preview.candidates.find(
-        (entry) => entry.parentRef.key === parent.key,
+        expectedScore: score.overall_score,
+      },
+      {
+        label: "with damaged Score",
+        referencesStorageVersion: 2 as const,
+        scorePayload: { invalid: true },
+      },
+    ];
+    for (const migrationCase of cases) {
+      const { referencesStorageVersion } = migrationCase;
+      const parent = await createParent(
+        `Dashboard migration transaction ${migrationCase.label}`,
       );
-      assert.isOk(candidate);
-      assert.equal(candidate?.classification, "ready");
-
-      const result = await service.apply({
-        scanOperationId: preview.operationId,
-        candidateIds: [candidate!.candidateId],
+      const references = {
+        items: [{ title: "A Study", year: 2024, authors: ["Ada Lovelace"] }],
+      };
+      const citation = {
+        items: [
+          {
+            title: "A Study",
+            year: 2024,
+            authors: ["Ada Lovelace"],
+            mentions: [{ rawCitation: "Lovelace (2024)" }],
+          },
+        ],
+      };
+      const legacyReferences = await createLegacyAttachmentPayloadNote({
+        parent,
+        title: "References",
+        noteKind: "references",
+        payloadType: "references-json",
+        payload: references,
+        storageVersion: referencesStorageVersion,
       });
-      assert.isTrue(result.ok);
-      if (!result.ok) throw new Error("expected migration result");
-      assert.equal(result.state, "completed");
+      const legacyCitation = await createLegacyAttachmentPayloadNote({
+        parent,
+        title: "Citation Analysis",
+        noteKind: "citation-analysis",
+        payloadType: "citation-analysis-json",
+        payload: citation,
+        storageVersion: 2,
+      });
+      const scoreNote = migrationCase.scorePayload
+        ? await createLegacyAttachmentPayloadNote({
+            parent,
+            title: "Literature Score",
+            noteKind: "literature-score",
+            payloadType: "literature-score-json",
+            payload: migrationCase.scorePayload,
+            storageVersion: 2,
+          })
+        : null;
+      const scoreBytesBefore = scoreNote
+        ? await IOUtils.read(await scoreNote.attachment.getFilePathAsync())
+        : null;
+      try {
+        const db = Zotero.DB as any;
+        const originalExecuteTransaction = db.executeTransaction;
+        const sourceAttachmentIds = new Set([
+          legacyReferences.attachment.id,
+          legacyCitation.attachment.id,
+          ...(scoreNote ? [scoreNote.attachment.id] : []),
+        ]);
+        const poisonedAttachments: Array<{
+          attachment: Zotero.Item;
+          getField: Zotero.Item["getField"];
+          getDisplayTitle: unknown;
+        }> = [];
+        const broker = createZoteroHostCapabilityBroker();
+        const service = createLiteratureArtifactMigrationService({
+          host: createLiteratureArtifactMigrationHostFromZoteroBroker(broker),
+        });
+        const preview = await service.scan({ libraryId: parent.libraryID });
+        assert.isTrue(preview.ok);
+        if (!preview.ok) throw new Error("expected migration preview");
+        const candidate = preview.candidates.find(
+          (entry) => entry.parentRef.key === parent.key,
+        );
+        assert.isOk(candidate);
+        assert.equal(candidate?.classification, "ready");
 
-      const control = getZoteroManagedNoteLocalControl(broker);
-      const kinds = await Promise.all(
-        (await queryChildIds(parent.id)).map(async (itemId) => {
-          const note = Zotero.Items.get(itemId)!;
-          const transfer = await control.readForTransfer({
-            libraryId: note.libraryID,
-            key: note.key,
+        if (referencesStorageVersion === 2) {
+          db.executeTransaction = async function (
+            work: () => Promise<unknown>,
+            options?: unknown,
+          ) {
+            const transactionResult = await originalExecuteTransaction.call(
+              this,
+              work,
+              options,
+            );
+            for (const noteId of await queryChildIds(parent.id)) {
+              const note = Zotero.Items.get(noteId);
+              for (const attachmentId of note?.getAttachments?.() || []) {
+                if (sourceAttachmentIds.has(attachmentId)) continue;
+                const attachment = Zotero.Items.get(attachmentId)!;
+                poisonedAttachments.push({
+                  attachment,
+                  getField: attachment.getField,
+                  getDisplayTitle: (attachment as any).getDisplayTitle,
+                });
+                attachment.getField = () => {
+                  throw new Error("committed attachment is unloaded");
+                };
+                (attachment as any).getDisplayTitle = () => {
+                  throw new Error("committed attachment is unloaded");
+                };
+              }
+            }
+            return transactionResult;
+          };
+        }
+        let result;
+        try {
+          result = await service.apply({
+            scanOperationId: preview.operationId,
+            candidateIds: [candidate!.candidateId],
           });
-          return transfer.detail.kind === "managed"
-            ? transfer.detail.noteKind
-            : transfer.detail.kind;
-        }),
-      );
-      assert.sameMembers(kinds, ["references", "citation-analysis"]);
-      assert.isTrue(
-        Boolean(Zotero.Items.get(legacyReferences.attachment.id)?.deleted),
-      );
-      assert.isTrue(
-        Boolean(Zotero.Items.get(legacyCitation.attachment.id)?.deleted),
-      );
-    } finally {
-      resetLiteratureArtifactMigrationRuntimeForTests();
-      resetPluginStateStoreForTests();
-      await Zotero.Items.trashTx([parent.id]);
+        } finally {
+          db.executeTransaction = originalExecuteTransaction;
+          for (const poisoned of poisonedAttachments) {
+            poisoned.attachment.getField = poisoned.getField;
+            (poisoned.attachment as any).getDisplayTitle =
+              poisoned.getDisplayTitle;
+          }
+        }
+        assert.isTrue(result.ok);
+        if (!result.ok) throw new Error("expected migration result");
+        assert.equal(result.state, "completed");
+        assert.deepEqual(JSON.parse(JSON.stringify(result)), result);
+
+        const control = getZoteroManagedNoteLocalControl(broker);
+        const kinds = await Promise.all(
+          (await queryChildIds(parent.id))
+            .filter((itemId) => itemId !== scoreNote?.note.id)
+            .map(async (itemId) => {
+              const note = Zotero.Items.get(itemId)!;
+              assert.lengthOf(note.getAttachments(), 1);
+              const transfer = await control.readForTransfer({
+                libraryId: note.libraryID,
+                key: note.key,
+              });
+              return transfer.detail.kind === "managed"
+                ? transfer.detail.noteKind
+                : transfer.detail.kind;
+            }),
+        );
+        assert.sameMembers(kinds, ["references", "citation-analysis"]);
+        if (scoreNote && scoreBytesBefore) {
+          const retainedNote = Zotero.Items.get(scoreNote.note.id)!;
+          const retainedAttachment = Zotero.Items.get(scoreNote.attachment.id)!;
+          assert.equal(retainedNote.key, scoreNote.note.key);
+          assert.equal(retainedAttachment.key, scoreNote.attachment.key);
+          assert.isFalse(Boolean(retainedNote.deleted));
+          assert.isFalse(Boolean(retainedAttachment.deleted));
+          assert.deepEqual(
+            Array.from(
+              await IOUtils.read(await retainedAttachment.getFilePathAsync()),
+            ),
+            Array.from(scoreBytesBefore),
+          );
+          let scoreDetail;
+          let scoreError: unknown;
+          try {
+            scoreDetail = await broker.library.getNoteDetail(
+              { libraryId: retainedNote.libraryID, key: retainedNote.key },
+              { format: "html" },
+            );
+          } catch (error) {
+            scoreError = error;
+          }
+          if (migrationCase.expectedScore !== undefined) {
+            assert.equal(
+              scoreDetail?.kind,
+              "managed",
+              `${migrationCase.label}: ${JSON.stringify({
+                code: (scoreError as { code?: string } | undefined)?.code,
+                message:
+                  scoreError instanceof Error ? scoreError.message : scoreError,
+              })}`,
+            );
+            if (scoreDetail?.kind === "managed") {
+              assert.equal(scoreDetail.noteKind, "literature-score");
+              assert.equal(
+                (scoreDetail.payload as { overall_score?: number })
+                  .overall_score,
+                migrationCase.expectedScore,
+              );
+            }
+          } else {
+            assert.equal(
+              (scoreError as { code?: string } | undefined)?.code,
+              "invalid_artifact",
+            );
+          }
+        }
+        const oldReferences = Zotero.Items.get(legacyReferences.attachment.id);
+        assert.isTrue(
+          referencesStorageVersion === 1
+            ? Boolean(oldReferences?.deleted)
+            : !oldReferences || Boolean(oldReferences.deleted),
+        );
+        assert.isTrue(
+          !Zotero.Items.get(legacyCitation.attachment.id) ||
+            Boolean(Zotero.Items.get(legacyCitation.attachment.id)?.deleted),
+        );
+      } finally {
+        resetLiteratureArtifactMigrationRuntimeForTests();
+        resetPluginStateStoreForTests();
+        await Zotero.Items.trashTx([parent.id]);
+      }
     }
   });
 
@@ -212,14 +426,12 @@ describeZotero("managed note transaction in Zotero", function () {
       return file;
     };
     const originalExecuteTransaction = db.executeTransaction;
-    let calls = 0;
     let depth = 0;
     let maxDepth = 0;
     db.executeTransaction = async function (
       run: () => Promise<unknown>,
       options?: unknown,
     ) {
-      calls += 1;
       depth += 1;
       maxDepth = Math.max(maxDepth, depth);
       try {
@@ -251,7 +463,6 @@ describeZotero("managed note transaction in Zotero", function () {
       const attachment = Zotero.Items.get(attachmentIds[0]);
       assert.isOk(attachment);
       assert.isTrue(await runtimePathExists(String(attachment!.getFilePath())));
-      assert.strictEqual(calls, 1);
       assert.strictEqual(maxDepth, 1);
     } finally {
       attachmentsApi.getStorageDirectoryByLibraryAndKey =

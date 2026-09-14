@@ -39,15 +39,39 @@ export type LiteratureStarModel = {
   fills: Array<0 | 0.5 | 1>;
 };
 
-export function parseLiteratureScore(
+export function parseStoredLiteratureScoreArtifact(
   value: unknown,
-): LiteratureScoreSummary | null {
-  let score: LiteratureScoreArtifact;
+): LiteratureScoreArtifact | null {
+  let candidate = value;
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    const keys = Object.keys(record).sort();
+    if (
+      keys.length === 4 &&
+      keys[0] === "entry" &&
+      keys[1] === "format" &&
+      keys[2] === "literature_score" &&
+      keys[3] === "version" &&
+      record.version === 1 &&
+      record.format === "json" &&
+      typeof record.entry === "string" &&
+      record.entry.trim()
+    ) {
+      candidate = record.literature_score;
+    }
+  }
   try {
-    score = parseLiteratureScoreArtifact(value);
+    return parseLiteratureScoreArtifact(candidate);
   } catch {
     return null;
   }
+}
+
+export function parseLiteratureScore(
+  value: unknown,
+): LiteratureScoreSummary | null {
+  const score = parseStoredLiteratureScoreArtifact(value);
+  if (!score) return null;
   return {
     schema: score.schema,
     rubricId: score.rubric_id,
