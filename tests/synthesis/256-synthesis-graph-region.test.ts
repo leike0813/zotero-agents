@@ -161,6 +161,10 @@ class FakeCamera {
   state = { x: 0.5, y: 0.5, ratio: 1, angle: 0 };
   private listeners: Array<() => void> = [];
 
+  get listenerCount() {
+    return this.listeners.length;
+  }
+
   getState() {
     return this.state;
   }
@@ -172,6 +176,10 @@ class FakeCamera {
 
   on(_event: "updated", callback: () => void) {
     this.listeners.push(callback);
+  }
+
+  off(_event: "updated", callback: () => void) {
+    this.listeners = this.listeners.filter((listener) => listener !== callback);
   }
 }
 
@@ -639,13 +647,16 @@ describe("synthesis graph region (src/synthesis/components/graph)", function () 
     assert.equal(FakeSigma.instances.length, 1, "no renderer was recreated");
   });
 
-  it("kills the sigma renderer when the graph region unmounts", function () {
+  it("releases the camera listener and renderer when the graph region unmounts", function () {
     const vendors = makeVendors();
     const { container } = renderRegion(makeSelection(), vendors);
     const sigma = FakeSigma.instances[0];
 
+    assert.equal(sigma.camera.listenerCount, 1);
+
     render(null, container);
 
+    assert.equal(sigma.camera.listenerCount, 0);
     assert.isTrue(sigma.killed);
   });
 });

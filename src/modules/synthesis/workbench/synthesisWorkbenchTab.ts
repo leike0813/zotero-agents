@@ -4131,6 +4131,8 @@ function cleanupSynthesisRuntime(runtime: SynthesisWorkbenchRuntime) {
   runtime.removeFrameLoadListener?.();
   runtime.removeFrameLoadListener = undefined;
   runtime.removeMessageListener?.();
+  runtime.frame.remove();
+  runtime.frameWindow = null;
   synthesisWorkbenchRuntimes.delete(runtime);
 }
 

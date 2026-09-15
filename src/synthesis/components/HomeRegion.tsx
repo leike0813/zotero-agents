@@ -790,7 +790,7 @@ function TopicCard(props: {
 }) {
   const { row, t } = props;
   const title = row.title || row.id || t("synthesis-topic-untitled");
-  const summary = row.definition || row.summary || row.markdownPreview;
+  const definition = row.definition.trim();
   const discoveryBadge =
     row.candidateCount > 0
       ? {
@@ -821,7 +821,7 @@ function TopicCard(props: {
         </span>
       </div>
       <p class="topic-card-summary">
-        {summary || t("synthesis-topic-no-summary")}
+        {definition || t("synthesis-topic-no-definition")}
       </p>
       <div class="topic-meter">
         <span style={{ width: `${row.sourceMaterialsPercent}%` }} />

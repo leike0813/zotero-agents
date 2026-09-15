@@ -471,6 +471,14 @@ pub struct TopicDiscoveryProjectionDto {
     pub source_paper_refs: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub readiness: Option<TopicReadinessProjectionDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cascade_topic_ids: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_count: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discovery_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hints: Option<Vec<Value>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

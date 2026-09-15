@@ -159,7 +159,7 @@ function TopicCard(props: {
   onAction: SynthesisWorkbenchTopicsActionSender;
 }) {
   const { row, t, onAction } = props;
-  const summary = (row.definition || row.summary || row.markdownPreview).trim();
+  const definition = row.definition.trim();
   return (
     <button
       type="button"
@@ -180,7 +180,7 @@ function TopicCard(props: {
         />
       </div>
       <p class="topic-card-summary">
-        {summary || t("synthesis-topic-no-summary")}
+        {definition || t("synthesis-topic-no-definition")}
       </p>
       <div class="topic-meter">
         <span style={{ width: `${row.sourceMaterialsPercent}%` }} />

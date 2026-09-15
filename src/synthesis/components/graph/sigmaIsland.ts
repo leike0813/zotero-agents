@@ -102,6 +102,7 @@ export type CitationGraphCamera = {
     state: Partial<{ x: number; y: number; ratio: number; angle: number }>,
   ): void;
   on(event: "updated", callback: () => void): void;
+  off(event: "updated", callback: () => void): void;
 };
 
 export type CitationGraphRenderer = {
@@ -290,6 +291,7 @@ export class CitationGraphIsland {
   private resizeFrame: number | undefined;
   private resizePending = false;
   private zoomSlider: HTMLInputElement | null = null;
+  private handleCameraUpdated = (): void => this.clampCameraZoom();
 
   constructor(
     container: HTMLElement,
@@ -434,9 +436,13 @@ export class CitationGraphIsland {
     this.resizeObserver = null;
     this.zoomSlider?.removeEventListener("input", this.handleSliderInput);
     this.zoomSlider = null;
-    this.renderer?.kill();
+    const renderer = this.renderer;
+    renderer?.getCamera().off("updated", this.handleCameraUpdated);
     this.renderer = null;
     this.graph = null;
+    this.view = null;
+    this.resizePending = false;
+    renderer?.kill();
   }
 
   // -- internals --------------------------------------------------------------
@@ -815,7 +821,7 @@ export class CitationGraphIsland {
     });
     this.renderer = renderer;
     const camera = renderer.getCamera();
-    camera.on("updated", () => this.clampCameraZoom());
+    camera.on("updated", this.handleCameraUpdated);
     this.clampCameraZoom();
     if (typeof ResizeObserver !== "undefined") {
       this.resizeObserver = new ResizeObserver(() => {

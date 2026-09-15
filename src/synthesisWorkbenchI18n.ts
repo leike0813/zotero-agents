@@ -276,7 +276,7 @@ export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
   "synthesis-topic-paper-count": "%count% papers",
   "synthesis-relation-count": "%count% relations",
   "synthesis-topic-untitled": "Untitled topic",
-  "synthesis-topic-no-summary": "No topic summary is available yet.",
+  "synthesis-topic-no-definition": "No topic definition is available yet.",
   "synthesis-topic-open-from-topics":
     "Open a topic from the Topics tab to inspect its synthesis.",
   "synthesis-topic-not-updated": "Not updated",

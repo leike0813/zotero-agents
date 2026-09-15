@@ -11,7 +11,7 @@ import {
   resetSynthesisWorkbenchTabRuntimeForTests,
 } from "../../../../src/modules/synthesis/workbench/synthesisWorkbenchTab";
 
-const CLOSE_CYCLES = 10;
+const CLOSE_CYCLES = 30;
 
 type TestRuntime = typeof globalThis & {
   addon?: unknown;
@@ -61,7 +61,7 @@ describe("Dashboard and Synthesis close lifecycle in Zotero", function () {
   });
 
   it("keeps the host responsive across repeated page closes", async function () {
-    this.timeout(120000);
+    this.timeout(240000);
     const mainWindow = Zotero.getMainWindow();
     assert.isOk(mainWindow);
 
@@ -84,12 +84,75 @@ describe("Dashboard and Synthesis close lifecycle in Zotero", function () {
 
       await openSynthesisWorkbenchTab({
         window: mainWindow,
-        snapshotInput: { libraryId: Zotero.Libraries.userLibraryID },
+        snapshotInput: {
+          libraryId: Zotero.Libraries.userLibraryID,
+          graph: {
+            graph_hash: "close-lifecycle-graph",
+            layoutStatus: "ready",
+            nodes: [
+              {
+                id: "paper:a",
+                label: "Paper A",
+                kind: "library_paper",
+                x: 0,
+                y: 0,
+              },
+              {
+                id: "reference:b",
+                label: "Reference B",
+                kind: "external_reference",
+                x: 1,
+                y: 1,
+              },
+            ],
+            edges: [
+              {
+                id: "citation:a-b",
+                source: "paper:a",
+                target: "reference:b",
+                primary_role: "background",
+              },
+            ],
+            visibleNodes: [
+              {
+                id: "paper:a",
+                label: "Paper A",
+                kind: "library_paper",
+                x: 0,
+                y: 0,
+              },
+              {
+                id: "reference:b",
+                label: "Reference B",
+                kind: "external_reference",
+                x: 1,
+                y: 1,
+              },
+            ],
+            visibleEdges: [
+              {
+                id: "citation:a-b",
+                source: "paper:a",
+                target: "reference:b",
+                primary_role: "background",
+              },
+            ],
+          },
+        },
       });
-      await waitUntil(() =>
-        mainWindow.document.querySelector(
+      const frame = (await waitUntil(() =>
+        mainWindow.document.querySelector<HTMLElement>(
           '[data-zs-role="synthesis-workbench-frame"]',
         ),
+      )) as HTMLElement & { contentDocument?: Document };
+      const graphTab = await waitUntil(() =>
+        frame.contentDocument?.querySelector<HTMLButtonElement>(
+          'button[data-synthesis-tab="graph"]',
+        ),
+      );
+      graphTab.click();
+      await waitUntil(() =>
+        frame.contentDocument?.querySelector(".sigma-stage canvas"),
       );
       await closeSynthesisWorkbenchTab();
       await Zotero.Promise.delay(25);

@@ -647,7 +647,9 @@ describe("synthesis workbench HomeRegion (src/synthesis/components)", function (
     const selection = projectSynthesisWorkbenchHomeSelection({
       snapshot: {
         actions: { inFlight: [null, "junk", { command: "syncWebDavNow" }] },
-        artifacts: { rows: [null, 42, { id: "t-1" }] },
+        artifacts: {
+          rows: [null, 42, { id: "t-1", summary: "legacy summary" }],
+        },
         registry: { rows: null, cleanupProposals: "nope", matchProposals: [] },
         reviews: { summary: null },
         concepts: { reviewItems: [{ status: "open" }, null] },
@@ -672,7 +674,7 @@ describe("synthesis workbench HomeRegion (src/synthesis/components)", function (
     );
     assert.equal(
       topicCard!.querySelector(".topic-card-summary")?.textContent,
-      "No topic summary is available yet.",
+      "No topic definition is available yet.",
     );
     // Sync section narrows to defaults: unconfigured adapter path.
     assert.equal(

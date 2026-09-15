@@ -182,6 +182,7 @@ struct ReferenceIndexFactRow {
     item: ReferenceHostItem,
     artifact_coverage: String,
     missing_artifacts: Vec<String>,
+    rating_score: Option<f64>,
     references: Vec<ReferenceIndexFactReference>,
     reference_count: usize,
     unbound_reference_count: usize,
@@ -1967,10 +1968,14 @@ impl ReferenceApplication {
                     .iter()
                     .filter(|reference| reference.binding.is_none())
                     .count();
+                let rating_score = host_artifact_by_key
+                    .get(&(item.paper_ref.clone(), "literature_score".to_owned()))
+                    .and_then(|artifact| literature_rating_score(artifact));
                 ReferenceIndexFactRow {
                     item,
                     artifact_coverage,
                     missing_artifacts,
+                    rating_score,
                     reference_count: references.len(),
                     unbound_reference_count,
                     references,
@@ -3240,6 +3245,9 @@ fn workbench_index_row(row: &ReferenceIndexFactRow, include_references: bool) ->
         result["references"] =
             Value::Array(row.references.iter().map(workbench_reference_row).collect());
     }
+    if let Some(rating_score) = row.rating_score {
+        result["ratingScore"] = json!(rating_score);
+    }
     result
 }
 
@@ -4354,6 +4362,24 @@ mod tests {
                         diagnostics: Vec::new(),
                         literature_quality: None,
                     },
+                    ReferenceHostArtifact {
+                        paper_ref: "1:AAAA1111".into(),
+                        artifact_type: "literature_score".into(),
+                        payload_type: "application/json".into(),
+                        status: "available".into(),
+                        locator: "literature-score:a".into(),
+                        payload_hash: "sha256:literature-score-a".into(),
+                        estimated_size: Some(100),
+                        diagnostics: Vec::new(),
+                        literature_quality: Some(json!({
+                            "status":"available",
+                            "schema":"literature_score.v1",
+                            "overall_score":68.0,
+                            "confidence":0.8,
+                            "confidence_adjusted_score":64.4,
+                            "quality_prior":0.644,
+                        })),
+                    },
                 ],
                 cursor: String::new(),
                 next_cursor: String::new(),
@@ -4634,6 +4660,7 @@ mod tests {
                 "metadata_hash".into(),
                 "missing_artifacts".into(),
                 "paper_ref".into(),
+                "ratingScore".into(),
                 "reference_count".into(),
                 "references".into(),
                 "title".into(),
@@ -4647,6 +4674,7 @@ mod tests {
         assert_eq!(first["item_key"], "AAAA1111");
         assert_eq!(first["metadata_hash"], format!("sha256:{}", "a".repeat(64)));
         assert_eq!(first["updated_at"], "1");
+        assert_eq!(first["ratingScore"], 68.0);
         assert_eq!(first["references"].as_array().expect("references").len(), 1);
     }
 

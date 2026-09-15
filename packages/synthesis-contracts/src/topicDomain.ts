@@ -1,3 +1,5 @@
+import type { SynthesisJsonObject } from "./common.js";
+
 export type SynthesisTopicDefinition = {
   id: string;
   title: string;
@@ -167,6 +169,10 @@ export type SynthesisTopicGraphProjection = {
 export type SynthesisTopicDiscoveryProjection = {
   source_paper_refs: string[];
   readiness?: SynthesisTopicReadinessProjection;
+  cascade_topic_ids?: string[];
+  candidate_count?: number;
+  discovery_status?: "none" | "candidates" | "rejected";
+  hints?: SynthesisJsonObject[];
 };
 
 export type SynthesisTopicProjection = {

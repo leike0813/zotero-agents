@@ -1210,8 +1210,16 @@ impl CanonicalStore {
                 {
                     return Err("canonical_legacy_topic_sources_mismatch".into());
                 }
+                let topic_definition = snapshot
+                    .sections
+                    .get("topic")
+                    .cloned()
+                    .ok_or_else(|| "canonical_legacy_topic_sources_invalid".to_owned())?;
+                if topic_definition.get("id").and_then(Value::as_str) != Some(topic_id.as_str()) {
+                    return Err("canonical_legacy_topic_sources_mismatch".into());
+                }
                 Ok(LegacyCanonicalTopic {
-                    topic_definition: definition,
+                    topic_definition,
                     topic_resolver: resolvers
                         .get(topic_id)
                         .cloned()
@@ -2733,6 +2741,15 @@ mod tests {
         let mut store = CanonicalStore::initialize_production(&production_root, identity())
             .expect("initialize production");
         let mut legacy_snapshot = snapshot(1);
+        let canonical_definition =
+            json!({"id":"topic:r7","title":"R7","definition":"canonical definition"});
+        legacy_snapshot
+            .sections
+            .insert("topic".into(), canonical_definition.clone());
+        legacy_snapshot.manifest["sections"]["topic"] =
+            json!({"path":"current/sections/topic.json"});
+        legacy_snapshot.manifest["section_hashes"]["topic"] =
+            json!(hash_json(&canonical_definition).expect("topic section hash"));
         legacy_snapshot
             .manifest
             .as_object_mut()
@@ -2813,10 +2830,7 @@ mod tests {
             "topic-definitions.json",
             "topics",
             vec![
-                (
-                    "topic:r7",
-                    json!({"id":"topic:r7","title":"R7","definition":"definition"}),
-                ),
+                ("topic:r7", json!({"id":"topic:r7","title":"R7"})),
                 (
                     "topic:planned",
                     json!({"id":"topic:planned","title":"Planned"}),
@@ -2849,6 +2863,7 @@ mod tests {
         )
         .expect("legacy preflight");
         assert_eq!(topics.len(), 1);
+        assert_eq!(topics[0].topic_definition, canonical_definition);
         assert_eq!(topics[0].topic_resolver, json!({"tag":"topic:r7"}));
         assert_eq!(
             fs::read(current.join("metadata.json")).expect("metadata after"),

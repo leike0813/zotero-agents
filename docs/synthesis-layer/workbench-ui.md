@@ -209,6 +209,10 @@ Graph data rebuild and layout rebuild must remain different UI actions. Layout r
 
 The Graph surface owns one persistent Sigma stage, renderer, canvas set, and WebGL context set for the Workbench document lifetime. Sidebar, selection, drawer, status, snapshot, and tab updates must reuse that surface; model changes use `setGraph()` rather than renderer teardown. A hidden Graph surface remains mounted and inert without `display:none`, and host resize bursts are coalesced before one visible resize/refresh.
 
+Workbench teardown dispatches child `pagehide` before removing the browser. The
+Graph region detaches its camera listener before killing Sigma so no callback or
+WebGL owner survives the document that created it.
+
 The top bar contains a compact sidecar status indicator derived only from the
 supervisor's bounded public health projection. Color and label communicate the
 current lifecycle at a glance; hover, keyboard focus, or opening the indicator

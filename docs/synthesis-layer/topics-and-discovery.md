@@ -29,6 +29,13 @@ A topic artifact owns:
 - source check result;
 - user review and override state relevant to the topic.
 
+The canonical current `topic` section owns the public title and definition used
+by Topic list, Workbench, and detail reads. Repository topic columns and the
+stored topic-definition JSON are query projections; they cannot override newer
+canonical content. Discovery read projections preserve the accepted cascade
+fields (`cascade_topic_ids`, candidate count/status, and bounded hints) together
+with source paper refs.
+
 Topic create/update reads Zotero Library and derived artifacts directly through the workflow/Host Bridge path. Citation graph metrics may be included as optional context, but graph availability and cache freshness must not be required for topic generation.
 
 ## Workflow Manifest and Sidecars

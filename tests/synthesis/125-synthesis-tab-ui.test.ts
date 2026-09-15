@@ -127,6 +127,7 @@ async function mountTestWorkbench(
 
   return {
     bridge,
+    frame,
     frameWindow,
     frameSrc: String(frame.getAttribute("src") || ""),
     messages,
@@ -165,6 +166,7 @@ describe("Synthesis tab UI model", function () {
 
       assert.equal(pageHideCount, 1);
       assert.isTrue(bridgeAvailableDuringPageHide);
+      assert.isFalse(workbench.frame.isConnected);
       assert.isUndefined(
         (
           workbench.frameWindow as unknown as {

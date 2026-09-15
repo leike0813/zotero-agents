@@ -24,11 +24,9 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
-#[cfg(test)]
-use synthesis_canonical_store::CanonicalTopicView;
 use synthesis_canonical_store::{
-    CanonicalTopicDraft, CanonicalTopicState, LegacyCanonicalTopic, canonical_json_hash,
-    canonical_topic_path_id, prepare_topic,
+    CanonicalTopicDraft, CanonicalTopicState, CanonicalTopicView, LegacyCanonicalTopic,
+    canonical_json_hash, canonical_topic_path_id, prepare_topic,
 };
 use synthesis_protocol::canonical_json;
 use synthesis_repository::{
@@ -378,8 +376,31 @@ impl TopicApplication {
     ) -> Result<Vec<TopicRecord>, String> {
         let artifacts = self.reference_artifacts_for_rows(&rows);
         rows.into_iter()
-            .map(|(state, projection)| project_record(state, projection, &artifacts))
+            .map(|(state, projection)| {
+                let state = self.read_canonical_topic_content(state)?;
+                project_record(state, projection, &artifacts)
+            })
             .collect()
+    }
+
+    fn read_canonical_topic_content(
+        &self,
+        state: TopicApplicationStateRecord,
+    ) -> Result<TopicApplicationStateRecord, String> {
+        match self
+            .canonical
+            .read_topic(&state.topic_id)
+            .map_err(|error| error.code().to_owned())?
+        {
+            CanonicalTopicState::Ready(snapshot) => {
+                project_canonical_topic_content(state, &snapshot)
+            }
+            CanonicalTopicState::Absent { .. } => Err("canonical_topic_missing".into()),
+            CanonicalTopicState::Invalid { diagnostics, .. } => Err(diagnostics
+                .into_iter()
+                .next()
+                .unwrap_or_else(|| "canonical_snapshot_invalid".into())),
+        }
     }
 
     fn reference_artifacts_for_rows(
@@ -415,6 +436,7 @@ impl TopicApplication {
         let artifacts = self.reference_artifacts_for_rows(&rows);
         rows.into_iter()
             .map(|(state, projection)| {
+                let state = self.read_canonical_topic_content(state)?;
                 let projection = projection
                     .map(|projection| {
                         Ok::<Value, String>(json!({
@@ -505,6 +527,7 @@ impl TopicApplication {
                 })
             }
             (Some(state), CanonicalTopicState::Ready(snapshot)) => {
+                let state = project_canonical_topic_content(state, &snapshot)?;
                 let projection = self.repository.get_projection(&request.topic_id)?;
                 let paper_refs = serde_json::from_str::<Value>(&state.resolved_paper_set_json)
                     .ok()
@@ -2606,6 +2629,33 @@ fn project_record(
     })
 }
 
+fn project_canonical_topic_content(
+    mut state: TopicApplicationStateRecord,
+    snapshot: &CanonicalTopicView,
+) -> Result<TopicApplicationStateRecord, String> {
+    let Some(definition) = snapshot.sections.get("topic") else {
+        return Ok(state);
+    };
+    if definition.get("id").and_then(Value::as_str) != Some(state.topic_id.as_str()) {
+        return Err("canonical_topic_definition_invalid".into());
+    }
+    let title = definition
+        .get("title")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "canonical_topic_definition_invalid".to_owned())?;
+    let text = match definition.get("definition") {
+        None => "",
+        Some(Value::String(value)) => value,
+        Some(_) => return Err("canonical_topic_definition_invalid".into()),
+    };
+    state.title = title.to_owned();
+    state.definition = text.to_owned();
+    state.topic_definition_json =
+        canonical_json(definition).map_err(|_| "canonical_topic_definition_invalid".to_owned())?;
+    Ok(state)
+}
+
 fn apply_status_phase(status: TopicApplyStatus) -> &'static str {
     match status {
         TopicApplyStatus::TopicExists => "topic_exists",
@@ -3444,6 +3494,119 @@ mod tests {
         assert_eq!(page.rows[0].id, "topic-legacy");
         assert_eq!(page.rows[0].kind, "topic_synthesis");
         drop(application);
+    }
+
+    #[test]
+    fn topic_reads_prefer_canonical_definition_to_stale_repository_content() {
+        let root = root("canonical-definition-read");
+        let (repository, canonical) = owners(&root);
+        let application = TopicApplication::with_factories(
+            Arc::new(repository.clone()),
+            Arc::new(canonical),
+            Arc::new(FixtureEngine),
+            Arc::new(|| "2026-07-26T12:00:00.000Z".into()),
+            Arc::new(|topic| format!("operation:{topic}")),
+        );
+        let mut create = request("topic-canonical", "create");
+        let manifest_asset = create
+            .assets
+            .iter_mut()
+            .find(|asset| asset.id == "asset/manifest")
+            .expect("manifest asset");
+        let mut manifest: Value =
+            serde_json::from_str(&manifest_asset.text).expect("manifest json");
+        manifest["sections"]["topic"] = json!({"path":"asset/topic"});
+        manifest_asset.text = serde_json::to_string(&manifest).expect("manifest text");
+        create.assets.push(TopicAsset {
+            id: "asset/topic".into(),
+            media_type: "application/json".into(),
+            text: r#"{"id":"topic-canonical","title":"Canonical Topic","definition":"Canonical definition"}"#.into(),
+        });
+        assert!(application.apply(create).ok);
+        repository
+            .owner()
+            .lock()
+            .expect("repository")
+            .execute(
+                "UPDATE synt_topic_application_state
+                 SET title='Stale Topic',definition='',topic_definition_json=?1
+                 WHERE topic_id=?2",
+                &[
+                    json!(r#"{"id":"topic-canonical","title":"Stale Topic"}"#),
+                    json!("topic-canonical"),
+                ],
+            )
+            .expect("stale repository content");
+
+        let workbench = application
+            .list_workbench(TopicListRequest::default())
+            .expect("workbench page");
+        assert_eq!(workbench.rows[0].title, "Canonical Topic");
+        assert_eq!(workbench.rows[0].definition, "Canonical definition");
+
+        let topics = application
+            .list(TopicListRequest::default())
+            .expect("topic page");
+        assert_eq!(topics.topics[0].title, "Canonical Topic");
+        assert_eq!(topics.topics[0].definition, "Canonical definition");
+        assert_eq!(
+            topics.topics[0].topic_definition.definition.as_deref(),
+            Some("Canonical definition")
+        );
+
+        let detail = application
+            .detail(TopicDetailRequest {
+                topic_id: "topic-canonical".into(),
+            })
+            .expect("topic detail");
+        let TopicDetailResult::Ready { topic, .. } = detail else {
+            panic!("expected ready topic detail");
+        };
+        assert_eq!(topic.title, "Canonical Topic");
+        assert_eq!(topic.definition, "Canonical definition");
+        drop(application);
+    }
+
+    #[test]
+    fn topic_detail_accepts_discovery_cascade_projection() {
+        let root = root("detail-discovery-cascade");
+        let (repository, canonical) = owners(&root);
+        let application = TopicApplication::with_factories(
+            Arc::new(repository.clone()),
+            Arc::new(canonical),
+            Arc::new(FixtureEngine),
+            Arc::new(|| "2026-07-26T12:00:00.000Z".into()),
+            Arc::new(|topic| format!("operation:{topic}")),
+        );
+        assert!(application.apply(request("topic-cascade", "create")).ok);
+        repository
+            .owner()
+            .lock()
+            .expect("repository")
+            .execute(
+                "UPDATE synt_topic_application_projection
+                 SET discovery_json=?1 WHERE topic_id=?2",
+                &[
+                    json!(r#"{"source_paper_refs":["1:AAAA"],"cascade_topic_ids":["topic-cascade","topic-child"],"candidate_count":1,"discovery_status":"candidates","hints":[{"hint_id":"hint:one","topic_id":"topic-child","literature_item_id":"1:BBBB","status":"open"}]}"#),
+                    json!("topic-cascade"),
+                ],
+            )
+            .expect("discovery cascade projection");
+
+        let detail = application
+            .detail(TopicDetailRequest {
+                topic_id: "topic-cascade".into(),
+            })
+            .expect("topic detail");
+        let TopicDetailResult::Ready { topic, .. } = detail else {
+            panic!("expected ready topic detail");
+        };
+        let topic = serde_json::to_value(topic).expect("topic json");
+        assert_eq!(topic["projection"]["discovery"]["candidate_count"], 1);
+        assert_eq!(
+            topic["projection"]["discovery"]["cascade_topic_ids"],
+            json!(["topic-cascade", "topic-child"])
+        );
     }
 
     #[test]

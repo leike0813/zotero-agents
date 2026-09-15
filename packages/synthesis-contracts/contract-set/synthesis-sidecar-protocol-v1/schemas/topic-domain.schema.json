@@ -406,7 +406,17 @@
           "required": ["source_paper_refs"],
           "properties": {
             "source_paper_refs": { "$ref": "#/$defs/NonEmptyStrings" },
-            "readiness": { "$ref": "#/$defs/TopicReadinessProjection" }
+            "readiness": { "$ref": "#/$defs/TopicReadinessProjection" },
+            "cascade_topic_ids": { "$ref": "#/$defs/NonEmptyStrings" },
+            "candidate_count": { "type": "integer", "minimum": 0 },
+            "discovery_status": {
+              "enum": ["none", "candidates", "rejected"]
+            },
+            "hints": {
+              "type": "array",
+              "maxItems": 25,
+              "items": { "type": "object", "maxProperties": 64 }
+            }
           }
         },
         "recommendedUpdate": {

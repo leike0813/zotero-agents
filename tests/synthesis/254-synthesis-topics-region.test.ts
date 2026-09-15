@@ -347,13 +347,20 @@ describe("synthesis topics region (src/synthesis/components/TopicsRegion)", func
 
   it("renders the grid view with cards that open the topic artifact", async function () {
     const { root, dispatched } = renderRegion(
-      makeSelection({ viewMode: "grid" }),
+      makeSelection({
+        viewMode: "grid",
+        rows: [makeRow({ definition: "", summary: "legacy summary" })],
+      }),
     );
     const grid = root.querySelector(".topic-grid.panel-grid")!;
     const card = grid.querySelector<HTMLButtonElement>(".topic-card")!;
     assert.equal(
       card.querySelector(".topic-card-head strong")!.textContent,
       "Graph Neural Networks",
+    );
+    assert.equal(
+      card.querySelector(".topic-card-summary")!.textContent,
+      "No topic definition is available yet.",
     );
     assert.ok(card.querySelector(".topic-meter"));
     card.click();
