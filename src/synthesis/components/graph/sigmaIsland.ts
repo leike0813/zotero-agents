@@ -53,7 +53,7 @@ import {
   type SynthesisGraphNode,
   type SynthesisGraphText,
 } from "./graphModel";
-import { reportCitationGraphCrashJournalPhase } from "../../citationGraphCrashReporter";
+import { reportCitationGraphCrashJournalPhase } from "../citationGraphCrashReporter";
 
 // ---------------------------------------------------------------------------
 // Vendor injection
@@ -446,12 +446,11 @@ export class CitationGraphIsland {
     this.zoomSlider = null;
     const renderer = this.renderer;
     renderer?.getCamera().off("updated", this.handleCameraUpdated);
+    renderer?.kill();
     this.renderer = null;
     this.graph = null;
     this.view = null;
     this.resizePending = false;
-    // The iframe/docshell owns WebGL teardown. Sigma.kill() explicitly loses
-    // the context, which can race Zotero's native D3D shutdown.
     reportCitationGraphCrashJournalPhase("sigma-destroy-complete");
   }
 

@@ -3,6 +3,7 @@ import {
   SynthesisClientError,
   rebuildSynthesisReverseHostCall,
   rebuildSynthesisReverseHostResult,
+  synthesisReverseHostCallTimeoutMs,
   type SynthesisReverseHostCall,
   type SynthesisReverseHostCapability,
   type SynthesisReverseHostPayload,
@@ -57,7 +58,6 @@ type EffectResult = {
   result: SynthesisReverseHostResult<SynthesisReverseHostCapability>;
 };
 
-const MAX_DEADLINE_AHEAD_MS = 60_000;
 const textEncoder = new TextEncoder();
 
 function diagnosticToken(value: unknown) {
@@ -220,7 +220,8 @@ export function createSynthesisReverseHostBroker(options: BrokerOptions) {
     const now = options.now();
     if (
       call.deadlineAtMs <= now ||
-      call.deadlineAtMs > now + MAX_DEADLINE_AHEAD_MS
+      call.deadlineAtMs >
+        now + synthesisReverseHostCallTimeoutMs(call.capability)
     ) {
       failure("timeout", "reverse_host_deadline_invalid");
     }

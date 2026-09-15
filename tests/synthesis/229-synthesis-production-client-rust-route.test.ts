@@ -191,10 +191,14 @@ async function createProductionRouteNativeComposition(
   });
 }
 
-async function waitForMaintenanceOperation(port: number, operationId: string) {
+async function waitForMaintenanceOperation(
+  port: number,
+  operationId: string,
+  attempts = 200,
+) {
   return waitForSynthesisProductionRouteReceipt({
     operationId,
-    attempts: 200,
+    attempts,
     intervalMs: 25,
     getOperation: async (candidate) => {
       const response = await call(
@@ -4338,6 +4342,63 @@ describe("Synthesis Rust production client route", function () {
     } finally {
       await harness.stop();
       fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("allows Reference refresh Host reads to use the maintenance deadline", async function () {
+    this.timeout(60_000);
+    assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
+    const harness = await startSynthesisProductionRouteHarness({
+      id: "reference-refresh-slow-host-read",
+      hostFixture: {
+        async handle({ capability, payload }) {
+          const cursor = String(payload.cursor || "");
+          const limit = Number(payload.limit || 100);
+          if (capability === "library.items.list_page") {
+            return {
+              items: [],
+              cursor,
+              nextCursor: "",
+              hasMore: false,
+              returned: 0,
+              limit,
+              snapshotRevision: "slow-reference-refresh",
+            };
+          }
+          if (capability === "library.artifacts.scan_page") {
+            await new Promise((resolve) => setTimeout(resolve, 10_500));
+            return {
+              artifacts: [],
+              cursor,
+              nextCursor: "",
+              hasMore: false,
+              returned: 0,
+              limit,
+              snapshotRevision: "slow-reference-refresh",
+            };
+          }
+          if (capability === "webdav.describe") {
+            return { configured: false };
+          }
+          return { status: "unavailable", diagnostics: [] };
+        },
+      },
+    });
+    try {
+      const refresh = await call(
+        harness.port,
+        "client.refreshReferenceSidecarNow",
+        { args: [] },
+      );
+      assert.equal(refresh.status, 200, JSON.stringify(refresh.body));
+      const completed = await waitForMaintenanceOperation(
+        harness.port,
+        refresh.body.data.operation_id,
+        800,
+      );
+      assert.equal(completed.status, "completed", JSON.stringify(completed));
+    } finally {
+      await harness.stop();
     }
   });
 

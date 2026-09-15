@@ -315,9 +315,7 @@ export async function checkRuntimeDiagnosticsReleaseElision() {
       );
     }
   }
-  if (
-    !outputText(debugSynthesisWorkbench).includes("synthesis:crash-journal")
-  ) {
+  if (!outputText(debugSynthesisWorkbench).includes("sigma-destroy-start")) {
     throw new Error("debug Synthesis Workbench did not retain crash reporter");
   }
   return {

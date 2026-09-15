@@ -115,6 +115,7 @@ export const SYNTHESIS_REVERSE_HOST_LIMITS = Object.freeze({
   responseHeaderBytes: 16 * 1024,
   responseBodyBytes: 1024 * 1024,
   callTimeoutMs: 2_000,
+  maxCallTimeoutMs: 30 * 60_000,
   idleTimeoutMs: 1_000,
   deadlineMs: 60_000,
 });
@@ -238,27 +239,35 @@ export type SynthesisReverseHostResult<
 export const SYNTHESIS_REVERSE_HOST_CAPABILITY_POLICIES = Object.freeze({
   "library.items.sync_snapshot": Object.freeze({
     responseBodyBytes: 8 * 1024 * 1024,
-    callTimeoutMs: 30_000,
+    callTimeoutMs: SYNTHESIS_REVERSE_HOST_LIMITS.maxCallTimeoutMs,
   }),
   "library.items.list_page": Object.freeze({
     responseBodyBytes: SYNTHESIS_REVERSE_HOST_LIMITS.responseBodyBytes,
-    callTimeoutMs: 10_000,
+    callTimeoutMs: SYNTHESIS_REVERSE_HOST_LIMITS.maxCallTimeoutMs,
+  }),
+  "library.items.get_by_ref": Object.freeze({
+    responseBodyBytes: SYNTHESIS_REVERSE_HOST_LIMITS.responseBodyBytes,
+    callTimeoutMs: SYNTHESIS_REVERSE_HOST_LIMITS.maxCallTimeoutMs,
+  }),
+  "library.items.get_audit_state": Object.freeze({
+    responseBodyBytes: SYNTHESIS_REVERSE_HOST_LIMITS.responseBodyBytes,
+    callTimeoutMs: SYNTHESIS_REVERSE_HOST_LIMITS.maxCallTimeoutMs,
   }),
   "library.artifacts.scan_page": Object.freeze({
     responseBodyBytes: SYNTHESIS_REVERSE_HOST_LIMITS.responseBodyBytes,
-    callTimeoutMs: 10_000,
+    callTimeoutMs: SYNTHESIS_REVERSE_HOST_LIMITS.maxCallTimeoutMs,
   }),
   "library.artifacts.readiness": Object.freeze({
     responseBodyBytes: SYNTHESIS_REVERSE_HOST_LIMITS.responseBodyBytes,
-    callTimeoutMs: 10_000,
+    callTimeoutMs: SYNTHESIS_REVERSE_HOST_LIMITS.maxCallTimeoutMs,
   }),
   "library.artifacts.read": Object.freeze({
     responseBodyBytes: 8 * 1024 * 1024,
-    callTimeoutMs: 10_000,
+    callTimeoutMs: SYNTHESIS_REVERSE_HOST_LIMITS.maxCallTimeoutMs,
   }),
   "library.representative_image.read": Object.freeze({
     responseBodyBytes: 8 * 1024 * 1024,
-    callTimeoutMs: 10_000,
+    callTimeoutMs: SYNTHESIS_REVERSE_HOST_LIMITS.maxCallTimeoutMs,
   }),
   "delivery.export.publish_archive": Object.freeze({
     responseBodyBytes: SYNTHESIS_REVERSE_HOST_LIMITS.responseBodyBytes,

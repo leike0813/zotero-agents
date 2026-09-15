@@ -33,7 +33,7 @@ import type {
 } from "../shared/synthesisWorkbenchWireContract";
 import { createSynthesisWorkbenchChromeRenderer } from "./synthesisWorkbenchChromeRenderer";
 import type { CitationGraphVendors } from "./components/graph/sigmaIsland";
-import { reportCitationGraphCrashJournalPhase } from "./citationGraphCrashReporter";
+import { reportCitationGraphCrashJournalPhase } from "./components/citationGraphCrashReporter";
 import {
   listSynthesisWorkbenchBackgroundJobs,
   nextStatusbarExpiryDelayMs,

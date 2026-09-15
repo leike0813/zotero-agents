@@ -647,7 +647,7 @@ describe("synthesis graph region (src/synthesis/components/graph)", function () 
     assert.equal(FakeSigma.instances.length, 1, "no renderer was recreated");
   });
 
-  it("releases plugin listeners without forcing WebGL context loss on unmount", function () {
+  it("releases the Sigma renderer on unmount", function () {
     const vendors = makeVendors();
     const { container } = renderRegion(makeSelection(), vendors);
     const sigma = FakeSigma.instances[0];
@@ -657,7 +657,7 @@ describe("synthesis graph region (src/synthesis/components/graph)", function () 
     render(null, container);
 
     assert.equal(sigma.camera.listenerCount, 0);
-    assert.isFalse(sigma.killed);
+    assert.isTrue(sigma.killed);
   });
 });
 

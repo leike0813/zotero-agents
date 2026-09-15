@@ -33,6 +33,8 @@ npm run test:zotero:e2e:stress
 
 `ZOTERO_SYNTHESIS_CLOSE_CYCLES` 可覆盖压测轮数。只要设置了金例 data 目录，runner 就会选择真实库路径；未设置时使用 scaffold 的隔离空库。
 
+金例 refresh 覆盖真实库规模和附件扫描；超过旧 10 秒边界的确定性回归由 production-client 进程测试提供。Citation Graph 压测在最后一次关闭后额外静默等待 20 秒，并再次检查主窗口和数据库，覆盖延迟崩溃窗口。
+
 ## 诊断产物
 
 debug 构建会持续写入 `runtime/logs/citation-graph-crash-journal.json`。日志只保存生命周期阶段、布尔资源状态和计数；异常退出后的 active session 会在下次启动标记为 `interrupted`。压测结束时还会把日志复制到 `artifacts/test-diagnostics/citation-graph-crash-journal.json`。

@@ -8,6 +8,7 @@ import {
 import {
   SYNTHESIS_REVERSE_HOST_CALL_SCHEMA,
   SYNTHESIS_REVERSE_HOST_CAPABILITIES,
+  SYNTHESIS_REVERSE_HOST_LIMITS,
   synthesisReverseHostCallTimeoutMs,
   synthesisReverseHostResponseBodyLimit,
 } from "../../packages/synthesis-contracts/src";
@@ -302,22 +303,15 @@ describe("host HTTP response governance", function () {
   });
 
   it("uses capability-specific reverse-host deadlines", function () {
-    assert.equal(
-      synthesisReverseHostCallTimeoutMs("library.items.list_page"),
-      10_000,
-    );
-    assert.equal(
-      synthesisReverseHostCallTimeoutMs("library.artifacts.scan_page"),
-      10_000,
-    );
-    assert.equal(
-      synthesisReverseHostCallTimeoutMs("library.artifacts.read"),
-      10_000,
-    );
-    assert.equal(
-      synthesisReverseHostCallTimeoutMs("library.representative_image.read"),
-      10_000,
-    );
+    for (const capability of SYNTHESIS_REVERSE_HOST_CAPABILITIES) {
+      if (capability.startsWith("library.")) {
+        assert.equal(
+          synthesisReverseHostCallTimeoutMs(capability),
+          SYNTHESIS_REVERSE_HOST_LIMITS.maxCallTimeoutMs,
+          capability,
+        );
+      }
+    }
     assert.equal(
       synthesisReverseHostResponseBodyLimit(
         "library.representative_image.read",

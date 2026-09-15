@@ -122,6 +122,13 @@ type ToolkitFilePickerCtor = new (
 
 const SYNTHESIS_WORKBENCH_BRIDGE_KEY = "__zoteroSkillsSynthesisWorkbenchBridge";
 
+type SynthesisWorkbenchDebugBridge = SynthesisWorkbenchBridge & {
+  recordCitationGraphCrashJournalPhase?: (
+    stage: string,
+    details?: Record<string, unknown>,
+  ) => unknown;
+};
+
 type SynthesisWorkbenchRuntime = {
   tabId: string;
   window: _ZoteroTypes.MainWindow;
@@ -392,7 +399,7 @@ function installSynthesisWorkbenchBridge(runtime: SynthesisWorkbenchRuntime) {
     return false;
   }
   runtime.frameWindow = frameWindow;
-  const bridge: SynthesisWorkbenchBridge = {
+  const bridge: SynthesisWorkbenchDebugBridge = {
     postMessage: async (action, payload) => {
       handleAction(runtime, {
         type: "synthesis:action",
@@ -404,6 +411,10 @@ function installSynthesisWorkbenchBridge(runtime: SynthesisWorkbenchRuntime) {
       });
     },
   };
+  if (CITATION_GRAPH_CRASH_JOURNAL_ENABLED) {
+    bridge.recordCitationGraphCrashJournalPhase = (stage, details = {}) =>
+      recordCitationGraphCrashJournalPhase(stage, details);
+  }
   const directTarget = frameWindow as Window & Record<string, unknown>;
   const wrappedTarget =
     typeof (directTarget as { wrappedJSObject?: unknown }).wrappedJSObject ===
@@ -4105,9 +4116,8 @@ function cleanupSynthesisRuntime(runtime: SynthesisWorkbenchRuntime) {
   runtime.removeFrameLoadListener?.();
   runtime.removeFrameLoadListener = undefined;
   runtime.removeMessageListener?.();
-  runtime.frame.remove();
   if (CITATION_GRAPH_CRASH_JOURNAL_ENABLED) {
-    void recordCitationGraphCrashJournalPhase("host-frame-removed", {
+    void recordCitationGraphCrashJournalPhase("host-cleanup-complete", {
       frameConnected: runtime.frame.isConnected,
     });
   }
@@ -4135,24 +4145,7 @@ function attachWorkbenchBridge(runtime: SynthesisWorkbenchRuntime) {
     if (!runtime.frameWindow || event.source !== runtime.frameWindow) {
       return;
     }
-    const data = event.data as {
-      type?: unknown;
-      stage?: unknown;
-      details?: unknown;
-    };
-    if (
-      typeof __debug_mode__ !== "undefined" &&
-      __debug_mode__ &&
-      data?.type === "synthesis:crash-journal"
-    ) {
-      void recordCitationGraphCrashJournalPhase(
-        typeof data.stage === "string" ? data.stage : "frame-unknown",
-        data.details && typeof data.details === "object"
-          ? (data.details as Record<string, unknown>)
-          : {},
-      );
-      return;
-    }
+    const data = event.data as { type?: unknown };
     if (!data || data.type !== "synthesis:action") return;
     handleAction(runtime, data as SynthesisWorkbenchActionEnvelope);
   };
@@ -4460,8 +4453,9 @@ export function prewarmSynthesisWorkbenchSurfaces(
 
 export async function closeSynthesisWorkbenchTab() {
   const tabs = resolveZoteroTabs(synthesisWorkbenchTab?.window);
-  cleanupSynthesisWorkbenchTab();
   if (tabs?.close) {
-    tabs.close(SYNTHESIS_WORKBENCH_TAB_ID);
+    await Promise.resolve(tabs.close(SYNTHESIS_WORKBENCH_TAB_ID));
+    return;
   }
+  cleanupSynthesisWorkbenchTab();
 }

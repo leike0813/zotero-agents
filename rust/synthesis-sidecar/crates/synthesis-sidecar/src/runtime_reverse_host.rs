@@ -13,7 +13,7 @@ use crate::runtime_diagnostics::{
 
 const REVERSE_HOST_PATH: &str = "/synthesis/v1/host-call";
 const REVERSE_HOST_TIMEOUT: Duration = Duration::from_secs(2);
-const REFERENCE_HOST_READ_TIMEOUT: Duration = Duration::from_secs(10);
+const REFERENCE_HOST_READ_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const EXPORT_DELIVERY_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_REVERSE_HOST_RESPONSE_HEADER_BYTES: u64 = 16 * 1024;
 const MAX_REVERSE_HOST_RESPONSE_BODY_BYTES: u64 = 1024 * 1024;
@@ -22,11 +22,7 @@ static REVERSE_HOST_REQUEST_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 fn reverse_host_timeout(capability: &str) -> Duration {
     match capability {
-        "library.items.list_page"
-        | "library.artifacts.scan_page"
-        | "library.artifacts.readiness"
-        | "library.artifacts.read"
-        | "library.representative_image.read" => REFERENCE_HOST_READ_TIMEOUT,
+        capability if capability.starts_with("library.") => REFERENCE_HOST_READ_TIMEOUT,
         capability if capability.starts_with("delivery.export.") => EXPORT_DELIVERY_TIMEOUT,
         _ => REVERSE_HOST_TIMEOUT,
     }
@@ -529,11 +525,14 @@ mod tests {
     #[test]
     fn selects_capability_specific_reverse_host_timeouts() {
         for (capability, expected) in [
-            ("library.items.list_page", Duration::from_secs(10)),
-            ("library.artifacts.scan_page", Duration::from_secs(10)),
-            ("library.artifacts.readiness", Duration::from_secs(10)),
-            ("library.artifacts.read", Duration::from_secs(10)),
-            ("library.representative_image.read", Duration::from_secs(10)),
+            ("library.items.list_page", Duration::from_secs(30 * 60)),
+            ("library.artifacts.scan_page", Duration::from_secs(30 * 60)),
+            ("library.artifacts.readiness", Duration::from_secs(30 * 60)),
+            ("library.artifacts.read", Duration::from_secs(30 * 60)),
+            (
+                "library.representative_image.read",
+                Duration::from_secs(30 * 60),
+            ),
             ("delivery.export.publish_archive", Duration::from_secs(30)),
             ("webdav.describe", Duration::from_secs(2)),
         ] {

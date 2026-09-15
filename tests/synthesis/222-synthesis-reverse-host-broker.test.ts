@@ -2,6 +2,7 @@ import { assert } from "chai";
 import {
   SYNTHESIS_REVERSE_HOST_CALL_SCHEMA,
   SYNTHESIS_REVERSE_HOST_CAPABILITIES,
+  SYNTHESIS_REVERSE_HOST_LIMITS,
   SynthesisClientError,
   type SynthesisReverseHostCapability,
 } from "../../packages/synthesis-contracts/src";
@@ -244,6 +245,27 @@ describe("Synthesis reverse Host broker", function () {
     assert.equal(reason(stale), "reverse_host_stale_instance");
   });
 
+  it("accepts a maintenance-length deadline for library reads", async function () {
+    const broker = createSynthesisReverseHostBroker({
+      profileId,
+      serviceInstanceId,
+      authorizationToken: token,
+      now: () => 10_000,
+      isHostConnected: () => true,
+      authorizeCapability: () => true,
+      handlers: makeHandlers(() => emptyPage()),
+    });
+    assert.deepEqual(
+      await broker.dispatch({
+        authorizationToken: token,
+        call: call("library.items.list_page", {
+          deadlineAtMs: 10_000 + SYNTHESIS_REVERSE_HOST_LIMITS.maxCallTimeoutMs,
+        }),
+      }),
+      emptyPage(),
+    );
+  });
+
   it("rejects authorization, instance, deadline, connection, and permission failures before effects", async function () {
     let effects = 0;
     let connected = true;
@@ -278,6 +300,14 @@ describe("Synthesis reverse Host broker", function () {
         authorizationToken: token,
         call: call("effects.tags.apply_batch", {
           deadlineAtMs: 10_000,
+          payload: tagPayload(),
+        }),
+        expected: "reverse_host_deadline_invalid",
+      },
+      {
+        authorizationToken: token,
+        call: call("effects.tags.apply_batch", {
+          deadlineAtMs: 10_001 + SYNTHESIS_REVERSE_HOST_LIMITS.maxCallTimeoutMs,
           payload: tagPayload(),
         }),
         expected: "reverse_host_deadline_invalid",

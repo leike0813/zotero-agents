@@ -366,6 +366,25 @@ describe("Dashboard and Synthesis close lifecycle in Zotero", function () {
       });
       frame = reopenedFrame;
     }
+    await recordCloseLifecycleStage("final-close-requested", {
+      frameConnected: frame.isConnected,
+    });
+    await closeSynthesisWorkbenchTab();
+    await waitUntil(() => (!frame.isConnected ? true : null));
+    await recordCloseLifecycleStage("final-frame-detached", {
+      frameConnected: frame.isConnected,
+    });
+    await Zotero.Promise.delay(20_000);
+    assert.isFalse(mainWindow.closed, "main window survived final close idle");
+    assert.strictEqual(
+      await Zotero.DB.valueQueryAsync("SELECT 1"),
+      1,
+      "database remained responsive after final close idle",
+    );
+    await recordCloseLifecycleStage("final-close-idle-survived", {
+      mainWindowClosed: mainWindow.closed,
+      databasePing: 1,
+    });
     const crashJournal = await readRuntimeTextFile(
       joinPath(
         getRuntimePersistencePaths().logsDir,
@@ -381,7 +400,7 @@ describe("Dashboard and Synthesis close lifecycle in Zotero", function () {
       );
       assert.include(crashJournal, "sigma-renderer-created");
       assert.include(crashJournal, "sigma-destroy-complete");
-      assert.include(crashJournal, "host-frame-removed");
+      assert.include(crashJournal, "host-cleanup-complete");
     }
   });
 });

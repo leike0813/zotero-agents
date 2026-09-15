@@ -100,11 +100,11 @@ export const runtimeDiagnosticsFeatureGroups = {
     define: "__debug_mode__",
     exclusiveModules: [
       "src/modules/synthesis/debug/citationGraphCrashJournal.ts",
-      "src/synthesis/citationGraphCrashReporter.ts",
+      "src/synthesis/components/citationGraphCrashReporter.ts",
     ],
     forbiddenRuntimeMarkers: [
       "zotero-agents.citation-graph-crash-journal.v1",
-      "synthesis:crash-journal",
+      "sigma-destroy-start",
       "citation-graph-crash-journal.json",
     ],
   },

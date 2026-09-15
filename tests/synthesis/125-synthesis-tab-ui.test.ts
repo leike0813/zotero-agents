@@ -143,7 +143,7 @@ async function mountTestWorkbench(
 }
 
 describe("Synthesis tab UI model", function () {
-  it("notifies the Workbench page once before clearing its bridge", async function () {
+  it("notifies the Workbench page before releasing its owner-managed frame", async function () {
     const workbench = await mountTestWorkbench({
       getSynthesisWorkbenchChromeInput: async () => ({}),
       getSynthesisWorkbenchSurfaceInput: async () => ({}),
@@ -166,7 +166,7 @@ describe("Synthesis tab UI model", function () {
 
       assert.equal(pageHideCount, 1);
       assert.isTrue(bridgeAvailableDuringPageHide);
-      assert.isFalse(workbench.frame.isConnected);
+      assert.isTrue(workbench.frame.isConnected);
       assert.isUndefined(
         (
           workbench.frameWindow as unknown as {
