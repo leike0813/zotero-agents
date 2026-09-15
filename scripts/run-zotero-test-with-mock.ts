@@ -33,7 +33,8 @@ export function normalizeTestDomain(value: string) {
   if (
     normalized === "core" ||
     normalized === "ui" ||
-    normalized === "workflow"
+    normalized === "workflow" ||
+    normalized === "e2e"
   ) {
     return normalized;
   }
@@ -145,6 +146,13 @@ export function buildTestEnvironment(
     ZOTERO_TEST_DOMAIN: testDomain,
     [TEST_DATA_DIR_ENV]: testDataDir,
   };
+  if (
+    testDomain === "e2e" &&
+    String(env.ZOTERO_E2E_GOLD_DATA_DIR || "").trim()
+  ) {
+    nextEnv.ZOTERO_E2E_GOLD_ID =
+      String(env.ZOTERO_E2E_GOLD_ID || "").trim() || "lisongtao-v1";
+  }
   if (!providedTestDataDir) {
     nextEnv[TEST_DATA_DIR_MANAGED_ENV] = "1";
   }

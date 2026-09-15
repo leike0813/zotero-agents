@@ -2527,10 +2527,6 @@ describe("Synthesis tab UI model", function () {
       "utf8",
     );
     const handleActionBlock = extractFunctionBlock(tabSource, "handleAction");
-    const protectedBlock = extractFunctionBlock(
-      tabSource,
-      "isProtectedRebuildCommand",
-    );
     const referenceRegion = handleActionBlock.slice(
       handleActionBlock.indexOf(
         'result.hostCommand?.command === "refreshReferenceSidecarNow"',
@@ -2576,13 +2572,6 @@ describe("Synthesis tab UI model", function () {
     assert.notInclude(retryRefreshRegion, "deferStart");
     assert.notInclude(referenceRegion, "onProgress");
     assert.notInclude(referenceRegion, "notifyWorkbenchCommandProgress");
-    assert.include(protectedBlock, 'command === "refreshReferenceSidecarNow"');
-    assert.include(
-      protectedBlock,
-      'command === "runAdvancedReferenceMatchingNow"',
-    );
-    assert.notInclude(protectedBlock, "retryReferenceSidecarRefresh");
-    assert.notInclude(protectedBlock, "retryAdvancedReferenceMatching");
     assert.notMatch(
       tabSource,
       /getDefaultSynthesisService\(\)\.(?:refreshReferenceSidecarNow|retryReferenceSidecarRefresh|runAdvancedReferenceMatchingNow|retryAdvancedReferenceMatching)/,
@@ -3054,11 +3043,6 @@ describe("Synthesis tab UI model", function () {
     );
     assert.include(conceptInvalidation, 'return ["concepts", "review"]');
 
-    const protectedBlock = extractFunctionBlock(
-      tabSource,
-      "isProtectedRebuildCommand",
-    );
-    assert.include(protectedBlock, 'command === "rebuildConceptKbIndex"');
     const progressBlock = extractFunctionBlock(
       tabSource,
       "refreshWorkbenchCommandProgress",
@@ -3281,11 +3265,6 @@ describe("Synthesis tab UI model", function () {
     const diagnosticBlock = extractFunctionBlock(tabSource, "failOnDiagnostic");
     assert.include(diagnosticBlock, '"diagnostic" in result');
     assert.include(diagnosticBlock, '"diagnostics"');
-    const protectedBlock = extractFunctionBlock(
-      tabSource,
-      "isProtectedRebuildCommand",
-    );
-    assert.include(protectedBlock, 'command === "rebuildTopicGraphIndex"');
     const progressBlock = extractFunctionBlock(
       tabSource,
       "refreshWorkbenchCommandProgress",
@@ -3384,11 +3363,6 @@ describe("Synthesis tab UI model", function () {
       assert.notInclude(region, "getDefaultSynthesisService");
     }
 
-    const protectedBlock = extractFunctionBlock(
-      tabSource,
-      "isProtectedRebuildCommand",
-    );
-    assert.include(protectedBlock, 'command === "rebuildTagVocabularyIndex"');
     const invalidationBlock = extractFunctionBlock(
       tabSource,
       "surfacesInvalidatedByCommand",
@@ -5312,7 +5286,7 @@ describe("Synthesis tab UI model", function () {
     );
     assert.include(host, "This action is already running.");
   });
-  it("guards host-bound Workbench rebuild commands and defers heavy rebuild start", async function () {
+  it("dispatches sidecar rebuild commands without confirmation and defers heavy rebuild start", async function () {
     const host = await fs.readFile(
       "src/modules/synthesis/workbench/synthesisWorkbenchTab.ts",
       "utf8",
@@ -5329,18 +5303,14 @@ describe("Synthesis tab UI model", function () {
       "rebuildTopicGraphIndex",
     ];
 
-    assert.include(host, "isProtectedRebuildCommand");
-    assert.include(host, "confirmProtectedRebuildCommand");
+    assert.notInclude(host, "isProtectedRebuildCommand");
+    assert.notInclude(host, "confirmProtectedRebuildCommand");
     assert.include(host, "confirmWorkbenchAction");
-    assert.include(host, "resolveSynthesisWorkbenchMessage(");
-    assert.include(host, "synthesis-confirm-refresh-reference-sidecar");
-    assert.include(host, "synthesis-confirm-advanced-reference-matching");
-    assert.include(host, "synthesis-confirm-rebuild-local-indexes");
     assert.include(host, "synthesis-confirm-delete-topic-artifact");
     assert.include(host, "synthesis-confirm-purge-deleted-topic-artifacts");
-    assert.include(i18n, "synthesis-confirm-refresh-reference-sidecar");
-    assert.include(i18n, "synthesis-confirm-advanced-reference-matching");
-    assert.include(i18n, "synthesis-confirm-rebuild-local-indexes");
+    assert.notInclude(i18n, "synthesis-confirm-refresh-reference-sidecar");
+    assert.notInclude(i18n, "synthesis-confirm-advanced-reference-matching");
+    assert.notInclude(i18n, "synthesis-confirm-rebuild-local-indexes");
     assert.include(i18n, "synthesis-confirm-delete-topic-artifact");
     assert.include(i18n, "synthesis-confirm-purge-deleted-topic-artifacts");
     assert.notInclude(
@@ -5360,16 +5330,7 @@ describe("Synthesis tab UI model", function () {
       host,
       'retryReferenceSidecarRefresh" &&\n    !confirmProtectedRebuildCommand',
     );
-    const protectedBlock = extractFunctionBlock(
-      host,
-      "isProtectedRebuildCommand",
-    );
-    assert.notInclude(
-      protectedBlock,
-      'command === "rebuildCitationGraphCacheNow"',
-    );
     for (const command of protectedCommands) {
-      assert.include(host, `command === "${command}"`);
       assert.match(
         host,
         new RegExp(`${command}[\\s\\S]{0,260}deferStart: true`),

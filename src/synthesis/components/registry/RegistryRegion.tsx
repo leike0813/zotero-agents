@@ -46,13 +46,15 @@ function RegistryCacheBadge(props: {
 }) {
   const { selection, t } = props;
   return (
-    <RegistryBadge
-      t={t}
-      text={t("synthesis-index-reference-sidecar", {
-        status: registryLocalizedValue(t, selection.cacheStatus || "missing"),
-      })}
-      tone={registryToneFor(selection.cacheStatus)}
-    />
+    <span data-synthesis-reference-cache-status={selection.cacheStatus}>
+      <RegistryBadge
+        t={t}
+        text={t("synthesis-index-reference-sidecar", {
+          status: registryLocalizedValue(t, selection.cacheStatus || "missing"),
+        })}
+        tone={registryToneFor(selection.cacheStatus)}
+      />
+    </span>
   );
 }
 

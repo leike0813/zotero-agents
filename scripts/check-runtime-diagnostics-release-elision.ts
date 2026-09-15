@@ -79,6 +79,24 @@ async function bundleDashboard(
   });
 }
 
+async function bundleSynthesisWorkbench(debug: boolean) {
+  return build({
+    entryPoints: ["src/synthesisWorkbenchApp.ts"],
+    bundle: true,
+    minifySyntax: true,
+    write: false,
+    metafile: true,
+    target: "firefox115",
+    platform: "browser",
+    format: "iife",
+    jsx: "automatic",
+    jsxImportSource: "preact",
+    plugins: [runtimeDiagnosticsSideEffectsPlugin],
+    define: { __debug_mode__: String(debug) },
+    logLevel: "silent",
+  });
+}
+
 function groupBytes(
   result: Awaited<ReturnType<typeof bundle>>,
   paths: readonly string[],
@@ -149,6 +167,8 @@ export async function checkRuntimeDiagnosticsReleaseElision() {
     releaseDashboard,
     debugDashboard,
     sourceDisabledDashboard,
+    releaseSynthesisWorkbench,
+    debugSynthesisWorkbench,
   ] = await Promise.all([
     bundle({ ...enabled, debug: false }),
     bundle({ ...enabled, debug: false, replay: false }),
@@ -161,6 +181,8 @@ export async function checkRuntimeDiagnosticsReleaseElision() {
     bundleDashboard({ debug: false, synthesisSidecar: true }),
     bundleDashboard({ debug: true, synthesisSidecar: true }),
     bundleDashboard({ debug: true, synthesisSidecar: false }),
+    bundleSynthesisWorkbench(false),
+    bundleSynthesisWorkbench(true),
   ]);
   const releaseBytes = {
     profiler: assertAbsent("profiler", release),
@@ -168,6 +190,10 @@ export async function checkRuntimeDiagnosticsReleaseElision() {
     replay: assertAbsent("replay", release),
     skillRunnerAudit: assertAbsent("skillRunnerAudit", release),
     synthesisSidecar: assertAbsent("synthesisSidecar", release),
+    citationGraphCrashJournal: assertAbsent(
+      "citationGraphCrashJournal",
+      release,
+    ),
   };
   const releaseExclusiveBytes = groupBytes(
     release,
@@ -209,6 +235,10 @@ export async function checkRuntimeDiagnosticsReleaseElision() {
       "synthesisSidecar",
       synthesisSidecarDisabled,
     ),
+    citationGraphCrashJournal: assertAbsent(
+      "citationGraphCrashJournal",
+      release,
+    ),
   };
   const debugBytes = {
     profiler: groupBytes(
@@ -230,6 +260,11 @@ export async function checkRuntimeDiagnosticsReleaseElision() {
     synthesisSidecar: groupBytes(
       debug,
       runtimeDiagnosticsFeatureGroups.synthesisSidecar.exclusiveModules,
+    ),
+    citationGraphCrashJournal: groupBytes(
+      debug,
+      runtimeDiagnosticsFeatureGroups.citationGraphCrashJournal
+        .exclusiveModules,
     ),
   };
   for (const [name, bytes] of Object.entries(debugBytes)) {
@@ -270,6 +305,21 @@ export async function checkRuntimeDiagnosticsReleaseElision() {
       throw new Error(`debug Dashboard did not retain marker: ${marker}`);
     }
   }
+  const crashJournalMarkers =
+    runtimeDiagnosticsFeatureGroups.citationGraphCrashJournal
+      .forbiddenRuntimeMarkers;
+  for (const marker of crashJournalMarkers) {
+    if (outputText(releaseSynthesisWorkbench).includes(marker)) {
+      throw new Error(
+        `release Synthesis Workbench retained crash journal marker: ${marker}`,
+      );
+    }
+  }
+  if (
+    !outputText(debugSynthesisWorkbench).includes("synthesis:crash-journal")
+  ) {
+    throw new Error("debug Synthesis Workbench did not retain crash reporter");
+  }
   return {
     releaseBytes,
     releaseExclusiveBytes,
@@ -278,6 +328,7 @@ export async function checkRuntimeDiagnosticsReleaseElision() {
     retainedStaticMarkers,
     retainedProductionContractMarkers,
     dashboardMarkers,
+    crashJournalMarkers,
     releaseReplayOutputEqual:
       outputText(release) === outputText(releaseReplayDisabled),
   };

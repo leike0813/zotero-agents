@@ -187,6 +187,10 @@ import {
   stopDefaultSynthesisProductionOwner,
 } from "./modules/synthesis/production/synthesisProductionOwner";
 import { shutdownAcpSkillRunConversations } from "./modules/acp/skillRun/acpSkillRunActions";
+import {
+  finishCitationGraphCrashJournal,
+  initializeCitationGraphCrashJournal,
+} from "./modules/synthesis/debug/citationGraphCrashJournal";
 
 const WORKFLOW_MENU_RETRY_INTERVAL_MS = 100;
 const WORKFLOW_MENU_RETRY_MAX_ATTEMPTS = 20;
@@ -813,6 +817,9 @@ async function onStartup() {
     Zotero.uiReadyPromise,
   ]);
   await initializeRuntimeLogsPersistence();
+  if (typeof __debug_mode__ !== "undefined" && __debug_mode__) {
+    await initializeCitationGraphCrashJournal();
+  }
   await recoverStoredAttachmentReplacements();
 
   initLocale();
@@ -1235,6 +1242,12 @@ async function onShutdown(): Promise<void> {
     "runtime-log-flush",
     flushRuntimeLogsPersistence,
   );
+  if (typeof __debug_mode__ !== "undefined" && __debug_mode__) {
+    await runShutdownStepWithTimeout(
+      "citation-graph-crash-journal-finish",
+      finishCitationGraphCrashJournal,
+    );
+  }
   await runShutdownStepWithTimeout("runtime-file-range-reader-shutdown", () => {
     shutdownRuntimeFileRangeReader();
   });

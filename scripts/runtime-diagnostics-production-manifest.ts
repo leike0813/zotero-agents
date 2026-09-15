@@ -95,6 +95,19 @@ export const runtimeDiagnosticsFeatureGroups = {
       "synthesis-sidecar:events",
     ],
   },
+  citationGraphCrashJournal: {
+    switchKey: "debug",
+    define: "__debug_mode__",
+    exclusiveModules: [
+      "src/modules/synthesis/debug/citationGraphCrashJournal.ts",
+      "src/synthesis/citationGraphCrashReporter.ts",
+    ],
+    forbiddenRuntimeMarkers: [
+      "zotero-agents.citation-graph-crash-journal.v1",
+      "synthesis:crash-journal",
+      "citation-graph-crash-journal.json",
+    ],
+  },
 } as const;
 
 export type RuntimeDiagnosticsFeatureName =

@@ -12,6 +12,7 @@ describe("runtime diagnostics release elision", function () {
       "recorder",
       "replay",
       "skillRunnerAudit",
+      "citationGraphCrashJournal",
     ] as const) {
       assert.equal(result.releaseBytes[name], 0);
       assert.equal(result.sourceDisabledBytes[name], 0);

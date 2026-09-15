@@ -87,12 +87,6 @@ export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
   "synthesis-sidecar-reason": "Reason",
   "synthesis-sidecar-next-recovery": "Next recovery",
   "synthesis-operation-in-progress": "%operation% is in progress",
-  "synthesis-confirm-refresh-reference-sidecar":
-    "Refresh the reference sidecar now? This will rebuild local reference indexes and may make Zotero respond more slowly while it runs. Canonical Synthesis data will not be deleted.",
-  "synthesis-confirm-advanced-reference-matching":
-    "Run advanced reference matching now? This heavier pass will scan unbound references and may make Zotero respond more slowly while it runs. Existing accepted facts will not be deleted.",
-  "synthesis-confirm-rebuild-local-indexes":
-    "Rebuild local Synthesis indexes now? Zotero may respond more slowly while this runs. Canonical Synthesis data will not be deleted.",
   "synthesis-confirm-delete-topic-artifact":
     "Delete this synthesis artifact? It will be hidden and kept for later purge.",
   "synthesis-confirm-delete-concepts": "Delete %count% concept(s)?",

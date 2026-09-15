@@ -9,6 +9,7 @@ const steps: Step[] = [
   { name: "core-full", script: "test:zotero:core:full" },
   { name: "ui-full", script: "test:zotero:ui:full" },
   { name: "workflow-full", script: "test:zotero:workflow:full" },
+  { name: "e2e-full", script: "test:zotero:e2e" },
 ];
 
 function spawnNpm(args: string[]) {

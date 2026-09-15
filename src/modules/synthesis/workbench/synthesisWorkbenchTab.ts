@@ -31,6 +31,7 @@ import { getLoadedWorkflowEntries } from "../../workflow/catalog/workflowRuntime
 import { alertWindow } from "../../workflowExecution/feedbackSeam";
 import { writeRuntimeTextFile } from "../../runtimePersistence";
 import { readPackagedBinaryAsset } from "../../packagedAssetResolver";
+import { recordCitationGraphCrashJournalPhase } from "../debug/citationGraphCrashJournal";
 import { isTransientStorageBusyError } from "../../guardedSqlite";
 import {
   getDefaultSynthesisClient,
@@ -51,6 +52,7 @@ import {
   registerSynthesisWorkbenchSidecarChangeListener,
   type SynthesisWorkbenchSidecarChangeEvent,
 } from "./synthesisWorkbenchInvalidation";
+
 import {
   applySynthesisUiAction,
   buildSynthesisUiSnapshot,
@@ -89,6 +91,9 @@ import {
   observeSynthesisWorkbenchSidecarStatus,
   subscribeSynthesisWorkbenchSidecarStatus,
 } from "../sidecar/synthesisSidecarRuntimeSupervisor";
+
+const CITATION_GRAPH_CRASH_JOURNAL_ENABLED =
+  typeof __debug_mode__ !== "undefined" && __debug_mode__;
 
 type SynthesisExportGraphSnapshot = ReturnType<
   typeof buildSynthesisUiSnapshot
@@ -2721,39 +2726,6 @@ function confirmWorkbenchAction(
   return typeof globalConfirm === "function" ? globalConfirm(message) : true;
 }
 
-function isProtectedRebuildCommand(
-  command: SynthesisUiActionOperation["command"] | undefined,
-) {
-  return (
-    command === "refreshReferenceSidecarNow" ||
-    command === "runAdvancedReferenceMatchingNow" ||
-    command === "rebuildTagVocabularyIndex" ||
-    command === "rebuildConceptKbIndex" ||
-    command === "rebuildTopicGraphIndex"
-  );
-}
-
-function confirmProtectedRebuildCommand(
-  command: SynthesisUiActionOperation["command"],
-  win?: _ZoteroTypes.MainWindow,
-) {
-  let messageKey: SynthesisWorkbenchMessageKey =
-    "synthesis-confirm-rebuild-local-indexes";
-  if (command === "refreshReferenceSidecarNow") {
-    messageKey = "synthesis-confirm-refresh-reference-sidecar";
-  }
-  if (command === "runAdvancedReferenceMatchingNow") {
-    messageKey = "synthesis-confirm-advanced-reference-matching";
-  }
-  return confirmWorkbenchAction(
-    resolveSynthesisWorkbenchMessage(
-      messageKey,
-      SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES[messageKey],
-    ),
-    win,
-  );
-}
-
 function handleAction(
   runtime: SynthesisWorkbenchRuntime,
   envelope: SynthesisWorkbenchActionEnvelope,
@@ -2877,16 +2849,6 @@ function handleAction(
     void sendActiveSurface(runtime, {
       refreshFromService:
         reviewsFilterChanged || registryScopeChanged || registryExpandedChanged,
-    });
-    return;
-  }
-  if (
-    result.hostCommand &&
-    isProtectedRebuildCommand(result.hostCommand.command) &&
-    !confirmProtectedRebuildCommand(result.hostCommand.command, runtime.window)
-  ) {
-    void sendActiveSurface(runtime, {
-      refreshFromService: false,
     });
     return;
   }
@@ -4095,6 +4057,13 @@ async function refreshGraphLayoutIfNeeded(runtime: SynthesisWorkbenchRuntime) {
 
 function cleanupSynthesisRuntime(runtime: SynthesisWorkbenchRuntime) {
   if (runtime.cleanedUp) return;
+  if (CITATION_GRAPH_CRASH_JOURNAL_ENABLED) {
+    void recordCitationGraphCrashJournalPhase("host-cleanup-start", {
+      tabId: runtime.tabId,
+      frameConnected: runtime.frame.isConnected,
+      handshakeComplete: runtime.handshakeComplete,
+    });
+  }
   runtime.cleanedUp = true;
   runtime.chromeReadRevision += 1;
   runtime.queuedChromeRefresh = false;
@@ -4120,6 +4089,12 @@ function cleanupSynthesisRuntime(runtime: SynthesisWorkbenchRuntime) {
   runtime.removeSidecarStatusListener = undefined;
   const frameWindow = runtime.frameWindow || resolveFrameWindow(runtime.frame);
   try {
+    if (CITATION_GRAPH_CRASH_JOURNAL_ENABLED) {
+      void recordCitationGraphCrashJournalPhase("host-pagehide-dispatch", {
+        frameConnected: runtime.frame.isConnected,
+        frameWindowPresent: Boolean(frameWindow),
+      });
+    }
     frameWindow?.dispatchEvent(new frameWindow.Event("pagehide"));
   } catch (error) {
     Zotero.logError?.(
@@ -4131,6 +4106,11 @@ function cleanupSynthesisRuntime(runtime: SynthesisWorkbenchRuntime) {
   runtime.removeFrameLoadListener = undefined;
   runtime.removeMessageListener?.();
   runtime.frame.remove();
+  if (CITATION_GRAPH_CRASH_JOURNAL_ENABLED) {
+    void recordCitationGraphCrashJournalPhase("host-frame-removed", {
+      frameConnected: runtime.frame.isConnected,
+    });
+  }
   runtime.frameWindow = null;
   synthesisWorkbenchRuntimes.delete(runtime);
 }
@@ -4152,16 +4132,37 @@ function attachWorkbenchBridge(runtime: SynthesisWorkbenchRuntime) {
     frame.removeEventListener("load", onLoad);
   };
   const onMessage = (event: MessageEvent) => {
-    const data = event.data as { type?: unknown };
-    if (!data || data.type !== "synthesis:action") {
-      return;
-    }
     if (!runtime.frameWindow || event.source !== runtime.frameWindow) {
       return;
     }
+    const data = event.data as {
+      type?: unknown;
+      stage?: unknown;
+      details?: unknown;
+    };
+    if (
+      typeof __debug_mode__ !== "undefined" &&
+      __debug_mode__ &&
+      data?.type === "synthesis:crash-journal"
+    ) {
+      void recordCitationGraphCrashJournalPhase(
+        typeof data.stage === "string" ? data.stage : "frame-unknown",
+        data.details && typeof data.details === "object"
+          ? (data.details as Record<string, unknown>)
+          : {},
+      );
+      return;
+    }
+    if (!data || data.type !== "synthesis:action") return;
     handleAction(runtime, data as SynthesisWorkbenchActionEnvelope);
   };
   runtime.hostWindow.addEventListener("message", onMessage);
+  if (CITATION_GRAPH_CRASH_JOURNAL_ENABLED) {
+    void recordCitationGraphCrashJournalPhase("host-bridge-attached", {
+      tabId: runtime.tabId,
+      frameConnected: runtime.frame.isConnected,
+    });
+  }
   runtime.removeMessageListener = () => {
     runtime.hostWindow.removeEventListener("message", onMessage);
   };

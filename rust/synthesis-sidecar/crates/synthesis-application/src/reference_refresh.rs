@@ -659,17 +659,17 @@ impl ReferenceRefreshApplication {
             self.finish_operation(&preparation.operation_id, "failed", "payload_stale");
             return self.mutation_result(
                 ReferenceRefreshStatus::PayloadStale,
-                Vec::new(),
+                vec!["payload_hash_mismatch".into()],
                 Vec::new(),
             );
         }
         let mut projection = match self.project(&preparation, &request.payloads) {
             Ok(projection) => projection,
-            Err(_) => {
+            Err(reason) => {
                 self.finish_operation(&preparation.operation_id, "failed", "payload_stale");
                 return self.mutation_result(
                     ReferenceRefreshStatus::PayloadStale,
-                    Vec::new(),
+                    vec![reason],
                     Vec::new(),
                 );
             }
@@ -899,10 +899,8 @@ impl ReferenceRefreshApplication {
                 payload_by_locator.get(citation_read.locator.as_str())
                 && let Some(references_basis) = citation_payload.references_basis.as_deref()
             {
-                let expected_basis =
-                    canonical_json_hash(&payload.content).map_err(|_| "payload_stale")?;
-                if references_basis != expected_basis {
-                    return Err("payload_stale".into());
+                if references_basis != read.expected_hash {
+                    return Err("references_basis_mismatch".into());
                 }
             }
             for (index, reference) in references.references.iter().enumerate() {

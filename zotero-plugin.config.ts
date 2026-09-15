@@ -1,8 +1,10 @@
 import { defineConfig } from "zotero-plugin-scaffold";
 import path from "node:path";
+import { promises as fs } from "node:fs";
 import pkg from "./package.json";
 import { assertPluginHostBridgeAssets } from "./scripts/host-bridge/check-plugin-host-bridge-assets";
 import { patchGeneratedZoteroTestRunner } from "./scripts/patch-zotero-test-runner";
+import { stageDirectSynthesisBundle } from "./scripts/run-zotero-direct";
 import {
   dashboardSynthesisSidecarRegionElisionPlugin,
   runtimeDiagnosticsSideEffectsPlugin,
@@ -16,7 +18,7 @@ import {
   WORKSPACE_PUBLICATION_WIRE_ASSERT_ENABLED,
 } from "./src/modules/debugMode";
 
-type TestDomain = "all" | "core" | "ui" | "workflow";
+type TestDomain = "all" | "core" | "ui" | "workflow" | "e2e";
 type TestMode = "lite" | "full";
 
 export function shouldUseHeadlessZoteroTest(
@@ -40,6 +42,7 @@ const ZOTERO_TEST_ENTRIES = {
     core: ["tests/zotero/core/lite", "tests/zotero/core/full"],
     ui: ["tests/zotero/ui/lite", "tests/zotero/ui/full"],
     workflow: ["tests/zotero/workflow/lite", "tests/zotero/workflow/full"],
+    e2e: ["tests/zotero/e2e/full"],
   },
 } as const;
 
@@ -58,7 +61,8 @@ function normalizeTestDomain(value: string | undefined): TestDomain {
   if (
     normalized === "core" ||
     normalized === "ui" ||
-    normalized === "workflow"
+    normalized === "workflow" ||
+    normalized === "e2e"
   ) {
     return normalized;
   }
@@ -82,6 +86,9 @@ export function resolveTestEntries(
   }
   if (domain === "workflow") {
     return [setup, ...entries.workflow];
+  }
+  if (domain === "e2e") {
+    return [setup, ...(mode === "full" ? ZOTERO_TEST_ENTRIES.full.e2e : [])];
   }
   return [setup, ...entries.core, ...entries.ui, ...entries.workflow];
 }
@@ -114,6 +121,37 @@ async function resolveGitBranch(): Promise<string> {
 
 const branch = await resolveGitBranch();
 const DEBUG_MODE = branch === "dev" || branch.startsWith("dev-");
+
+async function stageZoteroE2EGoldFixture() {
+  if (TEST_DOMAIN !== "e2e") return;
+  const dataSource = String(process.env.ZOTERO_E2E_GOLD_DATA_DIR || "").trim();
+  const profileSource = String(
+    process.env.ZOTERO_E2E_GOLD_PROFILE_DIR || "",
+  ).trim();
+  if (!dataSource && !profileSource) return;
+  if (!dataSource) {
+    throw new Error("ZOTERO_E2E_GOLD_DATA_DIR is required for a gold run");
+  }
+  const dataTarget = path.resolve(".scaffold/test/data");
+  await fs.cp(dataSource, dataTarget, {
+    recursive: true,
+    force: true,
+  });
+  await Promise.all(
+    [
+      path.join(dataTarget, "zotero-agents/data/synthesis/identity.json"),
+      path.join(dataTarget, "zotero-agents/runtime/logs"),
+      path.join(dataTarget, "zotero-agents/runtime/synthesis/service-runtime"),
+    ].map((target) => fs.rm(target, { recursive: true, force: true })),
+  );
+  if (profileSource) {
+    await fs.cp(profileSource, path.resolve(".scaffold/test/profile"), {
+      recursive: true,
+      force: true,
+    });
+  }
+  process.env.ZOTERO_E2E_GOLD_ID ||= "lisongtao-v1";
+}
 
 export default defineConfig({
   source: ["src", "addon"],
@@ -207,6 +245,7 @@ export default defineConfig({
         },
         bundle: true,
         minifySyntax: true,
+        plugins: [runtimeDiagnosticsSideEffectsPlugin],
         target: "firefox115",
         outfile: ".scaffold/build/addon/content/synthesis/app.bundle.js",
       },
@@ -297,9 +336,15 @@ export default defineConfig({
   test: {
     entries: TEST_ENTRIES,
     headless: shouldUseHeadlessZoteroTest(),
-    startupDelay: 100,
+    startupDelay: TEST_DOMAIN === "e2e" ? 30_000 : 100,
     waitForPlugin: `() => Zotero.${pkg.config.addonInstance}.data.initialized`,
     hooks: {
+      "test:init": stageZoteroE2EGoldFixture,
+      "test:prebuild": async () => {
+        if (TEST_DOMAIN === "e2e") {
+          stageDirectSynthesisBundle(path.resolve(".scaffold/build/addon"));
+        }
+      },
       "test:bundleTests": async () => {
         await patchGeneratedZoteroTestRunner();
       },

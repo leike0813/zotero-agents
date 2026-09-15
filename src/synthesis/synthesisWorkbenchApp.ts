@@ -33,6 +33,7 @@ import type {
 } from "../shared/synthesisWorkbenchWireContract";
 import { createSynthesisWorkbenchChromeRenderer } from "./synthesisWorkbenchChromeRenderer";
 import type { CitationGraphVendors } from "./components/graph/sigmaIsland";
+import { reportCitationGraphCrashJournalPhase } from "./citationGraphCrashReporter";
 import {
   listSynthesisWorkbenchBackgroundJobs,
   nextStatusbarExpiryDelayMs,
@@ -1305,11 +1306,15 @@ export function bootstrapSynthesisWorkbench(
   let disposed = false;
   const dispose = () => {
     if (disposed) return;
+    reportCitationGraphCrashJournalPhase("frame-dispose-start", {
+      statusbarTimerPresent: statusbarTimer !== undefined,
+    });
     disposed = true;
     if (statusbarTimer !== undefined) clearTimeout(statusbarTimer);
     window.removeEventListener("message", handleMessage);
     window.removeEventListener("pagehide", dispose);
     chromeRenderer.renderPanel(null);
+    reportCitationGraphCrashJournalPhase("frame-dispose-complete");
   };
   window.addEventListener("pagehide", dispose);
   window.addEventListener("message", handleMessage);

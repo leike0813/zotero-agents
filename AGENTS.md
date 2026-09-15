@@ -134,6 +134,13 @@
 - 采用TDD模式：每一步开发前先写测试用例，再围绕测试实现
 - **切勿将Node.js环境中才能使用的代码用于插件环境**
 
+## E2E 测试约束
+
+- Zotero E2E 统一使用 `tests/zotero/e2e/full` 与 `npm run test:zotero:e2e`；不得另建平行 runner。
+- 真实库与 profile 只能作为只读来源复制到 `.scaffold/test` 后运行，测试不得直接修改来源目录。
+- 金例只提交去标识化结构契约，不得提交标题、作者、正文、本地路径或原始数据库。
+- E2E 必须使用当前源码构建的本地 Synthesis sidecar。Citation Graph 生命周期压力测试使用 `npm run test:zotero:e2e:stress`。
+
 # Zotero 源码参考基线
 
 - `references/Zotero-7` 固定到 tag `7.0.32`（commit `188c54c186fbbaa6889145986d43ba64160a44fa`）。

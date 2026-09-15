@@ -365,6 +365,29 @@ describe("Synthesis sidecar debug observability", function () {
         occurredAtMs: index + 2,
       });
     }
+    const laterFailure = createSynthesisSidecarTraceContext({ parent: root })!;
+    recordSynthesisSidecarTraceEvent({
+      context: laterFailure,
+      source: "rust-sidecar",
+      boundary: "operation",
+      phase: "operation-failed",
+      outcome: "failed",
+      code: "payload_stale",
+      occurredAtMs: 190,
+    });
+    const maintenanceTerminal = createSynthesisSidecarTraceContext({
+      parent: root,
+    })!;
+    recordSynthesisSidecarTraceEvent({
+      context: maintenanceTerminal,
+      source: "rust-sidecar",
+      boundary: "operation",
+      phase: "maintenance-terminal",
+      outcome: "failed",
+      code: "payload_stale",
+      identities: { operation: "maintenance:test" },
+      occurredAtMs: 195,
+    });
     recordSynthesisSidecarTraceEvent({
       context: root,
       source: "host",
@@ -383,6 +406,10 @@ describe("Synthesis sidecar debug observability", function () {
     assert.isFalse(trace.active);
     assert.equal(trace.events[0]?.outcome, "started");
     assert.isTrue(trace.events.some((event) => event.code === "worker_failed"));
+    assert.equal(
+      trace.events.filter((event) => event.code === "payload_stale").length,
+      2,
+    );
     assert.equal(trace.events[127]?.phase, "terminal");
     assert.lengthOf(patches, 1);
   });

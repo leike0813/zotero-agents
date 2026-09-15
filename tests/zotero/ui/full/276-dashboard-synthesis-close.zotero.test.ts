@@ -17,6 +17,10 @@ import {
   resolveDefaultTestDiagnosticsDirectory,
   writeDiagnosticsText,
 } from "../../testDiagnosticsOutput";
+import {
+  getRuntimePersistencePaths,
+  readRuntimeTextFile,
+} from "../../../../src/modules/runtimePersistence";
 
 const GRAPH_NODE_COUNT = 813;
 const GRAPH_EDGE_COUNT = 1_570;
@@ -361,6 +365,23 @@ describe("Dashboard and Synthesis close lifecycle in Zotero", function () {
         reopenedFrameConnected: reopenedFrame.isConnected,
       });
       frame = reopenedFrame;
+    }
+    const crashJournal = await readRuntimeTextFile(
+      joinPath(
+        getRuntimePersistencePaths().logsDir,
+        "citation-graph-crash-journal.json",
+      ),
+    );
+    if (crashJournal) {
+      const outputDirectory = resolveDefaultTestDiagnosticsDirectory();
+      await ensureDiagnosticsDirectory(outputDirectory);
+      await writeDiagnosticsText(
+        joinPath(outputDirectory, "citation-graph-crash-journal.json"),
+        crashJournal,
+      );
+      assert.include(crashJournal, "sigma-renderer-created");
+      assert.include(crashJournal, "sigma-destroy-complete");
+      assert.include(crashJournal, "host-frame-removed");
     }
   });
 });

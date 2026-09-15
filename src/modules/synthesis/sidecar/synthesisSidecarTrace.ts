@@ -139,6 +139,40 @@ function evictCompletedTraces(nowMs: number) {
   }
 }
 
+function isPriorityEvent(event: SynthesisSidecarObservationEvent) {
+  return (
+    ["failed", "canceled", "timed-out"].includes(event.outcome) ||
+    (event.parentSpanId === undefined && event.outcome !== "started") ||
+    (event.phase === "maintenance-terminal" && event.outcome !== "started")
+  );
+}
+
+function retainPriorityEvent(
+  events: SynthesisSidecarObservationEvent[],
+  event: SynthesisSidecarObservationEvent,
+  rootTerminal: boolean,
+  maintenanceTerminal: boolean,
+) {
+  if (rootTerminal) {
+    const lastIndex = events.length - 1;
+    if (isPriorityEvent(events[lastIndex])) {
+      const freeIndex = events.findIndex(
+        (candidate, index) =>
+          index > 0 && index < lastIndex && !isPriorityEvent(candidate),
+      );
+      if (freeIndex >= 0) events[freeIndex] = events[lastIndex];
+    }
+    events[lastIndex] = event;
+    return;
+  }
+  const indexes = events.map((_candidate, index) => index);
+  if (maintenanceTerminal) indexes.reverse();
+  const freeIndex = indexes.find(
+    (index) => index > 0 && !isPriorityEvent(events[index]),
+  );
+  events[freeIndex ?? events.length - 1] = event;
+}
+
 function retainEvent(event: SynthesisSidecarObservationEvent) {
   let trace = traces.get(event.traceId);
   if (!trace) {
@@ -175,11 +209,14 @@ function retainEvent(event: SynthesisSidecarObservationEvent) {
     if (isFailure) trace.firstFailureRetained = true;
   } else {
     trace.droppedCount += 1;
-    if (isFailure && !trace.firstFailureRetained) {
-      trace.events[Math.min(1, trace.events.length - 1)] = event;
-      trace.firstFailureRetained = true;
-    } else if (isRootTerminal || isMaintenanceTerminal) {
-      trace.events[trace.events.length - 1] = event;
+    if (isPriorityEvent(event)) {
+      retainPriorityEvent(
+        trace.events,
+        event,
+        isRootTerminal,
+        isMaintenanceTerminal,
+      );
+      if (isFailure) trace.firstFailureRetained = true;
     }
   }
   trace.updatedAtMs = event.occurredAtMs;

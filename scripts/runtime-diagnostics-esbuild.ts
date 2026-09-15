@@ -27,6 +27,14 @@ const synthesisSidecarObservabilityModuleBasename = path.basename(
   runtimeDiagnosticsFeatureGroups.synthesisSidecar.exclusiveModules[1],
   ".ts",
 );
+const citationGraphCrashJournalModuleBasename = path.basename(
+  runtimeDiagnosticsFeatureGroups.citationGraphCrashJournal.exclusiveModules[0],
+  ".ts",
+);
+const citationGraphCrashReporterModuleBasename = path.basename(
+  runtimeDiagnosticsFeatureGroups.citationGraphCrashJournal.exclusiveModules[1],
+  ".ts",
+);
 
 const disabledProfilerModule = `
 export const ACP_RUNTIME_PERFORMANCE_PROFILE_SCHEMA = "";
@@ -71,6 +79,17 @@ const disabledSynthesisSidecarObservabilityModule = `
 export function rebuildSynthesisSidecarTraceContext() { return undefined; }
 export function rebuildSynthesisSidecarObservationEvent() { return undefined; }
 export function safeSynthesisSidecarObservationReason() { return undefined; }
+`;
+
+const disabledCitationGraphCrashJournalModule = `
+export function initializeCitationGraphCrashJournal() { return Promise.resolve(); }
+export function recordCitationGraphCrashJournalPhase() { return Promise.resolve(); }
+export function finishCitationGraphCrashJournal() { return Promise.resolve(); }
+export function readCitationGraphCrashJournal() { return Promise.resolve({ current: null, recent: [] }); }
+`;
+
+const disabledCitationGraphCrashReporterModule = `
+export function reportCitationGraphCrashJournalPhase() {}
 `;
 
 function moduleBasename(modulePath: string) {
@@ -161,6 +180,26 @@ export const runtimeDiagnosticsSideEffectsPlugin: Plugin = {
           };
         }
         if (
+          debugDisabled &&
+          moduleBasename(args.path) === citationGraphCrashJournalModuleBasename
+        ) {
+          return {
+            path: citationGraphCrashJournalModuleBasename,
+            namespace: "runtime-diagnostics-disabled",
+            sideEffects: false,
+          };
+        }
+        if (
+          debugDisabled &&
+          moduleBasename(args.path) === citationGraphCrashReporterModuleBasename
+        ) {
+          return {
+            path: citationGraphCrashReporterModuleBasename,
+            namespace: "runtime-diagnostics-disabled",
+            sideEffects: false,
+          };
+        }
+        if (
           synthesisSidecarDisabled &&
           moduleBasename(args.path) ===
             synthesisSidecarDiagnosticsModuleBasename
@@ -212,6 +251,26 @@ export const runtimeDiagnosticsSideEffectsPlugin: Plugin = {
       },
       () => ({
         contents: disabledChatDiagnosticAuditModule,
+        loader: "js",
+      }),
+    );
+    build.onLoad(
+      {
+        filter: new RegExp(`^${citationGraphCrashJournalModuleBasename}$`),
+        namespace: "runtime-diagnostics-disabled",
+      },
+      () => ({
+        contents: disabledCitationGraphCrashJournalModule,
+        loader: "js",
+      }),
+    );
+    build.onLoad(
+      {
+        filter: new RegExp(`^${citationGraphCrashReporterModuleBasename}$`),
+        namespace: "runtime-diagnostics-disabled",
+      },
+      () => ({
+        contents: disabledCitationGraphCrashReporterModule,
         loader: "js",
       }),
     );

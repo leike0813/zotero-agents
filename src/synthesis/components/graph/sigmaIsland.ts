@@ -53,6 +53,7 @@ import {
   type SynthesisGraphNode,
   type SynthesisGraphText,
 } from "./graphModel";
+import { reportCitationGraphCrashJournalPhase } from "../../citationGraphCrashReporter";
 
 // ---------------------------------------------------------------------------
 // Vendor injection
@@ -427,6 +428,13 @@ export class CitationGraphIsland {
   };
 
   destroy(): void {
+    reportCitationGraphCrashJournalPhase("sigma-destroy-start", {
+      rendererPresent: Boolean(this.renderer),
+      graphPresent: Boolean(this.graph),
+      resizeObserverPresent: Boolean(this.resizeObserver),
+      resizeFramePresent: this.resizeFrame !== undefined,
+      hoverTimerPresent: this.hoverClearTimer !== undefined,
+    });
     this.cancelScheduledHoverClear();
     if (this.resizeFrame !== undefined) {
       window.cancelAnimationFrame(this.resizeFrame);
@@ -444,6 +452,7 @@ export class CitationGraphIsland {
     this.resizePending = false;
     // The iframe/docshell owns WebGL teardown. Sigma.kill() explicitly loses
     // the context, which can race Zotero's native D3D shutdown.
+    reportCitationGraphCrashJournalPhase("sigma-destroy-complete");
   }
 
   // -- internals --------------------------------------------------------------
@@ -819,6 +828,10 @@ export class CitationGraphIsland {
         this.nodeReducer(node, data),
       edgeReducer: (edge: string, data: Record<string, unknown>) =>
         this.edgeReducer(edge, data),
+    });
+    reportCitationGraphCrashJournalPhase("sigma-renderer-created", {
+      nodeCount: view.visibleNodes.length,
+      edgeCount: visualEdges.length,
     });
     this.renderer = renderer;
     const camera = renderer.getCamera();

@@ -165,6 +165,12 @@ enum RefreshBatchAttempt {
         warnings: Vec<String>,
     },
     Split,
+    Stale {
+        reason: String,
+    },
+    SkippedStale {
+        reason: String,
+    },
     Failed {
         code: String,
         capacity: Option<ReferenceRefreshApplyCapacity>,
@@ -821,26 +827,7 @@ impl ReferenceApplication {
         } else {
             self.collect_host_items_bounded(100)?
         };
-        let paper_refs = items
-            .iter()
-            .map(|item| item.paper_ref.clone())
-            .collect::<Vec<_>>();
-        let host_artifacts = if paper_refs.is_empty() {
-            Vec::new()
-        } else {
-            let readiness = self.host.artifact_readiness(
-                &paper_refs,
-                &[
-                    "digest",
-                    "references",
-                    "citation_analysis",
-                    "literature_score",
-                ],
-            )?;
-            validate_artifact_readiness(&readiness.artifacts, &paper_refs)?;
-            readiness.artifacts
-        };
-        let mut rows = self.project_reference_index_rows(items, Some(&host_artifacts))?;
+        let mut rows = self.project_reference_index_rows(items, None)?;
         if scope == "referenced" {
             rows.retain(|row| row.reference_count > 0);
             rows.truncate(100);
@@ -1397,6 +1384,13 @@ impl ReferenceApplication {
                         batches.push_front(right);
                         batches.push_front(left);
                     }
+                    RefreshBatchAttempt::SkippedStale { reason } => {
+                        failed.extend(batch.iter().map(|item| item.paper_ref.clone()));
+                        warnings.push(format!("payload_stale:{}:{}", batch[0].paper_ref, reason));
+                    }
+                    RefreshBatchAttempt::Stale { .. } => {
+                        return Err("reference_refresh_stale_retry_invalid".into());
+                    }
                     RefreshBatchAttempt::Failed { code, capacity } => {
                         failed.extend(batch.iter().map(|item| item.paper_ref.clone()));
                         for pending in batches {
@@ -1409,7 +1403,7 @@ impl ReferenceApplication {
                 }
             }
 
-            if failure_code.is_none() && requested.is_empty() {
+            if failure_code.is_none() && failed.is_empty() && requested.is_empty() {
                 match self.run_reference_refresh_full_sweep(
                     &run,
                     &items,
@@ -1431,11 +1425,16 @@ impl ReferenceApplication {
                     RefreshBatchAttempt::Split => {
                         failure_code = Some("reference_refresh_full_sweep_invalid".into());
                     }
+                    RefreshBatchAttempt::Stale { reason }
+                    | RefreshBatchAttempt::SkippedStale { reason } => {
+                        failure_code = Some(reason);
+                    }
                 }
             }
 
             let inspection = run.inspect()?;
             let ok = failure_code.is_none();
+            let retryable = !ok || !failed.is_empty();
             Ok(json!({
                 "ok":ok,
                 "status":if ok {
@@ -1450,7 +1449,7 @@ impl ReferenceApplication {
                 "warnings":warnings,
                 "reference_basis_hash":inspection.reference_hash,
                 "input_hash":inspection.input_hash,
-                "retryable":!ok,
+                "retryable":retryable,
                 "retry":retry,
                 "actual_bytes":failure_capacity.map(|capacity|capacity.bytes),
                 "limit_bytes":failure_capacity.map(|_|REFERENCE_REFRESH_MATERIALIZED_MAX_BYTES),
@@ -1462,6 +1461,42 @@ impl ReferenceApplication {
     }
 
     fn run_refresh_batch(
+        &self,
+        run: &ReferenceRefreshRun<'_>,
+        items: &[ReferenceHostItem],
+        artifacts: Vec<ReferenceArtifactDescriptor>,
+        batch_ordinal: usize,
+        job: &mut OperationRecord,
+        checkpoint: Option<&PromotionCheckpoint<'_>>,
+    ) -> Result<RefreshBatchAttempt, String> {
+        let first =
+            self.run_refresh_batch_once(run, items, artifacts, batch_ordinal, job, checkpoint)?;
+        let RefreshBatchAttempt::Stale { .. } = first else {
+            return Ok(first);
+        };
+        let source_refs = items
+            .iter()
+            .map(|item| item.paper_ref.clone())
+            .collect::<Vec<_>>();
+        let refreshed_artifacts =
+            complete_artifact_manifest(items, &self.collect_host_artifacts_for(&source_refs)?)?;
+        match self.run_refresh_batch_once(
+            run,
+            items,
+            refreshed_artifacts,
+            batch_ordinal,
+            job,
+            checkpoint,
+        )? {
+            RefreshBatchAttempt::Stale { .. } if items.len() > 1 => Ok(RefreshBatchAttempt::Split),
+            RefreshBatchAttempt::Stale { reason } => {
+                Ok(RefreshBatchAttempt::SkippedStale { reason })
+            }
+            result => Ok(result),
+        }
+    }
+
+    fn run_refresh_batch_once(
         &self,
         run: &ReferenceRefreshRun<'_>,
         items: &[ReferenceHostItem],
@@ -1586,10 +1621,14 @@ impl ReferenceApplication {
                             .total(prepared.reads.len())
                             .code(&error)
                         });
-                        return Ok(RefreshBatchAttempt::Failed {
-                            code: error,
-                            capacity: None,
-                        });
+                        return if is_refresh_stale_code(&error) {
+                            Ok(RefreshBatchAttempt::Stale { reason: error })
+                        } else {
+                            Ok(RefreshBatchAttempt::Failed {
+                                code: error,
+                                capacity: None,
+                            })
+                        };
                     }
                 }
             }
@@ -1652,6 +1691,15 @@ impl ReferenceApplication {
             applied.status,
             ReferenceRefreshStatus::Promoted | ReferenceRefreshStatus::Unchanged
         ) {
+            if applied.status == ReferenceRefreshStatus::PayloadStale {
+                return Ok(RefreshBatchAttempt::Stale {
+                    reason: applied
+                        .warnings
+                        .first()
+                        .cloned()
+                        .unwrap_or_else(|| "payload_stale".into()),
+                });
+            }
             return Ok(RefreshBatchAttempt::Failed {
                 code: refresh_status_name(&applied.status),
                 capacity: None,
@@ -2020,6 +2068,13 @@ impl ReferenceApplication {
     }
 
     fn collect_host_artifacts(&self) -> Result<Vec<ReferenceHostArtifact>, String> {
+        self.collect_host_artifacts_for(&[])
+    }
+
+    fn collect_host_artifacts_for(
+        &self,
+        paper_refs: &[String],
+    ) -> Result<Vec<ReferenceHostArtifact>, String> {
         let mut cursor = String::new();
         let mut revision: Option<String> = None;
         let mut seen = HashSet::new();
@@ -2027,7 +2082,7 @@ impl ReferenceApplication {
         for _ in 0..MAX_HOST_PAGES {
             let page = self
                 .host
-                .scan_artifacts_page(&cursor, HOST_PAGE_LIMIT, &[], &[])?;
+                .scan_artifacts_page(&cursor, HOST_PAGE_LIMIT, paper_refs, &[])?;
             validate_artifact_page(
                 &cursor,
                 &page.cursor,
@@ -2789,6 +2844,10 @@ fn refresh_status_name(status: &ReferenceRefreshStatus) -> String {
         .ok()
         .and_then(|value| value.as_str().map(str::to_owned))
         .unwrap_or_else(|| "reference_refresh_failed".into())
+}
+
+fn is_refresh_stale_code(code: &str) -> bool {
+    matches!(code, "payload_stale" | "reverse_host_artifact_stale")
 }
 
 #[derive(Clone, Copy)]
@@ -3587,29 +3646,6 @@ fn host_artifact_is_available(artifact: &ReferenceHostArtifact) -> bool {
     artifact.status == "available"
         && (artifact.artifact_type != "literature_score"
             || literature_rating_score(artifact).is_some())
-}
-
-fn validate_artifact_readiness(
-    artifacts: &[ReferenceHostArtifact],
-    paper_refs: &[String],
-) -> Result<(), String> {
-    let paper_refs = paper_refs
-        .iter()
-        .map(String::as_str)
-        .collect::<HashSet<_>>();
-    let mut seen = HashSet::new();
-    for artifact in artifacts {
-        if !paper_refs.contains(artifact.paper_ref.as_str())
-            || !matches!(
-                artifact.artifact_type.as_str(),
-                "digest" | "references" | "citation_analysis" | "literature_score"
-            )
-            || !seen.insert((artifact.paper_ref.as_str(), artifact.artifact_type.as_str()))
-        {
-            return Err("reverse_host_result_invalid".into());
-        }
-    }
-    Ok(())
 }
 
 fn complete_artifact_manifest(
@@ -4674,11 +4710,11 @@ mod tests {
         assert_eq!(
             host.artifact_scan_calls.load(Ordering::Relaxed),
             scans_before_index,
-            "Workbench Index must use Host readiness instead of decoding artifact payloads",
+            "Workbench Index must use the persisted projection",
         );
         assert_eq!(
             host.artifact_readiness_calls.load(Ordering::Relaxed),
-            readiness_before_index + 1,
+            readiness_before_index,
         );
         let registry = projection["registry"].as_object().expect("registry");
         assert_eq!(
@@ -4698,7 +4734,6 @@ mod tests {
                 "metadata_hash".into(),
                 "missing_artifacts".into(),
                 "paper_ref".into(),
-                "ratingScore".into(),
                 "reference_count".into(),
                 "references".into(),
                 "title".into(),
@@ -4712,7 +4747,7 @@ mod tests {
         assert_eq!(first["item_key"], "AAAA1111");
         assert_eq!(first["metadata_hash"], format!("sha256:{}", "a".repeat(64)));
         assert_eq!(first["updated_at"], "1");
-        assert_eq!(first["ratingScore"], 68.0);
+        assert!(first.get("ratingScore").is_none());
         assert_eq!(first["references"].as_array().expect("references").len(), 1);
     }
 

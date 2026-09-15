@@ -627,11 +627,10 @@ describe("Synthesis Rust production client route", function () {
         "missing_artifacts",
         "reference_count",
         "unbound_reference_count",
-        "ratingScore",
         "references",
       ]);
       assert.equal(registry.rows[0].paper_ref, "1:SYN0000001");
-      assert.equal(registry.rows[0].ratingScore, 68);
+      assert.notProperty(registry.rows[0], "ratingScore");
       assert.match(
         String(registry.rows[0].metadata_hash),
         /^sha256:[a-f0-9]{64}$/,
@@ -3204,7 +3203,7 @@ describe("Synthesis Rust production client route", function () {
       assert.lengthOf(initialIndexSurface.body.data.registry.rows, 3);
       assert.equal(
         initialIndexSurface.body.data.registry.rows[0].artifactCoverage,
-        "partial",
+        "missing",
       );
       reverseHostCalls.length = 0;
       activeArtifactReads = 0;
@@ -3482,7 +3481,8 @@ describe("Synthesis Rust production client route", function () {
         reverseHostCalls.filter(
           (capability) => capability === "library.artifacts.readiness",
         ).length,
-        readinessCallsBeforeIndex + 1,
+        readinessCallsBeforeIndex,
+        "Workbench Index must use the persisted Reference Projection instead of rescanning Host artifacts",
       );
       assert.equal(
         workbenchIndex.body.data.registry.cacheStatus.status,
@@ -3496,11 +3496,14 @@ describe("Synthesis Rust production client route", function () {
         artifactCoverage: "partial",
         reference_count: 1,
         unbound_reference_count: 1,
-        ratingScore: 68,
       });
+      assert.notProperty(
+        workbenchIndex.body.data.registry.rows[0],
+        "ratingScore",
+      );
       assert.deepEqual(
         workbenchIndex.body.data.registry.rows[0].missing_artifacts,
-        ["digest", "citation_analysis"],
+        ["digest", "citation_analysis", "literature_score"],
       );
       assert.notProperty(
         workbenchIndex.body.data.registry.rows[0],

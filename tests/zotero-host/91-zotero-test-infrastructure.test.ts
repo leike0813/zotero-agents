@@ -7,6 +7,7 @@ import {
   buildForwardedTestArgs,
   buildTestEnvironment,
   parseWrappedTestInvocation,
+  normalizeTestDomain,
   resolveMockSkillRunnerPort,
 } from "../../scripts/run-zotero-test-with-mock";
 import {
@@ -108,6 +109,15 @@ describe("zotero test infrastructure helpers", function () {
       ),
       ["tests/zotero/setup.test.ts", "tests/zotero/ui/full"],
     );
+  });
+
+  it("routes the full E2E domain without adding it to ordinary suites", function () {
+    assert.equal(normalizeTestDomain("e2e"), "e2e");
+    assert.deepEqual(resolveTestEntries("e2e", "full"), [
+      "tests/zotero/setup.test.ts",
+      "tests/zotero/e2e/full",
+    ]);
+    assert.notInclude(resolveTestEntries("all", "full") as string[], "e2e");
   });
 
   describe("Zotero display environment", function () {

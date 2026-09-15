@@ -61,6 +61,7 @@ export function RegistryActionButton(props: {
     <button
       type="button"
       class={className}
+      data-synthesis-command={props.pendingCommand || undefined}
       disabled={props.disabled || pending}
       aria-busy={pending ? "true" : undefined}
       aria-label={props.ariaLabel}

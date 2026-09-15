@@ -255,7 +255,7 @@ function runBuild(): void {
   stageDirectSynthesisBundle();
 }
 
-function stageDirectSynthesisBundle() {
+export function stageDirectSynthesisBundle(addonSourceDir = ADDON_SOURCE_DIR) {
   const target = resolveDirectSynthesisTarget();
   console.log(`[build] Building local Synthesis sidecar for ${target} …`);
   execFileSync(
@@ -283,7 +283,7 @@ function stageDirectSynthesisBundle() {
     "rust/synthesis-sidecar/target/debug",
     executable,
   );
-  const output = resolve(ADDON_SOURCE_DIR, "bin", target, "synthesis-sidecar");
+  const output = resolve(addonSourceDir, "bin", target, "synthesis-sidecar");
   execFileSync(
     process.execPath,
     [

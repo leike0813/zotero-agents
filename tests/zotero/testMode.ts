@@ -1,5 +1,5 @@
 export type TestMode = "lite" | "full";
-export type TestDomain = "all" | "core" | "ui" | "workflow";
+export type TestDomain = "all" | "core" | "ui" | "workflow" | "e2e";
 
 function normalizeMode(value: unknown): TestMode {
   const raw = String(value || "")
@@ -75,7 +75,7 @@ function normalizeDomain(value: unknown): TestDomain {
   const raw = String(value || "")
     .trim()
     .toLowerCase();
-  if (raw === "core" || raw === "ui" || raw === "workflow") {
+  if (raw === "core" || raw === "ui" || raw === "workflow" || raw === "e2e") {
     return raw;
   }
   return "all";
