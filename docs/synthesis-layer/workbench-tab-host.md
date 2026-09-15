@@ -149,13 +149,15 @@ Child frame 通过 bridge `postMessage()` 或 `postMessage` 事件发送 action�
 
 `cleanupSynthesisRuntime(runtime)` 清理所有资源：
 
+- 通过幂等入口阻止同一 runtime 重复清理
 - 清除 `handshakeTimer`、`libraryReadModelDirtyTimer`
 - 清除 `commandProgressTimer`
+- 在 bridge 和 tab 容器仍可用时同步向 child frame 派发 `pagehide`，先触发 Preact 卸载及 Sigma/WebGL renderer 释放
 - 清除 bridge 引用
 - 移除 message listener
 - 从 `synthesisWorkbenchRuntimes` Set 中删除
 
-`openSynthesisWorkbenchTab` 在 tab 关闭时自动调用 `cleanupSynthesisWorkbenchTab()`。`mountSynthesisWorkbenchRuntime` 返回的 `cleanup` 回调由调用方负责。
+`openSynthesisWorkbenchTab` 在 tab 关闭时自动调用 `cleanupSynthesisWorkbenchTab()`；Zotero 随后移除 tab 容器时产生的原生 `pagehide` 只作为幂等兜底。`mountSynthesisWorkbenchRuntime` 返回的 `cleanup` 回调由调用方负责。
 
 ## 通信协议
 

@@ -127,6 +127,7 @@ async function mountTestWorkbench(
 
   return {
     bridge,
+    frameWindow,
     frameSrc: String(frame.getAttribute("src") || ""),
     messages,
     refresh: mounted.refresh,
@@ -141,6 +142,41 @@ async function mountTestWorkbench(
 }
 
 describe("Synthesis tab UI model", function () {
+  it("notifies the Workbench page once before clearing its bridge", async function () {
+    const workbench = await mountTestWorkbench({
+      getSynthesisWorkbenchChromeInput: async () => ({}),
+      getSynthesisWorkbenchSurfaceInput: async () => ({}),
+    });
+    let pageHideCount = 0;
+    let bridgeAvailableDuringPageHide = false;
+    workbench.frameWindow.addEventListener("pagehide", () => {
+      pageHideCount += 1;
+      bridgeAvailableDuringPageHide =
+        typeof (
+          workbench.frameWindow as unknown as {
+            __zoteroSkillsSynthesisWorkbenchBridge?: unknown;
+          }
+        ).__zoteroSkillsSynthesisWorkbenchBridge === "object";
+    });
+
+    try {
+      workbench.unmount();
+      workbench.unmount();
+
+      assert.equal(pageHideCount, 1);
+      assert.isTrue(bridgeAvailableDuringPageHide);
+      assert.isUndefined(
+        (
+          workbench.frameWindow as unknown as {
+            __zoteroSkillsSynthesisWorkbenchBridge?: unknown;
+          }
+        ).__zoteroSkillsSynthesisWorkbenchBridge,
+      );
+    } finally {
+      await workbench.cleanup();
+    }
+  });
+
   it("coalesces overlapping chrome refreshes into one latest follow-up", async function () {
     const reads: Array<ReturnType<typeof deferred<Record<string, unknown>>>> =
       [];

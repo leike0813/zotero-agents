@@ -13,6 +13,7 @@ import {
 } from "../../src/dashboard/dashboardApp";
 import { createDashboardChromeRenderer } from "../../src/dashboard/dashboardChromeRenderer";
 import { projectDashboardPanel } from "../../src/dashboard/dashboardPanelModel";
+import { createDashboardFrameOwner } from "../../src/modules/dashboard/dashboardFrame";
 import type {
   DashboardPageSnapshot,
   DashboardUiState,
@@ -689,5 +690,32 @@ describe("dashboard A2c integration (src/dashboard)", function () {
       "a late host snapshot does not render after disposal",
     );
     root.remove();
+  });
+
+  it("notifies the dashboard page before removing its frame", function () {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const owner = createDashboardFrameOwner({
+      selectedBackendId: () => "",
+      selectedBackendSubview: () => "runs",
+      findBackend: () => undefined,
+      showRuns: () => {},
+    });
+    owner.mount(root, window, {
+      onLoad: () => {},
+      onAction: () => {},
+    });
+    const frame = root.querySelector(
+      '[data-zs-role="task-dashboard-frame"]',
+    ) as HTMLIFrameElement;
+    let pageHiddenWhileConnected = false;
+    frame.contentWindow?.addEventListener("pagehide", () => {
+      pageHiddenWhileConnected = frame.isConnected;
+    });
+
+    owner.cleanup();
+
+    assert.isTrue(pageHiddenWhileConnected);
+    assert.isFalse(frame.isConnected);
   });
 });

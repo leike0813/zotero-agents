@@ -348,10 +348,14 @@ describe("Synthesis native client composition", function () {
     beginSynthesisSidecarBusinessAudit({
       operation: "client.listTopics",
     }).failed(
-      new SynthesisClientError("unavailable", "The native Synthesis request failed", {
-        sidecarCode: "worker_unavailable",
-        sidecarReason: "repository_unavailable",
-      }),
+      new SynthesisClientError(
+        "unavailable",
+        "The native Synthesis request failed",
+        {
+          sidecarCode: "worker_unavailable",
+          sidecarReason: "repository_unavailable",
+        },
+      ),
     );
 
     const entries = listRuntimeLogs({
@@ -371,7 +375,10 @@ describe("Synthesis native client composition", function () {
       classification: "unavailable",
       sidecarCode: "worker_unavailable",
     });
-    assert.notProperty(entries[1]?.details as Record<string, unknown>, "reason");
+    assert.notProperty(
+      entries[1]?.details as Record<string, unknown>,
+      "reason",
+    );
   });
 
   it("classifies public maintenance receipts by lifecycle state for every receipt operation", function () {

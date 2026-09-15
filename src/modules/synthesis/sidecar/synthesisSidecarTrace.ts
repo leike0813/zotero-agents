@@ -51,7 +51,8 @@ let traceClock: () => number = Date.now;
 
 function isTraceEffectivelyActive(trace: MutableTrace, nowMs: number) {
   return (
-    trace.active && nowMs - trace.updatedAtMs <= SYNTHESIS_SIDECAR_STALE_ACTIVE_MS
+    trace.active &&
+    nowMs - trace.updatedAtMs <= SYNTHESIS_SIDECAR_STALE_ACTIVE_MS
   );
 }
 

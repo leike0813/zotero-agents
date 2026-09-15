@@ -389,7 +389,10 @@ export function createDashboardActionDispatcher(
                   }
                 : {}),
               ...(state.literatureMigrationCandidateQuery.reasonCode
-                ? { reasonCode: state.literatureMigrationCandidateQuery.reasonCode }
+                ? {
+                    reasonCode:
+                      state.literatureMigrationCandidateQuery.reasonCode,
+                  }
                 : {}),
               ...(state.literatureMigrationCandidateQuery.disposition
                 ? {
@@ -424,7 +427,10 @@ export function createDashboardActionDispatcher(
                   }
                 : {}),
               ...(state.literatureMigrationCandidateQuery.reasonCode
-                ? { reasonCode: state.literatureMigrationCandidateQuery.reasonCode }
+                ? {
+                    reasonCode:
+                      state.literatureMigrationCandidateQuery.reasonCode,
+                  }
                 : {}),
               ...(state.literatureMigrationCandidateQuery.disposition
                 ? {

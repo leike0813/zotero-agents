@@ -638,6 +638,16 @@ describe("synthesis graph region (src/synthesis/components/graph)", function () 
     );
     assert.equal(FakeSigma.instances.length, 1, "no renderer was recreated");
   });
+
+  it("kills the sigma renderer when the graph region unmounts", function () {
+    const vendors = makeVendors();
+    const { container } = renderRegion(makeSelection(), vendors);
+    const sigma = FakeSigma.instances[0];
+
+    render(null, container);
+
+    assert.isTrue(sigma.killed);
+  });
 });
 
 // ---------------------------------------------------------------------------

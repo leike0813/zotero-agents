@@ -112,6 +112,20 @@ function createFrame(doc: Document) {
   return frame;
 }
 
+function removeContentFrame(frame: Element | null) {
+  if (!frame) return;
+  const frameWindow = (frame as Element & { contentWindow?: Window | null })
+    .contentWindow;
+  try {
+    frameWindow?.dispatchEvent(new frameWindow.Event("pagehide"));
+  } catch (error) {
+    Zotero.logError?.(
+      error instanceof Error ? error : new Error(String(error)),
+    );
+  }
+  frame.remove();
+}
+
 export function createDashboardFrameOwner(args: DashboardFrameOwnerArgs) {
   let frame: Element | null = null;
   let frameWindow: Window | null = null;
@@ -121,7 +135,7 @@ export function createDashboardFrameOwner(args: DashboardFrameOwnerArgs) {
 
   const clearManagement = () => {
     args.managementHost?.clear();
-    managementMount?.remove();
+    removeContentFrame(managementMount);
     managementMount = null;
     managementKey = "";
   };
@@ -212,8 +226,8 @@ export function createDashboardFrameOwner(args: DashboardFrameOwnerArgs) {
       removeMessageListener?.();
       removeMessageListener = undefined;
       clearManagement();
+      removeContentFrame(frame);
       frameWindow = null;
-      frame?.remove();
       frame = null;
     },
   };

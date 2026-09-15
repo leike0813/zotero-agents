@@ -555,6 +555,42 @@ describe("library artifacts column", function () {
     }
   });
 
+  it("refreshes a paper when an embedded payload attachment changes under its managed note", async function () {
+    const parent = await createParentItem("Paper");
+
+    assert.equal(
+      libraryArtifactsColumnInternalsForTests.provideArtifactsCellData(parent),
+      "",
+    );
+    await waitForArtifactColumnRefresh();
+
+    const note = await createNote(
+      parent,
+      "References",
+      '<div data-schema-version="9"><h1>References</h1></div>',
+    );
+    const payload = await createEmbeddedPayloadAttachment(note, {
+      noteKind: "references",
+      payloadType: "references-json",
+      payload: {
+        schema: "source_reference_artifact.v1",
+        references: [],
+      },
+    });
+
+    notifyLibraryArtifactsColumnItemsChanged([payload.id]);
+    assert.equal(
+      libraryArtifactsColumnInternalsForTests.provideArtifactsCellData(parent),
+      "",
+    );
+    await waitForArtifactColumnRefresh();
+
+    assert.equal(
+      libraryArtifactsColumnInternalsForTests.provideArtifactsCellData(parent),
+      "references",
+    );
+  });
+
   it("exposes structured readiness from the shared artifact evaluator", async function () {
     const parent = await createParentItem("Readiness Paper");
     const pdf = await createAttachment(parent, "D:\\Library\\readiness.pdf", {
@@ -721,6 +757,17 @@ describe("library artifacts column", function () {
     assert.include(rated.getAttribute("aria-label") || "", "60");
     assert.isTrue(missing.className.includes("is-missing"));
     assert.equal(missing.querySelectorAll("span").length, 5);
+  });
+
+  it("renders no rating for items where the column does not apply", function () {
+    const cell = libraryArtifactsColumnInternalsForTests.renderRatingCell(
+      "",
+      createTinyDocument() as unknown as Document,
+    );
+
+    assert.equal(cell.querySelectorAll("span").length, 0);
+    assert.equal(cell.getAttribute("title"), null);
+    assert.equal(cell.getAttribute("aria-label"), null);
   });
 
   it("renders the artifact icon set for multi-artifact cells", function () {

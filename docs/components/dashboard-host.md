@@ -35,7 +35,7 @@ dashboardHost.ts
 
 宿主挂载后创建 Dashboard frame，注册一个 `message` listener，并立即请求初始 snapshot。运行时订阅任务、ACP Skill run、backend health、提交队列和可用的诊断源；高噪声更新由同一刷新链合并。snapshot 只在 chrome 或当前 surface signature 变化时发布。
 
-清理会取消订阅与定时器、移除消息监听和 frame、清空 management overlay，并撤销独立窗口的外部 tab selector。清理可重复调用。
+清理会取消订阅与定时器、移除消息监听、清空 management overlay，并撤销独立窗口的外部 tab selector。Dashboard frame 或 management frame 从 DOM 移除前，host 会同步派发 `pagehide`，让页面先卸载 Preact 区域及其持有的 observer、计时器和图形 renderer；浏览器随后产生的原生 `pagehide` 是幂等兜底。清理可重复调用。
 
 ## Host 与页面边界
 

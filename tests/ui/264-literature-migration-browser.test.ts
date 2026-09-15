@@ -243,17 +243,22 @@ describe("Dashboard literature migration browser UI", function () {
           payload?: unknown;
         };
         if (data?.type === "dashboard:action") {
-          console.log("dashboard-action:" + JSON.stringify({
-            action: data.action || "",
-            payload: data.payload,
-          }));
+          console.log(
+            "dashboard-action:" +
+              JSON.stringify({
+                action: data.action || "",
+                payload: data.payload,
+              }),
+          );
         }
       });
     });
     await postSnapshot(page, snapshot);
     const waitForAction = async (action: string, count = 1) => {
       for (let attempt = 0; attempt < 40; attempt += 1) {
-        if (actions.filter((entry) => entry.action === action).length >= count) {
+        if (
+          actions.filter((entry) => entry.action === action).length >= count
+        ) {
           return;
         }
         await page.waitForTimeout(50);
@@ -269,7 +274,7 @@ describe("Dashboard literature migration browser UI", function () {
     );
     await selectAll.click();
     await waitForAction("literature-migration-set-filter-selection");
-    const bulk = (actions).find(
+    const bulk = actions.find(
       (entry) => entry.action === "literature-migration-set-filter-selection",
     );
     assert.exists(bulk);
@@ -284,7 +289,7 @@ describe("Dashboard literature migration browser UI", function () {
     assert.isTrue(
       await page.locator('[data-role="migration-prev-page"]').isDisabled(),
     );
-    const beforeNext = (actions).filter(
+    const beforeNext = actions.filter(
       (entry) => entry.action === "literature-migration-list-receipts",
     );
     assert.lengthOf(beforeNext, 0, "first/prev on page zero must not dispatch");
@@ -292,19 +297,25 @@ describe("Dashboard literature migration browser UI", function () {
     await page.locator('[data-role="migration-next-page"]').click();
     await page.locator('[data-role="migration-last-page"]').click();
     await waitForAction("literature-migration-list-receipts", 2);
-    const pageJumps = (actions).filter(
+    const pageJumps = actions.filter(
       (entry) => entry.action === "literature-migration-list-receipts",
     );
     assert.deepEqual(pageJumps, [
-      { action: "literature-migration-list-receipts", payload: { runId: "run-1", page: 1 } },
-      { action: "literature-migration-list-receipts", payload: { runId: "run-1", page: 1 } },
+      {
+        action: "literature-migration-list-receipts",
+        payload: { runId: "run-1", page: 1 },
+      },
+      {
+        action: "literature-migration-list-receipts",
+        payload: { runId: "run-1", page: 1 },
+      },
     ]);
 
     const pageInput = page.locator('[data-role="migration-page-input"]');
     await pageInput.fill("12");
     await pageInput.press("Enter");
     await waitForAction("literature-migration-list-receipts", 3);
-    const afterInput = (actions).filter(
+    const afterInput = actions.filter(
       (entry) => entry.action === "literature-migration-list-receipts",
     );
     assert.deepEqual(afterInput[2], {
@@ -312,9 +323,11 @@ describe("Dashboard literature migration browser UI", function () {
       payload: { runId: "run-1", page: 1 },
     });
 
-    await page.locator('[data-role="migration-search"]').fill("migration set 1");
+    await page
+      .locator('[data-role="migration-search"]')
+      .fill("migration set 1");
     await waitForAction("literature-migration-set-candidate-query");
-    const query = (actions).find(
+    const query = actions.find(
       (entry) => entry.action === "literature-migration-set-candidate-query",
     );
     assert.exists(query);

@@ -123,12 +123,17 @@ export function notifyLibraryArtifactsColumnItemsChanged(
       continue;
     }
     resolvedAny = true;
-    const parentID = Number(item.parentID || 0);
-    if (parentID > 0) {
-      clearCachedItem(parentID);
-      refreshItemIDs.add(parentID);
-    } else if (isTopLevelRegularArtifactItem(item)) {
-      refreshItemIDs.add(numericID);
+    let topLevelItem = item;
+    while (Number(topLevelItem.parentID || 0) > 0) {
+      const parent = Zotero.Items.get(Number(topLevelItem.parentID)) as
+        | LibraryArtifactItem
+        | undefined;
+      if (!parent) break;
+      topLevelItem = parent;
+    }
+    if (isTopLevelRegularArtifactItem(topLevelItem)) {
+      clearCachedItem(topLevelItem.id);
+      refreshItemIDs.add(topLevelItem.id);
     }
     clearCachedItem(numericID);
   }
@@ -263,6 +268,7 @@ function renderArtifactsCell(
 
 function renderRatingCell(data: string, doc: Document, columnClassName = "") {
   const value = String(data || "").trim();
+  const notApplicable = !value;
   const numericScore = value && value !== "missing" ? Number(value) : NaN;
   const missing = !Number.isFinite(numericScore);
   const cell = doc.createElement("span");
@@ -270,10 +276,14 @@ function renderRatingCell(data: string, doc: Document, columnClassName = "") {
     "cell",
     columnClassName,
     "zs-library-rating-cell",
-    missing ? "is-missing" : "",
+    missing && !notApplicable ? "is-missing" : "",
   ]
     .filter(Boolean)
     .join(" ");
+  if (notApplicable) {
+    cell.setAttribute("aria-label", "");
+    return cell;
+  }
   const fallbackLabel = missing
     ? "Rating unavailable"
     : `${numericScore}/100, ${literatureScoreToStars(numericScore).rating}/5 stars`;

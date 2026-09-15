@@ -85,7 +85,8 @@ function buildMigrationsSelection(
                   {
                     label: "Unknown (2020)",
                     hint: "#3 · 2020",
-                    detail: "The full snippet of the unresolved citation mention.",
+                    detail:
+                      "The full snippet of the unresolved citation mention.",
                   },
                 ],
                 selectedOptionId: "",
@@ -207,7 +208,8 @@ function buildMigrationsSelection(
     recoveredHint: "References recovered only from citation snapshots.",
     droppedHint: "Entries discarded for missing title or invalid year.",
     batchLabel: "Batch decisions",
-    batchHint: "Apply to every undecided issue of this kind in the current filter.",
+    batchHint:
+      "Apply to every undecided issue of this kind in the current filter.",
     diagnosticsLabel: "Diagnostic details",
     duplicateOfLabel: "Duplicates",
     searchPlaceholder: "Search candidates",
@@ -857,12 +859,30 @@ describe("Dashboard literature migration region", function () {
       new document.defaultView!.Event("input", { bubbles: true }),
     );
     assert.deepEqual(actions, [
-      { action: "literature-migration-list-receipts", payload: { runId: "run-1", page: 0 } },
-      { action: "literature-migration-list-receipts", payload: { runId: "run-1", page: 2 } },
-      { action: "literature-migration-list-receipts", payload: { runId: "run-1", page: 2 } },
-      { action: "literature-migration-list-receipts", payload: { runId: "run-1", page: 0 } },
-      { action: "literature-migration-list-receipts", payload: { runId: "run-1", page: 2 } },
-      { action: "literature-migration-list-receipts", payload: { runId: "run-1", page: 2 } },
+      {
+        action: "literature-migration-list-receipts",
+        payload: { runId: "run-1", page: 0 },
+      },
+      {
+        action: "literature-migration-list-receipts",
+        payload: { runId: "run-1", page: 2 },
+      },
+      {
+        action: "literature-migration-list-receipts",
+        payload: { runId: "run-1", page: 2 },
+      },
+      {
+        action: "literature-migration-list-receipts",
+        payload: { runId: "run-1", page: 0 },
+      },
+      {
+        action: "literature-migration-list-receipts",
+        payload: { runId: "run-1", page: 2 },
+      },
+      {
+        action: "literature-migration-list-receipts",
+        payload: { runId: "run-1", page: 2 },
+      },
     ]);
     render(null, root);
     restoreSidebarDomGlobals();
@@ -912,7 +932,9 @@ describe("Dashboard literature migration region", function () {
       '[data-role="migration-batch-resolve"]',
     );
     assert.lengthOf(batchButtons, 4);
-    const batchGroups = root.querySelectorAll(".dashboard-migration-batch-group");
+    const batchGroups = root.querySelectorAll(
+      ".dashboard-migration-batch-group",
+    );
     assert.lengthOf(batchGroups, 2);
     const mergeAll = Array.from(batchButtons).find(
       (button) => button.dataset.kind === "merge_duplicates",

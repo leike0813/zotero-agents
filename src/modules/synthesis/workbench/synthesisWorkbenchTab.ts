@@ -4095,6 +4095,7 @@ async function refreshGraphLayoutIfNeeded(runtime: SynthesisWorkbenchRuntime) {
 }
 
 function cleanupSynthesisRuntime(runtime: SynthesisWorkbenchRuntime) {
+  if (runtime.cleanedUp) return;
   runtime.cleanedUp = true;
   runtime.chromeReadRevision += 1;
   runtime.queuedChromeRefresh = false;
@@ -4118,6 +4119,14 @@ function cleanupSynthesisRuntime(runtime: SynthesisWorkbenchRuntime) {
   }
   runtime.removeSidecarStatusListener?.();
   runtime.removeSidecarStatusListener = undefined;
+  const frameWindow = runtime.frameWindow || resolveFrameWindow(runtime.frame);
+  try {
+    frameWindow?.dispatchEvent(new frameWindow.Event("pagehide"));
+  } catch (error) {
+    Zotero.logError?.(
+      error instanceof Error ? error : new Error(String(error)),
+    );
+  }
   clearSynthesisWorkbenchBridge(runtime);
   runtime.removeFrameLoadListener?.();
   runtime.removeFrameLoadListener = undefined;

@@ -1759,7 +1759,7 @@ export function createLiteratureArtifactMigrationService(
         : "";
     let failed = false;
     let stopScheduling = false;
-    let failureDiagnostics: string[] = [];
+    const failureDiagnostics: string[] = [];
     try {
       for (const candidate of toApply) {
         if (runtimeActive?.stopped || plan.stopped) {
