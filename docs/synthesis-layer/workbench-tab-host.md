@@ -221,7 +221,7 @@ Child frame 通过 bridge `postMessage()` 或 `postMessage` 事件发送 action�
 | Topic Artifact | 5 | `openTopicArtifact`, `exportTopicSynthesisReport`, `resolveTopicPaperDigest`, `deleteTopicArtifact`, `purgeDeletedTopicArtifacts` |
 | 其他 | 2 | `openPreferences`, `manualRecomputeLayout` |
 
-四个 Citation Graph host 命令动态解析默认 `SynthesisClient` 并调用 `client.graph`。手动 layout 请求传入 `force: true`；Graph surface 的自动 layout refresh 复用同一个 client 完成 surface read 和非强制 recompute。Full rebuild、incremental refresh 和 retry 均使用无参数 client command，不把 `onProgress` 或其它 UI callback 带入 contract。所有四个命令都通过 `classifySynthesisWorkbenchGraphMutationResult()` 判定终态，Promise 正常 resolve 本身不代表命令成功：原生 `promoted` / `unchanged` 才是成功终态，其余原生 mutation status 转成带稳定 code 和原始 status detail 的 `SynthesisClientError`。保留实现中，`ok: true` 搭配 `completed`、`bootstrapped`、`skipped` 或 `superseded` 继续成功；无 status 的计数结果在 `failed > 0` 时失败，`ok: false` 同样失败。
+四个 Citation Graph host 命令动态解析默认 `SynthesisClient` 并调用 `client.graph`。手动 layout 请求传入 `force: true`；Graph surface 的自动 layout refresh 复用同一个 client 完成 surface read 和非强制 recompute。Full rebuild、incremental refresh 和 retry 均使用无参数 client command，不把 `onProgress` 或其它 UI callback 带入 contract。Full rebuild 由 Rust sidecar 异步维护操作执行，不再弹出宿主确认框；deferred start、single-flight 与进度观察保持不变。所有四个命令都通过 `classifySynthesisWorkbenchGraphMutationResult()` 判定终态，Promise 正常 resolve 本身不代表命令成功：原生 `promoted` / `unchanged` 才是成功终态，其余原生 mutation status 转成带稳定 code 和原始 status detail 的 `SynthesisClientError`。保留实现中，`ok: true` 搭配 `completed`、`bootstrapped`、`skipped` 或 `superseded` 继续成功；无 status 的计数结果在 `failed > 0` 时失败，`ok: false` 同样失败。
 
 Layout 请求在发出前捕获当前 `graph_hash + layoutAlgorithm`。失败记录同时保存稳定 code、原生 mutation status（若有）、清理并限长后的 message 与时间。runtime 先发送一次不读取服务的 Graph surface 快照，再进入常规刷新；若刷新也失败，surface error 恢复的仍是带失败信息的快照。只有同一 basis 的非 ready 布局投影成 `failed`；graph hash 或算法变化时沿用新 basis 的服务状态，不继承旧失败。`ready` 坐标继续优先显示，同时保留“最近重绘失败”的非阻塞警告。成功请求清除失败记录。当前 basis 没有坐标时，前端显示失败原因和现有“重绘布局”动作，不再显示“正在计算布局”；失败 basis 不触发自动重试。普通模式展示清理后的原因，debug 模式额外展开 code、mutation status、算法和 graph hash。
 
@@ -243,11 +243,10 @@ Tag Vocabulary validation、projection rebuild、regulator export、canonical/st
 
 ### 受保护命令
 
-6 个重建命令在确认前弹出自定义确认对话框：
+5 个宿主侧重建命令在执行前弹出自定义确认对话框：
 
 - `refreshReferenceSidecarNow` — 提示"heavier pass" 风险
 - `runAdvancedReferenceMatchingNow` — 同上
-- `rebuildCitationGraphCacheNow` — 提示"重建索引"标准文案
 - `rebuildTagVocabularyIndex` — 同上
 - `rebuildConceptKbIndex` — 同上
 - `rebuildTopicGraphIndex` — 同上

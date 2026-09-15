@@ -826,6 +826,15 @@ async function onStartup() {
   await ensureStartupRuntimePreflight();
   const synthesisProductionReady = startDefaultSynthesisProductionOwner();
   void synthesisProductionReady.catch((error) => {
+    appendRuntimeLog({
+      level: "error",
+      scope: "system",
+      component: "synthesis-production",
+      operation: "startup",
+      stage: "failed",
+      message: "Synthesis production owner startup failed",
+      error,
+    });
     emitVerboseConsole(
       "warn",
       "[synthesis-production] owner startup failed",

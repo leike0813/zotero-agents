@@ -19,7 +19,10 @@ import {
   patchGeneratedZoteroTestRunner,
   patchZoteroTestRunnerHtml,
 } from "../../scripts/patch-zotero-test-runner";
-import { shouldUseHeadlessZoteroTest } from "../../zotero-plugin.config";
+import {
+  resolveTestEntries,
+  shouldUseHeadlessZoteroTest,
+} from "../../zotero-plugin.config";
 
 const SAMPLE_HTML = `<!DOCTYPE html>
 <html>
@@ -96,6 +99,17 @@ function Reporter(runner) {
 </html>`;
 
 describe("zotero test infrastructure helpers", function () {
+  it("allows a Zotero runtime stress test to load one test entry", function () {
+    assert.deepEqual(
+      resolveTestEntries(
+        "ui",
+        "full",
+        "tests/zotero/ui/full/276-dashboard-synthesis-close.zotero.test.ts",
+      ),
+      ["tests/zotero/setup.test.ts", "tests/zotero/ui/full"],
+    );
+  });
+
   describe("Zotero display environment", function () {
     it("uses headless mode only when Linux has no display server", function () {
       assert.isTrue(shouldUseHeadlessZoteroTest("linux", {}));

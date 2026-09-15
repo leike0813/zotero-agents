@@ -65,12 +65,15 @@ function normalizeTestDomain(value: string | undefined): TestDomain {
   return "all";
 }
 
-function resolveTestEntries(
+export function resolveTestEntries(
   domain: TestDomain,
   mode: TestMode,
+  requestedEntry?: string,
 ): string | string[] {
-  const entries = ZOTERO_TEST_ENTRIES[mode];
   const setup = "tests/zotero/setup.test.ts";
+  const entry = String(requestedEntry || "").trim();
+  if (entry) return [setup, path.extname(entry) ? path.dirname(entry) : entry];
+  const entries = ZOTERO_TEST_ENTRIES[mode];
   if (domain === "core") {
     return [setup, ...entries.core];
   }
@@ -85,7 +88,11 @@ function resolveTestEntries(
 
 const TEST_MODE = normalizeTestMode(process.env.ZOTERO_TEST_MODE);
 const TEST_DOMAIN = normalizeTestDomain(process.env.ZOTERO_TEST_DOMAIN);
-const TEST_ENTRIES = resolveTestEntries(TEST_DOMAIN, TEST_MODE);
+const TEST_ENTRIES = resolveTestEntries(
+  TEST_DOMAIN,
+  TEST_MODE,
+  process.env.ZOTERO_TEST_ENTRY,
+);
 const RELEASE_REPO = "leike0813/zotero-agents";
 const RELEASE_UPLOAD_REPO = process.env.GITHUB_REPOSITORY || RELEASE_REPO;
 

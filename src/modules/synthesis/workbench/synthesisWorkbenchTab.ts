@@ -2727,7 +2727,6 @@ function isProtectedRebuildCommand(
   return (
     command === "refreshReferenceSidecarNow" ||
     command === "runAdvancedReferenceMatchingNow" ||
-    command === "rebuildCitationGraphCacheNow" ||
     command === "rebuildTagVocabularyIndex" ||
     command === "rebuildConceptKbIndex" ||
     command === "rebuildTopicGraphIndex"

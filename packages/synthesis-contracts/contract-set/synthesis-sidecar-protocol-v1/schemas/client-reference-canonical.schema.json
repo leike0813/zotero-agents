@@ -220,6 +220,7 @@
         "unbound_reference_count": {
           "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
         },
+        "ratingScore": { "type": "number", "minimum": 0, "maximum": 100 },
         "references": {
           "type": "array",
           "maxItems": 100000,

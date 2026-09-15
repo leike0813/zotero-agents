@@ -5312,7 +5312,7 @@ describe("Synthesis tab UI model", function () {
     );
     assert.include(host, "This action is already running.");
   });
-  it("guards Workbench index rebuild commands and defers heavy rebuild start", async function () {
+  it("guards host-bound Workbench rebuild commands and defers heavy rebuild start", async function () {
     const host = await fs.readFile(
       "src/modules/synthesis/workbench/synthesisWorkbenchTab.ts",
       "utf8",
@@ -5324,7 +5324,6 @@ describe("Synthesis tab UI model", function () {
     const i18n = await fs.readFile("src/synthesisWorkbenchI18n.ts", "utf8");
     const protectedCommands = [
       "refreshReferenceSidecarNow",
-      "rebuildCitationGraphCacheNow",
       "rebuildTagVocabularyIndex",
       "rebuildConceptKbIndex",
       "rebuildTopicGraphIndex",
@@ -5360,6 +5359,14 @@ describe("Synthesis tab UI model", function () {
     assert.notInclude(
       host,
       'retryReferenceSidecarRefresh" &&\n    !confirmProtectedRebuildCommand',
+    );
+    const protectedBlock = extractFunctionBlock(
+      host,
+      "isProtectedRebuildCommand",
+    );
+    assert.notInclude(
+      protectedBlock,
+      'command === "rebuildCitationGraphCacheNow"',
     );
     for (const command of protectedCommands) {
       assert.include(host, `command === "${command}"`);

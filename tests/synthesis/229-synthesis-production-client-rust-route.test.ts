@@ -559,6 +559,30 @@ describe("Synthesis Rust production client route", function () {
           if (capability === "library.artifacts.read") {
             return dataset.readArtifact(payload);
           }
+          if (capability === "library.artifacts.readiness") {
+            return {
+              artifacts: [
+                {
+                  paperRef: "1:SYN0000001",
+                  artifactType: "literature_score",
+                  payloadType: "literature-score-json",
+                  status: "available",
+                  diagnostics: [],
+                  literatureQuality: {
+                    status: "available",
+                    schema: "literature_score.v1",
+                    rubric_id: "default-v1",
+                    paper_type: "empirical",
+                    overall_score: 68,
+                    confidence: 0.8,
+                    confidence_adjusted_score: 64.4,
+                    quality_prior: 0.644,
+                    diagnostics: [],
+                  },
+                },
+              ],
+            };
+          }
           if (capability === "library.items.get_audit_state") {
             return { states: [] };
           }
@@ -603,9 +627,11 @@ describe("Synthesis Rust production client route", function () {
         "missing_artifacts",
         "reference_count",
         "unbound_reference_count",
+        "ratingScore",
         "references",
       ]);
       assert.equal(registry.rows[0].paper_ref, "1:SYN0000001");
+      assert.equal(registry.rows[0].ratingScore, 68);
       assert.match(
         String(registry.rows[0].metadata_hash),
         /^sha256:[a-f0-9]{64}$/,
