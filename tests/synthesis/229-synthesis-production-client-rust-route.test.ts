@@ -3046,6 +3046,36 @@ describe("Synthesis Rust production client route", function () {
             limit,
             snapshotRevision: "fixture-revision-1",
           };
+        } else if (call.capability === "library.artifacts.readiness") {
+          result = {
+            artifacts: [
+              {
+                paperRef: "1:HOSTREF1",
+                artifactType: "references",
+                payloadType: "references-json",
+                status: "available",
+                diagnostics: [],
+              },
+              {
+                paperRef: "1:HOSTREF1",
+                artifactType: "literature_score",
+                payloadType: "literature-score-json",
+                status: "available",
+                diagnostics: [],
+                literatureQuality: {
+                  status: "available",
+                  schema: "literature_score.v1",
+                  rubric_id: "default-v1",
+                  paper_type: "empirical",
+                  overall_score: 68,
+                  confidence: 0.8,
+                  confidence_adjusted_score: 64.4,
+                  quality_prior: 0.644,
+                  diagnostics: [],
+                },
+              },
+            ],
+          };
         } else if (call.capability === "library.artifacts.read") {
           const smallReference = String(call.payload.expectedHash).includes(
             "hostref3",
@@ -3393,6 +3423,12 @@ describe("Synthesis Rust production client route", function () {
       assert.isArray(chrome.body.data.maintenance.backgroundJobs);
       assert.notProperty(chrome.body.data.maintenance, "cacheReadiness");
 
+      const artifactScansBeforeIndex = reverseHostCalls.filter(
+        (capability) => capability === "library.artifacts.scan_page",
+      ).length;
+      const readinessCallsBeforeIndex = reverseHostCalls.filter(
+        (capability) => capability === "library.artifacts.readiness",
+      ).length;
       const workbenchIndex = await call(
         port,
         "client.getSynthesisWorkbenchSurfaceInput",
@@ -3410,6 +3446,19 @@ describe("Synthesis Rust production client route", function () {
       );
       assert.equal(workbenchIndex.status, 200);
       assert.equal(
+        reverseHostCalls.filter(
+          (capability) => capability === "library.artifacts.scan_page",
+        ).length,
+        artifactScansBeforeIndex,
+        "Workbench Index must not request artifact payload scans",
+      );
+      assert.equal(
+        reverseHostCalls.filter(
+          (capability) => capability === "library.artifacts.readiness",
+        ).length,
+        readinessCallsBeforeIndex + 1,
+      );
+      assert.equal(
         workbenchIndex.body.data.registry.cacheStatus.status,
         "ready",
       );
@@ -3421,10 +3470,11 @@ describe("Synthesis Rust production client route", function () {
         artifactCoverage: "partial",
         reference_count: 1,
         unbound_reference_count: 1,
+        ratingScore: 68,
       });
       assert.deepEqual(
         workbenchIndex.body.data.registry.rows[0].missing_artifacts,
-        ["digest", "citation_analysis", "literature_score"],
+        ["digest", "citation_analysis"],
       );
       assert.notProperty(
         workbenchIndex.body.data.registry.rows[0],

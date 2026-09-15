@@ -175,6 +175,12 @@ pub struct ReferenceHostArtifactsPage {
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ReferenceHostArtifactReadiness {
+    pub artifacts: Vec<ReferenceHostArtifact>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReferenceHostArtifactRead {
     pub status: String,
     #[serde(default)]
@@ -201,6 +207,11 @@ pub trait ReferenceHostPort: Send + Sync {
         paper_refs: &[String],
         artifact_types: &[&str],
     ) -> Result<ReferenceHostArtifactsPage, String>;
+    fn artifact_readiness(
+        &self,
+        paper_refs: &[String],
+        artifact_types: &[&str],
+    ) -> Result<ReferenceHostArtifactReadiness, String>;
     fn read_artifact(
         &self,
         locator: &str,
@@ -489,6 +500,14 @@ mod tests {
             _paper_refs: &[String],
             _artifact_types: &[&str],
         ) -> Result<ReferenceHostArtifactsPage, String> {
+            unreachable!()
+        }
+
+        fn artifact_readiness(
+            &self,
+            _paper_refs: &[String],
+            _artifact_types: &[&str],
+        ) -> Result<ReferenceHostArtifactReadiness, String> {
             unreachable!()
         }
 

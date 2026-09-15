@@ -259,6 +259,8 @@ paper rows without exposing the internal score-only parameter.
 
 - **WHEN** an Index parent row is rendered
 - **THEN** it SHALL display the same five-star rating as the Zotero library
+- **AND** both projections SHALL read artifact existence and score from the Host Broker readiness owner
+- **AND** Index SHALL NOT perform an artifact scan or managed-note payload read
 - **AND** an expanded reference child row SHALL preserve table alignment with an
   empty rating cell.
 
@@ -372,6 +374,13 @@ Graph SHALL own a persistent Sigma surface, vendor injection, camera and lifecyc
 - **WHEN** unrelated chrome changes or the graph is temporarily inactive
 - **THEN** the mounted graph surface and camera SHALL remain available for return to that owner
 - **AND** final disposal SHALL release graph-owned resources.
+
+#### Scenario: Workbench document is closed after Graph was opened
+
+- **WHEN** the host disposes the Workbench browser and its Graph document
+- **THEN** Graph SHALL cancel listeners, observers, animation frames, and timers before browser removal
+- **AND** it SHALL NOT invoke Sigma's explicit WebGL context-loss teardown
+- **AND** the owning browser/docshell SHALL release the canvas and WebGL context together.
 
 ### Requirement: Reader and localization use shared bounded content rendering
 

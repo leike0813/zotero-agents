@@ -123,6 +123,17 @@ export function createTestSynthesisHostReadPort(
       },
     },
     artifacts: {
+      async readiness(request) {
+        const rows = await load();
+        const selected = rows.filter((input) =>
+          request.paperRefs.includes(`${input.libraryId}:${input.itemKey}`),
+        );
+        return {
+          artifacts: readArtifactsFromRegistryInputs(selected, {
+            artifact_types: request.artifactTypes,
+          }).artifacts.map(descriptor),
+        };
+      },
       async scanPage(request) {
         const rows = await load();
         const selected = request.paperRefs?.length

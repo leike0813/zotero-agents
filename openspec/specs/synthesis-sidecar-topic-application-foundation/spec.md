@@ -41,6 +41,12 @@ List SHALL read indexed Topic registry state with stable pagination, and detail 
 - **WHEN** an isolated Topic is applied, the service owners close, and the same identities reopen
 - **THEN** list and detail return the persisted Topic and canonical hashes without startup content scanning
 
+#### Scenario: Canonical Topic contains newer private fields
+- **WHEN** current canonical Topic content uses `research_area` or contains non-public scope-boundary extensions
+- **THEN** list and detail project `research_area` as public `research_field` and omit private extensions
+- **AND** canonical definition text takes precedence over an empty or stale repository projection
+- **AND** all returned Topic DTOs still pass strict rebuilding
+
 ### Requirement: Topic apply owns explicit operation lifecycle
 
 Each admitted apply SHALL create one `topic_apply` operation, update stable validation, assembly, promotion, and projection phases, and terminate as completed or failed without treating cache readiness as operation completion.

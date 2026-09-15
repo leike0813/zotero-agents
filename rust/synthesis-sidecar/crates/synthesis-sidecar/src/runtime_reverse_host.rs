@@ -24,6 +24,7 @@ fn reverse_host_timeout(capability: &str) -> Duration {
     match capability {
         "library.items.list_page"
         | "library.artifacts.scan_page"
+        | "library.artifacts.readiness"
         | "library.artifacts.read"
         | "library.representative_image.read" => REFERENCE_HOST_READ_TIMEOUT,
         capability if capability.starts_with("delivery.export.") => EXPORT_DELIVERY_TIMEOUT,
@@ -530,6 +531,7 @@ mod tests {
         for (capability, expected) in [
             ("library.items.list_page", Duration::from_secs(10)),
             ("library.artifacts.scan_page", Duration::from_secs(10)),
+            ("library.artifacts.readiness", Duration::from_secs(10)),
             ("library.artifacts.read", Duration::from_secs(10)),
             ("library.representative_image.read", Duration::from_secs(10)),
             ("delivery.export.publish_archive", Duration::from_secs(30)),

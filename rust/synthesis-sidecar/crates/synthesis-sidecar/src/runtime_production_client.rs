@@ -1168,7 +1168,8 @@ mod dispatch_integration_tests {
     use crate::runtime_production_ports::{ProductionApplications, build_production_applications};
     use crate::runtime_worker_pool::NativeComputePool;
     use synthesis_application::reference::{
-        ReferenceHostArtifactRead, ReferenceHostArtifactsPage, ReferenceHostPort,
+        ReferenceHostArtifactRead, ReferenceHostArtifactReadiness, ReferenceHostArtifactsPage,
+        ReferenceHostPort,
     };
 
     struct LiteratureDigestHost;
@@ -1261,6 +1262,14 @@ mod dispatch_integration_tests {
             _paper_refs: &[String],
             _artifact_types: &[&str],
         ) -> Result<ReferenceHostArtifactsPage, String> {
+            Err("reverse_host_unavailable".into())
+        }
+
+        fn artifact_readiness(
+            &self,
+            _paper_refs: &[String],
+            _artifact_types: &[&str],
+        ) -> Result<ReferenceHostArtifactReadiness, String> {
             Err("reverse_host_unavailable".into())
         }
 

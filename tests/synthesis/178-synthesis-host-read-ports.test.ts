@@ -260,6 +260,38 @@ describe("Synthesis Host read capability ports", function () {
     assert.isUndefined(stale.content);
   });
 
+  it("reads exact artifact readiness through the Broker without payload locators", async function () {
+    const libraryId = Zotero.Libraries.userLibraryID;
+    const paper = await createPaper("HOSTRDY1", "Host Readiness");
+    await addPayloadNote(
+      paper,
+      "references-json",
+      referencesArtifact("Ready Reference"),
+    );
+    const readiness = await createZoteroSynthesisHostReadPort({
+      libraryId,
+    }).artifacts.readiness({
+      libraryId,
+      paperRefs: [`${libraryId}:${paper.key}`],
+      artifactTypes: ["references", "literature_score"],
+    });
+
+    assert.deepEqual(
+      readiness.artifacts.map(({ artifactType, status }) => ({
+        artifactType,
+        status,
+      })),
+      [
+        { artifactType: "references", status: "available" },
+        { artifactType: "literature_score", status: "missing" },
+      ],
+    );
+    readiness.artifacts.forEach((artifact) => {
+      assert.notProperty(artifact, "locator");
+      assert.notProperty(artifact, "payloadHash");
+    });
+  });
+
   it("omits absent optional literature score hashes at the host contract", async function () {
     const libraryId = Zotero.Libraries.userLibraryID;
     const paper = await createPaper("HOSTSCR1", "Host Score Without Hash");

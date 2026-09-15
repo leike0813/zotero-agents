@@ -17,8 +17,8 @@ use synthesis_application::citation_graph::{
     CitationMetricsPageRequest, CitationMetricsSort, CitationRebuildRequest,
 };
 use synthesis_application::reference::{
-    CanonicalReferenceMutation, ReferenceHostArtifactRead, ReferenceHostArtifactsPage,
-    ReferenceHostItemsByRef, ReferenceHostItemsPage, ReferenceHostPort,
+    CanonicalReferenceMutation, ReferenceHostArtifactRead, ReferenceHostArtifactReadiness,
+    ReferenceHostArtifactsPage, ReferenceHostItemsByRef, ReferenceHostItemsPage, ReferenceHostPort,
 };
 use synthesis_application::reference_matching::{
     ReferenceHostCandidate, ReferenceMatchKind, ReferenceMatchPass, ReferenceMatcherInput,
@@ -271,6 +271,14 @@ impl ReferenceHostPort for UnusedReferenceHost {
         _paper_refs: &[String],
         _artifact_types: &[&str],
     ) -> Result<ReferenceHostArtifactsPage, String> {
+        Err("parity_host_not_requested".into())
+    }
+
+    fn artifact_readiness(
+        &self,
+        _paper_refs: &[String],
+        _artifact_types: &[&str],
+    ) -> Result<ReferenceHostArtifactReadiness, String> {
         Err("parity_host_not_requested".into())
     }
 

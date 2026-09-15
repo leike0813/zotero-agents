@@ -1,0 +1,1 @@
+{"aliases":[],"definition":"研究混凝土结构（不限具体构件类别）在施工与服役过程中出现的裂缝、空洞、剥落、渗水、钢筋/预应力筋锈蚀、冻融损伤、剥落、孔洞、灌浆缺陷、内部脱空等缺陷的检测原理、检测方法、检测装备、信号处理、识别算法与检测精度评价等方法学问题。","discipline":"computer vision","id":"混凝土缺陷检测","research_area":"混凝土缺陷检测","scope_boundary":{"exclude":[],"include":["混凝土缺陷检测"],"notes":"Runtime-derived scope boundary from the split topic context payload."},"title":"混凝土缺陷检测"}

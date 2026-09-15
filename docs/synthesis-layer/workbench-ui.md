@@ -106,13 +106,12 @@ Workbench read.
 
 Zotero Library item notifications are UI read-model invalidations, not sidecar synchronization events. Parent item add/modify/delete/trash/refresh notifications mark the Index surface dirty because the Zotero title/year/creator rows shown there are direct-read SSOT data. If Index is visible, Workbench may debounce and reload only the Index surface; if it is hidden, it must remain dirty until selected. This invalidation must not start `refreshReferenceSidecarNow`, must not rebuild graph/tag/concept caches, and must not change `synt_cache_basis`.
 
-Index and Review are separate hot paths. Index may load a bounded current-library page and a small open-review drawer slice. In normal library scope, Index rows carry artifact coverage, the Literature Analysis score summary, analysis routing mode, and reference counts only; they must not carry every raw reference for collapsed rows. The score summary is resolved only for the current page from the score note's embedded payload. It drives the five-star Rating column and the Analyze action: incomplete three-piece output runs full analysis, a complete three-piece output without a valid score runs score-only, and a complete scored item disables the action. Score-note and score-payload attachment notifications invalidate only the Index read model. Referenced-only mode may load a bounded raw-reference page and the matching source rows. Index must not load the Review Center proposal page. Review Center applies active tab, status, kind, confidence, search, cursor, and limit before SQLite materialization. Reference rows cross the boundary as `registry.matchProposals` and `registry.cleanupProposals` with only their canonical/target context; Concept rows use `concepts.reviewItems` with candidate concepts; Topic Graph uses suggested `topicGraph.edges`, low-confidence `topicGraph.reviewItems`, and their endpoint nodes. `reviews` contains the aggregate summary only. Review reads must not route through the Index sidecar row builder or read child note payloads.
+Index and Review are separate hot paths. Index may load a bounded current-library page and a small open-review drawer slice. In normal library scope, Index rows carry artifact coverage, the Literature Analysis score summary, analysis routing mode, and reference counts only; they must not carry every raw reference for collapsed rows. Artifact existence and Literature Analysis score are read for the current page through the Host Broker's `library.artifacts.readiness` projection, which is also used by Zotero Library custom columns. The sidecar and Workbench do not scan or decode managed-note payloads to reconstruct those facts. The score drives the five-star Rating column and the Analyze action: incomplete three-piece output runs full analysis, a complete three-piece output without a valid score runs score-only, and a complete scored item disables the action. Score-note and score-payload attachment notifications invalidate only the Index read model. Referenced-only mode may load a bounded raw-reference page and the matching source rows. Index must not load the Review Center proposal page. Review Center applies active tab, status, kind, confidence, search, cursor, and limit before SQLite materialization. Reference rows cross the boundary as `registry.matchProposals` and `registry.cleanupProposals` with only their canonical/target context; Concept rows use `concepts.reviewItems` with candidate concepts; Topic Graph uses suggested `topicGraph.edges`, low-confidence `topicGraph.reviewItems`, and their endpoint nodes. `reviews` contains the aggregate summary only. Review reads must not route through the Index sidecar row builder or read child note payloads.
 
 When a child note exceeds the Broker note-payload byte limit, the Broker maps
-the private codec failure to the public `resource_limited` taxonomy. Artifact
-scanning records a bounded `decode_error` for that note and continues the
-current Index page, so one oversized attachment cannot make the whole Index
-surface unavailable.
+the private codec failure to the public `resource_limited` taxonomy. Explicit
+artifact scanning records a bounded `decode_error` for that note and continues
+its maintenance page; Index readiness remains a separate Broker projection.
 
 Hosted Workbench HTML, stylesheet, and application bundle use one coordinated
 UI revision token. Topic Report panels span the full workspace when no concept
@@ -210,8 +209,9 @@ Graph data rebuild and layout rebuild must remain different UI actions. Layout r
 The Graph surface owns one persistent Sigma stage, renderer, canvas set, and WebGL context set for the Workbench document lifetime. Sidebar, selection, drawer, status, snapshot, and tab updates must reuse that surface; model changes use `setGraph()` rather than renderer teardown. A hidden Graph surface remains mounted and inert without `display:none`, and host resize bursts are coalesced before one visible resize/refresh.
 
 Workbench teardown dispatches child `pagehide` before removing the browser. The
-Graph region detaches its camera listener before killing Sigma so no callback or
-WebGL owner survives the document that created it.
+Graph region cancels its callbacks and observers but does not call Sigma's
+explicit WebGL context-loss path; browser removal lets the owning Zotero
+docshell release the canvas and context together.
 
 The top bar contains a compact sidecar status indicator derived only from the
 supervisor's bounded public health projection. Color and label communicate the

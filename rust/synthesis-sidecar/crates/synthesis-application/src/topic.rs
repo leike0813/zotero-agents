@@ -9,6 +9,7 @@ use crate::dto::{
     TopicReportResult, TopicResolverCombine, TopicResolverDto, TopicResolverPaper,
     TopicResolverRequest, TopicResolverResult, TopicSourceMaterialsStatus, TopicWorkbenchPage,
     TopicWorkbenchRow, TopicWorkflowFilter, TopicWorkflowOption, TopicWorkflowOptionsResult,
+    project_topic_definition,
 };
 use crate::ports::{
     StructuredArtifactPort, TopicCanonicalPort, TopicLibraryQueryPort, TopicRepositoryPort,
@@ -2651,8 +2652,10 @@ fn project_canonical_topic_content(
     };
     state.title = title.to_owned();
     state.definition = text.to_owned();
-    state.topic_definition_json =
-        canonical_json(definition).map_err(|_| "canonical_topic_definition_invalid".to_owned())?;
+    let fallback =
+        serde_json::from_str::<Value>(&state.topic_definition_json).unwrap_or_else(|_| json!({}));
+    state.topic_definition_json = canonical_json(&project_topic_definition(definition, &fallback))
+        .map_err(|_| "canonical_topic_definition_invalid".to_owned())?;
     Ok(state)
 }
 
@@ -3496,10 +3499,76 @@ mod tests {
         drop(application);
     }
 
+    fn copy_fixture_tree(source: &std::path::Path, destination: &std::path::Path) {
+        std::fs::create_dir_all(destination).expect("create fixture destination");
+        for entry in std::fs::read_dir(source).expect("read fixture directory") {
+            let entry = entry.expect("fixture entry");
+            let target = destination.join(entry.file_name());
+            if entry.file_type().expect("fixture file type").is_dir() {
+                copy_fixture_tree(&entry.path(), &target);
+            } else {
+                std::fs::copy(entry.path(), target).expect("copy fixture file");
+            }
+        }
+    }
+
     #[test]
-    fn topic_reads_prefer_canonical_definition_to_stale_repository_content() {
-        let root = root("canonical-definition-read");
+    fn topic_reads_project_all_sample_fixtures() {
+        let root = root("sample-topics");
         let (repository, canonical) = owners(&root);
+        let fixture_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../../tests/fixtures/synthesis-topics-sample");
+        let canonical_topics = root.join("shadow-canonical/data_typed/topics");
+        copy_fixture_tree(&fixture_root.join("topics"), &canonical_topics);
+        let states: Value = serde_json::from_slice(
+            &std::fs::read(fixture_root.join("repository-state.json"))
+                .expect("read repository state fixture"),
+        )
+        .expect("repository state fixture");
+        for fixture in states.as_array().expect("repository state rows") {
+            let topic_id = fixture["topicId"].as_str().expect("fixture topic id");
+            let CanonicalTopicState::Ready(snapshot) = canonical
+                .read_topic(topic_id)
+                .expect("read canonical fixture")
+            else {
+                panic!("expected ready canonical fixture for {topic_id}");
+            };
+            let metadata = &snapshot.metadata["data"];
+            repository
+                .upsert_state(&TopicApplicationStateRecord {
+                    topic_id: topic_id.into(),
+                    path_id: fixture["pathId"].as_str().expect("fixture path id").into(),
+                    title: fixture["title"].as_str().expect("fixture title").into(),
+                    definition: fixture["definition"]
+                        .as_str()
+                        .expect("fixture definition")
+                        .into(),
+                    language: metadata["language"].as_str().unwrap_or("zh-CN").into(),
+                    operation: metadata["operation"]
+                        .as_str()
+                        .unwrap_or("update_full")
+                        .into(),
+                    manifest_hash: snapshot.basis.manifest_hash,
+                    artifact_hash: snapshot.basis.artifact_hash,
+                    metadata_hash: snapshot.metadata_hash,
+                    bundle_hash: metadata["bundle_hash"].as_str().unwrap_or_default().into(),
+                    paper_count: metadata["paper_count"].as_i64().unwrap_or_default(),
+                    topic_definition_json: canonical_json(&fixture["topicDefinition"])
+                        .expect("fixture topic definition"),
+                    topic_resolver_json:
+                        r#"{"paper_refs":[],"collection_key":[],"combine":"union"}"#.into(),
+                    resolved_paper_set_json: r#"{"papers":[]}"#.into(),
+                    created_at: snapshot.metadata["created_at"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .into(),
+                    updated_at: snapshot.metadata["updated_at"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .into(),
+                })
+                .expect("seed repository state fixture");
+        }
         let application = TopicApplication::with_factories(
             Arc::new(repository.clone()),
             Arc::new(canonical),
@@ -3507,63 +3576,41 @@ mod tests {
             Arc::new(|| "2026-07-26T12:00:00.000Z".into()),
             Arc::new(|topic| format!("operation:{topic}")),
         );
-        let mut create = request("topic-canonical", "create");
-        let manifest_asset = create
-            .assets
-            .iter_mut()
-            .find(|asset| asset.id == "asset/manifest")
-            .expect("manifest asset");
-        let mut manifest: Value =
-            serde_json::from_str(&manifest_asset.text).expect("manifest json");
-        manifest["sections"]["topic"] = json!({"path":"asset/topic"});
-        manifest_asset.text = serde_json::to_string(&manifest).expect("manifest text");
-        create.assets.push(TopicAsset {
-            id: "asset/topic".into(),
-            media_type: "application/json".into(),
-            text: r#"{"id":"topic-canonical","title":"Canonical Topic","definition":"Canonical definition"}"#.into(),
-        });
-        assert!(application.apply(create).ok);
-        repository
-            .owner()
-            .lock()
-            .expect("repository")
-            .execute(
-                "UPDATE synt_topic_application_state
-                 SET title='Stale Topic',definition='',topic_definition_json=?1
-                 WHERE topic_id=?2",
-                &[
-                    json!(r#"{"id":"topic-canonical","title":"Stale Topic"}"#),
-                    json!("topic-canonical"),
-                ],
-            )
-            .expect("stale repository content");
-
         let workbench = application
             .list_workbench(TopicListRequest::default())
             .expect("workbench page");
-        assert_eq!(workbench.rows[0].title, "Canonical Topic");
-        assert_eq!(workbench.rows[0].definition, "Canonical definition");
+        assert_eq!(workbench.rows.len(), 6);
+        assert!(workbench.rows.iter().all(|row| !row.definition.is_empty()));
 
         let topics = application
             .list(TopicListRequest::default())
             .expect("topic page");
-        assert_eq!(topics.topics[0].title, "Canonical Topic");
-        assert_eq!(topics.topics[0].definition, "Canonical definition");
+        assert_eq!(topics.topics.len(), 6);
+        let nondestructive = topics
+            .topics
+            .iter()
+            .find(|topic| topic.topic_id == "结构无损检测")
+            .expect("nondestructive topic");
         assert_eq!(
-            topics.topics[0].topic_definition.definition.as_deref(),
-            Some("Canonical definition")
+            nondestructive.topic_definition.research_field.as_deref(),
+            Some("结构无损检测")
         );
-
-        let detail = application
-            .detail(TopicDetailRequest {
-                topic_id: "topic-canonical".into(),
-            })
-            .expect("topic detail");
-        let TopicDetailResult::Ready { topic, .. } = detail else {
-            panic!("expected ready topic detail");
-        };
-        assert_eq!(topic.title, "Canonical Topic");
-        assert_eq!(topic.definition, "Canonical definition");
+        assert!(nondestructive.topic_definition.scope_boundary.is_some());
+        for fixture in states.as_array().expect("repository state rows") {
+            let topic_id = fixture["topicId"].as_str().expect("fixture topic id");
+            let detail = application
+                .detail(TopicDetailRequest {
+                    topic_id: topic_id.into(),
+                })
+                .expect("topic detail");
+            let TopicDetailResult::Ready { topic, .. } = detail else {
+                panic!("expected ready topic detail for {topic_id}");
+            };
+            assert!(
+                !topic.definition.is_empty(),
+                "missing definition for {topic_id}"
+            );
+        }
         drop(application);
     }
 

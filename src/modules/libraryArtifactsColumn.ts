@@ -3,9 +3,9 @@ import { getStringOrFallback } from "../utils/locale";
 import {
   isTopLevelRegularArtifactItem,
   parseLibraryArtifactState,
-  resolveLibraryArtifactReadiness,
   type LibraryArtifactItem,
 } from "./zoteroHost/libraryArtifactReadiness";
+import { resolveZoteroHostCapabilityBroker } from "./zoteroHostCapabilityBroker";
 import { literatureScoreToStars } from "../shared/literatureScore";
 
 type LibraryColumnState = {
@@ -204,7 +204,10 @@ async function scanItemArtifacts(item: LibraryArtifactItem) {
   }
   pendingScans.add(item.id);
   try {
-    const readiness = await resolveLibraryArtifactReadiness(item);
+    const [readiness] =
+      await resolveZoteroHostCapabilityBroker().library.getArtifactReadiness([
+        { libraryId: Number((item as any).libraryID), key: String(item.key) },
+      ]);
     const state: LibraryColumnState = {
       artifacts: readiness.state,
       score: readiness.literatureScore.summary?.overallScore ?? null,
@@ -232,7 +235,12 @@ async function scanItemArtifacts(item: LibraryArtifactItem) {
 async function resolveArtifactState(
   item: LibraryArtifactItem,
 ): Promise<string> {
-  return (await resolveLibraryArtifactReadiness(item)).state;
+  if (!isTopLevelRegularArtifactItem(item)) return "";
+  const [readiness] =
+    await resolveZoteroHostCapabilityBroker().library.getArtifactReadiness([
+      { libraryId: Number((item as any).libraryID), key: String(item.key) },
+    ]);
+  return readiness.state;
 }
 
 function renderArtifactsCell(

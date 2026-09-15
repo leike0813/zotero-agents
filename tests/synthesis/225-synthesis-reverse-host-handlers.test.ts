@@ -55,6 +55,7 @@ describe("Synthesis reverse Host handlers", function () {
         },
         artifacts: {
           scanPage: () => result("artifacts.scanPage") as never,
+          readiness: () => result("artifacts.readiness") as never,
           read: () => result("artifacts.read") as never,
         },
       },
@@ -125,6 +126,10 @@ describe("Synthesis reverse Host handlers", function () {
       { libraryId: 1 },
       {} as never,
     );
+    await handlers["library.artifacts.readiness"](
+      { libraryId: 1, paperRefs: ["HOSTRDY1"] },
+      {} as never,
+    );
     await handlers["library.artifacts.read"](
       { locator: "x", expectedHash: "y" },
       {} as never,
@@ -146,6 +151,7 @@ describe("Synthesis reverse Host handlers", function () {
       "library.getItemsByRef",
       "tags.readAuditState",
       "artifacts.scanPage",
+      "artifacts.readiness",
       "artifacts.read",
       "webdav.describe",
       "workspace.materialize",

@@ -442,7 +442,8 @@ export class CitationGraphIsland {
     this.graph = null;
     this.view = null;
     this.resizePending = false;
-    renderer?.kill();
+    // The iframe/docshell owns WebGL teardown. Sigma.kill() explicitly loses
+    // the context, which can race Zotero's native D3D shutdown.
   }
 
   // -- internals --------------------------------------------------------------

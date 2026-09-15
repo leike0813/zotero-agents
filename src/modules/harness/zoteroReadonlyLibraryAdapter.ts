@@ -354,7 +354,7 @@ export async function createZoteroReadonlyHostReadPort(
     locatorEntries.set(locator, args);
     return locator;
   }
-  return {
+  const port: SynthesisHostReadPort & { close: () => void } = {
     library: {
       async syncSnapshot() {
         throw new SynthesisClientError(
@@ -416,6 +416,13 @@ export async function createZoteroReadonlyHostReadPort(
       },
     },
     artifacts: {
+      async readiness(request) {
+        const result = await port.artifacts.scanPage({
+          ...request,
+          limit: request.paperRefs.length,
+        });
+        return { artifacts: result.artifacts };
+      },
       async scanPage(request) {
         const limit = limitValue(request.limit);
         const allInputs = await inputs();
@@ -541,4 +548,5 @@ export async function createZoteroReadonlyHostReadPort(
       db.close();
     },
   };
+  return port;
 }

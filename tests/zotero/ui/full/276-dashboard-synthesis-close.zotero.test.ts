@@ -12,6 +12,8 @@ import {
 } from "../../../../src/modules/synthesis/workbench/synthesisWorkbenchTab";
 
 const CLOSE_CYCLES = 30;
+const GRAPH_NODE_COUNT = 813;
+const GRAPH_EDGE_COUNT = 1_570;
 
 type TestRuntime = typeof globalThis & {
   addon?: unknown;
@@ -39,6 +41,23 @@ function findDashboardWindow() {
     }
   }
   return null;
+}
+
+function closeLifecycleGraph() {
+  const nodes = Array.from({ length: GRAPH_NODE_COUNT }, (_, index) => ({
+    id: `node:${index}`,
+    label: `Graph node ${index}`,
+    kind: index % 3 === 0 ? "library_paper" : "external_reference",
+    x: Math.cos((index / GRAPH_NODE_COUNT) * Math.PI * 2),
+    y: Math.sin((index / GRAPH_NODE_COUNT) * Math.PI * 2),
+  }));
+  const edges = Array.from({ length: GRAPH_EDGE_COUNT }, (_, index) => ({
+    id: `edge:${index}`,
+    source: `node:${index % GRAPH_NODE_COUNT}`,
+    target: `node:${(index * 7 + 1) % GRAPH_NODE_COUNT}`,
+    primary_role: "background",
+  }));
+  return { nodes, edges };
 }
 
 describe("Dashboard and Synthesis close lifecycle in Zotero", function () {
@@ -82,6 +101,7 @@ describe("Dashboard and Synthesis close lifecycle in Zotero", function () {
       const dashboardResult = await dashboardClosed;
       if (!dashboardResult.ok) throw dashboardResult.error;
 
+      const graph = closeLifecycleGraph();
       await openSynthesisWorkbenchTab({
         window: mainWindow,
         snapshotInput: {
@@ -89,54 +109,10 @@ describe("Dashboard and Synthesis close lifecycle in Zotero", function () {
           graph: {
             graph_hash: "close-lifecycle-graph",
             layoutStatus: "ready",
-            nodes: [
-              {
-                id: "paper:a",
-                label: "Paper A",
-                kind: "library_paper",
-                x: 0,
-                y: 0,
-              },
-              {
-                id: "reference:b",
-                label: "Reference B",
-                kind: "external_reference",
-                x: 1,
-                y: 1,
-              },
-            ],
-            edges: [
-              {
-                id: "citation:a-b",
-                source: "paper:a",
-                target: "reference:b",
-                primary_role: "background",
-              },
-            ],
-            visibleNodes: [
-              {
-                id: "paper:a",
-                label: "Paper A",
-                kind: "library_paper",
-                x: 0,
-                y: 0,
-              },
-              {
-                id: "reference:b",
-                label: "Reference B",
-                kind: "external_reference",
-                x: 1,
-                y: 1,
-              },
-            ],
-            visibleEdges: [
-              {
-                id: "citation:a-b",
-                source: "paper:a",
-                target: "reference:b",
-                primary_role: "background",
-              },
-            ],
+            nodes: graph.nodes,
+            edges: graph.edges,
+            visibleNodes: graph.nodes,
+            visibleEdges: graph.edges,
           },
         },
       });

@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 use synthesis_canonical_store::CanonicalTopicView;
 
@@ -224,6 +224,60 @@ pub struct TopicDefinitionDto {
 pub struct TopicScopeBoundaryDto {
     pub include: Vec<String>,
     pub exclude: Vec<String>,
+}
+
+pub fn project_topic_definition(value: &Value, fallback: &Value) -> Value {
+    let source = if value.is_object() { value } else { fallback };
+    let mut object = Map::new();
+    for key in [
+        "id",
+        "title",
+        "name",
+        "definition",
+        "scope",
+        "discipline",
+        "aliases",
+        "scope_include",
+        "scope_exclude",
+    ] {
+        if let Some(value) = source.get(key).or_else(|| fallback.get(key)) {
+            object.insert(key.into(), value.clone());
+        }
+    }
+    if let Some(value) = source
+        .get("research_field")
+        .or_else(|| source.get("research_area"))
+        .or_else(|| source.get("field"))
+        .or_else(|| fallback.get("research_field"))
+    {
+        object.insert("research_field".into(), value.clone());
+    }
+    if let Some(boundary) = source
+        .get("scope_boundary")
+        .or_else(|| fallback.get("scope_boundary"))
+        .and_then(Value::as_object)
+    {
+        object.insert(
+            "scope_boundary".into(),
+            Value::Object(Map::from_iter([
+                (
+                    "include".into(),
+                    boundary
+                        .get("include")
+                        .cloned()
+                        .unwrap_or_else(|| Value::Array(Vec::new())),
+                ),
+                (
+                    "exclude".into(),
+                    boundary
+                        .get("exclude")
+                        .cloned()
+                        .unwrap_or_else(|| Value::Array(Vec::new())),
+                ),
+            ])),
+        );
+    }
+    Value::Object(object)
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

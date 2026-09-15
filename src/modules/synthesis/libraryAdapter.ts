@@ -10,6 +10,7 @@ import {
   SynthesisClientError,
   toSynthesisJsonValue,
   type SynthesisHostArtifactDescriptor,
+  type SynthesisHostArtifactStatus,
   type SynthesisHostArtifactType,
   type SynthesisHostLibraryItemSummary,
   type SynthesisHostReadPort,
@@ -40,6 +41,7 @@ import {
 } from "./registry";
 import {
   buildLiteratureQualitySnapshot,
+  literatureQualityPrior,
   parseLiteratureScore,
 } from "../../shared/literatureScore";
 import { yieldToEventLoop } from "../../utils/runtimeCompatibility";
@@ -1355,6 +1357,109 @@ export function createZoteroSynthesisHostReadPort(
   return {
     library: { syncSnapshot, listItemsPage, getItemsByRef },
     artifacts: {
+      async readiness(request) {
+        const libraryId = validateHostLibraryId(request.libraryId);
+        if (libraryId !== configuredLibraryId) {
+          invalidHostRead("Host libraryId is outside the configured scope", {
+            libraryId,
+          });
+        }
+        const artifactTypes = request.artifactTypes?.length
+          ? request.artifactTypes
+          : [...PAPER_ARTIFACT_TYPES];
+        if (
+          !Array.isArray(request.paperRefs) ||
+          request.paperRefs.length === 0 ||
+          request.paperRefs.length > SYNTHESIS_HOST_READ_REF_LIMIT_MAX ||
+          artifactTypes.some((type) => !PAPER_ARTIFACT_TYPES.includes(type))
+        ) {
+          invalidHostRead("Host artifact readiness request is invalid");
+        }
+        const refs = request.paperRefs.map((paperRef) => {
+          const parsed = parseHostPaperRef(paperRef, libraryId);
+          if (!parsed || parsed.libraryId !== libraryId) {
+            invalidHostRead("Host paper ref request is invalid");
+          }
+          return { libraryId: parsed.libraryId, key: parsed.itemKey };
+        });
+        const readiness =
+          await snapshotBroker.library.getArtifactReadiness(refs);
+        return {
+          artifacts: readiness.flatMap((item, index) => {
+            const paperRef = request.paperRefs[index];
+            const available = new Set<SynthesisHostArtifactType>(
+              item.artifacts.flatMap((kind) =>
+                kind === "source-markdown"
+                  ? []
+                  : [
+                      kind === "citation-analysis"
+                        ? "citation_analysis"
+                        : kind === "literature-score"
+                          ? "literature_score"
+                          : kind,
+                    ],
+              ),
+            );
+            return artifactTypes.map(
+              (artifactType): SynthesisHostArtifactDescriptor => {
+                const summary = item.literatureScore.summary;
+                const scoreStatus = item.literatureScore.status;
+                const status: SynthesisHostArtifactStatus =
+                  artifactType === "literature_score" &&
+                  scoreStatus === "invalid"
+                    ? "decode_error"
+                    : available.has(artifactType)
+                      ? "available"
+                      : "missing";
+                const descriptor = {
+                  paperRef,
+                  artifactType,
+                  payloadType: PAPER_ARTIFACT_PAYLOAD_TYPES[artifactType],
+                  status,
+                  diagnostics:
+                    artifactType === "literature_score" &&
+                    scoreStatus === "invalid"
+                      ? ["literature_score_invalid"]
+                      : [],
+                };
+                if (artifactType === "literature_score") {
+                  return {
+                    ...descriptor,
+                    artifactType,
+                    literatureQuality:
+                      scoreStatus === "available" && summary
+                        ? {
+                            status: "available" as const,
+                            schema: summary.schema,
+                            rubric_id: summary.rubricId,
+                            paper_type: summary.paperType,
+                            overall_score: summary.overallScore,
+                            confidence: summary.confidence,
+                            confidence_adjusted_score:
+                              summary.confidenceAdjustedScore,
+                            quality_prior: literatureQualityPrior(
+                              summary.overallScore,
+                              summary.confidence,
+                            ),
+                            diagnostics: [],
+                          }
+                        : {
+                            status: scoreStatus,
+                            quality_prior: 0.5,
+                            diagnostics: [
+                              scoreStatus === "invalid"
+                                ? "literature_score_invalid"
+                                : "literature_score_missing",
+                            ],
+                          },
+                  };
+                }
+                return { ...descriptor, artifactType };
+              },
+            );
+          }),
+        };
+      },
       async scanPage(request) {
         const libraryId = validateHostLibraryId(request.libraryId);
         const limit = validateHostPageLimit(request.limit);

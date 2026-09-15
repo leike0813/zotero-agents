@@ -1049,6 +1049,14 @@
       "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
     },
     {
+      "capability": "library.artifacts.readiness",
+      "direction": "sidecar-to-host",
+      "domain": "reverse-host",
+      "requestSchemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryArtifactsReadinessRequest",
+      "resultSchemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryArtifactsReadinessResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
       "capability": "library.artifacts.read",
       "direction": "sidecar-to-host",
       "domain": "reverse-host",

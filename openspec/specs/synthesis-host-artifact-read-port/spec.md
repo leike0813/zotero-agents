@@ -28,6 +28,19 @@ The Host SHALL read one artifact payload per request using a scan-issued opaque 
 - **THEN** the Host SHALL return `stale` and the current hash
 - **AND** the stale payload SHALL NOT be consumed by the application
 
+### Requirement: Index readiness SHALL use the Host Broker projection
+
+The Host SHALL expose bounded exact-paper artifact readiness containing
+artifact existence and Literature Analysis score. Synthesis Index SHALL consume
+this projection and SHALL NOT reconstruct readiness through paged artifact scan
+or managed-note payload reads.
+
+#### Scenario: Index reads one library page
+- **WHEN** Synthesis Index projects a bounded page of parent papers
+- **THEN** it SHALL call `library.artifacts.readiness` for those exact paper refs
+- **AND** the result SHALL contain no payload locator, note HTML, attachment path, or Zotero object
+- **AND** Zotero Library custom columns and Index SHALL agree because both route through the same Broker owner
+
 ### Requirement: Reference refresh reads only changed payloads
 
 Reference refresh SHALL scan descriptors, compare hashes with persisted artifact sidecars, and read only changed available references plus their matching available citation-analysis companions. Unchanged descriptors SHALL cause no payload read. Missing and decode-error references SHALL stale prior raw references without attempting a payload read.
@@ -44,7 +57,7 @@ Reference refresh SHALL scan descriptors, compare hashes with persisted artifact
 
 ### Requirement: Reference artifact transport SHALL use a capability-specific bound
 
-General reverse-Host responses SHALL retain the 1 MiB response and two-second timeout policy. `library.artifacts.scan_page` SHALL use the general 1 MiB response-body bound with a ten-second timeout. `library.artifacts.read` SHALL use an 8 MiB response-body bound and ten-second timeout. The Host endpoint and native client MUST enforce the same selected values, and a complete response SHALL be accepted after its declared `Content-Length` arrives without waiting for connection EOF.
+General reverse-Host responses SHALL retain the 1 MiB response and two-second timeout policy. `library.artifacts.scan_page` and `library.artifacts.readiness` SHALL use the general 1 MiB response-body bound with a ten-second timeout. `library.artifacts.read` SHALL use an 8 MiB response-body bound and ten-second timeout. The Host endpoint and native client MUST enforce the same selected values, and a complete response SHALL be accepted after its declared `Content-Length` arrives without waiting for connection EOF.
 
 #### Scenario: Reference artifact exceeds the general bound only
 - **WHEN** a valid `library.artifacts.read` response is larger than 1 MiB and no larger than 8 MiB

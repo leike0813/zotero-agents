@@ -18,6 +18,7 @@ import {
 import {
   resolveLibraryArtifactReadiness,
   type LibraryArtifactItem,
+  type LibraryArtifactReadiness,
   type LibraryArtifactReadOptions,
 } from "./zoteroHost/libraryArtifactReadiness";
 import {
@@ -518,6 +519,13 @@ export type ZoteroHostItemAuditStateDto = {
   tags: string[];
 };
 
+export type ZoteroHostArtifactReadinessItemDto = Pick<
+  LibraryArtifactReadiness,
+  "state" | "artifacts" | "literatureScore"
+> & {
+  ref: ZoteroHostItemRefInput;
+};
+
 export interface ZoteroHostCapabilityBroker {
   readonly context: {
     getCurrentView(): CurrentViewDto;
@@ -584,6 +592,10 @@ export interface ZoteroHostCapabilityBroker {
       args: ZoteroHostLibraryReadinessAuditArgs,
       control?: WorkflowCallControl,
     ): Promise<ZoteroHostLibraryReadinessAuditResponse>;
+    getArtifactReadiness(
+      refs: ZoteroHostItemRefInput[],
+      control?: WorkflowCallControl,
+    ): Promise<ZoteroHostArtifactReadinessItemDto[]>;
     getItemDetail(
       ref: ZoteroHostItemRefInput,
       control?: WorkflowCallControl,
@@ -16077,6 +16089,44 @@ async function readinessAudit(
   };
 }
 
+async function getArtifactReadiness(
+  refs: ZoteroHostItemRefInput[],
+  control: WorkflowCallControl = {},
+): Promise<ZoteroHostArtifactReadinessItemDto[]> {
+  if (!Array.isArray(refs) || refs.length === 0 || refs.length > 100) {
+    throw capabilityError("invalid_request", "artifact refs are invalid", {
+      reason: "invalid_value",
+    });
+  }
+  const items = await withZoteroHostSlice(control, () =>
+    refs.map((ref) => {
+      const item = requireItem(ref);
+      if (canonicalItemKind(item) !== "regular") {
+        throw capabilityError("invalid_request", "item is not regular", {
+          reason: "invalid_type",
+          field: "itemRef",
+        });
+      }
+      return item as LibraryArtifactItem;
+    }),
+  );
+  const result: ZoteroHostArtifactReadinessItemDto[] = [];
+  for (const item of items) {
+    throwIfWorkflowCallCanceled(control);
+    const readiness = await resolveLibraryArtifactReadiness(item, {
+      runNativeSlice: (run) => withZoteroHostSlice(control, run),
+      checkCanceled: () => throwIfWorkflowCallCanceled(control),
+    });
+    result.push({
+      ref: canonicalItemRef(item),
+      state: readiness.state,
+      artifacts: readiness.artifacts,
+      literatureScore: readiness.literatureScore,
+    });
+  }
+  return result;
+}
+
 function normalizeReadinessChecks(value: unknown) {
   const raw = Array.isArray(value)
     ? value
@@ -17208,6 +17258,7 @@ export function createZoteroHostCapabilityBroker(
         args: ZoteroHostLibraryReadinessAuditArgs,
         control?: WorkflowCallControl,
       ) => readinessAudit(args, control),
+      getArtifactReadiness,
       async getItemDetail(
         ref: ZoteroHostItemRefInput,
         control: WorkflowCallControl = {},

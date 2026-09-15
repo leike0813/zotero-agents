@@ -33,6 +33,8 @@ import {
 import {
   rebuildSynthesisHostArtifactReadRequest,
   rebuildSynthesisHostArtifactReadResult,
+  rebuildSynthesisHostArtifactReadinessRequest,
+  rebuildSynthesisHostArtifactReadinessResult,
   rebuildSynthesisHostArtifactScanPageRequest,
   rebuildSynthesisHostArtifactScanPageResult,
   rebuildSynthesisHostLibraryItemsByRefRequest,
@@ -41,6 +43,8 @@ import {
   rebuildSynthesisHostPageRequest,
   type SynthesisHostArtifactReadRequest,
   type SynthesisHostArtifactReadResult,
+  type SynthesisHostArtifactReadinessRequest,
+  type SynthesisHostArtifactReadinessResult,
   type SynthesisHostArtifactScanPageRequest,
   type SynthesisHostArtifactScanPageResult,
   type SynthesisHostLibraryItemsByRefRequest,
@@ -123,6 +127,7 @@ export const SYNTHESIS_REVERSE_HOST_CAPABILITIES = [
   "library.items.get_by_ref",
   "library.items.get_audit_state",
   "library.artifacts.scan_page",
+  "library.artifacts.readiness",
   "library.artifacts.read",
   "library.representative_image.read",
   "delivery.export.publish_archive",
@@ -171,6 +176,10 @@ export interface SynthesisReverseHostContractMap {
   "library.artifacts.scan_page": {
     request: Omit<SynthesisHostArtifactScanPageRequest, "libraryId">;
     result: SynthesisHostArtifactScanPageResult;
+  };
+  "library.artifacts.readiness": {
+    request: Omit<SynthesisHostArtifactReadinessRequest, "libraryId">;
+    result: SynthesisHostArtifactReadinessResult;
   };
   "library.artifacts.read": {
     request: SynthesisHostArtifactReadRequest;
@@ -236,6 +245,10 @@ export const SYNTHESIS_REVERSE_HOST_CAPABILITY_POLICIES = Object.freeze({
     callTimeoutMs: 10_000,
   }),
   "library.artifacts.scan_page": Object.freeze({
+    responseBodyBytes: SYNTHESIS_REVERSE_HOST_LIMITS.responseBodyBytes,
+    callTimeoutMs: 10_000,
+  }),
+  "library.artifacts.readiness": Object.freeze({
     responseBodyBytes: SYNTHESIS_REVERSE_HOST_LIMITS.responseBodyBytes,
     callTimeoutMs: 10_000,
   }),
@@ -831,6 +844,27 @@ export function rebuildSynthesisReverseHostPayload<
         rebuilt = request;
       }
       break;
+    case "library.artifacts.readiness": {
+      const payload = toSynthesisJsonObject(
+        value,
+        "hostArtifactReadinessRequest",
+      );
+      exactFields(
+        payload,
+        [
+          "paperRefs",
+          ...(payload.artifactTypes === undefined ? [] : ["artifactTypes"]),
+        ],
+        "hostArtifactReadinessRequest",
+      );
+      const { libraryId: _libraryId, ...request } =
+        rebuildSynthesisHostArtifactReadinessRequest({
+          ...payload,
+          libraryId: 1,
+        });
+      rebuilt = request;
+      break;
+    }
     case "library.artifacts.read":
       rebuilt = rebuildSynthesisHostArtifactReadRequest(value);
       break;
@@ -947,6 +981,9 @@ export function rebuildSynthesisReverseHostResult<
     }
     case "library.artifacts.scan_page":
       rebuilt = rebuildSynthesisHostArtifactScanPageResult(value);
+      break;
+    case "library.artifacts.readiness":
+      rebuilt = rebuildSynthesisHostArtifactReadinessResult(value);
       break;
     case "library.artifacts.read":
       rebuilt = rebuildSynthesisHostArtifactReadResult(value);

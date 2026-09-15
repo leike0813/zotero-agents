@@ -36,6 +36,13 @@ canonical content. Discovery read projections preserve the accepted cascade
 fields (`cascade_topic_ids`, candidate count/status, and bounded hints) together
 with source paper refs.
 
+Canonical Topic content is projected through the public Topic definition DTO
+before it is persisted or returned. The projection maps canonical
+`research_area` to public `research_field`, keeps only public scope-boundary
+fields, and uses the repository definition only when canonical definition text
+is absent. Canonical-only extension fields therefore cannot make Topic detail
+unreadable.
+
 Topic create/update reads Zotero Library and derived artifacts directly through the workflow/Host Bridge path. Citation graph metrics may be included as optional context, but graph availability and cache freshness must not be required for topic generation.
 
 ## Workflow Manifest and Sidecars

@@ -828,9 +828,7 @@ impl ReferenceApplication {
         let host_artifacts = if paper_refs.is_empty() {
             Vec::new()
         } else {
-            let page = self.host.scan_artifacts_page(
-                "",
-                paper_refs.len(),
+            let readiness = self.host.artifact_readiness(
                 &paper_refs,
                 &[
                     "digest",
@@ -839,19 +837,8 @@ impl ReferenceApplication {
                     "literature_score",
                 ],
             )?;
-            validate_artifact_page(
-                "",
-                &page.cursor,
-                page.returned,
-                paper_refs.len(),
-                page.limit,
-                page.has_more,
-                &page.next_cursor,
-            )?;
-            if page.has_more {
-                return Err("reverse_host_result_invalid".into());
-            }
-            page.artifacts
+            validate_artifact_readiness(&readiness.artifacts, &paper_refs)?;
+            readiness.artifacts
         };
         let mut rows = self.project_reference_index_rows(items, Some(&host_artifacts))?;
         if scope == "referenced" {
@@ -1941,15 +1928,15 @@ impl ReferenceApplication {
                 .into_iter()
                 .filter(|artifact_type| {
                     let key = (item.paper_ref.clone(), (*artifact_type).into());
-                    host_artifact_by_key
-                        .get(&key)
-                        .map(|artifact| host_artifact_is_available(artifact))
-                        .or_else(|| {
-                            artifact_by_key
-                                .get(&key)
-                                .map(|artifact| artifact.status == "available")
-                        })
-                        != Some(true)
+                    (if host_artifacts.is_some() {
+                        host_artifact_by_key
+                            .get(&key)
+                            .map(|artifact| host_artifact_is_available(artifact))
+                    } else {
+                        artifact_by_key
+                            .get(&key)
+                            .map(|artifact| artifact.status == "available")
+                    }) != Some(true)
                 })
                 .map(str::to_owned)
                 .collect::<Vec<_>>();
@@ -3602,6 +3589,29 @@ fn host_artifact_is_available(artifact: &ReferenceHostArtifact) -> bool {
             || literature_rating_score(artifact).is_some())
 }
 
+fn validate_artifact_readiness(
+    artifacts: &[ReferenceHostArtifact],
+    paper_refs: &[String],
+) -> Result<(), String> {
+    let paper_refs = paper_refs
+        .iter()
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
+    let mut seen = HashSet::new();
+    for artifact in artifacts {
+        if !paper_refs.contains(artifact.paper_ref.as_str())
+            || !matches!(
+                artifact.artifact_type.as_str(),
+                "digest" | "references" | "citation_analysis" | "literature_score"
+            )
+            || !seen.insert((artifact.paper_ref.as_str(), artifact.artifact_type.as_str()))
+        {
+            return Err("reverse_host_result_invalid".into());
+        }
+    }
+    Ok(())
+}
+
 fn complete_artifact_manifest(
     items: &[ReferenceHostItem],
     artifacts: &[ReferenceHostArtifact],
@@ -4159,8 +4169,8 @@ mod tests {
     use super::*;
     use crate::RepositoryPort;
     use crate::reference::{
-        ReferenceHostArtifactsPage, ReferenceHostItemsByRef, ReferenceHostItemsPage,
-        ReferenceObservationContext, ReferenceObservationScope,
+        ReferenceHostArtifactReadiness, ReferenceHostArtifactsPage, ReferenceHostItemsByRef,
+        ReferenceHostItemsPage, ReferenceObservationContext, ReferenceObservationScope,
     };
     use crate::reference_matching::{ReferenceMatchConfidence, ReferenceMatchDisposition};
     use crate::reference_matching::{
@@ -4180,6 +4190,8 @@ mod tests {
     #[derive(Clone)]
     struct FakeHost {
         item_calls: Arc<AtomicUsize>,
+        artifact_scan_calls: Arc<AtomicUsize>,
+        artifact_readiness_calls: Arc<AtomicUsize>,
         fail_items: Arc<AtomicBool>,
         fail_reads: Arc<AtomicBool>,
         fail_locator: Arc<Mutex<Option<String>>>,
@@ -4203,6 +4215,8 @@ mod tests {
         fn new() -> Self {
             Self {
                 item_calls: Arc::new(AtomicUsize::new(0)),
+                artifact_scan_calls: Arc::new(AtomicUsize::new(0)),
+                artifact_readiness_calls: Arc::new(AtomicUsize::new(0)),
                 fail_items: Arc::new(AtomicBool::new(false)),
                 fail_reads: Arc::new(AtomicBool::new(false)),
                 fail_locator: Arc::new(Mutex::new(None)),
@@ -4316,6 +4330,7 @@ mod tests {
             _paper_refs: &[String],
             _artifact_types: &[&str],
         ) -> Result<ReferenceHostArtifactsPage, String> {
+            self.artifact_scan_calls.fetch_add(1, Ordering::Relaxed);
             if !cursor.is_empty() {
                 return Err("reverse_host_result_invalid".into());
             }
@@ -4388,6 +4403,18 @@ mod tests {
                 limit,
                 snapshot_revision: "revision-1".into(),
             })
+        }
+
+        fn artifact_readiness(
+            &self,
+            _paper_refs: &[String],
+            _artifact_types: &[&str],
+        ) -> Result<ReferenceHostArtifactReadiness, String> {
+            self.artifact_readiness_calls
+                .fetch_add(1, Ordering::Relaxed);
+            let artifacts = self.scan_artifacts_page("", 2, &[], &[])?.artifacts;
+            self.artifact_scan_calls.fetch_sub(1, Ordering::Relaxed);
+            Ok(ReferenceHostArtifactReadiness { artifacts })
         }
 
         fn read_artifact(
@@ -4628,8 +4655,10 @@ mod tests {
     fn workbench_index_projects_the_strict_registry_contract() {
         let root = test_root("workbench-index-contract");
         let host = Arc::new(FakeHost::new());
-        let app = application(&root, host, Arc::new(AtomicBool::new(false)));
+        let app = application(&root, Arc::clone(&host), Arc::new(AtomicBool::new(false)));
         app.refresh_now().expect("reference refresh");
+        let scans_before_index = host.artifact_scan_calls.load(Ordering::Relaxed);
+        let readiness_before_index = host.artifact_readiness_calls.load(Ordering::Relaxed);
 
         let projection = app
             .workbench_index(
@@ -4642,6 +4671,15 @@ mod tests {
                 1,
             )
             .expect("workbench index");
+        assert_eq!(
+            host.artifact_scan_calls.load(Ordering::Relaxed),
+            scans_before_index,
+            "Workbench Index must use Host readiness instead of decoding artifact payloads",
+        );
+        assert_eq!(
+            host.artifact_readiness_calls.load(Ordering::Relaxed),
+            readiness_before_index + 1,
+        );
         let registry = projection["registry"].as_object().expect("registry");
         assert_eq!(
             registry.keys().cloned().collect::<BTreeSet<_>>(),

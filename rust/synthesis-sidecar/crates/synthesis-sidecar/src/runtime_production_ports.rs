@@ -73,8 +73,9 @@ use crate::runtime_reverse_host::call_reverse_host;
 use crate::runtime_webdav_runtime::{FileWebDavStateStore, InterruptibleWebDavRetryScheduler};
 use crate::runtime_worker_pool::NativeComputePool;
 use synthesis_application::reference::{
-    ReferenceHostArtifactRead, ReferenceHostArtifactsPage, ReferenceHostPort, ReferenceObservation,
-    ReferenceObservationContext, ReferenceObservationPort, ReferenceObservationScope,
+    ReferenceHostArtifactRead, ReferenceHostArtifactReadiness, ReferenceHostArtifactsPage,
+    ReferenceHostPort, ReferenceObservation, ReferenceObservationContext, ReferenceObservationPort,
+    ReferenceObservationScope,
 };
 
 pub(crate) struct ProductionApplications {
@@ -1996,6 +1997,21 @@ impl ReferenceHostPort for ReverseHostApplicationPort {
             serde_json::json!({
                 "cursor":cursor,
                 "limit":limit,
+                "paperRefs":paper_refs,
+                "artifactTypes":artifact_types,
+            }),
+        )?)
+        .map_err(|_| "reverse_host_result_invalid".into())
+    }
+
+    fn artifact_readiness(
+        &self,
+        paper_refs: &[String],
+        artifact_types: &[&str],
+    ) -> Result<ReferenceHostArtifactReadiness, String> {
+        serde_json::from_value(self.call(
+            "library.artifacts.readiness",
+            serde_json::json!({
                 "paperRefs":paper_refs,
                 "artifactTypes":artifact_types,
             }),

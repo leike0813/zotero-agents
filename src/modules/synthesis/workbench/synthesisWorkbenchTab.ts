@@ -4460,8 +4460,8 @@ export function prewarmSynthesisWorkbenchSurfaces(
 
 export async function closeSynthesisWorkbenchTab() {
   const tabs = resolveZoteroTabs(synthesisWorkbenchTab?.window);
+  cleanupSynthesisWorkbenchTab();
   if (tabs?.close) {
     tabs.close(SYNTHESIS_WORKBENCH_TAB_ID);
   }
-  cleanupSynthesisWorkbenchTab();
 }

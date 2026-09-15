@@ -64,6 +64,12 @@ Plugin graph surfaces SHALL treat the renderer, canvas layers, and WebGL context
 - **THEN** plugin-owned resize work SHALL be cancellable and coalesced
 - **AND** hidden graph surfaces SHALL defer resize work until they are visible again.
 
+#### Scenario: Host closes a document that owned a WebGL graph
+
+- **WHEN** page lifecycle cleanup runs before the browser/docshell is removed
+- **THEN** graph callbacks and observers SHALL be detached without invoking an explicit WebGL context-loss path
+- **AND** browser removal SHALL release the canvas and context as one owner lifetime.
+
 ### Requirement: Region comparison SHALL short-circuit unchanged selections
 
 Region equality SHALL resolve reference-identical, null, string and boolean

@@ -9,7 +9,7 @@ use synthesis_application::{
     TopicDetailRequest, TopicDetailResult, TopicDiscoveryHintRequest, TopicFindRequest,
     TopicListRequest, TopicListResult, TopicRecord, TopicReportRequest, TopicResolverCombine,
     TopicResolverRequest, TopicWorkflowFilter, WorkbenchSurface, WorkbenchSurfacePort,
-    WorkbenchSurfaceRequest,
+    WorkbenchSurfaceRequest, project_topic_definition,
 };
 use synthesis_repository::{
     ConceptAliasRecord, ConceptKbReplacement, ConceptRecord, ConceptRelationRecord,
@@ -795,31 +795,6 @@ fn project_string_list(value: &Value, object_keys: &[&str]) -> Value {
         .map(str::to_owned)
         .collect::<Vec<_>>();
     Value::Array(values.into_iter().map(Value::String).collect())
-}
-
-fn project_topic_definition(value: &Value, fallback: &Value) -> Value {
-    let mut object = project_object(
-        if value.is_object() { value } else { fallback },
-        &[
-            "id",
-            "title",
-            "name",
-            "definition",
-            "scope",
-            "discipline",
-            "research_field",
-            "aliases",
-            "scope_include",
-            "scope_exclude",
-        ],
-    );
-    if let Some(scope_boundary) = value.get("scope_boundary") {
-        object.insert(
-            "scope_boundary".into(),
-            Value::Object(project_object(scope_boundary, &["include", "exclude"])),
-        );
-    }
-    Value::Object(object)
 }
 
 fn project_resolved_paper(value: &Value) -> Result<Value, String> {

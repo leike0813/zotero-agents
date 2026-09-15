@@ -13,6 +13,7 @@ import {
   rebuildSynthesisHostWebDavSyncWriteRequest,
   toSynthesisJsonObject,
   type SynthesisHostArtifactReadRequest,
+  type SynthesisHostArtifactReadinessRequest,
   type SynthesisHostArtifactScanPageRequest,
   type SynthesisHostExportDeliveryPort,
   type SynthesisHostRunWorkspaceMaterializationPort,
@@ -83,6 +84,7 @@ type UnscopedSynthesisReverseHostHandlers = Omit<
   | "library.items.list_page"
   | "library.items.get_by_ref"
   | "library.artifacts.scan_page"
+  | "library.artifacts.readiness"
 > & {
   "library.items.sync_snapshot": (
     payload: ZoteroLibrarySnapshotRequestDto,
@@ -100,6 +102,10 @@ type UnscopedSynthesisReverseHostHandlers = Omit<
     payload: SynthesisHostArtifactScanPageRequest,
     context: ReverseHostHandlerContext,
   ) => ReturnType<SynthesisHostReadPort["artifacts"]["scanPage"]>;
+  "library.artifacts.readiness": (
+    payload: SynthesisHostArtifactReadinessRequest,
+    context: ReverseHostHandlerContext,
+  ) => ReturnType<SynthesisHostReadPort["artifacts"]["readiness"]>;
 };
 
 const HOST_SNAPSHOT_TTL_MS = 10_000;
@@ -196,6 +202,14 @@ export function createSynthesisReverseHostHandlers(
           ["libraryId"],
           ["cursor", "limit", "paperRefs", "artifactTypes"],
         ) as SynthesisHostArtifactScanPageRequest,
+      ),
+    "library.artifacts.readiness": async (payload) =>
+      ports.hostReadPort.artifacts.readiness(
+        exactPayload(
+          payload,
+          ["libraryId", "paperRefs"],
+          ["artifactTypes"],
+        ) as SynthesisHostArtifactReadinessRequest,
       ),
     "library.artifacts.read": async (payload) =>
       ports.hostReadPort.artifacts.read(
@@ -410,6 +424,14 @@ export function createScopedSynthesisReverseHostHandlers(
     ) =>
       page("artifacts", payload, async (scoped) =>
         handlers["library.artifacts.scan_page"](scoped, context),
+      ),
+    "library.artifacts.readiness": (
+      payload: SynthesisReverseHostPayload<"library.artifacts.readiness">,
+      context: ReverseHostHandlerContext,
+    ) =>
+      handlers["library.artifacts.readiness"](
+        injectLibraryScope(payload),
+        context,
       ),
   };
 }
