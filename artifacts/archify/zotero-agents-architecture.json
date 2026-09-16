@@ -1,0 +1,369 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "zotero-agents：插件总体架构",
+    "output": "artifacts/archify/zotero-agents-architecture.html",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "outbound",
+        "label": "出站：插件调用 Agent",
+        "focus": [
+          "packages",
+          "ui",
+          "engine",
+          "providers",
+          "acp_agent",
+          "skillrunner"
+        ],
+        "note": "界面触发 workflow，Provider 适配层把请求落到 ACP 子进程或 SkillRunner 后端。"
+      },
+      {
+        "id": "inbound",
+        "label": "入站：外部 Agent 驱动 Zotero",
+        "focus": [
+          "mcp_client",
+          "hostbridge",
+          "broker",
+          "state",
+          "zotero"
+        ],
+        "note": "外部 Agent 经 Host Bridge 的 HTTP/MCP/CLI 面进入 Broker，再以原生事务写入文库。"
+      },
+      {
+        "id": "synthesis",
+        "label": "Synthesis 与持久化",
+        "focus": [
+          "ui",
+          "synth_sidecar",
+          "state"
+        ],
+        "note": "Synthesis 工作台经 loopback RPC 调用 Rust sidecar；插件状态与写入证据落在 SQLite。"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "synth_sidecar",
+      "type": "external",
+      "label": "Synthesis sidecar",
+      "sublabel": "Rust 进程 · loopback RPC",
+      "pos": [
+        60,
+        40
+      ],
+      "size": [
+        200,
+        70
+      ]
+    },
+    {
+      "id": "packages",
+      "type": "external",
+      "label": "工作流与 Skill 包",
+      "sublabel": "workflows_builtin · skills_builtin",
+      "pos": [
+        440,
+        40
+      ],
+      "size": [
+        200,
+        70
+      ]
+    },
+    {
+      "id": "skillrunner",
+      "type": "external",
+      "label": "SkillRunner 后端服务",
+      "sublabel": "HTTP /v1/jobs · SSE",
+      "pos": [
+        1200,
+        40
+      ],
+      "size": [
+        200,
+        70
+      ]
+    },
+    {
+      "id": "ui",
+      "type": "frontend",
+      "label": "插件界面层",
+      "sublabel": "菜单 · Dashboard · Workspace",
+      "pos": [
+        60,
+        231
+      ],
+      "size": [
+        200,
+        70
+      ]
+    },
+    {
+      "id": "engine",
+      "type": "backend",
+      "label": "Workflow 引擎",
+      "sublabel": "catalog · seams · JobQueue",
+      "pos": [
+        440,
+        231
+      ],
+      "size": [
+        200,
+        70
+      ]
+    },
+    {
+      "id": "providers",
+      "type": "backend",
+      "label": "Provider 适配层",
+      "sublabel": "ACP · SkillRunner · HTTP · 本地",
+      "pos": [
+        820,
+        231
+      ],
+      "size": [
+        200,
+        70
+      ]
+    },
+    {
+      "id": "acp_agent",
+      "type": "external",
+      "label": "ACP Agent 进程",
+      "sublabel": "本地子进程 · stdio",
+      "pos": [
+        1200,
+        231
+      ],
+      "size": [
+        200,
+        70
+      ]
+    },
+    {
+      "id": "hostbridge",
+      "type": "backend",
+      "label": "Host Bridge",
+      "sublabel": "HTTP · MCP · CLI",
+      "pos": [
+        60,
+        422
+      ],
+      "size": [
+        200,
+        70
+      ]
+    },
+    {
+      "id": "broker",
+      "type": "security",
+      "label": "Host Capability Broker",
+      "sublabel": "能力语义唯一来源",
+      "pos": [
+        440,
+        422
+      ],
+      "size": [
+        200,
+        70
+      ]
+    },
+    {
+      "id": "state",
+      "type": "database",
+      "label": "插件持久化状态",
+      "sublabel": "SQLite · prefs · runtime root",
+      "pos": [
+        820,
+        422
+      ],
+      "size": [
+        200,
+        70
+      ]
+    },
+    {
+      "id": "mcp_client",
+      "type": "external",
+      "label": "外部编码 Agent",
+      "sublabel": "MCP / HTTP / CLI 调用方",
+      "pos": [
+        60,
+        613
+      ],
+      "size": [
+        200,
+        70
+      ]
+    },
+    {
+      "id": "zotero",
+      "type": "database",
+      "label": "Zotero 文库与宿主 API",
+      "sublabel": "原生事务 · SQLite",
+      "pos": [
+        440,
+        613
+      ],
+      "size": [
+        200,
+        70
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Zotero 客户端 · 插件进程",
+      "wraps": [
+        "ui",
+        "engine",
+        "providers",
+        "hostbridge",
+        "broker",
+        "state"
+      ],
+      "pad": 30
+    },
+    {
+      "kind": "security-group",
+      "label": "Host capability 写入权威",
+      "wraps": [
+        "broker",
+        "state"
+      ],
+      "pad": 16
+    }
+  ],
+  "connections": [
+    {
+      "from": "packages",
+      "to": "engine",
+      "label": "catalog 扫描",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 34
+    },
+    {
+      "from": "ui",
+      "to": "engine",
+      "label": "触发 workflow",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "from": "engine",
+      "to": "providers",
+      "label": "解析 Provider",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "from": "providers",
+      "to": "acp_agent",
+      "label": "ACP JSON-RPC",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "from": "providers",
+      "to": "skillrunner",
+      "label": "HTTP /v1/jobs",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "left",
+      "via": [
+        [
+          920,
+          75
+        ]
+      ]
+    },
+    {
+      "from": "ui",
+      "to": "synth_sidecar",
+      "label": "loopback RPC",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "bottom",
+      "labelDy": -50
+    },
+    {
+      "from": "engine",
+      "to": "broker",
+      "label": "applyResult 写回",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 34
+    },
+    {
+      "from": "mcp_client",
+      "to": "hostbridge",
+      "label": "MCP / CLI",
+      "variant": "security",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "from": "hostbridge",
+      "to": "broker",
+      "label": "Host API 投影",
+      "variant": "security",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "from": "broker",
+      "to": "state",
+      "label": "准入与证据",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "from": "broker",
+      "to": "zotero",
+      "label": "原生事务写入",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 34
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "插件本体保持可插拔",
+      "items": [
+        "界面只提供通用入口，业务逻辑由工作流包与 Skill 包声明",
+        "启动时扫描工作流目录，加载 manifest 与 hooks 并生成菜单",
+        "Provider 由 request kind 与 backend type 解析，协议由各自实现"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "两个方向的外联",
+      "items": [
+        "出站：界面触发 workflow，JobQueue 经 Provider 调用 ACP 或 SkillRunner",
+        "入站：外部 Agent 经 Host Bridge 调用 Zotero 能力",
+        "ACP 走 stdio；Windows 由 zotero-acp-bridge 转 WebSocket"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "权威与状态",
+      "items": [
+        "Broker 是 Zotero 能力语义的唯一事实源，Host API 与 Host Bridge 只是投影",
+        "SQLite 与 prefs 保存 mutation 证据、任务状态与后端配置",
+        "Synthesis sidecar 通过 discovery 文件发布就绪状态"
+      ]
+    }
+  ]
+}
