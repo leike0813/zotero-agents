@@ -1,0 +1,43 @@
+# Tasks
+
+## 1. Enforce the Serial Gate and Fixture Contract
+
+- [ ] 1.1 Confirm `02-add-system-e2e-fault-control-and-sidecar-recovery` is implemented, verified, synchronized, and archived before editing implementation files; record the archived change identity in the implementation notes
+- [ ] 1.2 Add failing fixture-contract cases for every new synthetic structural fact, then extend the active Committed Seed and verify identity, determinism, reset, and privacy checks pass
+- [ ] 1.3 Add failing family-lifecycle cases for the declared Phase 1 owned state and carry-over, then wire the family metadata into the existing runner and verify undeclared state still aborts the suite
+
+## 2. Complete Synthesis Lifecycle and Read Families
+
+- [ ] 2.1 Add failing `SL-01` and `SL-02` public-lifecycle cases, implement only the required harness setup, and verify shutdown ordering, discovery cleanup, pre-ready failure, owner rollback, and post-family health through real Zotero
+- [ ] 2.2 Add failing `RH-01` multi-page public refresh evidence, implement the deterministic multi-page seed/setup, and verify one coherent basis and one ready commit without private repository assertions
+- [ ] 2.3 Add failing `PA-01` and `PA-02` Workbench cases, implement the minimum historical/read-only and malformed-neighbor fixture facts, and verify public readability plus one bounded typed diagnostic while valid neighbors and sidecar health remain available
+
+## 3. Complete Public Maintenance and Citation Graph Families
+
+- [ ] 3.1 Add failing `PM-01`, `PM-02`, and `PM-04` cases before harness changes, then verify admission replay has one worker/effect/terminal receipt, pending restart requires explicit continue on the same identity, and running cancellation terminalizes only at the promotion checkpoint
+- [ ] 3.2 Add failing `CG-01` through the public graph surface, then verify an old continuation/view returns typed `basis_mismatch` with no data or mutation while a fresh view remains readable
+- [ ] 3.3 Run the complete `SL`, `RH`, `PA`, `PM`, and `CG` families and verify each cleans its namespace and passes the Suite Health Gate before yielding the shared profile
+
+## 4. Complete Host Bridge Canonical Mutation Replay
+
+- [ ] 4.1 Add failing `HB-01` using public `notes.create` with deterministic synthetic Unicode, then verify exact replay exposes one canonical settled operation and exactly one note
+- [ ] 4.2 Add failing `HB-02`, then verify an operation-ID reuse with a different semantic digest returns `idempotency_conflict` without changing the original note or evidence
+- [ ] 4.3 Add failing `HB-03`, then externally interrupt the owner after canonical admission and verify restart exposes canonical `unknown` through `mutation.get_operation` without generic-store takeover or automatic replay
+- [ ] 4.4 Run the complete `HB` family and verify mutation evidence, note cleanup, process cleanup, and the post-family Suite Health Gate are complete
+
+## 5. Diagnose and Fix the Windows Citation Graph Close Crash
+
+- [ ] 5.1 Adapt the existing close-lifecycle path into one unattended Windows Zotero 10 command and demonstrate a red result that fails specifically on host-process exit while preserving sanitized terminal evidence and the last lifecycle stage
+- [ ] 5.2 Minimize the reproduction, rank hypotheses from observed evidence, and add one failing regression at the diagnosed production-owner seam without attributing the defect to Preact, Sigma, sidecar shutdown, or frame teardown in advance
+- [ ] 5.3 Apply the smallest root-cause fix and verify the owner-level regression plus repeated public Workbench Citation Graph close cycles keep Windows Zotero 10 responsive with complete cleanup and health evidence
+- [ ] 5.4 Run the same public sequence on Zotero 9 and record `affected`, `unaffected`, or `unverified` from actual evidence; never infer its state from Zotero 10
+- [ ] 5.5 Remove temporary instrumentation, retain only approved sanitized artifacts, and verify `CG-02` is mapped to the Citation Graph owner and Windows release-promotion prerequisite
+
+## 6. Verify and Document the Catalog
+
+- [ ] 6.1 Run all fifteen original Phase 1 cases serially in one Zotero 10/Linux Committed Seed invocation and verify one copied profile, only declared intra-family carry-over, complete cleanup/health evidence, and a terminal `complete` Run Manifest
+- [ ] 6.2 Run `CG-02` on Windows Zotero 10 and the Zotero 9 classification run, and verify both manifests retain trustworthy host-terminal evidence without private data
+- [ ] 6.3 Verify `300-lisongtao-gold` and `npm run test:zotero:e2e:stress` still use their existing locations and commands and are not counted as catalog completion without matching trigger and assertions
+- [ ] 6.4 Update operator/developer E2E documentation with the implemented public entrypoints, fixture revision, case rerun commands, ownership, and evidence locations; verify documentation links and commands resolve
+- [ ] 6.5 Run the focused lower-layer tests, `npm run test:zotero:e2e`, strict OpenSpec validation, and repository formatting/type checks relevant to changed files; record any unavailable real-machine evidence as incomplete rather than passing
+

@@ -1,0 +1,42 @@
+# Tasks
+
+## 1. Enforce the Serial Gate and Repair Compatibility Membership
+
+- [ ] 1.1 Confirm `03-implement-phase1-system-e2e-catalog` is implemented, verified, synchronized, and archived before editing implementation files; record the archived change identity in the implementation notes
+- [ ] 1.2 Add failing compatibility-worker contract cases proving direct directory membership for `lite`, `full`, and `e2e`, then remove deleted `suite.test.ts` proxy assumptions and verify complete membership plus failure propagation
+- [ ] 1.3 Add failing planner/CLI cases for the `e2e` domain before extending domain validation, selection, worker routing, and receipt parsing; verify existing behavior and XPI modes remain unchanged
+
+## 2. Bind Immutable Execution Cells
+
+- [ ] 2.1 Add failing plan/receipt cases for lane, exact target, family grouping, runner environment, fixture scale, invocation/profile model, gate state, plugin digest, sidecar fingerprint, and Run Manifest reference, then implement the minimal shared execution-cell fields
+- [ ] 2.2 Add failing artifact-identity tests, then prepare the plugin once per workflow and current-source sidecar per required target before cells, disable cell-local replacement, and verify pre/post worker fingerprints are identical
+- [ ] 2.3 Verify each E2E invocation creates a fresh copied profile and consumes complete family groups without file/title allowlists or cross-cell profile sharing
+
+## 3. Wire the Fixed Matrix as Non-Blocking
+
+- [ ] 3.1 Add failing planner snapshots/structural assertions for the exact pull-request Zotero 10/Linux `SL+PM` cell, then wire every PR targeting `main` with no path-based skip and verify it begins non-blocking
+- [ ] 3.2 Add failing planner assertions for Zotero 7/9/10 Linux all-family main cells, then wire them non-blocking and verify each emits its own receipt and manifest
+- [ ] 3.3 Add failing planner assertions for Zotero 7/9/10 Linux and Windows all-family release cells plus existing macOS Zotero 10 XPI smoke, then wire them before publication and verify tag-bound plugin/sidecar identity checks reject reused main evidence
+- [ ] 3.4 Add failing planner assertions for weekly release-equivalent health, Zotero 10/Linux stress, and manual Zotero 10/Linux large-gold `RH/PA/PM/CG`, then wire each as non-gating and verify selected large-gold fails when its read-only source is missing or invalid
+
+## 4. Implement Calibration, Grouping, and Promotion
+
+- [ ] 4.1 Add failing calibration-validator cases, then require three complete clean manifests from independent workflow runs with matching cell identity and fresh profiles; verify invalid cleanup, health, process, port, lock, or terminal evidence rejects the round
+- [ ] 4.2 Add failing identity-invalidation cases for target version, runner OS/image, family grouping, fixture scale, sidecar startup model, and invocation/profile model, then verify ordinary product commits and fixture-content revisions do not invalidate calibration by themselves
+- [ ] 4.3 Add failing grouping cases for the 15/30/45/60/90-minute candidate thresholds, then implement maximum-observed-round evaluation and the family-preserving Synthesis/HB followed by `SL/PM`, `RH/PA/CG`, `HB` split order
+- [ ] 4.4 Add failing promotion-policy cases, then make promotion an explicit per-cell configuration value and verify no automatic promotion, unrelated-cell dependency, or Windows release promotion while `CG-02` is failing or lacks trustworthy evidence
+
+## 5. Add the Weekly Diagnostic Rerun
+
+- [ ] 5.1 Add failing orchestration tests proving only weekly cells can rerun once and only as a complete cell, then implement a fresh-profile successor run with a new run ID and predecessor link outside the Zotero runner
+- [ ] 5.2 Verify first and second manifests remain immutable and separate, successor pass classifies `intermittent`, successor failure classifies `persistent`, and any first-attempt failure keeps the weekly workflow failed
+- [ ] 5.3 Add negative tests proving pull-request, main, and release cells never auto-retry after failed, aborted, incomplete, or indeterminate manifests
+
+## 6. Calibrate, Promote, and Verify
+
+- [ ] 6.1 Run three clean independent workflow rounds for every candidate PR cell on its exact identity, retain each manifest, review the observed maximum, and explicitly promote only qualifying cells
+- [ ] 6.2 Run and review three clean rounds for every candidate main and release cell, regroup and restart calibration where a threshold is exceeded, and explicitly promote qualifying cells independently
+- [ ] 6.3 Verify all promoted Windows release cells include passing `CG-02` evidence and the recorded Zotero 9 classification; leave any unsupported cell non-blocking
+- [ ] 6.4 Exercise weekly, stress, and manual large-gold triggers and verify they remain non-gating, first-failure preserving, and isolated from release authority
+- [ ] 6.5 Update compatibility/E2E operator documentation with cell identities, calibration evidence, promotion edits, rerun semantics, and tag-bound release ordering; verify referenced commands and workflow names resolve
+- [ ] 6.6 Run planner/worker/receipt tests, workflow static validation, strict OpenSpec validation, and the promoted real-host cells; treat any missing real-machine round as incomplete rather than passing

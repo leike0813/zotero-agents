@@ -272,34 +272,28 @@
 
 ## Cost-saving subagent delegation
 
-Proactively offload suitable bounded work to these lower-cost agents instead of
-spending the primary agent's context and model quota on routine execution:
+Proactively offload suitable bounded work to these lower-cost agents instead of spending the primary agent's context and model quota on routine execution:
 
-- `scout`: use for read-only local repository exploration, including file and
-  symbol discovery, call-path tracing, configuration lookup, module summaries,
-  and existing-test inspection.
-- `researcher`: use for current external research involving official
-  documentation, standards, upstream source, changelogs, issues, papers, or
-  community evidence.
-- `routine_worker`: use for fully specified, deterministic, low-risk edits and
-  workflows whose material decisions and acceptance checks are already closed.
+- `scout`: use for read-only local repository exploration, including file and symbol discovery, call-path tracing, configuration lookup, module summaries, and existing-test inspection.
+- `researcher`: use for current external research involving official documentation, standards, upstream source, changelogs, issues, papers, or community evidence.
+- `routine_worker`: use for fully specified, deterministic, low-risk edits and workflows whose material decisions and acceptance checks are already closed.
 
-Prefer these agents whenever the assignment fits their boundary, even when the
-primary agent could perform the work directly, provided delegation cost is
-reasonable. Independent `scout` and `researcher` assignments may run in
-parallel.
+Prefer these agents whenever the assignment fits their boundary, even when the primary agent could perform the work directly, provided delegation cost is reasonable.
+
+Independent `scout` and `researcher` assignments may run in parallel.
+
+Do not fork conversation history since it is not supported by current interface. Use self-contained delegation prompt.
 
 Keep the following work in the primary agent or another stronger specialist:
 
 - architecture and material planning decisions;
 - ambiguous or open-ended implementation;
 - unknown-cause debugging;
-- security, authentication, authorization, privacy, cryptography, billing,
-  concurrency, data migration, destructive, deployment, or public-API changes;
+- security, authentication, authorization, privacy, cryptography, billing, concurrency, data migration, destructive, deployment, or public-API changes;
 - final review, integration, verification, and completion judgment.
 
 Do not give `routine_worker` overlapping write ownership with another agent.
-Give every delegated task a bounded objective, explicit scope, required output,
-and stopping condition. Integrate the returned result without unnecessarily
-repeating the entire investigation, but spot-check facts that affect important
-decisions.
+
+Give every delegated task a bounded objective, explicit scope, required output, and stopping condition.
+
+Integrate the returned result without unnecessarily repeating the entire investigation, but spot-check facts that affect important decisions.
