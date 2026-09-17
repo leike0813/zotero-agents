@@ -16,7 +16,10 @@ import {
   resolveContentPackageBuildChannels,
   resolveContentPackageGeneratedAt,
 } from "../../scripts/content-package/build-content-package-feed";
-import { parseContentPackageChannels } from "../../scripts/content-package/content-package-channels";
+import {
+  parseContentPackageChannels,
+  validateContentPackagePublicationScope,
+} from "../../scripts/content-package/content-package-channels";
 import { publishContentPackageFeeds } from "../../scripts/content-package/publish-content-package-feeds";
 import { parseGithubContentPublicationArgs } from "../../scripts/content-package/publish-content-package-github";
 import { parseGiteePublicationArgs } from "../../scripts/sync-gitee-publication";
@@ -393,7 +396,7 @@ describe("content package release scripts", function () {
     assert.isFalse(result.dispatched);
     assert.includeMembers(result.nextCommands, [
       "git add content-package.version.json",
-      "npm run release:content-package -- --dispatch --watch --channels stable,beta,dev --repo leike0813/zotero-agents --ref main",
+      "npm run release:content-package -- --dispatch --watch --channels stable,beta --repo leike0813/zotero-agents --ref main",
     ]);
   });
 
@@ -437,10 +440,10 @@ describe("content package release scripts", function () {
 
     const result = await prepareContentPackageRelease({
       dispatch: true,
-      channels: ["dev", "beta"],
+      channels: ["beta", "stable"],
       watch: true,
       repo: "owner/repo",
-      ref: "release-branch",
+      ref: "main",
       requestId: "content-request-1",
       runCommand: async (command, args) => {
         calls.push({ command, args });
@@ -458,7 +461,7 @@ describe("content package release scripts", function () {
                       databaseId: 123,
                       displayTitle: "Content package content-request-1",
                       event: "workflow_dispatch",
-                      headBranch: "release-branch",
+                      headBranch: "main",
                       headSha: "source-sha",
                       url: "https://example.invalid/runs/123",
                     },
@@ -475,10 +478,10 @@ describe("content package release scripts", function () {
     assert.strictEqual(result.runId, 123);
     assert.deepEqual(calls, [
       { command: "git", args: ["status", "--porcelain"] },
-      { command: "git", args: ["fetch", "origin", "release-branch"] },
+      { command: "git", args: ["fetch", "origin", "main"] },
       {
         command: "git",
-        args: ["merge-base", "--is-ancestor", "HEAD", "origin/release-branch"],
+        args: ["merge-base", "--is-ancestor", "HEAD", "origin/main"],
       },
       {
         command: "git",
@@ -510,11 +513,11 @@ describe("content package release scripts", function () {
           "--repo",
           "owner/repo",
           "--ref",
-          "release-branch",
+          "main",
           "-f",
           "request_id=content-request-1",
           "-f",
-          "channels=beta,dev",
+          "channels=stable,beta",
         ],
       },
       {
@@ -559,6 +562,14 @@ describe("content package release scripts", function () {
     assert.include(
       contentWorkflow,
       "check:content-package-release -- --channels",
+    );
+    const scopeValidation = contentWorkflow.indexOf(
+      "scripts/content-package/content-package-channels.ts",
+    );
+    assert.isAtLeast(scopeValidation, 0);
+    assert.isBelow(
+      scopeValidation,
+      contentWorkflow.indexOf("Build content feeds"),
     );
     assert.include(pluginWorkflow, "check-plugin-host-bridge-assets.ts");
   });
@@ -659,6 +670,45 @@ describe("content package release scripts", function () {
       () => parseContentPackageChannels("stable,nightly"),
       /stable.*beta.*dev/i,
     );
+  });
+
+  it("isolates content package publication channels by release branch", function () {
+    assert.deepEqual(
+      validateContentPackagePublicationScope("main", ["beta", "stable"]),
+      ["stable", "beta"],
+    );
+    assert.deepEqual(validateContentPackagePublicationScope("dev", ["dev"]), [
+      "dev",
+    ]);
+
+    for (const [ref, channels] of [
+      ["main", ["dev"]],
+      ["dev", ["stable"]],
+      ["dev", ["beta", "dev"]],
+      ["release-branch", ["stable"]],
+    ] as const) {
+      assert.throws(
+        () => validateContentPackagePublicationScope(ref, channels),
+        /main.*stable.*beta|dev.*dev|only.*main.*dev/i,
+      );
+    }
+  });
+
+  it("rejects an invalid publication scope before running commands", async function () {
+    let commandCount = 0;
+    await expectRejects(
+      prepareContentPackageRelease({
+        dispatch: true,
+        ref: "main",
+        channels: ["dev"],
+        runCommand: async () => {
+          commandCount += 1;
+          return { stdout: "", stderr: "" };
+        },
+      }),
+      /main.*stable.*beta/i,
+    );
+    assert.equal(commandCount, 0);
   });
 
   it("patches selected feeds without changing other content-feed entries", async function () {

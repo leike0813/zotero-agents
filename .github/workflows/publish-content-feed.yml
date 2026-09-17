@@ -32,6 +32,11 @@ jobs:
       - name: Setup JS
         uses: zotero-plugin-dev/workflows/setup-js@main
 
+      - name: Validate content package publication scope
+        run: >-
+          node --import tsx scripts/content-package/content-package-channels.ts
+          "$GITHUB_REF_NAME" "$CONTENT_PACKAGE_CHANNELS"
+
       - name: Initialize content submodules
         run: git submodule update --init skills_builtin
 
