@@ -214,13 +214,14 @@ Gitee mirror；如果 primary 和 mirror 都可用但语义不一致，插件选
 正式发布必须显式指定频道，不存在隐式全频道默认值：
 
 ```shell
-npm run release:content-package -- --dispatch --watch --channels stable,beta,dev
+npm run release:content-package -- --dispatch --watch --channels stable,beta --ref main
+npm run release:content-package -- --dispatch --watch --channels dev --ref dev
 ```
 
-`--channels` 接受 `stable`、`beta`、`dev` 的任意非空组合；单频道与分批发布只
-构建、上传、更新和验证所选频道。发布端只替换 `content-feed/<channel>/feed.json`，
-不会清空分支、删除未选频道的 feed 或触发 Gitee 同步。要执行全频道发布，显式写出
-`stable,beta,dev`。
+发布线与频道严格隔离：`main` 只接受 `stable`、`beta` 或二者组合，`dev` 只接受
+`dev`。其他 ref 与跨发布线组合会在构建和发布前被拒绝。单频道与分批发布只构建、
+上传、更新和验证所选频道；发布端只替换 `content-feed/<channel>/feed.json`，不会清空
+分支、删除未选频道的 feed 或触发 Gitee 同步。
 
 ## Manifest（当前实现）
 

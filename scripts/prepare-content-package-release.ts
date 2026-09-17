@@ -11,9 +11,9 @@ import {
   watchGithubWorkflowRun,
 } from "./github-workflow-run";
 import {
-  canonicalizeContentPackageChannels,
   parseContentPackageChannels,
   type ContentPackageChannel,
+  validateContentPackagePublicationScope,
 } from "./content-package-channels";
 
 type RunCommand = CommandRunner;
@@ -55,12 +55,14 @@ function usage() {
   return [
     "Usage:",
     "  npm run release:content-package -- <patch|minor|major|version> [--plugin-version <range>]",
-    "  npm run release:content-package -- --dispatch --channels <stable,beta,dev> [--watch] [--ref main]",
+    "  npm run release:content-package -- --dispatch --channels <stable,beta> [--watch] [--ref main]",
+    "  npm run release:content-package -- --dispatch --channels dev [--watch] --ref dev",
     "",
     "Examples:",
     "  npm run release:content-package -- patch",
     '  npm run release:content-package -- patch --plugin-version ">=0.6.0"',
-    "  npm run release:content-package -- --dispatch --channels stable,beta,dev --watch",
+    "  npm run release:content-package -- --dispatch --channels stable,beta --watch",
+    "  npm run release:content-package -- --dispatch --channels dev --watch --ref dev",
   ].join("\n");
 }
 
@@ -192,7 +194,7 @@ function nextCommands(args: { repo: string; ref: string }) {
     `git add ${DEFAULT_VERSION_FILE}`,
     'git commit -m "chore: bump content package version"',
     `git push origin ${args.ref}`,
-    `npm run release:content-package -- --dispatch --watch --channels stable,beta,dev --repo ${args.repo} --ref ${args.ref}`,
+    `npm run release:content-package -- --dispatch --watch --channels ${args.ref === "dev" ? "dev" : "stable,beta"} --repo ${args.repo} --ref ${args.ref}`,
   ];
 }
 
@@ -249,12 +251,10 @@ export async function prepareContentPackageRelease(
   }
 
   if (args.dispatch) {
-    const channels = args.channels
-      ? canonicalizeContentPackageChannels(args.channels)
-      : [];
-    if (channels.length === 0) {
+    if (!args.channels) {
       throw new Error("--channels is required when using --dispatch.");
     }
+    const channels = validateContentPackagePublicationScope(ref, args.channels);
     await assertCleanWorkingTree(commandRunner);
     await assertRemoteRefContainsHead({ commandRunner, ref });
     await assertHostBridgeReleaseComplete({
