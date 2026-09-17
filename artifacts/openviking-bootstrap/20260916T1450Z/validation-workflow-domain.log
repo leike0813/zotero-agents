@@ -1,0 +1,862 @@
+
+[node-test-shard:start] workflow-engine (Workflow engine)
+[node-test-shard:files] 20
+[node-test-shard:data-dir] /tmp/zotero-agents-node-test-shards-1862856/workflow-engine/Zotero_data
+[node-test-shard:command] npx tsx node_modules/mocha/bin/mocha tests/workflows/109-workflow-result-context.test.ts tests/workflows/134-manuscript-literature-framing-workflow.test.ts tests/workflows/135-workflow-product-storage.test.ts tests/workflows/137-literature-search-ingest-workflow.test.ts tests/workflows/156-debug-sequence-probe-workflows.test.ts tests/workflows/159-workflow-i18n.test.ts tests/workflows/162-workflow-single-result-integration.test.ts tests/workflows/176-workflow-run-result-bundle-reader.test.ts tests/workflows/20-workflow-loader-validation.test.ts tests/workflows/24-workflow-execute-message.test.ts tests/workflows/41-workflow-scan-registration.test.ts tests/workflows/47-workflow-log-instrumentation.test.ts tests/workflows/48-workflow-execution-seams.test.ts tests/workflows/49-workflow-settings-domain.test.ts tests/workflows/51-workflow-duplicate-guard-seam.test.ts tests/workflows/54-workflow-summary-counter-utils.test.ts tests/workflows/55-workflow-apply-seam-risk-regression.test.ts tests/workflows/87-workflow-package-runtime-diagnostics.test.ts tests/workflows/88-workflow-runtime-scope-diagnostics.test.ts tests/workflows/89-workflow-debug-probe.test.ts --require tests/setup/zotero-mock.ts --exit
+[node-test-shard:end] workflow-engine exit=6 durationMs=161200
+
+[node-test-shard:start] workflow-host (Workflow Host adapters)
+[node-test-shard:files] 8
+[node-test-shard:data-dir] /tmp/zotero-agents-node-test-shards-1862856/workflow-host/Zotero_data
+[node-test-shard:command] npx tsx node_modules/mocha/bin/mocha tests/workflows/164-workflow-host-queue-management.test.ts tests/workflows/173-workflow-input-planning-v2.test.ts tests/workflows/187-workflow-host-contract-governance.test.ts tests/workflows/90-workflow-host-api-file-picker.test.ts tests/workflows/90-workflow-input-materialization.test.ts tests/workflows/90-workflow-note-image-preparation.test.ts tests/workflows/90-workflow-stored-attachment-import.test.ts tests/workflows/91-workflow-host-api-archive.test.ts --require tests/setup/zotero-mock.ts --exit
+[node-test-shard:end] workflow-host exit=0 durationMs=29763
+
+[node-test-shard:start] workflow-packages-literature (Literature workflow packages)
+[node-test-shard:files] 11
+[node-test-shard:data-dir] /tmp/zotero-agents-node-test-shards-1862856/workflow-packages-literature/Zotero_data
+[node-test-shard:command] npx tsx node_modules/mocha/bin/mocha tests/workflow-literature-analysis/21-workflow-literature-analysis.test.ts tests/workflow-literature-analysis/22-literature-analysis-filter-inputs.test.ts tests/workflow-literature-analysis/23-workflow-literature-analysis-fixtures.test.ts tests/workflow-literature-analysis/24-literature-analysis-sequence-apply.test.ts tests/workflow-literature-analysis/50-workflow-literature-analysis-mock-e2e.test.ts tests/workflow-literature-deep-reading/158-workflow-literature-deep-reading.test.ts tests/workflow-literature-explainer/21-workflow-literature-explainer.test.ts tests/workflow-literature-explainer/22-literature-explainer-filter-inputs.test.ts tests/workflow-literature-metadata-curator/171-workflow-literature-metadata-curator.test.ts tests/workflow-literature-translator/160-workflow-literature-translator.test.ts tests/workflow-mineru/39-workflow-mineru.test.ts --require tests/setup/zotero-mock.ts --exit
+[node-test-shard:end] workflow-packages-literature exit=38 durationMs=49348
+
+[node-test-shard:start] workflow-packages-workbench (Literature workbench package)
+[node-test-shard:files] 5
+[node-test-shard:data-dir] /tmp/zotero-agents-node-test-shards-1862856/workflow-packages-workbench/Zotero_data
+[node-test-shard:command] npx tsx node_modules/mocha/bin/mocha tests/workflow-literature-workbench-package/45-workflow-note-import-export.test.ts tests/workflow-literature-workbench-package/46-reference-workbench-import-validation.test.ts tests/workflow-literature-workbench-package/47-workflow-literature-bundle.test.ts tests/workflow-literature-workbench-package/48-workflow-research-bundle.test.ts tests/workflow-literature-workbench-package/49-workflow-collection-collector.test.ts --require tests/setup/zotero-mock.ts --exit
+[node-test-shard:end] workflow-packages-workbench exit=18 durationMs=25915
+
+[node-test-shard:start] workflow-packages-tags (Tag workflow packages)
+[node-test-shard:files] 6
+[node-test-shard:data-dir] /tmp/zotero-agents-node-test-shards-1862856/workflow-packages-tags/Zotero_data
+[node-test-shard:command] npx tsx node_modules/mocha/bin/mocha tests/workflow-tag-auditor/66-tag-compliance.test.ts tests/workflow-tag-bootstrapper/64-workflow-tag-bootstrapper.test.ts tests/workflow-tag-regulator/64a-workflow-tag-regulator-request-building.test.ts tests/workflow-tag-regulator/64b-workflow-tag-regulator-apply-intake.test.ts tests/workflow-tag-regulator/64c-workflow-tag-regulator-dialog-rendering.test.ts tests/workflow-tag-regulator/65-workflow-tag-regulator-mock-e2e.test.ts --require tests/setup/zotero-mock.ts --exit
+[node-test-shard:end] workflow-packages-tags exit=1 durationMs=12518
+
+[node-test-shards:summary]
+- workflow-engine: exit=6 files=20 durationMs=161200
+- workflow-host: exit=0 files=8 durationMs=29763
+- workflow-packages-literature: exit=38 files=11 durationMs=49348
+- workflow-packages-workbench: exit=18 files=5 durationMs=25915
+- workflow-packages-tags: exit=1 files=6 durationMs=12518
+[node-test-shards:failed]
+- workflow-engine: npm run test:node -- --shard workflow-engine
+- workflow-packages-literature: npm run test:node -- --shard workflow-packages-literature
+- workflow-packages-workbench: npm run test:node -- --shard workflow-packages-workbench
+- workflow-packages-tags: npm run test:node -- --shard workflow-packages-tags
+
+[node-test-shards:failed-output]
+
+[node-test-shard-output:start] workflow-engine
+[node-test-shard-output:command] npx tsx node_modules/mocha/bin/mocha tests/workflows/109-workflow-result-context.test.ts tests/workflows/134-manuscript-literature-framing-workflow.test.ts tests/workflows/135-workflow-product-storage.test.ts tests/workflows/137-literature-search-ingest-workflow.test.ts tests/workflows/156-debug-sequence-probe-workflows.test.ts tests/workflows/159-workflow-i18n.test.ts tests/workflows/162-workflow-single-result-integration.test.ts tests/workflows/176-workflow-run-result-bundle-reader.test.ts tests/workflows/20-workflow-loader-validation.test.ts tests/workflows/24-workflow-execute-message.test.ts tests/workflows/41-workflow-scan-registration.test.ts tests/workflows/47-workflow-log-instrumentation.test.ts tests/workflows/48-workflow-execution-seams.test.ts tests/workflows/49-workflow-settings-domain.test.ts tests/workflows/51-workflow-duplicate-guard-seam.test.ts tests/workflows/54-workflow-summary-counter-utils.test.ts tests/workflows/55-workflow-apply-seam-risk-regression.test.ts tests/workflows/87-workflow-package-runtime-diagnostics.test.ts tests/workflows/88-workflow-runtime-scope-diagnostics.test.ts tests/workflows/89-workflow-debug-probe.test.ts --require tests/setup/zotero-mock.ts --exit
+[31m  6 failing[0m
+
+[0m  1) workflow single-result behavior integration
+       runs the SkillRunner single-bundle happy path with request-ready projection and bundle apply:
+
+      [31mAssertionError: expected +0 to equal 1[0m
+      [32m+ expected[0m [31m- actual[0m
+
+      [31m-0[0m
+      [32m+1[0m
+      [0m[90m
+      at Context.<anonymous> (tests/workflows/162-workflow-single-result-integration.test.ts:819:12)
+[0m
+[0m  2) workflow single-result behavior integration
+       keeps existing-parent bundle apply ownership across SkillRunner and ACP:
+
+      [31mAssertionError: expected +0 to equal 1[0m
+      [32m+ expected[0m [31m- actual[0m
+
+      [31m-0[0m
+      [32m+1[0m
+      [0m[90m
+      at Context.<anonymous> (tests/workflows/162-workflow-single-result-integration.test.ts:871:14)
+[0m
+[0m  3) workflow single-result behavior integration
+       runs the SkillRunner manifest-bundle workflow and applies the manifest-listed artifact:
+
+      [31mAssertionError: expected +0 to equal 1[0m
+      [32m+ expected[0m [31m- actual[0m
+
+      [31m-0[0m
+      [32m+1[0m
+      [0m[90m
+      at Context.<anonymous> (tests/workflows/162-workflow-single-result-integration.test.ts:901:12)
+[0m
+[0m  4) workflow single-result behavior integration
+       runs the SkillRunner sequence-bundle happy path with foreground step bundle apply:
+
+      [31mAssertionError: expected [ { …(3) } ] to have a length of 2 but got 1[0m
+      [32m+ expected[0m [31m- actual[0m
+
+      [31m-1[0m
+      [32m+2[0m
+      [0m[90m
+      at Context.<anonymous> (tests/workflows/162-workflow-single-result-integration.test.ts:1077:12)
+[0m
+[0m  5) workflow debug probe
+       debug apply hook reads bundle artifacts through resultContext:
+[0m[31m     Error: prepared mutation no longer matches current Zotero state[0m[90m
+      at confirmed (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/workflow-debug-probe/hooks/applyDebugApplyContractResult.mjs:70:9)
+      at applyBundle (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/workflow-debug-probe/hooks/applyDebugApplyContractResult.mjs:182:22)
+      at async Object.applyResult (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/workflow-debug-probe/hooks/applyDebugApplyContractResult.mjs:234:9)
+      at async withWorkflowExecutionRuntimeScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/runtime.ts:1:12300)
+      at async file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/runtime.ts:1:17322
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/runtime.ts:1:15606)
+      at async file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/runtime.ts:1:28119
+      at async Context.<anonymous> (tests/workflows/89-workflow-debug-probe.test.ts:835:22)
+[0m
+[0m  6) workflow debug probe
+       debug apply manifest-bundle hook reads artifacts listed by resultJson manifest path:
+[0m[31m     Error: prepared mutation no longer matches current Zotero state[0m[90m
+      at confirmed (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/workflow-debug-probe/hooks/applyDebugApplyContractResult.mjs:70:9)
+      at applyBundle (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/workflow-debug-probe/hooks/applyDebugApplyContractResult.mjs:182:22)
+      at async Object.applyResult (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/workflow-debug-probe/hooks/applyDebugApplyContractResult.mjs:234:9)
+      at async withWorkflowExecutionRuntimeScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/runtime.ts:1:12300)
+      at async file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/runtime.ts:1:17322
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/runtime.ts:1:15606)
+      at async file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/runtime.ts:1:28119
+      at async Context.<anonymous> (tests/workflows/89-workflow-debug-probe.test.ts:907:22)
+[0m
+[node-test-shard-output:end] workflow-engine
+
+[node-test-shard-output:start] workflow-packages-literature
+[node-test-shard-output:command] npx tsx node_modules/mocha/bin/mocha tests/workflow-literature-analysis/21-workflow-literature-analysis.test.ts tests/workflow-literature-analysis/22-literature-analysis-filter-inputs.test.ts tests/workflow-literature-analysis/23-workflow-literature-analysis-fixtures.test.ts tests/workflow-literature-analysis/24-literature-analysis-sequence-apply.test.ts tests/workflow-literature-analysis/50-workflow-literature-analysis-mock-e2e.test.ts tests/workflow-literature-deep-reading/158-workflow-literature-deep-reading.test.ts tests/workflow-literature-explainer/21-workflow-literature-explainer.test.ts tests/workflow-literature-explainer/22-literature-explainer-filter-inputs.test.ts tests/workflow-literature-metadata-curator/171-workflow-literature-metadata-curator.test.ts tests/workflow-literature-translator/160-workflow-literature-translator.test.ts tests/workflow-mineru/39-workflow-mineru.test.ts --require tests/setup/zotero-mock.ts --exit
+[31m  38 failing[0m
+
+[0m  1) workflow: literature-analysis
+       applies score-only output without rewriting the canonical artifact triplet:
+[0m[31m     Error: embedded payload attachment is unavailable[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at upsertLiteratureDigestGeneratedNotes (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:158:18)
+      at async applyResultImpl (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-analysis/hooks/applyResult.mjs:414:21)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-analysis/21-workflow-literature-analysis.test.ts:949:22)
+[0m
+[0m  2) workflow: literature-analysis
+       applies valid artifacts when skill output includes a non-null error diagnostic:
+[0m[31m     Error: embedded payload attachment is unavailable[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at upsertLiteratureDigestGeneratedNotes (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:158:18)
+      at async applyResultImpl (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-analysis/hooks/applyResult.mjs:529:19)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-analysis/21-workflow-literature-analysis.test.ts:1226:22)
+[0m
+[0m  3) workflow: literature-analysis
+       filters deterministic invalid references before writing the references note:
+[0m[31m     Error: embedded payload attachment is unavailable[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at upsertLiteratureDigestGeneratedNotes (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:158:18)
+      at async applyResultImpl (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-analysis/hooks/applyResult.mjs:529:19)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-analysis/21-workflow-literature-analysis.test.ts:1321:22)
+[0m
+[0m  4) workflow: literature-analysis
+       writes an empty references array when all references are deterministic invalid:
+[0m[31m     Error: embedded payload attachment is unavailable[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at upsertLiteratureDigestGeneratedNotes (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:158:18)
+      at async applyResultImpl (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-analysis/hooks/applyResult.mjs:529:19)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-analysis/21-workflow-literature-analysis.test.ts:1438:22)
+[0m
+[0m  5) workflow: literature-analysis
+       keeps citekey in references payload while hiding the Citekey table column:
+[0m[31m     Error: embedded payload attachment is unavailable[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at upsertLiteratureDigestGeneratedNotes (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:158:18)
+      at async applyResultImpl (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-analysis/hooks/applyResult.mjs:529:19)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-analysis/21-workflow-literature-analysis.test.ts:1503:22)
+[0m
+[0m  6) workflow: literature-analysis
+       stores literature matching metadata as a hidden digest note payload:
+[0m[31m     Error: embedded payload attachment is unavailable[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at upsertLiteratureDigestGeneratedNotes (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:158:18)
+      at async applyResultImpl (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-analysis/hooks/applyResult.mjs:529:19)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-analysis/21-workflow-literature-analysis.test.ts:1582:22)
+[0m
+[0m  7) workflow: literature-analysis
+       automatically runs reference matching after writing references note:
+[0m[31m     Error: embedded payload attachment is unavailable[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at upsertLiteratureDigestGeneratedNotes (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:158:18)
+      at async applyResultImpl (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-analysis/hooks/applyResult.mjs:529:19)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-analysis/21-workflow-literature-analysis.test.ts:1670:24)
+[0m
+[0m  8) workflow: literature-analysis
+       ignores removed auto reference matching parameter:
+[0m[31m     Error: embedded payload attachment is unavailable[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at upsertLiteratureDigestGeneratedNotes (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:158:18)
+      at async applyResultImpl (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-analysis/hooks/applyResult.mjs:529:19)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-analysis/21-workflow-literature-analysis.test.ts:1722:24)
+[0m
+[0m  9) workflow: literature-analysis
+       updates an existing references note without automatic reference matching:
+[0m[31m     Error: embedded payload attachment is unavailable[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at upsertLiteratureDigestGeneratedNotes (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:158:18)
+      at async applyResultImpl (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-analysis/hooks/applyResult.mjs:529:19)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-analysis/21-workflow-literature-analysis.test.ts:1787:7)
+[0m
+[0m  10) workflow: literature-analysis
+       applies result when artifact paths are uploads-prefixed bundle-relative paths:
+[0m[31m     Error: embedded payload attachment is unavailable[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at upsertLiteratureDigestGeneratedNotes (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:158:18)
+      at async applyResultImpl (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-analysis/hooks/applyResult.mjs:529:19)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-analysis/21-workflow-literature-analysis.test.ts:1851:24)
+[0m
+[0m  11) workflow: literature-analysis
+       applies ACP local result paths through shared result context without bundle projection:
+[0m[31m     Error: embedded payload attachment is unavailable[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at upsertLiteratureDigestGeneratedNotes (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:158:18)
+      at async applyResultImpl (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-analysis/hooks/applyResult.mjs:529:19)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-analysis/21-workflow-literature-analysis.test.ts:2105:26)
+[0m
+[0m  12) workflow: literature-analysis
+       stores source metadata in digest payload when request is provided:
+[0m[31m     Error: embedded payload attachment is unavailable[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at upsertLiteratureDigestGeneratedNotes (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:158:18)
+      at async applyResultImpl (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-analysis/hooks/applyResult.mjs:529:19)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-analysis/21-workflow-literature-analysis.test.ts:2228:24)
+[0m
+[0m  13) workflow: literature-analysis
+       embeds representative image from safe markdown locator through host api:
+[0m[31m     Error: embedded payload attachment is unavailable[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at upsertLiteratureDigestGeneratedNotes (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:158:18)
+      at async applyResultImpl (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-analysis/hooks/applyResult.mjs:529:19)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-analysis/21-workflow-literature-analysis.test.ts:2354:26)
+[0m
+[0m  14) workflow: literature-analysis
+       keeps digest payload when representative image note object reads stale content:
+[0m[31m     Error: embedded payload attachment is unavailable[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at upsertLiteratureDigestGeneratedNotes (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:158:18)
+      at async applyResultImpl (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-analysis/hooks/applyResult.mjs:529:19)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-analysis/21-workflow-literature-analysis.test.ts:2455:26)
+[0m
+[0m  15) workflow: literature-analysis
+       skips unsafe markdown representative image paths without blocking apply:
+[0m[31m     Error: embedded payload attachment is unavailable[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at upsertLiteratureDigestGeneratedNotes (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:158:18)
+      at async applyResultImpl (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-analysis/hooks/applyResult.mjs:529:19)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-analysis/21-workflow-literature-analysis.test.ts:2517:26)
+[0m
+[0m  16) workflow: literature-analysis
+       skips unresolved markdown_src_hint without falling back to another image:
+[0m[31m     Error: embedded payload attachment is unavailable[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at upsertLiteratureDigestGeneratedNotes (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:158:18)
+      at async applyResultImpl (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-analysis/hooks/applyResult.mjs:529:19)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-analysis/21-workflow-literature-analysis.test.ts:2630:26)
+[0m
+[0m  17) workflow: literature-analysis
+       uses caption quote to select the correct markdown image among multiple refs:
+[0m[31m     Error: embedded payload attachment is unavailable[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at upsertLiteratureDigestGeneratedNotes (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:158:18)
+      at async applyResultImpl (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-analysis/hooks/applyResult.mjs:529:19)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-analysis/21-workflow-literature-analysis.test.ts:2739:26)
+[0m
+[0m  18) workflow: literature-analysis
+       skips ambiguous label-only markdown locator instead of guessing:
+[0m[31m     Error: embedded payload attachment is unavailable[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at upsertLiteratureDigestGeneratedNotes (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:158:18)
+      at async applyResultImpl (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-analysis/hooks/applyResult.mjs:529:19)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-analysis/21-workflow-literature-analysis.test.ts:2816:26)
+[0m
+[0m  19) workflow: literature-analysis
+       preserves native Windows separators when resolving markdown_src_hint:
+[0m[31m     Error: embedded payload attachment is unavailable[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at upsertLiteratureDigestGeneratedNotes (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:158:18)
+      at async applyResultImpl (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-analysis/hooks/applyResult.mjs:529:19)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-analysis/21-workflow-literature-analysis.test.ts:2889:24)
+[0m
+[0m  20) workflow: literature-analysis
+       skips pdf representative image resolution as best effort without blocking apply:
+[0m[31m     Error: embedded payload attachment is unavailable[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at upsertLiteratureDigestGeneratedNotes (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:158:18)
+      at async applyResultImpl (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-analysis/hooks/applyResult.mjs:529:19)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-analysis/21-workflow-literature-analysis.test.ts:2983:24)
+[0m
+[0m  21) workflow: literature-deep-reading
+       builds a source bundle with rewritten images and sidecar artifacts:
+
+      [31mAssertionError: {"outcome":"failed","attempt":{"schema":"zotero-agents.mutation-attempt.v1","attemptId":"8cf0324d-fec3-438d-bcb1-1b807a58ea11","operationId":"deep-reading-digest:00000001","operation":"literature_artifact.upsert_digest","status":"failed","error":{"code":"execution_failed","phase":"staging","recovery":"retry_same_operation","message":"prepared mutation no longer matches current Zotero state","details":{"phase":"staging","recovery":"retry_same_operation"}},"affectedRefs":[{"kind":"item","ref":{"libraryId":1,"key":"00000002"}}],"residualRefs":[]}}: expected 'failed' to equal 'committed'[0m
+      [32m+ expected[0m [31m- actual[0m
+
+      [31m-failed[0m
+      [32m+committed[0m
+      [0m[90m
+      at addGeneratedSidecars (tests/workflow-literature-deep-reading/158-workflow-literature-deep-reading.test.ts:66:10)
+      at async Context.<anonymous> (tests/workflow-literature-deep-reading/158-workflow-literature-deep-reading.test.ts:323:5)
+[0m
+[0m  22) workflow: literature-deep-reading
+       attaches the final HTML result next to the source attachment:
+[0m[31m     Error: prepared mutation no longer matches current Zotero state[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at applyResultImpl (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-deep-reading/hooks/applyResult.mjs:199:18)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-deep-reading/158-workflow-literature-deep-reading.test.ts:847:22)
+[0m
+[0m  23) workflow: literature-deep-reading
+       attaches valid HTML when output status is failed-like diagnostic:
+[0m[31m     Error: prepared mutation no longer matches current Zotero state[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at applyResultImpl (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-deep-reading/hooks/applyResult.mjs:199:18)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-deep-reading/158-workflow-literature-deep-reading.test.ts:914:22)
+[0m
+[0m  24) workflow: literature-deep-reading
+       does not create duplicate linked HTML attachment for the same target path:
+[0m[31m     Error: prepared mutation no longer matches current Zotero state[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at applyResultImpl (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-deep-reading/hooks/applyResult.mjs:199:18)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-deep-reading/158-workflow-literature-deep-reading.test.ts:1013:5)
+[0m
+[0m  25) workflow: literature-explainer
+       creates a conversation note when note_path is bundle-relative:
+[0m[31m     Error: literature-explainer applyResult failed at create-note: prepared mutation no longer matches current Zotero state[0m[90m
+      at Object.applyResult (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-explainer/hooks/applyResult.mjs:343:11)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-explainer/21-workflow-literature-explainer.test.ts:238:22)
+[0m
+[0m  26) workflow: literature-explainer
+       creates a conversation note when output includes a non-null error diagnostic:
+[0m[31m     Error: literature-explainer applyResult failed at create-note: prepared mutation no longer matches current Zotero state; skill diagnostics: status=failed; error=partial_result: agent marked the note partial[0m[90m
+      at Object.applyResult (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-explainer/hooks/applyResult.mjs:343:11)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-explainer/21-workflow-literature-explainer.test.ts:296:24)
+[0m
+[0m  27) workflow: literature-explainer
+       creates a conversation note from ACP local note_path through shared result context:
+[0m[31m     Error: literature-explainer applyResult failed at create-note: prepared mutation no longer matches current Zotero state[0m[90m
+      at Object.applyResult (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-explainer/hooks/applyResult.mjs:343:11)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-explainer/21-workflow-literature-explainer.test.ts:372:26)
+[0m
+[0m  28) workflow: literature-explainer
+       creates a conversation note when applyResult receives a portable parent ref:
+[0m[31m     Error: literature-explainer applyResult failed at create-note: prepared mutation no longer matches current Zotero state[0m[90m
+      at Object.applyResult (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-explainer/hooks/applyResult.mjs:343:11)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-explainer/21-workflow-literature-explainer.test.ts:410:24)
+[0m
+[0m  29) workflow: literature-explainer
+       creates a conversation note from backend-shaped result/result.json payload:
+[0m[31m     Error: literature-explainer applyResult failed at create-note: prepared mutation no longer matches current Zotero state[0m[90m
+      at Object.applyResult (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-explainer/hooks/applyResult.mjs:343:11)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-explainer/21-workflow-literature-explainer.test.ts:459:24)
+[0m
+[0m  30) workflow: literature-explainer
+       keeps an oversized markdown payload complete while creating a bounded parent note:
+[0m[31m     Error: literature-explainer applyResult failed at create-note: prepared mutation no longer matches current Zotero state[0m[90m
+      at Object.applyResult (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-explainer/hooks/applyResult.mjs:343:11)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-explainer/21-workflow-literature-explainer.test.ts:581:24)
+[0m
+[0m  31) workflow: literature-explainer
+       maps absolute note_path to bundle entry suffix and creates note:
+[0m[31m     Error: literature-explainer applyResult failed at create-note: prepared mutation no longer matches current Zotero state[0m[90m
+      at Object.applyResult (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-explainer/hooks/applyResult.mjs:343:11)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-explainer/21-workflow-literature-explainer.test.ts:632:24)
+[0m
+[0m  32) workflow: literature-explainer
+       prefers uploads-prefixed note_path without forcing artifacts/result rewrite:
+[0m[31m     Error: literature-explainer applyResult failed at create-note: prepared mutation no longer matches current Zotero state[0m[90m
+      at Object.applyResult (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-explainer/hooks/applyResult.mjs:343:11)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-explainer/21-workflow-literature-explainer.test.ts:671:24)
+[0m
+[0m  33) workflow: literature-translator
+       materializes translated markdown next to source and does not duplicate linked attachment:
+[0m[31m     Error: literature-translator applyResult failed at materialize-artifacts: prepared mutation no longer matches current Zotero state[0m[90m
+      at applyResultImpl (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-translator/hooks/applyResult.mjs:178:11)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-translator/160-workflow-literature-translator.test.ts:399:5)
+[0m
+[0m  34) workflow: literature-translator
+       materializes translated artifacts when status is a diagnostic non-success value:
+[0m[31m     Error: literature-translator applyResult failed at materialize-artifacts: prepared mutation no longer matches current Zotero state; skill diagnostics: status=failed; reason=quality gate reported caveats; error=agent marked output partial[0m[90m
+      at applyResultImpl (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-translator/hooks/applyResult.mjs:178:11)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-translator/160-workflow-literature-translator.test.ts:467:22)
+[0m
+[0m  35) workflow: literature-translator
+       materializes translated artifacts from a remote bundle when result paths are not local:
+[0m[31m     Error: literature-translator applyResult failed at materialize-artifacts: prepared mutation no longer matches current Zotero state[0m[90m
+      at applyResultImpl (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/literature-translator/hooks/applyResult.mjs:178:11)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-translator/160-workflow-literature-translator.test.ts:668:5)
+[0m
+[0m  36) workflow: mineru
+       materializes full.md/images, rewrites image paths, and attaches markdown to parent:
+[0m[31m     Error: mineru applyResult failed at materialize-parts: prepared mutation no longer matches current Zotero state[0m[90m
+      at Object.applyResult (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/mineru/hooks/applyResult.mjs:597:11)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-mineru/39-workflow-mineru.test.ts:659:22)
+[0m
+[0m  37) workflow: mineru
+       merges aggregate child bundles in order with one blank line:
+[0m[31m     Error: mineru applyResult failed at materialize-parts: prepared mutation no longer matches current Zotero state[0m[90m
+      at Object.applyResult (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/mineru/hooks/applyResult.mjs:597:11)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-mineru/39-workflow-mineru.test.ts:750:5)
+[0m
+[0m  38) workflow: mineru
+       does not create duplicate linked markdown attachment for same parent and same path:
+[0m[31m     Error: mineru applyResult failed at materialize-parts: prepared mutation no longer matches current Zotero state[0m[90m
+      at Object.applyResult (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/mineru/hooks/applyResult.mjs:597:11)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-mineru/39-workflow-mineru.test.ts:976:7)
+[0m
+[node-test-shard-output:end] workflow-packages-literature
+
+[node-test-shard-output:start] workflow-packages-workbench
+[node-test-shard-output:command] npx tsx node_modules/mocha/bin/mocha tests/workflow-literature-workbench-package/45-workflow-note-import-export.test.ts tests/workflow-literature-workbench-package/46-reference-workbench-import-validation.test.ts tests/workflow-literature-workbench-package/47-workflow-literature-bundle.test.ts tests/workflow-literature-workbench-package/48-workflow-research-bundle.test.ts tests/workflow-literature-workbench-package/49-workflow-collection-collector.test.ts --require tests/setup/zotero-mock.ts --exit
+[31m  18 failing[0m
+
+[0m  1) workflow: literature-workbench import/export notes
+       round-trips custom through the managed semantic writer:
+[0m[31m     Error: prepared mutation no longer matches current Zotero state[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at import_runtime (workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:381:23)
+      at async Context.<anonymous> (tests/workflow-literature-workbench-package/45-workflow-note-import-export.test.ts:418:24)
+[0m
+[0m  2) workflow: literature-workbench import/export notes
+       round-trips conversation-note through the managed semantic writer:
+[0m[31m     Error: prepared mutation no longer matches current Zotero state[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at import_runtime (workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:381:23)
+      at async Context.<anonymous> (tests/workflow-literature-workbench-package/45-workflow-note-import-export.test.ts:425:16)
+[0m
+[0m  3) workflow: literature-workbench import/export notes
+       replays an analysis parent set with one operation identity and unchanged note refs:
+[0m[31m     AssertionError: expected { Object (outcome, attempt) } to have property 'result'[0m[90m
+      at Context.<anonymous> (tests/workflow-literature-workbench-package/45-workflow-note-import-export.test.ts:471:12)
+[0m
+[0m  4) workflow: literature-workbench import/export notes
+       loads remaining literature-workbench debug-only note artifact workflows:
+[0m[31m     Error: embedded payload attachment is unavailable[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at import_runtime (workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:381:23)
+      at async applyResultImpl (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/debug-digest-apply-fixture/hooks/applyResult.mjs:157:19)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async Context.<anonymous> (tests/workflow-literature-workbench-package/45-workflow-note-import-export.test.ts:613:7)
+[0m
+[0m  5) workflow: literature-workbench import/export notes
+       adds a representative image to an existing digest note from a selected parent:
+[0m[31m     Error: embedded payload attachment is unavailable[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at import_runtime (workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:381:23)
+      at async import_runtime (workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:381:23)
+      at async applyResultImpl (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/workflows_builtin/literature-workbench-package/add-digest-representative-image/hooks/applyResult.mjs:176:19)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-workbench-package/45-workflow-note-import-export.test.ts:740:22)
+[0m
+[0m  6) workflow: literature-workbench import/export notes
+       fails when markdown_src cannot be resolved for a selected digest note:
+[0m[31m     AssertionError: expected 'embedded payload attachment is unavai…' to match /markdown_src_hint_not_resolved/[0m[90m
+      at Context.<anonymous> (tests/workflow-literature-workbench-package/45-workflow-note-import-export.test.ts:805:14)
+[0m
+[0m  7) workflow: literature-workbench import/export notes
+       applies structured conflict policies for non-interactive note imports without opening an editor:
+[0m[31m     AssertionError: expected Error: embedded payload attachment is una… { …(2) } to equal undefined[0m[90m
+      at Context.<anonymous> (tests/workflow-literature-workbench-package/45-workflow-note-import-export.test.ts:1498:16)
+[0m
+[0m  8) workflow: literature-workbench import/export notes
+       import-notes editor-driven flows
+         imports a literature score file as a generated score note:
+[0m[31m     Error: embedded payload attachment is unavailable[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at import_runtime (workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:381:23)
+      at async normalized (workflows_builtin/literature-workbench-package/import-notes/hooks/applyResult.mjs:1470:23)
+      at async normalized (workflows_builtin/literature-workbench-package/import-notes/hooks/applyResult.mjs:1470:23)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-workbench-package/45-workflow-note-import-export.test.ts:1565:23)
+[0m
+[0m  9) workflow: literature-workbench import/export notes
+       import-notes editor-driven flows
+         imports selected digest/references/citation files and upserts generated notes:
+[0m[31m     Error: embedded payload attachment is unavailable[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at import_runtime (workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:381:23)
+      at async normalized (workflows_builtin/literature-workbench-package/import-notes/hooks/applyResult.mjs:1470:23)
+      at async normalized (workflows_builtin/literature-workbench-package/import-notes/hooks/applyResult.mjs:1470:23)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-workbench-package/45-workflow-note-import-export.test.ts:1612:7)
+[0m
+[0m  10) workflow: literature-workbench import/export notes
+       import-notes editor-driven flows
+         refreshes sidecar for references-only import without fabricated sibling artifacts:
+[0m[31m     Error: embedded payload attachment is unavailable[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at import_runtime (workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:381:23)
+      at async normalized (workflows_builtin/literature-workbench-package/import-notes/hooks/applyResult.mjs:1470:23)
+      at async normalized (workflows_builtin/literature-workbench-package/import-notes/hooks/applyResult.mjs:1470:23)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-workbench-package/45-workflow-note-import-export.test.ts:1706:24)
+[0m
+[0m  11) workflow: literature-workbench import/export notes
+       import-notes editor-driven flows
+         does not refresh sidecar for custom-only import:
+[0m[31m     Error: prepared mutation no longer matches current Zotero state[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at import_runtime (workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:381:23)
+      at async normalized (workflows_builtin/literature-workbench-package/import-notes/hooks/applyResult.mjs:1470:23)
+      at async normalized (workflows_builtin/literature-workbench-package/import-notes/hooks/applyResult.mjs:1470:23)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-workbench-package/45-workflow-note-import-export.test.ts:1777:24)
+[0m
+[0m  12) workflow: literature-workbench import/export notes
+       import-notes editor-driven flows
+         imports digest representative image marker as embedded note image:
+[0m[31m     Error: embedded payload attachment is unavailable[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at import_runtime (workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:381:23)
+      at async normalized (workflows_builtin/literature-workbench-package/import-notes/hooks/applyResult.mjs:1470:23)
+      at async normalized (workflows_builtin/literature-workbench-package/import-notes/hooks/applyResult.mjs:1470:23)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-workbench-package/45-workflow-note-import-export.test.ts:1863:24)
+[0m
+[0m  13) workflow: literature-workbench import/export notes
+       import-notes editor-driven flows
+         skips unsafe imported representative image src while importing clean digest markdown:
+[0m[31m     Error: embedded payload attachment is unavailable[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at import_runtime (workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:381:23)
+      at async normalized (workflows_builtin/literature-workbench-package/import-notes/hooks/applyResult.mjs:1470:23)
+      at async normalized (workflows_builtin/literature-workbench-package/import-notes/hooks/applyResult.mjs:1470:23)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-workbench-package/45-workflow-note-import-export.test.ts:1934:24)
+[0m
+[0m  14) workflow: literature-workbench import/export notes
+       import-notes editor-driven flows
+         uses manually selected representative image over imported marker state:
+[0m[31m     Error: embedded payload attachment is unavailable[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at import_runtime (workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:381:23)
+      at async normalized (workflows_builtin/literature-workbench-package/import-notes/hooks/applyResult.mjs:1470:23)
+      at async normalized (workflows_builtin/literature-workbench-package/import-notes/hooks/applyResult.mjs:1470:23)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-workbench-package/45-workflow-note-import-export.test.ts:2009:24)
+[0m
+[0m  15) workflow: literature-workbench import/export notes
+       import-notes editor-driven flows
+         imports a canonical citation analysis artifact:
+[0m[31m     Error: embedded payload attachment is unavailable[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at import_runtime (workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:381:23)
+      at async normalized (workflows_builtin/literature-workbench-package/import-notes/hooks/applyResult.mjs:1470:23)
+      at async normalized (workflows_builtin/literature-workbench-package/import-notes/hooks/applyResult.mjs:1470:23)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-workbench-package/45-workflow-note-import-export.test.ts:2054:7)
+[0m
+[0m  16) workflow: literature-workbench import/export notes
+       import-notes editor-driven flows
+         accepts a canonical references artifact object:
+[0m[31m     Error: embedded payload attachment is unavailable[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at import_runtime (workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:381:23)
+      at async normalized (workflows_builtin/literature-workbench-package/import-notes/hooks/applyResult.mjs:1470:23)
+      at async normalized (workflows_builtin/literature-workbench-package/import-notes/hooks/applyResult.mjs:1470:23)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-workbench-package/45-workflow-note-import-export.test.ts:2091:7)
+[0m
+[0m  17) workflow: literature-workbench import/export notes
+       import-notes editor-driven flows
+         reopens the import selection window after conflict dialog cancel and can continue with overwrite:
+[0m[31m     Error: embedded payload attachment is unavailable[0m[90m
+      at requireCommittedMutation (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at import_runtime (workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs:381:23)
+      at async normalized (workflows_builtin/literature-workbench-package/import-notes/hooks/applyResult.mjs:1470:23)
+      at async normalized (workflows_builtin/literature-workbench-package/import-notes/hooks/applyResult.mjs:1470:23)
+      at async withPackageRuntimeScope (workflows_builtin/literature-workbench-package/lib/runtime.mjs:387:17)
+      at async withWorkflowExecutionRuntimeScope (src/workflows/runtime.ts:554:12)
+      at async <anonymous> (src/workflows/runtime.ts:742:18)
+      at async withWorkflowHostLeafScope (file:///home/joshua/Workspace/Code/JavaScript/zotero-agents/src/workflows/workflowHostOwners.ts:1:8080)
+      at async runWorkflowHookWithDiagnostics (src/workflows/runtime.ts:678:20)
+      at async <anonymous> (src/workflows/runtime.ts:1256:26)
+      at async Context.<anonymous> (tests/workflow-literature-workbench-package/45-workflow-note-import-export.test.ts:2213:7)
+[0m
+[0m  18) literature portable bundle workflows
+       round-trips metadata, stored content, note images, and repeated imports:
+
+      [31mAssertionError: expected 'failed' to equal 'committed'[0m
+      [32m+ expected[0m [31m- actual[0m
+
+      [31m-failed[0m
+      [32m+committed[0m
+      [0m[90m
+      at Context.<anonymous> (tests/workflow-literature-workbench-package/47-workflow-literature-bundle.test.ts:1709:12)
+[0m
+[node-test-shard-output:end] workflow-packages-workbench
+
+[node-test-shard-output:start] workflow-packages-tags
+[node-test-shard-output:command] npx tsx node_modules/mocha/bin/mocha tests/workflow-tag-auditor/66-tag-compliance.test.ts tests/workflow-tag-bootstrapper/64-workflow-tag-bootstrapper.test.ts tests/workflow-tag-regulator/64a-workflow-tag-regulator-request-building.test.ts tests/workflow-tag-regulator/64b-workflow-tag-regulator-apply-intake.test.ts tests/workflow-tag-regulator/64c-workflow-tag-regulator-dialog-rendering.test.ts tests/workflow-tag-regulator/65-workflow-tag-regulator-mock-e2e.test.ts --require tests/setup/zotero-mock.ts --exit
+[31m  1 failing[0m
+
+[0m  1) workflow: tag-regulator request building
+       adds digest markdown upload from Workbench embedded payload attachments:
+
+      [31mAssertionError: {"outcome":"failed","attempt":{"schema":"zotero-agents.mutation-attempt.v1","attemptId":"d52680df-7066-4600-9771-020980a2559b","operationId":"tag-digest-fixture:00000001","operation":"literature_artifact.upsert_digest","status":"failed","error":{"code":"execution_failed","phase":"staging","recovery":"retry_same_operation","message":"prepared mutation no longer matches current Zotero state","details":{"phase":"staging","recovery":"retry_same_operation"}},"affectedRefs":[{"kind":"item","ref":{"libraryId":1,"key":"00000002"}}],"residualRefs":[]}}: expected 'failed' to equal 'committed'[0m
+      [32m+ expected[0m [31m- actual[0m
+
+      [31m-failed[0m
+      [32m+committed[0m
+      [0m[90m
+      at Context.<anonymous> (tests/workflow-tag-regulator/64-workflow-tag-regulator.shared.ts:310:27)
+[0m
+[node-test-shard-output:end] workflow-packages-tags
+[exit: 1]

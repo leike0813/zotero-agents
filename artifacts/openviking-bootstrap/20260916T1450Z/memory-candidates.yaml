@@ -1,0 +1,196 @@
+# memory-candidates.yaml — 长期记忆候选与处置
+# 依据 artifacts/openviking_initialization_guide.md §9.4 模板与 §9.2 门槛。
+# 本文件是本地审计材料，不上传为长期记忆。
+# as_of: HEAD d75221a75e1e40425edd20c1c5a198c6f1bb6975（分支 research/e2e-historical-regressions）
+
+run_id: 20260916T1450Z
+project_scope: viking://user/default/peers/github.com-leike0813-zotero-agents/
+
+candidates:
+
+  - id: nav-project-knowledge-pack
+    title: 项目知识包导航（资源与记忆的位置）
+    destination: memory
+    kind: 导航信息
+    evidence_type: static
+    as_of: session 2026-09-16
+    statement: 本项目在 OpenViking 下有 8 份 curated 资源与一组实体记忆，另有本地审计目录；先查它们再重新取证。
+    conditions: 仅在本 peer 空间有效；本地审计目录是未跟踪文件，可能被清理。
+    sources: [resources/* 8 份, memories/entities/**, artifacts/openviking-bootstrap/20260916T1450Z/]
+    recheck_when: 项目资源或审计目录被移动/删除时
+    existing_match: 无（本次新建）
+    action: create
+    result: viking://user/default/peers/github.com-leike0813-zotero-agents/memories/entities/navigation/project_knowledge_pack.md
+
+  - id: verify-baseline-2026-09-16
+    title: 2026-09-16 审计基线：实测验证结果与复现命令
+    destination: memory
+    kind: 已验证流程 + 已确认问题
+    evidence_type: runtime
+    as_of: HEAD d75221a7
+    statement: 8 个 tsc 与 cargo 351 测试通过；zotero-host 10 个、workflow 63 个测试失败；Host Bridge CLI 预构建指纹过期而 Synthesis sidecar 新鲜。
+    conditions: 仅对该 commit；失败根因未定位。
+    sources: [validation.md, validation-*.log]
+    recheck_when: 基线 commit 变更；相关模块改动
+    existing_match: 无（子代理未运行测试，故自动提取中不存在）
+    action: create
+    result: viking://user/default/peers/github.com-leike0813-zotero-agents/memories/entities/verification/baseline_verification_2026_09_16.md
+
+  - id: finding-mutation-staging-stale
+    title: canonical mutation 报 stale 时的排错入口
+    destination: memory
+    kind: 已确认问题（静态闭合）
+    evidence_type: static
+    as_of: HEAD d75221a7
+    statement: 该消息只有一个产出点；存在 staging 包装把 conflict/refresh_and_retry 降级为 execution_failed/retry_same_operation。
+    conditions: 未证明失败测试必然经过该包装点；同形包装有 5 处。
+    sources: [zoteroHostCapabilityBroker.ts:14298, :5200, :12406, zoteroHostMutationAuthority.ts:109, 测试输出]
+    recheck_when: broker 的 stale/revalidate/staging catch 变动时
+    existing_match: 无
+    action: create
+    result: viking://user/default/peers/github.com-leike0813-zotero-agents/memories/entities/finding/mutation_staging_stale_error.md
+
+  - id: docs-drift-2026-09-16
+    title: 文档漂移清单（2026-09-16 核实）
+    destination: memory
+    kind: 项目事实（偏差）
+    evidence_type: static
+    as_of: HEAD d75221a7
+    statement: 11 处文档与实现不一致，含 AGENTS.md 的 tests/core、src/handlers，dev_guide 的 *Dialog.ts，synthesis-layer 的 v5/v6。
+    conditions: 逐条附核实方式；两条标「未复核」。
+    sources: [findings.md F-DOC-*, 直接读取]
+    recheck_when: 上述文档改动后
+    existing_match: 无（子代理报告中零散提及，未成条目）
+    action: create
+    result: viking://user/default/peers/github.com-leike0813-zotero-agents/memories/entities/docs/documentation_drift.md
+
+  - id: openviking-peer-capture-boundary
+    title: OpenViking 自动捕获边界与 peer 空间实际写入行为
+    destination: memory
+    kind: 已验证流程 + 项目事实
+    evidence_type: runtime
+    as_of: session 2026-09-16
+    statement: ovcli.conf 的 plugin.* 不约束 DSH 插件；assistant 文本与 subagent 会话都会被捕获并提取；peer 的 resources/ 与 memories/ 均可直接 write。
+    conditions: 基于 dsh-memory-plugin v0.3.2；插件版本升级后失效。
+    sources: [插件 capture.mjs/config.mjs, 会话落盘 .meta.json/.recall_log.json, peer 空间增长观测]
+    recheck_when: 记忆插件升级；OpenViking 服务端策略变化
+    existing_match: entities/plugin/openviking_connectivity.md、openviking_recall_paths.md、openviking_remember_tool.md（互补，不重复：那三条讲召回路径与工具行为，本条讲**捕获范围与 peer 写入**）
+    action: create
+    result: viking://user/default/peers/github.com-leike0813-zotero-agents/memories/entities/plugin/openviking_peer_capture_boundary.md
+
+  - id: lesson-keyname-redaction
+    title: 教训：按键名黑名单脱敏不足以安全展示配置
+    destination: memory
+    kind: 已验证经验（事故教训）
+    evidence_type: runtime
+    as_of: session 2026-09-16
+    statement: 键名正则未覆盖 "root_api_key": 形态，导致密钥明文进入工具输出；应改为白名单式输出或值级模式扫描。
+    conditions: 教训来自一次真实事故；影响面（是否已进入捕获记录）未完全确定。
+    sources: [本次读取 ov.conf 的过程, ovcli.conf 结构, runtimeLogManager.ts:367-369/438-443 的同构弱点]
+    recheck_when: —
+    existing_match: 无
+    action: create
+    result: viking://user/default/peers/github.com-leike0813-zotero-agents/memories/entities/process/secret_redaction_lesson.md
+
+  - id: life-managed-runtime-lease
+    title: 受管本地 SkillRunner runtime 的租约模型
+    destination: memory
+    kind: 明确约束 / 非显而易见耦合
+    evidence_type: static
+    as_of: HEAD d75221a7
+    statement: 插件卸载只释放租约不停进程；stopLocalRuntime 只挂在 UI 动作上。
+    conditions: 前提是 runtime 侧实现 /v1/local-runtime/lease/*（未验证）。
+    sources: [skillRunnerAsyncLifecycle.ts:44-58, skillRunnerLocalRuntimeManager.ts:4313, hooks.ts:1929]
+    recheck_when: runtime 租约端点或卸载路径改动时
+    existing_match: 部分重叠——resources/audit-2026-09-16-confirmed-issues.md §8 已记录；entities/module/skillrunner_module.md 未含此条
+    action: skip（已在资源中记录，且属「有意设计」而非待办知识；单独立条会与其适用前提分离）
+    result: not written
+
+  - id: life-registry-no-cleanup
+    title: 无清理入口的内存注册表
+    destination: memory
+    kind: 已确认问题
+    evidence_type: static
+    as_of: HEAD d75221a7
+    statement: runDialogMap 只增不删；workflowWorkspacesByRunId 无生产清理（写入仅来自恢复路径）。
+    conditions: 均为 low 级；后者的 mode:"new" 分支生产不可达。
+    sources: [skillRunnerRunDialog.ts:411/4556/4120, acpSkillRunnerWorkspace.ts:52/152/159/217]
+    recheck_when: 上述注册表改动时
+    existing_match: 自动提取的 module/skillrunner_module.md 与 runtime_substrate.md 已提及 runDialogMap 无 delete
+    action: skip（已在既有记忆与本次资源 §5 中记录，单独成条属重复）
+
+  - id: dup-yield-policy-triplication
+    title: 100 items/50 ms 让出策略值三处重复
+    destination: memory
+    kind: 已确认问题（工程一致性）
+    evidence_type: static
+    as_of: HEAD d75221a7
+    statement: 同一策略值在 broker、libraryArtifactReadiness、zoteroNotePayloadResolver 三处各自定义。
+    conditions: 值当前一致。
+    sources: [zoteroHostCapabilityBroker.ts:17838, libraryArtifactReadiness.ts:283, zoteroNotePayloadResolver.ts:218-219]
+    recheck_when: 任一处的策略值改动时
+    existing_match: 自动提取的 module/zotero_host_broker.md 已含此事实
+    action: skip（重复；且属低复用价值的工程细节）
+
+  - id: cov-addon-js-unchecked
+    title: addon/content 手写 JS 既不 lint 也不类型检查
+    destination: memory
+    kind: 已确认问题（覆盖缺口）
+    evidence_type: static
+    as_of: HEAD d75221a7
+    statement: eslint 排除 addon/content/**，tsconfig 排除 addon；其中含 4 个手写文件。
+    conditions: 可能是有意取舍。
+    sources: [eslint.config.mjs ignores, tsconfig.json exclude, addon 文件清单]
+    recheck_when: 忽略规则或 addon 手写文件变动时
+    existing_match: 无
+    action: skip→已并入
+    result: 已写入 resources/audit-2026-09-16-confirmed-issues.md §7，未单独立记忆（属一次性决策事项，需用户判断，不适合作为长期知识）
+
+  - id: flaky-zotero9-timeout
+    title: zotero9-compatibility 的 2000ms 超时不稳定
+    destination: memory
+    kind: 待核实疑点
+    evidence_type: runtime
+    as_of: HEAD d75221a7
+    statement: 两次运行分别出现 1 与 2 个 2000ms 超时。
+    conditions: 未定位；可能是 mock 慢或默认超时过紧。
+    sources: [validation-zotero-host-domain.log 两次运行]
+    recheck_when: 该文件或 mock 改动时
+    existing_match: 无
+    action: hold（证据不足以判定为稳定缺陷；保留在 findings.md F-BEHAV-1 的未决部分）
+
+  - id: fixtures-real-pdfs
+    title: tests/fixtures/selection-context 下有 23 个真实论文 PDF
+    destination: memory
+    kind: 待核实疑点
+    evidence_type: static
+    as_of: HEAD d75221a7
+    statement: 23 个被 git 跟踪的 PDF，文件名长度最高 132 字符，形态与论文标题一致；未判断授权与去标识化状态。
+    conditions: 不在 AGENTS.md 「金例去标识化」约束的适用范围内（那条针对 tests/fixtures/zotero-e2e/）。
+    sources: [git ls-files tests/fixtures/selection-context, du -sh]
+    recheck_when: fixture 变更时
+    existing_match: 自动提取的 preferences/joshua/测试运行约定.md 提及「含真实论文 PDF」（未复核）
+    action: hold（涉及隐私/版权判断，需用户决定；且证据只到「疑似」级别）
+
+# 未写入的记忆主题及理由汇总
+skipped_topics:
+  - 子端到端流程单条记忆: 与 docs/architecture-flow.md 重复，违反 §9.1「避免形成第二份规范」
+  - 「不存在覆盖率门槛」的否定记录: 无复用价值，属为凑条目而写
+  - 各模块的行数/文件数统计: 属会自动失效的度量，已在资源的 as_of 限定下记录
+  - ZoteroHostCapabilityBroker 的设计动机: 未找到任何直接依据，写「动机未记录」本身无需单条记忆
+  - 子代理侦察报告中未独立复核的 20+ 条疑点: 不满足 §9.2 第 1、2 条（来源未核查、可能为猜测）
+
+# 与既有知识的矛盾审查（§9.5）
+contradiction_review:
+  - topic: broker library 域计数
+    conflict: 自动提取的 module/zotero_host_broker.md 记 16；另一侦察会话记 18
+    handling: 本次资源回避逐域计数，只写区间；分歧保留不选边
+  - topic: discovery schema 版本
+    conflict: 侦察报告称 discovery parity 语料固定 v2，而另一处记录生产为 v5
+    handling: 两条并列写入 resources（"未复核"标注），未合并为单一结论
+  - topic: docs/synthesis-layer 的 foundation 版本
+    conflict: README/performance 写 v5，persistence-and-files 写 v6，代码是 v6
+    handling: 以代码为准记录为文档漂移，未写成「文档作废」
+  - topic: 「没有找到调用方」型结论
+    conflict: 无不一致
+    handling: 全部改写为「在本次基线中未发现」，未写成「不存在」

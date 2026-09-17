@@ -1,0 +1,101 @@
+
+[node-test-shard:start] zotero-host (Zotero host contracts)
+[node-test-shard:files] 16
+[node-test-shard:data-dir] /tmp/zotero-agents-node-test-shards-1853760/zotero-host/Zotero_data
+[node-test-shard:command] npx tsx node_modules/mocha/bin/mocha tests/zotero-host/10-selection-context-schema.test.ts tests/zotero-host/102-zotero-host-broker-capability-api.test.ts tests/zotero-host/11-selection-context-rebuild.test.ts tests/zotero-host/130-zotero9-compatibility.test.ts tests/zotero-host/131-zotero-compatibility-fixture.test.ts tests/zotero-host/159-run-zotero-direct-runtime-root.test.ts tests/zotero-host/185-zotero-library-page-query.test.ts tests/zotero-host/241-zotero-host-mutation-authority.test.ts tests/zotero-host/242-zotero-host-trash.test.ts tests/zotero-host/53-zotero-mock-parity-governance.test.ts tests/zotero-host/91-zotero-test-infrastructure.test.ts tests/zotero-host/92-zotero-test-background-cleanup.test.ts tests/zotero-host/94-zotero-test-object-cleanup-harness.test.ts tests/zotero-host/95-zotero-test-leak-probe-digest.test.ts tests/zotero-host/96-zotero-test-performance-probe-digest.test.ts tests/zotero-host/97-zotero-mock-isolation.test.ts --require tests/setup/zotero-mock.ts --exit
+[node-test-shard:end] zotero-host exit=10 durationMs=15172
+
+[node-test-shards:summary]
+- zotero-host: exit=10 files=16 durationMs=15172
+[node-test-shards:failed]
+- zotero-host: npm run test:node -- --shard zotero-host
+
+[node-test-shards:failed-output]
+
+[node-test-shard-output:start] zotero-host
+[node-test-shard-output:command] npx tsx node_modules/mocha/bin/mocha tests/zotero-host/10-selection-context-schema.test.ts tests/zotero-host/102-zotero-host-broker-capability-api.test.ts tests/zotero-host/11-selection-context-rebuild.test.ts tests/zotero-host/130-zotero9-compatibility.test.ts tests/zotero-host/131-zotero-compatibility-fixture.test.ts tests/zotero-host/159-run-zotero-direct-runtime-root.test.ts tests/zotero-host/185-zotero-library-page-query.test.ts tests/zotero-host/241-zotero-host-mutation-authority.test.ts tests/zotero-host/242-zotero-host-trash.test.ts tests/zotero-host/53-zotero-mock-parity-governance.test.ts tests/zotero-host/91-zotero-test-infrastructure.test.ts tests/zotero-host/92-zotero-test-background-cleanup.test.ts tests/zotero-host/94-zotero-test-object-cleanup-harness.test.ts tests/zotero-host/95-zotero-test-leak-probe-digest.test.ts tests/zotero-host/96-zotero-test-performance-probe-digest.test.ts tests/zotero-host/97-zotero-mock-isolation.test.ts --require tests/setup/zotero-mock.ts --exit
+[31m  10 failing[0m
+
+[0m  1) zotero host broker capability api
+       uses semantic artifact writers and reports stale citation basis:
+
+      [31mAssertionError: expected 'failed' to equal 'committed'[0m
+      [32m+ expected[0m [31m- actual[0m
+
+      [31m-failed[0m
+      [32m+committed[0m
+      [0m[90m
+      at Context.<anonymous> (tests/zotero-host/102-zotero-host-broker-capability-api.test.ts:1641:12)
+[0m
+[0m  2) zotero host broker capability api
+       keeps valid Citation payload readable when its References dependency is ambiguous or damaged:
+[0m[31m     AssertionError: Expected canonical pair[0m[90m
+      at Context.<anonymous> (tests/zotero-host/102-zotero-host-broker-capability-api.test.ts:1796:48)
+[0m
+[0m  3) zotero host broker capability api
+       keeps managed details above the downstream budget complete and enforces the UTF-8 Broker limit:
+
+      [31mAssertionError: expected 'failed' to equal 'committed'[0m
+      [32m+ expected[0m [31m- actual[0m
+
+      [31m-failed[0m
+      [32m+committed[0m
+      [0m[90m
+      at Context.<anonymous> (tests/zotero-host/102-zotero-host-broker-capability-api.test.ts:1835:12)
+[0m
+[0m  4) zotero host broker capability api
+       updates each literature singleton and rejects duplicates without removing either candidate:
+[0m[31m     Error: Singleton digest: [{"outcome":"failed","attempt":{"schema":"zotero-agents.mutation-attempt.v1","attemptId":"916dfd5c-847e-4eff-8d19-8007ea260d51","operationId":"create","operation":"literature_artifact.upsert_digest","status":"failed","error":{"code":"execution_failed","phase":"staging","recovery":"retry_same_operation","message":"prepared mutation no longer matches current Zotero state","details":{"phase":"staging","recovery":"retry_same_operation"}},"affectedRefs":[{"kind":"item","ref":{"libraryId":1,"key":"00000002"}}],"residualRefs":[]}},{"outcome":"committed"}][0m[90m
+      at Context.<anonymous> (tests/zotero-host/102-zotero-host-broker-capability-api.test.ts:1994:15)
+[0m
+[0m  5) zotero host broker capability api
+       replays a managed receipt before preparing a now-damaged target:
+[0m[31m     Error: Expected managed commit[0m[90m
+      at Context.<anonymous> (tests/zotero-host/102-zotero-host-broker-capability-api.test.ts:2101:13)
+[0m
+[0m  6) zotero host broker capability api
+       consumes prepared-image slots inside one replay-safe note mutation:
+
+      [31mAssertionError: expected 'failed' to equal 'committed'[0m
+      [32m+ expected[0m [31m- actual[0m
+
+      [31m-failed[0m
+      [32m+committed[0m
+      [0m[90m
+      at Context.<anonymous> (tests/zotero-host/102-zotero-host-broker-capability-api.test.ts:2206:14)
+[0m
+[0m  7) zotero host broker capability api
+       compensates prepared-image staging and preserves the primary note failure:
+[0m[31m     AssertionError: expected 'prepared mutation no longer matches c…' to include 'second image staging failed'[0m[90m
+      at Context.<anonymous> (tests/zotero-host/102-zotero-host-broker-capability-api.test.ts:2314:14)
+[0m
+[0m  8) zotero host broker capability api
+       routes stored attachment creation through canonical replay and preserves cleanup evidence:
+
+      [31mAssertionError: expected 'repair_required' to equal 'committed'[0m
+      [32m+ expected[0m [31m- actual[0m
+
+      [31m-repair_required[0m
+      [32m+committed[0m
+      [0m[90m
+      at Context.<anonymous> (tests/zotero-host/102-zotero-host-broker-capability-api.test.ts:3095:14)
+[0m
+[0m  9) zotero host broker capability api
+       routes attachment update, replacement, move, and removal through confirmed authority results:
+
+      [31mAssertionError: expected 'failed' to equal 'committed'[0m
+      [32m+ expected[0m [31m- actual[0m
+
+      [31m-failed[0m
+      [32m+committed[0m
+      [0m[90m
+      at Context.<anonymous> (tests/zotero-host/102-zotero-host-broker-capability-api.test.ts:3280:12)
+[0m
+[0m  10) Zotero 7/9/10 compatibility baseline
+       persists workflow registry diagnostics after registry scan:
+[0m[31m     Error: Timeout of 2000ms exceeded. For async tests and hooks, ensure "done()" is called; if returning a Promise, ensure it resolves. (/home/joshua/Workspace/Code/JavaScript/zotero-agents/tests/zotero-host/130-zotero9-compatibility.test.ts)[0m[90m
+      at listOnTimeout (node:internal/timers:605:17)
+      at process.processTimers (node:internal/timers:541:7)
+[0m
+[node-test-shard-output:end] zotero-host
+[exit: 1]

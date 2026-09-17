@@ -1,0 +1,698 @@
+    Finished `test` profile [optimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (rust/synthesis-sidecar/target/debug/deps/synthesis_application-922285cfa1ccd412)
+
+running 109 tests
+test canonical_literature_artifacts::tests::decodes_closed_reference_and_citation_contracts ... ok
+test canonical_literature_artifacts::tests::rejects_aliases_and_unknown_source_ids ... ok
+test citation_graph::tests::default_projection_is_tiered_bounded_and_endpoint_closed ... ok
+test canonical_literature_artifacts::tests::decodes_full_literature_score_with_criteria_and_evidence ... ok
+test concept_kb::tests::decodes_historical_local_id_proposal ... ok
+test debug_maintenance::tests::snapshot_is_bounded_sorted_and_maintenance_is_delegated ... ok
+test durable_bundle::tests::strict_legacy_v1_entity_asset_is_read_without_rewriting_to_v2 ... ok
+test durable_bundle::tests::strict_round_trip_detects_asset_tampering ... ok
+test knowledge_checkpoint::tests::build_preview_apply_and_single_use_receipt_are_typed ... ok
+test knowledge_checkpoint::tests::verification_rejects_counts_and_basis_drift_outside_the_checkpoint_hash ... ok
+test knowledge_checkpoint::tests::preview_diff_and_user_decisions_match_the_nested_public_contract ... ok
+test reference::tests::bounded_host_collection_stops_after_reaching_the_requested_row_limit ... ok
+test reference_application::tests::matching_terminal_event_projects_counts_without_warning_text ... ok
+test reference_application::tests::partitions_refresh_sources_by_stable_count_and_estimated_capacity ... ok
+test reference_application::tests::workbench_reference_proposals_project_closed_evidence ... ok
+test durable_bundle::tests::all_kinds_build_deterministically_and_manifest_is_last_owned_by_sink ... ok
+test citation_graph::tests::last_good_read_view_remains_available_while_rebuild_compute_is_blocked ... ok
+test citation_graph::tests::read_view_rejects_stale_continuations_and_keeps_endpoint_closed_identity ... ok
+test reference_application::tests::workbench_index_projects_the_strict_registry_contract ... ok
+test ports::repository_port_tests::production_reader_count_is_bounded ... ok
+test reference_application::tests::refresh_batch_attaches_concurrent_reads_to_the_captured_observation_context ... ok
+test reference_matching::tests::reverse_accepting_open_duplicate_reroots_materialized_sibling ... ok
+test reference_matching::tests::runs_two_passes_applies_once_reviews_partially_and_revokes_fact ... ok
+test reference_matching::tests::promotes_distinct_semantic_actions_for_one_pair_atomically ... ok
+test reference_matching::tests::excludes_same_run_accepted_bindings_from_dedupe_and_promotes_the_fact ... ok
+test related_items::tests::coordinates_mixed_receipts_and_preserves_an_early_echo ... ok
+test related_items::tests::malformed_receipt_keeps_the_batch_pending_and_stops_later_batches ... ok
+test related_items::tests::persists_each_batch_before_host_and_stops_after_transport_failure ... ok
+test related_items::tests::retry_owns_pending_add_and_revoke_protects_preexisting_relations ... ok
+test reference_application::tests::refresh_reads_two_artifacts_concurrently_and_preserves_source_order ... ok
+test citation_graph::tests::rebuilds_pages_promotes_layout_and_closes_admission ... ok
+test reference_application::tests::retains_completed_batches_retries_only_stale_sources_and_sweeps_deletions ... ok
+test reference_application::tests::workbench_review_projects_only_bounded_public_cache_diagnostics ... ok
+test library_snapshot_index::tests::incomplete_page_stays_staged_and_complete_empty_snapshot_can_promote ... ok
+test reference_refresh::tests::materialized_batch_accepts_more_than_the_preparation_limit ... ok
+test citation_graph::tests::failed_collection_releases_its_attempt_and_retry_prepares_from_current_graph ... ok
+test concept_kb::tests::review_reports_diagnostics_marks_index_stale_and_reads_filtered_page ... ok
+test ports::repository_port_tests::four_readers_run_concurrently_and_a_fifth_waits ... ok
+test concept_kb::tests::replaces_indexes_and_cancels_concurrent_query_on_shutdown ... ok
+test reference_matching::tests::rejects_duplicate_semantic_actions_without_persisting_partial_state ... ok
+test reference_application::tests::discards_prepared_refresh_after_host_read_failure_and_allows_same_process_retry ... ok
+test citation_graph::tests::worker_failure_and_cas_supersession_preserve_last_good_graph ... ok
+test ports::repository_port_tests::workbench_read_does_not_wait_for_the_writer_owner ... ok
+test reference_application::tests::canonical_mutations_report_blocked_bound_and_missing_outcomes ... ok
+test reference_application::tests::update_metadata_trims_canonical_reference_id_like_archive ... ok
+test reference_application::tests::rejected_canonical_checkpoint_writes_nothing_and_can_succeed_after_reopen ... ok
+test reference_application::tests::pages_host_inputs_retries_worker_and_applies_proposal_batch_independently ... ok
+test reference_refresh::tests::explicit_multi_batch_run_loads_one_projection_snapshot ... ok
+test reference_refresh::tests::identity_full_sweep_optimization_requires_verified_snapshot_without_deletions ... ok
+test reference_application::tests::workbench_review_sanitizes_persisted_canonical_rows_and_review_diagnostics ... ok
+test reference_application::tests::commits_canonical_batches_receipts_and_revision_review_atomically ... ok
+test topic::tests::legacy_resolver_shapes_normalize_to_the_current_closed_dto ... ok
+test tag_audit::tests::begin_reclaims_inactive_same_host_runs_but_preserves_active_runs ... ok
+test reference_refresh::tests::verified_identity_full_sweep_matches_complete_projection_and_durable_state ... ok
+test reference_refresh::tests::rejects_citation_payload_with_stale_references_basis ... ok
+test tag_audit::tests::re_promote_returns_the_persisted_snapshot_revision ... ok
+test reference_refresh::tests::metadata_only_preserves_reference_facts_while_citation_change_reprojects ... ok
+test tag_audit::tests::validates_append_evidence_and_publishes_through_the_application ... ok
+test reference_refresh::tests::plans_exact_reads_promotes_once_and_drains ... ok
+test topic_digest::tests::degrades_transport_and_invalid_image_without_failing_digest ... ok
+test topic_digest::tests::projects_available_image_and_skips_opt_out ... ok
+test topic_digest::tests::rejects_invalid_base64_and_oversized_decoded_content ... ok
+test tag_audit::tests::coverage_digest_matches_sorted_host_line_format ... ok
+test reference_refresh::tests::rejects_oversized_apply_payload_and_consumes_the_preparation ... ok
+test tag_vocabulary::tests::commits_promotes_warns_and_stops_admission ... ok
+test tag_vocabulary::tests::failed_binding_migration_preserves_rows_and_revision_and_can_retry ... ok
+test webdav_sync::tests::canonicalizes_legacy_retry_timestamp_when_reopening_state ... ok
+test webdav_sync::tests::canonicalizes_native_millis_remote_head_before_validation ... ok
+test webdav_sync::tests::canonicalizes_native_millis_state_when_reopening ... ok
+test webdav_sync::tests::checkpoint_rejection_keeps_last_good_run_and_writes_no_remote_result ... ok
+test webdav_sync::tests::empty_remote_publishes_and_reopens_idle_state ... ok
+test webdav_sync::tests::pause_wins_over_a_sync_terminal_using_an_older_state_snapshot ... ok
+test webdav_sync::tests::production_retry_schedule_matches_the_durable_contract ... ok
+test webdav_sync::tests::recovers_only_stale_running_state ... ok
+test webdav_sync::tests::rejects_invalid_and_reversed_persisted_timestamps ... ok
+test webdav_sync::tests::rejects_non_historical_persisted_timestamp_encodings ... ok
+test webdav_sync::tests::retrigger_pause_and_abort_cancel_the_previous_retry_generation ... ok
+test tag_vocabulary::tests::initializes_builtin_policy_from_a_persisted_empty_hash_basis ... ok
+test webdav_sync::tests::schedules_retry_with_a_canonical_future_timestamp ... ok
+test workbench::tests::empty_projection_has_two_fixed_cache_descriptors ... ok
+test tag_vocabulary::tests::promotes_case_variant_staged_rows_as_one_canonical_tag ... ok
+test workbench::tests::suppresses_old_failure_and_projects_deterministic_progress ... ok
+test workbench::tests::surface_reads_call_only_the_selected_domain_and_active_review_tab ... ok
+test workbench::tests::enforces_independent_fifty_and_twenty_bounds ... ok
+test tag_vocabulary::tests::migrates_mixed_legacy_bindings_in_sorted_hundred_item_batches ... ok
+test tag_vocabulary::tests::failed_case_repair_rolls_back_and_can_retry ... ok
+test tag_vocabulary::tests::repairs_historical_case_collisions_and_reconciles_winner_effects ... ok
+test tag_vocabulary::tests::batches_two_hundred_fifty_effects_as_one_hundred_one_hundred_fifty ... ok
+test tag_vocabulary::tests::promotes_more_than_one_hundred_selected_tags_as_one_mutation ... ok
+test tag_vocabulary::tests::persists_mixed_host_receipts_without_collapsing_statuses ... ok
+test topic::tests::invalid_assets_write_no_operation_and_stopped_admission_is_bounded ... ok
+test topic::tests::resolver_uses_keyed_reads_when_possible_and_bounded_scan_for_composite_selectors ... ok
+test topic_graph::tests::approving_a_suggested_review_confirms_the_edge_and_closes_the_review ... ok
+test topic_graph::tests::rejects_cycles_commits_index_and_stops ... ok
+test topic_graph::tests::planned_topic_reconcile_is_atomic_revision_guarded_and_membership_free ... ok
+test topic_graph::tests::purge_keeps_rebuilt_active_relations_and_reviews ... ok
+test topic::tests::list_uses_one_joined_repository_page_without_projection_fanout ... ok
+test topic::tests::create_resolves_analysis_and_resolver_from_flat_artifact_manifest ... ok
+test topic::tests::apply_materializes_topic_graph_node_and_reopens_it ... ok
+test topic::tests::create_list_detail_duplicate_and_reopen_are_typed_and_durable ... ok
+test topic::tests::topic_detail_accepts_discovery_cascade_projection ... ok
+test topic::tests::workbench_reads_topic_definition_contract_fields ... ok
+test topic::tests::topic_queries_preserve_fixed_filters_context_views_and_explicit_report_source ... ok
+test topic::tests::startup_reconciliation_backfills_legacy_topic_once ... ok
+test topic::tests::topic_reads_project_all_sample_fixtures ... ok
+test topic::tests::apply_routes_relation_proposals_through_topic_graph_application ... ok
+test topic::tests::delete_rebuild_and_purge_are_durable_and_idempotent ... ok
+test topic::tests::repository_failure_restores_current_and_graph_failure_is_only_a_warning ... ok
+test topic::tests::full_update_checks_basis_and_patch_inherits_sections ... ok
+
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.03s
+
+     Running unittests src/lib.rs (rust/synthesis-sidecar/target/debug/deps/synthesis_canonical_store-5d459991b83fcc6b)
+
+running 29 tests
+test tests::canonical_error_codes_map_to_stable_typed_categories ... ok
+test tests::canonical_assets_round_trip_through_the_representation_interface ... ok
+test tests::canonical_assets_reject_inconsistent_and_invalid_representation ... ok
+test tests::topic_path_ids_match_the_shared_corpus ... ok
+test tests::production_open_rejects_missing_or_derived_roots ... ok
+test tests::opens_only_the_derived_shadow_root ... ok
+test tests::production_open_uses_only_the_explicit_existing_root ... ok
+test tests::canonical_json_and_absent_dto_match_the_shared_corpus ... ok
+test tests::production_initialize_creates_the_explicit_root_once ... ok
+test tests::import_batch_recovery_discards_without_a_repository_receipt ... ok
+test tests::import_batch_can_be_explicitly_discarded_and_reopened ... ok
+test tests::promotion_rejects_traversal_incomplete_snapshots_and_hash_drift ... ok
+test tests::inspect_rejects_symlinks_and_unknown_current_files ... ok
+test tests::draft_preparation_derives_the_stable_canonical_representation ... ok
+test tests::rejects_a_current_shape_path_with_a_different_topic_identity ... ok
+test tests::independent_owners_share_the_filesystem_writer_admission ... ok
+test tests::rejects_invalid_current_topic_without_deleting_the_legacy_copy ... ok
+test tests::legacy_preflight_preserves_bytes_and_rejects_source_conflicts ... ok
+test tests::import_batch_recovery_uses_the_repository_receipt_after_reopen ... ok
+test tests::import_batch_blocks_ordinary_promotion_and_commits_with_one_receipt ... ok
+test tests::archives_restores_and_purges_current_only_by_deleted_path_id ... ok
+test tests::rollback_restore_failure_enters_repair_required ... ok
+test tests::historical_ascii_topic_id_with_sha256_suffix_remains_readable ... ok
+test tests::matching_receipt_forwards_a_promoted_interruption ... ok
+test tests::archives_a_historical_typescript_topic_path ... ok
+test tests::create_update_cas_and_descriptor_bytes_are_stable ... ok
+test tests::import_batch_recovery_skips_an_already_committed_prefix ... ok
+test tests::reads_a_historical_typescript_topic_path ... ok
+test tests::every_pre_receipt_fault_recovers_the_last_good_snapshot_on_restart ... ok
+
+test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.59s
+
+     Running unittests src/lib.rs (rust/synthesis-sidecar/target/debug/deps/synthesis_citation_graph_build-10d2bfebe3e7c7db)
+
+running 2 tests
+test tests::cancellation_and_dangling_source_fail_closed ... ok
+test tests::builds_graph_and_preserves_utf16_order ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (rust/synthesis-sidecar/target/debug/deps/synthesis_citation_layout-53857c445cfa67d1)
+
+running 5 tests
+test tests::rejects_invalid_requests_and_honors_cancellation ... ok
+test tests::preserves_structured_layout_semantics ... ok
+test tests::satisfies_reviewed_connected_graph_quality_thresholds ... ok
+test tests::treats_valid_self_loops_as_layout_neutral_for_every_algorithm ... ok
+test tests::computes_all_algorithms_with_v2_metadata_and_stable_nodes ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+     Running unittests src/lib.rs (rust/synthesis-sidecar/target/debug/deps/synthesis_concept_kb-47a2648277c1f6a4)
+
+running 5 tests
+test tests::typed_pages_reject_unknown_domain_fields ... ok
+test tests::raw_typed_pages_require_canonical_bytes_and_deny_unknown_fields ... ok
+test tests::canceled_kernel_fails_before_publication ... ok
+test tests::query_matches_unicode_case_and_reports_cross_concept_ambiguity ... ok
+test tests::index_suppresses_ambiguous_overlay_and_prefers_sense_definition ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (rust/synthesis-sidecar/target/debug/deps/synthesis_metrics-a33e00d70423e6d3)
+
+running 1 test
+test tests::metrics_result_is_canonically_deterministic ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (rust/synthesis-sidecar/target/debug/deps/synthesis_protocol-dc441e90acc37e1b)
+
+running 8 tests
+test tests::canonicalizes_utf16_keys_and_hashes ... ok
+test tests::deterministic_frame_dtos_reject_unknown_fields_and_wrong_frame_types ... ok
+test tests::formats_persisted_clock_values_as_utc_iso_8601 ... ok
+test tests::page_descriptor_locks_hash_length_rows_and_json_node_budget ... ok
+test tests::paged_input_rejects_wrong_task_duplicate_page_and_duplicate_record_key ... ok
+test tests::paged_result_requires_exact_sections_and_header ... ok
+test tests::paged_input_requires_operation_section_order_and_exact_header ... ok
+test tests::raw_page_validation_preserves_node_hash_and_sequence_checks ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (rust/synthesis-sidecar/target/debug/deps/synthesis_reference_matcher-67a70e3f4cc817ca)
+
+running 3 tests
+test tests::cancellation_fails_closed ... ok
+test tests::normalizes_actions_by_semantic_identity_and_best_score ... ok
+test tests::binding_preserves_identifier_and_title_semantics ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (rust/synthesis-sidecar/target/debug/deps/synthesis_repository-a60293e27e6d84de)
+
+running 68 tests
+test reference_redirect_graph::tests::merging_an_existing_component_is_idempotent ... ok
+test reference_redirect_graph::tests::repairs_cycles_by_preference_then_stable_fallback ... ok
+test reference_redirect_graph::tests::reroots_direct_and_long_components_without_losing_members ... ok
+test reference_redirect_graph::tests::root_evidence_prefers_explicit_then_binding_then_automatic ... ok
+test citation_reference::tests::canonical_maintenance_writes_records_redirects_and_cache_state ... ok
+test citation_reference::tests::graph_replacement_cas_rolls_back_every_projection_table ... ok
+test checkpoint_bundle_webdav_debug::tests::durable_import_repairs_redirect_cycles_before_commit ... ok
+test citation_reference::tests::reference_projection_preserves_canonicals_required_by_redirects_and_reviews ... ok
+test citation_reference::tests::graph_promotion_rolls_back_graph_cache_and_operation_together ... ok
+test tag_concept_topic_graph::tests::concept_replacement_rolls_back_complete_projection ... ok
+test checkpoint_bundle_webdav_debug::tests::durable_import_basis_loss_does_not_write_receipt ... ok
+test checkpoint_bundle_webdav_debug::tests::durable_capture_and_debug_projection_are_typed_and_reopenable ... ok
+test checkpoint_bundle_webdav_debug::tests::durable_import_creates_a_missing_topic_application_row ... ok
+test citation_reference::tests::citation_graph_metrics_and_layout_reads_materialize_only_the_requested_window ... ok
+test tag_audit::tests::append_is_batch_idempotent_and_rejects_conflicting_replay ... ok
+test tag_audit::tests::only_one_open_audit_run_owns_a_library ... ok
+test citation_reference::tests::reference_projection_round_trips_each_source_id_for_one_canonical_reference ... ok
+test citation_reference::tests::source_slice_promotion_publishes_its_computed_hash_atomically ... ok
+test library_snapshot_index::tests::complete_empty_generation_atomically_replaces_current_rows ... ok
+test tag_concept_topic_graph::tests::tag_audit_replacement_is_library_scoped_and_atomic ... ok
+test tag_concept_topic_graph::tests::confirmed_broader_relations_refresh_discovery_cascade_projection ... ok
+test library_snapshot_index::tests::incomplete_generation_cannot_replace_current_generation ... ok
+test tests::panicking_sql_observation_restores_the_previous_scope ... ok
+test tag_audit::tests::inactive_same_host_runs_are_abandoned_without_touching_active_runs ... ok
+test citation_reference::tests::stale_legacy_layout_is_read_as_metadata_without_coordinates ... ok
+test tag_audit::tests::promotion_atomically_replaces_active_rows_and_publishes_empty_snapshots ... ok
+test tests::production_open_rejects_missing_or_derived_paths ... ok
+test tag_audit::tests::acknowledgement_is_snapshot_bound_and_idempotent ... ok
+test tag_concept_topic_graph::tests::tag_replacement_is_basis_guarded_and_rolls_back ... ok
+test tag_concept_topic_graph::tests::tag_effect_receipt_batch_is_bounded_and_atomic ... ok
+test citation_reference::tests::repository_reopens_with_additive_tables_and_rejects_conflicting_schema ... ok
+test tests::discovery_screening_is_preserved_on_same_basis_and_reopened_on_change ... ok
+test tests::consumes_related_items_echo_in_repository_without_a_host_effect ... ok
+test tag_concept_topic_graph::tests::topic_graph_replacement_survives_reopen ... ok
+test tests::nested_savepoint_rolls_back_locally_and_outer_commits ... ok
+test tests::nested_sql_observation_restores_the_outer_scope ... ok
+test tests::production_open_uses_only_the_explicit_existing_database ... ok
+test tests::insert_operation_if_absent_returns_the_first_retry_successor ... ok
+test tests::opens_complete_isolated_schema_with_required_pragmas ... ok
+test tests::production_initialize_creates_the_explicit_database_once ... ok
+test tests::read_connection_observes_committed_state_and_rejects_writes ... ok
+test tests::nonterminal_operation_update_reports_the_cas_winner ... ok
+test tests::operation_id_keyset_order_is_stable_from_the_first_page ... ok
+test tests::competing_writer_observes_the_fixed_busy_timeout ... ok
+test tests::rejects_unsafe_integer_inputs_and_row_values ... ok
+test tests::online_backup_reopens_with_identical_table_state ... ok
+test tests::schema_and_pragmas_match_the_shared_durable_foundation_corpus ... ok
+test tests::restart_preserves_operations_for_explicit_reconciliation ... ok
+test tests::sql_observation_counts_repository_queries_and_writes_separately ... ok
+test tests::terminal_operation_receipt_is_compare_and_set_and_immutable ... ok
+test tests::typed_application_rows_round_trip_without_synthetic_state ... ok
+test tests::unregistered_production_schema_stops_without_creating_a_backup ... ok
+test tests::registered_failed_migration_keeps_the_original_schema_and_backup ... ok
+test tests::redirect_graph_v1_migration_repairs_cycle_using_explicit_reverse_audit ... ok
+test tests::redirect_graph_v2_migration_repairs_unresolvable_components_once ... ok
+test tests::registered_v4_migration_adds_source_reference_id_without_losing_raw_rows ... ok
+test tests::registered_v5_migration_rekeys_all_current_topic_path_fields ... ok
+test tests::registered_v3_migration_invalidates_only_unprovable_audit_rows ... ok
+test tests::registered_v1_migration_preserves_facts_and_marks_rebuildable_state_stale ... ok
+test legacy_ts_migration::legacy_topic_inventory_classifies_supported_graph_states ... ok
+test tests::exact_legacy_ts_schema_is_registered_and_divergent_schema_is_rejected ... ok
+test tests::failed_legacy_ts_build_keeps_the_source_and_verified_backup ... ok
+test tests::exact_legacy_ts_schema_migrates_once_with_verified_backup ... ok
+test tests::exact_legacy_ts_schema_repairs_redirect_cycles_before_publication ... ok
+test tests::development_legacy_facts_survive_normalization ... ok
+test legacy_ts_migration::legacy_topic_inventory_rejects_unknown_graph_states ... ok
+test tests::known_legacy_ts_variants_are_classified_and_unknown_columns_are_terminal ... ok
+test citation_reference::tests::citation_graph_window_pages_large_graph_without_dangling_edges ... ok
+
+test result: ok. 68 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 27.34s
+
+     Running unittests src/lib.rs (rust/synthesis-sidecar/target/debug/deps/synthesis_sidecar-37987a2bf9b3fb7e)
+
+running 98 tests
+test runtime_canonical_autosync::tests::classifies_only_committed_fixed_baseline_mutations ... ok
+test runtime_background_tasks::tests::stops_admission_cancels_and_drains_registered_tasks ... ok
+test runtime_citation_graph_read_surface::tests::layout_window_requires_matching_basis_version_and_complete_coordinates ... ok
+test runtime_deadline::tests::request_deadline_bounds_downstream_timeouts_and_is_restored ... ok
+test runtime_capabilities::tests::production_client_and_content_transfer_strings_use_the_request_budget ... ok
+test runtime_diagnostics::tests::disabled_debug_events_do_not_construct_event_payloads ... ok
+test runtime_diagnostics::tests::diagnostic_event_serializes_the_strict_v2_allowlist_and_zero_values ... ok
+test runtime_diagnostics::tests::event_at_given_context_keeps_that_context_identity ... ok
+test runtime_diagnostics::tests::observation_context_guard_restores_the_previous_context ... ok
+test runtime_diagnostics::tests::trace_context_rejects_unknown_fields_and_invalid_ids ... ok
+test runtime_host_collection::tests::collection_preserves_one_snapshot_and_deterministic_order ... ok
+test runtime_host_collection::tests::collection_rejects_revision_cursor_duplicate_and_limit_drift ... ok
+test runtime_background_tasks::tests::reports_tasks_that_ignore_the_shared_deadline ... ok
+test runtime_http::tests::total_deadline_does_not_reset_with_progress ... ok
+test runtime_lifecycle::tests::cleanup_issue_turns_a_normal_stop_into_shutdown_incomplete ... ok
+test runtime_lifecycle::tests::first_lifecycle_failure_stays_primary_and_later_failures_are_secondary ... ok
+test runtime_http::tests::reads_one_strict_request_with_exact_body ... ok
+test runtime_lifecycle::tests::lifecycle_failure_promotes_a_pending_normal_stop ... ok
+test runtime_lifecycle::tests::terminal_result_is_formed_once ... ok
+test runtime_http::tests::rejects_line_header_body_and_ambiguous_framing_bounds ... ok
+test runtime_production_client::dispatch_integration_tests::catalog_reports_all_route_assembly_defects_together ... ok
+test runtime_production_client::dispatch_integration_tests::catalog_resolves_only_receipt_operations_as_opaque_maintenance_routes ... ok
+test runtime_production_client::dispatch_integration_tests::catalog_compiles_manifest_planes_special_steps_and_effects_into_routes ... ok
+test runtime_production_client::dispatch_integration_tests::embedded_catalog_preserves_manifest_order_membership_and_fingerprint ... ok
+test runtime_production_client::tests::classifies_manifest_declared_semantic_terminals_for_diagnostics ... ok
+test runtime_production_client::tests::maps_stable_production_error_statuses ... ok
+test runtime_production_ports::tests::citation_compute_nodes_omit_blank_optional_text_and_bound_nonblank_text ... ok
+test runtime_production_ports::tests::reverse_host_effect_dtos_reject_unknown_nested_fields ... ok
+test runtime_public_maintenance_operation::tests::classifies_manifest_owned_maintenance_terminals_without_false_completion ... ok
+test runtime_public_maintenance_operation::tests::operation_context_is_scoped_to_the_worker_call ... ok
+test runtime_public_maintenance_operation::tests::operation_context_is_restored_after_handler_panic ... ok
+test runtime_public_maintenance_operation::tests::persisted_basis_round_trips_the_retry_inputs ... ok
+test runtime_public_maintenance_operation::tests::projects_legacy_worker_failure_receipts_to_the_public_union ... ok
+test runtime_production_ports::tests::reference_matcher_adapter_drives_real_two_pass_contract_and_excludes_binding_accepts ... ok
+test runtime_lifecycle::tests::holds_the_production_lock_for_process_lifetime ... ok
+test runtime_lifecycle::tests::stale_discovery_cleanup_failure_releases_the_lock ... ok
+test runtime_lifecycle::tests::lock_winner_removes_stale_discovery_before_ready ... ok
+test runtime_reverse_host::tests::contextless_call_closes_the_root_trace_on_failure ... ok
+test runtime_reverse_host::tests::contextless_call_emits_one_complete_rooted_trace ... ok
+test runtime_reverse_host::tests::installed_context_keeps_child_only_events ... ok
+test runtime_reverse_host::tests::reads_complete_length_delimited_response_without_eof ... ok
+test runtime_reverse_host::tests::rejects_unbounded_or_malformed_responses ... ok
+test runtime_reverse_host::tests::selects_capability_specific_reverse_host_timeouts ... ok
+test runtime_http::tests::times_out_an_incomplete_header_and_configures_bounded_writes ... ok
+test runtime_server_loop::tests::interrupting_connections_unblocks_socket_reads ... ok
+test runtime_server_loop::tests::bounds_admission_and_releases_slots_with_the_lease ... ok
+test runtime_server_loop::tests::saturated_listener_leaves_next_connection_in_backlog ... ok
+test runtime_service::service_tests::native_compute_pool_bounds_queue_and_fuses_failures ... ok
+test runtime_service::service_tests::rejects_partial_source_state_without_writing_the_missing_half ... ok
+test runtime_topic_workbench_surface::tests::invalid_resolver_is_rejected_before_a_library_port_exists ... ok
+test runtime_topic_workbench_surface::tests::projects_historical_topic_nested_fields_into_the_public_shape ... ok
+test runtime_topic_workbench_surface::tests::topic_request_decoders_reject_aliases_and_missing_contract_fields ... ok
+test runtime_transfer::tests::active_attempts_are_hidden_before_cleanup_but_keep_files_until_finish ... ok
+test runtime_transfer::tests::materializes_a_capability_bound_production_client_request ... ok
+test runtime_transfer::tests::materializes_hash_bound_topic_assets_from_a_sealed_content_session ... ok
+test runtime_transfer::tests::publishes_and_cancels_hash_bound_host_export_entries ... ok
+test runtime_canonical_autosync::tests::coalesces_short_commits_and_isolates_target_failure ... ok
+test runtime_canonical_autosync::tests::waits_for_the_canonical_maintenance_epoch_to_drain ... ok
+test runtime_transfer::tests::rejects_unknown_nested_transfer_fields_and_kind_row_mismatches ... ok
+test runtime_transfer::tests::restart_cleanup_and_attempt_rollback_are_disposable ... ok
+test runtime_transfer::tests::stages_canonical_pages_on_disk_and_reaps_idle_sessions ... ok
+test runtime_webdav_maintenance_surface::tests::translates_strict_control_wire_requests_into_typed_commands ... ok
+test runtime_webdav_maintenance_surface::tests::validates_public_webdav_requests_before_effects ... ok
+test runtime_webdav_runtime::tests::retry_wait_is_interrupted_without_waiting_for_the_delay ... ok
+test runtime_transfer::tests::stop_and_late_output_rollback_release_each_byte_once ... ok
+test runtime_worker_pool::tests::classifies_rust_panics_without_exposing_stderr ... ok
+test runtime_worker_pool::tests::configured_pool_remains_lazy_until_admission_runs ... ok
+test runtime_worker_pool::tests::long_paged_operations_have_operation_specific_deadlines ... ok
+test runtime_worker_pool::tests::maps_a_worker_panic_to_the_stable_runtime_code ... ok
+test runtime_worker_pool::tests::reservations_are_nonblocking_bounded_and_cancelable ... ok
+test runtime_worker_pool::tests::reuses_a_successful_worker_and_fuses_three_runtime_crashes ... ok
+test runtime_transfer::tests::publishes_large_client_results_as_hash_bound_output_pages ... ok
+test runtime_webdav_runtime::tests::state_survives_store_reopen ... ok
+test runtime_canonical_autosync::tests::shutdown_cancels_pending_debounce ... ok
+test runtime_public_maintenance_operation::tests::control_dispatches_only_for_the_retry_or_continue_transition_winner ... ok
+test runtime_public_maintenance_operation::tests::phase_deadline_publishes_one_retryable_timeout_terminal ... ok
+test runtime_reference_citation_surface::tests::malformed_refresh_scope_is_rejected_before_job_or_host_work ... ok
+test runtime_service::service_tests::initializes_only_a_fully_empty_source_and_creates_no_migration_backup ... ok
+test runtime_reference_citation_surface::tests::reference_reads_and_public_no_arg_jobs_keep_their_boundaries ... ok
+test runtime_production_client::dispatch_integration_tests::related_items_echo_reads_repository_without_calling_reverse_host ... ok
+test runtime_production_client::dispatch_integration_tests::committed_submit_terminalizes_the_same_operation_when_dispatch_is_rejected ... ok
+test runtime_production_client::dispatch_integration_tests::unified_runtime_executes_an_inline_route_from_the_validated_catalog ... ok
+test runtime_production_client::dispatch_integration_tests::topic_apply_rejects_a_raw_bundle_without_the_strict_envelope ... ok
+test runtime_citation_graph_commands::tests::layout_promotes_shared_external_node_without_a_year ... ok
+test runtime_reference_citation_surface::tests::canonical_requests_are_strict_before_application_mutation ... ok
+test runtime_production_client::dispatch_integration_tests::literature_digest_apply_materializes_and_rolls_back_scoped_state ... ok
+test runtime_reference_citation_surface::tests::citation_commands_validate_only_the_public_boundary ... ok
+test runtime_concept_topic_graph_surface::tests::approving_a_broader_relation_review_refreshes_topic_discovery ... ok
+test runtime_concept_topic_graph_surface::tests::approving_a_non_broader_relation_review_skips_the_discovery_refresh ... ok
+test runtime_production_client::dispatch_integration_tests::missing_topic_lifecycle_routes_return_typed_terminals_without_touching_topic_graph ... ok
+test runtime_production_client::dispatch_integration_tests::unavailable_debug_projections_return_typed_stable_terminals ... ok
+test runtime_production_client::dispatch_integration_tests::topic_discovery_public_adapter_preserves_stable_shape ... ok
+test runtime_production_client::dispatch_integration_tests::literature_digest_receipt_is_idempotent_after_reopen ... ok
+test runtime_citation_graph_commands::tests::full_commands_build_refresh_and_layout_from_public_dtos ... ok
+test runtime_production_client::dispatch_integration_tests::workbench_surfaces_use_domain_projections_instead_of_maintenance_chrome ... ok
+test runtime_citation_graph_commands::tests::incremental_retry_reopens_the_latest_incremental_intent ... ok
+test runtime_citation_graph_commands::tests::incremental_refresh_preserves_unrelated_sources_and_retry_restores_intent ... ok
+test runtime_citation_graph_commands::tests::empty_and_missing_delta_rebuilds_remain_explicit_full_jobs ... ok
+
+test result: ok. 98 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.92s
+
+     Running unittests src/bin/synthesis-metrics-worker-fixture.rs (rust/synthesis-sidecar/target/debug/deps/synthesis_metrics_worker_fixture-d550d1afebfcb43d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (rust/synthesis-sidecar/target/debug/deps/synthesis_sidecar-89ffe8779e294d70)
+
+running 1 test
+test runtime_cli::tests::routes_the_single_service_command ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/native_process_lifecycle.rs (rust/synthesis-sidecar/target/debug/deps/native_process_lifecycle-449b74e7345bcdb5)
+
+running 10 tests
+test startup_failure_is_typed_and_never_publishes_discovery ... ok
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41a7f0000000000000001","spanId":"0000000000000002","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"config-validate","outcome":"succeeded","occurredAtMs":1789571373695}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41a7f0000000000000001","spanId":"0000000000000002","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"config-validate","outcome":"succeeded","occurredAtMs":1789571373695}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41a7f0000000000000001","spanId":"0000000000000002","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"config-validate","outcome":"succeeded","occurredAtMs":1789571373695}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41a7f0000000000000001","spanId":"0000000000000002","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"config-validate","outcome":"succeeded","occurredAtMs":1789571373695}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41a800000000000000003","spanId":"0000000000000004","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"reverse-host-probe","outcome":"started","occurredAtMs":1789571373696}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41a800000000000000003","spanId":"0000000000000004","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"reverse-host-probe","outcome":"started","occurredAtMs":1789571373696}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41a800000000000000003","spanId":"0000000000000004","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"reverse-host-probe","outcome":"started","occurredAtMs":1789571373696}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41a800000000000000003","spanId":"0000000000000004","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"reverse-host-probe","outcome":"started","occurredAtMs":1789571373696}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41a830000000000000005","spanId":"0000000000000006","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"reverse-host-probe","outcome":"succeeded","occurredAtMs":1789571373699}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41a830000000000000007","spanId":"0000000000000008","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"owner-acquire","outcome":"started","occurredAtMs":1789571373699}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41a830000000000000005","spanId":"0000000000000006","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"reverse-host-probe","outcome":"succeeded","occurredAtMs":1789571373699}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41a830000000000000007","spanId":"0000000000000008","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"owner-acquire","outcome":"started","occurredAtMs":1789571373699}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41a830000000000000005","spanId":"0000000000000006","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"reverse-host-probe","outcome":"succeeded","occurredAtMs":1789571373699}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41a830000000000000009","spanId":"000000000000000a","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"owner-acquire","outcome":"succeeded","occurredAtMs":1789571373699}{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41a830000000000000007","spanId":"0000000000000008","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"owner-acquire","outcome":"started","occurredAtMs":1789571373699}
+
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41a83000000000000000b","spanId":"000000000000000c","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"source-validate","outcome":"started","occurredAtMs":1789571373699}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41a830000000000000009","spanId":"000000000000000a","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"owner-acquire","outcome":"succeeded","occurredAtMs":1789571373699}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41a83000000000000000b","spanId":"000000000000000c","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"source-validate","outcome":"started","occurredAtMs":1789571373699}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41a830000000000000009","spanId":"000000000000000a","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"owner-acquire","outcome":"succeeded","occurredAtMs":1789571373699}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41a83000000000000000b","spanId":"000000000000000c","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"source-validate","outcome":"started","occurredAtMs":1789571373699}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41a830000000000000005","spanId":"0000000000000006","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"reverse-host-probe","outcome":"succeeded","occurredAtMs":1789571373699}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41a830000000000000007","spanId":"0000000000000008","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"owner-acquire","outcome":"started","occurredAtMs":1789571373699}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41a830000000000000009","spanId":"000000000000000a","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"owner-acquire","outcome":"succeeded","occurredAtMs":1789571373699}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41a83000000000000000b","spanId":"000000000000000c","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"source-validate","outcome":"started","occurredAtMs":1789571373699}
+test partial_startup_failure_releases_ownership_without_publishing_ready ... ok
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b61000000000000000d","spanId":"000000000000000e","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"source-validate","outcome":"succeeded","occurredAtMs":1789571373921}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b61000000000000000f","spanId":"0000000000000010","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"source-classify","outcome":"started","occurredAtMs":1789571373921}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b630000000000000011","spanId":"0000000000000012","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"source-classify","outcome":"succeeded","occurredAtMs":1789571373923}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b630000000000000013","spanId":"0000000000000014","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"repository-migrate","outcome":"started","occurredAtMs":1789571373923}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b690000000000000015","spanId":"0000000000000016","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"repository-migrate","outcome":"succeeded","occurredAtMs":1789571373929}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b690000000000000017","spanId":"0000000000000018","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"repository-open","outcome":"started","occurredAtMs":1789571373929}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b6c0000000000000019","spanId":"000000000000001a","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"repository-open","outcome":"succeeded","occurredAtMs":1789571373932}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b6c000000000000001b","spanId":"000000000000001c","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"canonical-open","outcome":"started","occurredAtMs":1789571373932}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b6c000000000000001d","spanId":"000000000000001e","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"canonical-open","outcome":"succeeded","occurredAtMs":1789571373932}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b74000000000000001f","spanId":"0000000000000020","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"application-compose","outcome":"started","occurredAtMs":1789571373940}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b750000000000000021","spanId":"0000000000000022","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"application-compose","outcome":"succeeded","occurredAtMs":1789571373941}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b76000000000000000d","spanId":"000000000000000e","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"source-validate","outcome":"succeeded","occurredAtMs":1789571373942}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b76000000000000000f","spanId":"0000000000000010","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"source-classify","outcome":"started","occurredAtMs":1789571373942}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b76000000000000000d","spanId":"000000000000000e","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"source-validate","outcome":"succeeded","occurredAtMs":1789571373942}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b76000000000000000f","spanId":"0000000000000010","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"source-classify","outcome":"started","occurredAtMs":1789571373942}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b76000000000000000d","spanId":"000000000000000e","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"source-validate","outcome":"succeeded","occurredAtMs":1789571373942}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b76000000000000000f","spanId":"0000000000000010","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"source-classify","outcome":"started","occurredAtMs":1789571373942}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b760000000000000023","spanId":"0000000000000024","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"listener-bind","outcome":"started","occurredAtMs":1789571373942}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b760000000000000025","spanId":"0000000000000026","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"listener-bind","outcome":"succeeded","occurredAtMs":1789571373942}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b760000000000000027","spanId":"0000000000000028","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"discovery-publish","outcome":"started","occurredAtMs":1789571373942}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b770000000000000011","spanId":"0000000000000012","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"source-classify","outcome":"succeeded","occurredAtMs":1789571373943}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b770000000000000013","spanId":"0000000000000014","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"repository-migrate","outcome":"started","occurredAtMs":1789571373943}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b790000000000000011","spanId":"0000000000000012","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"source-classify","outcome":"succeeded","occurredAtMs":1789571373945}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b790000000000000013","spanId":"0000000000000014","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"repository-migrate","outcome":"started","occurredAtMs":1789571373945}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b7c0000000000000011","spanId":"0000000000000012","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"source-classify","outcome":"succeeded","occurredAtMs":1789571373948}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b7c0000000000000013","spanId":"0000000000000014","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"repository-migrate","outcome":"started","occurredAtMs":1789571373948}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b7c0000000000000015","spanId":"0000000000000016","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"repository-migrate","outcome":"succeeded","occurredAtMs":1789571373948}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b7c0000000000000017","spanId":"0000000000000018","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"repository-open","outcome":"started","occurredAtMs":1789571373948}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b7f0000000000000019","spanId":"000000000000001a","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"repository-open","outcome":"succeeded","occurredAtMs":1789571373951}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b7f000000000000001b","spanId":"000000000000001c","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"canonical-open","outcome":"started","occurredAtMs":1789571373951}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b7f000000000000001d","spanId":"000000000000001e","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"canonical-open","outcome":"succeeded","occurredAtMs":1789571373951}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b810000000000000015","spanId":"0000000000000016","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"repository-migrate","outcome":"succeeded","occurredAtMs":1789571373953}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b810000000000000017","spanId":"0000000000000018","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"repository-open","outcome":"started","occurredAtMs":1789571373953}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b85000000000000001f","spanId":"0000000000000020","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"application-compose","outcome":"started","occurredAtMs":1789571373957}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b860000000000000019","spanId":"000000000000001a","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"repository-open","outcome":"succeeded","occurredAtMs":1789571373958}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b86000000000000001b","spanId":"000000000000001c","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"canonical-open","outcome":"started","occurredAtMs":1789571373958}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b86000000000000001d","spanId":"000000000000001e","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"canonical-open","outcome":"succeeded","occurredAtMs":1789571373958}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b870000000000000021","spanId":"0000000000000022","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"application-compose","outcome":"succeeded","occurredAtMs":1789571373959}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b870000000000000023","spanId":"0000000000000024","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"listener-bind","outcome":"started","occurredAtMs":1789571373959}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b870000000000000025","spanId":"0000000000000026","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"listener-bind","outcome":"succeeded","occurredAtMs":1789571373959}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b870000000000000027","spanId":"0000000000000028","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"discovery-publish","outcome":"started","occurredAtMs":1789571373959}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b8c0000000000000015","spanId":"0000000000000016","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"repository-migrate","outcome":"succeeded","occurredAtMs":1789571373964}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b8c0000000000000017","spanId":"0000000000000018","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"repository-open","outcome":"started","occurredAtMs":1789571373964}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b90000000000000001f","spanId":"0000000000000020","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"application-compose","outcome":"started","occurredAtMs":1789571373968}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b920000000000000021","spanId":"0000000000000022","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"application-compose","outcome":"succeeded","occurredAtMs":1789571373970}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b920000000000000023","spanId":"0000000000000024","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"listener-bind","outcome":"started","occurredAtMs":1789571373970}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b920000000000000025","spanId":"0000000000000026","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"listener-bind","outcome":"succeeded","occurredAtMs":1789571373970}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b920000000000000027","spanId":"0000000000000028","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"discovery-publish","outcome":"started","occurredAtMs":1789571373970}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b930000000000000019","spanId":"000000000000001a","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"repository-open","outcome":"succeeded","occurredAtMs":1789571373971}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b93000000000000001b","spanId":"000000000000001c","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"canonical-open","outcome":"started","occurredAtMs":1789571373971}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b93000000000000001d","spanId":"000000000000001e","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"canonical-open","outcome":"succeeded","occurredAtMs":1789571373971}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41b9d0000000000000029","spanId":"000000000000002a","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"discovery-publish","outcome":"succeeded","occurredAtMs":1789571373981}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41ba20000000000000029","spanId":"000000000000002a","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"discovery-publish","outcome":"succeeded","occurredAtMs":1789571373986}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41ba7000000000000001f","spanId":"0000000000000020","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"application-compose","outcome":"started","occurredAtMs":1789571373991}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bab0000000000000029","spanId":"000000000000002a","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"discovery-publish","outcome":"succeeded","occurredAtMs":1789571373995}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bab0000000000000021","spanId":"0000000000000022","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"application-compose","outcome":"succeeded","occurredAtMs":1789571373995}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bad0000000000000023","spanId":"0000000000000024","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"listener-bind","outcome":"started","occurredAtMs":1789571373997}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bad0000000000000025","spanId":"0000000000000026","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"listener-bind","outcome":"succeeded","occurredAtMs":1789571373997}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bad0000000000000027","spanId":"0000000000000028","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"discovery-publish","outcome":"started","occurredAtMs":1789571373997}
+test parent_input_close_exits_successfully_and_removes_discovery ... ok
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bb80000000000000001","spanId":"0000000000000002","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"config-validate","outcome":"succeeded","occurredAtMs":1789571374008}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bb90000000000000003","spanId":"0000000000000004","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"reverse-host-probe","outcome":"started","occurredAtMs":1789571374009}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bb90000000000000001","spanId":"0000000000000002","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"config-validate","outcome":"succeeded","occurredAtMs":1789571374009}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bbb0000000000000003","spanId":"0000000000000004","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"reverse-host-probe","outcome":"started","occurredAtMs":1789571374011}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bbe0000000000000005","spanId":"0000000000000006","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"reverse-host-probe","outcome":"succeeded","occurredAtMs":1789571374014}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bbe0000000000000007","spanId":"0000000000000008","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"owner-acquire","outcome":"started","occurredAtMs":1789571374014}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bbe0000000000000009","spanId":"000000000000000a","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"owner-acquire","outcome":"succeeded","occurredAtMs":1789571374014}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bbe000000000000000b","spanId":"000000000000000c","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"source-validate","outcome":"started","occurredAtMs":1789571374014}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bbe000000000000000d","spanId":"000000000000000e","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"source-validate","outcome":"succeeded","occurredAtMs":1789571374014}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bbe000000000000000f","spanId":"0000000000000010","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"source-classify","outcome":"started","occurredAtMs":1789571374014}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bbe0000000000000005","spanId":"0000000000000006","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"reverse-host-probe","outcome":"succeeded","occurredAtMs":1789571374014}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bbe0000000000000007","spanId":"0000000000000008","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"owner-acquire","outcome":"started","occurredAtMs":1789571374014}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bbf0000000000000009","spanId":"000000000000000a","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"owner-acquire","outcome":"succeeded","occurredAtMs":1789571374015}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bbf000000000000000b","spanId":"000000000000000c","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"source-validate","outcome":"started","occurredAtMs":1789571374015}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bbf000000000000000d","spanId":"000000000000000e","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"source-validate","outcome":"succeeded","occurredAtMs":1789571374015}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bbf000000000000000f","spanId":"0000000000000010","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"source-classify","outcome":"started","occurredAtMs":1789571374015}
+test canonical_inspect_serves_the_raw_topic_descriptor_shape ... ok
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bc10000000000000011","spanId":"0000000000000012","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"source-classify","outcome":"succeeded","occurredAtMs":1789571374017}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bc10000000000000013","spanId":"0000000000000014","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"repository-migrate","outcome":"started","occurredAtMs":1789571374017}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bc20000000000000011","spanId":"0000000000000012","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"source-classify","outcome":"succeeded","occurredAtMs":1789571374018}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bc20000000000000013","spanId":"0000000000000014","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"repository-migrate","outcome":"started","occurredAtMs":1789571374018}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bc60000000000000015","spanId":"0000000000000016","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"repository-migrate","outcome":"succeeded","occurredAtMs":1789571374022}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bc60000000000000017","spanId":"0000000000000018","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"repository-open","outcome":"started","occurredAtMs":1789571374022}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bc80000000000000015","spanId":"0000000000000016","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"repository-migrate","outcome":"succeeded","occurredAtMs":1789571374024}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bc90000000000000017","spanId":"0000000000000018","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"repository-open","outcome":"started","occurredAtMs":1789571374025}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bc90000000000000019","spanId":"000000000000001a","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"repository-open","outcome":"succeeded","occurredAtMs":1789571374025}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bc9000000000000001b","spanId":"000000000000001c","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"canonical-open","outcome":"started","occurredAtMs":1789571374025}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bc9000000000000001d","spanId":"000000000000001e","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"canonical-open","outcome":"succeeded","occurredAtMs":1789571374025}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bcc0000000000000019","spanId":"000000000000001a","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"repository-open","outcome":"succeeded","occurredAtMs":1789571374028}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bcc000000000000001b","spanId":"000000000000001c","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"canonical-open","outcome":"started","occurredAtMs":1789571374028}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bcc000000000000001d","spanId":"000000000000001e","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"canonical-open","outcome":"succeeded","occurredAtMs":1789571374028}
+test transfer_execution_completes_through_the_real_http_lifecycle ... ok
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bcf0000000000000029","spanId":"000000000000002a","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"discovery-publish","outcome":"succeeded","occurredAtMs":1789571374031}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bd1000000000000001f","spanId":"0000000000000020","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"application-compose","outcome":"started","occurredAtMs":1789571374033}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bd6000000000000001f","spanId":"0000000000000020","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"application-compose","outcome":"started","occurredAtMs":1789571374038}
+test inconsistent_durable_import_evidence_fails_before_ready ... ok
+test discovery_is_the_ready_commit_and_shutdown_receipt_precedes_terminal_cleanup ... ok
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bfd0000000000000021","spanId":"0000000000000022","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"application-compose","outcome":"succeeded","occurredAtMs":1789571374077}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bfe0000000000000023","spanId":"0000000000000024","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"listener-bind","outcome":"started","occurredAtMs":1789571374078}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bfe0000000000000025","spanId":"0000000000000026","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"listener-bind","outcome":"succeeded","occurredAtMs":1789571374078}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41bfe0000000000000027","spanId":"0000000000000028","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"discovery-publish","outcome":"started","occurredAtMs":1789571374078}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41c200000000000000029","spanId":"000000000000002a","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"discovery-publish","outcome":"succeeded","occurredAtMs":1789571374112}
+test ready_startup_discards_an_uncommitted_durable_import_batch ... ok
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41d550000000000000001","spanId":"0000000000000002","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"config-validate","outcome":"succeeded","occurredAtMs":1789571374421}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41d560000000000000003","spanId":"0000000000000004","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"reverse-host-probe","outcome":"started","occurredAtMs":1789571374422}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41d5a0000000000000005","spanId":"0000000000000006","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"reverse-host-probe","outcome":"succeeded","occurredAtMs":1789571374426}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41d5a0000000000000007","spanId":"0000000000000008","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"owner-acquire","outcome":"started","occurredAtMs":1789571374426}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41d5a0000000000000009","spanId":"000000000000000a","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"owner-acquire","outcome":"succeeded","occurredAtMs":1789571374426}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41d5a000000000000000b","spanId":"000000000000000c","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"source-validate","outcome":"started","occurredAtMs":1789571374426}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41d5a000000000000000d","spanId":"000000000000000e","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"source-validate","outcome":"succeeded","occurredAtMs":1789571374426}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41d5a000000000000000f","spanId":"0000000000000010","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"source-classify","outcome":"started","occurredAtMs":1789571374426}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41d5d0000000000000011","spanId":"0000000000000012","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"source-classify","outcome":"succeeded","occurredAtMs":1789571374429}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41d5e0000000000000013","spanId":"0000000000000014","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"repository-migrate","outcome":"started","occurredAtMs":1789571374430}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41d650000000000000015","spanId":"0000000000000016","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"repository-migrate","outcome":"succeeded","occurredAtMs":1789571374437}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41d650000000000000017","spanId":"0000000000000018","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"repository-open","outcome":"started","occurredAtMs":1789571374437}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41d690000000000000019","spanId":"000000000000001a","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"repository-open","outcome":"succeeded","occurredAtMs":1789571374441}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41d69000000000000001b","spanId":"000000000000001c","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"canonical-open","outcome":"started","occurredAtMs":1789571374441}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41d69000000000000001d","spanId":"000000000000001e","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"canonical-open","outcome":"succeeded","occurredAtMs":1789571374441}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41d70000000000000001f","spanId":"0000000000000020","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"application-compose","outcome":"started","occurredAtMs":1789571374448}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41d820000000000000021","spanId":"0000000000000022","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"application-compose","outcome":"succeeded","occurredAtMs":1789571374466}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41d830000000000000023","spanId":"0000000000000024","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"listener-bind","outcome":"started","occurredAtMs":1789571374467}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41d830000000000000025","spanId":"0000000000000026","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"listener-bind","outcome":"succeeded","occurredAtMs":1789571374467}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41d830000000000000027","spanId":"0000000000000028","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"discovery-publish","outcome":"started","occurredAtMs":1789571374467}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41d950000000000000021","spanId":"0000000000000022","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"application-compose","outcome":"succeeded","occurredAtMs":1789571374485}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41d950000000000000023","spanId":"0000000000000024","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"listener-bind","outcome":"started","occurredAtMs":1789571374485}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41d950000000000000025","spanId":"0000000000000026","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"listener-bind","outcome":"succeeded","occurredAtMs":1789571374485}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41d950000000000000027","spanId":"0000000000000028","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"discovery-publish","outcome":"started","occurredAtMs":1789571374485}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41d9e0000000000000029","spanId":"000000000000002a","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"discovery-publish","outcome":"succeeded","occurredAtMs":1789571374494}
+{"schema":"synthesis-sidecar-observation.v2","traceId":"000001a0aac41dbc0000000000000029","spanId":"000000000000002a","attempt":0,"source":"rust-sidecar","boundary":"supervisor","phase":"discovery-publish","outcome":"succeeded","occurredAtMs":1789571374524}
+test ready_startup_rolls_forward_a_committed_durable_import ... ok
+test ready_startup_clears_a_receipt_after_completed_canonical_promotion ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.87s
+
+     Running tests/native_worker_pool.rs (rust/synthesis-sidecar/target/debug/deps/native_worker_pool-14cd786de317d35c)
+
+running 2 tests
+test production_worker_executable_serves_the_framed_metrics_route ... ok
+test reference_operations_use_the_real_paged_worker_protocol ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (rust/synthesis-sidecar/target/debug/deps/synthesis_tag_vocabulary-43416cf45376d561)
+
+running 2 tests
+test tests::rejects_invalid_ecmascript_pattern_and_honors_cancellation ... ok
+test tests::validates_ecmascript_ucs2_and_uses_utf16_total_tag_order ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (rust/synthesis-sidecar/target/debug/deps/synthesis_test_support-08202b90230ee612)
+
+running 2 tests
+test tests::cleanup_failure_after_success_panics ... ok
+test tests::cleanup_failure_does_not_replace_primary_panic ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/test_root.rs (rust/synthesis-sidecar/target/debug/deps/test_root-57383a2643a01642)
+
+running 2 tests
+test test_root_creates_a_portable_unique_directory_and_cleans_it ... ok
+test test_root_exposes_a_path_view_for_fixture_state ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (rust/synthesis-sidecar/target/debug/deps/synthesis_topic_graph-c445b4e9fe1198d8)
+
+running 2 tests
+test tests::canceled_kernel_fails_before_publication ... ok
+test tests::preserves_utf16_root_order_and_parent_status_semantics ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (rust/synthesis-sidecar/target/debug/deps/synthesis_topic_structured_artifact-6e8b98c2b51ef1b3)
+
+running 2 tests
+test tests::assembles_and_applies_patch_without_mutating_input ... ok
+test tests::bounds_and_cancellation_fail_closed ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests synthesis_application
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests synthesis_canonical_store
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests synthesis_citation_graph_build
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests synthesis_citation_layout
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests synthesis_concept_kb
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests synthesis_metrics
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests synthesis_protocol
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests synthesis_reference_matcher
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests synthesis_repository
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests synthesis_sidecar
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests synthesis_tag_vocabulary
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests synthesis_test_support
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests synthesis_topic_graph
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests synthesis_topic_structured_artifact
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[exit: 0]
