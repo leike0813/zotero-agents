@@ -1,0 +1,569 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Phase 1 runtime grouping prototype</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: system-ui, sans-serif;
+        color: #172033;
+        background: #f5f7fb;
+      }
+      body {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 32px 20px 60px;
+      }
+      h1,
+      h2 {
+        margin-bottom: 8px;
+      }
+      p {
+        line-height: 1.5;
+      }
+      .card {
+        margin-top: 20px;
+        padding: 20px;
+        border: 1px solid #d8dfeb;
+        border-radius: 12px;
+        background: white;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 12px;
+      }
+      .metric {
+        padding: 12px;
+        border-radius: 8px;
+        background: #eef3fb;
+      }
+      .metric strong,
+      .metric span {
+        display: block;
+      }
+      .metric span {
+        margin-top: 4px;
+        font-size: 1.15rem;
+      }
+      button,
+      input {
+        margin: 4px;
+        padding: 8px 12px;
+        border: 1px solid #9cabc0;
+        border-radius: 7px;
+        font: inherit;
+      }
+      button {
+        cursor: pointer;
+        background: #fff;
+      }
+      button.primary,
+      button[aria-pressed="true"] {
+        border-color: #2459a9;
+        color: white;
+        background: #2459a9;
+      }
+      .notice {
+        padding: 12px;
+        border-left: 4px solid #2459a9;
+        background: #eef4ff;
+      }
+      .warning {
+        border-left-color: #a55b00;
+        background: #fff6e8;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th,
+      td {
+        padding: 8px;
+        border-bottom: 1px solid #d8dfeb;
+        text-align: left;
+      }
+      .tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+      .steps button:disabled {
+        cursor: default;
+        opacity: 0.45;
+      }
+      code {
+        font-size: 0.95em;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Phase 1 runtime grouping prototype</h1>
+    <p class="notice">
+      <strong>Question:</strong> How can Phase 1 choose a runtime grouping
+      without inventing measurements or weakening family and profile isolation?
+      This is a throwaway planning prototype. Illustrative samples are visibly
+      marked and are never evidence.
+    </p>
+
+    <section class="card">
+      <h2>Current decision state</h2>
+      <div id="state" class="grid"></div>
+      <p id="verdict" class="notice warning"></p>
+      <div id="groups"></div>
+    </section>
+
+    <section class="card">
+      <h2>Free play</h2>
+      <p>
+        Change the proposed lane, budget, evidence, and grouping in any order.
+      </p>
+      <p>
+        Each Family sample includes its Scenario Cases and any declared
+        controlled restart. Startup, cleanup, and diagnostic collection are
+        measured once per invocation.
+      </p>
+      <div id="lane-actions"></div>
+      <label>
+        Candidate critical-path budget (minutes)
+        <input id="budget" type="number" min="1" step="1" placeholder="unset" />
+      </label>
+      <button id="set-budget">Set candidate budget</button>
+      <button data-action="clear-budget">Clear budget</button>
+      <div id="evidence-actions"></div>
+      <div id="grouping-actions"></div>
+    </section>
+
+    <section class="card">
+      <h2>Guided walkthroughs</h2>
+      <div id="tabs" class="tabs"></div>
+      <div id="walkthrough"></div>
+    </section>
+
+    <section class="card">
+      <h2>Known evidence</h2>
+      <ul>
+        <li>
+          Accepted Phase 1 E2E or compatibility samples: <strong>0</strong>.
+        </li>
+        <li>
+          Local Zotero 9 fault-control spike: about 171 seconds wall clock;
+          useful as lifecycle calibration only, not a Scenario Case measurement.
+        </li>
+        <li>
+          Historical blocking release-gate samples: 138–205 seconds; they
+          predate E2E inclusion and are proxy evidence only.
+        </li>
+      </ul>
+    </section>
+
+    <script>
+      // Pure planning model. The DOM shell below only dispatches actions and renders.
+      const families = {
+        SL: "Sidecar Lifecycle",
+        RH: "Reverse Host Contract",
+        PA: "Provenance and Artifact Resilience",
+        PM: "Public Maintenance Lifecycle",
+        CG: "Citation Graph Basis",
+        HB: "Host Bridge Canonical Mutation Replay",
+      };
+
+      const groupingOptions = {
+        single: {
+          label: "One invocation",
+          groups: [["SL", "RH", "PA", "PM", "CG", "HB"]],
+        },
+        owner: {
+          label: "Two owner-aligned invocations",
+          groups: [["SL", "RH", "PA", "PM", "CG"], ["HB"]],
+        },
+        risk: {
+          label: "Three family-preserving invocations",
+          groups: [["SL", "PM"], ["RH", "PA", "CG"], ["HB"]],
+        },
+      };
+
+      const illustrativeRounds = [
+        {
+          startup: 50,
+          cleanup: 30,
+          diagnostics: 10,
+          SL: 80,
+          RH: 60,
+          PA: 40,
+          PM: 100,
+          CG: 35,
+          HB: 70,
+        },
+        {
+          startup: 55,
+          cleanup: 35,
+          diagnostics: 12,
+          SL: 90,
+          RH: 65,
+          PA: 45,
+          PM: 110,
+          CG: 40,
+          HB: 75,
+        },
+        {
+          startup: 52,
+          cleanup: 32,
+          diagnostics: 11,
+          SL: 85,
+          RH: 62,
+          PA: 42,
+          PM: 105,
+          CG: 38,
+          HB: 72,
+        },
+      ];
+
+      const initialState = () => ({
+        lane: "primary Linux",
+        budgetMinutes: null,
+        grouping: "single",
+        samples: [],
+        lastChange: "Loaded current evidence: no accepted Phase 1 samples.",
+      });
+
+      function observedMaximum(values) {
+        if (!values.length) return null;
+        return Math.max(...values);
+      }
+
+      function evaluate(state) {
+        const clean = state.samples.filter((sample) => sample.clean);
+        const enoughEvidence = clean.length >= 3;
+        const option = groupingOptions[state.grouping];
+        const groups = option.groups.map((ids) => {
+          const roundTotals = clean.map(
+            (sample) =>
+              sample.startup +
+              sample.cleanup +
+              sample.diagnostics +
+              ids.reduce((total, id) => total + sample[id], 0),
+          );
+          return { ids, seconds: observedMaximum(roundTotals) || 0 };
+        });
+        const criticalPathSeconds = groups.length
+          ? Math.max(...groups.map((group) => group.seconds))
+          : 0;
+        const runnerSeconds = groups.reduce(
+          (total, group) => total + group.seconds,
+          0,
+        );
+        const withinBudget =
+          state.budgetMinutes !== null &&
+          criticalPathSeconds <= state.budgetMinutes * 60;
+        return {
+          cleanSamples: clean.length,
+          rejectedSamples: state.samples.length - clean.length,
+          enoughEvidence,
+          groups,
+          criticalPathSeconds,
+          runnerSeconds,
+          eligible:
+            enoughEvidence && state.budgetMinutes !== null && withinBudget,
+          withinBudget,
+        };
+      }
+
+      function reduce(state, action) {
+        switch (action.type) {
+          case "RESET":
+            return initialState();
+          case "SET_LANE":
+            return {
+              ...state,
+              lane: action.lane,
+              lastChange: `Selected ${action.lane}.`,
+            };
+          case "SET_BUDGET":
+            return {
+              ...state,
+              budgetMinutes: action.minutes,
+              lastChange:
+                action.minutes === null
+                  ? "Cleared the candidate budget."
+                  : `Set a ${action.minutes}-minute candidate budget.`,
+            };
+          case "SET_GROUPING":
+            return {
+              ...state,
+              grouping: action.grouping,
+              lastChange: `Selected ${groupingOptions[action.grouping].label}.`,
+            };
+          case "ADD_ILLUSTRATIVE_ROUND": {
+            const round =
+              illustrativeRounds[
+                state.samples.filter(
+                  (sample) => sample.illustrative && sample.clean,
+                ).length % illustrativeRounds.length
+              ];
+            return {
+              ...state,
+              samples: [
+                ...state.samples,
+                { ...round, clean: true, illustrative: true },
+              ],
+              lastChange:
+                "Added one illustrative clean round. This is not evidence.",
+            };
+          }
+          case "ADD_REJECTED_ROUND":
+            return {
+              ...state,
+              samples: [
+                ...state.samples,
+                { ...illustrativeRounds[0], clean: false, illustrative: true },
+              ],
+              lastChange:
+                "Added an indeterminate-cleanup round; it is rejected, not averaged in.",
+            };
+          case "CLEAR_SAMPLES":
+            return {
+              ...state,
+              samples: [],
+              lastChange: "Cleared all sample rounds.",
+            };
+          default:
+            return state;
+        }
+      }
+
+      let state = initialState();
+      let walkthroughName = "No evidence means no schedule";
+      let walkthroughStep = 0;
+
+      const walkthroughs = {
+        "No evidence means no schedule": {
+          description:
+            "Confirm that proxy timings cannot activate a blocking lane.",
+          steps: [
+            ["Reset to current evidence", { type: "RESET" }],
+            [
+              "Set a 10-minute candidate budget",
+              { type: "SET_BUDGET", minutes: 10 },
+            ],
+          ],
+        },
+        "Three clean rounds": {
+          description:
+            "See the minimum calibration rule become eligible without treating the example values as real evidence.",
+          steps: [
+            ["Reset", { type: "RESET" }],
+            [
+              "Set a 10-minute candidate budget",
+              { type: "SET_BUDGET", minutes: 10 },
+            ],
+            ["Add clean round 1", { type: "ADD_ILLUSTRATIVE_ROUND" }],
+            ["Add clean round 2", { type: "ADD_ILLUSTRATIVE_ROUND" }],
+            ["Add clean round 3", { type: "ADD_ILLUSTRATIVE_ROUND" }],
+          ],
+        },
+        "Shard only at family boundaries": {
+          description:
+            "A tighter candidate budget may require more invocations, but never splits a Scenario Family.",
+          steps: [
+            ["Reset", { type: "RESET" }],
+            [
+              "Set a 6-minute candidate budget",
+              { type: "SET_BUDGET", minutes: 6 },
+            ],
+            ["Add clean round 1", { type: "ADD_ILLUSTRATIVE_ROUND" }],
+            ["Add clean round 2", { type: "ADD_ILLUSTRATIVE_ROUND" }],
+            ["Add clean round 3", { type: "ADD_ILLUSTRATIVE_ROUND" }],
+            [
+              "Try owner-aligned grouping",
+              { type: "SET_GROUPING", grouping: "owner" },
+            ],
+            [
+              "Try three family-preserving invocations",
+              { type: "SET_GROUPING", grouping: "risk" },
+            ],
+          ],
+        },
+        "Bad cleanup is not a slow sample": {
+          description:
+            "An indeterminate cleanup invalidates the round instead of inflating or hiding inside an average.",
+          steps: [
+            ["Reset", { type: "RESET" }],
+            ["Add clean round 1", { type: "ADD_ILLUSTRATIVE_ROUND" }],
+            ["Add clean round 2", { type: "ADD_ILLUSTRATIVE_ROUND" }],
+            ["Add indeterminate-cleanup round", { type: "ADD_REJECTED_ROUND" }],
+          ],
+        },
+      };
+
+      function minutes(seconds) {
+        return `${(seconds / 60).toFixed(1)} min`;
+      }
+
+      function dispatch(action) {
+        state = reduce(state, action);
+        render();
+      }
+
+      function render() {
+        const result = evaluate(state);
+        document.querySelector("#state").innerHTML = [
+          ["Lane", state.lane],
+          [
+            "Candidate budget",
+            state.budgetMinutes === null
+              ? "Unset"
+              : `${state.budgetMinutes} min`,
+          ],
+          ["Grouping", groupingOptions[state.grouping].label],
+          ["Clean samples", `${result.cleanSamples} / 3 required`],
+          ["Rejected samples", String(result.rejectedSamples)],
+          [
+            "Critical path",
+            result.enoughEvidence
+              ? minutes(result.criticalPathSeconds)
+              : "Not reportable",
+          ],
+          [
+            "Runner usage",
+            result.enoughEvidence
+              ? minutes(result.runnerSeconds)
+              : "Not reportable",
+          ],
+        ]
+          .map(
+            ([label, value]) =>
+              `<div class="metric"><strong>${label}</strong><span>${value}</span></div>`,
+          )
+          .join("");
+
+        let verdict = "Calibration required: fewer than three clean rounds.";
+        if (result.enoughEvidence && state.budgetMinutes === null)
+          verdict =
+            "A candidate budget is required before grouping can be judged.";
+        if (
+          result.enoughEvidence &&
+          state.budgetMinutes !== null &&
+          !result.withinBudget
+        )
+          verdict =
+            "This grouping exceeds the candidate critical-path budget. Compare another whole-family grouping.";
+        if (result.eligible)
+          verdict =
+            "Provisionally eligible for this lane. Real samples and the post-family health gate remain mandatory.";
+        document.querySelector("#verdict").textContent =
+          `${verdict} Last change: ${state.lastChange}`;
+
+        document.querySelector("#groups").innerHTML =
+          `<table><thead><tr><th>Invocation</th><th>Whole families</th><th>Maximum observed round</th></tr></thead><tbody>${result.groups.map((group, index) => `<tr><td>${index + 1}</td><td>${group.ids.map((id) => `${id} — ${families[id]}`).join("; ")}</td><td>${result.enoughEvidence ? minutes(group.seconds) : "awaiting samples"}</td></tr>`).join("")}</tbody></table>`;
+
+        document
+          .querySelectorAll("[data-lane]")
+          .forEach((button) =>
+            button.setAttribute(
+              "aria-pressed",
+              String(button.dataset.lane === state.lane),
+            ),
+          );
+        document
+          .querySelectorAll("[data-grouping]")
+          .forEach((button) =>
+            button.setAttribute(
+              "aria-pressed",
+              String(button.dataset.grouping === state.grouping),
+            ),
+          );
+        renderWalkthrough();
+      }
+
+      function renderWalkthrough() {
+        const walkthrough = walkthroughs[walkthroughName];
+        document.querySelector("#tabs").innerHTML = Object.keys(walkthroughs)
+          .map(
+            (name) =>
+              `<button data-tab="${name}" aria-pressed="${name === walkthroughName}">${name}</button>`,
+          )
+          .join("");
+        document.querySelector("#walkthrough").innerHTML =
+          `<p>${walkthrough.description}</p><div class="steps">${walkthrough.steps.map(([label], index) => `<button data-step="${index}" ${index !== walkthroughStep ? "disabled" : ""}>${index + 1}. ${label}</button>`).join("")}</div>`;
+        document.querySelectorAll("[data-tab]").forEach((button) =>
+          button.addEventListener("click", () => {
+            walkthroughName = button.dataset.tab;
+            walkthroughStep = 0;
+            state = initialState();
+            render();
+          }),
+        );
+        document.querySelectorAll("[data-step]").forEach((button) =>
+          button.addEventListener("click", () => {
+            const index = Number(button.dataset.step);
+            dispatch(walkthrough.steps[index][1]);
+            walkthroughStep = Math.min(index + 1, walkthrough.steps.length);
+            renderWalkthrough();
+          }),
+        );
+      }
+
+      document.querySelector("#lane-actions").innerHTML = [
+        "primary Linux",
+        "Linux compatibility",
+        "release Linux/Windows",
+      ]
+        .map((lane) => `<button data-lane="${lane}">${lane}</button>`)
+        .join("");
+      document.querySelector("#grouping-actions").innerHTML = Object.entries(
+        groupingOptions,
+      )
+        .map(
+          ([id, option]) =>
+            `<button data-grouping="${id}">${option.label}</button>`,
+        )
+        .join("");
+      document.querySelector("#evidence-actions").innerHTML =
+        `<button data-action="add-clean">Add illustrative clean round</button><button data-action="add-rejected">Add indeterminate-cleanup round</button><button data-action="clear-samples">Clear samples</button>`;
+
+      document
+        .querySelectorAll("[data-lane]")
+        .forEach((button) =>
+          button.addEventListener("click", () =>
+            dispatch({ type: "SET_LANE", lane: button.dataset.lane }),
+          ),
+        );
+      document.querySelectorAll("[data-grouping]").forEach((button) =>
+        button.addEventListener("click", () =>
+          dispatch({
+            type: "SET_GROUPING",
+            grouping: button.dataset.grouping,
+          }),
+        ),
+      );
+      document.querySelector("#set-budget").addEventListener("click", () => {
+        const minutes = Number(document.querySelector("#budget").value);
+        if (Number.isFinite(minutes) && minutes > 0)
+          dispatch({ type: "SET_BUDGET", minutes });
+      });
+      document
+        .querySelector('[data-action="clear-budget"]')
+        .addEventListener("click", () =>
+          dispatch({ type: "SET_BUDGET", minutes: null }),
+        );
+      document
+        .querySelector('[data-action="add-clean"]')
+        .addEventListener("click", () =>
+          dispatch({ type: "ADD_ILLUSTRATIVE_ROUND" }),
+        );
+      document
+        .querySelector('[data-action="add-rejected"]')
+        .addEventListener("click", () =>
+          dispatch({ type: "ADD_REJECTED_ROUND" }),
+        );
+      document
+        .querySelector('[data-action="clear-samples"]')
+        .addEventListener("click", () => dispatch({ type: "CLEAR_SAMPLES" }));
+
+      render();
+    </script>
+  </body>
+</html>
