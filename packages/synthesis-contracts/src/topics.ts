@@ -59,15 +59,24 @@ export type SynthesisTopicDiscoveryHintRequest = {
   hintId: string;
 };
 
+export type SynthesisTopicDiscoveryCandidate = {
+  hint_id: string;
+  topic_id: string;
+  literature_item_id: string;
+  status: "open" | "rejected";
+  updated_at: string;
+  title?: string;
+  score?: number;
+  method?: string;
+  reasons?: string[];
+  fallback_metadata?: boolean;
+  basis_hash?: string;
+};
+
 export type SynthesisTopicCommandResult = {
   ok: boolean;
   status: string;
-  hint: null | {
-    hint_id: string;
-    status: "open" | "rejected";
-    topic_id: string;
-    title: string;
-  };
+  hint: SynthesisTopicDiscoveryCandidate | null;
   diagnostics: Array<{
     code: string;
     severity?: "info" | "warning" | "error";

@@ -1212,6 +1212,7 @@ synthesis-action-search = 搜尋
 synthesis-action-clear = 清除
 synthesis-action-accept = 接受
 synthesis-action-reject = 退回
+synthesis-action-restore = 還原
 synthesis-action-approve = 核准
 synthesis-action-retry = 重試
 synthesis-action-validate = 驗證

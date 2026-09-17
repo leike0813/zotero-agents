@@ -531,8 +531,36 @@ pub struct TopicDiscoveryProjectionDto {
     pub candidate_count: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub discovery_status: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TopicDiscoveryCandidate {
+    pub hint_id: String,
+    pub topic_id: String,
+    pub literature_item_id: String,
+    pub status: String,
+    pub updated_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub hints: Option<Vec<Value>>,
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub score: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reasons: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_metadata: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub basis_hash: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TopicDetailDiscovery {
+    pub candidate_count: usize,
+    pub candidates: Vec<TopicDiscoveryCandidate>,
+    pub rejected_candidates: Vec<TopicDiscoveryCandidate>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -827,7 +855,7 @@ pub struct TopicDiscoveryHintRequest {
 pub struct TopicDiscoveryHintResult {
     pub ok: bool,
     pub status: String,
-    pub hint: Option<Value>,
+    pub hint: Option<TopicDiscoveryCandidate>,
     pub diagnostics: Vec<Value>,
 }
 
@@ -871,6 +899,7 @@ pub enum TopicDetailResult {
         topic_id: String,
         topic: Box<TopicRecord>,
         snapshot: Box<CanonicalTopicView>,
+        discovery: TopicDetailDiscovery,
     },
 }
 

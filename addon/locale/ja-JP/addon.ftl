@@ -1156,6 +1156,7 @@ synthesis-action-search = 検索
 synthesis-action-clear = クリア
 synthesis-action-accept = 承認
 synthesis-action-reject = 拒否
+synthesis-action-restore = 復元
 synthesis-action-approve = 承認
 synthesis-action-retry = 再試行
 synthesis-action-validate = 検証

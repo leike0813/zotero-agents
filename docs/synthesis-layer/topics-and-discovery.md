@@ -32,9 +32,10 @@ A topic artifact owns:
 The canonical current `topic` section owns the public title and definition used
 by Topic list, Workbench, and detail reads. Repository topic columns and the
 stored topic-definition JSON are query projections; they cannot override newer
-canonical content. Discovery read projections preserve the accepted cascade
-fields (`cascade_topic_ids`, candidate count/status, and bounded hints) together
-with source paper refs.
+canonical content. Topic list projections preserve only discovery summary
+fields (`cascade_topic_ids`, `candidate_count`, and `discovery_status`) together
+with source paper refs. Detailed candidates belong to Topic Detail, not the
+general Topic projection.
 
 Canonical Topic content is projected through the public Topic definition DTO
 before it is persisted or returned. The projection maps canonical
@@ -137,7 +138,7 @@ search and neighborhood filtering.
 The cascade affects:
 
 - Topics/Home list `candidate_count` and `discovery_status`;
-- Topic Detail discovery hint list, which uses the same descendant scope and deduplicates by literature identity;
+- Topic Detail discovery candidate lists, which use the same descendant scope, deduplicate by literature identity, and return at most 20 open plus 20 rejected candidates in score-descending, hint-ID order;
 - persisted artifact discovery state refresh, including ancestor topics when a child topic's hints change.
 
 Accepting a suggested topic graph relation as `confirmed` may therefore change discovery counts for the accepted edge's source topic and its confirmed ancestors. Rejecting a relation must not add descendant candidates to a parent.
@@ -300,6 +301,15 @@ Discovery hints may be:
 - `superseded`: the target identity disappeared, was redirected, or the hint basis is no longer meaningful.
 
 `accepted` and `rejected` are durable terminal states. `screened_out` remains terminal while its basis is unchanged; a changed topic metadata hash, literature metadata hash, discovery profile, or policy basis reopens it for semantic triage. Cache-only freshness changes do not affect this basis.
+
+The persisted hint record is internal and keeps all five lifecycle states plus
+producer-owned matching and outcome data. Public Topic Detail exposes only
+actionable `open` and `rejected` records as `TopicDiscoveryCandidate` values:
+hint, originating Topic, literature identity, status, update time, and optional
+title, score, method, up to three reasons, fallback marker, and basis hash.
+`matching_fields`, `outcome`, and unknown stored extensions never cross the
+client boundary. Reject and restore return this same public DTO; if title is
+absent, Workbench displays the literature identity.
 
 Allowed reopen conditions:
 

@@ -1,5 +1,9 @@
 # test-runtime-affinity-governance Specification
 
+## Purpose
+
+Defines how tests are assigned to Node or real-Zotero runners according to the runtime capabilities their observable behavior requires, including cleanup and stable assertion constraints.
+
 ## Requirements
 
 ### Requirement: Runtime affinity SHALL be expressed by file placement

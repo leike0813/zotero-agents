@@ -1950,7 +1950,7 @@ mod dispatch_integration_tests {
                 .execute(
                     "INSERT INTO synt_topic_discovery_hint(
                      hint_id,payload_json,updated_at
-                     ) VALUES('hint:1','{\"hint_id\":\"hint:1\",\"status\":\"open\"}','1')",
+                     ) VALUES('hint:1','{\"hint_id\":\"hint:1\",\"topic_id\":\"topic:1\",\"literature_item_id\":\"1:ITEM1\",\"status\":\"open\",\"updated_at\":\"1\",\"title\":\"Candidate\",\"matching_fields\":[\"shared method\"],\"private\":true}','1')",
                     &[],
                 )
                 .expect("hint");
@@ -1963,6 +1963,15 @@ mod dispatch_integration_tests {
         .expect("reject hint");
         assert_eq!(rejected["status"], "rejected");
         assert_eq!(rejected["hint"]["status"], "rejected");
+        assert_eq!(rejected["hint"]["literature_item_id"], "1:ITEM1");
+        assert!(rejected["hint"].get("private").is_none());
+        let restored = dispatch_typed_client(
+            &apps,
+            "client.restoreTopicDiscoveryHint",
+            &[json!({"hintId":"hint:1"})],
+        )
+        .expect("restore hint");
+        assert_eq!(restored["hint"]["status"], "open");
         drop(apps);
     }
 }

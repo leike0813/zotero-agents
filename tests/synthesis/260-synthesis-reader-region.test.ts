@@ -69,6 +69,31 @@ const DETAIL_WIRE = {
       year: 2022,
     },
   ],
+  discovery: {
+    candidate_count: 1,
+    candidates: [
+      {
+        hint_id: "hint:open",
+        topic_id: "topic-child",
+        literature_item_id: "1:CANDIDATE",
+        status: "open",
+        updated_at: "2026-09-18T00:00:00Z",
+        title: "Candidate paper",
+        score: 0.91,
+        method: "semantic",
+        reasons: ["shared method"],
+      },
+    ],
+    rejected_candidates: [
+      {
+        hint_id: "hint:rejected",
+        topic_id: "topic-child",
+        literature_item_id: "1:FALLBACK",
+        status: "rejected",
+        updated_at: "2026-09-18T00:00:00Z",
+      },
+    ],
+  },
   timeline_events: [
     { year: 2021, event: "Milestone one", source_paper_refs: ["1:ABC"] },
   ],
@@ -142,10 +167,10 @@ describe("synthesis reader region (src/synthesis/components/reader)", function (
     assert.isUndefined(narrowTopicDetail("nope", 1));
   });
 
-  it("renders topic detail: toolbar, 8 section tabs, overview content", function () {
+  it("renders topic detail: toolbar, 9 section tabs, overview content", function () {
     const { root } = renderRegion(makeSelection());
     const tabs = root.querySelectorAll(".topic-detail-tabs button");
-    assert.equal(tabs.length, 8, "8 section tabs in hosted mode");
+    assert.equal(tabs.length, 9, "9 section tabs in hosted mode");
     assert.ok(tabs[0].classList.contains("active"));
     assert.ok(root.querySelector(".topic-detail-toolbar"));
     assert.include(
@@ -163,6 +188,40 @@ describe("synthesis reader region (src/synthesis/components/reader)", function (
       root.querySelector(".topic-timeline"),
       "timeline island rendered",
     );
+  });
+
+  it("renders discovery candidates and dispatches reject and restore", async function () {
+    const { root, dispatched } = renderRegion(makeSelection());
+    root
+      .querySelectorAll<HTMLButtonElement>(".topic-detail-tabs button")[7]
+      .click();
+    await flush();
+    const rows = root.querySelectorAll(".topic-discovery-candidate");
+    assert.equal(rows.length, 2);
+    assert.include(rows[0].textContent, "Candidate paper");
+    assert.include(rows[0].textContent, "shared method");
+    assert.include(rows[1].textContent, "1:FALLBACK");
+    const actions = root.querySelectorAll<HTMLButtonElement>(
+      ".topic-discovery-candidate button",
+    );
+    actions[0].click();
+    actions[1].click();
+    assert.deepEqual(dispatched, [
+      {
+        action: "hostCommand",
+        payload: {
+          command: "rejectTopicDiscoveryHint",
+          args: { hintId: "hint:open" },
+        },
+      },
+      {
+        action: "hostCommand",
+        payload: {
+          command: "restoreTopicDiscoveryHint",
+          args: { hintId: "hint:rejected" },
+        },
+      },
+    ]);
   });
 
   it("dispatches selectTab/hostCommand with the legacy payloads", function () {
@@ -313,7 +372,7 @@ describe("synthesis reader region (src/synthesis/components/reader)", function (
     const tabs = root.querySelectorAll<HTMLButtonElement>(
       ".topic-detail-tabs button",
     );
-    tabs[7].click();
+    tabs[8].click();
     await flush();
     const section = root.querySelector(".topic-report-section");
     assert.ok(section);
@@ -366,7 +425,7 @@ describe("synthesis reader region (src/synthesis/components/reader)", function (
     try {
       const { root, props } = renderRegion(makeSelection());
       root
-        .querySelectorAll<HTMLButtonElement>(".topic-detail-tabs button")[7]
+        .querySelectorAll<HTMLButtonElement>(".topic-detail-tabs button")[8]
         .click();
       await flush();
       const frame = root.querySelector(".topic-report-reader-frame")!;
@@ -445,7 +504,15 @@ describe("synthesis reader region (src/synthesis/components/reader)", function (
     const tabs = root.querySelectorAll<HTMLButtonElement>(
       ".topic-detail-tabs button",
     );
-    assert.equal(tabs.length, 9, "citation graph tab appended");
+    assert.equal(tabs.length, 10, "citation graph tab appended");
+    tabs[7].click();
+    await flush();
+    assert.ok(
+      root.querySelectorAll<HTMLButtonElement>(
+        ".topic-discovery-candidate button",
+      )[0].disabled,
+      "discovery action disabled in standalone export",
+    );
     const exportHtml = root.querySelector<HTMLButtonElement>(
       ".topic-detail-export-button",
     );
@@ -519,7 +586,7 @@ describe("synthesis reader region (src/synthesis/components/reader)", function (
     const tabs = root.querySelectorAll<HTMLButtonElement>(
       ".topic-detail-tabs button",
     );
-    tabs[7].click();
+    tabs[8].click();
     await flush();
     const before = root.querySelector(".markdown-fallback");
     assert.ok(before);

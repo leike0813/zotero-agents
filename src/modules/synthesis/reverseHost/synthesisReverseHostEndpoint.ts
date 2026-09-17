@@ -418,11 +418,11 @@ export function createSynthesisReverseHostEndpoint(options: EndpointOptions) {
         authorizationToken: options.authorizationToken,
       };
     },
-    bindServiceInstance(nextServiceInstanceId: string) {
+    bindServiceInstance(nextServiceInstanceId: string | null) {
       if (
         !active ||
-        !nextServiceInstanceId ||
-        nextServiceInstanceId.length > 128
+        (nextServiceInstanceId !== null &&
+          (!nextServiceInstanceId || nextServiceInstanceId.length > 128))
       ) {
         throw new Error("synthesis_reverse_host_instance_invalid");
       }

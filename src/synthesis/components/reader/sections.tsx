@@ -16,6 +16,7 @@ import { renderMarkdownIsland } from "./markdownIsland";
 import type {
   ReaderConceptsProjection,
   ReaderCoverageCard,
+  ReaderDiscoveryCandidate,
   ReaderEvidenceRow,
   ReaderMethodRow,
   ReaderTaxonomyAxis,
@@ -1407,6 +1408,95 @@ export function TopicReportSection({ ctx }: { ctx: ReaderSectionContext }) {
   );
 }
 
+function DiscoveryCandidateRow(props: {
+  candidate: ReaderDiscoveryCandidate;
+  ctx: ReaderSectionContext;
+}) {
+  const { candidate, ctx } = props;
+  const command =
+    candidate.status === "open"
+      ? "rejectTopicDiscoveryHint"
+      : "restoreTopicDiscoveryHint";
+  const pending = ctx.pendingCommands.includes(command);
+  return (
+    <li class="topic-discovery-candidate content-card">
+      <div class="topic-discovery-candidate-main">
+        <strong>{candidate.title || candidate.literatureItemId}</strong>
+        <span class="muted">{candidate.literatureItemId}</span>
+        {candidate.method ? (
+          <Badge text={candidate.method} tone="blue" />
+        ) : null}
+        {candidate.score !== undefined ? (
+          <Badge text={`${Math.round(candidate.score * 100)}%`} tone="green" />
+        ) : null}
+        {candidate.reasons.length ? (
+          <p>{candidate.reasons.join(" · ")}</p>
+        ) : null}
+      </div>
+      <button
+        type="button"
+        disabled={ctx.standalone || pending}
+        aria-busy={pending ? "true" : undefined}
+        onClick={() =>
+          ctx.onAction("hostCommand", {
+            command,
+            args: { hintId: candidate.hintId },
+          })
+        }
+      >
+        {ctx.t(
+          candidate.status === "open"
+            ? "synthesis-action-reject"
+            : "synthesis-action-restore",
+        )}
+      </button>
+    </li>
+  );
+}
+
+export function TopicDiscoverySection({ ctx }: { ctx: ReaderSectionContext }) {
+  const { candidates, rejectedCandidates } = ctx.detail.discovery;
+  return (
+    <div class="topic-section topic-discovery-section">
+      <ContentCard
+        title={ctx.t("synthesis-discovery-candidates", {
+          count: ctx.detail.discovery.candidateCount,
+        })}
+      >
+        {candidates.length ? (
+          <ul class="topic-discovery-list">
+            {candidates.map((candidate) => (
+              <DiscoveryCandidateRow
+                key={candidate.hintId}
+                candidate={candidate}
+                ctx={ctx}
+              />
+            ))}
+          </ul>
+        ) : (
+          <EmptyStructured
+            label={ctx.t("synthesis-discovery-none")}
+            t={ctx.t}
+          />
+        )}
+      </ContentCard>
+      {rejectedCandidates.length ? (
+        <ContentCard title={ctx.t("synthesis-status-rejected")}>
+          <ul class="topic-discovery-list">
+            {rejectedCandidates.map((candidate) => (
+              <DiscoveryCandidateRow
+                key={candidate.hintId}
+                candidate={candidate}
+                ctx={ctx}
+              />
+            ))}
+          </ul>
+        </ContentCard>
+      ) : null}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Section dispatch
 // ---------------------------------------------------------------------------
@@ -1419,6 +1509,7 @@ export type TopicDetailSectionId =
   | "future_directions"
   | "coverage"
   | "references"
+  | "discovery"
   | "report"
   | "citation_graph";
 
@@ -1436,6 +1527,7 @@ export const TOPIC_DETAIL_SECTION_TABS: ReadonlyArray<{
   },
   { id: "coverage", labelKey: "synthesis-topic-tab-coverage" },
   { id: "references", labelKey: "synthesis-topic-tab-references" },
+  { id: "discovery", labelKey: "synthesis-column-discovery" },
   { id: "report", labelKey: "synthesis-topic-tab-report" },
 ];
 
@@ -1458,6 +1550,8 @@ export function TopicSectionSwitch(props: {
           selectedEvidenceId={props.selectedEvidenceId}
         />
       );
+    case "discovery":
+      return <TopicDiscoverySection ctx={ctx} />;
     case "compare":
       return <TopicCompareSection ctx={ctx} />;
     case "coverage":

@@ -186,6 +186,7 @@ import {
   startDefaultSynthesisProductionOwner,
   stopDefaultSynthesisProductionOwner,
 } from "./modules/synthesis/production/synthesisProductionOwner";
+import { advanceSynthesisReverseHostLibraryRevision } from "./modules/synthesis/reverseHost/synthesisReverseHostHandlers";
 import { shutdownAcpSkillRunConversations } from "./modules/acp/skillRun/acpSkillRunActions";
 import {
   finishCitationGraphCrashJournal,
@@ -1053,9 +1054,11 @@ function registerLibraryArtifactsNotifierObserver() {
           event: string,
           type: string,
           ids: Array<string | number>,
-          _extraData?: Record<string, unknown>,
+          extraData?: Record<string, unknown>,
         ) => {
-          handleLibraryArtifactsItemNotification(event, type, ids);
+          void onNotify(event, type, ids, extraData || {}).catch(
+            () => undefined,
+          );
         },
       },
       ["item"],
@@ -1289,6 +1292,7 @@ async function onNotify(
       extraData,
     })
   ) {
+    advanceSynthesisReverseHostLibraryRevision();
     notifySynthesisWorkbenchLibraryItemsChanged({
       event,
       type,

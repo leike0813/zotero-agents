@@ -19,6 +19,22 @@ E2E 构建会把当前源码编译出的 Synthesis sidecar 放入测试插件，
 
 outer runner 在 `artifacts/test-diagnostics/system-e2e/<runId>/run-manifest.json` 写入 sanitized Run Manifest。浏览器 reporter 仍把事件发送给 scaffold，同时把同一结构化事件镜像到 loopback sink；manifest 不解析日志文本。终态为 `complete`、`aborted` 或 `incomplete`，缺少 public、typed、lifecycle、cleanup 或 health evidence 时不从日志推断通过。可发布诊断只保存 workspace-relative reference；敏感或 private-format artifact 只记稳定的 `withheld` reason code。
 
+## Sidecar 恢复场景
+
+`tests/zotero/e2e/full/302-sidecar-recovery.zotero.test.ts` 在同一 runner 中覆盖三个正式场景：
+
+- `SL-03`：外部终止 ready sidecar，要求旧 generation 退役且唯一 replacement 回到 ready。
+- `RH-02`：在 Reference 第一页后改变 Host basis，要求 refresh 以 `basis_mismatch` 失败且不提交混合结果，随后从新 basis 重试成功。
+- `PM-03`：在 durable admission 后让 operation 进入 running，再终止 sidecar；重启后要求 `restart_reconciliation_failed` / `restart_external_effect_unknown`、不自动 replay，并由显式 retry key 唯一创建 successor。
+
+sidecar 只提供两个 test-private checkpoint：`reference-after-first-page` 和 `maintenance-after-admission`。它们通过当前 session runtime root 下的私有 marker 文件控制，仅在 diagnostics-enabled 的测试启动配置中读取；每次 arm 只允许一个 operation claim，默认不 armed，等待有界，release 后清理。它们不属于 capability、DTO、CLI 或 MCP surface。checkpoint marker 和内部调用顺序不作为测试证据；case 的 public outcome、typed descriptor、cleanup 与 Suite Health Gate 结果只写入 Run Manifest。
+
+执行命令保持为：
+
+```bash
+npm run test:zotero:e2e
+```
+
 ## LiSongTao 金例
 
 金例只提交去标识化结构契约：`tests/fixtures/zotero-e2e/lisongtao-v1.json`。标题、作者、路径和正文不会进入仓库。运行时把指定库与 profile 复制到 `.scaffold/test`，不会修改来源目录；副本中的 machine-bound canonical identity、sidecar executable/runtime 与旧日志会被清除并由测试实例重建。

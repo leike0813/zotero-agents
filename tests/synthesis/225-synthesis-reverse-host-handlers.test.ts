@@ -3,6 +3,7 @@ import {
   SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_ENCODING,
   SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_VERSION,
   SYNTHESIS_REVERSE_HOST_CAPABILITIES,
+  SynthesisClientError,
   canonicalizeSynthesisContractJsonArtifact,
   hashSynthesisContractCanonicalJson,
 } from "../../packages/synthesis-contracts/src";
@@ -269,6 +270,7 @@ describe("Synthesis reverse Host handlers", function () {
   });
 
   it("injects library authority and keeps one revision across a paged snapshot", async function () {
+    let libraryRevision = "revision-1";
     const pageRequests: Array<{
       libraryId: number;
       cursor?: string;
@@ -280,6 +282,7 @@ describe("Synthesis reverse Host handlers", function () {
     }> = [];
     const handlers = createScopedSynthesisReverseHostHandlers({
       libraryId: 7,
+      readLibraryRevision: () => libraryRevision,
       hostReadPort: {
         library: {
           async listItemsPage(request) {
@@ -345,6 +348,26 @@ describe("Synthesis reverse Host handlers", function () {
     assert.deepEqual(byRefRequests, [
       { libraryId: 7, paperRefs: ["7:AAAA1111"] },
     ]);
+
+    const changed = (await handlers["library.items.list_page"](
+      { limit: 100 },
+      {} as never,
+    )) as { nextCursor: string };
+    libraryRevision = "revision-2";
+    let basisFailure: unknown;
+    try {
+      await handlers["library.items.list_page"](
+        { cursor: changed.nextCursor, limit: 100 },
+        {} as never,
+      );
+    } catch (error) {
+      basisFailure = error;
+    }
+    assert.instanceOf(basisFailure, SynthesisClientError);
+    assert.equal(
+      (basisFailure as SynthesisClientError).details?.reason,
+      "basis_mismatch",
+    );
 
     let failure: unknown;
     try {

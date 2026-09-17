@@ -18,6 +18,7 @@ use crate::runtime_production_client::{
     ProductionClientCatalog, ProductionClientSemanticSuccess, ResolvedMaintenanceRoute,
 };
 use crate::runtime_production_ports::ProductionApplications;
+use crate::runtime_test_checkpoint::{MAINTENANCE_AFTER_ADMISSION, hold_once};
 
 const PUBLIC_MAINTENANCE_BASIS_KIND: &str = "public_maintenance_operation";
 const RECONCILIATION_PAGE_LIMIT: usize = 1_000;
@@ -252,6 +253,21 @@ pub(crate) fn submit(
     request_id: &str,
     args: Vec<Value>,
 ) -> Result<MaintenanceOperationView, String> {
+    submit_with_checkpoint(apps, background_tasks, route, request_id, args, || {
+        if let Some(root) = apps.test_checkpoint_root() {
+            hold_once(root, MAINTENANCE_AFTER_ADMISSION);
+        }
+    })
+}
+
+fn submit_with_checkpoint(
+    apps: &Arc<ProductionApplications>,
+    background_tasks: &Arc<BackgroundTaskOwner>,
+    route: ResolvedMaintenanceRoute,
+    request_id: &str,
+    args: Vec<Value>,
+    checkpoint: impl FnOnce(),
+) -> Result<MaintenanceOperationView, String> {
     let accepted_at = utc_now_iso8601();
     let source_hash = canonical_json_hash(&json!({
         "capability":route.operation_type(),
@@ -286,6 +302,7 @@ pub(crate) fn submit(
     if !inserted {
         return Ok(accepted_view);
     }
+    checkpoint();
     let basis = decode_basis(&accepted)?;
     let spawned = dispatch(
         apps,
@@ -843,13 +860,28 @@ fn checkpoint_before_promotion_in_repository(
     Ok(())
 }
 
-fn retryable(row: &OperationRecord) -> bool {
-    serde_json::from_str::<Value>(&row.diagnostics_json)
+fn retry_allowed(row: &OperationRecord) -> bool {
+    let diagnostics = serde_json::from_str::<Value>(&row.diagnostics_json)
         .ok()
         .and_then(|value| value.as_array().cloned())
         .into_iter()
         .flatten()
+        .collect::<Vec<_>>();
+    diagnostics
+        .iter()
         .any(|entry| entry.pointer("/receipt/retryable").and_then(Value::as_bool) == Some(true))
+        || row.phase == "restart_reconciliation_failed"
+            && diagnostics.iter().any(|entry| {
+                entry
+                    .pointer("/receipt/diagnostics")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .any(|diagnostic| {
+                        diagnostic.get("code").and_then(Value::as_str)
+                            == Some("restart_external_effect_unknown")
+                    })
+            })
 }
 
 fn cancellation_before_promotion(row: &OperationRecord) -> bool {
@@ -1013,7 +1045,7 @@ fn control_in_repository(
         }
         MaintenanceControlCommand::Continue { .. } => control_outcome(row, false),
         MaintenanceControlCommand::Retry { retry_key, .. } => {
-            if !(matches!(row.status.as_str(), "failed" | "timed_out") && retryable(&row)
+            if !(matches!(row.status.as_str(), "failed" | "timed_out") && retry_allowed(&row)
                 || cancellation_before_promotion(&row))
             {
                 return control_outcome(row, false);
@@ -1180,9 +1212,96 @@ pub(crate) fn reconcile_restart(apps: &ProductionApplications, now: &str) -> Res
 mod tests {
     use super::*;
     use std::fs;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, mpsc};
+    use std::time::{Duration, Instant};
+    use synthesis_canonical_store::{CanonicalIdentity, CanonicalStore};
     use synthesis_repository::{Repository, RepositoryIdentity};
     use synthesis_test_support::TestRoot;
+
+    use crate::runtime_production_ports::build_production_applications;
+    use crate::runtime_worker_pool::NativeComputePool;
+
+    fn test_applications(root: &std::path::Path) -> Arc<ProductionApplications> {
+        let repository = Repository::open(
+            root,
+            RepositoryIdentity {
+                profile_id: "profile".into(),
+                data_root_id: "data".into(),
+            },
+        )
+        .expect("repository");
+        let canonical = CanonicalStore::open(
+            root,
+            CanonicalIdentity {
+                profile_id: "profile".into(),
+                data_root_id: "data".into(),
+            },
+        )
+        .expect("canonical");
+        Arc::new(
+            build_production_applications(
+                Arc::new(RepositoryPort::new(Arc::new(Mutex::new(repository)))),
+                Arc::new(Mutex::new(canonical)),
+                Arc::new(NativeComputePool::new()),
+                None,
+                "service".into(),
+                root.join("webdav-state.json"),
+            )
+            .expect("applications"),
+        )
+    }
+
+    #[test]
+    fn maintenance_checkpoint_holds_only_the_durable_insert_winner() {
+        let root = TestRoot::new("synthesis-public-maintenance-checkpoint");
+        let apps = test_applications(&root);
+        let background_tasks = BackgroundTaskOwner::new();
+        let route = ProductionClientCatalog::from_embedded()
+            .expect("catalog")
+            .resolve_maintenance("client.syncWebDavNow")
+            .expect("maintenance route");
+        let (reached_tx, reached_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let first_apps = Arc::clone(&apps);
+        let first_tasks = Arc::clone(&background_tasks);
+        let first_route = route.clone();
+        let first = thread::spawn(move || {
+            submit_with_checkpoint(
+                &first_apps,
+                &first_tasks,
+                first_route,
+                "request-checkpoint",
+                Vec::new(),
+                || {
+                    reached_tx.send(()).expect("checkpoint reached");
+                    release_rx.recv().expect("checkpoint released");
+                },
+            )
+        });
+
+        reached_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("insert winner held before dispatch");
+        let duplicate = submit_with_checkpoint(
+            &apps,
+            &background_tasks,
+            route,
+            "request-checkpoint",
+            Vec::new(),
+            || panic!("duplicate submission reached checkpoint"),
+        )
+        .expect("duplicate submission");
+        assert_eq!(duplicate.phase, "accepted");
+
+        release_tx.send(()).expect("release insert winner");
+        first
+            .join()
+            .expect("insert winner thread")
+            .expect("insert winner submission");
+        let drained =
+            background_tasks.stop_and_drain_until(Instant::now() + Duration::from_secs(2));
+        assert_eq!(drained.remaining, 0);
+    }
 
     #[test]
     fn persisted_basis_round_trips_the_retry_inputs() {
@@ -1352,6 +1471,44 @@ mod tests {
         assert!(duplicate.dispatch.is_none());
         assert_eq!(duplicate.view.operation_id, first.view.operation_id);
 
+        let restart_unknown = OperationRecord {
+            operation_id: "maintenance:restart-unknown".into(),
+            operation_type: basis.capability.clone(),
+            status: "failed".into(),
+            phase: "restart_reconciliation_failed".into(),
+            basis_kind: PUBLIC_MAINTENANCE_BASIS_KIND.into(),
+            basis_value: encode_basis(&basis).expect("basis"),
+            source_hash: basis.source_hash.clone(),
+            diagnostics_json: serde_json::to_string(&vec![json!({
+                "code":"public_maintenance_receipt",
+                "receipt":{
+                    "retryable":false,
+                    "diagnostics":[{"code":"restart_external_effect_unknown"}],
+                },
+            })])
+            .expect("diagnostics"),
+            created_at: "2026-08-02T00:00:00.000Z".into(),
+            updated_at: "2026-08-02T00:00:00.000Z".into(),
+            completed_at: "2026-08-02T00:00:01.000Z".into(),
+            ..OperationRecord::default()
+        };
+        repository
+            .owner()
+            .lock()
+            .expect("lock")
+            .upsert_operation(&restart_unknown)
+            .expect("seed restart reconciliation failure");
+        let explicit_recovery = MaintenanceControlCommand::Retry {
+            operation_id: restart_unknown.operation_id.clone(),
+            retry_key: "recovery-1".into(),
+        };
+        assert!(
+            control_in_repository(&repository, &explicit_recovery, "2026-08-02T00:00:03.000Z",)
+                .expect("explicit restart recovery")
+                .dispatch
+                .is_some()
+        );
+
         let continuation = OperationRecord {
             operation_id: "maintenance:continuation".into(),
             operation_type: basis.capability.clone(),
@@ -1445,7 +1602,7 @@ mod tests {
             .expect("read")
             .expect("terminal");
         assert_eq!(terminal.status, "timed_out");
-        assert!(retryable(&terminal));
+        assert!(retry_allowed(&terminal));
 
         let mut late_completion = terminal.clone();
         late_completion.status = "completed".into();

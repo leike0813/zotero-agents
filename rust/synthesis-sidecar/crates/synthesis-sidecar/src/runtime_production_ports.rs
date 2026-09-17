@@ -70,6 +70,7 @@ use crate::runtime_diagnostics::{
     emit_debug,
 };
 use crate::runtime_reverse_host::call_reverse_host;
+use crate::runtime_test_checkpoint::{REFERENCE_AFTER_FIRST_PAGE, hold_once};
 use crate::runtime_webdav_runtime::{FileWebDavStateStore, InterruptibleWebDavRetryScheduler};
 use crate::runtime_worker_pool::NativeComputePool;
 use synthesis_application::reference::{
@@ -106,6 +107,13 @@ impl ProductionApplications {
             .as_deref()
             .map(|config| config.library_id)
             .unwrap_or_default()
+    }
+
+    pub(crate) fn test_checkpoint_root(&self) -> Option<&std::path::Path> {
+        self.config
+            .as_deref()
+            .filter(|config| config.diagnostics_enabled)
+            .map(|config| config.profile_runtime_root.as_path())
     }
 
     pub(crate) fn call_host(&self, capability: &str, payload: Value) -> Result<Value, String> {
@@ -231,13 +239,22 @@ pub(crate) fn build_production_applications(
             compute: Arc::clone(&compute),
         }),
     );
-    let references = ReferenceApplication::new(
+    let mut references = ReferenceApplication::new(
         repository.clone(),
         reference_refresh,
         reference_matching,
         host.clone(),
     )
     .with_observations(Arc::new(NativeReferenceObservationPort));
+    if let Some(config) = config
+        .as_deref()
+        .filter(|config| config.diagnostics_enabled)
+    {
+        let checkpoint_root = config.profile_runtime_root.clone();
+        references = references.with_paging_checkpoint(Arc::new(move || {
+            hold_once(&checkpoint_root, REFERENCE_AFTER_FIRST_PAGE);
+        }));
+    }
     let tags = TagVocabularyApplication::new(
         repository.clone(),
         Arc::new(NativeTagVocabularyComputePort {

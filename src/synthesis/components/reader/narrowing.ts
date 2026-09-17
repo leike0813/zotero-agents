@@ -374,6 +374,24 @@ export type ReaderTimelineProjection = {
   events: ReaderTimelineEvent[];
 };
 
+export type ReaderDiscoveryCandidate = {
+  hintId: string;
+  topicId: string;
+  literatureItemId: string;
+  status: "open" | "rejected";
+  updatedAt: string;
+  title: string;
+  score?: number;
+  method: string;
+  reasons: string[];
+};
+
+export type ReaderDiscoveryProjection = {
+  candidateCount: number;
+  candidates: ReaderDiscoveryCandidate[];
+  rejectedCandidates: ReaderDiscoveryCandidate[];
+};
+
 export type TopicDetailProjection = {
   topicId: string;
   title: string;
@@ -389,6 +407,7 @@ export type TopicDetailProjection = {
   coverage: ReaderCoverageProjection;
   report: ReaderReportProjection;
   timeline: ReaderTimelineProjection;
+  discovery: ReaderDiscoveryProjection;
 };
 
 // -- narrowing helpers --------------------------------------------------------
@@ -729,6 +748,45 @@ export function narrowTopicDetail(
   const detail = value;
   const report = recordValue(detail.synthesis_report);
   const coverage = recordValue(detail.coverage);
+  const discovery = recordValue(detail.discovery);
+  const narrowCandidate = (
+    value: Record<string, unknown>,
+  ): ReaderDiscoveryCandidate | undefined => {
+    const status = textValue(value.status);
+    const hintId = textValue(value.hint_id);
+    const topicId = textValue(value.topic_id);
+    const literatureItemId = textValue(value.literature_item_id);
+    const updatedAt = textValue(value.updated_at);
+    if (
+      !hintId ||
+      !topicId ||
+      !literatureItemId ||
+      !updatedAt ||
+      (status !== "open" && status !== "rejected")
+    ) {
+      return undefined;
+    }
+    const score =
+      typeof value.score === "number" && Number.isFinite(value.score)
+        ? value.score
+        : undefined;
+    return {
+      hintId,
+      topicId,
+      literatureItemId,
+      status,
+      updatedAt,
+      title: textValue(value.title),
+      score,
+      method: textValue(value.method),
+      reasons: stringArray(value.reasons).slice(0, 3),
+    };
+  };
+  const narrowCandidates = (value: unknown) =>
+    recordArray(value)
+      .map(narrowCandidate)
+      .filter((candidate): candidate is ReaderDiscoveryCandidate => !!candidate)
+      .slice(0, 20);
   return {
     topicId: textValue(detail.topicId),
     title: textValue(detail.title),
@@ -752,6 +810,11 @@ export function narrowTopicDetail(
       body: firstText(report, ["body"]),
     },
     timeline: narrowTimeline(detail),
+    discovery: {
+      candidateCount: numberValue(discovery.candidate_count),
+      candidates: narrowCandidates(discovery.candidates),
+      rejectedCandidates: narrowCandidates(discovery.rejected_candidates),
+    },
   };
 }
 

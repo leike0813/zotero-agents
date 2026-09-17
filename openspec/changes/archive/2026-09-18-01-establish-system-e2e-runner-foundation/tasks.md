@@ -34,7 +34,7 @@
 
 ## 5. Prove the foundation on a real host
 
-- [ ] 5.1 Verify `npm run test:zotero:e2e` and `npm run test:zotero:e2e:stress` remain usable with unchanged entry points after the runner changes
+- [x] 5.1 Verify `npm run test:zotero:e2e` and `npm run test:zotero:e2e:stress` remain usable with unchanged entry points after the runner changes
 - [x] 5.2 Run one real Zotero 10/Linux Committed Seed invocation and verify baseline setup, shared-profile execution, family cleanup, Suite Health Gate, and a persisted sanitized Run Manifest with a trustworthy terminal state
 - [x] 5.3 Verify no second runner, runtime scenario registry, global production fault service, aggregate import suite, or file or title allowlist was introduced by scanning the runner, configuration, and suite directories
 - [x] 5.4 Verify no product runtime behavior, dependency, publication action, or new blocking CI lane changed by reviewing the final diff and the generated gate plan

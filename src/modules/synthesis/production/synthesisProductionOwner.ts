@@ -41,7 +41,7 @@ type ReverseHostLocator = {
 
 type ReverseHostEndpoint = {
   start(): ReverseHostLocator | Promise<ReverseHostLocator>;
-  bindServiceInstance(serviceInstanceId: string): void;
+  bindServiceInstance(serviceInstanceId: string | null): void;
   stop(): void | Promise<void>;
 };
 
@@ -132,6 +132,8 @@ export function createSynthesisProductionOwner(
   let stopTask: Promise<void> | null = null;
   let stopped = false;
   let hasBeenReady = false;
+  let boundServiceInstanceId: string | null = null;
+  let unsubscribeSupervisor: (() => void) | null = null;
   let automaticRecoveryAttempted = false;
   let automaticRecoveryTask: Promise<
     NonNullable<ReturnType<ProductionSupervisor["getReadyConnection"]>>
@@ -146,8 +148,15 @@ export function createSynthesisProductionOwner(
       endpoint = createdEndpoint;
       try {
         const locator = await createdEndpoint.start();
-        supervisor = deps.startProductionSupervisor(locator);
-        return supervisor;
+        const createdSupervisor = deps.startProductionSupervisor(locator);
+        supervisor = createdSupervisor;
+        unsubscribeSupervisor = createdSupervisor.subscribe((snapshot) => {
+          if (snapshot.status !== "ready" && boundServiceInstanceId) {
+            createdEndpoint.bindServiceInstance(null);
+            boundServiceInstanceId = null;
+          }
+        });
+        return createdSupervisor;
       } catch (error) {
         await Promise.resolve(createdEndpoint.stop()).catch(() => undefined);
         if (endpoint === createdEndpoint) endpoint = null;
@@ -169,6 +178,7 @@ export function createSynthesisProductionOwner(
       const current = await ensureSupervisor();
       const connection = await waitForReady(current);
       endpoint?.bindServiceInstance(connection.discovery.serviceInstanceId);
+      boundServiceInstanceId = connection.discovery.serviceInstanceId;
       await deps.afterReady?.(connection);
       hasBeenReady = true;
       automaticRecoveryAttempted = false;
@@ -237,7 +247,10 @@ export function createSynthesisProductionOwner(
     (deps.invalidateClient || invalidateDefaultSynthesisClient)();
     stopTask = (async () => {
       await deps.stopProductionSupervisor();
+      unsubscribeSupervisor?.();
+      unsubscribeSupervisor = null;
       await endpoint?.stop();
+      boundServiceInstanceId = null;
     })();
     return stopTask;
   }

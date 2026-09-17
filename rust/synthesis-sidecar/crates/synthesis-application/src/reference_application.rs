@@ -36,7 +36,8 @@ use crate::reference::{
     ReferenceHostArtifact, ReferenceHostArtifactRead, ReferenceHostItem, ReferenceHostPort,
     ReferenceIndexProjection, ReferenceIndexQuery, ReferenceIndexReference, ReferenceIndexRow,
     ReferenceObservation, ReferenceObservationPort, ReferenceProjection, ReferenceQuery,
-    collect_host_items, collect_host_items_bounded, validate_page_metadata,
+    collect_host_items, collect_host_items_bounded, collect_host_items_with_checkpoint,
+    validate_page_metadata,
 };
 const REFRESH_JOB_ID: &str = "reference-job:refresh";
 const MATCHING_JOB_ID: &str = "reference-job:advanced-matching";
@@ -353,6 +354,7 @@ pub struct ReferenceApplication {
     matching: ReferenceMatchingApplication,
     host: Arc<dyn ReferenceHostPort>,
     observations: Arc<dyn ReferenceObservationPort>,
+    paging_checkpoint: Option<Arc<dyn Fn() + Send + Sync>>,
     mutation: Mutex<()>,
 }
 
@@ -369,12 +371,18 @@ impl ReferenceApplication {
             matching,
             host,
             observations: Arc::new(NoopReferenceObservationPort),
+            paging_checkpoint: None,
             mutation: Mutex::new(()),
         }
     }
 
     pub fn with_observations(mut self, observations: Arc<dyn ReferenceObservationPort>) -> Self {
         self.observations = observations;
+        self
+    }
+
+    pub fn with_paging_checkpoint(mut self, checkpoint: Arc<dyn Fn() + Send + Sync>) -> Self {
+        self.paging_checkpoint = Some(checkpoint);
         self
     }
 
@@ -2064,7 +2072,11 @@ impl ReferenceApplication {
     }
 
     fn collect_host_items(&self) -> Result<Vec<ReferenceHostItem>, String> {
-        collect_host_items(self.host.as_ref()).map_err(|error| error.code().to_owned())
+        match self.paging_checkpoint.as_deref() {
+            Some(checkpoint) => collect_host_items_with_checkpoint(self.host.as_ref(), checkpoint),
+            None => collect_host_items(self.host.as_ref()),
+        }
+        .map_err(|error| error.code().to_owned())
     }
 
     fn collect_host_artifacts(&self) -> Result<Vec<ReferenceHostArtifact>, String> {
@@ -4187,6 +4199,7 @@ fn reference_index_reference(raw: RawReferenceRecord) -> ReferenceIndexReference
 fn reference_application_error(code: &str) -> ReferenceApplicationError {
     match code {
         "invalid_request" => ReferenceApplicationError::InvalidRequest,
+        "basis_mismatch" => ReferenceApplicationError::BasisMismatch,
         "reverse_host_result_invalid" | "reverse_host_page_cycle" => {
             ReferenceApplicationError::HostResultInvalid
         }

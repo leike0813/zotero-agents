@@ -385,22 +385,23 @@ describe("Dashboard and Synthesis close lifecycle in Zotero", function () {
       mainWindowClosed: mainWindow.closed,
       databasePing: 1,
     });
-    const crashJournal = await readRuntimeTextFile(
-      joinPath(
-        getRuntimePersistencePaths().logsDir,
-        "citation-graph-crash-journal.json",
-      ),
-    );
-    if (crashJournal) {
+    if (useRealLibrary) {
+      const crashJournal = await readRuntimeTextFile(
+        joinPath(
+          getRuntimePersistencePaths().logsDir,
+          "citation-graph-crash-journal.json",
+        ),
+      );
+      assert.isString(crashJournal);
       const outputDirectory = resolveDefaultTestDiagnosticsDirectory();
       await ensureDiagnosticsDirectory(outputDirectory);
       await writeDiagnosticsText(
         joinPath(outputDirectory, "citation-graph-crash-journal.json"),
-        crashJournal,
+        crashJournal!,
       );
-      assert.include(crashJournal, "sigma-renderer-created");
-      assert.include(crashJournal, "sigma-destroy-complete");
-      assert.include(crashJournal, "host-cleanup-complete");
+      assert.include(crashJournal!, "sigma-renderer-created");
+      assert.include(crashJournal!, "sigma-destroy-complete");
+      assert.include(crashJournal!, "host-cleanup-complete");
     }
   });
 });

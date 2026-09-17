@@ -59,12 +59,12 @@ describe("Synthesis cross-language sidecar contract", function () {
       "synthesis-sidecar-protocol-registry.v1",
     );
     assert.equal(result.schemaCount, 18);
-    assert.equal(result.protocolCapabilityCount, 129);
+    assert.equal(result.protocolCapabilityCount, 130);
     assert.equal(result.workerOperationCount, 15);
     assert.equal(result.unauthorizedGenericEscapeCount, 0);
     assert.equal(
       result.fingerprint,
-      "sha256:101d84a02c8fb77ba4306a44f50faa59ac3eadcfe1ed69743b15a638d26ac690",
+      "sha256:07dd89d3406c81026ef08832f8575c3683690a9ad9614c81754325b796f8dbc9",
     );
   });
 

@@ -110,6 +110,12 @@ type UnscopedSynthesisReverseHostHandlers = Omit<
 
 const HOST_SNAPSHOT_TTL_MS = 10_000;
 const HOST_SNAPSHOT_LIMIT_BYTES = 8 * 1024 * 1024;
+// ponytail: process-wide invalidation; use per-library counters only if cross-library churn becomes measurable.
+let libraryRevision = 0;
+
+export function advanceSynthesisReverseHostLibraryRevision() {
+  libraryRevision += 1;
+}
 
 function exactPayload(
   payload: SynthesisJsonObject,
@@ -287,9 +293,9 @@ export function createSynthesisReverseHostHandlers(
 }
 
 export function createScopedSynthesisReverseHostHandlers(
-  args: Ports & { libraryId: number },
+  args: Ports & { libraryId: number; readLibraryRevision?: () => string },
 ) {
-  const { libraryId, ...ports } = args;
+  const { libraryId, readLibraryRevision, ...ports } = args;
   const handlers = createSynthesisReverseHostHandlers(ports);
   const snapshots = new Map<
     string,
@@ -297,6 +303,7 @@ export function createScopedSynthesisReverseHostHandlers(
       kind: "items" | "artifacts";
       sourceCursor: string;
       revision: string;
+      libraryRevision: string;
       expiresAt: number;
     }
   >();
@@ -323,6 +330,7 @@ export function createScopedSynthesisReverseHostHandlers(
     kind: "items" | "artifacts",
     sourceCursor: string,
     revision: string,
+    libraryRevision: string,
   ) => {
     expireSnapshots();
     const token = `host-snapshot-${++snapshotCounter}-${Math.random()
@@ -332,6 +340,7 @@ export function createScopedSynthesisReverseHostHandlers(
       kind,
       sourceCursor,
       revision,
+      libraryRevision,
       expiresAt: Date.now() + HOST_SNAPSHOT_TTL_MS,
     });
     return token;
@@ -346,6 +355,7 @@ export function createScopedSynthesisReverseHostHandlers(
       return {
         sourceCursor: "",
         revision: `host-revision-${++revisionCounter}`,
+        libraryRevision: readLibraryRevision?.() || "",
       };
     }
     const snapshot = snapshots.get(token);
@@ -356,9 +366,20 @@ export function createScopedSynthesisReverseHostHandlers(
       );
     }
     snapshots.delete(token);
+    if (
+      snapshot.libraryRevision &&
+      readLibraryRevision?.() !== snapshot.libraryRevision
+    ) {
+      throw new SynthesisClientError(
+        "conflict",
+        "The reverse Host snapshot basis changed",
+        { reason: "basis_mismatch" },
+      );
+    }
     return {
       sourceCursor: snapshot.sourceCursor,
       revision: snapshot.revision,
+      libraryRevision: snapshot.libraryRevision,
     };
   };
   const page = async <
@@ -384,7 +405,12 @@ export function createScopedSynthesisReverseHostHandlers(
       );
     }
     const nextCursor = result.hasMore
-      ? nextSnapshot(kind, result.nextCursor, snapshot.revision)
+      ? nextSnapshot(
+          kind,
+          result.nextCursor,
+          snapshot.revision,
+          snapshot.libraryRevision,
+        )
       : "";
     return {
       ...result,
@@ -442,6 +468,7 @@ export function createDefaultSynthesisReverseHostHandlers(args: {
 }) {
   return createScopedSynthesisReverseHostHandlers({
     libraryId: args.libraryId,
+    readLibraryRevision: () => String(libraryRevision),
     hostReadPort: createZoteroSynthesisHostReadPort({
       libraryId: args.libraryId,
     }),

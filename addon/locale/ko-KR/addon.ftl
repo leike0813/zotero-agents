@@ -1212,6 +1212,7 @@ synthesis-action-search = 검색
 synthesis-action-clear = 지우기
 synthesis-action-accept = 승인
 synthesis-action-reject = 거부
+synthesis-action-restore = 복원
 synthesis-action-approve = 승인
 synthesis-action-retry = 재시도
 synthesis-action-validate = 유효성 검사

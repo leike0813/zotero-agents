@@ -119,6 +119,7 @@ export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
   "synthesis-action-clear": "Clear",
   "synthesis-action-accept": "Accept",
   "synthesis-action-reject": "Reject",
+  "synthesis-action-restore": "Restore",
   "synthesis-action-approve": "Approve",
   "synthesis-action-retry": "Retry",
   "synthesis-action-continue-graph-loading": "Continue loading graph",

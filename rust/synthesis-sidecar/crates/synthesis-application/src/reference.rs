@@ -83,6 +83,7 @@ pub enum ReferenceProjection {
 pub enum ReferenceApplicationError {
     InvalidRequest,
     Unavailable,
+    BasisMismatch,
     HostResultInvalid,
     HostInputTooLarge,
     HostPageLimitExceeded,
@@ -93,6 +94,7 @@ impl ReferenceApplicationError {
         match self {
             Self::InvalidRequest => "invalid_request",
             Self::Unavailable => "reverse_host_unavailable",
+            Self::BasisMismatch => "basis_mismatch",
             Self::HostResultInvalid => "reverse_host_result_invalid",
             Self::HostInputTooLarge => "reverse_host_input_too_large",
             Self::HostPageLimitExceeded => "reverse_host_page_limit_exceeded",
@@ -358,6 +360,15 @@ pub fn collect_host_item_pages(
     max_rows: usize,
     allow_truncation: bool,
 ) -> Result<Vec<ReferenceHostItem>, HostCollectionError> {
+    collect_host_item_pages_with_checkpoint(&mut fetch_page, max_rows, allow_truncation, || {})
+}
+
+pub(crate) fn collect_host_item_pages_with_checkpoint(
+    mut fetch_page: impl FnMut(&str, usize) -> Result<ReferenceHostItemsPage, String>,
+    max_rows: usize,
+    allow_truncation: bool,
+    mut after_first_page: impl FnMut(),
+) -> Result<Vec<ReferenceHostItem>, HostCollectionError> {
     if allow_truncation && max_rows == 0 {
         return Ok(Vec::new());
     }
@@ -365,7 +376,7 @@ pub fn collect_host_item_pages(
     let mut revision: Option<String> = None;
     let mut seen_cursors = HashSet::new();
     let mut items = Vec::new();
-    for _ in 0..MAX_HOST_PAGES {
+    for page_index in 0..MAX_HOST_PAGES {
         let page = fetch_page(&cursor, HOST_PAGE_LIMIT).map_err(HostCollectionError::Host)?;
         validate_host_items_page(&cursor, revision.as_deref(), &page)?;
         if !seen_cursors.insert(page.cursor.clone()) {
@@ -398,6 +409,9 @@ pub fn collect_host_item_pages(
             }
             return Ok(items);
         }
+        if page_index == 0 {
+            after_first_page();
+        }
         cursor = page.next_cursor;
     }
     Err(HostCollectionError::PageLimitExceeded)
@@ -406,34 +420,54 @@ pub fn collect_host_item_pages(
 pub(crate) fn collect_host_items(
     host: &dyn ReferenceHostPort,
 ) -> Result<Vec<ReferenceHostItem>, ReferenceApplicationError> {
-    collect_host_items_with_limit(host, MAX_HOST_ROWS, false)
+    collect_host_items_with_limit(host, MAX_HOST_ROWS, false, None)
+}
+
+pub(crate) fn collect_host_items_with_checkpoint(
+    host: &dyn ReferenceHostPort,
+    checkpoint: &dyn Fn(),
+) -> Result<Vec<ReferenceHostItem>, ReferenceApplicationError> {
+    collect_host_items_with_limit(host, MAX_HOST_ROWS, false, Some(checkpoint))
 }
 
 pub(crate) fn collect_host_items_bounded(
     host: &dyn ReferenceHostPort,
     max_rows: usize,
 ) -> Result<Vec<ReferenceHostItem>, ReferenceApplicationError> {
-    collect_host_items_with_limit(host, max_rows.min(MAX_HOST_ROWS), true)
+    collect_host_items_with_limit(host, max_rows.min(MAX_HOST_ROWS), true, None)
 }
 
 fn collect_host_items_with_limit(
     host: &dyn ReferenceHostPort,
     max_rows: usize,
     allow_truncation: bool,
+    checkpoint: Option<&dyn Fn()>,
 ) -> Result<Vec<ReferenceHostItem>, ReferenceApplicationError> {
-    collect_host_item_pages(
+    collect_host_item_pages_with_checkpoint(
         |cursor, limit| host.list_items_page(cursor, limit),
         max_rows,
         allow_truncation,
+        || {
+            if let Some(checkpoint) = checkpoint {
+                checkpoint();
+            }
+        },
     )
-    .map_err(|error| match error {
+    .map_err(reference_collection_error)
+}
+
+fn reference_collection_error(error: HostCollectionError) -> ReferenceApplicationError {
+    match error {
+        HostCollectionError::Host(code) if code == "basis_mismatch" => {
+            ReferenceApplicationError::BasisMismatch
+        }
         HostCollectionError::Host(_) => ReferenceApplicationError::Unavailable,
         HostCollectionError::InvalidPage | HostCollectionError::PageCycle => {
             ReferenceApplicationError::HostResultInvalid
         }
         HostCollectionError::InputTooLarge => ReferenceApplicationError::HostInputTooLarge,
         HostCollectionError::PageLimitExceeded => ReferenceApplicationError::HostPageLimitExceeded,
-    })
+    }
 }
 
 pub(crate) fn validate_page_metadata(
@@ -459,7 +493,10 @@ pub(crate) fn validate_page_metadata(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::{Arc, mpsc};
+    use std::thread;
+    use std::time::Duration;
 
     struct BoundedHost {
         calls: AtomicUsize,
@@ -530,6 +567,104 @@ mod tests {
 
         assert_eq!(items.len(), 1);
         assert_eq!(host.calls.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn host_basis_mismatch_keeps_its_typed_application_outcome() {
+        assert_eq!(
+            reference_collection_error(HostCollectionError::Host("basis_mismatch".into())),
+            ReferenceApplicationError::BasisMismatch,
+        );
+    }
+
+    #[test]
+    fn paging_checkpoint_holds_only_the_traversal_that_claims_it() {
+        let armed = Arc::new(AtomicBool::new(true));
+        let (reached_tx, reached_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let first_armed = Arc::clone(&armed);
+        let first = thread::spawn(move || {
+            let mut calls = 0;
+            collect_host_item_pages_with_checkpoint(
+                |cursor, limit| {
+                    calls += 1;
+                    Ok(ReferenceHostItemsPage {
+                        items: vec![host_item(if cursor.is_empty() {
+                            "paper:first"
+                        } else {
+                            "paper:second"
+                        })],
+                        cursor: cursor.into(),
+                        next_cursor: if cursor.is_empty() {
+                            "page:2".into()
+                        } else {
+                            String::new()
+                        },
+                        snapshot_revision: "revision:1".into(),
+                        has_more: cursor.is_empty(),
+                        returned: 1,
+                        limit,
+                    })
+                },
+                MAX_HOST_ROWS,
+                false,
+                move || {
+                    if first_armed.swap(false, Ordering::AcqRel) {
+                        reached_tx.send(()).expect("checkpoint reached");
+                        release_rx.recv().expect("checkpoint released");
+                    }
+                },
+            )
+        });
+
+        reached_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("first traversal held after page one");
+
+        let second_armed = Arc::clone(&armed);
+        let (second_tx, second_rx) = mpsc::channel();
+        let second = thread::spawn(move || {
+            let result = collect_host_item_pages_with_checkpoint(
+                |cursor, limit| {
+                    Ok(ReferenceHostItemsPage {
+                        items: vec![host_item(if cursor.is_empty() {
+                            "paper:third"
+                        } else {
+                            "paper:fourth"
+                        })],
+                        cursor: cursor.into(),
+                        next_cursor: if cursor.is_empty() {
+                            "page:2".into()
+                        } else {
+                            String::new()
+                        },
+                        snapshot_revision: "revision:2".into(),
+                        has_more: cursor.is_empty(),
+                        returned: 1,
+                        limit,
+                    })
+                },
+                MAX_HOST_ROWS,
+                false,
+                move || {
+                    if second_armed.swap(false, Ordering::AcqRel) {
+                        panic!("checkpoint held a second traversal");
+                    }
+                },
+            );
+            second_tx.send(result).expect("second result");
+        });
+
+        assert_eq!(
+            second_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("second traversal was not held")
+                .expect("second traversal"),
+            vec![host_item("paper:fourth"), host_item("paper:third")]
+        );
+        release_tx.send(()).expect("release first traversal");
+        assert_eq!(first.join().expect("first traversal").unwrap().len(), 2);
+        second.join().expect("second traversal");
     }
 
     fn host_item(paper_ref: &str) -> ReferenceHostItem {

@@ -1212,6 +1212,7 @@ synthesis-action-search = Cerca
 synthesis-action-clear = Cancella
 synthesis-action-accept = Accetta
 synthesis-action-reject = Rifiuta
+synthesis-action-restore = Ripristina
 synthesis-action-approve = Approva
 synthesis-action-retry = Riprova
 synthesis-action-validate = Valida

@@ -5309,6 +5309,38 @@ th {
   display: grid;
   gap: 20px;
 }
+
+.topic-discovery-section,
+.topic-discovery-list {
+  display: grid;
+  gap: 10px;
+}
+
+.topic-discovery-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.topic-discovery-candidate {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.topic-discovery-candidate-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.topic-discovery-candidate-main p {
+  flex-basis: 100%;
+  margin: 0;
+}
 .claim-row {
   display: grid;
   grid-template-columns: minmax(0, 5fr) minmax(250px, 3fr);

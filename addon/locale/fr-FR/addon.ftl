@@ -1156,6 +1156,7 @@ synthesis-action-search = Rechercher
 synthesis-action-clear = Effacer
 synthesis-action-accept = Accepter
 synthesis-action-reject = Rejeter
+synthesis-action-restore = Restaurer
 synthesis-action-approve = Approuver
 synthesis-action-retry = Réessayer
 synthesis-action-validate = Valider

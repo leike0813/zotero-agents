@@ -2,14 +2,14 @@ use crate::concept_kb::{ConceptKbApplication, ConceptMutationStatus};
 use crate::dto::{
     ResolvedTopicPaperSetDto, TopicApplyRequest, TopicApplyResult, TopicApplyStatus,
     TopicContextRequest, TopicContextResult, TopicContextView, TopicDefinitionDto,
-    TopicDeleteRequest, TopicDeleteResult, TopicDeleteStatus, TopicDetailRequest,
-    TopicDetailResult, TopicDiscoveryHintRequest, TopicDiscoveryHintResult, TopicFindDiagnostics,
-    TopicFindRequest, TopicFindResult, TopicFindRow, TopicFreshness, TopicListRequest,
-    TopicListResult, TopicProjectionDto, TopicPurgeResult, TopicRecord, TopicReportRequest,
-    TopicReportResult, TopicResolverCombine, TopicResolverDto, TopicResolverPaper,
-    TopicResolverRequest, TopicResolverResult, TopicSourceMaterialsStatus, TopicWorkbenchPage,
-    TopicWorkbenchRow, TopicWorkflowFilter, TopicWorkflowOption, TopicWorkflowOptionsResult,
-    project_topic_definition,
+    TopicDeleteRequest, TopicDeleteResult, TopicDeleteStatus, TopicDetailDiscovery,
+    TopicDetailRequest, TopicDetailResult, TopicDiscoveryCandidate, TopicDiscoveryHintRequest,
+    TopicDiscoveryHintResult, TopicFindDiagnostics, TopicFindRequest, TopicFindResult,
+    TopicFindRow, TopicFreshness, TopicListRequest, TopicListResult, TopicProjectionDto,
+    TopicPurgeResult, TopicRecord, TopicReportRequest, TopicReportResult, TopicResolverCombine,
+    TopicResolverDto, TopicResolverPaper, TopicResolverRequest, TopicResolverResult,
+    TopicSourceMaterialsStatus, TopicWorkbenchPage, TopicWorkbenchRow, TopicWorkflowFilter,
+    TopicWorkflowOption, TopicWorkflowOptionsResult, project_topic_definition,
 };
 use crate::ports::{
     StructuredArtifactPort, TopicCanonicalPort, TopicLibraryQueryPort, TopicRepositoryPort,
@@ -530,6 +530,11 @@ impl TopicApplication {
             (Some(state), CanonicalTopicState::Ready(snapshot)) => {
                 let state = project_canonical_topic_content(state, &snapshot)?;
                 let projection = self.repository.get_projection(&request.topic_id)?;
+                let discovery = projection
+                    .as_ref()
+                    .map(|projection| project_detail_discovery(&projection.discovery_json))
+                    .transpose()?
+                    .unwrap_or_default();
                 let paper_refs = serde_json::from_str::<Value>(&state.resolved_paper_set_json)
                     .ok()
                     .map(|value| resolved_paper_refs(&value))
@@ -542,6 +547,7 @@ impl TopicApplication {
                     topic_id: request.topic_id,
                     topic: Box::new(project_record(state, projection, &artifacts)?),
                     snapshot: Box::new(snapshot),
+                    discovery,
                 })
             }
         }
@@ -966,7 +972,7 @@ impl TopicApplication {
             } else {
                 "not_found".into()
             },
-            hint,
+            hint: hint.as_ref().and_then(project_discovery_candidate),
             diagnostics: Vec::new(),
         })
     }
@@ -2560,6 +2566,78 @@ fn topic_list_offset(request: &TopicListRequest) -> Result<usize, String> {
     }
 }
 
+fn project_discovery_candidate(value: &Value) -> Option<TopicDiscoveryCandidate> {
+    let text = |key: &str| {
+        value
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+    };
+    let status = text("status")?;
+    if !matches!(status.as_str(), "open" | "rejected") {
+        return None;
+    }
+    let title = text("title");
+    let method = text("method");
+    let basis_hash = text("basis_hash");
+    let reasons = value
+        .get("matching_fields")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::trim)
+        .filter(|reason| !reason.is_empty())
+        .take(3)
+        .map(str::to_owned)
+        .collect();
+    Some(TopicDiscoveryCandidate {
+        hint_id: text("hint_id")?,
+        topic_id: text("topic_id")?,
+        literature_item_id: text("literature_item_id")?,
+        status,
+        updated_at: text("updated_at")?,
+        title,
+        score: value.get("score").and_then(Value::as_f64),
+        method,
+        reasons,
+        fallback_metadata: value.get("fallback_metadata").and_then(Value::as_bool),
+        basis_hash,
+    })
+}
+
+fn project_detail_discovery(discovery_json: &str) -> Result<TopicDetailDiscovery, String> {
+    let discovery = parse_object(discovery_json)?;
+    let candidate_count = discovery
+        .get("candidate_count")
+        .and_then(Value::as_u64)
+        .and_then(|count| usize::try_from(count).ok())
+        .unwrap_or_default();
+    let candidates = discovery
+        .get("hints")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(project_discovery_candidate)
+        .collect::<Vec<_>>();
+    Ok(TopicDetailDiscovery {
+        candidate_count,
+        candidates: candidates
+            .iter()
+            .filter(|candidate| candidate.status == "open")
+            .take(20)
+            .cloned()
+            .collect(),
+        rejected_candidates: candidates
+            .into_iter()
+            .filter(|candidate| candidate.status == "rejected")
+            .take(20)
+            .collect(),
+    })
+}
+
 fn project_record(
     state: TopicApplicationStateRecord,
     projection: Option<TopicApplicationProjectionRecord>,
@@ -2567,11 +2645,15 @@ fn project_record(
 ) -> Result<TopicRecord, String> {
     let projection = projection
         .map(|projection| {
+            let mut discovery = parse_object(&projection.discovery_json)?;
+            if let Some(discovery) = discovery.as_object_mut() {
+                discovery.remove("hints");
+            }
             Ok::<Value, String>(json!({
                 "topicGraph":parse_object(&projection.topic_graph_json)?,
                 "concepts":parse_object(&projection.concepts_json)?,
                 "interestMetadata":parse_object(&projection.interest_metadata_json)?,
-                "discovery":parse_object(&projection.discovery_json)?,
+                "discovery":discovery,
             }))
         })
         .transpose()?
@@ -3626,6 +3708,41 @@ mod tests {
             Arc::new(|topic| format!("operation:{topic}")),
         );
         assert!(application.apply(request("topic-cascade", "create")).ok);
+        let mut hints = vec![
+            json!({
+                "hint_id":"hint:one","topic_id":"topic-child",
+                "literature_item_id":"1:BBBB","status":"open",
+                "updated_at":"2026-07-26T12:00:00.000Z","score":0.9,
+                "matching_fields":["shared method"],"private":true,
+            }),
+            json!({
+                "hint_id":"hint:two","topic_id":"topic-child",
+                "literature_item_id":"1:CCCC","status":"rejected",
+                "updated_at":"2026-07-26T12:00:00.000Z",
+            }),
+        ];
+        for index in 0..20 {
+            hints.push(json!({
+                "hint_id":format!("hint:open:{index:02}"),
+                "topic_id":"topic-child",
+                "literature_item_id":format!("1:OPEN:{index:02}"),
+                "status":"open","updated_at":"2026-07-26T12:00:00.000Z",
+            }));
+            hints.push(json!({
+                "hint_id":format!("hint:rejected:{index:02}"),
+                "topic_id":"topic-child",
+                "literature_item_id":format!("1:REJECTED:{index:02}"),
+                "status":"rejected","updated_at":"2026-07-26T12:00:00.000Z",
+            }));
+        }
+        let discovery_json = serde_json::to_string(&json!({
+            "source_paper_refs":["1:AAAA"],
+            "cascade_topic_ids":["topic-cascade","topic-child"],
+            "candidate_count":21,
+            "discovery_status":"candidates",
+            "hints":hints,
+        }))
+        .expect("discovery json");
         repository
             .owner()
             .lock()
@@ -3633,10 +3750,7 @@ mod tests {
             .execute(
                 "UPDATE synt_topic_application_projection
                  SET discovery_json=?1 WHERE topic_id=?2",
-                &[
-                    json!(r#"{"source_paper_refs":["1:AAAA"],"cascade_topic_ids":["topic-cascade","topic-child"],"candidate_count":1,"discovery_status":"candidates","hints":[{"hint_id":"hint:one","topic_id":"topic-child","literature_item_id":"1:BBBB","status":"open"}]}"#),
-                    json!("topic-cascade"),
-                ],
+                &[json!(discovery_json), json!("topic-cascade")],
             )
             .expect("discovery cascade projection");
 
@@ -3645,14 +3759,56 @@ mod tests {
                 topic_id: "topic-cascade".into(),
             })
             .expect("topic detail");
-        let TopicDetailResult::Ready { topic, .. } = detail else {
+        let TopicDetailResult::Ready {
+            topic, discovery, ..
+        } = detail
+        else {
             panic!("expected ready topic detail");
         };
         let topic = serde_json::to_value(topic).expect("topic json");
-        assert_eq!(topic["projection"]["discovery"]["candidate_count"], 1);
+        assert_eq!(topic["projection"]["discovery"]["candidate_count"], 21);
+        assert!(topic["projection"]["discovery"].get("hints").is_none());
         assert_eq!(
             topic["projection"]["discovery"]["cascade_topic_ids"],
             json!(["topic-cascade", "topic-child"])
+        );
+        assert_eq!(discovery.candidate_count, 21);
+        assert_eq!(discovery.candidates.len(), 20);
+        assert_eq!(discovery.candidates[0].hint_id, "hint:one");
+        assert_eq!(discovery.candidates[0].reasons, ["shared method"]);
+        assert_eq!(discovery.rejected_candidates.len(), 20);
+        assert_eq!(discovery.rejected_candidates[0].hint_id, "hint:two");
+
+        repository
+            .owner()
+            .lock()
+            .expect("repository")
+            .execute(
+                "INSERT INTO synt_topic_discovery_hint(hint_id,payload_json,updated_at)
+                 VALUES(?1,?2,?3)",
+                &[
+                    json!("hint:command"),
+                    json!(r#"{"hint_id":"hint:command","topic_id":"topic-cascade","literature_item_id":"1:DDDD","status":"open","updated_at":"before","title":"Candidate","score":0.8,"matching_fields":["shared method"],"outcome":{"private":true}}"#),
+                    json!("before"),
+                ],
+            )
+            .expect("command hint");
+        let result = application
+            .update_discovery_hint(TopicDiscoveryHintRequest {
+                hint_id: "hint:command".into(),
+                status: "rejected".into(),
+            })
+            .expect("reject hint");
+        let hint = result.hint.expect("public candidate");
+        assert_eq!(hint.status, "rejected");
+        assert_eq!(hint.literature_item_id, "1:DDDD");
+        assert_eq!(hint.reasons, ["shared method"]);
+        assert!(
+            !serde_json::to_value(hint)
+                .expect("hint json")
+                .as_object()
+                .expect("hint object")
+                .contains_key("outcome")
         );
     }
 

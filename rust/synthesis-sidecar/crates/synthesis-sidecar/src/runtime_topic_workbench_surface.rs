@@ -1066,6 +1066,7 @@ fn topic_detail_wire(result: TopicDetailResult) -> Result<Value, String> {
             topic_id,
             topic,
             snapshot,
+            discovery,
         } => {
             let artifact = project_topic_artifact(&snapshot.artifact, &topic)?;
             let topic_section = artifact.get("topic").cloned().unwrap_or_else(|| json!({}));
@@ -1089,6 +1090,7 @@ fn topic_detail_wire(result: TopicDetailResult) -> Result<Value, String> {
                 "updated_at":topic.updated_at,
                 "artifact_hash":topic.artifact_hash,
                 "paper_count":source_papers.as_array().map_or(0, Vec::len),
+                "discovery":discovery,
                 "topic":topic_section,
                 "summary":artifact.get("summary").cloned().unwrap_or_else(|| json!({})),
                 "taxonomy":artifact.get("taxonomy").cloned().unwrap_or_else(|| json!({})),

@@ -2,7 +2,8 @@ use crate::{OperationRecord, Repository, ReviewPageQuery, row_integer};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use std::collections::BTreeSet;
+use std::cmp::Ordering;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -511,34 +512,101 @@ impl Repository {
                         }
                     }
                 }
-                let mut open = BTreeSet::new();
-                let mut rejected = BTreeSet::new();
-                let visible_hints = hints
-                    .iter()
-                    .filter(|hint| {
-                        hint.get("topic_id")
-                            .or_else(|| hint.get("topicId"))
+                let mut representatives = BTreeMap::<String, Value>::new();
+                for hint in hints.iter().filter(|hint| {
+                    hint.get("topic_id")
+                        .or_else(|| hint.get("topicId"))
+                        .and_then(Value::as_str)
+                        .is_some_and(|topic_id| cascade.contains(topic_id))
+                }) {
+                    let Some(literature_id) = hint
+                        .get("literature_item_id")
+                        .or_else(|| hint.get("literatureItemId"))
+                        .and_then(Value::as_str)
+                    else {
+                        continue;
+                    };
+                    let Some(status @ ("open" | "rejected")) =
+                        hint.get("status").and_then(Value::as_str)
+                    else {
+                        continue;
+                    };
+                    let replace = representatives.get(literature_id).is_none_or(|current| {
+                        let current_status = current
+                            .get("status")
                             .and_then(Value::as_str)
-                            .is_some_and(|topic_id| cascade.contains(topic_id))
-                    })
-                    .filter_map(|hint| {
-                        let literature_id = hint
-                            .get("literature_item_id")
-                            .or_else(|| hint.get("literatureItemId"))
-                            .and_then(Value::as_str)?;
-                        match hint.get("status").and_then(Value::as_str) {
-                            Some("open") => {
-                                open.insert(literature_id.to_owned());
-                                rejected.remove(literature_id);
-                            }
-                            Some("rejected") if !open.contains(literature_id) => {
-                                rejected.insert(literature_id.to_owned());
-                            }
-                            _ => {}
+                            .unwrap_or_default();
+                        if status != current_status {
+                            return status == "open";
                         }
-                        Some(hint.clone())
-                    })
-                    .take(25)
+                        let score = hint
+                            .get("score")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(f64::NEG_INFINITY);
+                        let current_score = current
+                            .get("score")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(f64::NEG_INFINITY);
+                        score > current_score
+                            || (score == current_score
+                                && hint
+                                    .get("hint_id")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or_default()
+                                    < current
+                                        .get("hint_id")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or_default())
+                    });
+                    if replace {
+                        representatives.insert(literature_id.to_owned(), hint.clone());
+                    }
+                }
+                let sort_candidates = |values: &mut Vec<Value>| {
+                    values.sort_by(|left, right| {
+                        right
+                            .get("score")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(f64::NEG_INFINITY)
+                            .partial_cmp(
+                                &left
+                                    .get("score")
+                                    .and_then(Value::as_f64)
+                                    .unwrap_or(f64::NEG_INFINITY),
+                            )
+                            .unwrap_or(Ordering::Equal)
+                            .then_with(|| {
+                                left.get("hint_id")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or_default()
+                                    .cmp(
+                                        right
+                                            .get("hint_id")
+                                            .and_then(Value::as_str)
+                                            .unwrap_or_default(),
+                                    )
+                            })
+                    });
+                };
+                let mut open = representatives
+                    .values()
+                    .filter(|hint| hint.get("status").and_then(Value::as_str) == Some("open"))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                let mut rejected = representatives
+                    .values()
+                    .filter(|hint| hint.get("status").and_then(Value::as_str) == Some("rejected"))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                sort_candidates(&mut open);
+                sort_candidates(&mut rejected);
+                let candidate_count = open.len();
+                open.truncate(20);
+                rejected.truncate(20);
+                let visible_hints = open
+                    .iter()
+                    .chain(rejected.iter())
+                    .cloned()
                     .collect::<Vec<_>>();
                 let mut discovery = serde_json::from_str::<Value>(&projection.discovery_json)
                     .ok()
@@ -548,7 +616,7 @@ impl Repository {
                     "cascade_topic_ids".into(),
                     json!(cascade.into_iter().collect::<Vec<_>>()),
                 );
-                discovery.insert("candidate_count".into(), json!(open.len()));
+                discovery.insert("candidate_count".into(), json!(candidate_count));
                 discovery.insert(
                     "discovery_status".into(),
                     json!(if !open.is_empty() {
@@ -2324,11 +2392,86 @@ mod tests {
                  VALUES(?1,?2,?3)",
                 &[
                     json!("hint:child"),
-                    json!("{\"topic_id\":\"topic:child\",\"literature_item_id\":\"1:ABC\",\"status\":\"open\"}"),
+                    json!("{\"hint_id\":\"hint:child\",\"topic_id\":\"topic:child\",\"literature_item_id\":\"1:ABC\",\"status\":\"open\",\"updated_at\":\"before\"}"),
                     json!("before"),
                 ],
             )
             .expect("hint");
+        for (hint_id, literature_item_id, status, score) in [
+            ("hint:duplicate-rejected", "1:ABC", "rejected", 1.0),
+            ("hint:open-low", "1:OPEN", "open", 0.1),
+            ("hint:open-high", "1:OPEN", "open", 0.9),
+        ] {
+            repository
+                .execute(
+                    "INSERT INTO synt_topic_discovery_hint(hint_id,payload_json,updated_at)
+                     VALUES(?1,?2,?3)",
+                    &[
+                        json!(hint_id),
+                        json!(
+                            serde_json::to_string(&json!({
+                                "hint_id":hint_id,
+                                "topic_id":"topic:child",
+                                "literature_item_id":literature_item_id,
+                                "status":status,
+                                "score":score,
+                                "updated_at":"before",
+                            }))
+                            .expect("payload")
+                        ),
+                        json!("before"),
+                    ],
+                )
+                .expect("hint");
+        }
+        for index in 0..22 {
+            let hint_id = format!("hint:rejected:{index:02}");
+            repository
+                .execute(
+                    "INSERT INTO synt_topic_discovery_hint(hint_id,payload_json,updated_at)
+                     VALUES(?1,?2,?3)",
+                    &[
+                        json!(&hint_id),
+                        json!(
+                            serde_json::to_string(&json!({
+                                "hint_id":hint_id,
+                                "topic_id":"topic:child",
+                                "literature_item_id":format!("1:REJECTED:{index:02}"),
+                                "status":"rejected",
+                                "score":index,
+                                "updated_at":"before",
+                            }))
+                            .expect("payload")
+                        ),
+                        json!("before"),
+                    ],
+                )
+                .expect("hint");
+        }
+        for index in 0..22 {
+            let hint_id = format!("hint:open:{index:02}");
+            repository
+                .execute(
+                    "INSERT INTO synt_topic_discovery_hint(hint_id,payload_json,updated_at)
+                     VALUES(?1,?2,?3)",
+                    &[
+                        json!(&hint_id),
+                        json!(
+                            serde_json::to_string(&json!({
+                                "hint_id":hint_id,
+                                "topic_id":"topic:child",
+                                "literature_item_id":format!("1:OPEN:{index:02}"),
+                                "status":"open",
+                                "score":index,
+                                "updated_at":"before",
+                            }))
+                            .expect("payload")
+                        ),
+                        json!("before"),
+                    ],
+                )
+                .expect("hint");
+        }
         assert_eq!(
             repository
                 .refresh_topic_discovery_projections("after")
@@ -2344,8 +2487,19 @@ mod tests {
             discovery["cascade_topic_ids"],
             json!(["topic:child", "topic:parent"])
         );
-        assert_eq!(discovery["candidate_count"], 1);
+        assert_eq!(discovery["candidate_count"], 24);
         assert_eq!(discovery["discovery_status"], "candidates");
+        let hints = discovery["hints"].as_array().expect("hints");
+        assert_eq!(hints.len(), 40);
+        assert_eq!(hints[0]["hint_id"], "hint:open:21");
+        assert_eq!(hints[19]["hint_id"], "hint:open:02");
+        assert_eq!(hints[20]["hint_id"], "hint:rejected:21");
+        assert_eq!(hints.last().expect("last")["hint_id"], "hint:rejected:02");
+        assert!(
+            hints
+                .iter()
+                .all(|hint| hint["hint_id"] != "hint:duplicate-rejected")
+        );
         drop(repository);
     }
 

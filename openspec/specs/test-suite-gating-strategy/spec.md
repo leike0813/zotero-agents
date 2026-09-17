@@ -1,5 +1,9 @@
 # test-suite-gating-strategy Specification
 
+## Purpose
+
+Defines which deterministic and real-host suites block pull requests, releases, and supported compatibility targets, and how each runner derives authoritative test membership.
+
 ## Requirements
 
 ### Requirement: Pull requests SHALL run both deterministic Node and real-host guards

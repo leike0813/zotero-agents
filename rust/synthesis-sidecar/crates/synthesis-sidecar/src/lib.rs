@@ -20,6 +20,7 @@ mod runtime_reverse_host;
 mod runtime_server_loop;
 mod runtime_service;
 mod runtime_tag_surface;
+mod runtime_test_checkpoint;
 mod runtime_topic_workbench_surface;
 mod runtime_transfer;
 mod runtime_webdav_maintenance_surface;

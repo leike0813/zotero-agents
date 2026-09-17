@@ -14,6 +14,15 @@ external process, copied-file, lock, port, disconnect, and restart control are
 sufficient there, and that only two semantic windows need local cooperation from
 the sidecar.
 
+The inherited runner contract enters through
+`tests/zotero/e2e/full/301-system-e2e-foundation.zotero.test.ts`:
+`runFamilyLifecycle()` owns the family transitions and its `healthGate` callback
+uses `observeHealth()` for the Suite Health Gate. The outer entry point remains
+`npm run test:zotero:e2e`, which resolves to
+`scripts/run-zotero-test-with-mock.ts`; that runner owns the Run Manifest through
+`createRunManifestEventCollector()`, `startSystemE2EEventSink()`, and
+`persistRunManifest()`.
+
 The Reverse Host endpoint holds a single `serviceInstanceId` cell
 (`src/modules/synthesis/reverseHost/synthesisReverseHostEndpoint.ts`) and the
 broker rejects a call whose instance ID does not match it
@@ -115,6 +124,13 @@ supervisor can publish `ready` and then a non-ready state and the test can
 observe the binding calls. Each checkpoint is checked where it lives, asserting
 one-shot and operation-scoped behavior. Prose, log text, and internal call order
 are not asserted.
+
+The owner regression lives in
+`tests/synthesis/228-synthesis-production-runtime-supervisor.test.ts`. Current
+test inventory classifies file 228 under the Synthesis native stage-1 suite, so
+the tight red/green command runs that file directly and the owning suite command
+is `npm run test:synthesis-native:stage1`; `npm run test:node:synthesis` does not
+select it.
 
 ## Risks / Trade-offs
 

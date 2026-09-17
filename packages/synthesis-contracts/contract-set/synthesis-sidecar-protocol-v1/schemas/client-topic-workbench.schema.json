@@ -14,6 +14,34 @@
       "maxItems": 25000,
       "items": { "$ref": "#/$defs/String" }
     },
+    "TopicDiscoveryCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hint_id",
+        "topic_id",
+        "literature_item_id",
+        "status",
+        "updated_at"
+      ],
+      "properties": {
+        "hint_id": { "$ref": "#/$defs/String" },
+        "topic_id": { "$ref": "#/$defs/String" },
+        "literature_item_id": { "$ref": "#/$defs/String" },
+        "status": { "enum": ["open", "rejected"] },
+        "updated_at": { "$ref": "#/$defs/String" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 16384 },
+        "score": { "type": "number" },
+        "method": { "$ref": "#/$defs/String" },
+        "reasons": {
+          "type": "array",
+          "maxItems": 3,
+          "items": { "$ref": "#/$defs/String" }
+        },
+        "fallback_metadata": { "type": "boolean" },
+        "basis_hash": { "$ref": "#/$defs/String" }
+      }
+    },
     "HashMap": {
       "type": "object",
       "maxProperties": 128,
@@ -552,17 +580,7 @@
         "hint": {
           "oneOf": [
             { "type": "null" },
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["hint_id", "status", "topic_id", "title"],
-              "properties": {
-                "hint_id": { "$ref": "#/$defs/String" },
-                "status": { "enum": ["open", "rejected"] },
-                "topic_id": { "$ref": "#/$defs/String" },
-                "title": { "type": "string", "maxLength": 16384 }
-              }
-            }
+            { "$ref": "#/$defs/TopicDiscoveryCandidate" }
           ]
         },
         "diagnostics": {
@@ -2272,6 +2290,24 @@
           "type": "array",
           "maxItems": 25000,
           "items": { "$ref": "topic-domain.schema.json#/$defs/ResolvedPaper" }
+        },
+        "discovery": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["candidate_count", "candidates", "rejected_candidates"],
+          "properties": {
+            "candidate_count": { "type": "integer", "minimum": 0 },
+            "candidates": {
+              "type": "array",
+              "maxItems": 20,
+              "items": { "$ref": "#/$defs/TopicDiscoveryCandidate" }
+            },
+            "rejected_candidates": {
+              "type": "array",
+              "maxItems": 20,
+              "items": { "$ref": "#/$defs/TopicDiscoveryCandidate" }
+            }
+          }
         },
         "topic": {
           "$ref": "topic-domain.schema.json#/$defs/TopicArtifact/properties/topic"
