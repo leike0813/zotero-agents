@@ -1,9 +1,20 @@
 import { spawn } from "child_process";
-import { rm } from "fs/promises";
+import { randomUUID } from "crypto";
+import { mkdir, readFile, rm } from "fs/promises";
 import os from "os";
 import path from "path";
 import { pathToFileURL } from "url";
 import { isTruthyDiagnosticFlag } from "../src/modules/diagnosticVerbosity";
+import pkg from "../package.json";
+import {
+  readFixtureRegistry,
+  validateCommittedSeed,
+} from "./system-e2e/fixture";
+import {
+  createRunManifestEventCollector,
+  persistRunManifest,
+  startSystemE2EEventSink,
+} from "./system-e2e/manifest";
 
 type Child = ReturnType<typeof spawn>;
 type SpawnOptions = Parameters<typeof spawn>[2];
@@ -362,11 +373,82 @@ async function main() {
     `[mock-skillrunner] ${mockHost}:${mockPort === "0" ? "(random)" : mockPort}`,
   );
 
+  let systemE2ERun:
+    | {
+        env: NodeJS.ProcessEnv;
+        finish: (exitCode: number) => Promise<void>;
+        close: () => Promise<void>;
+      }
+    | undefined;
+  if (testEnv.ZOTERO_TEST_DOMAIN === "e2e") {
+    const fixtureRoot = path.resolve("tests/fixtures/zotero-e2e");
+    const registry = await readFixtureRegistry(
+      path.join(fixtureRoot, "registry.json"),
+    );
+    const seed = JSON.parse(
+      await readFile(
+        path.join(fixtureRoot, "committed-seed-v1", "seed.json"),
+        "utf8",
+      ),
+    );
+    const fixture = validateCommittedSeed(seed, registry).identity;
+    const runId = randomUUID();
+    const manifestPath = path.resolve(
+      "artifacts/test-diagnostics/system-e2e",
+      runId,
+      "run-manifest.json",
+    );
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    const sourceCommit =
+      String(testEnv.GITHUB_SHA || testEnv.CI_COMMIT_SHA || "").trim() ||
+      "working-tree";
+    const collector = createRunManifestEventCollector({
+      runId,
+      triggerLane: String(testEnv.ZOTERO_E2E_TRIGGER_LANE || "local"),
+      sourceCommit,
+      pluginVersion: pkg.version,
+      zoteroVersion: "pending-runtime",
+      platform: process.platform,
+      architecture: process.arch,
+      sidecarBuildIdentity: String(
+        testEnv.ZOTERO_SYNTHESIS_SIDECAR_BUILD_IDENTITY ||
+          `current-source:${sourceCommit}`,
+      ),
+      fixture,
+      startedAt: new Date().toISOString(),
+      ...(testEnv.ZOTERO_E2E_PREDECESSOR_RUN_ID
+        ? { predecessorRunId: testEnv.ZOTERO_E2E_PREDECESSOR_RUN_ID }
+        : {}),
+    });
+    let persistence = persistRunManifest(manifestPath, collector.snapshot());
+    const sink = await startSystemE2EEventSink(async (event) => {
+      collector.accept(event);
+      persistence = persistence.then(() =>
+        persistRunManifest(manifestPath, collector.snapshot()),
+      );
+      await persistence;
+    });
+    systemE2ERun = {
+      env: {
+        ...testEnv,
+        ZOTERO_SYSTEM_E2E_EVENT_URL: sink.url,
+        ZOTERO_SYSTEM_E2E_MANIFEST_PATH: manifestPath,
+      },
+      finish: async (exitCode) => {
+        await persistence;
+        await persistRunManifest(manifestPath, collector.finalize(exitCode));
+        console.log(`[system-e2e-manifest] ${manifestPath}`);
+      },
+      close: sink.close,
+    };
+  }
+
+  const effectiveTestEnv = systemE2ERun?.env || testEnv;
   const mock = spawnNpm(
     ["run", "mock:skillrunner", "--", "--host", mockHost, "--port", mockPort],
     {
       stdio: ["ignore", "pipe", "pipe"],
-      env: testEnv,
+      env: effectiveTestEnv,
       detached: process.platform !== "win32",
     },
   );
@@ -378,6 +460,7 @@ async function main() {
     }
     cleaned = true;
     await terminateMock(mock);
+    await systemE2ERun?.close();
     await cleanupTestDataDir(testEnv);
   };
 
@@ -404,15 +487,21 @@ async function main() {
   try {
     const mockBaseUrl = await waitForMockReady(mock);
     const targetEnv = buildMockSkillRunnerEndpointEnvironment(
-      testEnv,
+      effectiveTestEnv,
       mockBaseUrl,
     );
     console.log(`[test-skillrunner-endpoint] ${mockBaseUrl}`);
     const code = await runTargetTests(invocation, targetEnv);
+    await systemE2ERun?.finish(code);
     await cleanup();
     process.exit(code);
   } catch (error) {
     console.error(error);
+    try {
+      await systemE2ERun?.finish(1);
+    } catch (manifestError) {
+      console.error(manifestError);
+    }
     await cleanup();
     process.exit(1);
   }

@@ -17,6 +17,10 @@ import {
   SYNTHESIS_SIDECAR_DIAGNOSTICS_ENABLED,
   WORKSPACE_PUBLICATION_WIRE_ASSERT_ENABLED,
 } from "./src/modules/debugMode";
+import {
+  materializeCommittedSeed,
+  readFixtureRegistry,
+} from "./scripts/system-e2e/fixture";
 
 type TestDomain = "all" | "core" | "ui" | "workflow" | "e2e";
 type TestMode = "lite" | "full";
@@ -122,17 +126,41 @@ async function resolveGitBranch(): Promise<string> {
 const branch = await resolveGitBranch();
 const DEBUG_MODE = branch === "dev" || branch.startsWith("dev-");
 
-async function stageZoteroE2EGoldFixture() {
-  if (TEST_DOMAIN !== "e2e") return;
-  const dataSource = String(process.env.ZOTERO_E2E_GOLD_DATA_DIR || "").trim();
-  const profileSource = String(
-    process.env.ZOTERO_E2E_GOLD_PROFILE_DIR || "",
-  ).trim();
-  if (!dataSource && !profileSource) return;
+export async function stageZoteroE2EFixture(
+  options: {
+    domain?: TestDomain;
+    env?: NodeJS.ProcessEnv;
+    testRoot?: string;
+  } = {},
+) {
+  const domain = options.domain || TEST_DOMAIN;
+  const env = options.env || process.env;
+  const testRoot = path.resolve(options.testRoot || ".scaffold/test");
+  if (domain !== "e2e") return;
+  const dataSource = String(env.ZOTERO_E2E_GOLD_DATA_DIR || "").trim();
+  const profileSource = String(env.ZOTERO_E2E_GOLD_PROFILE_DIR || "").trim();
+  const goldSelected =
+    String(env.ZOTERO_E2E_FIXTURE || "")
+      .trim()
+      .toLowerCase() === "gold" || Boolean(dataSource || profileSource);
+  if (!goldSelected) {
+    const fixtureRoot = path.resolve("tests/fixtures/zotero-e2e");
+    const fixture = await materializeCommittedSeed({
+      sourceDir: path.join(fixtureRoot, "committed-seed-v1"),
+      targetDir: path.join(testRoot, "data", "system-e2e"),
+      registry: await readFixtureRegistry(
+        path.join(fixtureRoot, "registry.json"),
+      ),
+    });
+    env.ZOTERO_E2E_FIXTURE_ID = fixture.identity.fixtureId;
+    env.ZOTERO_E2E_FIXTURE_SCHEMA_VERSION = fixture.identity.schemaVersion;
+    env.ZOTERO_E2E_FIXTURE_REVISION = String(fixture.identity.fixtureRevision);
+    return { kind: "committed-seed" as const, fixture: fixture.identity };
+  }
   if (!dataSource) {
     throw new Error("ZOTERO_E2E_GOLD_DATA_DIR is required for a gold run");
   }
-  const dataTarget = path.resolve(".scaffold/test/data");
+  const dataTarget = path.join(testRoot, "data");
   await fs.cp(dataSource, dataTarget, {
     recursive: true,
     force: true,
@@ -145,12 +173,13 @@ async function stageZoteroE2EGoldFixture() {
     ].map((target) => fs.rm(target, { recursive: true, force: true })),
   );
   if (profileSource) {
-    await fs.cp(profileSource, path.resolve(".scaffold/test/profile"), {
+    await fs.cp(profileSource, path.join(testRoot, "profile"), {
       recursive: true,
       force: true,
     });
   }
-  process.env.ZOTERO_E2E_GOLD_ID ||= "lisongtao-v1";
+  env.ZOTERO_E2E_GOLD_ID ||= "lisongtao-v1";
+  return { kind: "private-gold" as const, fixtureId: env.ZOTERO_E2E_GOLD_ID };
 }
 
 export default defineConfig({
@@ -339,7 +368,7 @@ export default defineConfig({
     startupDelay: TEST_DOMAIN === "e2e" ? 30_000 : 100,
     waitForPlugin: `() => Zotero.${pkg.config.addonInstance}.data.initialized`,
     hooks: {
-      "test:init": stageZoteroE2EGoldFixture,
+      "test:init": stageZoteroE2EFixture,
       "test:prebuild": async () => {
         if (TEST_DOMAIN === "e2e") {
           stageDirectSynthesisBundle(path.resolve(".scaffold/build/addon"));

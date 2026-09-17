@@ -10,12 +10,14 @@
 - `npm run test:node -- --shard <id>`：重跑单个失败分片。
 - `npm run test:lite`：真实 Zotero 的关键宿主守护层。
 - `npm run test:full`：`lite` 加低频、长耗时的真实宿主回归。
+- `npm run test:zotero:e2e`：真实 Zotero、生产插件与当前源码 sidecar 的项目级 System E2E runner。
+- `npm run test:zotero:e2e:stress`：保留的 Citation Graph close/reopen 压测入口。
 - `npm run test:gate:pr`：治理检查、Synthesis native stage1、Node 常规层、Zotero lite，全部阻塞。
 - `npm run test:gate:release`：与 PR gate 相同，但 Zotero 使用 full。
 
 Node 域命令为 `acp`、`assistant`、`dashboard`、`host-bridge`、`runtime`、`skillrunner`、`synthesis`、`tooling`、`ui`、`workflow` 和 `zotero-host`。
 
-Zotero 仍可按 `core`、`ui`、`workflow` 运行。`test:zotero:full` 顺序启动三个独立宿主进程，避免一个长进程累积资源退化。
+Zotero 可按 `core`、`ui`、`workflow`、`e2e` 运行。`test:zotero:full` 顺序启动前三个独立宿主进程，避免一个长进程累积资源退化；`e2e` 由独立命令显式运行。
 
 ## 文件布局
 
@@ -32,9 +34,12 @@ tests/workflow-*
 ```text
 tests/zotero/{core,ui,workflow}/lite
 tests/zotero/{core,ui,workflow}/full
+tests/zotero/e2e/full
 ```
 
 scaffold 递归发现这些目录中的测试。没有聚合 suite、文件白名单或标题白名单；目录就是唯一成员事实源。`full` 配置同时加载 `lite` 与 `full` 目录。
+
+System E2E 是行为证据分类，不由目录名决定。真实 Zotero + 生产插件（Synthesis 场景还包括当前源码真实 sidecar）的 public path 才是 System E2E；替换了承载风险的 seam 时属于 Contract Integration。`e2e` 域持有项目级 catalog suite，但其它域的 public-path 测试可继续提供 System E2E 证据。
 
 `tests/zotero/setup.test.ts` 是唯一宿主 setup，统一安装 grep、失败诊断、后台清理、对象清理、泄漏摘要和性能摘要。
 

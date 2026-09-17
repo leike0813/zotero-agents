@@ -23,7 +23,27 @@ import {
 import {
   resolveTestEntries,
   shouldUseHeadlessZoteroTest,
+  stageZoteroE2EFixture,
 } from "../../zotero-plugin.config";
+import {
+  canRetireFixtureRevision,
+  materializeCommittedSeed,
+  validateCommittedSeed,
+  validateFixturePrivacy,
+  validateFixtureRegistry,
+} from "../../scripts/system-e2e/fixture";
+import {
+  classifyArtifactReference,
+  createRunManifestEventCollector,
+  createRunManifest,
+  persistRunManifest,
+  startSystemE2EEventSink,
+} from "../../scripts/system-e2e/manifest";
+import {
+  runFamilyLifecycle,
+  validateFamilyDeclarations,
+} from "../../scripts/system-e2e/familyLifecycle";
+import { shouldRunPerTestSharedTeardown } from "../zotero/diagnosticBridge";
 
 const SAMPLE_HTML = `<!DOCTYPE html>
 <html>
@@ -100,6 +120,434 @@ function Reporter(runner) {
 </html>`;
 
 describe("zotero test infrastructure helpers", function () {
+  describe("System E2E committed seed", function () {
+    const registry = {
+      schemaVersion: "system-e2e-fixture-registry.v1",
+      fixtures: [
+        {
+          fixtureId: "foundation-v1",
+          schemaVersion: "system-e2e-seed.v1",
+          fixtureRevision: 1,
+          references: ["local-e2e"],
+        },
+      ],
+    };
+    const seed = {
+      schemaVersion: "system-e2e-seed.v1",
+      fixtureId: "foundation-v1",
+      fixtureRevision: 1,
+      facts: { items: 1, attachments: 1 },
+      items: [
+        {
+          key: "SEED0001",
+          itemType: "book",
+          title: "Synthetic E2E Foundation Item",
+          attachments: [
+            {
+              key: "SEEDATT1",
+              path: "attachments/foundation.txt",
+              contentType: "text/plain",
+            },
+          ],
+        },
+      ],
+    };
+
+    it("keeps fixture shape, lineage, and observable revision independent", function () {
+      assert.deepEqual(validateFixtureRegistry(registry), registry);
+      assert.deepEqual(validateCommittedSeed(seed, registry).identity, {
+        schemaVersion: "system-e2e-seed.v1",
+        fixtureId: "foundation-v1",
+        fixtureRevision: 1,
+      });
+      assert.throws(
+        () =>
+          validateCommittedSeed(
+            { ...seed, schemaVersion: "system-e2e-seed.v2" },
+            registry,
+          ),
+        /fixture_registry_mismatch/,
+      );
+      assert.throws(
+        () => validateCommittedSeed({ ...seed, fixtureRevision: 2 }, registry),
+        /fixture_registry_mismatch/,
+      );
+    });
+
+    it("does not retire a fixture revision while an active lane references it", function () {
+      assert.isFalse(canRetireFixtureRevision(registry, "foundation-v1", 1));
+      assert.isTrue(
+        canRetireFixtureRevision(
+          {
+            ...registry,
+            fixtures: [{ ...registry.fixtures[0], references: [] }],
+          },
+          "foundation-v1",
+          1,
+        ),
+      );
+    });
+
+    it("materializes the same declared facts on repeated runs", async function () {
+      const root = await mkdtemp(path.join(os.tmpdir(), "system-e2e-seed-"));
+      const source = path.join(root, "source");
+      const targetA = path.join(root, "a");
+      const targetB = path.join(root, "b");
+      await mkdir(path.join(source, "attachments"), { recursive: true });
+      await writeFile(
+        path.join(source, "seed.json"),
+        JSON.stringify(seed),
+        "utf8",
+      );
+      await writeFile(
+        path.join(source, "attachments", "foundation.txt"),
+        "Synthetic attachment for System E2E.\n",
+        "utf8",
+      );
+
+      const first = await materializeCommittedSeed({
+        sourceDir: source,
+        targetDir: targetA,
+        registry,
+      });
+      const second = await materializeCommittedSeed({
+        sourceDir: source,
+        targetDir: targetB,
+        registry,
+      });
+
+      assert.deepEqual(first.facts, { items: 1, attachments: 1 });
+      assert.deepEqual(second, first);
+    });
+
+    it("materializes the committed seed by default and fails a selected gold lane without a source", async function () {
+      const root = await mkdtemp(path.join(os.tmpdir(), "system-e2e-hook-"));
+      const staged = await stageZoteroE2EFixture({
+        domain: "e2e",
+        env: {},
+        testRoot: root,
+      });
+      assert.equal(staged?.kind, "committed-seed");
+      assert.equal(staged?.fixture.fixtureId, "foundation-v1");
+      assert.isString(
+        await readFile(
+          path.join(root, "data", "system-e2e", "seed.json"),
+          "utf8",
+        ),
+      );
+
+      let selectedGoldError: unknown;
+      try {
+        await stageZoteroE2EFixture({
+          domain: "e2e",
+          env: { ZOTERO_E2E_FIXTURE: "gold" },
+          testRoot: root,
+        });
+      } catch (error) {
+        selectedGoldError = error;
+      }
+      assert.match(String(selectedGoldError), /ZOTERO_E2E_GOLD_DATA_DIR/);
+      assert.isUndefined(
+        await stageZoteroE2EFixture({
+          domain: "core",
+          env: { ZOTERO_E2E_FIXTURE: "gold" },
+          testRoot: root,
+        }),
+      );
+    });
+
+    it("rejects private database files and absolute paths", async function () {
+      const root = await mkdtemp(path.join(os.tmpdir(), "system-e2e-private-"));
+      await writeFile(path.join(root, "zotero.sqlite"), "private", "utf8");
+      let fileError: unknown;
+      try {
+        await validateFixturePrivacy(root);
+      } catch (error) {
+        fileError = error;
+      }
+      assert.match(String(fileError), /fixture_privacy_forbidden_file/);
+      assert.throws(
+        () =>
+          validateCommittedSeed(
+            {
+              ...seed,
+              items: [{ ...seed.items[0], title: "/home/person/private.pdf" }],
+            },
+            registry,
+          ),
+        /fixture_privacy_absolute_path/,
+      );
+    });
+  });
+
+  describe("System E2E run manifest", function () {
+    const identity = {
+      runId: "run:fixture-1",
+      triggerLane: "local",
+      sourceCommit: "0123456789abcdef",
+      pluginVersion: "1.0.0",
+      zoteroVersion: "10",
+      platform: "linux",
+      architecture: "x64",
+      sidecarBuildIdentity: "current-source:0123456789abcdef",
+      fixture: {
+        schemaVersion: "system-e2e-seed.v1",
+        fixtureId: "foundation-v1",
+        fixtureRevision: 1,
+      },
+      startedAt: "2026-09-17T00:00:00.000Z",
+    };
+    const evidence = {
+      publicOutcome: "foundation_ready",
+      typedEvidence: [
+        {
+          kind: "foundation",
+          schemaVersion: "system-e2e-foundation.v1",
+          terminalStatus: "ready",
+        },
+      ],
+      lifecycle: [{ checkpoint: "baseline", outcome: "ready" }],
+      cleanup: "passed" as const,
+      health: "passed" as const,
+      artifacts: [],
+    };
+
+    it("terminalizes only complete evidence as complete", function () {
+      const manifest = createRunManifest(identity);
+      manifest.recordFamily({ familyId: "SL", result: "passed", ...evidence });
+      assert.equal(manifest.complete().terminalState, "complete");
+
+      const missingEvidence = createRunManifest(identity);
+      missingEvidence.recordFamily({
+        familyId: "SL",
+        result: "passed",
+        ...evidence,
+        typedEvidence: [],
+      });
+      assert.equal(missingEvidence.complete().families[0].result, "failed");
+      assert.equal(
+        missingEvidence.complete().families[0].failureCode,
+        "required_evidence_missing",
+      );
+    });
+
+    it("preserves completed evidence and lineage when aborted or incomplete", function () {
+      const manifest = createRunManifest({
+        ...identity,
+        predecessorRunId: "run:fixture-0",
+      });
+      manifest.recordFamily({ familyId: "SL", result: "passed", ...evidence });
+      const aborted = manifest.abort({
+        failurePhase: "health-gate",
+        abortCode: "suite_health_indeterminate",
+      });
+      assert.equal(aborted.terminalState, "aborted");
+      assert.equal(aborted.predecessorRunId, "run:fixture-0");
+      assert.equal(aborted.families[0].cleanup, "passed");
+      assert.equal(aborted.failurePhase, "health-gate");
+
+      assert.equal(
+        createRunManifest(identity).incomplete().terminalState,
+        "incomplete",
+      );
+    });
+
+    it("withholds sensitive artifacts without retaining their source path", function () {
+      assert.deepEqual(
+        classifyArtifactReference({
+          kind: "profile-database",
+          producer: "zotero",
+          mediaType: "application/x-sqlite3",
+          sourcePath: "/home/person/Zotero/zotero.sqlite",
+          classification: "private-format",
+        }),
+        { status: "withheld", reasonCode: "private_format" },
+      );
+      assert.deepEqual(
+        classifyArtifactReference({
+          kind: "leak-digest",
+          producer: "zotero-test",
+          mediaType: "application/json",
+          sourcePath: "artifacts/test-diagnostics/leak.json",
+          classification: "sanitized",
+        }),
+        {
+          status: "referenced",
+          kind: "leak-digest",
+          producer: "zotero-test",
+          mediaType: "application/json",
+          relativePath: "artifacts/test-diagnostics/leak.json",
+        },
+      );
+    });
+
+    it("treats manifest persistence failure as invocation infrastructure failure", async function () {
+      const manifest = createRunManifest(identity).incomplete();
+      let writes = 0;
+      await persistRunManifest("manifest.json", manifest, async () => {
+        writes += 1;
+      });
+      assert.equal(writes, 1);
+      let persistenceError: unknown;
+      try {
+        await persistRunManifest("manifest.json", manifest, async () => {
+          throw new Error("disk full");
+        });
+      } catch (error) {
+        persistenceError = error;
+      }
+      assert.match(String(persistenceError), /run_manifest_persist_failed/);
+    });
+
+    it("indexes structured reporter events without copying log text", function () {
+      const collector = createRunManifestEventCollector(identity);
+      collector.accept({
+        type: "debug",
+        data: {
+          kind: "system-e2e-run-identity",
+          zoteroVersion: "9.0.4",
+        },
+      });
+      collector.accept({
+        type: "debug",
+        data: {
+          kind: "system-e2e-family-result",
+          family: { familyId: "SL", result: "passed", ...evidence },
+          logText: "must not enter manifest",
+        },
+      });
+      collector.accept({ type: "end", data: { failed: 0, aborted: 0 } });
+
+      const manifest = collector.finalize(0);
+      assert.equal(manifest.terminalState, "complete");
+      assert.equal(manifest.zoteroVersion, "9.0.4");
+      assert.equal(manifest.families[0].familyId, "SL");
+      assert.notInclude(JSON.stringify(manifest), "must not enter manifest");
+    });
+
+    it("accepts reporter events through a loopback-only sink", async function () {
+      const accepted: unknown[] = [];
+      const sink = await startSystemE2EEventSink((event) => {
+        accepted.push(event);
+      });
+      try {
+        const response = await fetch(sink.url, {
+          method: "POST",
+          body: JSON.stringify({ type: "start", data: {} }),
+        });
+        assert.equal(response.status, 200);
+        assert.deepEqual(accepted, [{ type: "start", data: {} }]);
+        assert.match(sink.url, /^http:\/\/127\.0\.0\.1:\d+\/events$/);
+      } finally {
+        await sink.close();
+      }
+    });
+  });
+
+  describe("System E2E family lifecycle", function () {
+    const family = {
+      familyId: "SL",
+      owner: "SL",
+      namespace: ["system-e2e:sl:"],
+      ownedState: ["sidecar-process", "sidecar-discovery"],
+      carryOver: ["sidecar-discovery"],
+    };
+
+    it("accepts carry-over only within its declaring family", function () {
+      assert.deepEqual(validateFamilyDeclarations([family]), [family]);
+      assert.throws(
+        () =>
+          validateFamilyDeclarations([
+            family,
+            {
+              ...family,
+              familyId: "PM",
+              owner: "PM",
+              namespace: ["system-e2e:pm:"],
+              ownedState: ["maintenance-operation"],
+              carryOver: ["sidecar-discovery"],
+            },
+          ]),
+        /family_carry_over_not_owned/,
+      );
+    });
+
+    it("runs cleanup and the health gate after an ordinary assertion failure", async function () {
+      const events: string[] = [];
+      const result = await runFamilyLifecycle({
+        declaration: family,
+        execute: async () => {
+          events.push("execute");
+          throw new Error("assertion failed");
+        },
+        cleanup: async () => {
+          events.push("cleanup");
+          return "passed";
+        },
+        healthGate: async () => {
+          events.push("health");
+          return {
+            status: "passed",
+            hostResponsive: true,
+            pluginResponsive: true,
+            sidecarReady: true,
+            undeclaredOperations: 0,
+            managedProcesses: 0,
+            residualOwnedState: [],
+          };
+        },
+      });
+      assert.deepEqual(events, ["execute", "cleanup", "health"]);
+      assert.equal(result.result, "failed");
+      assert.isFalse(result.abort);
+      assert.deepEqual(result.transitions, [
+        "family-start",
+        "family-cases",
+        "family-cleanup",
+        "health-gate",
+        "family-end",
+      ]);
+    });
+
+    it("fails closed when cleanup or health is indeterminate", async function () {
+      const result = await runFamilyLifecycle({
+        declaration: family,
+        execute: async () => undefined,
+        cleanup: async () => "indeterminate",
+        healthGate: async () => ({
+          status: "indeterminate",
+          hostResponsive: true,
+          pluginResponsive: true,
+          sidecarReady: true,
+          undeclaredOperations: 0,
+          managedProcesses: 0,
+          residualOwnedState: [],
+        }),
+      });
+      assert.isTrue(result.abort);
+      assert.equal(result.abortCode, "family_cleanup_indeterminate");
+    });
+
+    it("fails the Suite Health Gate on an undeclared leak", async function () {
+      const result = await runFamilyLifecycle({
+        declaration: family,
+        execute: async () => undefined,
+        cleanup: async () => "passed",
+        healthGate: async () => ({
+          status: "passed",
+          hostResponsive: true,
+          pluginResponsive: true,
+          sidecarReady: true,
+          undeclaredOperations: 1,
+          managedProcesses: 0,
+          residualOwnedState: [],
+        }),
+      });
+      assert.isTrue(result.abort);
+      assert.equal(result.abortCode, "suite_health_failed");
+    });
+  });
+
   it("allows a Zotero runtime stress test to load one test entry", function () {
     assert.deepEqual(
       resolveTestEntries(
@@ -118,6 +566,20 @@ describe("zotero test infrastructure helpers", function () {
       "tests/zotero/e2e/full",
     ]);
     assert.notInclude(resolveTestEntries("all", "full") as string[], "e2e");
+  });
+
+  it("keeps the shared System E2E runtime alive until suite teardown", function () {
+    assert.isFalse(shouldRunPerTestSharedTeardown("", "e2e"));
+    assert.isFalse(
+      shouldRunPerTestSharedTeardown(
+        "tests/zotero/e2e/full/301-system-e2e-foundation.zotero.test.ts",
+      ),
+    );
+    assert.isTrue(
+      shouldRunPerTestSharedTeardown(
+        "tests/zotero/core/example.zotero.test.ts",
+      ),
+    );
   });
 
   describe("Zotero display environment", function () {
@@ -429,6 +891,20 @@ describe("zotero test infrastructure helpers", function () {
       assert.include(patched, "__zsAppendMochaOutput(str);");
       assert.notInclude(patched, "&&");
       assert.include(patched, "&amp;&amp;");
+    });
+
+    it("mirrors reporter events to the runner-owned manifest sink", function () {
+      const patched = patchZoteroTestRunnerHtml(SAMPLE_HTML, {
+        systemE2EEventUrl: "http://127.0.0.1:43210/events",
+      });
+      assert.include(patched, "http://127.0.0.1:43210/events");
+      assert.include(
+        patched,
+        "extensions.zotero-agents.test.systemE2EEventUrl",
+      );
+      assert.include(patched, "Services.prefs.setStringPref");
+      assert.include(patched, "__zsMirrorSystemE2EEvent(data)");
+      assert.notInclude(patched, "runtimeLogTail:");
     });
 
     it("removes heavyweight console object logging and innerText rewrites", function () {

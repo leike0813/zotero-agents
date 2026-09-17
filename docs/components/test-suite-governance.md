@@ -12,9 +12,11 @@ PR 和 release 都必须通过确定性 Node 层与真实 Zotero 层：
 ## 成员事实源
 
 - Node：`scripts/run-node-test-shards.ts`。
-- Zotero：`tests/zotero/{core,ui,workflow}/{lite,full}` 的实际文件。
+- Zotero：`tests/zotero/{core,ui,workflow}/{lite,full}` 与项目级 `tests/zotero/e2e/full` 的实际文件。
 
 禁止恢复聚合 import suite、文件 allowlist、标题前缀 allowlist或按测试标题裁剪 case。成员变化通过移动文件表达。
+
+System E2E 的 risk/catalog/ownership/quarantine/promotion 语义由 OpenSpec `system-e2e-strategy` 持有；它不复制目录成员关系。五个实现 change 严格串行，runner foundation 不自动新增阻塞 CI lane。
 
 ## 价值审查
 

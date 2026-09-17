@@ -16,8 +16,11 @@
 | Workflow engine | `tests/workflows` | workflow-engine |
 | Workflow packages | `tests/workflow-*` | workflow-packages |
 | Zotero adapter contracts | `tests/zotero-host` | zotero-host |
+| System E2E catalog | `tests/zotero/e2e/full` | e2e |
 
 真实宿主测试不属于上述 Node inventory，直接由 `tests/zotero/<domain>/<mode>` 的目录成员关系持有。
+
+Scenario Family label 与 Scenario Case ID 是 catalog identity，不替代 primary domain 或 runtime affinity。System E2E / Contract Integration 是证据分类，也不由文件所在目录自动决定。
 
 ## 放置判断
 

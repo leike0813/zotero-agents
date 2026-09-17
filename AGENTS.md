@@ -150,6 +150,13 @@
 - 三个目录在 `.gitignore` 中精确排除，默认 `rg`、CodeGraph、Prettier、ESLint 和 TypeScript 检查不得扫描这些参考源码；有意调查时使用 `git -C references/Zotero-10 …`、`rg --no-ignore …` 等显式命令。
 - 更新基线时，先选择稳定 tag 并核对 tag 指向的 commit，再更新 gitlink；同时审阅 `tests/zotero/compatibility-matrix.json`、兼容性文档与公开支持声明。不得跟踪维护分支头。
 
+# 本机实机测试二进制
+
+- Linux x86_64 的 Zotero 正式版安装树存放在仓库外 `~/Workspace/Artifact/Zotero-Skills/zotero-hosts/`：`archives/` 保留官方归档字节，`linux-x86_64/<version>/Zotero_linux-x86_64/` 是可直接启动的安装树。属于本机测试数据，不进入仓库，也不参与构建或发布。
+- 当前为 7.0.32、9.0.6、10.0.2。7.0.32 与 9.0.6 的摘要与 `tests/zotero/compatibility-matrix.json` 一致；10.0.2 是 Zotero 10 线路当前最新正式版，而矩阵的 `zotero-10-*` 目标仍固定 10.0.1，两者的小版本差异是有意保留的，不得据此改矩阵。
+- 手工启动会在安装树里写入自动更新残留（`active-update.xml`、`updates/`），可能让安装树静默偏离目录名标注的版本；实机验证优先走 `npm run start:direct`，它经 `patchPrefsJs` 关闭自动更新。
+- 来源、摘要、启动、污染恢复与刷新流程见 `docs/dev/zotero-host-binaries.md`。
+
 # Host Bridge Agent-facing Surface硬约束
 
 - 修改 Host Bridge 三个 agent-facing surface 的语义源时，除非当前已批准方案逐项明确列入删除清单，否则不得压缩、删除、归并、重排或以更薄的概述改写任何现有指令。

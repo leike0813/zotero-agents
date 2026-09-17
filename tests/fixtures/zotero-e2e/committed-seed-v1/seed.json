@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "system-e2e-seed.v1",
+  "fixtureId": "foundation-v1",
+  "fixtureRevision": 1,
+  "facts": {
+    "items": 1,
+    "attachments": 1
+  },
+  "items": [
+    {
+      "key": "SEED0001",
+      "itemType": "book",
+      "title": "Synthetic E2E Foundation Item",
+      "attachments": [
+        {
+          "key": "SEEDATT1",
+          "path": "attachments/foundation.txt",
+          "contentType": "text/plain"
+        }
+      ]
+    }
+  ]
+}

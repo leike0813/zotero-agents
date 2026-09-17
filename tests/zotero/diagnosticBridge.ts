@@ -11,8 +11,19 @@ import {
   flushZoteroPerformanceProbeDigest,
   noteZoteroPerformanceProbeTestStart,
 } from "./performanceProbeDigest";
+import { readDiagnosticsEnv } from "./testDiagnosticsOutput";
 
 type FailureContextProvider = () => unknown | Promise<unknown>;
+type TestZotero = {
+  Prefs?: { get?: (key: string, global?: boolean) => unknown };
+  HTTP?: {
+    request?: (
+      method: string,
+      url: string,
+      options: { body: string },
+    ) => Promise<unknown>;
+  };
+};
 
 const INSTALL_FLAG = "__zs_zotero_failure_diagnostic_installed__";
 const PROVIDERS_KEY = "__zs_zotero_failure_context_providers__";
@@ -31,17 +42,45 @@ function getRuntime() {
   return globalThis as DiagnosticRuntime;
 }
 
+function getTestZotero(): TestZotero | undefined {
+  return typeof Zotero !== "undefined"
+    ? (Zotero as unknown as TestZotero)
+    : (getRuntime() as any).Zotero;
+}
+
 function isZoteroRuntime() {
   const runtime = getRuntime();
-  return !!runtime.IOUtils && !!runtime.PathUtils;
+  return (
+    (typeof IOUtils !== "undefined" && typeof PathUtils !== "undefined") ||
+    (!!runtime.IOUtils && !!runtime.PathUtils)
+  );
+}
+
+export function isSystemE2ERun() {
+  return Boolean(readSystemE2EEventUrl());
+}
+
+function readSystemE2EEventUrl() {
+  const key = "extensions.zotero-agents.test.systemE2EEventUrl";
+  const value = getTestZotero()?.Prefs?.get?.(key, true);
+  return /^http:\/\/(?:127\.0\.0\.1|localhost):\d+\/events$/.test(value || "")
+    ? value!
+    : "";
 }
 
 function inferDomainFromFilePath(filePath: string) {
   return (
     filePath
       .replace(/\\/g, "/")
-      .match(/tests\/zotero\/(core|ui|workflow)\//)?.[1] || "all"
+      .match(/tests\/zotero\/(core|ui|workflow|e2e)\//)?.[1] || "all"
   );
+}
+
+export function shouldRunPerTestSharedTeardown(
+  filePath: string,
+  configuredDomain = "",
+) {
+  return (configuredDomain || inferDomainFromFilePath(filePath)) !== "e2e";
 }
 
 function getProviders() {
@@ -55,6 +94,21 @@ function getProviders() {
 export async function emitZoteroTestDebug(payload: unknown) {
   const runtime = getRuntime();
   if (!isZoteroRuntime()) {
+    return;
+  }
+  const eventUrl = readSystemE2EEventUrl();
+  const http = getTestZotero()?.HTTP;
+  const request = http?.request;
+  if (eventUrl) {
+    if (typeof request !== "function") {
+      throw new Error("system_e2e_event_transport_unavailable");
+    }
+    const response = (await request.call(http, "POST", eventUrl, {
+      body: JSON.stringify({ type: "debug", data: payload }),
+    })) as { status?: number };
+    if (response.status !== 200) {
+      throw new Error("system_e2e_event_sink_rejected");
+    }
     return;
   }
   const debug =
@@ -194,7 +248,14 @@ export function installZoteroFailureDiagnostics() {
         extraContext: providerContext,
       });
     } finally {
-      await runZoteroSharedTeardownForTests(probeMeta);
+      if (
+        shouldRunPerTestSharedTeardown(
+          currentTest?.file || "",
+          isSystemE2ERun() ? "e2e" : readDiagnosticsEnv("ZOTERO_TEST_DOMAIN"),
+        )
+      ) {
+        await runZoteroSharedTeardownForTests(probeMeta);
+      }
     }
   });
   after(async function () {

@@ -4,6 +4,14 @@ Zotero Agents presents literature and knowledge-work capabilities over a Zotero 
 
 ## Language
 
+**System End-to-End Test**:
+A test that traverses a user-visible or public production path through a real Zotero process and the production plugin. When Synthesis is in scope, the current-source real Synthesis sidecar also participates; a controlled peer may replace only a system outside the boundary being tested.
+_Avoid_: E2E directory test, full-suite test
+
+**Contract Integration Test**:
+A test that exercises a protocol or multi-module seam through production participants without traversing the complete System End-to-End path. Replacing the seam that carries the risk makes the evidence Contract Integration even when the test lives under an E2E directory or command.
+_Avoid_: System E2E, unit test
+
 **Reference**:
 The literature-linking domain that covers extracted source citations, their canonical identities, matching decisions, review, and derived projections.
 _Avoid_: Reference canonical, reference subsystem
