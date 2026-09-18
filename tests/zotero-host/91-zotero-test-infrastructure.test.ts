@@ -12,6 +12,7 @@ import {
   resolveMockSkillRunnerPort,
   waitForSystemE2EAdmissionCheckpoint,
 } from "../../scripts/run-zotero-test-with-mock";
+import { buildSynthesisCloseTestEnvironment } from "../../scripts/run-zotero-e2e-stress";
 import {
   buildShardEnv,
   extractMochaFailureOutput,
@@ -732,6 +733,21 @@ describe("zotero test infrastructure helpers", function () {
       ),
       ["tests/zotero/setup.test.ts", "tests/zotero/ui/full"],
     );
+  });
+
+  it("uses the existing close test for stress and the CG-02 catalog command", function () {
+    const stress = buildSynthesisCloseTestEnvironment([], {});
+    assert.equal(
+      stress.ZOTERO_TEST_ENTRY,
+      "tests/zotero/ui/full/276-dashboard-synthesis-close.zotero.test.ts",
+    );
+    assert.equal(stress.ZOTERO_SYNTHESIS_CLOSE_CYCLES, "100");
+    assert.notProperty(stress, "ZOTERO_SYSTEM_E2E_CASE");
+
+    const catalog = buildSynthesisCloseTestEnvironment(["--catalog"], {});
+    assert.equal(catalog.ZOTERO_SYNTHESIS_CLOSE_CYCLES, "30");
+    assert.equal(catalog.ZOTERO_SYSTEM_E2E_CASE, "CG-02");
+    assert.equal(catalog.ZOTERO_E2E_TRIGGER_LANE, "cg-02-windows");
   });
 
   it("routes the full E2E domain without adding it to ordinary suites", function () {

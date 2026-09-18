@@ -127,6 +127,7 @@
     "test:zotero:workflow": "tsx scripts/run-zotero-test-with-mock.ts test:zotero:cli lite workflow",
     "test:zotero:workflow:full": "tsx scripts/run-zotero-test-with-mock.ts test:zotero:cli full workflow",
     "test:zotero:e2e": "tsx scripts/run-zotero-test-with-mock.ts test:zotero:cli full e2e",
+    "test:zotero:e2e:cg-02": "tsx scripts/run-zotero-e2e-stress.ts --catalog",
     "test:zotero:e2e:stress": "tsx scripts/run-zotero-e2e-stress.ts",
     "test:zotero:raw": "tsx scripts/run-zotero-test-with-mock.ts test:zotero:cli",
     "test:zotero:compatibility:worker": "tsx scripts/run-zotero-compatibility-worker.ts",

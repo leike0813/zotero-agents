@@ -12,7 +12,7 @@ Change 1 owns the strategy, shared-profile lifecycle, fixture identity, and Run 
 
 - Exercise the remaining production compositions with one copied profile, family-owned state, and stable external evidence.
 - Reuse public Workbench, plugin lifecycle, formal protocol, and Host Bridge CLI paths instead of private repositories or supervisors.
-- Produce a red-before-green Windows reproduction and root-cause fix for `CG-02`.
+- Provide an unattended Windows reproduction command and sanitized lifecycle evidence for `CG-02`, preserving the evidence needed for later diagnosis when the crash does not reproduce.
 
 **Non-Goals:**
 
@@ -42,9 +42,9 @@ Alternative: generate all setup through test code. Rejected because deterministi
 
 Alternative: call private module seams for determinism. Rejected because that would turn the case into Contract Integration evidence.
 
-### 4. Treat CG-02 as a diagnosis-led regression, not a speculative Synthesis change
+### 4. Treat CG-02 as an evidence-led diagnostic entry, not a speculative Synthesis change
 
-Adapt the existing `276-dashboard-synthesis-close` public UI path into a Windows Zotero 10 command that fails specifically on host termination and records sanitized terminal evidence plus the last lifecycle stage. Minimize the red reproduction, rank hypotheses from evidence, place one regression at the diagnosed owner seam, then apply the smallest root-cause fix. Run Zotero 9 and record affected, unaffected, or unverified; never infer it from Zotero 10.
+Adapt the existing `276-dashboard-synthesis-close` public UI path into an unattended Windows Zotero 10 command that records sanitized terminal evidence plus the last lifecycle stage. If the crash reproduces, preserve the red evidence for owner diagnosis; if it does not, record the tested versions and defer diagnosis, owner-level regression, and production repair to a dedicated change after the complete E2E framework is available. Run Zotero 9 and record affected, unaffected, or unverified; never infer it from Zotero 10. In either case, keep `CG-02` as a Windows release-promotion prerequisite.
 
 Alternative: attribute the crash to Preact, Sigma, sidecar shutdown, or frame teardown before reproduction. Rejected because version `0.8.4` predates the later Preact migration and no owner has been established.
 
@@ -56,13 +56,13 @@ Alternative: attribute the crash to Preact, Sigma, sidecar shutdown, or frame te
 
 - **A family contaminates later cases** → fail closed on undeclared state, cleanup ambiguity, or Suite Health Gate failure.
 - **Fixture growth exposes user data** → accept only deterministic synthetic structure and run fixture privacy validation.
-- **CG-02 instrumentation changes timing** → keep only the minimum terminal-stage probe, demonstrate red before the fix, and remove throwaway diagnostics afterward.
+- **CG-02 instrumentation changes timing** → keep only the minimum terminal-stage probe, retain sanitized evidence, and do not infer a root cause from a non-reproducing run.
 - **Public UI timing makes a case flaky** → wait on public readiness and typed lifecycle evidence; do not replace the path with sleeps or private calls.
 
 ## Migration Plan
 
 1. Confirm Change 2 is implemented, verified, synchronized, and archived.
 2. Add failing case evidence family by family, then the minimum fixture, runner, or production change needed to pass it. For `HB-03`, preserve the same copied profile across the runner-owned Zotero relaunch.
-3. Establish and minimize the Windows `CG-02` red loop before changing production code; verify green on Windows Zotero 10 and classify Zotero 9.
+3. Run the Windows `CG-02` loop on the available Zotero 10 versions, retain sanitized lifecycle evidence, and classify Zotero 9. Without a red result, leave production code unchanged and defer root-cause work to a dedicated change after the complete E2E framework is available.
 4. Run all Phase 1 cases in one clean Zotero 10/Linux invocation, preserving only declared intra-family carry-over.
-5. Update strategy-linked documentation and retain the complete sanitized Run Manifest. Rollback removes the new cases/fixture revision and reverts only the diagnosed production fix; it does not alter runner foundations.
+5. Update strategy-linked documentation and retain the complete sanitized Run Manifest. Rollback removes the new cases/fixture revision and `CG-02` command; it does not alter runner foundations or production ownership.

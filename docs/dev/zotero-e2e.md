@@ -66,6 +66,17 @@ npm run test:zotero:e2e:stress
 
 `ZOTERO_SYNTHESIS_CLOSE_CYCLES` 可覆盖压测轮数。设置金例 data/profile 目录会选择 Private Gold Source；也可用 `ZOTERO_E2E_FIXTURE=gold` 显式选择，缺少 data source 时 invocation 直接失败。未选择 gold 时使用 Committed Seed。
 
+### Windows Citation Graph close (`CG-02`)
+
+`CG-02` 复用同一个 runner 和 `276-dashboard-synthesis-close.zotero.test.ts`，但使用独立 catalog 命令。它在临时库创建最小合成 Reference，经过公开 Graph 重建，从 Workspace 打开 Citation Graph，默认执行 30 次关闭/重开，并在最后一次关闭后等待 20 秒检查宿主与数据库。普通 `test:zotero:e2e:stress` 仍是独立的 100 轮 adjunct stress，不计入 catalog completion。
+
+```powershell
+$env:ZOTERO_PLUGIN_ZOTERO_BIN_PATH = "D:\Workspace\Artifact\Zotero-Skills\zotero-hosts\windows-x64\10.0.2\Zotero_win-x64\zotero.exe"
+npm run test:zotero:e2e:cg-02
+```
+
+Zotero 9 分类使用同一命令，只替换为 `windows-x64\9.0.6` 的安装树。2026-09-18 的实际 30 轮运行分类为 `unaffected`；不得从 Zotero 10 推断该结论。同日 Windows Zotero 10.0.1 和 10.0.2 的 30 轮运行也均完成，未复现已报告的 host exit；这份 green 证据不能代替尚缺的 red 复现与根因诊断。每次运行在 `artifacts/test-diagnostics/system-e2e/<runId>/` 写入 `run-manifest.json` 与 sanitized `synthesis-close-lifecycle.json`。`CG-02` 归属 Citation Graph application；缺少可信 Windows 证据时，Windows release E2E cell 不得 promotion。
+
 金例 refresh 覆盖真实库规模和附件扫描；超过旧 10 秒边界的确定性回归由 production-client 进程测试提供。Citation Graph 压测在最后一次关闭后额外静默等待 20 秒，并再次检查主窗口和数据库，覆盖延迟崩溃窗口。
 
 ## 诊断产物

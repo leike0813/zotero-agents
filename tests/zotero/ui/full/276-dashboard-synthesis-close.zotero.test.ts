@@ -11,12 +11,14 @@ import {
   openSynthesisWorkbenchTab,
   resetSynthesisWorkbenchTabRuntimeForTests,
 } from "../../../../src/modules/synthesis/workbench/synthesisWorkbenchTab";
+import { renderPayloadBlock } from "../../../../src/modules/zoteroHost/notePayloadCodec";
 import {
   ensureDiagnosticsDirectory,
   readDiagnosticsEnv,
   resolveDefaultTestDiagnosticsDirectory,
   writeDiagnosticsText,
 } from "../../testDiagnosticsOutput";
+import { emitZoteroTestDebug } from "../../diagnosticBridge";
 import {
   getRuntimePersistencePaths,
   readRuntimeTextFile,
@@ -49,10 +51,23 @@ async function recordCloseLifecycleStage(
     occurredAt: new Date().toISOString(),
     ...details,
   });
-  const outputDirectory = resolveDefaultTestDiagnosticsDirectory();
-  await ensureDiagnosticsDirectory(outputDirectory);
+  const explicitPath = readDiagnosticsEnv(
+    "ZOTERO_SYNTHESIS_CLOSE_DIAGNOSTICS_PATH",
+  );
+  const outputPath = explicitPath
+    ? explicitPath
+    : joinPath(
+        resolveDefaultTestDiagnosticsDirectory(),
+        "synthesis-close-lifecycle.json",
+      );
+  await ensureDiagnosticsDirectory(
+    outputPath.slice(
+      0,
+      Math.max(outputPath.lastIndexOf("/"), outputPath.lastIndexOf("\\")),
+    ),
+  );
   await writeDiagnosticsText(
-    joinPath(outputDirectory, "synthesis-close-lifecycle.json"),
+    outputPath,
     JSON.stringify(
       {
         schema: "synthesis-close-lifecycle-diagnostics.v1",
@@ -64,12 +79,59 @@ async function recordCloseLifecycleStage(
   );
 }
 
+async function prepareCatalogCitationGraph() {
+  const source = new Zotero.Item("journalArticle");
+  source.setField("title", "System E2E Citation Source");
+  source.setField("date", "2026");
+  await source.saveTx();
+  const target = new Zotero.Item("journalArticle");
+  target.setField("title", "System E2E Citation Target");
+  target.setField("date", "2026");
+  await target.saveTx();
+  const note = new Zotero.Item("note");
+  note.libraryID = source.libraryID;
+  note.parentItemID = source.id;
+  note.setNote(
+    renderPayloadBlock({
+      payloadType: "references-json",
+      payloadFormat: "json",
+      payload: {
+        schema: "source_reference_artifact.v1",
+        references: [
+          {
+            sourceReferenceId: "source-reference-system-e2e-cg-02",
+            extraction: { raw: "System E2E Citation Target", confidence: 1 },
+            bibliography: {
+              title: "System E2E Citation Target",
+              authors: [],
+              year: 2026,
+            },
+            matching: {},
+          },
+        ],
+      },
+    }),
+  );
+  await note.saveTx();
+
+  return { items: [source, target, note] };
+}
+
+async function cleanupCatalogCitationGraph(
+  prepared: Awaited<ReturnType<typeof prepareCatalogCitationGraph>>,
+) {
+  await (Zotero.Items as any).erase(
+    prepared.items.map((item) => item.id).filter(Boolean),
+  );
+  return prepared.items.every((item) => !Zotero.Items.get(item.id));
+}
+
 async function waitUntil<Value>(
-  read: () => Value | null | undefined,
+  read: () => Value | null | undefined | Promise<Value | null | undefined>,
   maxAttempts = 200,
 ) {
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const value = read();
+    const value = await read();
     if (value) return value;
     await Zotero.Promise.delay(25);
   }
@@ -277,10 +339,16 @@ describe("Dashboard and Synthesis close lifecycle in Zotero", function () {
   });
 
   it("keeps the host responsive when Citation Graph closes and Synthesis reopens", async function () {
+    const catalogCase =
+      readDiagnosticsEnv("ZOTERO_SYSTEM_E2E_CASE") === "CG-02";
     const useRealLibrary =
       readDiagnosticsEnv("ZOTERO_SYNTHESIS_CLOSE_REAL_LIBRARY") === "1";
-    this.timeout(useRealLibrary ? 900000 : 240000);
+    const useInstalledGraph = catalogCase || useRealLibrary;
+    this.timeout(useInstalledGraph ? 900000 : 240000);
     closeLifecycleStages.length = 0;
+    const prepared = catalogCase
+      ? await prepareCatalogCitationGraph()
+      : undefined;
     const mainWindow = Zotero.getMainWindow();
     assert.isOk(mainWindow);
     const dashboardClosed = openTaskDashboard({
@@ -299,19 +367,25 @@ describe("Dashboard and Synthesis close lifecycle in Zotero", function () {
     const dashboardResult = await dashboardClosed;
     if (!dashboardResult.ok) throw dashboardResult.error;
 
-    const graph = useRealLibrary ? undefined : closeLifecycleGraph();
-    let frame = useRealLibrary
-      ? await openInstalledCitationGraph(mainWindow, 0)
-      : await openCitationGraph(mainWindow, graph);
     const tabs = (mainWindow as any).Zotero_Tabs;
     assert.isFunction(tabs?.close);
-    const tabId = useRealLibrary
+    const baselineTabCount = Number(tabs.numTabs);
+    const graph = useInstalledGraph ? undefined : closeLifecycleGraph();
+    let frame = useInstalledGraph
+      ? await openInstalledCitationGraph(mainWindow, 0)
+      : await openCitationGraph(mainWindow, graph);
+    assert.equal(Number(tabs.numTabs), baselineTabCount + 1);
+    const tabId = useInstalledGraph
       ? WORKSPACE_TAB_ID
       : SYNTHESIS_WORKBENCH_TAB_ID;
     for (let cycle = 1; cycle <= CLOSE_CYCLES; cycle += 1) {
       await recordCloseLifecycleStage("graph-ready", {
         cycle,
-        source: useRealLibrary ? "real-library" : "synthetic",
+        source: catalogCase
+          ? "committed-seed"
+          : useRealLibrary
+            ? "real-library"
+            : "synthetic",
         frameConnected: frame.isConnected,
         canvasCount:
           frame.contentDocument?.querySelectorAll(".sigma-stage canvas")
@@ -327,8 +401,10 @@ describe("Dashboard and Synthesis close lifecycle in Zotero", function () {
         frameConnected: frame.isConnected,
         mainWindowClosed: mainWindow.closed,
       });
-      await waitUntil(() => (!frame.isConnected ? true : null));
-      await recordCloseLifecycleStage("frame-detached", {
+      await waitUntil(() =>
+        Number(tabs.numTabs) === baselineTabCount ? true : null,
+      );
+      await recordCloseLifecycleStage("tab-closed", {
         cycle,
         frameConnected: frame.isConnected,
         mainWindowClosed: mainWindow.closed,
@@ -336,7 +412,7 @@ describe("Dashboard and Synthesis close lifecycle in Zotero", function () {
       });
 
       await recordCloseLifecycleStage("reopen-requested", { cycle });
-      const reopenedFrame = useRealLibrary
+      const reopenedFrame = useInstalledGraph
         ? await openInstalledCitationGraph(mainWindow, cycle)
         : await openCitationGraph(mainWindow, graph);
       assert.notStrictEqual(reopenedFrame, frame);
@@ -366,12 +442,21 @@ describe("Dashboard and Synthesis close lifecycle in Zotero", function () {
       });
       frame = reopenedFrame;
     }
+    const catalogCleanupPassed = prepared
+      ? await cleanupCatalogCitationGraph(prepared)
+      : true;
     await recordCloseLifecycleStage("final-close-requested", {
       frameConnected: frame.isConnected,
     });
-    await closeSynthesisWorkbenchTab();
-    await waitUntil(() => (!frame.isConnected ? true : null));
-    await recordCloseLifecycleStage("final-frame-detached", {
+    if (useInstalledGraph) {
+      await Promise.resolve(tabs.close(WORKSPACE_TAB_ID));
+    } else {
+      await closeSynthesisWorkbenchTab();
+    }
+    await waitUntil(() =>
+      Number(tabs.numTabs) === baselineTabCount ? true : null,
+    );
+    await recordCloseLifecycleStage("final-tab-closed", {
       frameConnected: frame.isConnected,
     });
     await Zotero.Promise.delay(20_000);
@@ -385,7 +470,7 @@ describe("Dashboard and Synthesis close lifecycle in Zotero", function () {
       mainWindowClosed: mainWindow.closed,
       databasePing: 1,
     });
-    if (useRealLibrary) {
+    if (useInstalledGraph) {
       const crashJournal = await readRuntimeTextFile(
         joinPath(
           getRuntimePersistencePaths().logsDir,
@@ -402,6 +487,52 @@ describe("Dashboard and Synthesis close lifecycle in Zotero", function () {
       assert.include(crashJournal!, "sigma-renderer-created");
       assert.include(crashJournal!, "sigma-destroy-complete");
       assert.include(crashJournal!, "host-cleanup-complete");
+    }
+    if (catalogCase) {
+      assert.isOk(prepared);
+      assert.isTrue(catalogCleanupPassed);
+      const artifactReference = readDiagnosticsEnv(
+        "ZOTERO_SYNTHESIS_CLOSE_ARTIFACT_REFERENCE",
+      );
+      await emitZoteroTestDebug({
+        kind: "system-e2e-run-identity",
+        zoteroVersion: Zotero.version,
+      });
+      await emitZoteroTestDebug({
+        kind: "system-e2e-family-result",
+        family: {
+          familyId: "CG",
+          caseId: "CG-02",
+          result: "passed",
+          publicOutcome:
+            "citation_graph_close_cycles_completed_with_responsive_host",
+          typedEvidence: [
+            {
+              kind: "host-process-lifecycle",
+              schemaVersion: "synthesis-close-lifecycle-diagnostics.v1",
+              terminalStatus: "responsive",
+            },
+          ],
+          lifecycle: [
+            { checkpoint: "graph-rendered", outcome: "completed" },
+            { checkpoint: "workbench-closed", outcome: "completed" },
+            { checkpoint: "host-responsive", outcome: "completed" },
+          ],
+          cleanup: "passed",
+          health: "passed",
+          artifacts: artifactReference
+            ? [
+                {
+                  status: "referenced",
+                  kind: "close-lifecycle",
+                  producer: "CG-02",
+                  mediaType: "application/json",
+                  relativePath: artifactReference,
+                },
+              ]
+            : [],
+        },
+      });
     }
   });
 });

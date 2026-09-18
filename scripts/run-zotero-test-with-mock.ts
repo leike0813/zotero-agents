@@ -517,6 +517,10 @@ async function main() {
       runId,
       "run-manifest.json",
     );
+    const closeLifecyclePath = path.join(
+      path.dirname(manifestPath),
+      "synthesis-close-lifecycle.json",
+    );
     await mkdir(path.dirname(manifestPath), { recursive: true });
     const sourceCommit =
       String(testEnv.GITHUB_SHA || testEnv.CI_COMMIT_SHA || "").trim() ||
@@ -571,6 +575,14 @@ async function main() {
         ...testEnv,
         ZOTERO_SYSTEM_E2E_EVENT_URL: sink.url,
         ZOTERO_SYSTEM_E2E_MANIFEST_PATH: manifestPath,
+        ...(testEnv.ZOTERO_SYSTEM_E2E_CASE === "CG-02"
+          ? {
+              ZOTERO_SYNTHESIS_CLOSE_DIAGNOSTICS_PATH: closeLifecyclePath,
+              ZOTERO_SYNTHESIS_CLOSE_ARTIFACT_REFERENCE: path
+                .relative(process.cwd(), closeLifecyclePath)
+                .replace(/\\/g, "/"),
+            }
+          : {}),
       },
       finish: async (exitCode) => {
         await persistence;

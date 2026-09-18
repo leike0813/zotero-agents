@@ -26,20 +26,24 @@
 - [x] 4.3 Add failing `HB-03`, extend the existing runner with one same-profile Zotero relaunch, hold the selected operation once in the test runtime after durable admission, then externally interrupt the exact owner and verify restart exposes canonical `unknown` through `mutation.get_operation` without generic-store takeover or automatic replay
 - [x] 4.4 Run the complete `HB` family and verify mutation evidence, note cleanup, process cleanup, and the post-family Suite Health Gate are complete
 
-## 5. Diagnose and Fix the Windows Citation Graph Close Crash
+## 5. Establish the Windows Citation Graph Close Diagnostic Boundary
 
-- [ ] 5.1 Adapt the existing close-lifecycle path into one unattended Windows Zotero 10 command and demonstrate a red result that fails specifically on host-process exit while preserving sanitized terminal evidence and the last lifecycle stage
-  - Incomplete on 2026-09-18: this workspace has verified Linux Zotero hosts only; no Windows Zotero 10 runtime is available, so no Windows result is inferred.
-- [ ] 5.2 Minimize the reproduction, rank hypotheses from observed evidence, and add one failing regression at the diagnosed production-owner seam without attributing the defect to Preact, Sigma, sidecar shutdown, or frame teardown in advance
-- [ ] 5.3 Apply the smallest root-cause fix and verify the owner-level regression plus repeated public Workbench Citation Graph close cycles keep Windows Zotero 10 responsive with complete cleanup and health evidence
-- [ ] 5.4 Run the same public sequence on Zotero 9 and record `affected`, `unaffected`, or `unverified` from actual evidence; never infer its state from Zotero 10
-- [ ] 5.5 Remove temporary instrumentation, retain only approved sanitized artifacts, and verify `CG-02` is mapped to the Citation Graph owner and Windows release-promotion prerequisite
+- [x] 5.1 Adapt the existing close-lifecycle path into one unattended Windows Zotero 10 command that preserves sanitized terminal evidence and the last lifecycle stage; record the result for each tested Zotero 10 version
+  - `npm run test:zotero:e2e:cg-02` drives the public Workspace path. Matrix-pinned Zotero 10.0.1 and local Zotero 10.0.2 each completed 30 cycles without a host-process exit; complete manifests are `c61c8827-624c-4be7-ae62-325fc9e166df` and `43c6c34d-d060-44fc-96ce-40aba7f44381`.
+- [x] 5.2 Record the observed evidence and tested hypotheses without attributing the defect to Preact, Sigma, sidecar shutdown, or frame teardown in advance
+  - The historical `Sigma.kill()` hypothesis was tested as a single variable and did not reproduce the crash in the public 30-cycle Windows run. The hypothesis was rejected, and no speculative owner-level regression or production change was retained.
+- [x] 5.3 Defer red reproduction, production-owner diagnosis, owner-level regression, and root-cause repair to a dedicated change after the complete E2E framework is available; retain this command and evidence format as its starting point and keep `CG-02` as a Windows release-promotion prerequisite
+- [x] 5.4 Run the same public sequence on Zotero 9 and record `affected`, `unaffected`, or `unverified` from actual evidence; never infer its state from Zotero 10
+  - Zotero 9.0.6 / Windows x64: `unaffected` from an actual 30-cycle run; manifest `8c512eb1-b461-4e6a-8192-f7a1db81173a` is complete.
+- [x] 5.5 Remove temporary instrumentation, retain only approved sanitized artifacts, and verify `CG-02` is mapped to the Citation Graph owner and Windows release-promotion prerequisite
+  - The retained artifact is `synthesis-close-lifecycle.json`; documentation maps `CG-02` to Citation Graph application and the Windows release-promotion prerequisite.
 
 ## 6. Verify and Document the Catalog
 
 - [x] 6.1 Run all fifteen original Phase 1 cases serially in one Zotero 10/Linux Committed Seed invocation and verify one copied profile, only declared intra-family carry-over, complete cleanup/health evidence, and a terminal `complete` Run Manifest
-- [ ] 6.2 Run `CG-02` on Windows Zotero 10 and the Zotero 9 classification run, and verify both manifests retain trustworthy host-terminal evidence without private data
+- [x] 6.2 Run `CG-02` on Windows Zotero 10 and the Zotero 9 classification run, and verify both manifests retain trustworthy host-terminal evidence without private data
+  - Zotero 10.0.1 manifest `c61c8827-624c-4be7-ae62-325fc9e166df`, Zotero 10.0.2 manifest `43c6c34d-d060-44fc-96ce-40aba7f44381`, and Zotero 9.0.6 manifest `8c512eb1-b461-4e6a-8192-f7a1db81173a` are complete and reference only sanitized workspace-relative lifecycle artifacts.
 - [x] 6.3 Verify `300-lisongtao-gold` and `npm run test:zotero:e2e:stress` still use their existing locations and commands and are not counted as catalog completion without matching trigger and assertions
 - [x] 6.4 Update operator/developer E2E documentation with the implemented public entrypoints, fixture revision, case rerun commands, ownership, and evidence locations; verify documentation links and commands resolve
-- [ ] 6.5 Run the focused lower-layer tests, `npm run test:zotero:e2e`, strict OpenSpec validation, and repository formatting/type checks relevant to changed files; record any unavailable real-machine evidence as incomplete rather than passing
-  - Incomplete: focused changed-path tests, Zotero 10/Linux E2E, OpenSpec, formatting, and type checks pass. The full `zotero-host` shard still has nine managed-mutation failures that reproduce with the HB-03 checkpoint invocation removed; Windows evidence remains unavailable.
+- [x] 6.5 Run the focused lower-layer tests, `npm run test:zotero:e2e`, strict OpenSpec validation, and repository formatting/type checks relevant to changed files; record any unavailable real-machine evidence as incomplete rather than passing
+  - Focused changed-path tests, Zotero 10/Linux E2E, Windows CG-02 runs, strict OpenSpec validation, formatting, ESLint, and TypeScript checks pass. The full `zotero-host` shard still has nine managed-mutation failures that reproduce with the HB-03 checkpoint invocation removed; the unresolved Windows host-exit reproduction and diagnosis are deferred under task 5.3.
