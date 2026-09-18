@@ -132,6 +132,7 @@
     "test:zotero:raw": "tsx scripts/run-zotero-test-with-mock.ts test:zotero:cli",
     "test:zotero:compatibility:worker": "tsx scripts/run-zotero-compatibility-worker.ts",
     "test:zotero:compatibility:with-mock": "tsx scripts/run-zotero-test-with-mock.ts test:zotero:compatibility:worker",
+    "test:zotero:compatibility:prepare": "tsx scripts/run-zotero-compatibility-matrix.ts prepare",
     "test:zotero:compatibility:plan": "tsx scripts/run-zotero-compatibility-matrix.ts plan",
     "test:zotero:compatibility:run": "tsx scripts/run-zotero-compatibility-matrix.ts run",
     "test:zotero:compatibility:matrix": "tsx scripts/run-zotero-compatibility-matrix.ts matrix",

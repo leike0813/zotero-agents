@@ -46,6 +46,7 @@ import {
 } from "../../scripts/system-e2e/manifest";
 import {
   PHASE1_FAMILY_DECLARATIONS,
+  resolvePhase1FamilySelection,
   runFamilyLifecycle,
   validateFamilyDeclarations,
 } from "../../scripts/system-e2e/familyLifecycle";
@@ -317,6 +318,20 @@ describe("zotero test infrastructure helpers", function () {
         selectedGoldError = error;
       }
       assert.match(String(selectedGoldError), /ZOTERO_E2E_GOLD_DATA_DIR/);
+      let invalidGoldError: unknown;
+      try {
+        await stageZoteroE2EFixture({
+          domain: "e2e",
+          env: {
+            ZOTERO_E2E_FIXTURE: "gold",
+            ZOTERO_E2E_GOLD_DATA_DIR: path.join(root, "missing-gold"),
+          },
+          testRoot: root,
+        });
+      } catch (error) {
+        invalidGoldError = error;
+      }
+      assert.match(String(invalidGoldError), /ENOENT|no such file/i);
       assert.isUndefined(
         await stageZoteroE2EFixture({
           domain: "core",
@@ -645,6 +660,22 @@ describe("zotero test infrastructure helpers", function () {
             },
           ]),
         /family_carry_over_not_owned/,
+      );
+    });
+
+    it("selects complete Phase 1 families in catalog order", function () {
+      assert.deepEqual(resolvePhase1FamilySelection(), [
+        "SL",
+        "RH",
+        "PA",
+        "PM",
+        "CG",
+        "HB",
+      ]);
+      assert.deepEqual(resolvePhase1FamilySelection("PM,SL,PM"), ["SL", "PM"]);
+      assert.throws(
+        () => resolvePhase1FamilySelection("SL,SL-01"),
+        /family_selection_invalid/,
       );
     });
 

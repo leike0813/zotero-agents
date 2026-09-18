@@ -1,0 +1,162 @@
+name: System E2E Evidence
+
+on:
+  push:
+    tags:
+      - e2e-calibration-pr-*
+      - e2e-calibration-main-*
+      - e2e-calibration-release-*
+  schedule:
+    - cron: "17 3 * * 0"
+    - cron: "17 3 * * 3"
+  workflow_dispatch:
+    inputs:
+      lane:
+        description: Evidence lane
+        required: true
+        type: choice
+        default: weekly
+        options:
+          - weekly
+          - stress
+          - manual-gold
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    outputs:
+      lane: ${{ steps.lane.outputs.lane }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - name: Setup JS
+        uses: zotero-plugin-dev/workflows/setup-js@main
+        with:
+          node-version: 24
+      - name: Select evidence lane
+        id: lane
+        shell: bash
+        run: |
+          lane="${{ inputs.lane }}"
+          if [[ "${{ github.event_name }}" == "schedule" ]]; then
+            lane=weekly
+            if [[ "${{ github.event.schedule }}" == "17 3 * * 3" ]]; then lane=stress; fi
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
+            case "${{ github.ref_name }}" in
+              e2e-calibration-pr-*) lane=pull-request ;;
+              e2e-calibration-main-*) lane=main ;;
+              e2e-calibration-release-*) lane=release ;;
+              *) echo "Unsupported calibration tag" >&2; exit 1 ;;
+            esac
+          fi
+          echo "lane=$lane" >> "$GITHUB_OUTPUT"
+      - name: Setup Synthesis sidecar toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: nightly-2026-07-25
+      - name: Build plugin once
+        run: npm run build
+      - name: Prepare current-source Linux sidecar once
+        env:
+          ZOTERO_COMPAT_LANE: ${{ steps.lane.outputs.lane }}
+        run: >-
+          npm run test:zotero:compatibility:prepare --
+          --build-root "$GITHUB_WORKSPACE/.scaffold/build"
+      - name: Resolve evidence matrix
+        id: plan
+        shell: bash
+        run: |
+          npx tsx scripts/run-zotero-compatibility-matrix.ts plan --gate "${{ steps.lane.outputs.lane }}" --json > "$RUNNER_TEMP/system-e2e-plan.json"
+          echo "matrix=$(jq -c '{include: [.include[] | select(.domain == "e2e")]}' "$RUNNER_TEMP/system-e2e-plan.json")" >> "$GITHUB_OUTPUT"
+      - name: Upload immutable Linux candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: system-e2e-linux-x64-candidate
+          path: .scaffold/build
+
+  prepare-windows:
+    if: needs.prepare.outputs.lane == 'weekly' || needs.prepare.outputs.lane == 'release'
+    needs: prepare
+    runs-on: windows-2025
+    continue-on-error: true
+    steps:
+      - name: Setup JS
+        uses: zotero-plugin-dev/workflows/setup-js@main
+        with:
+          node-version: 24
+      - name: Setup Synthesis sidecar toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: nightly-2026-07-25
+      - name: Download immutable plugin candidate
+        uses: actions/download-artifact@v5
+        with:
+          name: system-e2e-linux-x64-candidate
+          path: .scaffold/build
+      - name: Prepare current-source Windows sidecar once
+        env:
+          ZOTERO_COMPAT_LANE: ${{ needs.prepare.outputs.lane }}
+        run: >-
+          npm run test:zotero:compatibility:prepare --
+          --build-root "$env:GITHUB_WORKSPACE/.scaffold/build"
+      - name: Upload immutable Windows candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: system-e2e-windows-x64-candidate
+          path: .scaffold/build
+
+  evidence:
+    if: always() && needs.prepare.result == 'success'
+    needs:
+      - prepare
+      - prepare-windows
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Setup JS
+        uses: zotero-plugin-dev/workflows/setup-js@main
+        with:
+          node-version: 24
+      - name: Download platform candidate
+        uses: actions/download-artifact@v5
+        with:
+          name: system-e2e-${{ matrix.platform }}-candidate
+          path: .scaffold/build
+      - name: Restore authenticated Zotero archive
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/zotero-host-cache/archives
+          key: zotero-host-${{ matrix.platform }}-${{ matrix.version }}-${{ hashFiles('tests/zotero/compatibility-matrix.json') }}
+      - name: Run evidence cell
+        env:
+          ZOTERO_COMPAT_FAMILIES: ${{ join(matrix.families, ',') }}
+          ZOTERO_COMPAT_LANE: ${{ needs.prepare.outputs.lane }}
+          ZOTERO_COMPAT_FIXTURE_SCALE: ${{ matrix.fixtureScale }}
+          ZOTERO_COMPAT_BLOCKING: "false"
+          ZOTERO_E2E_GOLD_DATA_DIR: ${{ vars.ZOTERO_E2E_GOLD_DATA_DIR }}
+          ZOTERO_E2E_GOLD_PROFILE_DIR: ${{ vars.ZOTERO_E2E_GOLD_PROFILE_DIR }}
+        shell: bash
+        run: |
+          command=run
+          if [[ "${{ needs.prepare.outputs.lane }}" == "weekly" ]]; then command=weekly-run; fi
+          npx tsx scripts/run-zotero-compatibility-matrix.ts "$command" \
+            --target "${{ matrix.targetId }}" \
+            --mode behavior \
+            --suite full \
+            --domain e2e \
+            --cache-root "${{ runner.temp }}/zotero-host-cache" \
+            --runs-root "${{ runner.temp }}/zotero-compat-runs" \
+            --build-root "$GITHUB_WORKSPACE/.scaffold/build"
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: system-e2e-${{ needs.prepare.outputs.lane }}-${{ matrix.id }}
+          path: ${{ runner.temp }}/zotero-compat-runs
+          if-no-files-found: warn
+          retention-days: 90

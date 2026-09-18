@@ -1,10 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
-import {
-  applyZoteroTestHeadlessEnvironment,
-  resolveZoteroTestDisplayMode,
-} from "../zotero-plugin.config";
+import { resolveZoteroTestDisplayMode } from "../zotero-plugin.config";
 
 function requiredEnvironment(name: string) {
   const value = String(process.env[name] || "").trim();
@@ -26,23 +24,17 @@ async function createDirectoryLink(source: string, target: string) {
   }
 }
 
-async function createEntryProxy(
-  runRoot: string,
-  name: string,
-  sourceFiles: string[],
+export function resolveCompatibilityWorkerEntries(
+  mode: string,
+  configuredEntries: readonly unknown[],
 ) {
-  const relativeRoot = path.join(
-    "compatibility-entries",
-    path.basename(runRoot),
-    name,
-  );
-  const content = `${sourceFiles
-    .map((sourceFile) => `import ${JSON.stringify(sourceFile)};`)
-    .join("\n")}\n`;
-  const entryRoot = path.join(runRoot, relativeRoot);
-  await fs.mkdir(entryRoot, { recursive: true });
-  await fs.writeFile(path.join(entryRoot, "suite.test.ts"), content, "utf8");
-  return relativeRoot.replaceAll("\\", "/");
+  if (mode === "xpi-smoke") {
+    return ["tests/zotero/compatibility/xpi/suite.test.ts"];
+  }
+  return [
+    ...configuredEntries.map(String),
+    "tests/zotero/compatibility/probe/suite.test.ts",
+  ];
 }
 
 async function main() {
@@ -85,19 +77,10 @@ async function main() {
   const configuredEntries = Array.isArray(context.test.entries)
     ? context.test.entries
     : [context.test.entries];
-  const sourceFiles =
-    mode === "xpi-smoke"
-      ? [path.join(projectRoot, "tests/zotero/compatibility/xpi/suite.test.ts")]
-      : [
-          ...configuredEntries.map((entry) =>
-            path.resolve(projectRoot, String(entry), "suite.test.ts"),
-          ),
-          path.join(
-            projectRoot,
-            "tests/zotero/compatibility/probe/suite.test.ts",
-          ),
-        ];
-  context.test.entries = [await createEntryProxy(runRoot, mode, sourceFiles)];
+  context.test.entries = resolveCompatibilityWorkerEntries(
+    mode,
+    configuredEntries,
+  );
   context.test.watch = false;
   context.test.headless = resolveZoteroTestDisplayMode().needsXvfb;
   context.test.prefs = {
@@ -134,7 +117,12 @@ async function main() {
   await test.run();
 }
 
-void main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  void main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}

@@ -5,6 +5,10 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { finished, pipeline } from "node:stream/promises";
+import {
+  PHASE1_FAMILY_DECLARATIONS,
+  type Phase1FamilyId,
+} from "./system-e2e/familyLifecycle";
 
 export type CompatibilityPlatformId =
   | "linux-x64"
@@ -15,6 +19,17 @@ export type CompatibilityPlatformId =
 export type CompatibilityGate = "pull-request" | "main" | "release";
 export type CompatibilityMode = "behavior" | "xpi-smoke";
 export type CompatibilitySuite = "lite" | "full";
+export type CompatibilityDomain = "all" | "core" | "ui" | "workflow" | "e2e";
+export type CompatibilityE2ELane =
+  | CompatibilityGate
+  | "weekly"
+  | "stress"
+  | "manual-gold";
+export type CompatibilityScenarioFamily = Phase1FamilyId;
+export type CompatibilityFixtureScale =
+  | "committed-seed"
+  | "stress"
+  | "large-gold";
 
 export type CompatibilityPlatform = {
   os: "linux" | "windows" | "macos";
@@ -43,6 +58,48 @@ export type CompatibilityTarget = {
   policy: CompatibilityTargetPolicy;
 };
 
+export type CompatibilityExecutionCell = {
+  id: string;
+  lane: CompatibilityE2ELane;
+  targetId: string;
+  version: string;
+  platform: CompatibilityPlatformId;
+  families: CompatibilityScenarioFamily[];
+  runnerEnvironment: {
+    os: CompatibilityPlatform["os"];
+    image: string;
+  };
+  fixtureScale: CompatibilityFixtureScale;
+  sidecarStartupModel: "pre-staged-current-source";
+  invocationProfileModel: "one-fresh-copied-profile-per-invocation";
+  blocking: boolean;
+  pluginDigest: string;
+  sidecarFingerprint: string;
+  runManifestReference: string;
+};
+
+export type CompatibilityArtifactIdentity = {
+  lane?: CompatibilityE2ELane;
+  sourceCommit?: string;
+  sourceRef?: string;
+  pluginDigest: string;
+  sidecarFingerprint: string;
+  sidecarTarget?: string;
+};
+
+export const E2E_PROMOTION_STATE: Readonly<Record<string, boolean>> = {
+  "pull-request-zotero-10-linux-x64-e2e-sl-pm": false,
+  "main-zotero-7-linux-x64-e2e-sl-rh-pa-pm-cg-hb": false,
+  "main-zotero-9-linux-x64-e2e-sl-rh-pa-pm-cg-hb": false,
+  "main-zotero-10-linux-x64-e2e-sl-rh-pa-pm-cg-hb": false,
+  "release-zotero-7-linux-x64-e2e-sl-rh-pa-pm-cg-hb": false,
+  "release-zotero-9-linux-x64-e2e-sl-rh-pa-pm-cg-hb": false,
+  "release-zotero-10-linux-x64-e2e-sl-rh-pa-pm-cg-hb": false,
+  "release-zotero-7-windows-x64-e2e-sl-rh-pa-pm-cg-hb": false,
+  "release-zotero-9-windows-x64-e2e-sl-rh-pa-pm-cg-hb": false,
+  "release-zotero-10-windows-x64-e2e-sl-rh-pa-pm-cg-hb": false,
+};
+
 export type CompatibilityManifest = {
   schemaId: "zotero-agents.zotero-compatibility-matrix.v1";
   extractRecipeVersion: number;
@@ -58,6 +115,12 @@ export type CompatibilityPlanCell = {
   runner: string;
   mode: CompatibilityMode;
   suite?: CompatibilitySuite;
+  domain?: CompatibilityDomain;
+  lane?: CompatibilityE2ELane;
+  families?: CompatibilityScenarioFamily[];
+  fixtureScale?: CompatibilityFixtureScale;
+  sidecarStartupModel?: CompatibilityExecutionCell["sidecarStartupModel"];
+  invocationProfileModel?: CompatibilityExecutionCell["invocationProfileModel"];
   blocking: boolean;
 };
 
@@ -132,6 +195,8 @@ export type CompatibilityReceipt = {
   execution: {
     mode: CompatibilityMode;
     suite?: CompatibilitySuite;
+    domain?: CompatibilityDomain;
+    cell?: CompatibilityExecutionCell;
   };
   status: "running" | "passed" | "failed";
   phases: Array<{
@@ -172,6 +237,91 @@ function assertSafeRelativePath(value: unknown, field: string): string {
     throw new Error(`Unsafe ${field}: ${String(value)}`);
   }
   return normalized;
+}
+
+export function createE2EExecutionCell(args: {
+  id: string;
+  lane: CompatibilityE2ELane;
+  target: CompatibilityTarget;
+  families: CompatibilityScenarioFamily[];
+  runnerEnvironment: CompatibilityExecutionCell["runnerEnvironment"];
+  fixtureScale: CompatibilityFixtureScale;
+  blocking: boolean;
+  pluginDigest: string;
+  sidecarFingerprint: string;
+  runManifestReference: string;
+}): CompatibilityExecutionCell {
+  const families = [...new Set(args.families)];
+  const allowedFamilies = new Set<CompatibilityScenarioFamily>(
+    Object.keys(PHASE1_FAMILY_DECLARATIONS) as CompatibilityScenarioFamily[],
+  );
+  if (
+    (families.length === 0 && args.fixtureScale !== "stress") ||
+    families.some((family) => !allowedFamilies.has(family))
+  ) {
+    throw new Error("Invalid compatibility execution-cell families");
+  }
+  for (const [field, value] of [
+    ["plugin digest", args.pluginDigest],
+    ["sidecar fingerprint", args.sidecarFingerprint],
+  ] as const) {
+    if (!/^[a-f0-9]{64}$/.test(value)) {
+      throw new Error(`Invalid compatibility execution-cell ${field}`);
+    }
+  }
+  return {
+    id: requireNonEmptyString(args.id, "executionCell.id"),
+    lane: args.lane,
+    targetId: args.target.id,
+    version: args.target.version,
+    platform: args.target.platform,
+    families,
+    runnerEnvironment: {
+      os: args.runnerEnvironment.os,
+      image: requireNonEmptyString(
+        args.runnerEnvironment.image,
+        "executionCell.runnerEnvironment.image",
+      ),
+    },
+    fixtureScale: args.fixtureScale,
+    sidecarStartupModel: "pre-staged-current-source",
+    invocationProfileModel: "one-fresh-copied-profile-per-invocation",
+    blocking: args.blocking,
+    pluginDigest: args.pluginDigest,
+    sidecarFingerprint: args.sidecarFingerprint,
+    runManifestReference: assertSafeRelativePath(
+      args.runManifestReference,
+      "executionCell.runManifestReference",
+    ),
+  };
+}
+
+export function assertCompatibilityArtifactIdentity(
+  expected: CompatibilityArtifactIdentity,
+  actual: CompatibilityArtifactIdentity,
+): void {
+  if (
+    expected.lane === "release" &&
+    !expected.sourceRef?.startsWith("refs/tags/")
+  ) {
+    throw new Error("Compatibility release artifact is not tag-bound");
+  }
+  for (const field of [
+    "lane",
+    "sourceCommit",
+    "sourceRef",
+    "sidecarTarget",
+  ] as const) {
+    if (expected[field] !== undefined && actual[field] !== expected[field]) {
+      throw new Error(`Compatibility artifact ${field} changed`);
+    }
+  }
+  if (actual.pluginDigest !== expected.pluginDigest) {
+    throw new Error("Compatibility plugin artifact identity changed");
+  }
+  if (actual.sidecarFingerprint !== expected.sidecarFingerprint) {
+    throw new Error("Compatibility sidecar artifact identity changed");
+  }
 }
 
 function expectedOfficialArchiveUrl(target: CompatibilityTarget): string {
@@ -271,10 +421,63 @@ export function resolveCompatibilityTarget(
 
 export function buildCompatibilityPlan(
   manifest: CompatibilityManifest,
-  gate: CompatibilityGate,
+  gate: CompatibilityE2ELane,
 ): CompatibilityPlanCell[] {
   validateCompatibilityManifest(manifest);
   const cells: CompatibilityPlanCell[] = [];
+  const addE2ECell = (
+    lane: CompatibilityE2ELane,
+    targetId: string,
+    families: CompatibilityScenarioFamily[],
+    fixtureScale: CompatibilityFixtureScale = "committed-seed",
+  ) => {
+    const target = resolveCompatibilityTarget(manifest, targetId);
+    const platform = manifest.platforms[target.platform];
+    const id = `${lane}-${target.id}-e2e${families.length ? `-${families.join("-").toLowerCase()}` : ""}`;
+    cells.push({
+      id,
+      targetId: target.id,
+      version: target.version,
+      platform: target.platform,
+      runner: platform.runner,
+      mode: "behavior",
+      suite: "full",
+      domain: "e2e",
+      lane,
+      families: [...families],
+      fixtureScale,
+      sidecarStartupModel: "pre-staged-current-source",
+      invocationProfileModel: "one-fresh-copied-profile-per-invocation",
+      blocking: E2E_PROMOTION_STATE[id] ?? false,
+    });
+  };
+  const releaseE2ETargets = [
+    "zotero-7-linux-x64",
+    "zotero-9-linux-x64",
+    "zotero-10-linux-x64",
+    "zotero-7-windows-x64",
+    "zotero-9-windows-x64",
+    "zotero-10-windows-x64",
+  ];
+  if (gate === "weekly") {
+    for (const targetId of releaseE2ETargets) {
+      addE2ECell("weekly", targetId, ["SL", "RH", "PA", "PM", "CG", "HB"]);
+    }
+    return cells;
+  }
+  if (gate === "stress") {
+    addE2ECell("stress", "zotero-10-linux-x64", [], "stress");
+    return cells;
+  }
+  if (gate === "manual-gold") {
+    addE2ECell(
+      "manual-gold",
+      "zotero-10-linux-x64",
+      ["RH", "PA", "PM", "CG"],
+      "large-gold",
+    );
+    return cells;
+  }
   for (const target of manifest.targets) {
     const platform = manifest.platforms[target.platform];
     const addCell = (mode: CompatibilityMode, suite?: CompatibilitySuite) => {
@@ -286,6 +489,7 @@ export function buildCompatibilityPlan(
         runner: platform.runner,
         mode,
         ...(suite ? { suite } : {}),
+        ...(mode === "behavior" ? { domain: "all" as const } : {}),
         blocking: target.policy.blocking,
       });
     };
@@ -299,6 +503,21 @@ export function buildCompatibilityPlan(
     }
     if (gate !== "pull-request" && target.policy.xpiSmoke) {
       addCell("xpi-smoke");
+    }
+  }
+  if (gate === "pull-request") {
+    addE2ECell("pull-request", "zotero-10-linux-x64", ["SL", "PM"]);
+  } else if (gate === "main") {
+    for (const targetId of [
+      "zotero-7-linux-x64",
+      "zotero-9-linux-x64",
+      "zotero-10-linux-x64",
+    ]) {
+      addE2ECell("main", targetId, ["SL", "RH", "PA", "PM", "CG", "HB"]);
+    }
+  } else if (gate === "release") {
+    for (const targetId of releaseE2ETargets) {
+      addE2ECell("release", targetId, ["SL", "RH", "PA", "PM", "CG", "HB"]);
     }
   }
   return cells;

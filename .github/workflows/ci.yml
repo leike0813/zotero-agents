@@ -7,10 +7,6 @@ on:
   pull_request:
     branches:
       - main
-  release:
-    types:
-      - published
-
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -41,6 +37,37 @@ jobs:
           name: build-result
           path: .scaffold/build
 
+  compatibility-e2e-linux-candidate:
+    runs-on: ubuntu-24.04
+    needs:
+      - build
+    continue-on-error: true
+    steps:
+      - name: Setup JS
+        uses: zotero-plugin-dev/workflows/setup-js@main
+        with:
+          node-version: 24
+      - name: Setup Synthesis sidecar toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: nightly-2026-07-25
+      - name: Download canonical plugin build
+        uses: actions/download-artifact@v5
+        with:
+          name: build-result
+          path: .scaffold/build
+      - name: Prepare current-source Linux sidecar once
+        env:
+          ZOTERO_COMPAT_LANE: ${{ github.event_name == 'pull_request' && 'pull-request' || 'main' }}
+        run: >-
+          npm run test:zotero:compatibility:prepare --
+          --build-root "$GITHUB_WORKSPACE/.scaffold/build"
+      - name: Upload immutable Linux E2E candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: compatibility-e2e-linux-x64
+          path: .scaffold/build
+
   compatibility-plan:
     runs-on: ubuntu-24.04
     outputs:
@@ -57,7 +84,6 @@ jobs:
         run: |
           gate=pull-request
           if [[ "${{ github.event_name }}" == "push" ]]; then gate=main; fi
-          if [[ "${{ github.event_name }}" == "release" ]]; then gate=release; fi
           npx tsx scripts/run-zotero-compatibility-matrix.ts plan --gate "$gate" --json > "$RUNNER_TEMP/zotero-compatibility-plan.json"
           echo "blocking=$(jq -c '{include: [.include[] | select(.blocking)]}' "$RUNNER_TEMP/zotero-compatibility-plan.json")" >> "$GITHUB_OUTPUT"
           echo "nonblocking=$(jq -c '{include: [.include[] | select(.blocking | not)]}' "$RUNNER_TEMP/zotero-compatibility-plan.json")" >> "$GITHUB_OUTPUT"
@@ -135,12 +161,18 @@ jobs:
           path: ${{ runner.temp }}/zotero-host-cache/archives
           key: zotero-host-${{ matrix.platform }}-${{ matrix.version }}-${{ hashFiles('tests/zotero/compatibility-matrix.json') }}
       - name: Run real Zotero compatibility cell
+        env:
+          ZOTERO_COMPAT_FAMILIES: ${{ join(matrix.families, ',') }}
+          ZOTERO_COMPAT_LANE: ${{ matrix.lane || 'pull-request' }}
+          ZOTERO_COMPAT_FIXTURE_SCALE: ${{ matrix.fixtureScale || 'committed-seed' }}
+          ZOTERO_COMPAT_BLOCKING: ${{ matrix.blocking }}
         shell: bash
         run: >-
           npx tsx scripts/run-zotero-compatibility-matrix.ts run
           --target "${{ matrix.targetId }}"
           --mode "${{ matrix.mode }}"
           --suite "${{ matrix.suite || 'lite' }}"
+          --domain "${{ matrix.domain || 'all' }}"
           --cache-root "${{ runner.temp }}/zotero-host-cache"
           --runs-root "${{ runner.temp }}/zotero-compat-runs"
           --build-root "$GITHUB_WORKSPACE/.scaffold/build"
@@ -153,12 +185,12 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-  zotero-compatibility-macos-evidence:
-    if: github.event_name != 'pull_request'
+  zotero-compatibility-evidence:
     name: Zotero ${{ matrix.version }} / ${{ matrix.platform }} / evidence
     needs:
       - build
       - compatibility-plan
+      - compatibility-e2e-linux-candidate
     continue-on-error: true
     strategy:
       fail-fast: false
@@ -170,26 +202,39 @@ jobs:
         with:
           node-version: 24
       - name: Download canonical plugin build
+        if: matrix.domain != 'e2e'
         uses: actions/download-artifact@v5
         with:
           name: build-result
+          path: .scaffold/build
+      - name: Download immutable E2E candidate
+        if: matrix.domain == 'e2e'
+        uses: actions/download-artifact@v5
+        with:
+          name: compatibility-e2e-linux-x64
           path: .scaffold/build
       - name: Restore authenticated Zotero archive
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/zotero-host-cache/archives
           key: zotero-host-${{ matrix.platform }}-${{ matrix.version }}-${{ hashFiles('tests/zotero/compatibility-matrix.json') }}
-      - name: Run macOS formal-XPI evidence cell
+      - name: Run real Zotero compatibility evidence cell
+        env:
+          ZOTERO_COMPAT_FAMILIES: ${{ join(matrix.families, ',') }}
+          ZOTERO_COMPAT_LANE: ${{ matrix.lane || 'pull-request' }}
+          ZOTERO_COMPAT_FIXTURE_SCALE: ${{ matrix.fixtureScale || 'committed-seed' }}
+          ZOTERO_COMPAT_BLOCKING: ${{ matrix.blocking }}
         shell: bash
         run: >-
           npx tsx scripts/run-zotero-compatibility-matrix.ts run
           --target "${{ matrix.targetId }}"
           --mode "${{ matrix.mode }}"
-          --suite lite
+          --suite "${{ matrix.suite || 'lite' }}"
+          --domain "${{ matrix.domain || 'all' }}"
           --cache-root "${{ runner.temp }}/zotero-host-cache"
           --runs-root "${{ runner.temp }}/zotero-compat-runs"
           --build-root "$GITHUB_WORKSPACE/.scaffold/build"
-      - name: Upload macOS receipt and diagnostics
+      - name: Upload compatibility evidence receipt and diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:

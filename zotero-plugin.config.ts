@@ -157,6 +157,15 @@ export function resolveTestEntries(
   return [setup, ...entries.core, ...entries.ui, ...entries.workflow];
 }
 
+export function shouldStageDirectSynthesisBundle(
+  domain: TestDomain = TEST_DOMAIN,
+  env: NodeJS.ProcessEnv = process.env,
+) {
+  return (
+    domain === "e2e" && env.ZOTERO_COMPAT_PREBUILT_ARTIFACTS?.trim() !== "1"
+  );
+}
+
 const TEST_MODE = normalizeTestMode(process.env.ZOTERO_TEST_MODE);
 const TEST_DOMAIN = normalizeTestDomain(process.env.ZOTERO_TEST_DOMAIN);
 const TEST_ENTRIES = resolveTestEntries(
@@ -273,6 +282,9 @@ export default defineConfig({
   xpiDownloadLink: `https://github.com/${RELEASE_REPO}/releases/download/v{{version}}/{{xpiName}}.xpi`,
 
   release: {
+    bumpp: {
+      execute: "npm run check:synthesis-sidecar-runtime-xpi",
+    },
     github: {
       repository: RELEASE_UPLOAD_REPO,
     },
@@ -454,7 +466,7 @@ export default defineConfig({
     hooks: {
       "test:init": stageZoteroE2EFixture,
       "test:prebuild": async () => {
-        if (TEST_DOMAIN === "e2e") {
+        if (shouldStageDirectSynthesisBundle()) {
           stageDirectSynthesisBundle(path.resolve(".scaffold/build/addon"));
         }
       },

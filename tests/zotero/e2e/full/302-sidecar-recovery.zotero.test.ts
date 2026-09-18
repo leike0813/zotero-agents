@@ -15,6 +15,7 @@ import {
 import { createSyntheticSynthesisProductionRouteDataset } from "../../../fixtures/synthesisSyntheticDatasets";
 import {
   PHASE1_FAMILY_DECLARATIONS,
+  resolvePhase1FamilySelection,
   runFamilyLifecycle,
   type Phase1FamilyId,
 } from "../../../../scripts/system-e2e/familyLifecycle";
@@ -518,6 +519,30 @@ async function emitCase(args: {
   });
 }
 
+const selectedPhase1Families = new Set(
+  resolvePhase1FamilySelection(
+    readDiagnosticsEnv("ZOTERO_SYSTEM_E2E_FAMILIES"),
+  ),
+);
+
+function phase1FamilyTest(familyId: Phase1FamilyId) {
+  return (
+    title: string,
+    callback: (this: Mocha.Context) => void | Promise<void>,
+  ) =>
+    it(title, function () {
+      if (!selectedPhase1Families.has(familyId)) this.skip();
+      return callback.call(this);
+    });
+}
+
+const sl = phase1FamilyTest("SL");
+const rh = phase1FamilyTest("RH");
+const pa = phase1FamilyTest("PA");
+const pm = phase1FamilyTest("PM");
+const cg = phase1FamilyTest("CG");
+const hb = phase1FamilyTest("HB");
+
 describe("System E2E sidecar recovery", function () {
   this.timeout(240_000);
 
@@ -527,7 +552,8 @@ describe("System E2E sidecar recovery", function () {
     }
   });
 
-  it("SL-01 stops through public system.shutdown and restores a healthy owner", async function () {
+  // prettier-ignore
+  sl("SL-01 stops through public system.shutdown and restores a healthy owner", async function () {
     if (detectRuntimePlatform() !== "linux") this.skip();
     const initial = await waitUntil(() => readyDiscovery());
     const composition = await clientFor(initial);
@@ -596,7 +622,8 @@ describe("System E2E sidecar recovery", function () {
     assert.equal(result.result, "passed", caseError);
   });
 
-  it("SL-02 rolls back owners when launch input fails before ready", async function () {
+  // prettier-ignore
+  sl("SL-02 rolls back owners when launch input fails before ready", async function () {
     if (detectRuntimePlatform() !== "linux") this.skip();
     const initial = await waitUntil(() => readyDiscovery());
     const composition = await clientFor(initial);
@@ -687,7 +714,8 @@ describe("System E2E sidecar recovery", function () {
     assert.equal(result.result, "passed", launchFailureCode);
   });
 
-  it("SL-03 replaces an externally terminated ready generation", async function () {
+  // prettier-ignore
+  sl("SL-03 replaces an externally terminated ready generation", async function () {
     if (detectRuntimePlatform() !== "linux") this.skip();
     const initial = await waitUntil(() => readyDiscovery());
     let replacement: Awaited<ReturnType<typeof readyDiscovery>>;
@@ -740,7 +768,8 @@ describe("System E2E sidecar recovery", function () {
     assert.equal(result.result, "passed");
   });
 
-  it("RH-01 refreshes every reference page on one coherent basis", async function () {
+  // prettier-ignore
+  rh("RH-01 refreshes every reference page on one coherent basis", async function () {
     const ready = await waitUntil(() => readyDiscovery());
     const composition = await clientFor(ready);
     const ownedItems: Zotero.Item[] = [];
@@ -838,7 +867,8 @@ describe("System E2E sidecar recovery", function () {
     assert.equal(result.result, "passed", caseError);
   });
 
-  it("RH-02 rejects a mixed-basis paged refresh and retries fresh", async function () {
+  // prettier-ignore
+  rh("RH-02 rejects a mixed-basis paged refresh and retries fresh", async function () {
     const ready = await waitUntil(() => readyDiscovery());
     const composition = await clientFor(ready);
     const checkpoint = "reference-after-first-page";
@@ -943,7 +973,8 @@ describe("System E2E sidecar recovery", function () {
     assert.equal(result.result, "passed", caseError);
   });
 
-  it("PA-01 reads a historical Topic without rewriting its read-only metadata", async function () {
+  // prettier-ignore
+  pa("PA-01 reads a historical Topic without rewriting its read-only metadata", async function () {
     const facts = (await readPhase1StructuralFacts()).historicalTopic;
     const ready = await waitUntil(() => readyDiscovery());
     let composition = await clientFor(ready);
@@ -1104,7 +1135,8 @@ describe("System E2E sidecar recovery", function () {
     assert.equal(result.result, "passed", caseError);
   });
 
-  it("PA-02 keeps valid Index neighbors when one artifact is oversized", async function () {
+  // prettier-ignore
+  pa("PA-02 keeps valid Index neighbors when one artifact is oversized", async function () {
     const ready = await waitUntil(() => readyDiscovery());
     const composition = await clientFor(ready);
     const ownedItems: Zotero.Item[] = [];
@@ -1200,7 +1232,8 @@ describe("System E2E sidecar recovery", function () {
     assert.equal(result.result, "passed", caseError);
   });
 
-  it("PM-01 exactly replays one admitted maintenance operation", async function () {
+  // prettier-ignore
+  pm("PM-01 exactly replays one admitted maintenance operation", async function () {
     const ready = await waitUntil(() => readyDiscovery());
     const composition = await clientFor(ready);
     const checkpoint = "maintenance-after-admission";
@@ -1300,7 +1333,8 @@ describe("System E2E sidecar recovery", function () {
     assert.equal(result.result, "passed", caseError);
   });
 
-  it("PM-02 requires explicit continuation after admitted restart", async function () {
+  // prettier-ignore
+  pm("PM-02 requires explicit continuation after admitted restart", async function () {
     if (detectRuntimePlatform() !== "linux") this.skip();
     const initial = await waitUntil(() => readyDiscovery());
     const initialComposition = await clientFor(initial);
@@ -1468,7 +1502,8 @@ describe("System E2E sidecar recovery", function () {
     assert.equal(result.result, "passed", caseError);
   });
 
-  it("PM-03 reconciles a killed running operation without replay", async function () {
+  // prettier-ignore
+  pm("PM-03 reconciles a killed running operation without replay", async function () {
     if (detectRuntimePlatform() !== "linux") this.skip();
     const initial = await waitUntil(() => readyDiscovery());
     const initialComposition = await clientFor(initial);
@@ -1652,7 +1687,8 @@ describe("System E2E sidecar recovery", function () {
     assert.equal(result.result, "passed", caseError);
   });
 
-  it("PM-04 cancels a running operation only at promotion", async function () {
+  // prettier-ignore
+  pm("PM-04 cancels a running operation only at promotion", async function () {
     const ready = await waitUntil(() => readyDiscovery());
     const composition = await clientFor(ready);
     const checkpoint = "reference-after-first-page";
@@ -1759,7 +1795,8 @@ describe("System E2E sidecar recovery", function () {
     assert.equal(result.result, "passed", caseError);
   });
 
-  it("CG-01 rejects a stale graph view after public rebuild", async function () {
+  // prettier-ignore
+  cg("CG-01 rejects a stale graph view after public rebuild", async function () {
     const facts = (await readPhase1StructuralFacts()).citationGraph;
     const ready = await waitUntil(() => readyDiscovery());
     const composition = await clientFor(ready);
@@ -1878,7 +1915,8 @@ describe("System E2E sidecar recovery", function () {
     assert.equal(result.result, "passed", caseError);
   });
 
-  it("HB-01 exactly replays one public Unicode note mutation", async function () {
+  // prettier-ignore
+  hb("HB-01 exactly replays one public Unicode note mutation", async function () {
     const facts = (await readPhase1StructuralFacts()).unicodeNote;
     const parent = new Zotero.Item("journalArticle");
     parent.setField("title", "Synthetic Host Bridge Replay Parent");
@@ -1997,7 +2035,8 @@ describe("System E2E sidecar recovery", function () {
     assert.equal(result.result, "passed", caseError);
   });
 
-  it("HB-02 rejects a changed semantic digest without changing evidence", async function () {
+  // prettier-ignore
+  hb("HB-02 rejects a changed semantic digest without changing evidence", async function () {
     const facts = (await readPhase1StructuralFacts()).unicodeNote;
     const parent = new Zotero.Item("journalArticle");
     parent.setField("title", "Synthetic Host Bridge Conflict Parent");
@@ -2117,7 +2156,8 @@ describe("System E2E sidecar recovery", function () {
 describe("System E2E Host Bridge owner restart", function () {
   this.timeout(240_000);
 
-  it("HB-03 reconciles admitted canonical mutation evidence without replay", async function () {
+  // prettier-ignore
+  hb("HB-03 reconciles admitted canonical mutation evidence without replay", async function () {
     if (detectRuntimePlatform() !== "linux") this.skip();
     const resume =
       readDiagnosticsEnv("ZOTERO_SYSTEM_E2E_RESUME_CASE") === "HB-03";

@@ -87,6 +87,51 @@ debug 构建会持续写入 `runtime/logs/citation-graph-crash-journal.json`。�
 
 新增 E2E 用例时只断言用户可观察的终态、持久化结果和宿主存活性。不要断言内部调用顺序，也不要直接对金例来源目录执行写入。
 
+## 兼容性矩阵、校准与晋级
+
+兼容性矩阵仍由 `tests/zotero/compatibility-matrix.json` 和 `scripts/zotero-compatibility-fixture.ts` 统一规划。System E2E 不另建 runner；workflow 先构建一次插件，再按 runner 平台准备当前源码 sidecar。每个 cell 在运行前后核对插件摘要、sidecar fingerprint、lane、commit/ref 和 sidecar target，cell 内禁用重新构建。
+
+固定 cell 如下：
+
+| Lane | Cell identity | Families | 初始状态 |
+| --- | --- | --- | --- |
+| PR | `pull-request-zotero-10-linux-x64-e2e-sl-pm` | `SL/PM` | non-blocking |
+| main | `main-zotero-{7,9,10}-linux-x64-e2e-sl-rh-pa-pm-cg-hb` | 全部六组 | 各自 non-blocking |
+| release | `release-zotero-{7,9,10}-{linux,windows}-x64-e2e-sl-rh-pa-pm-cg-hb` | 全部六组 | 各自 non-blocking |
+| weekly | 与 release 相同的六个目标，前缀为 `weekly-` | 全部六组 | non-gating |
+| stress | `stress-zotero-10-linux-x64-e2e` | 既有 close-stress 场景 | non-gating |
+| manual gold | `manual-gold-zotero-10-linux-x64-e2e-rh-pa-pm-cg` | `RH/PA/PM/CG` | non-gating |
+
+查看规划或在本机运行单个 cell：
+
+```bash
+npm run test:zotero:compatibility:plan -- --gate main --json
+
+ZOTERO_COMPAT_LANE=main npm run test:zotero:compatibility:prepare -- \
+  --build-root="$PWD/.scaffold/build"
+
+ZOTERO_COMPAT_LANE=main \
+ZOTERO_COMPAT_FAMILIES=SL,RH,PA,PM,CG,HB \
+npm run test:zotero:compatibility:run -- \
+  --target=zotero-10-linux-x64 \
+  --mode=behavior --suite=full --domain=e2e \
+  --build-root="$PWD/.scaffold/build"
+```
+
+PR 与 main 由 `.github/workflows/ci.yml` 的 `CI` workflow 执行。tag 发布由 `.github/workflows/release.yml` 的 `Release` workflow 执行：先生成唯一 `release-candidate`，再为 Linux/Windows 准备 sidecar 并完成 release compatibility jobs，最后 `create-release` 下载同一候选物发布；`npm run release` 只校验 XPI，不重新构建。main 证据不能替代 tag-bound release 证据。
+
+scheduled 与手工证据由 `.github/workflows/system-e2e-evidence.yml` 的 `System E2E Evidence` workflow 执行。周日 cron 是 weekly，周三 cron 是 stress；`workflow_dispatch` 可显式选择 `weekly`、`stress` 或 `manual-gold`。manual-gold 从 repository variables `ZOTERO_E2E_GOLD_DATA_DIR` 与 `ZOTERO_E2E_GOLD_PROFILE_DIR` 读取 runner 上的只读来源，未配置或路径无效时该 invocation 必须失败。它们都不提供 release authority。
+
+新 workflow 尚未进入默认分支时，用 `e2e-calibration-pr-*`、`e2e-calibration-main-*`、`e2e-calibration-release-*` tag 从该 tag 指向的提交启动非发布校准。每个 lane 创建三枚唯一 tag，分别保留三个独立 workflow run；workflow 只选 planner 中的 E2E cells，release 校准包含 Linux/Windows，但不调用 `npm run release`，也不产生发布 authority。
+
+每个 prospective blocking cell 需要三个独立 workflow run 的完整、干净 manifest。三轮必须具有相同的 Zotero target/version、runner OS/image、family grouping、fixture scale、sidecar startup model 和 invocation/profile model，并使用不同 workflow run、run ID 与 profile identity。`complete` 终态、所有 family 通过、cleanup/health 通过、无残留 process/port/lock 缺一不可。普通源码 commit、插件摘要、sidecar fingerprint 或 fixture revision 的变化本身不清零校准 identity。
+
+分组只看三轮中最大的干净耗时；候选阈值依次为 PR 15 分钟、main 30 分钟、release 45 分钟、weekly/stress 60 分钟、manual-gold 90 分钟。这些值不写入产品 timeout。超过阈值时先拆为 `SL/RH/PA/PM/CG` 与 `HB`，仍超限才拆为 `SL/PM`、`RH/PA/CG`、`HB`，不得拆开 family。
+
+晋级是对 `E2E_PROMOTION_STATE` 中单个 cell 的显式代码修改；没有自动晋级，也不要求无关 cell 同时晋级。评审 PR 应列出三份 workflow artifact 中的 compatibility receipt、Run Manifest reference、最大耗时和校准 identity。Windows release cell 还必须有可信且通过的 `CG-02` 证据，以及实际运行得到的 Zotero 9 分类；条件不全就保持 `false`。
+
+只有 weekly 允许自动诊断重跑。第一次非通过后，`weekly-run` 以新 profile、新 run ID 和 `predecessorRunId` 完整重跑该 cell 一次，两份 manifest 分开保留；后继通过记为 `intermittent`，再次失败记为 `persistent`，两种情况 workflow 都保留第一次失败。PR、main、release、stress 和 manual-gold 不自动重跑。
+
 ## 首启行为与外部浏览器
 
 Zotero 每次在“新 profile 的首次启动”都会打开 `https://www.zotero.org/start`，而且不是开在 Zotero 内部：`ZoteroPane` 的 `loadURI` 对普通 http(s) URL 直接调用 `Zotero.launchURL()`，也就是丢给系统默认浏览器，表现成一枚新标签页。开关是 `extensions.zotero.firstRun2`——启动时为真才打开，随后 Zotero 自己把它置回 false。测试每轮都从新 profile 起步，所以这条路径每次都会命中。

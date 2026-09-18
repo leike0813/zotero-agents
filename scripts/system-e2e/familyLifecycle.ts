@@ -78,6 +78,22 @@ export const PHASE1_FAMILY_DECLARATIONS: Record<
   },
 };
 
+export function resolvePhase1FamilySelection(
+  requested?: string,
+): Phase1FamilyId[] {
+  const available = Object.keys(PHASE1_FAMILY_DECLARATIONS) as Phase1FamilyId[];
+  const values = String(requested || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (values.length === 0) return available;
+  const selected = new Set(values);
+  if (values.some((value) => !(value in PHASE1_FAMILY_DECLARATIONS))) {
+    throw new Error("family_selection_invalid");
+  }
+  return available.filter((familyId) => selected.has(familyId));
+}
+
 type HealthGateResult = {
   status: "passed" | "failed" | "indeterminate";
   hostResponsive: boolean;

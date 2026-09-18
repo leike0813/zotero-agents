@@ -3,10 +3,13 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { parse as parseYaml } from "yaml";
 import {
   acquireZoteroMachineRunLock,
+  assertCompatibilityArtifactIdentity,
   buildCompatibilityPlan,
   cleanupRunLayoutState,
+  createE2EExecutionCell,
   createCompatibilityReceipt,
   createRunLayout,
   ensureCachedHostArchive,
@@ -18,15 +21,138 @@ import {
   validateCompatibilityManifest,
   writeCompatibilityReceipt,
   type CompatibilityManifest,
+  type CompatibilityExecutionCell,
+  E2E_PROMOTION_STATE,
 } from "../../scripts/zotero-compatibility-fixture";
+import {
+  evaluateCalibrationGrouping,
+  evaluateE2EPromotion,
+  validateCalibrationRounds,
+  type CalibrationRound,
+} from "../../scripts/system-e2e/calibration";
+import type { RunManifest } from "../../scripts/system-e2e/manifest";
+import {
+  runWeeklyRetryPolicy,
+  type WeeklyAttemptResult,
+} from "../../scripts/system-e2e/weeklyRetry";
 import {
   parseSupportedZoteroMajor,
   type SupportedZoteroMajor,
 } from "../../src/shared/zoteroRuntimeVersion";
+import { resolveCompatibilityWorkerEntries } from "../../scripts/run-zotero-compatibility-worker";
+import {
+  parseCompatibilityCliArgs,
+  parseCompatibilityRunManifestReference,
+} from "../../scripts/run-zotero-compatibility-matrix";
+import zoteroPluginConfig, {
+  resolveTestEntries,
+  shouldStageDirectSynthesisBundle,
+} from "../../zotero-plugin.config";
 
 const MATRIX_PATH = path.resolve("tests/zotero/compatibility-matrix.json");
 
+function calibrationManifest(args: {
+  runId: string;
+  cell: CompatibilityExecutionCell;
+  sourceCommit?: string;
+  fixtureRevision?: number;
+}): RunManifest {
+  return {
+    schemaVersion: "system-e2e-run-manifest.v1",
+    runId: args.runId,
+    triggerLane: args.cell.lane,
+    sourceCommit: args.sourceCommit || "source",
+    pluginVersion: "0.9.0",
+    zoteroVersion: args.cell.version,
+    platform:
+      args.cell.runnerEnvironment.os === "windows"
+        ? "win32"
+        : args.cell.runnerEnvironment.os === "macos"
+          ? "darwin"
+          : args.cell.runnerEnvironment.os,
+    architecture: "x64",
+    sidecarBuildIdentity: args.cell.sidecarFingerprint,
+    fixture: {
+      fixtureId: "foundation-v1",
+      schemaVersion: "system-e2e-fixture.v1",
+      fixtureRevision: args.fixtureRevision || 1,
+    },
+    startedAt: "2026-09-18T00:00:00.000Z",
+    finishedAt: "2026-09-18T00:01:00.000Z",
+    terminalState: "complete",
+    families: args.cell.families.map((familyId) => ({
+      familyId,
+      result: "passed",
+      publicOutcome: "passed",
+      typedEvidence: [
+        { kind: "receipt", schemaVersion: "v1", terminalStatus: "passed" },
+      ],
+      lifecycle: [{ checkpoint: "terminal", outcome: "passed" }],
+      cleanup: "passed",
+      health: "passed",
+      artifacts: [],
+    })),
+  };
+}
+
 describe("Zotero compatibility fixture contracts", function () {
+  describe("compatibility worker membership", function () {
+    const cases = [
+      {
+        name: "lite",
+        entries: resolveTestEntries("all", "lite"),
+        expected: [
+          "tests/zotero/setup.test.ts",
+          "tests/zotero/core/lite",
+          "tests/zotero/ui/lite",
+          "tests/zotero/workflow/lite",
+        ],
+      },
+      {
+        name: "full",
+        entries: resolveTestEntries("all", "full"),
+        expected: [
+          "tests/zotero/setup.test.ts",
+          "tests/zotero/core/lite",
+          "tests/zotero/core/full",
+          "tests/zotero/ui/lite",
+          "tests/zotero/ui/full",
+          "tests/zotero/workflow/lite",
+          "tests/zotero/workflow/full",
+        ],
+      },
+      {
+        name: "e2e",
+        entries: resolveTestEntries("e2e", "full"),
+        expected: ["tests/zotero/setup.test.ts", "tests/zotero/e2e/full"],
+      },
+    ];
+
+    for (const { name, entries, expected } of cases) {
+      it(`uses direct ${name} suite entries`, function () {
+        assert.deepEqual(
+          resolveCompatibilityWorkerEntries("behavior", entries),
+          [...expected, "tests/zotero/compatibility/probe/suite.test.ts"],
+        );
+      });
+    }
+
+    it("keeps the formal XPI suite independent of behavioral membership", function () {
+      assert.deepEqual(resolveCompatibilityWorkerEntries("xpi-smoke", []), [
+        "tests/zotero/compatibility/xpi/suite.test.ts",
+      ]);
+    });
+
+    it("does not replace pre-staged E2E artifacts inside a cell", function () {
+      assert.isFalse(
+        shouldStageDirectSynthesisBundle("e2e", {
+          ZOTERO_COMPAT_PREBUILT_ARTIFACTS: "1",
+        }),
+      );
+      assert.isTrue(shouldStageDirectSynthesisBundle("e2e", {}));
+    });
+  });
+
   describe("supported Zotero major", function () {
     const cases: Array<[unknown, SupportedZoteroMajor]> = [
       ["7.0.32", 7],
@@ -46,6 +172,46 @@ describe("Zotero compatibility fixture contracts", function () {
   });
 
   describe("compatibility matrix", function () {
+    it("accepts the e2e domain without widening other CLI values", function () {
+      assert.strictEqual(
+        parseCompatibilityCliArgs(["prepare"]).command,
+        "prepare",
+      );
+      assert.strictEqual(
+        parseCompatibilityCliArgs(["run", "--domain", "e2e"]).domain,
+        "e2e",
+      );
+      assert.throws(
+        () => parseCompatibilityCliArgs(["run", "--domain", "browser"]),
+        /domain/i,
+      );
+      assert.strictEqual(
+        parseCompatibilityCliArgs(["run", "--mode", "xpi-smoke"]).mode,
+        "xpi-smoke",
+      );
+      assert.deepEqual(
+        parseCompatibilityCliArgs([
+          "run",
+          "--domain",
+          "e2e",
+          "--families",
+          "PM,SL",
+        ]).families,
+        ["SL", "PM"],
+      );
+      assert.throws(
+        () =>
+          parseCompatibilityCliArgs([
+            "run",
+            "--domain",
+            "e2e",
+            "--families",
+            "SL-01",
+          ]),
+        /family_selection_invalid/,
+      );
+    });
+
     it("loads the checked-in manifest as the matrix SSOT", async function () {
       const manifest = await loadCompatibilityManifest(MATRIX_PATH);
       assert.strictEqual(
@@ -73,46 +239,175 @@ describe("Zotero compatibility fixture contracts", function () {
       );
     });
 
-    it("plans six blocking lite cells for pull requests", async function () {
+    it("plans six blocking lite cells and one non-blocking SL+PM E2E cell for pull requests", async function () {
       const manifest = await loadCompatibilityManifest(MATRIX_PATH);
       const plan = buildCompatibilityPlan(manifest, "pull-request");
-      assert.lengthOf(plan, 6);
+      const lite = plan.filter((cell) => cell.domain === "all");
+      assert.lengthOf(lite, 6);
       assert.isTrue(
-        plan.every(
+        lite.every(
           (cell) =>
-            cell.mode === "behavior" && cell.suite === "lite" && cell.blocking,
+            cell.mode === "behavior" &&
+            cell.suite === "lite" &&
+            cell.domain === "all" &&
+            cell.blocking,
         ),
       );
       assert.deepEqual([...new Set(plan.map((cell) => cell.platform))].sort(), [
         "linux-x64",
         "windows-x64",
       ]);
+      assert.deepInclude(
+        plan.find((cell) => cell.domain === "e2e"),
+        {
+          targetId: "zotero-10-linux-x64",
+          version: "10.0.1",
+          platform: "linux-x64",
+          runner: "ubuntu-24.04",
+          mode: "behavior",
+          suite: "full",
+          domain: "e2e",
+          lane: "pull-request",
+          families: ["SL", "PM"],
+          fixtureScale: "committed-seed",
+          sidecarStartupModel: "pre-staged-current-source",
+          invocationProfileModel: "one-fresh-copied-profile-per-invocation",
+          blocking: false,
+        },
+      );
     });
 
     for (const gate of ["main", "release"] as const) {
       it(`plans full, XPI, and macOS evidence cells for ${gate}`, async function () {
         const manifest = await loadCompatibilityManifest(MATRIX_PATH);
         const plan = buildCompatibilityPlan(manifest, gate);
-        assert.lengthOf(plan, 14);
+        const existing = plan.filter((cell) => cell.domain !== "e2e");
+        assert.lengthOf(existing, 14);
         assert.lengthOf(
-          plan.filter(
+          existing.filter(
             (cell) => cell.mode === "behavior" && cell.suite === "full",
           ),
           6,
         );
         assert.lengthOf(
-          plan.filter((cell) => cell.mode === "xpi-smoke" && cell.blocking),
+          existing.filter((cell) => cell.mode === "xpi-smoke" && cell.blocking),
           6,
         );
         assert.deepEqual(
-          plan
+          existing
             .filter((cell) => !cell.blocking)
             .map((cell) => cell.platform)
             .sort(),
           ["macos-arm64", "macos-x64"],
         );
+        assert.isTrue(
+          existing
+            .filter((cell) => cell.mode === "xpi-smoke")
+            .every((cell) => cell.domain === undefined),
+        );
       });
     }
+
+    it("plans one non-blocking all-family Linux E2E cell per Zotero major on main", async function () {
+      const manifest = await loadCompatibilityManifest(MATRIX_PATH);
+      const cells = buildCompatibilityPlan(manifest, "main").filter(
+        (cell) => cell.domain === "e2e",
+      );
+
+      assert.deepEqual(
+        cells.map((cell) => cell.targetId),
+        ["zotero-7-linux-x64", "zotero-9-linux-x64", "zotero-10-linux-x64"],
+      );
+      assert.isTrue(
+        cells.every(
+          (cell) =>
+            cell.lane === "main" &&
+            cell.blocking === false &&
+            cell.fixtureScale === "committed-seed" &&
+            cell.invocationProfileModel ===
+              "one-fresh-copied-profile-per-invocation" &&
+            JSON.stringify(cell.families) ===
+              JSON.stringify(["SL", "RH", "PA", "PM", "CG", "HB"]),
+        ),
+      );
+    });
+
+    it("plans tag-bound all-family Linux and Windows E2E cells for release", async function () {
+      const manifest = await loadCompatibilityManifest(MATRIX_PATH);
+      const plan = buildCompatibilityPlan(manifest, "release");
+      const cells = plan.filter((cell) => cell.domain === "e2e");
+
+      assert.deepEqual(
+        cells.map((cell) => cell.targetId),
+        [
+          "zotero-7-linux-x64",
+          "zotero-9-linux-x64",
+          "zotero-10-linux-x64",
+          "zotero-7-windows-x64",
+          "zotero-9-windows-x64",
+          "zotero-10-windows-x64",
+        ],
+      );
+      assert.isTrue(
+        cells.every(
+          (cell) =>
+            cell.lane === "release" &&
+            cell.blocking === false &&
+            JSON.stringify(cell.families) ===
+              JSON.stringify(["SL", "RH", "PA", "PM", "CG", "HB"]),
+        ),
+      );
+      assert.deepEqual(
+        plan
+          .filter(
+            (cell) =>
+              cell.mode === "xpi-smoke" && cell.platform.startsWith("macos"),
+          )
+          .map((cell) => cell.platform)
+          .sort(),
+        ["macos-arm64", "macos-x64"],
+      );
+    });
+
+    it("plans non-gating weekly, stress, and manual-gold evidence", async function () {
+      const manifest = await loadCompatibilityManifest(MATRIX_PATH);
+      const weekly = buildCompatibilityPlan(manifest, "weekly");
+      assert.deepEqual(
+        weekly.map((cell) => cell.targetId),
+        [
+          "zotero-7-linux-x64",
+          "zotero-9-linux-x64",
+          "zotero-10-linux-x64",
+          "zotero-7-windows-x64",
+          "zotero-9-windows-x64",
+          "zotero-10-windows-x64",
+        ],
+      );
+      assert.isTrue(
+        weekly.every(
+          (cell) =>
+            cell.lane === "weekly" &&
+            cell.blocking === false &&
+            cell.fixtureScale === "committed-seed" &&
+            cell.families?.length === 6,
+        ),
+      );
+
+      assert.deepInclude(buildCompatibilityPlan(manifest, "stress")[0], {
+        targetId: "zotero-10-linux-x64",
+        lane: "stress",
+        families: [],
+        fixtureScale: "stress",
+        blocking: false,
+      });
+      assert.deepInclude(buildCompatibilityPlan(manifest, "manual-gold")[0], {
+        targetId: "zotero-10-linux-x64",
+        lane: "manual-gold",
+        families: ["RH", "PA", "PM", "CG"],
+        fixtureScale: "large-gold",
+        blocking: false,
+      });
+    });
 
     it("rejects missing digests and undeclared runners", function () {
       const invalid = {
@@ -153,6 +448,518 @@ describe("Zotero compatibility fixture contracts", function () {
         () => resolveCompatibilityTarget(manifest, "zotero-11-linux-x64"),
         /target/i,
       );
+    });
+
+    it("binds a complete E2E execution-cell identity into plans and receipts", async function () {
+      const manifest = await loadCompatibilityManifest(MATRIX_PATH);
+      const target = resolveCompatibilityTarget(
+        manifest,
+        "zotero-10-linux-x64",
+      );
+      const cell = createE2EExecutionCell({
+        id: "pr-zotero-10-linux-x64-sl-pm",
+        lane: "pull-request",
+        target,
+        runnerEnvironment: {
+          os: manifest.platforms[target.platform].os,
+          image: manifest.platforms[target.platform].runner,
+        },
+        families: ["SL", "PM"],
+        fixtureScale: "committed-seed",
+        blocking: false,
+        pluginDigest: "a".repeat(64),
+        sidecarFingerprint: "b".repeat(64),
+        runManifestReference:
+          "artifacts/test-diagnostics/system-e2e/run-1/run-manifest.json",
+      });
+
+      assert.deepEqual(cell, {
+        id: "pr-zotero-10-linux-x64-sl-pm",
+        lane: "pull-request",
+        targetId: "zotero-10-linux-x64",
+        version: "10.0.1",
+        platform: "linux-x64",
+        families: ["SL", "PM"],
+        runnerEnvironment: { os: "linux", image: "ubuntu-24.04" },
+        fixtureScale: "committed-seed",
+        sidecarStartupModel: "pre-staged-current-source",
+        invocationProfileModel: "one-fresh-copied-profile-per-invocation",
+        blocking: false,
+        pluginDigest: "a".repeat(64),
+        sidecarFingerprint: "b".repeat(64),
+        runManifestReference:
+          "artifacts/test-diagnostics/system-e2e/run-1/run-manifest.json",
+      });
+
+      const receipt = createCompatibilityReceipt({
+        runId: "e2e-run",
+        source: { commit: "abc123", dirty: false },
+        plugin: {
+          version: "0.9.0",
+          artifactPath: "/artifact/zotero-agents.xpi",
+          artifactSha256: cell.pluginDigest,
+          manifestMin: "7.0",
+          manifestMax: "10.0.*",
+        },
+        host: {
+          id: target.id,
+          requestedVersion: target.version,
+          platform: target.platform,
+          archiveSha256: target.sha256,
+          downloadUrl: target.downloadUrl,
+        },
+        execution: {
+          mode: "behavior",
+          suite: "full",
+          domain: "e2e",
+          cell,
+        },
+      });
+      assert.deepEqual(receipt.execution.cell, cell);
+      assert.strictEqual(
+        receipt.plugin.artifactSha256,
+        receipt.execution.cell?.pluginDigest,
+      );
+    });
+  });
+
+  describe("System E2E calibration policy", function () {
+    async function fixtureCell(
+      targetId = "zotero-10-linux-x64",
+    ): Promise<CompatibilityExecutionCell> {
+      const manifest = await loadCompatibilityManifest(MATRIX_PATH);
+      const target = resolveCompatibilityTarget(manifest, targetId);
+      return createE2EExecutionCell({
+        id: `release-${targetId}-e2e-sl-rh-pa-pm-cg-hb`,
+        lane: "release",
+        target,
+        runnerEnvironment: {
+          os: manifest.platforms[target.platform].os,
+          image: manifest.platforms[target.platform].runner,
+        },
+        families: ["SL", "RH", "PA", "PM", "CG", "HB"],
+        fixtureScale: "committed-seed",
+        blocking: false,
+        pluginDigest: "a".repeat(64),
+        sidecarFingerprint: "b".repeat(64),
+        runManifestReference: "evidence/run-manifest.json",
+      });
+    }
+
+    function cleanRound(
+      cell: CompatibilityExecutionCell,
+      index: number,
+    ): CalibrationRound {
+      return {
+        workflowRunId: `workflow-${index}`,
+        profileIdentity: `profile-${index}`,
+        durationMs: index * 60_000,
+        cell: {
+          ...cell,
+          families: [...cell.families],
+          runnerEnvironment: { ...cell.runnerEnvironment },
+          pluginDigest: String(index).repeat(64),
+          sidecarFingerprint: String(index + 3).repeat(64),
+        },
+        manifest: calibrationManifest({
+          runId: `run-${index}`,
+          cell,
+          sourceCommit: `commit-${index}`,
+          fixtureRevision: index,
+        }),
+        infrastructure: {
+          processes: "clean",
+          ports: "released",
+          locks: "released",
+        },
+      };
+    }
+
+    it("requires three independent complete clean rounds", async function () {
+      const cell = await fixtureCell();
+      const rounds = [1, 2, 3].map((index) => cleanRound(cell, index));
+      assert.deepInclude(validateCalibrationRounds(rounds), {
+        eligible: true,
+        maxDurationMs: 180_000,
+      });
+      assert.isFalse(validateCalibrationRounds(rounds.slice(0, 2)).eligible);
+
+      const invalid = [
+        {
+          name: "terminal",
+          mutate: (round: CalibrationRound) => {
+            round.manifest.terminalState = "incomplete";
+          },
+        },
+        {
+          name: "cleanup",
+          mutate: (round: CalibrationRound) => {
+            round.manifest.families[0]!.cleanup = "failed";
+          },
+        },
+        {
+          name: "health",
+          mutate: (round: CalibrationRound) => {
+            round.manifest.families[0]!.health = "failed";
+          },
+        },
+        {
+          name: "process",
+          mutate: (round: CalibrationRound) => {
+            round.infrastructure.processes = "leaked";
+          },
+        },
+        {
+          name: "port",
+          mutate: (round: CalibrationRound) => {
+            round.infrastructure.ports = "held";
+          },
+        },
+        {
+          name: "lock",
+          mutate: (round: CalibrationRound) => {
+            round.infrastructure.locks = "held";
+          },
+        },
+      ];
+      for (const { name, mutate } of invalid) {
+        const candidate = structuredClone(rounds);
+        mutate(candidate[2]!);
+        assert.include(validateCalibrationRounds(candidate).reasons, name);
+      }
+    });
+
+    it("invalidates only declared calibration identity changes", async function () {
+      const cell = await fixtureCell();
+      const rounds = [1, 2, 3].map((index) => cleanRound(cell, index));
+      assert.isTrue(validateCalibrationRounds(rounds).eligible);
+
+      const changes: Array<(cell: CompatibilityExecutionCell) => void> = [
+        (value) => {
+          value.version = "10.0.2";
+        },
+        (value) => {
+          value.runnerEnvironment.image = "ubuntu-26.04";
+        },
+        (value) => {
+          value.runnerEnvironment.os = "windows";
+        },
+        (value) => {
+          value.families = ["SL", "PM"];
+        },
+        (value) => {
+          value.fixtureScale = "large-gold";
+        },
+        (value) => {
+          value.sidecarStartupModel = "pre-staged-release" as never;
+        },
+        (value) => {
+          value.invocationProfileModel = "shared-profile" as never;
+        },
+      ];
+      for (const change of changes) {
+        const candidate = structuredClone(rounds);
+        change(candidate[2]!.cell);
+        assert.include(
+          validateCalibrationRounds(candidate).reasons,
+          "identity",
+        );
+      }
+    });
+
+    it("uses observed maxima and the fixed whole-family split order", function () {
+      for (const [lane, minutes] of [
+        ["pull-request", 15],
+        ["main", 30],
+        ["release", 45],
+        ["weekly", 60],
+        ["manual-gold", 90],
+      ] as const) {
+        assert.strictEqual(
+          evaluateCalibrationGrouping(lane, ["SL"], []).thresholdMs,
+          minutes * 60_000,
+        );
+      }
+      assert.deepEqual(
+        evaluateCalibrationGrouping(
+          "pull-request",
+          ["SL", "RH", "PA", "PM", "CG", "HB"],
+          [10, 14, 16].map((minutes) => minutes * 60_000),
+        ).nextGroups,
+        [["SL", "RH", "PA", "PM", "CG"], ["HB"]],
+      );
+      assert.deepEqual(
+        evaluateCalibrationGrouping(
+          "main",
+          ["SL", "RH", "PA", "PM", "CG"],
+          [31 * 60_000],
+        ).nextGroups,
+        [
+          ["SL", "PM"],
+          ["RH", "PA", "CG"],
+        ],
+      );
+      assert.isUndefined(
+        evaluateCalibrationGrouping("release", ["SL", "PM"], [44 * 60_000])
+          .nextGroups,
+      );
+    });
+
+    it("requires an explicit per-cell promotion and trustworthy Windows CG-02 evidence", async function () {
+      const linux = await fixtureCell();
+      const calibration = validateCalibrationRounds(
+        [1, 2, 3].map((index) => cleanRound(linux, index)),
+      );
+      assert.isFalse(E2E_PROMOTION_STATE[linux.id]);
+      assert.lengthOf(Object.keys(E2E_PROMOTION_STATE), 10);
+      assert.deepInclude(
+        evaluateE2EPromotion({
+          cell: linux,
+          configuredBlocking: true,
+          calibration,
+        }),
+        { allowed: true, blocking: true },
+      );
+
+      const windows = await fixtureCell("zotero-10-windows-x64");
+      const windowsCalibration = validateCalibrationRounds(
+        [1, 2, 3].map((index) => cleanRound(windows, index)),
+      );
+      assert.isFalse(
+        evaluateE2EPromotion({
+          cell: windows,
+          configuredBlocking: true,
+          calibration: windowsCalibration,
+        }).allowed,
+      );
+      assert.isFalse(
+        evaluateE2EPromotion({
+          cell: windows,
+          configuredBlocking: true,
+          calibration: windowsCalibration,
+          windowsEvidence: {
+            cg02: "failed",
+            trustworthy: true,
+            zotero9Classification: "unverified",
+          },
+        }).allowed,
+      );
+      assert.deepInclude(
+        evaluateE2EPromotion({
+          cell: windows,
+          configuredBlocking: true,
+          calibration: windowsCalibration,
+          windowsEvidence: {
+            cg02: "passed",
+            trustworthy: true,
+            zotero9Classification: "passed",
+          },
+        }),
+        { allowed: true, blocking: true },
+      );
+    });
+  });
+
+  describe("weekly diagnostic rerun", function () {
+    const attempt = (
+      index: number,
+      verdict: WeeklyAttemptResult["verdict"],
+    ): WeeklyAttemptResult => ({
+      verdict,
+      runId: `run-${index}`,
+      profileIdentity: `profile-${index}`,
+      manifestReference: `evidence/run-${index}/run-manifest.json`,
+    });
+
+    it("reruns one complete weekly cell with linked fresh identities", async function () {
+      const contexts: unknown[] = [];
+      const first = attempt(1, "failed");
+      const result = await runWeeklyRetryPolicy("weekly", async (context) => {
+        contexts.push(context);
+        return context.attempt === 1 ? first : attempt(2, "passed");
+      });
+
+      assert.deepEqual(contexts, [
+        { attempt: 1, scope: "complete-cell" },
+        {
+          attempt: 2,
+          scope: "complete-cell",
+          predecessorRunId: "run-1",
+        },
+      ]);
+      assert.deepInclude(result, {
+        classification: "intermittent",
+        workflowPassed: false,
+      });
+      assert.deepEqual(result.attempts, [first, attempt(2, "passed")]);
+      assert.strictEqual(
+        first.manifestReference,
+        "evidence/run-1/run-manifest.json",
+      );
+    });
+
+    it("classifies a second weekly failure as persistent", async function () {
+      const result = await runWeeklyRetryPolicy("weekly", async (context) =>
+        attempt(context.attempt, "failed"),
+      );
+      assert.deepInclude(result, {
+        classification: "persistent",
+        workflowPassed: false,
+      });
+      assert.lengthOf(result.attempts, 2);
+    });
+
+    it("never retries non-weekly terminal failures", async function () {
+      for (const lane of [
+        "pull-request",
+        "main",
+        "release",
+        "stress",
+        "manual-gold",
+      ] as const) {
+        for (const verdict of [
+          "failed",
+          "aborted",
+          "incomplete",
+          "indeterminate",
+        ] as const) {
+          let calls = 0;
+          const result = await runWeeklyRetryPolicy(lane, async () => {
+            calls += 1;
+            return attempt(calls, verdict);
+          });
+          assert.strictEqual(calls, 1);
+          assert.isFalse(result.workflowPassed);
+        }
+      }
+    });
+
+    it("rejects a weekly successor that reuses run, profile, or manifest identity", async function () {
+      for (const field of [
+        "runId",
+        "profileIdentity",
+        "manifestReference",
+      ] as const) {
+        const first = attempt(1, "failed");
+        const second = attempt(2, "passed");
+        second[field] = first[field];
+        let calls = 0;
+        try {
+          await runWeeklyRetryPolicy("weekly", async () =>
+            calls++ === 0 ? first : second,
+          );
+          assert.fail(`expected reused ${field} to fail`);
+        } catch (error) {
+          assert.match(String(error), /successor_identity_reused/);
+        }
+      }
+    });
+  });
+
+  describe("compatibility workflow wiring", function () {
+    it("runs the non-blocking PR E2E cell without a path filter", async function () {
+      const workflow = parseYaml(
+        await fs.readFile(".github/workflows/ci.yml", "utf8"),
+      ) as any;
+      assert.deepEqual(workflow.on.pull_request.branches, ["main"]);
+      assert.notProperty(workflow.on.pull_request, "paths");
+      assert.notProperty(workflow.on.pull_request, "paths-ignore");
+      assert.property(workflow.jobs, "compatibility-e2e-linux-candidate");
+      assert.property(workflow.jobs, "zotero-compatibility-evidence");
+      assert.notMatch(
+        String(workflow.jobs["zotero-compatibility-evidence"].if || ""),
+        /pull_request/,
+      );
+      assert.include(
+        workflow.jobs["zotero-compatibility-evidence"].steps.find(
+          (step: { name?: string }) =>
+            step.name === "Run real Zotero compatibility evidence cell",
+        ).run,
+        "--domain \"${{ matrix.domain || 'all' }}\"",
+      );
+    });
+
+    it("finishes tag-bound Linux and Windows evidence before publication", async function () {
+      const workflow = parseYaml(
+        await fs.readFile(".github/workflows/release.yml", "utf8"),
+      ) as any;
+      const publish = workflow.jobs["create-release"];
+
+      assert.deepEqual(workflow.on.push.tags, ["v**"]);
+      assert.property(workflow.jobs, "release-e2e-candidate");
+      assert.deepEqual(
+        workflow.jobs["release-e2e-candidate"].strategy.matrix.include.map(
+          (entry: { platform: string }) => entry.platform,
+        ),
+        ["linux-x64", "windows-x64"],
+      );
+      assert.property(workflow.jobs, "release-compatibility-evidence");
+      assert.includeMembers(publish.needs, [
+        "release-compatibility-blocking",
+        "release-compatibility-evidence",
+      ]);
+      assert.notInclude(
+        publish.steps.map((step: { name?: string }) => step.name),
+        "Build plugin",
+      );
+      assert.strictEqual(
+        zoteroPluginConfig.release.bumpp.execute,
+        "npm run check:synthesis-sidecar-runtime-xpi",
+      );
+    });
+
+    it("wires weekly, stress, and manual-gold as non-gating evidence", async function () {
+      const workflow = parseYaml(
+        await fs.readFile(".github/workflows/system-e2e-evidence.yml", "utf8"),
+      ) as any;
+      assert.lengthOf(workflow.on.schedule, 2);
+      assert.deepEqual(workflow.on.workflow_dispatch.inputs.lane.options, [
+        "weekly",
+        "stress",
+        "manual-gold",
+      ]);
+      assert.isTrue(workflow.jobs.evidence["continue-on-error"]);
+      assert.include(
+        workflow.jobs.evidence.steps.find(
+          (step: { name?: string }) => step.name === "Run evidence cell",
+        ).env.ZOTERO_E2E_GOLD_DATA_DIR,
+        "vars.ZOTERO_E2E_GOLD_DATA_DIR",
+      );
+      assert.include(
+        workflow.jobs.evidence.steps.find(
+          (step: { name?: string }) => step.name === "Run evidence cell",
+        ).run,
+        "weekly-run",
+      );
+    });
+
+    it("bootstraps non-publishing calibration lanes from branch-local tags", async function () {
+      const workflowSource = await fs.readFile(
+        ".github/workflows/system-e2e-evidence.yml",
+        "utf8",
+      );
+      const workflow = parseYaml(workflowSource) as any;
+      const laneStep = workflow.jobs.prepare.steps.find(
+        (step: { name?: string }) => step.name === "Select evidence lane",
+      );
+      const planStep = workflow.jobs.prepare.steps.find(
+        (step: { name?: string }) => step.name === "Resolve evidence matrix",
+      );
+
+      assert.deepEqual(workflow.on.push.tags, [
+        "e2e-calibration-pr-*",
+        "e2e-calibration-main-*",
+        "e2e-calibration-release-*",
+      ]);
+      assert.include(laneStep.run, "e2e-calibration-pr-*) lane=pull-request");
+      assert.include(laneStep.run, "e2e-calibration-main-*) lane=main");
+      assert.include(laneStep.run, "e2e-calibration-release-*) lane=release");
+      assert.include(
+        workflow.jobs["prepare-windows"].if,
+        "needs.prepare.outputs.lane == 'release'",
+      );
+      assert.include(planStep.run, 'select(.domain == "e2e")');
+      assert.notInclude(workflowSource, "npm run release");
     });
   });
 
@@ -322,6 +1129,34 @@ describe("Zotero compatibility fixture contracts", function () {
       assert.strictEqual(stored.errors[0].code, "host_startup_timeout");
     });
 
+    it("retains e2e routing in a compatibility receipt", function () {
+      const receipt = createCompatibilityReceipt({
+        runId: "e2e-run",
+        source: { commit: "abc123", dirty: false },
+        plugin: {
+          version: "0.9.0",
+          artifactPath: "/artifact/zotero-agents.xpi",
+          artifactSha256: "a".repeat(64),
+          manifestMin: "7.0",
+          manifestMax: "10.0.*",
+        },
+        host: {
+          id: "zotero-10-linux-x64",
+          requestedVersion: "10.0.1",
+          platform: "linux-x64",
+          archiveSha256: "b".repeat(64),
+          downloadUrl: "https://www.zotero.org/example",
+        },
+        execution: { mode: "behavior", suite: "full", domain: "e2e" },
+      });
+
+      assert.deepEqual(receipt.execution, {
+        mode: "behavior",
+        suite: "full",
+        domain: "e2e",
+      });
+    });
+
     it("replaces a poisoned archive cache entry with verified bytes", async function () {
       const expectedBytes = Buffer.from("trusted-host-archive");
       const sha256 = createHash("sha256").update(expectedBytes).digest("hex");
@@ -366,6 +1201,85 @@ describe("Zotero compatibility fixture contracts", function () {
       assert.isTrue(result.timedOut);
       assert.isTrue(result.graceful || result.forced);
       assert.isNull(result.exitCode);
+    });
+
+    it("preserves a failed worker exit code", async function () {
+      const result = await runOwnedCommand({
+        command: process.execPath,
+        args: ["-e", "process.exit(7)"],
+        cwd: tempRoot,
+        env: process.env,
+        stdoutPath: path.join(tempRoot, "failed.stdout.log"),
+        stderrPath: path.join(tempRoot, "failed.stderr.log"),
+        timeoutMs: 1_000,
+      });
+
+      assert.strictEqual(result.exitCode, 7);
+      assert.isFalse(result.timedOut);
+    });
+
+    it("rejects plugin or sidecar identity drift across a worker", function () {
+      const expected = {
+        pluginDigest: "a".repeat(64),
+        sidecarFingerprint: "b".repeat(64),
+        lane: "release" as const,
+        sourceCommit: "c".repeat(40),
+        sourceRef: "refs/tags/v0.9.0",
+        sidecarTarget: "linux-x64",
+      };
+      assert.doesNotThrow(() =>
+        assertCompatibilityArtifactIdentity(expected, expected),
+      );
+      assert.throws(
+        () =>
+          assertCompatibilityArtifactIdentity(expected, {
+            ...expected,
+            pluginDigest: "c".repeat(64),
+          }),
+        /plugin/i,
+      );
+      assert.throws(
+        () =>
+          assertCompatibilityArtifactIdentity(expected, {
+            ...expected,
+            sidecarFingerprint: "d".repeat(64),
+          }),
+        /sidecar/i,
+      );
+      assert.throws(
+        () =>
+          assertCompatibilityArtifactIdentity(expected, {
+            ...expected,
+            lane: "main",
+            sourceRef: "refs/heads/main",
+          }),
+        /lane/i,
+      );
+      assert.throws(
+        () =>
+          assertCompatibilityArtifactIdentity(
+            { ...expected, sourceRef: "refs/heads/main" },
+            { ...expected, sourceRef: "refs/heads/main" },
+          ),
+        /tag-bound/i,
+      );
+    });
+
+    it("retains one workspace-relative Run Manifest reference per E2E invocation", function () {
+      assert.strictEqual(
+        parseCompatibilityRunManifestReference(
+          `[system-e2e-manifest] ${path.join(
+            process.cwd(),
+            "artifacts/test-diagnostics/system-e2e/run-1/run-manifest.json",
+          )}\n`,
+          process.cwd(),
+        ),
+        "artifacts/test-diagnostics/system-e2e/run-1/run-manifest.json",
+      );
+      assert.throws(
+        () => parseCompatibilityRunManifestReference("runner ended\n"),
+        /run_manifest_reference_missing/,
+      );
     });
   });
 });
