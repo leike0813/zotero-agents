@@ -24,7 +24,9 @@ import {
 } from "../../scripts/patch-zotero-test-runner";
 import {
   resolveTestEntries,
-  shouldUseHeadlessZoteroTest,
+  resolveZoteroTestDisplayMode,
+  ZOTERO_TEST_FIRST_RUN_PREFS,
+  ZOTERO_TEST_HEADLESS_ENV,
   stageZoteroE2EFixture,
 } from "../../zotero-plugin.config";
 import {
@@ -756,15 +758,39 @@ describe("zotero test infrastructure helpers", function () {
   });
 
   describe("Zotero display environment", function () {
-    it("uses headless mode only when Linux has no display server", function () {
-      assert.isTrue(shouldUseHeadlessZoteroTest("linux", {}));
-      assert.isFalse(shouldUseHeadlessZoteroTest("linux", { DISPLAY: ":0" }));
-      assert.isFalse(
-        shouldUseHeadlessZoteroTest("linux", {
-          WAYLAND_DISPLAY: "wayland-0",
-        }),
+    it("runs headless by default on every platform", function () {
+      assert.isTrue(resolveZoteroTestDisplayMode("linux", {}).headless);
+      assert.isTrue(resolveZoteroTestDisplayMode("win32", {}).headless);
+      assert.isTrue(resolveZoteroTestDisplayMode("darwin", {}).headless);
+    });
+
+    it("lets the environment opt out of headless mode", function () {
+      for (const value of ["0", "false", "no", "off"]) {
+        const mode = resolveZoteroTestDisplayMode("win32", {
+          [ZOTERO_TEST_HEADLESS_ENV]: value,
+        });
+        assert.isFalse(mode.headless, `expected ${value} to disable headless`);
+        assert.isFalse(mode.needsXvfb);
+      }
+      assert.isTrue(
+        resolveZoteroTestDisplayMode("win32", {
+          [ZOTERO_TEST_HEADLESS_ENV]: "1",
+        }).headless,
       );
-      assert.isFalse(shouldUseHeadlessZoteroTest("darwin", {}));
+    });
+
+    it("only prepares Xvfb on a display-less Linux host", function () {
+      assert.isTrue(resolveZoteroTestDisplayMode("linux", {}).needsXvfb);
+      assert.isFalse(
+        resolveZoteroTestDisplayMode("linux", { DISPLAY: ":0" }).needsXvfb,
+      );
+      assert.isFalse(
+        resolveZoteroTestDisplayMode("linux", {
+          WAYLAND_DISPLAY: "wayland-0",
+        }).needsXvfb,
+      );
+      assert.isFalse(resolveZoteroTestDisplayMode("win32", {}).needsXvfb);
+      assert.isFalse(resolveZoteroTestDisplayMode("darwin", {}).needsXvfb);
     });
   });
 
@@ -871,6 +897,43 @@ describe("zotero test infrastructure helpers", function () {
 
       assert.equal(env.ZOTERO_TEST_DATA_DIR, provided);
       assert.equal(env.ZOTERO_TEST_DATA_DIR_MANAGED, undefined);
+    });
+
+    it("propagates headless mode into the spawned test environment", function () {
+      const invocation = parseWrappedTestInvocation(
+        ["test:node:raw:core", "lite", "core"],
+        {},
+      );
+      const env = buildTestEnvironment(invocation, {});
+
+      assert.equal(env.MOZ_HEADLESS, "1");
+    });
+
+    it("suppresses the Zotero first-run browser launch in test profiles", function () {
+      assert.isFalse(
+        ZOTERO_TEST_FIRST_RUN_PREFS["extensions.zotero.firstRun2"],
+      );
+      assert.isFalse(
+        ZOTERO_TEST_FIRST_RUN_PREFS["extensions.zotero.firstRunGuidance"],
+      );
+      assert.isFalse(
+        ZOTERO_TEST_FIRST_RUN_PREFS[
+          "extensions.zotero.firstRunGuidanceShown.readAloud"
+        ],
+      );
+    });
+
+    it("strips headless mode from the spawned environment on opt out", function () {
+      const invocation = parseWrappedTestInvocation(
+        ["test:node:raw:core", "lite", "core"],
+        {},
+      );
+      const env = buildTestEnvironment(invocation, {
+        [ZOTERO_TEST_HEADLESS_ENV]: "0",
+        MOZ_HEADLESS: "1",
+      });
+
+      assert.equal(env.MOZ_HEADLESS, undefined);
     });
 
     it("uses an OS-assigned mock SkillRunner port by default", function () {

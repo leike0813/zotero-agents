@@ -6,6 +6,7 @@ import path from "path";
 import { pathToFileURL } from "url";
 import { isTruthyDiagnosticFlag } from "../src/modules/diagnosticVerbosity";
 import pkg from "../package.json";
+import { applyZoteroTestHeadlessEnvironment } from "../zotero-plugin.config";
 import {
   readFixtureRegistry,
   validateCommittedSeed,
@@ -238,7 +239,7 @@ export function buildTestEnvironment(
   } else {
     delete nextEnv.ZOTERO_TEST_WORKFLOW_DIR;
   }
-  return nextEnv;
+  return applyZoteroTestHeadlessEnvironment(nextEnv);
 }
 
 export function resolveMockSkillRunnerHost(

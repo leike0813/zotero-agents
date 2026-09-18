@@ -1,6 +1,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
+import {
+  applyZoteroTestHeadlessEnvironment,
+  resolveZoteroTestDisplayMode,
+} from "../zotero-plugin.config";
+
 function requiredEnvironment(name: string) {
   const value = String(process.env[name] || "").trim();
   if (!value)
@@ -94,7 +99,7 @@ async function main() {
         ];
   context.test.entries = [await createEntryProxy(runRoot, mode, sourceFiles)];
   context.test.watch = false;
-  context.test.headless = process.platform === "linux";
+  context.test.headless = resolveZoteroTestDisplayMode().needsXvfb;
   context.test.prefs = {
     ...context.test.prefs,
     "extensions.zotero.zotero-skills.compatibilityTestXpiPath": String(
@@ -104,7 +109,7 @@ async function main() {
 
   process.chdir(runRoot);
   const test = new Test(context);
-  context.test.headless = process.platform === "linux";
+  context.test.headless = resolveZoteroTestDisplayMode().needsXvfb;
   const internals = test as unknown as {
     builder: { run: () => Promise<void> };
     reporter: {
