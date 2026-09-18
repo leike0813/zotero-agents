@@ -1,6 +1,6 @@
 import { spawn } from "child_process";
 import { randomUUID } from "crypto";
-import { mkdir, readFile, rm } from "fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm } from "fs/promises";
 import os from "os";
 import path from "path";
 import { pathToFileURL } from "url";
@@ -15,6 +15,7 @@ import {
   persistRunManifest,
   startSystemE2EEventSink,
 } from "./system-e2e/manifest";
+import { resolveCurrentHostBridgeCli } from "../tests/helpers/hostBridgeCliHarness";
 
 type Child = ReturnType<typeof spawn>;
 type SpawnOptions = Parameters<typeof spawn>[2];
@@ -34,6 +35,66 @@ const DEFAULT_NODE_TARGET_SCRIPT = "test:node:raw";
 const DEFAULT_TEST_WORKFLOW_DIR = path.join(process.cwd(), "workflows_builtin");
 const TEST_DATA_DIR_ENV = "ZOTERO_TEST_DATA_DIR";
 const TEST_DATA_DIR_MANAGED_ENV = "ZOTERO_TEST_DATA_DIR_MANAGED";
+const SYSTEM_E2E_RESTART_KIND = "system-e2e-owner-restart-request";
+const SYSTEM_E2E_SCAFFOLD_ROOT = path.resolve(".scaffold/test");
+
+type SystemE2ERestartRequest = {
+  caseId: "HB-03";
+  operationId: string;
+  processId: number;
+};
+
+export function parseSystemE2ERestartRequest(
+  event: unknown,
+): SystemE2ERestartRequest | null {
+  if (!event || typeof event !== "object") return null;
+  const envelope = event as { type?: unknown; data?: unknown };
+  if (
+    envelope.type !== "debug" ||
+    !envelope.data ||
+    typeof envelope.data !== "object"
+  ) {
+    return null;
+  }
+  const data = envelope.data as Record<string, unknown>;
+  const processId = Number(data.processId);
+  const operationId = String(data.operationId || "").trim();
+  if (
+    data.kind !== SYSTEM_E2E_RESTART_KIND ||
+    data.caseId !== "HB-03" ||
+    operationId !== "system-e2e:hb:03" ||
+    !Number.isInteger(processId) ||
+    processId <= 1
+  ) {
+    return null;
+  }
+  return { caseId: "HB-03", operationId, processId };
+}
+
+export async function waitForSystemE2EAdmissionCheckpoint(args: {
+  checkpointPath: string;
+  operationId: string;
+  timeoutMs?: number;
+  pollIntervalMs?: number;
+}) {
+  const deadline = Date.now() + (args.timeoutMs || 120_000);
+  while (Date.now() < deadline) {
+    try {
+      if (
+        (await readFile(args.checkpointPath, "utf8")).trim() ===
+        args.operationId
+      ) {
+        return "held" as const;
+      }
+    } catch {
+      // The checkpoint appears only after durable admission.
+    }
+    await new Promise((resolve) =>
+      setTimeout(resolve, args.pollIntervalMs || 2),
+    );
+  }
+  throw new Error("system_e2e_restart_admission_timeout");
+}
 
 export function normalizeTestMode(value: string) {
   return value.trim().toLowerCase() === "full" ? "full" : "lite";
@@ -353,6 +414,57 @@ function terminateMock(mock: Child) {
   });
 }
 
+function terminateExactProcess(processId: number) {
+  if (processId === process.pid) {
+    throw new Error("system_e2e_restart_refused_runner_pid");
+  }
+  if (process.platform !== "win32") {
+    process.kill(processId, "SIGKILL");
+    return waitForExactProcessExit(processId);
+  }
+  return new Promise<void>((resolve, reject) => {
+    const killer = spawn("taskkill", ["/PID", String(processId), "/T", "/F"], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    killer.on("error", reject);
+    killer.on("exit", (code) =>
+      code === 0
+        ? resolve()
+        : reject(new Error(`system_e2e_restart_taskkill_failed:${code}`)),
+    );
+  });
+}
+
+async function waitForExactProcessExit(processId: number) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(processId, 0);
+    } catch {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("system_e2e_restart_process_still_alive");
+}
+
+async function snapshotSystemE2EScaffold() {
+  const resumeRoot = await mkdtemp(
+    path.join(os.tmpdir(), "zotero-agents-system-e2e-resume-"),
+  );
+  await Promise.all(
+    ["data", "profile"].map((name) =>
+      cp(
+        path.join(SYSTEM_E2E_SCAFFOLD_ROOT, name),
+        path.join(resumeRoot, name),
+        { recursive: true, force: true },
+      ),
+    ),
+  );
+  return resumeRoot;
+}
+
 async function main() {
   const invocation = parseWrappedTestInvocation(process.argv.slice(2));
   const testEnv = buildTestEnvironment(invocation);
@@ -380,7 +492,13 @@ async function main() {
         close: () => Promise<void>;
       }
     | undefined;
+  let restartRequest: SystemE2ERestartRequest | undefined;
+  let restartBoundary: Promise<SystemE2ERestartRequest> | undefined;
+  let resumeRoot = "";
   if (testEnv.ZOTERO_TEST_DOMAIN === "e2e") {
+    const hostBridgeCli = await resolveCurrentHostBridgeCli();
+    testEnv.ZOTERO_BRIDGE_CLI = hostBridgeCli.cliPath;
+    console.log(`[host-bridge-cli] ${hostBridgeCli.buildFingerprint}`);
     const fixtureRoot = path.resolve("tests/fixtures/zotero-e2e");
     const registry = await readFixtureRegistry(
       path.join(fixtureRoot, "registry.json"),
@@ -422,6 +540,25 @@ async function main() {
     });
     let persistence = persistRunManifest(manifestPath, collector.snapshot());
     const sink = await startSystemE2EEventSink(async (event) => {
+      const requestedRestart = parseSystemE2ERestartRequest(event);
+      if (requestedRestart) {
+        if (restartRequest) {
+          throw new Error("system_e2e_restart_already_requested");
+        }
+        restartRequest = requestedRestart;
+        restartBoundary = waitForSystemE2EAdmissionCheckpoint({
+          checkpointPath: path.join(
+            SYSTEM_E2E_SCAFFOLD_ROOT,
+            "data",
+            "system-e2e",
+            "canonical-mutation-admission.held",
+          ),
+          operationId: requestedRestart.operationId,
+        }).then(async () => {
+          await terminateExactProcess(requestedRestart.processId);
+          return requestedRestart;
+        });
+      }
       collector.accept(event);
       persistence = persistence.then(() =>
         persistRunManifest(manifestPath, collector.snapshot()),
@@ -461,6 +598,9 @@ async function main() {
     cleaned = true;
     await terminateMock(mock);
     await systemE2ERun?.close();
+    if (resumeRoot) {
+      await rm(resumeRoot, { recursive: true, force: true });
+    }
     await cleanupTestDataDir(testEnv);
   };
 
@@ -491,7 +631,17 @@ async function main() {
       mockBaseUrl,
     );
     console.log(`[test-skillrunner-endpoint] ${mockBaseUrl}`);
-    const code = await runTargetTests(invocation, targetEnv);
+    let code = await runTargetTests(invocation, targetEnv);
+    if (restartRequest) {
+      const completedRestart = await restartBoundary;
+      resumeRoot = await snapshotSystemE2EScaffold();
+      console.log(`[system-e2e-resume] ${completedRestart.caseId}`);
+      code = await runTargetTests(invocation, {
+        ...targetEnv,
+        ZOTERO_SYSTEM_E2E_RESUME_CASE: completedRestart.caseId,
+        ZOTERO_SYSTEM_E2E_RESUME_ROOT: resumeRoot,
+      });
+    }
     await systemE2ERun?.finish(code);
     await cleanup();
     process.exit(code);

@@ -1,10 +1,48 @@
 {
-  "schemaVersion": "system-e2e-seed.v1",
+  "schemaVersion": "system-e2e-seed.v2",
   "fixtureId": "foundation-v1",
-  "fixtureRevision": 1,
+  "fixtureRevision": 2,
   "facts": {
     "items": 1,
     "attachments": 1
+  },
+  "structuralFacts": {
+    "referencePages": {
+      "itemCount": 101,
+      "pageSize": 100,
+      "titlePrefix": "Synthetic E2E Reference",
+      "year": "2026"
+    },
+    "historicalTopic": {
+      "topicId": "synthetic-history",
+      "pathId": "topics/synthetic-history/current",
+      "provenance": "historical",
+      "readOnly": true
+    },
+    "artifactNeighbors": {
+      "valid": [
+        "synthetic-topic-report",
+        "synthetic-reference-index"
+      ],
+      "malformed": [
+        "synthetic-malformed-neighbor"
+      ]
+    },
+    "citationGraph": {
+      "nodes": [
+        "synthetic-reference-a",
+        "synthetic-reference-b"
+      ],
+      "edges": [
+        [
+          "synthetic-reference-a",
+          "synthetic-reference-b"
+        ]
+      ]
+    },
+    "unicodeNote": {
+      "html": "<p>合成系统端到端注释 · Ω</p>"
+    }
   },
   "items": [
     {

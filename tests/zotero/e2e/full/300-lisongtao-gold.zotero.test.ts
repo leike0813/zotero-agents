@@ -60,6 +60,12 @@ async function readGoldLibraryFacts() {
 describe("Synthesis E2E gold library", function () {
   this.timeout(900_000);
 
+  before(function () {
+    if (readDiagnosticsEnv("ZOTERO_SYSTEM_E2E_RESUME_CASE") === "HB-03") {
+      this.skip();
+    }
+  });
+
   afterEach(async function () {
     const mainWindow = Zotero.getMainWindow() as _ZoteroTypes.MainWindow;
     await Promise.resolve(

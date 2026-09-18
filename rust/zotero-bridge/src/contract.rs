@@ -650,7 +650,8 @@ pub fn resolved_command_result_schema(command: &str) -> Result<Value, CliError> 
                         format!("{capability} has no output schema"),
                     )
                 })?;
-            Ok(json!({
+            let definitions = data_schema.get("$defs").cloned();
+            let mut schema = json!({
                 "type": "object",
                 "properties": {
                     "capability": {
@@ -664,7 +665,11 @@ pub fn resolved_command_result_schema(command: &str) -> Result<Value, CliError> 
                 },
                 "required": ["capability", "approval", "data"],
                 "additionalProperties": false
-            }))
+            });
+            if let Some(definitions) = definitions {
+                schema["$defs"] = definitions;
+            }
+            Ok(schema)
         }
         Some(source) => Err(CliError::internal(
             "command_result_contract_invalid",
@@ -1323,8 +1328,8 @@ pub fn assert_endpoint_target(method: &str, path: &str) -> Result<(), CliError> 
 mod tests {
     use super::{
         assert_capability_target, assert_endpoint_target, compose_command_payload,
-        resolved_command_payload_schema, set_current_command, validate_command_input,
-        validate_command_result,
+        resolved_command_payload_schema, resolved_command_result_schema, set_current_command,
+        validate_command_input, validate_command_result, violations,
     };
     use crate::error::ErrorCategory;
     use serde_json::{json, Map, Value};
@@ -1474,5 +1479,11 @@ mod tests {
         set_current_command("library item search");
         let remote = validate_command_result(&Value::Null).unwrap_err();
         assert_eq!(remote.category, ErrorCategory::Protocol);
+    }
+
+    #[test]
+    fn canonical_mutation_command_result_schema_compiles() {
+        let schema = resolved_command_result_schema("mutation note create").unwrap();
+        violations(&schema, &Value::Null).unwrap();
     }
 }

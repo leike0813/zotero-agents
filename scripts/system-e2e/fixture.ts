@@ -1,4 +1,4 @@
-import { cp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 export type FixtureIdentity = {
@@ -14,6 +14,7 @@ export type FixtureRegistry = {
 
 type CommittedSeed = FixtureIdentity & {
   facts: Record<string, number>;
+  structuralFacts: Phase1StructuralFacts;
   items: Array<{
     key: string;
     itemType: string;
@@ -24,6 +25,30 @@ type CommittedSeed = FixtureIdentity & {
       contentType: string;
     }>;
   }>;
+};
+
+export type Phase1StructuralFacts = {
+  referencePages: {
+    itemCount: number;
+    pageSize: number;
+    titlePrefix: string;
+    year: string;
+  };
+  historicalTopic: {
+    topicId: string;
+    pathId: string;
+    provenance: "historical";
+    readOnly: true;
+  };
+  artifactNeighbors: {
+    valid: string[];
+    malformed: string[];
+  };
+  citationGraph: {
+    nodes: string[];
+    edges: [string, string][];
+  };
+  unicodeNote: { html: string };
 };
 
 const FIXTURE_REGISTRY_SCHEMA = "system-e2e-fixture-registry.v1";
@@ -47,6 +72,107 @@ function text(value: unknown, code: string) {
 function positiveInteger(value: unknown, code: string) {
   if (!Number.isSafeInteger(value) || Number(value) < 1) throw new Error(code);
   return Number(value);
+}
+
+function stringArray(value: unknown, code: string) {
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    value.some((entry) => typeof entry !== "string" || !entry.trim())
+  ) {
+    throw new Error(code);
+  }
+  return value as string[];
+}
+
+function validateStructuralFacts(value: unknown): Phase1StructuralFacts {
+  const facts = record(value, "fixture_structural_facts_invalid");
+  const referencePages = record(
+    facts.referencePages,
+    "fixture_structural_fact_invalid:referencePages",
+  );
+  const itemCount = positiveInteger(
+    referencePages.itemCount,
+    "fixture_structural_fact_invalid:referencePages",
+  );
+  const pageSize = positiveInteger(
+    referencePages.pageSize,
+    "fixture_structural_fact_invalid:referencePages",
+  );
+  if (itemCount <= pageSize) {
+    throw new Error("fixture_structural_fact_invalid:referencePages");
+  }
+  text(
+    referencePages.titlePrefix,
+    "fixture_structural_fact_invalid:referencePages",
+  );
+  text(referencePages.year, "fixture_structural_fact_invalid:referencePages");
+
+  const historicalTopic = record(
+    facts.historicalTopic,
+    "fixture_structural_fact_invalid:historicalTopic",
+  );
+  text(
+    historicalTopic.topicId,
+    "fixture_structural_fact_invalid:historicalTopic",
+  );
+  text(
+    historicalTopic.pathId,
+    "fixture_structural_fact_invalid:historicalTopic",
+  );
+  if (
+    historicalTopic.provenance !== "historical" ||
+    historicalTopic.readOnly !== true
+  ) {
+    throw new Error("fixture_structural_fact_invalid:historicalTopic");
+  }
+
+  const artifactNeighbors = record(
+    facts.artifactNeighbors,
+    "fixture_structural_fact_invalid:artifactNeighbors",
+  );
+  stringArray(
+    artifactNeighbors.valid,
+    "fixture_structural_fact_invalid:artifactNeighbors",
+  );
+  stringArray(
+    artifactNeighbors.malformed,
+    "fixture_structural_fact_invalid:artifactNeighbors",
+  );
+
+  const citationGraph = record(
+    facts.citationGraph,
+    "fixture_structural_fact_invalid:citationGraph",
+  );
+  const nodes = stringArray(
+    citationGraph.nodes,
+    "fixture_structural_fact_invalid:citationGraph",
+  );
+  if (
+    !Array.isArray(citationGraph.edges) ||
+    citationGraph.edges.length === 0 ||
+    citationGraph.edges.some(
+      (edge) =>
+        !Array.isArray(edge) ||
+        edge.length !== 2 ||
+        edge.some((node) => typeof node !== "string" || !nodes.includes(node)),
+    )
+  ) {
+    throw new Error("fixture_structural_fact_invalid:citationGraph");
+  }
+
+  const unicodeNote = record(
+    facts.unicodeNote,
+    "fixture_structural_fact_invalid:unicodeNote",
+  );
+  const html = text(
+    unicodeNote.html,
+    "fixture_structural_fact_invalid:unicodeNote",
+  );
+  if (![...html].some((character) => (character.codePointAt(0) || 0) > 127)) {
+    throw new Error("fixture_structural_fact_invalid:unicodeNote");
+  }
+  return value as Phase1StructuralFacts;
 }
 
 export function validateFixtureRegistry(value: unknown): FixtureRegistry {
@@ -100,7 +226,11 @@ function assertPortable(value: unknown, key = "seed") {
 export function validateCommittedSeed(
   value: unknown,
   registryValue: unknown,
-): { identity: FixtureIdentity; facts: Record<string, number> } {
+): {
+  identity: FixtureIdentity;
+  facts: Record<string, number>;
+  structuralFacts: Phase1StructuralFacts;
+} {
   const registry = validateFixtureRegistry(registryValue);
   const seed = record(value, "fixture_seed_invalid");
   const identity = {
@@ -136,6 +266,7 @@ export function validateCommittedSeed(
     facts: Object.fromEntries(
       Object.entries(facts).map(([key, fact]) => [key, Number(fact)]),
     ),
+    structuralFacts: validateStructuralFacts(seed.structuralFacts),
   };
 }
 
@@ -195,6 +326,8 @@ export async function materializeCommittedSeed(args: {
   ) as CommittedSeed;
   const validated = validateCommittedSeed(seed, args.registry);
   await validateFixturePrivacy(sourceDir);
+  if (sourceDir === targetDir) throw new Error("fixture_target_invalid");
+  await rm(targetDir, { recursive: true, force: true });
   await mkdir(targetDir, { recursive: true });
   await cp(sourceDir, targetDir, { recursive: true, force: true });
   await writeFile(

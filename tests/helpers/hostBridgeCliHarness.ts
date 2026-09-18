@@ -112,7 +112,7 @@ async function acquireBuildLock(lockPath: string) {
   }
 }
 
-async function resolveCurrentHostBridgeCli(root = process.cwd()) {
+export async function resolveCurrentHostBridgeCli(root = process.cwd()) {
   if (cliBuildPromise) return cliBuildPromise;
   cliBuildPromise = (async () => {
     const governance =

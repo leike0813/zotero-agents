@@ -4,7 +4,7 @@
 
 Implementation prerequisite: read [`artifacts/e2e-wayfinder/system-e2e-implementation-handoff.md`](../../../artifacts/e2e-wayfinder/system-e2e-implementation-handoff.md) before applying this change. It is the self-contained source for the Wayfinder decisions and replaces issue-tracker lookup.
 
-Change 1 owns the strategy, shared-profile lifecycle, fixture identity, and Run Manifest. Change 2 supplies `SL-03`, `RH-02`, `PM-03`, and the only new fault checkpoints. This change fills the remaining Phase 1 cases through the existing E2E runner and production public entrypoints. Issue #56 adds a distinct close-lifecycle regression because its trigger and stable outcome differ from `CG-01`.
+Change 1 owns the strategy, shared-profile lifecycle, fixture identity, and Run Manifest. Change 2 supplies `SL-03`, `RH-02`, and `PM-03`. This change fills the remaining Phase 1 cases through the existing E2E runner and production public entrypoints. `HB-03` also pulls forward the runner-owned same-profile Zotero restart that later restart cases reuse. Direct durable-row observation proved too slow for the `notes.create` admission-to-effect window, so HB-03 uses one additional test-runtime-only, one-shot, operation-scoped hold after durable admission; it is not reachable through production configuration or a public surface. Issue #56 adds a distinct close-lifecycle regression because its trigger and stable outcome differ from `CG-01`.
 
 ## Goals / Non-Goals
 
@@ -38,6 +38,8 @@ Alternative: generate all setup through test code. Rejected because deterministi
 
 `SL` uses plugin lifecycle and `system.shutdown`; `RH`, `PA`, `PM`, and `CG` use the public Workbench or formal Synthesis surface; `HB` uses the public Host Bridge CLI and `mutation.get_operation`. Assertions consume typed outcomes, durable receipts, process/discovery state, public projections, and Run Manifest references.
 
+`HB-03` requests one runner-owned restart. A test-runtime-only hold pauses the selected operation after durable admission and publishes an operation-scoped checkpoint marker; the runner uses only that marker to time an exact-PID host termination, preserves the profile while the scaffold relaunches, and resumes the same case. Recovery evidence remains the public `mutation.get_operation` result and bounded note projection; the checkpoint is not a passing assertion and no generic operation store or public fault interface participates.
+
 Alternative: call private module seams for determinism. Rejected because that would turn the case into Contract Integration evidence.
 
 ### 4. Treat CG-02 as a diagnosis-led regression, not a speculative Synthesis change
@@ -60,7 +62,7 @@ Alternative: attribute the crash to Preact, Sigma, sidecar shutdown, or frame te
 ## Migration Plan
 
 1. Confirm Change 2 is implemented, verified, synchronized, and archived.
-2. Add failing case evidence family by family, then the minimum fixture or production change needed to pass it.
+2. Add failing case evidence family by family, then the minimum fixture, runner, or production change needed to pass it. For `HB-03`, preserve the same copied profile across the runner-owned Zotero relaunch.
 3. Establish and minimize the Windows `CG-02` red loop before changing production code; verify green on Windows Zotero 10 and classify Zotero 9.
 4. Run all Phase 1 cases in one clean Zotero 10/Linux invocation, preserving only declared intra-family carry-over.
 5. Update strategy-linked documentation and retain the complete sanitized Run Manifest. Rollback removes the new cases/fixture revision and reverts only the diagnosed production fix; it does not alter runner foundations.

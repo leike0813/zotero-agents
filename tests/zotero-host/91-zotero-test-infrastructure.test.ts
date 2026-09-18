@@ -6,9 +6,11 @@ import {
   buildMockSkillRunnerEndpointEnvironment,
   buildForwardedTestArgs,
   buildTestEnvironment,
+  parseSystemE2ERestartRequest,
   parseWrappedTestInvocation,
   normalizeTestDomain,
   resolveMockSkillRunnerPort,
+  waitForSystemE2EAdmissionCheckpoint,
 } from "../../scripts/run-zotero-test-with-mock";
 import {
   buildShardEnv,
@@ -40,6 +42,7 @@ import {
   startSystemE2EEventSink,
 } from "../../scripts/system-e2e/manifest";
 import {
+  PHASE1_FAMILY_DECLARATIONS,
   runFamilyLifecycle,
   validateFamilyDeclarations,
 } from "../../scripts/system-e2e/familyLifecycle";
@@ -126,17 +129,42 @@ describe("zotero test infrastructure helpers", function () {
       fixtures: [
         {
           fixtureId: "foundation-v1",
-          schemaVersion: "system-e2e-seed.v1",
-          fixtureRevision: 1,
+          schemaVersion: "system-e2e-seed.v2",
+          fixtureRevision: 2,
           references: ["local-e2e"],
         },
       ],
     };
     const seed = {
-      schemaVersion: "system-e2e-seed.v1",
+      schemaVersion: "system-e2e-seed.v2",
       fixtureId: "foundation-v1",
-      fixtureRevision: 1,
+      fixtureRevision: 2,
       facts: { items: 1, attachments: 1 },
+      structuralFacts: {
+        referencePages: {
+          itemCount: 101,
+          pageSize: 100,
+          titlePrefix: "Synthetic E2E Reference",
+          year: "2026",
+        },
+        historicalTopic: {
+          topicId: "synthetic-history",
+          pathId: "topics/synthetic-history/current",
+          provenance: "historical",
+          readOnly: true,
+        },
+        artifactNeighbors: {
+          valid: ["synthetic-topic-report", "synthetic-reference-index"],
+          malformed: ["synthetic-malformed-neighbor"],
+        },
+        citationGraph: {
+          nodes: ["synthetic-reference-a", "synthetic-reference-b"],
+          edges: [["synthetic-reference-a", "synthetic-reference-b"]],
+        },
+        unicodeNote: {
+          html: "<p>合成系统端到端注释 · Ω</p>",
+        },
+      },
       items: [
         {
           key: "SEED0001",
@@ -156,26 +184,26 @@ describe("zotero test infrastructure helpers", function () {
     it("keeps fixture shape, lineage, and observable revision independent", function () {
       assert.deepEqual(validateFixtureRegistry(registry), registry);
       assert.deepEqual(validateCommittedSeed(seed, registry).identity, {
-        schemaVersion: "system-e2e-seed.v1",
+        schemaVersion: "system-e2e-seed.v2",
         fixtureId: "foundation-v1",
-        fixtureRevision: 1,
+        fixtureRevision: 2,
       });
       assert.throws(
         () =>
           validateCommittedSeed(
-            { ...seed, schemaVersion: "system-e2e-seed.v2" },
+            { ...seed, schemaVersion: "system-e2e-seed.v3" },
             registry,
           ),
         /fixture_registry_mismatch/,
       );
       assert.throws(
-        () => validateCommittedSeed({ ...seed, fixtureRevision: 2 }, registry),
+        () => validateCommittedSeed({ ...seed, fixtureRevision: 3 }, registry),
         /fixture_registry_mismatch/,
       );
     });
 
     it("does not retire a fixture revision while an active lane references it", function () {
-      assert.isFalse(canRetireFixtureRevision(registry, "foundation-v1", 1));
+      assert.isFalse(canRetireFixtureRevision(registry, "foundation-v1", 2));
       assert.isTrue(
         canRetireFixtureRevision(
           {
@@ -183,9 +211,30 @@ describe("zotero test infrastructure helpers", function () {
             fixtures: [{ ...registry.fixtures[0], references: [] }],
           },
           "foundation-v1",
-          1,
+          2,
         ),
       );
+    });
+
+    it("requires every Phase 1 structural fact", function () {
+      assert.deepEqual(validateCommittedSeed(seed, registry), {
+        identity: {
+          schemaVersion: "system-e2e-seed.v2",
+          fixtureId: "foundation-v1",
+          fixtureRevision: 2,
+        },
+        facts: seed.facts,
+        structuralFacts: seed.structuralFacts,
+      });
+
+      for (const name of Object.keys(seed.structuralFacts)) {
+        const structuralFacts = { ...seed.structuralFacts };
+        delete structuralFacts[name as keyof typeof structuralFacts];
+        assert.throws(
+          () => validateCommittedSeed({ ...seed, structuralFacts }, registry),
+          new RegExp(`fixture_structural_fact_invalid:${name}`),
+        );
+      }
     });
 
     it("materializes the same declared facts on repeated runs", async function () {
@@ -218,6 +267,24 @@ describe("zotero test infrastructure helpers", function () {
 
       assert.deepEqual(first.facts, { items: 1, attachments: 1 });
       assert.deepEqual(second, first);
+      assert.equal(
+        await readFile(path.join(targetA, "seed.json"), "utf8"),
+        await readFile(path.join(targetB, "seed.json"), "utf8"),
+      );
+
+      await writeFile(path.join(targetA, "stale-runtime-state"), "stale");
+      await materializeCommittedSeed({
+        sourceDir: source,
+        targetDir: targetA,
+        registry,
+      });
+      let staleStateExists = true;
+      try {
+        await readFile(path.join(targetA, "stale-runtime-state"), "utf8");
+      } catch {
+        staleStateExists = false;
+      }
+      assert.isFalse(staleStateExists);
     });
 
     it("materializes the committed seed by default and fails a selected gold lane without a source", async function () {
@@ -254,6 +321,95 @@ describe("zotero test infrastructure helpers", function () {
           testRoot: root,
         }),
       );
+    });
+
+    it("restores the same scaffold profile and data for a runner-owned restart", async function () {
+      const root = await mkdtemp(path.join(os.tmpdir(), "system-e2e-resume-"));
+      const resumeRoot = path.join(root, "resume");
+      const testRoot = path.join(root, "test");
+      await mkdir(path.join(resumeRoot, "data", "zotero-agents", "state"), {
+        recursive: true,
+      });
+      await mkdir(path.join(resumeRoot, "profile"), { recursive: true });
+      await writeFile(
+        path.join(
+          resumeRoot,
+          "data",
+          "zotero-agents",
+          "state",
+          "zotero-agents.db",
+        ),
+        "durable-state",
+      );
+      await writeFile(
+        path.join(resumeRoot, "profile", "prefs.js"),
+        "preserved-profile",
+      );
+
+      const staged = await stageZoteroE2EFixture({
+        domain: "e2e",
+        env: { ZOTERO_SYSTEM_E2E_RESUME_ROOT: resumeRoot },
+        testRoot,
+      });
+
+      assert.equal(staged?.kind, "resume");
+      assert.equal(
+        await readFile(
+          path.join(
+            testRoot,
+            "data",
+            "zotero-agents",
+            "state",
+            "zotero-agents.db",
+          ),
+          "utf8",
+        ),
+        "durable-state",
+      );
+      assert.equal(
+        await readFile(path.join(testRoot, "profile", "prefs.js"), "utf8"),
+        "preserved-profile",
+      );
+    });
+
+    it("arms an exact owner restart only after its post-admission checkpoint", async function () {
+      assert.deepEqual(
+        parseSystemE2ERestartRequest({
+          type: "debug",
+          data: {
+            kind: "system-e2e-owner-restart-request",
+            caseId: "HB-03",
+            operationId: "system-e2e:hb:03",
+            processId: 4242,
+          },
+        }),
+        {
+          caseId: "HB-03",
+          operationId: "system-e2e:hb:03",
+          processId: 4242,
+        },
+      );
+      assert.isNull(
+        parseSystemE2ERestartRequest({
+          type: "debug",
+          data: { kind: "unrelated", processId: 4242 },
+        }),
+      );
+
+      const root = await mkdtemp(path.join(os.tmpdir(), "system-e2e-admit-"));
+      const checkpointPath = path.join(
+        root,
+        "canonical-mutation-admission.held",
+      );
+      const admitted = waitForSystemE2EAdmissionCheckpoint({
+        checkpointPath,
+        operationId: "system-e2e:hb:03",
+        timeoutMs: 1_000,
+        pollIntervalMs: 1,
+      });
+      await writeFile(checkpointPath, "system-e2e:hb:03", "utf8");
+
+      assert.equal(await admitted, "held");
     });
 
     it("rejects private database files and absolute paths", async function () {
@@ -445,13 +601,34 @@ describe("zotero test infrastructure helpers", function () {
   });
 
   describe("System E2E family lifecycle", function () {
-    const family = {
-      familyId: "SL",
-      owner: "SL",
-      namespace: ["system-e2e:sl:"],
-      ownedState: ["sidecar-process", "sidecar-discovery"],
-      carryOver: ["sidecar-discovery"],
-    };
+    const family = PHASE1_FAMILY_DECLARATIONS.SL;
+
+    it("declares all Phase 1 family-owned state and bounded carry-over", function () {
+      assert.deepEqual(Object.keys(PHASE1_FAMILY_DECLARATIONS), [
+        "SL",
+        "RH",
+        "PA",
+        "PM",
+        "CG",
+        "HB",
+      ]);
+      assert.deepEqual(
+        validateFamilyDeclarations(Object.values(PHASE1_FAMILY_DECLARATIONS)),
+        Object.values(PHASE1_FAMILY_DECLARATIONS),
+      );
+      assert.deepEqual(PHASE1_FAMILY_DECLARATIONS.SL.carryOver, [
+        "sidecar-ready-generation",
+      ]);
+      assert.deepEqual(PHASE1_FAMILY_DECLARATIONS.PM.carryOver, [
+        "maintenance-operation",
+      ]);
+      assert.deepEqual(PHASE1_FAMILY_DECLARATIONS.HB.carryOver, [
+        "canonical-mutation-operation",
+      ]);
+      assert.deepEqual(PHASE1_FAMILY_DECLARATIONS.RH.carryOver, []);
+      assert.deepEqual(PHASE1_FAMILY_DECLARATIONS.PA.carryOver, []);
+      assert.deepEqual(PHASE1_FAMILY_DECLARATIONS.CG.carryOver, []);
+    });
 
     it("accepts carry-over only within its declaring family", function () {
       assert.deepEqual(validateFamilyDeclarations([family]), [family]);
@@ -460,11 +637,7 @@ describe("zotero test infrastructure helpers", function () {
           validateFamilyDeclarations([
             family,
             {
-              ...family,
-              familyId: "PM",
-              owner: "PM",
-              namespace: ["system-e2e:pm:"],
-              ownedState: ["maintenance-operation"],
+              ...PHASE1_FAMILY_DECLARATIONS.PM,
               carryOver: ["sidecar-discovery"],
             },
           ]),

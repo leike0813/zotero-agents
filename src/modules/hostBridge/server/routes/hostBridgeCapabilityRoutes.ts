@@ -439,14 +439,14 @@ async function callCapability(
     }
   }
 
+  const requestOperationId = context.getOperationId();
+  const canonicalMutationProjection =
+    isCanonicalMutationProjectionCapability(capabilityName);
   try {
-    const requestOperationId = context.getOperationId();
     const permissionScope = context.getPermissionScope();
     const autoApprovedWrite =
       capability.category === "mutation" &&
       isHostBridgeWriteAutoApprovalScope(permissionScope);
-    const canonicalMutationProjection =
-      isCanonicalMutationProjectionCapability(capabilityName);
     const canonicalMutationExecute =
       canonicalMutationProjection &&
       (normalizedInput as Record<string, unknown>).dryRun !== true;
@@ -580,6 +580,30 @@ async function callCapability(
           },
         ),
         code,
+      );
+    }
+    const mutationError =
+      canonicalMutationProjection && error && typeof error === "object"
+        ? (error as { code?: unknown; details?: unknown })
+        : null;
+    const mutationErrorDetails =
+      mutationError?.details && typeof mutationError.details === "object"
+        ? (mutationError.details as { reason?: unknown })
+        : null;
+    if (
+      mutationError?.code === "conflict" &&
+      mutationErrorDetails?.reason === "idempotency_conflict"
+    ) {
+      return context.respond(
+        409,
+        "Conflict",
+        hostBridgeError(
+          "idempotency_conflict",
+          errorMessage(error),
+          "validation",
+          { operationId: requestOperationId },
+        ),
+        "idempotency_conflict",
       );
     }
     return context.respond(

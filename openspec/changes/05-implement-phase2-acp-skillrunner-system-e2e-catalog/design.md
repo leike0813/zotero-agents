@@ -57,7 +57,7 @@ Alternative: a new peer that simulates a lost request table. Rejected — restar
 
 ### Runner-owned process restart for cross-restart cases
 
-`AC-05` and `SR-02` both need the Zotero process to terminate and relaunch against the **same** copied profile, because the evidence they assert is startup reconciliation over durable state. `scripts/run-zotero-test-with-mock.ts` gains one capability: terminate the Zotero child and relaunch it with the same `ZOTERO_TEST_DATA_DIR`, endpoint environment, and test selection, then continue the current case instead of asserting across a separate process boundary.
+`AC-05` and `SR-02` both need the Zotero process to terminate and relaunch against the **same** copied profile, because the evidence they assert is startup reconciliation over durable state. They reuse the runner-owned restart capability introduced by Change 03 for `HB-03`: terminate the exact Zotero child, preserve and relaunch the same scaffold profile/data with the same endpoint environment and selected recovery case, then continue instead of asserting across a separate process boundary.
 
 Alternative: run the pre-restart and post-restart halves as two separate invocations and correlate by fixture identity. Rejected — reconciliation semantics depend on the same profile generation, and correlating two invocations would let a case pass while reconciliation never actually saw the durable record.
 
@@ -97,7 +97,7 @@ All Linux cases live under `tests/zotero/e2e/full` and therefore execute through
 ## Migration Plan
 
 1. Extend the ACP fixture modes and its evidence record; extend the Mock SkillRunner peer with the handshake throttle and fixed-port restart. Verify the existing contract tests for both peers still pass.
-2. Add the runner-owned process-restart capability and verify it against an existing e2e case before any Phase 2 case depends on it.
+2. Verify the runner-owned process-restart capability introduced by Change 03 against its existing `HB-03` evidence before any Phase 2 case depends on it.
 3. Implement the cases in dependency order: `AC-01` (normal producer path) first, then the recovery and ownership cases, then `SR-01`..`SR-04`, then `AW-01`/`AW-02`.
 4. Run the full Linux catalog serially in one copied profile and confirm cleanup, health, and a complete Run Manifest.
 5. Run `AP-01` on Zotero 10/Windows and record its manifest separately.

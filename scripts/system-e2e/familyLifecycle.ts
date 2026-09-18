@@ -6,6 +6,78 @@ export type FamilyDeclaration = {
   carryOver?: string[];
 };
 
+export type Phase1FamilyId = "SL" | "RH" | "PA" | "PM" | "CG" | "HB";
+
+export const PHASE1_FAMILY_DECLARATIONS: Record<
+  Phase1FamilyId,
+  FamilyDeclaration
+> = {
+  SL: {
+    familyId: "SL",
+    owner: "synthesis-sidecar-runtime-lifecycle",
+    namespace: ["system-e2e:sl:"],
+    ownedState: [
+      "sidecar-process",
+      "sidecar-discovery",
+      "sidecar-launch-input",
+      "sidecar-ready-generation",
+    ],
+    carryOver: ["sidecar-ready-generation"],
+  },
+  RH: {
+    familyId: "RH",
+    owner: "reverse-host-boundary",
+    namespace: ["system-e2e:rh:"],
+    ownedState: [
+      "synthetic-reference-items",
+      "reference-refresh-operation",
+      "reference-checkpoint",
+    ],
+    carryOver: [],
+  },
+  PA: {
+    familyId: "PA",
+    owner: "provenance-and-canonical-artifact-classification",
+    namespace: ["system-e2e:pa:"],
+    ownedState: ["historical-topic-source", "malformed-artifact"],
+    carryOver: [],
+  },
+  PM: {
+    familyId: "PM",
+    owner: "public-maintenance-lifecycle",
+    namespace: ["system-e2e:pm:"],
+    ownedState: [
+      "synthetic-reference-items",
+      "maintenance-operation",
+      "maintenance-checkpoint",
+      "reference-checkpoint",
+    ],
+    carryOver: ["maintenance-operation"],
+  },
+  CG: {
+    familyId: "CG",
+    owner: "citation-graph-application",
+    namespace: ["system-e2e:cg:"],
+    ownedState: [
+      "citation-graph-view",
+      "citation-graph-rebuild",
+      "graph-basis-items",
+    ],
+    carryOver: [],
+  },
+  HB: {
+    familyId: "HB",
+    owner: "host-bridge-canonical-mutation-authority",
+    namespace: ["system-e2e:hb:"],
+    ownedState: [
+      "synthetic-note",
+      "canonical-mutation-operation",
+      "host-bridge-owner",
+    ],
+    carryOver: ["canonical-mutation-operation"],
+  },
+};
+
 type HealthGateResult = {
   status: "passed" | "failed" | "indeterminate";
   hostResponsive: boolean;

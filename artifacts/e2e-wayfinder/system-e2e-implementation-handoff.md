@@ -153,6 +153,7 @@ Approved local seams are limited to:
 1. Reference refresh: one-shot and operation-scoped after the first page is served and before the next page request.
 2. Public Maintenance: one-shot and operation-scoped after durable admission and before worker dispatch.
 3. SkillRunner apply: only if public evidence cannot deterministically hit the boundary after durable `apply.started`; one-shot and operation-scoped inside the apply owner.
+4. Host Bridge canonical mutation: only for `HB-03`, one-shot and operation-scoped after durable canonical admission and before the first effect, enabled solely through the test runtime because external durable-row observation cannot deterministically stop `notes.create` in that window.
 
 An unarmed seam preserves production ordering, latency, and outcomes. No public protocol, DTO, capability catalog, CLI/MCP route, or global service accepts fault-control input.
 
@@ -350,6 +351,7 @@ Implement:
 
 - the twelve original Phase 1 cases not delivered by Change 02;
 - only the additional deterministic de-identified seed facts those cases consume;
+- the runner-owned same-profile Zotero restart required by `HB-03`, with one test-runtime-only operation-scoped admission hold and post-relaunch observation only through public canonical mutation evidence;
 - `CG-02` as a diagnosis-led regression: unattended Windows Zotero 10 red loop, minimized evidence, owner-level regression, smallest root-cause fix, green repeated close cycles, and actual Zotero 9 classification;
 - public/typed/lifecycle/cleanup/health assertions and operator documentation.
 
@@ -387,7 +389,7 @@ Implement:
 
 - four modes in the existing ACP child fixture;
 - handshake throttle and fixed-port restart in the existing Mock SkillRunner;
-- runner-owned Zotero restart against the same copied profile;
+- reuse of the runner-owned Zotero restart introduced by Change 03;
 - the fourteen Phase 2 cases;
 - owner/region identity checks required by Assistant Workspace hard constraints;
 - the conditional `SR-02` apply checkpoint only when process kill cannot deterministically hit the durable boundary.

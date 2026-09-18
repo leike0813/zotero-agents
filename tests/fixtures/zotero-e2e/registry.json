@@ -3,8 +3,8 @@
   "fixtures": [
     {
       "fixtureId": "foundation-v1",
-      "schemaVersion": "system-e2e-seed.v1",
-      "fixtureRevision": 1,
+      "schemaVersion": "system-e2e-seed.v2",
+      "fixtureRevision": 2,
       "references": ["local-e2e"]
     }
   ]

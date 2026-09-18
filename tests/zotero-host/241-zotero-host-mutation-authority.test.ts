@@ -64,6 +64,49 @@ describe("Zotero host mutation authority", function () {
     assert.deepEqual(replay, first);
   });
 
+  it("holds one selected admitted operation before its first effect", async function () {
+    let release!: () => void;
+    let reached!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const checkpoint = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    let effects = 0;
+    configureMutationAuthorityRuntimeForTests({
+      admissionCheckpoint: {
+        operationId: "checkpointed-operation",
+        wait: async () => {
+          reached();
+          await gate;
+        },
+      },
+    });
+
+    const execution = executeReservedMutation({
+      scope,
+      operationId: "checkpointed-operation",
+      operation,
+      semanticInput: { item: "A" },
+      execute: async () => {
+        effects += 1;
+        return { outcome: "unchanged" as const, result: {}, changes: [] };
+      },
+    });
+    await checkpoint;
+    assert.equal(effects, 0);
+    assert.equal(
+      getMutationOperation({ scope, operationId: "checkpointed-operation" })
+        .state,
+      "running",
+    );
+    release();
+
+    assert.equal((await execution).outcome, "unchanged");
+    assert.equal(effects, 1);
+  });
+
   it("never redispatches a failed operation identity", async function () {
     let effects = 0;
     const args = {

@@ -13,27 +13,36 @@ E2E 构建会把当前源码编译出的 Synthesis sidecar 放入测试插件，
 
 ## Suite Baseline 与 family 生命周期
 
-默认运行使用 `tests/fixtures/zotero-e2e/committed-seed-v1` 的 Committed Seed。`test:init` 在 Zotero 启动前校验 active registry、三字段 identity（`schemaVersion`、`fixtureId`、`fixtureRevision`）、portable 数据与隐私边界，然后把 seed materialize 到新测试 data 目录。同一 invocation 只创建一次 Suite Baseline；family 串行共享该 profile，不在 family 之间重置。
+默认运行使用 `tests/fixtures/zotero-e2e/committed-seed-v1` 的 Committed Seed。当前 active identity 是 `system-e2e-seed.v2` / `foundation-v1` / revision `2`。`test:init` 在 Zotero 启动前校验 active registry、三字段 identity（`schemaVersion`、`fixtureId`、`fixtureRevision`）、portable 数据与隐私边界，然后把 seed materialize 到新测试 data 目录。同一 invocation 只创建一次 Suite Baseline；family 串行共享该 profile，不在 family 之间重置。
 
 每个 Scenario Family 声明 namespace、Owned State、可选 Carry-over Set 和 cleanup。普通断言失败后仍执行该 family 的 cleanup 与 Suite Health Gate；baseline、runner/transport、restart、cleanup 或 health gate 失败，以及无法判断 cleanup/health 的情况，都会 fail-closed 地终止后续 family。Health Gate 在初始化后及每个 family 后检查 Zotero/插件响应、当前源码 sidecar ready、无未声明 operation/process、Owned State 已清理。
 
 outer runner 在 `artifacts/test-diagnostics/system-e2e/<runId>/run-manifest.json` 写入 sanitized Run Manifest。浏览器 reporter 仍把事件发送给 scaffold，同时把同一结构化事件镜像到 loopback sink；manifest 不解析日志文本。终态为 `complete`、`aborted` 或 `incomplete`，缺少 public、typed、lifecycle、cleanup 或 health evidence 时不从日志推断通过。可发布诊断只保存 workspace-relative reference；敏感或 private-format artifact 只记稳定的 `withheld` reason code。
 
-## Sidecar 恢复场景
+## Phase 1 catalog
 
-`tests/zotero/e2e/full/302-sidecar-recovery.zotero.test.ts` 在同一 runner 中覆盖三个正式场景：
+`tests/zotero/e2e/full/302-sidecar-recovery.zotero.test.ts` 通过以下生产入口运行十五个 Phase 1 case：
 
-- `SL-03`：外部终止 ready sidecar，要求旧 generation 退役且唯一 replacement 回到 ready。
-- `RH-02`：在 Reference 第一页后改变 Host basis，要求 refresh 以 `basis_mismatch` 失败且不提交混合结果，随后从新 basis 重试成功。
-- `PM-03`：在 durable admission 后让 operation 进入 running，再终止 sidecar；重启后要求 `restart_reconciliation_failed` / `restart_external_effect_unknown`、不自动 replay，并由显式 retry key 唯一创建 successor。
+| Owner | Cases | Public entrypoint and evidence |
+| --- | --- | --- |
+| `SL` | `SL-01`–`SL-03` | plugin lifecycle、`system.shutdown`、discovery 与进程身份 |
+| `RH` | `RH-01`–`RH-02` | public Reference refresh、typed basis outcome 与 ready state |
+| `PA` | `PA-01`–`PA-02` | public Workbench Topic/Index projection 与 bounded diagnostic |
+| `PM` | `PM-01`–`PM-04` | public maintenance submit/get/continue/retry/cancel 与 durable receipt |
+| `CG` | `CG-01` | public Citation Graph view/rebuild 与 typed `basis_mismatch` |
+| `HB` | `HB-01`–`HB-03` | Host Bridge CLI mutation、`mutation get-operation` 与 note projection |
 
-sidecar 只提供两个 test-private checkpoint：`reference-after-first-page` 和 `maintenance-after-admission`。它们通过当前 session runtime root 下的私有 marker 文件控制，仅在 diagnostics-enabled 的测试启动配置中读取；每次 arm 只允许一个 operation claim，默认不 armed，等待有界，release 后清理。它们不属于 capability、DTO、CLI 或 MCP surface。checkpoint marker 和内部调用顺序不作为测试证据；case 的 public outcome、typed descriptor、cleanup 与 Suite Health Gate 结果只写入 Run Manifest。
+sidecar 提供 `reference-after-first-page` 和 `maintenance-after-admission` 两个 test-private checkpoint。`HB-03` 另在 canonical mutation durable admission 后使用一次性、operation-scoped hold；outer runner 命中 hold 后终止准确的 Zotero PID，复制当前 scaffold profile/data，并在同一 invocation 内重启该 case。所有 checkpoint 默认不 armed、等待有界并在使用后清理，不属于 capability、DTO、CLI 或 MCP surface。checkpoint marker 和内部调用顺序不作为通过证据；恢复后只断言 public canonical mutation evidence、note projection、cleanup 与 Suite Health Gate。
 
-执行命令保持为：
+运行全部 catalog、单个 case，或指定精确宿主：
 
 ```bash
 npm run test:zotero:e2e
+npm run test:zotero:e2e -- --grep HB-03
+ZOTERO_PLUGIN_ZOTERO_BIN_PATH=/absolute/path/to/zotero npm run test:zotero:e2e
 ```
+
+每次 invocation 的最终证据位于 `artifacts/test-diagnostics/system-e2e/<runId>/run-manifest.json`。完整运行应包含十五个 catalog case（另有 `runner-foundation-01`），且 `terminalState` 为 `complete`；manifest 中的 `zoteroVersion`、platform、fixture identity、family lifecycle、cleanup 与 health 字段用于判断该证据适用的宿主和范围。
 
 ## LiSongTao 金例
 

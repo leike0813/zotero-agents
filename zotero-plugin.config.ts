@@ -137,6 +137,23 @@ export async function stageZoteroE2EFixture(
   const env = options.env || process.env;
   const testRoot = path.resolve(options.testRoot || ".scaffold/test");
   if (domain !== "e2e") return;
+  const resumeRoot = String(env.ZOTERO_SYSTEM_E2E_RESUME_ROOT || "").trim();
+  if (resumeRoot) {
+    await Promise.all(
+      ["data", "profile"].map((name) =>
+        fs.cp(path.join(resumeRoot, name), path.join(testRoot, name), {
+          recursive: true,
+          force: true,
+        }),
+      ),
+    );
+    await Promise.all(
+      ["parent.lock", ".parentlock", "lock"].map((name) =>
+        fs.rm(path.join(testRoot, "profile", name), { force: true }),
+      ),
+    );
+    return { kind: "resume" as const };
+  }
   const dataSource = String(env.ZOTERO_E2E_GOLD_DATA_DIR || "").trim();
   const profileSource = String(env.ZOTERO_E2E_GOLD_PROFILE_DIR || "").trim();
   const goldSelected =

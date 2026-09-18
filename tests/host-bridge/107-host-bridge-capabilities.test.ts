@@ -2396,6 +2396,40 @@ describe("host bridge capability calls", function () {
     }
   });
 
+  it("preserves canonical mutation idempotency conflicts at the public boundary", async function () {
+    const token = configureHostBridgeServerForTests({
+      token: "canonical-idempotency-conflict-token",
+    });
+    const parent = await createParentItem("Canonical Conflict Parent");
+    setPref("hostBridgeDisableWriteApproval", true);
+    const operationId = `canonical-conflict-${Date.now()}`;
+    const input = {
+      operation: "notes.create",
+      operationId,
+      placement: { kind: "child", parentRef: portableItemRef(parent) },
+      content: { format: "html", value: "<p>original</p>" },
+    };
+
+    const created = await callBridgeCapability({
+      token,
+      capability: "mutation.execute",
+      input,
+    });
+    const conflict = await callBridgeCapability({
+      token,
+      capability: "mutation.execute",
+      input: {
+        ...input,
+        content: { format: "html", value: "<p>changed</p>" },
+      },
+    });
+
+    assert.strictEqual(created.status, 200);
+    assert.strictEqual(conflict.status, 409);
+    assert.strictEqual(conflict.json.error.code, "idempotency_conflict");
+    assert.strictEqual(conflict.json.error.details.operationId, operationId);
+  });
+
   it("previews canonical uploaded attachments without consuming their handles", async function () {
     const token = configureHostBridgeServerForTests({
       token: "upload-preview-token",

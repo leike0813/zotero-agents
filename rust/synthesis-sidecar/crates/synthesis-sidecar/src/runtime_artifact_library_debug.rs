@@ -362,6 +362,16 @@ fn scan_descriptors(apps: &ProductionApplications, request: &Value) -> Result<Ve
     Err("artifact_limit_exceeded".into())
 }
 
+fn public_artifact_status(status: &str) -> Result<&'static str, String> {
+    match status {
+        "available" => Ok("available"),
+        "missing" => Ok("missing"),
+        "decode_error" => Ok("invalid"),
+        "unsupported" => Ok("unavailable"),
+        _ => Err("reverse_host_result_invalid".into()),
+    }
+}
+
 fn artifact_from_descriptor(
     apps: &ProductionApplications,
     descriptor: &Value,
@@ -382,10 +392,11 @@ fn artifact_from_descriptor(
         .get("payloadType")
         .and_then(Value::as_str)
         .unwrap_or_default();
-    let status = object
+    let host_status = object
         .get("status")
         .and_then(Value::as_str)
         .unwrap_or("missing");
+    let status = public_artifact_status(host_status)?;
     let mut result = json!({
         "paper_ref": paper_ref,
         "artifact_type": artifact_type,
@@ -399,7 +410,7 @@ fn artifact_from_descriptor(
     if let Some(quality) = object.get("literatureQuality") {
         result["literature_quality"] = quality.clone();
     }
-    if include_content && status == "available" {
+    if include_content && host_status == "available" {
         let locator = object
             .get("locator")
             .and_then(Value::as_str)
@@ -454,13 +465,21 @@ fn artifact_from_descriptor(
                 result["diagnostics"] = json!(diagnostics);
             }
             Some("stale") => return Err("synthesis_host_artifact_stale".into()),
-            Some(status) => {
-                result["status"] = json!(status);
+            Some("missing") => {
+                result["status"] = json!("missing");
                 result["diagnostics"] = content_object
                     .get("diagnostics")
                     .cloned()
                     .unwrap_or_else(|| json!([]));
             }
+            Some("decode_error") => {
+                result["status"] = json!("invalid");
+                result["diagnostics"] = content_object
+                    .get("diagnostics")
+                    .cloned()
+                    .unwrap_or_else(|| json!([]));
+            }
+            Some(_) => return Err("reverse_host_result_invalid".into()),
             None => return Err("reverse_host_result_invalid".into()),
         }
     }

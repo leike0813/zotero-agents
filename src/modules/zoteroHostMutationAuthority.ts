@@ -32,6 +32,7 @@ import {
 } from "./pluginStateStore";
 
 const TERMINAL_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+const SYSTEM_E2E_CHECKPOINT_TIMEOUT_MS = 120_000;
 
 export type ZoteroHostMutationCallerScope = Readonly<{
   ownerId: string;
@@ -40,6 +41,10 @@ export type ZoteroHostMutationCallerScope = Readonly<{
 type MutationRuntimeConfiguration = {
   now: () => number;
   randomId: () => string;
+  admissionCheckpoint?: {
+    operationId: string;
+    wait: () => void | Promise<void>;
+  };
 };
 
 type MutationTerminalRecord = {
@@ -136,6 +141,63 @@ const defaultRuntimeConfiguration = (): MutationRuntimeConfiguration => ({
 let runtimeConfiguration = defaultRuntimeConfiguration();
 const mutationRecords = new Map<string, MutationRecord>();
 const pinnedMutationReceipts = new Map<string, number>();
+
+function holdSystemE2EAdmissionCheckpoint(operationId: string) {
+  const runtime = globalThis as typeof globalThis & {
+    Services?: {
+      prefs?: { getStringPref?: (key: string, fallback?: string) => string };
+    };
+    Zotero?: { DataDirectory?: { dir?: string } };
+    PathUtils?: { join?: (...parts: string[]) => string };
+    IOUtils?: {
+      exists?: (path: string) => Promise<boolean>;
+      readUTF8?: (path: string) => Promise<string>;
+      writeUTF8?: (path: string, content: string) => Promise<void>;
+      remove?: (
+        path: string,
+        options?: { ignoreAbsent?: boolean },
+      ) => Promise<void>;
+    };
+  };
+  const eventUrl = runtime.Services?.prefs?.getStringPref?.(
+    "extensions.zotero-agents.test.systemE2EEventUrl",
+    "",
+  );
+  const dataDir = String(runtime.Zotero?.DataDirectory?.dir || "").trim();
+  const join = runtime.PathUtils?.join;
+  const io = runtime.IOUtils;
+  if (!eventUrl || !dataDir || !join || !io?.exists || !io.readUTF8) return;
+
+  return (async () => {
+    const root = join(dataDir, "system-e2e");
+    const armedPath = join(root, "canonical-mutation-admission.armed.json");
+    if (!(await io.exists(armedPath))) return;
+    let armed: { operationId?: unknown };
+    try {
+      armed = JSON.parse(await io.readUTF8(armedPath)) as {
+        operationId?: unknown;
+      };
+    } catch {
+      return;
+    }
+    if (String(armed.operationId || "").trim() !== operationId) return;
+
+    await io.remove?.(armedPath, { ignoreAbsent: true });
+    const heldPath = join(root, "canonical-mutation-admission.held");
+    const releasePath = join(root, "canonical-mutation-admission.release");
+    await io.writeUTF8?.(heldPath, operationId);
+    const deadline = Date.now() + SYSTEM_E2E_CHECKPOINT_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      if (await io.exists(releasePath)) {
+        await io.remove?.(releasePath, { ignoreAbsent: true });
+        await io.remove?.(heldPath, { ignoreAbsent: true });
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error("system_e2e_mutation_admission_checkpoint_timeout");
+  })();
+}
 
 function requireScope(scope: ZoteroHostMutationCallerScope) {
   const ownerId = String(scope?.ownerId || "").trim();
@@ -792,6 +854,13 @@ export async function executeReservedMutation<TResult extends object>(args: {
 
   let terminal: MutationExecutionResult<object>;
   try {
+    const checkpoint = runtimeConfiguration.admissionCheckpoint;
+    if (checkpoint?.operationId === operationId) {
+      runtimeConfiguration.admissionCheckpoint = undefined;
+      await checkpoint.wait();
+    }
+    const systemE2ECheckpoint = holdSystemE2EAdmissionCheckpoint(operationId);
+    if (systemE2ECheckpoint) await systemE2ECheckpoint;
     if (args.control?.signal?.aborted) {
       throw new MutationAuthorityExecutionError(
         "canceled",
