@@ -122,7 +122,7 @@ PR 与 main 由 `.github/workflows/ci.yml` 的 `CI` workflow 执行。tag 发布
 
 scheduled 与手工证据由 `.github/workflows/system-e2e-evidence.yml` 的 `System E2E Evidence` workflow 执行。周日 cron 是 weekly，周三 cron 是 stress；`workflow_dispatch` 可显式选择 `weekly`、`stress` 或 `manual-gold`。manual-gold 从 repository variables `ZOTERO_E2E_GOLD_DATA_DIR` 与 `ZOTERO_E2E_GOLD_PROFILE_DIR` 读取 runner 上的只读来源，未配置或路径无效时该 invocation 必须失败。它们都不提供 release authority。
 
-新 workflow 尚未进入默认分支时，用 `e2e-calibration-pr-*`、`e2e-calibration-main-*`、`e2e-calibration-release-*` tag 从该 tag 指向的提交启动非发布校准。每个 lane 创建三枚唯一 tag，分别保留三个独立 workflow run；workflow 只选 planner 中的 E2E cells，release 校准包含 Linux/Windows，但不调用 `npm run release`，也不产生发布 authority。
+新 workflow 尚未进入默认分支时，用 `e2e-calibration-pr-*`、`e2e-calibration-main-*`、`e2e-calibration-release-*` tag 从该 tag 指向的提交启动非发布校准。每个 lane 创建三枚唯一 tag，分别保留三个独立 workflow run；每次 push 最多包含三枚 tag（建议同一轮各推 PR/main/release 一枚），超过三枚时 GitHub 不创建 tag push workflow run。workflow 只选 planner 中的 E2E cells，release 校准包含 Linux/Windows，但不调用 `npm run release`，也不产生发布 authority。
 
 每个 prospective blocking cell 需要三个独立 workflow run 的完整、干净 manifest。三轮必须具有相同的 Zotero target/version、runner OS/image、family grouping、fixture scale、sidecar startup model 和 invocation/profile model，并使用不同 workflow run、run ID 与 profile identity。`complete` 终态、所有 family 通过、cleanup/health 通过、无残留 process/port/lock 缺一不可。普通源码 commit、插件摘要、sidecar fingerprint 或 fixture revision 的变化本身不清零校准 identity。
 

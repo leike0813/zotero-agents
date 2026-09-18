@@ -39,7 +39,10 @@ import {
   parseSupportedZoteroMajor,
   type SupportedZoteroMajor,
 } from "../../src/shared/zoteroRuntimeVersion";
-import { resolveCompatibilityWorkerEntries } from "../../scripts/run-zotero-compatibility-worker";
+import {
+  materializeCompatibilityTestWorkspace,
+  resolveCompatibilityWorkerEntries,
+} from "../../scripts/run-zotero-compatibility-worker";
 import {
   parseCompatibilityCliArgs,
   parseCompatibilityRunManifestReference,
@@ -102,7 +105,7 @@ describe("Zotero compatibility fixture contracts", function () {
         name: "lite",
         entries: resolveTestEntries("all", "lite"),
         expected: [
-          "tests/zotero/setup.test.ts",
+          "tests/zotero/setup",
           "tests/zotero/core/lite",
           "tests/zotero/ui/lite",
           "tests/zotero/workflow/lite",
@@ -112,7 +115,7 @@ describe("Zotero compatibility fixture contracts", function () {
         name: "full",
         entries: resolveTestEntries("all", "full"),
         expected: [
-          "tests/zotero/setup.test.ts",
+          "tests/zotero/setup",
           "tests/zotero/core/lite",
           "tests/zotero/core/full",
           "tests/zotero/ui/lite",
@@ -124,23 +127,79 @@ describe("Zotero compatibility fixture contracts", function () {
       {
         name: "e2e",
         entries: resolveTestEntries("e2e", "full"),
-        expected: ["tests/zotero/setup.test.ts", "tests/zotero/e2e/full"],
+        expected: ["tests/zotero/setup", "tests/zotero/e2e/full"],
       },
     ];
 
     for (const { name, entries, expected } of cases) {
       it(`uses direct ${name} suite entries`, function () {
         assert.deepEqual(
-          resolveCompatibilityWorkerEntries("behavior", entries),
-          [...expected, "tests/zotero/compatibility/probe/suite.test.ts"],
+          resolveCompatibilityWorkerEntries(
+            "behavior",
+            entries,
+            name === "e2e" ? "e2e" : "all",
+          ),
+          name === "e2e"
+            ? expected
+            : [...expected, "tests/zotero/compatibility/probe"],
         );
       });
     }
 
     it("keeps the formal XPI suite independent of behavioral membership", function () {
       assert.deepEqual(resolveCompatibilityWorkerEntries("xpi-smoke", []), [
-        "tests/zotero/compatibility/xpi/suite.test.ts",
+        "tests/zotero/compatibility/xpi",
       ]);
+    });
+
+    it("materializes a discoverable run-local Zotero test tree", async function () {
+      const projectRoot = await fs.mkdtemp(
+        path.join(os.tmpdir(), "compat-project-"),
+      );
+      const runRoot = await fs.mkdtemp(path.join(os.tmpdir(), "compat-run-"));
+      try {
+        const testFile = path.join(
+          projectRoot,
+          "tests/zotero/e2e/full/example.zotero.test.ts",
+        );
+        await fs.mkdir(path.dirname(testFile), { recursive: true });
+        await fs.writeFile(testFile, "export {};\n", "utf8");
+        for (const relative of [
+          "tests/fixtures",
+          "tests/helpers",
+          "src",
+          "scripts",
+          "packages",
+        ]) {
+          await fs.mkdir(path.join(projectRoot, relative), { recursive: true });
+        }
+        await fs.writeFile(
+          path.join(projectRoot, "package.json"),
+          '{"type":"module"}\n',
+          "utf8",
+        );
+
+        await materializeCompatibilityTestWorkspace(projectRoot, runRoot);
+
+        assert.isFalse(
+          (await fs.lstat(path.join(runRoot, "tests/zotero"))).isSymbolicLink(),
+        );
+        assert.strictEqual(
+          await fs.readFile(
+            path.join(runRoot, "tests/zotero/e2e/full/example.zotero.test.ts"),
+            "utf8",
+          ),
+          "export {};\n",
+        );
+        assert.isTrue(
+          (
+            await fs.lstat(path.join(runRoot, "tests/fixtures"))
+          ).isSymbolicLink(),
+        );
+      } finally {
+        await fs.rm(projectRoot, { recursive: true, force: true });
+        await fs.rm(runRoot, { recursive: true, force: true });
+      }
     });
 
     it("does not replace pre-staged E2E artifacts inside a cell", function () {
@@ -582,6 +641,15 @@ describe("Zotero compatibility fixture contracts", function () {
         eligible: true,
         maxDurationMs: 180_000,
       });
+      const withFoundation = structuredClone(rounds);
+      for (const round of withFoundation) {
+        round.manifest.families.unshift({
+          ...round.manifest.families[0]!,
+          familyId: "runner-foundation",
+          caseId: "runner-foundation-01",
+        });
+      }
+      assert.isTrue(validateCalibrationRounds(withFoundation).eligible);
       assert.isFalse(validateCalibrationRounds(rounds.slice(0, 2)).eligible);
 
       const invalid = [
@@ -959,6 +1027,12 @@ describe("Zotero compatibility fixture contracts", function () {
         "needs.prepare.outputs.lane == 'release'",
       );
       assert.include(planStep.run, 'select(.domain == "e2e")');
+      assert.include(
+        workflow.jobs.evidence.steps.find(
+          (step: { name?: string }) => step.name === "Upload evidence",
+        ).with.path,
+        "artifacts/test-diagnostics/system-e2e",
+      );
       assert.notInclude(workflowSource, "npm run release");
     });
   });

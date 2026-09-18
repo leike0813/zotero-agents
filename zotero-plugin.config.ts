@@ -32,6 +32,9 @@ type TestMode = "lite" | "full";
  * profile, so that first run would open a browser tab every time.
  */
 export const ZOTERO_TEST_FIRST_RUN_PREFS = {
+  "app.update.auto": false,
+  "app.update.enabled": false,
+  "extensions.update.enabled": false,
   "extensions.zotero.firstRun2": false,
   "extensions.zotero.firstRunGuidance": false,
   "extensions.zotero.firstRunGuidanceShown.readAloud": false,
@@ -138,7 +141,7 @@ export function resolveTestEntries(
   mode: TestMode,
   requestedEntry?: string,
 ): string | string[] {
-  const setup = "tests/zotero/setup.test.ts";
+  const setup = "tests/zotero/setup";
   const entry = String(requestedEntry || "").trim();
   if (entry) return [setup, path.extname(entry) ? path.dirname(entry) : entry];
   const entries = ZOTERO_TEST_ENTRIES[mode];

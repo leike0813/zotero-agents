@@ -762,7 +762,7 @@ describe("zotero test infrastructure helpers", function () {
         "full",
         "tests/zotero/ui/full/276-dashboard-synthesis-close.zotero.test.ts",
       ),
-      ["tests/zotero/setup.test.ts", "tests/zotero/ui/full"],
+      ["tests/zotero/setup", "tests/zotero/ui/full"],
     );
   });
 
@@ -784,7 +784,7 @@ describe("zotero test infrastructure helpers", function () {
   it("routes the full E2E domain without adding it to ordinary suites", function () {
     assert.equal(normalizeTestDomain("e2e"), "e2e");
     assert.deepEqual(resolveTestEntries("e2e", "full"), [
-      "tests/zotero/setup.test.ts",
+      "tests/zotero/setup",
       "tests/zotero/e2e/full",
     ]);
     assert.notInclude(resolveTestEntries("all", "full") as string[], "e2e");
@@ -956,7 +956,7 @@ describe("zotero test infrastructure helpers", function () {
       assert.equal(env.MOZ_HEADLESS, "1");
     });
 
-    it("suppresses the Zotero first-run browser launch in test profiles", function () {
+    it("suppresses first-run UI and automatic updates in test profiles", function () {
       assert.isFalse(
         ZOTERO_TEST_FIRST_RUN_PREFS["extensions.zotero.firstRun2"],
       );
@@ -968,6 +968,9 @@ describe("zotero test infrastructure helpers", function () {
           "extensions.zotero.firstRunGuidanceShown.readAloud"
         ],
       );
+      assert.isFalse(ZOTERO_TEST_FIRST_RUN_PREFS["app.update.auto"]);
+      assert.isFalse(ZOTERO_TEST_FIRST_RUN_PREFS["app.update.enabled"]);
+      assert.isFalse(ZOTERO_TEST_FIRST_RUN_PREFS["extensions.update.enabled"]);
     });
 
     it("strips headless mode from the spawned environment on opt out", function () {

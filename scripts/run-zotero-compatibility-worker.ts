@@ -2,8 +2,6 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { resolveZoteroTestDisplayMode } from "../zotero-plugin.config";
-
 function requiredEnvironment(name: string) {
   const value = String(process.env[name] || "").trim();
   if (!value)
@@ -27,14 +25,41 @@ async function createDirectoryLink(source: string, target: string) {
 export function resolveCompatibilityWorkerEntries(
   mode: string,
   configuredEntries: readonly unknown[],
+  domain = "all",
 ) {
-  if (mode === "xpi-smoke") {
-    return ["tests/zotero/compatibility/xpi/suite.test.ts"];
+  return mode === "xpi-smoke"
+    ? ["tests/zotero/compatibility/xpi"]
+    : domain === "e2e"
+      ? configuredEntries.map(String)
+      : [...configuredEntries.map(String), "tests/zotero/compatibility/probe"];
+}
+
+export async function materializeCompatibilityTestWorkspace(
+  projectRoot: string,
+  runRoot: string,
+) {
+  await fs.mkdir(path.join(runRoot, "tests"), { recursive: true });
+  await fs.cp(
+    path.join(projectRoot, "tests/zotero"),
+    path.join(runRoot, "tests/zotero"),
+    { recursive: true },
+  );
+  for (const relative of [
+    "tests/fixtures",
+    "tests/helpers",
+    "src",
+    "scripts",
+    "packages",
+  ]) {
+    await createDirectoryLink(
+      path.join(projectRoot, relative),
+      path.join(runRoot, relative),
+    );
   }
-  return [
-    ...configuredEntries.map(String),
-    "tests/zotero/compatibility/probe/suite.test.ts",
-  ];
+  await fs.copyFile(
+    path.join(projectRoot, "package.json"),
+    path.join(runRoot, "package.json"),
+  );
 }
 
 async function main() {
@@ -46,6 +71,7 @@ async function main() {
     requiredEnvironment("ZOTERO_COMPAT_BUILD_ROOT"),
   );
   const mode = requiredEnvironment("ZOTERO_COMPAT_MODE");
+  const domain = requiredEnvironment("ZOTERO_TEST_DOMAIN");
   const hostFactsPath = path.join(runRoot, "diagnostics", "host-facts.json");
   await fs.mkdir(path.dirname(hostFactsPath), { recursive: true });
   await createDirectoryLink(
@@ -56,10 +82,7 @@ async function main() {
     path.join(projectRoot, "workflows_builtin"),
     path.join(runRoot, "workflows_builtin"),
   );
-  await createDirectoryLink(
-    path.join(projectRoot, "tests"),
-    path.join(runRoot, "tests"),
-  );
+  await materializeCompatibilityTestWorkspace(projectRoot, runRoot);
   try {
     await fs.access(path.join(projectRoot, ".scaffold", "cache"));
     await createDirectoryLink(
@@ -72,6 +95,8 @@ async function main() {
 
   process.chdir(runRoot);
   const { Config, Test } = await import("zotero-plugin-scaffold");
+  const { resolveZoteroTestDisplayMode } =
+    await import("../zotero-plugin.config");
   process.chdir(projectRoot);
   const context = await Config.loadConfig({ dist: buildRoot });
   const configuredEntries = Array.isArray(context.test.entries)
@@ -80,6 +105,7 @@ async function main() {
   context.test.entries = resolveCompatibilityWorkerEntries(
     mode,
     configuredEntries,
+    domain,
   );
   context.test.watch = false;
   context.test.headless = resolveZoteroTestDisplayMode().needsXvfb;
@@ -89,7 +115,6 @@ async function main() {
       process.env.ZOTERO_COMPAT_XPI_PATH || "",
     ).trim(),
   };
-
   process.chdir(runRoot);
   const test = new Test(context);
   context.test.headless = resolveZoteroTestDisplayMode().needsXvfb;

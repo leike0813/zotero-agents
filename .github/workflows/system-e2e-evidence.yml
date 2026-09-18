@@ -157,6 +157,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: system-e2e-${{ needs.prepare.outputs.lane }}-${{ matrix.id }}
-          path: ${{ runner.temp }}/zotero-compat-runs
+          path: |
+            ${{ runner.temp }}/zotero-compat-runs
+            artifacts/test-diagnostics/system-e2e
           if-no-files-found: warn
           retention-days: 90

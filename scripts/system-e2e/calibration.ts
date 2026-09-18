@@ -76,8 +76,11 @@ export function validateCalibrationRounds(
       reasons.add("identity");
     }
     if (round.manifest.terminalState !== "complete") reasons.add("terminal");
+    const phase1Families = round.manifest.families.filter(
+      (family) => family.familyId !== "runner-foundation",
+    );
     const observedFamilies = new Set(
-      round.manifest.families.map((family) => family.familyId),
+      phase1Families.map((family) => family.familyId),
     );
     if (
       round.cell.families.some((family) => !observedFamilies.has(family)) ||
