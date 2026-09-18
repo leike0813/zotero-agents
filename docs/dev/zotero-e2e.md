@@ -76,4 +76,10 @@ debug 构建会持续写入 `runtime/logs/citation-graph-crash-journal.json`。�
 
 新增 E2E 用例时只断言用户可观察的终态、持久化结果和宿主存活性。不要断言内部调用顺序，也不要直接对金例来源目录执行写入。
 
+## 首启行为与外部浏览器
+
+Zotero 每次在“新 profile 的首次启动”都会打开 `https://www.zotero.org/start`，而且不是开在 Zotero 内部：`ZoteroPane` 的 `loadURI` 对普通 http(s) URL 直接调用 `Zotero.launchURL()`，也就是丢给系统默认浏览器，表现成一枚新标签页。开关是 `extensions.zotero.firstRun2`——启动时为真才打开，随后 Zotero 自己把它置回 false。测试每轮都从新 profile 起步，所以这条路径每次都会命中。
+
+`zotero-plugin.config.ts` 的 `ZOTERO_TEST_FIRST_RUN_PREFS` 把 `firstRun2`、`firstRunGuidance`、`firstRunGuidanceShown.readAloud` 固定为 false，并由 `test.prefs` 注入到测试 profile；本地启动路径（`npm run start` / `start:direct`）用的是 `.env` 指定的开发 profile，不受这套注入影响。
+
 项目级 scenario catalog、risk、ownership label、regression admission、quarantine 与 promotion 规则以 OpenSpec 的 `system-e2e-strategy` 为语义事实源；目录成员关系仍是执行事实源。五个实现 change 严格串行。`300-lisongtao-gold.zotero.test.ts` 与 `276-dashboard-synthesis-close.zotero.test.ts` 保持原位置和命令，相似性本身不会把它们改标为 catalog case。

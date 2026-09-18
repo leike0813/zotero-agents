@@ -22,18 +22,78 @@ import {
   readFixtureRegistry,
 } from "./scripts/system-e2e/fixture";
 
-type TestDomain = "all" | "core" | "ui" | "workflow" | "e2e";
+export type TestDomain = "all" | "core" | "ui" | "workflow" | "e2e";
 type TestMode = "lite" | "full";
 
-export function shouldUseHeadlessZoteroTest(
+/**
+ * ZoteroPane opens `https://www.zotero.org/start` through `Zotero.launchURL()`
+ * (the system default browser) whenever `extensions.zotero.firstRun2` is true at
+ * startup, and only clears the flag afterwards. Test runs start from a fresh
+ * profile, so that first run would open a browser tab every time.
+ */
+export const ZOTERO_TEST_FIRST_RUN_PREFS = {
+  "extensions.zotero.firstRun2": false,
+  "extensions.zotero.firstRunGuidance": false,
+  "extensions.zotero.firstRunGuidanceShown.readAloud": false,
+} as const;
+
+export const ZOTERO_TEST_HEADLESS_ENV = "ZOTERO_TEST_HEADLESS";
+export const MOZ_HEADLESS_ENV = "MOZ_HEADLESS";
+export const ZOTERO_TEST_HEADLESS_WIDTH = "1280";
+export const ZOTERO_TEST_HEADLESS_HEIGHT = "1024";
+
+export type ZoteroTestDisplayMode = {
+  /** Zotero runs without a display through the native `MOZ_HEADLESS` backend. */
+  headless: boolean;
+  /** The `zotero-plugin-scaffold` Xvfb path is needed to supply a virtual display. */
+  needsXvfb: boolean;
+};
+
+export type ZoteroTestDisplayEnvironment = Pick<
+  NodeJS.ProcessEnv,
+  "DISPLAY" | "WAYLAND_DISPLAY" | typeof ZOTERO_TEST_HEADLESS_ENV
+>;
+
+/**
+ * Headless is the default on every platform: Windows and macOS have no Xvfb
+ * equivalent, so the native `MOZ_HEADLESS` backend is the only portable path.
+ * Set `ZOTERO_TEST_HEADLESS=0` to fall back to a visible Zotero window.
+ */
+export function resolveZoteroTestDisplayMode(
   platform: NodeJS.Platform = process.platform,
-  env: Pick<NodeJS.ProcessEnv, "DISPLAY" | "WAYLAND_DISPLAY"> = process.env,
-) {
-  return (
-    platform === "linux" &&
-    !String(env.DISPLAY || "").trim() &&
-    !String(env.WAYLAND_DISPLAY || "").trim()
-  );
+  env: ZoteroTestDisplayEnvironment = process.env,
+): ZoteroTestDisplayMode {
+  const requested = String(env[ZOTERO_TEST_HEADLESS_ENV] ?? "")
+    .trim()
+    .toLowerCase();
+  const headless = !["0", "false", "no", "off"].includes(requested);
+  return {
+    headless,
+    needsXvfb:
+      headless &&
+      platform === "linux" &&
+      !String(env.DISPLAY || "").trim() &&
+      !String(env.WAYLAND_DISPLAY || "").trim(),
+  };
+}
+
+/**
+ * Applies the headless launch environment to a process environment that will
+ * spawn Zotero, so the exported variables survive the whole
+ * npm -> tsx -> zotero-plugin-scaffold -> Zotero process chain.
+ */
+export function applyZoteroTestHeadlessEnvironment(
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform = process.platform,
+): NodeJS.ProcessEnv {
+  if (!resolveZoteroTestDisplayMode(platform, env).headless) {
+    delete env[MOZ_HEADLESS_ENV];
+    return env;
+  }
+  env[MOZ_HEADLESS_ENV] = "1";
+  env.MOZ_HEADLESS_WIDTH ??= ZOTERO_TEST_HEADLESS_WIDTH;
+  env.MOZ_HEADLESS_HEIGHT ??= ZOTERO_TEST_HEADLESS_HEIGHT;
+  return env;
 }
 
 const ZOTERO_TEST_ENTRIES = {
@@ -381,8 +441,15 @@ export default defineConfig({
 
   test: {
     entries: TEST_ENTRIES,
-    headless: shouldUseHeadlessZoteroTest(),
+    headless: resolveZoteroTestDisplayMode().needsXvfb,
     startupDelay: TEST_DOMAIN === "e2e" ? 30_000 : 100,
+    // ZoteroPane opens https://www.zotero.org/start through Zotero.launchURL()
+    // (i.e. the system default browser) whenever `extensions.zotero.firstRun2`
+    // is true at startup, and only clears the flag afterwards. Every test run
+    // starts from a fresh profile, so that first run would open a browser tab
+    // each time. Pin the first-run flags here instead of relying on upstream
+    // scaffold defaults.
+    prefs: { ...ZOTERO_TEST_FIRST_RUN_PREFS },
     waitForPlugin: `() => Zotero.${pkg.config.addonInstance}.data.initialized`,
     hooks: {
       "test:init": stageZoteroE2EFixture,
