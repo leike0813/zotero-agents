@@ -44,6 +44,8 @@ ZOTERO_PLUGIN_ZOTERO_BIN_PATH=/absolute/path/to/zotero npm run test:zotero:e2e
 
 每次 invocation 的最终证据位于 `artifacts/test-diagnostics/system-e2e/<runId>/run-manifest.json`。完整运行应包含十五个 catalog case（另有 `runner-foundation-01`），且 `terminalState` 为 `complete`；manifest 中的 `zoteroVersion`、platform、fixture identity、family lifecycle、cleanup 与 health 字段用于判断该证据适用的宿主和范围。
 
+兼容矩阵 cell 的 receipt 引用 `diagnostics/` 下的 `runner.stdout.log`、`runner.stderr.log` 与 `host-facts.json`，并在运行布局被清理前落盘 `sidecar-runtime-evidence.json`。该文件记录已安装 bundle 的 target、bundleId、buildFingerprint 和缺失文件数，逐 session 记录 discovery `lifecycleState`、bundleId 是否与安装件一致、是否记录进程，以及 runtime log 的存在与大小；log 不超过 512 KiB 时另存 `runtime-logs.json`。它用于判断 cell 是否装上 sidecar、是否产生 ready session，不复制 bundle、session token 或绝对路径。cell worker 在 manifest 首次落盘时就发布 Run Manifest reference，被超时终止的 cell 因此仍能把 receipt 绑定到自己的 manifest 与日志，而不是退化成 `run_manifest_reference_missing`。
+
 ## LiSongTao 金例
 
 金例只提交去标识化结构契约：`tests/fixtures/zotero-e2e/lisongtao-v1.json`。标题、作者、路径和正文不会进入仓库。运行时把指定库与 profile 复制到 `.scaffold/test`，不会修改来源目录；副本中的 machine-bound canonical identity、sidecar executable/runtime 与旧日志会被清除并由测试实例重建。

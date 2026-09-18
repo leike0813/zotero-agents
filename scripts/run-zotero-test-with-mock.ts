@@ -14,6 +14,7 @@ import {
 import {
   createRunManifestEventCollector,
   persistRunManifest,
+  publishRunManifestReference,
   startSystemE2EEventSink,
 } from "./system-e2e/manifest";
 import { resolveCurrentHostBridgeCli } from "../tests/helpers/hostBridgeCliHarness";
@@ -545,6 +546,7 @@ async function main() {
         : {}),
     });
     let persistence = persistRunManifest(manifestPath, collector.snapshot());
+    publishRunManifestReference(manifestPath);
     const sink = await startSystemE2EEventSink(async (event) => {
       const compatibilityRunRoot = String(
         testEnv.ZOTERO_COMPAT_RUN_ROOT || "",
@@ -594,7 +596,6 @@ async function main() {
       finish: async (exitCode) => {
         await persistence;
         await persistRunManifest(manifestPath, collector.finalize(exitCode));
-        console.log(`[system-e2e-manifest] ${manifestPath}`);
       },
       close: sink.close,
     };

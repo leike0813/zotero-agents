@@ -56,6 +56,22 @@ export type RunManifest = RunIdentity & {
   abortCode?: string;
 };
 
+/**
+ * Cross-process wire marker between the System E2E cell worker and the
+ * compatibility matrix that binds the receipt to the cell's Run Manifest. The
+ * worker publishes the reference as soon as the manifest exists, so a cell
+ * that is terminated at its deadline still yields its evidence reference.
+ */
+export const RUN_MANIFEST_REFERENCE_PREFIX = "[system-e2e-manifest] ";
+
+export function describeRunManifestReference(manifestPath: string) {
+  return `${RUN_MANIFEST_REFERENCE_PREFIX}${manifestPath}`;
+}
+
+export function publishRunManifestReference(manifestPath: string) {
+  process.stdout.write(`${describeRunManifestReference(manifestPath)}\n`);
+}
+
 const WITHHELD_REASON = {
   secret: "secret",
   "identifying-content": "identifying_content",

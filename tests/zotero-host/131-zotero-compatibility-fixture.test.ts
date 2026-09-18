@@ -33,7 +33,15 @@ import {
   validateCalibrationRounds,
   type CalibrationRound,
 } from "../../scripts/system-e2e/calibration";
-import type { RunManifest } from "../../scripts/system-e2e/manifest";
+import {
+  describeRunManifestReference,
+  type RunManifest,
+} from "../../scripts/system-e2e/manifest";
+import { collectCellRuntimeEvidence } from "../../scripts/system-e2e/runtimeEvidence";
+import {
+  getRuntimePersistencePaths,
+  getSynthesisSidecarRuntimePaths,
+} from "../../src/modules/runtimePersistence";
 import {
   runWeeklyRetryPolicy,
   type WeeklyAttemptResult,
@@ -1348,6 +1356,166 @@ describe("Zotero compatibility fixture contracts", function () {
       assert.isFalse(result.timedOut);
     });
 
+    it("keeps the Run Manifest reference of a cell terminated at its deadline", async function () {
+      const manifestPath = path.join(
+        process.cwd(),
+        "artifacts/test-diagnostics/system-e2e/terminated-run/run-manifest.json",
+      );
+      const stdoutPath = path.join(tempRoot, "terminated.stdout.log");
+      const result = await runOwnedCommand({
+        command: process.execPath,
+        args: [
+          "-e",
+          "console.log(process.env.ZOTERO_TEST_MANIFEST_REFERENCE);setInterval(() => {}, 1000)",
+        ],
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          ZOTERO_TEST_MANIFEST_REFERENCE:
+            describeRunManifestReference(manifestPath),
+        },
+        stdoutPath,
+        stderrPath: path.join(tempRoot, "terminated.stderr.log"),
+        timeoutMs: 500,
+        gracefulTimeoutMs: 500,
+      });
+
+      assert.isTrue(result.timedOut);
+      assert.strictEqual(
+        parseCompatibilityRunManifestReference(
+          await fs.readFile(stdoutPath, "utf8"),
+        ),
+        "artifacts/test-diagnostics/system-e2e/terminated-run/run-manifest.json",
+      );
+    });
+
+    it("captures the sidecar runtime state a cell leaves before cleanup", async function () {
+      const layout = await createRunLayout(tempRoot, "zotero-10-windows-x64");
+      const paths = getRuntimePersistencePaths(layout.runtime);
+      const sidecar = getSynthesisSidecarRuntimePaths(paths.runtimeRoot);
+      const installedManifest = {
+        schema: "synthesis-sidecar-runtime-bundle.v3",
+        bundleId: "bundle-1",
+        implementation: "rust-native",
+        serviceVersion: "0.1.0",
+        protocolVersion: "synthesis-sidecar.v1",
+        target: "win32-x64",
+        targetTriple: "x86_64-pc-windows-msvc",
+        executable: "synthesis-sidecar.exe",
+        buildFingerprint: "f".repeat(64),
+        capabilities: ["system"],
+        createdAt: "2026-09-18T00:00:00.000Z",
+        expiresAt: null,
+        provenance: {
+          sourceFingerprint: "a".repeat(64),
+          toolchain: "nightly-2026-07-25",
+          cargoLockSha256: "b".repeat(64),
+          licenseInventory: "licenses.json",
+        },
+        files: [
+          {
+            path: "synthesis-sidecar.exe",
+            bytes: 4,
+            sha256: "c".repeat(64),
+            executable: true,
+          },
+        ],
+      };
+      await fs.mkdir(sidecar.currentDir, { recursive: true });
+      await fs.writeFile(
+        path.join(sidecar.currentDir, "manifest.json"),
+        `${JSON.stringify(installedManifest)}\n`,
+      );
+      await fs.writeFile(
+        path.join(sidecar.currentDir, "synthesis-sidecar.exe"),
+        "exe!",
+      );
+      const writeSession = async (
+        profile: string,
+        session: string,
+        discovery: unknown,
+      ) => {
+        const sessionRoot = path.join(
+          sidecar.profilesDir,
+          profile,
+          "sessions",
+          session,
+        );
+        await fs.mkdir(sessionRoot, { recursive: true });
+        await fs.writeFile(
+          path.join(sessionRoot, "discovery.json"),
+          `${JSON.stringify(discovery)}\n`,
+        );
+      };
+      await writeSession("profile-1", "session-1", {
+        lifecycleState: "ready",
+        bundleId: "bundle-1",
+        pid: 4242,
+      });
+      await writeSession("profile-1", "session-2", {
+        lifecycleState: "starting",
+        bundleId: "bundle-0",
+        pid: 4243,
+      });
+      await fs.mkdir(paths.logsDir, { recursive: true });
+      await fs.writeFile(paths.runtimeLogPath, '{"fragments":[]}\n');
+
+      const written = await collectCellRuntimeEvidence({
+        runtimeRootOverride: layout.runtime,
+        diagnosticsDir: layout.diagnostics,
+      });
+
+      const evidencePath = path.join(
+        layout.diagnostics,
+        "sidecar-runtime-evidence.json",
+      );
+      assert.include(written, evidencePath);
+      const evidence = JSON.parse(await fs.readFile(evidencePath, "utf8"));
+      assert.strictEqual(
+        evidence.schemaVersion,
+        "system-e2e-sidecar-runtime-evidence.v1",
+      );
+      assert.isTrue(evidence.install.present);
+      assert.strictEqual(evidence.install.target, "win32-x64");
+      assert.strictEqual(evidence.install.bundleId, "bundle-1");
+      assert.strictEqual(evidence.install.missingFiles, 0);
+      assert.deepEqual(
+        evidence.sessions.map(
+          (session: { lifecycleState: string; bundleIdMatched: boolean }) => [
+            session.lifecycleState,
+            session.bundleIdMatched,
+          ],
+        ),
+        [
+          ["ready", true],
+          ["starting", false],
+        ],
+      );
+      assert.isTrue(evidence.runtimeLog.present);
+      assert.isTrue(evidence.runtimeLog.captured);
+      assert.notInclude(await fs.readFile(evidencePath, "utf8"), tempRoot);
+    });
+
+    it("records an empty sidecar observation when a cell never installed the runtime", async function () {
+      const layout = await createRunLayout(tempRoot, "zotero-10-linux-x64");
+
+      const written = await collectCellRuntimeEvidence({
+        runtimeRootOverride: layout.runtime,
+        diagnosticsDir: layout.diagnostics,
+      });
+
+      const evidence = JSON.parse(
+        await fs.readFile(
+          path.join(layout.diagnostics, "sidecar-runtime-evidence.json"),
+          "utf8",
+        ),
+      );
+      assert.isFalse(evidence.install.present);
+      assert.deepEqual(evidence.sessions, []);
+      assert.isFalse(evidence.runtimeLog.present);
+      assert.lengthOf(written, 1);
+    });
+
     it("rejects plugin or sidecar identity drift across a worker", function () {
       const expected = {
         pluginDigest: "a".repeat(64),
@@ -1398,9 +1566,11 @@ describe("Zotero compatibility fixture contracts", function () {
     it("retains one workspace-relative Run Manifest reference per E2E invocation", function () {
       assert.strictEqual(
         parseCompatibilityRunManifestReference(
-          `[system-e2e-manifest] ${path.join(
-            process.cwd(),
-            "artifacts/test-diagnostics/system-e2e/run-1/run-manifest.json",
+          `${describeRunManifestReference(
+            path.join(
+              process.cwd(),
+              "artifacts/test-diagnostics/system-e2e/run-1/run-manifest.json",
+            ),
           )}\n`,
           process.cwd(),
         ),

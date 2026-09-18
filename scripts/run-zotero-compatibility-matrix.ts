@@ -33,7 +33,11 @@ import {
 } from "./run-zotero-direct";
 import { resolvePhase1FamilySelection } from "./system-e2e/familyLifecycle";
 import { runWeeklyRetryPolicy } from "./system-e2e/weeklyRetry";
-import type { RunManifest } from "./system-e2e/manifest";
+import {
+  RUN_MANIFEST_REFERENCE_PREFIX,
+  type RunManifest,
+} from "./system-e2e/manifest";
+import { collectCellRuntimeEvidence } from "./system-e2e/runtimeEvidence";
 
 const PROJECT_ROOT = process.cwd();
 const DEFAULT_MANIFEST = path.join(
@@ -212,7 +216,7 @@ export function parseCompatibilityRunManifestReference(
   stdout: string,
   projectRoot = PROJECT_ROOT,
 ) {
-  const prefix = "[system-e2e-manifest] ";
+  const prefix = RUN_MANIFEST_REFERENCE_PREFIX;
   const line = stdout
     .split(/\r?\n/)
     .filter((entry) => entry.startsWith(prefix))
@@ -515,6 +519,15 @@ async function runCell(options: CliOptions): Promise<string> {
         layout: segment,
         domain,
       });
+      receipt.diagnostics.push(worker.stdoutPath, worker.stderrPath);
+      if (options.mode === "behavior" && options.domain === "e2e") {
+        receipt.diagnostics.push(
+          ...(await collectCellRuntimeEvidence({
+            runtimeRootOverride: segment.runtime,
+            diagnosticsDir: segment.diagnostics,
+          })),
+        );
+      }
       if (expectedArtifactIdentity) {
         assertCompatibilityArtifactIdentity(expectedArtifactIdentity, {
           lane: options.gate,
@@ -554,7 +567,6 @@ async function runCell(options: CliOptions): Promise<string> {
           ),
         });
       }
-      receipt.diagnostics.push(worker.stdoutPath, worker.stderrPath);
       receipt.phases.push({
         phase: options.mode === "xpi-smoke" ? "xpi-smoke" : `test-${domain}`,
         status:
