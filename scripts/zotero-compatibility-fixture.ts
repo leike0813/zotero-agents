@@ -694,7 +694,7 @@ export function resolveZipExtractionCommand(args: {
         "-NoProfile",
         "-NonInteractive",
         "-Command",
-        `Expand-Archive -LiteralPath '${args.archivePath.replace(/'/g, "''")}' -DestinationPath '${args.stagingRoot.replace(/'/g, "''")}' -Force`,
+        `Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::ExtractToDirectory('${args.archivePath.replace(/'/g, "''")}', '${args.stagingRoot.replace(/'/g, "''")}')`,
       ],
     };
   }

@@ -1066,7 +1066,7 @@ describe("Zotero compatibility fixture contracts", function () {
             "-NoProfile",
             "-NonInteractive",
             "-Command",
-            "Expand-Archive -LiteralPath 'D:\\cache\\host.zip' -DestinationPath 'D:\\runs\\host' -Force",
+            "Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::ExtractToDirectory('D:\\cache\\host.zip', 'D:\\runs\\host')",
           ],
         },
       );
