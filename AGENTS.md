@@ -16,48 +16,59 @@
 - 内置 Skill 定义：`./skills_builtin`、Skill 模板源码：`./skills_src`
 - 内置工作流定义：`./workflows_builtin`
 - OpenSpec 规格与变更记录：`./openspec`
-- 参考文档/子模块：`./reference`
+- Synthesis 共享包（npm workspaces）：`./packages`
+- 参考文档/子模块：`./references`
 
 ```shell
 .
-├── .github/                  # GitHub Actions workflows
+├── .github/workflows/        # CI、发布与预构建 workflow
 ├── addon/                    # Zotero 插件静态资源
 │   ├── bootstrap.js          # 插件引导入口
 │   ├── manifest.json         # 插件清单
 │   ├── prefs.js              # 首选项默认值
 │   ├── content/
 │   │   ├── dashboard/        # Dashboard 页面（index.html, app.js, styles.css 等）
-│   │   ├── shared/           # 静态共享资产（css、markdown renderer、theme、vendor libs）
-│   │   ├── sidebar/          # 侧边栏页面（HTML/css；JS 由 src/sidebar 构建为 bundle）
 │   │   ├── synthesis/        # Synthesis 工作台页面
 │   │   ├── workspace/        # Assistant Workspace 页面
+│   │   ├── sidebar/          # 侧边栏页面（HTML/css；JS 由 src/sidebar 构建为 bundle）
 │   │   ├── harness/          # 只读 Harness 测试页面
 │   │   ├── help-center/      # 帮助中心入口
 │   │   ├── help-docs/        # 内嵌帮助文档（多语言）**自动生成，不要直接修改！**
+│   │   ├── host-bridge-skills/  # Host Bridge 内置 agent skill 包
 │   │   ├── components/       # 可复用 Web 组件
-│   │   ├── acp-runtime-prompts/templates/  # ACP 运行时 prompt 模板
-│   │   ├── acp-skill-patches/templates/    # ACP Skill Patch 模板
-│   │   └── markdown-reader/  # Markdown 附件阅读器
+│   │   ├── shared/           # 静态共享资产（css、markdown renderer、theme、vendor libs）
+│   │   ├── acp-runtime-prompts/  # ACP 运行时 prompt 模板
+│   │   ├── acp-skill-patches/    # ACP Skill Patch 模板
+│   │   ├── markdown-reader/  # Markdown 附件阅读器
+│   │   ├── icons/            # 插件图标
+│   │   ├── preferences.xhtml # 首选项面板
+│   │   └── zoteroPane.css    # 主窗口注入样式
 │   ├── locale/               # 多语言 FTL 文件（11 种语言）
-│   └── bin/                  # Host Bridge CLI 预编译二进制（跨平台）
+│   └── bin/                  # Host Bridge CLI 预编译二进制（按七平台分目录 + zotero-bridge-release.json 身份文件）
 ├── docs/                     # 架构文档与 ADR
-│   ├── components/           # 各组件设计文档（~49 篇）
+│   ├── adr/                  # 架构决策记录
+│   ├── components/           # 各组件设计文档（52 篇）
+│   ├── dev/                  # 开发与运维文档（Zotero E2E、实机测试二进制）
 │   └── synthesis-layer/      # Synthesis 层设计文档
-├── references/               # 固定版本的外部参考资料与源码基线
+├── references/               # 固定版本的外部参考资料与源码基线（Zotero-7/9/10 与 Skill-Runner 为 submodule）
 ├── src/                      # TypeScript 源码
 │   ├── index.ts              # 插件入口
 │   ├── addon.ts              # 插件基类
 │   ├── hooks.ts              # 生命周期钩子
-│   ├── modules/              # 核心跨层模块
+│   ├── workspaceApp.ts / synthesisWorkbenchApp.ts  # 页面入口
+│   ├── modules/              # 核心跨层模块（~342 个文件）
 │   │   ├── acp/              # ACP transport、chat、skill run 与 diagnostics
 │   │   ├── assistant/        # Assistant workspace 与 publication
 │   │   ├── workflow/         # 工作流 catalog、settings 与 UI
+│   │   ├── workflowExecution/ # 工作流执行子模块（23 个文件）
 │   │   ├── skillRunner/      # SkillRunner connection、runtime、run 与 surface
 │   │   ├── hostBridge/       # Host Bridge server、MCP、permissions、workflow 与 CLI
 │   │   ├── zoteroHost/       # Zotero Host adapter 实现
-│   │   ├── synthesis/        # Synthesis 子模块（~33 个文件）
-│   │   ├── workflowExecution/ # 工作流执行子模块（~18 个文件）
+│   │   ├── synthesis/        # Synthesis 子模块（23 个文件）
 │   │   ├── harness/          # 只读测试 Harness 子模块
+│   │   ├── dashboard/        # Dashboard 页面 controller 与渲染器
+│   │   ├── preferences/      # 首选项面板
+│   │   ├── pluginStateStore/ # 插件侧持久化
 │   │   └── ...               # 其他模块（backendManager, debugMode, runtimeLog, notificationHub 等）
 │   ├── providers/            # 后端 Provider 实现
 │   │   ├── acp/              # ACP Provider
@@ -68,31 +79,31 @@
 │   ├── workflows/            # 工作流引擎核心
 │   ├── utils/                # 工具函数（locale, prefs, path, fileSystem, wait, window, ztoolkit 等）
 │   ├── config/               # 默认配置
-│   ├── handlers/             # Handler 注册
 │   ├── jobQueue/             # 任务队列
 │   ├── platform/             # 平台抽象（command, env, path, subprocess）
 │   ├── schemas/              # JSON Schema 定义
+│   ├── workers/              # Zotero worker 侧实现（runtimeFileRangeWorker）
+│   ├── dashboard/            # Dashboard 页面 Preact 区域与 controller
+│   ├── synthesis/            # Synthesis 页面 Preact 区域与 controller
 │   ├── shared/               # 共享前端组件与跨边界契约（citation graph, topic timeline, assistant wire/snapshot contract）
 │   └── sidebar/              # 侧边栏页面 JS（ES module .js，esbuild 打包到 addon/content/sidebar/*.bundle.js；只允许 import 相对路径与 src/shared）
-├── tests/                    # 测试
-│   ├── core/                 # 核心功能测试（~100+ 测试文件）
-│   ├── node/core/            # Node.js 环境测试
+├── tests/                    # 测试（~326 个 *.test.ts）
+│   ├── zotero/               # Zotero 运行时测试基础设施（compatibility、core、e2e、ui、workflow）
+│   ├── host-bridge/          # Host Bridge 专项测试
 │   ├── ui/                   # UI 测试
-│   ├── zotero/               # Zotero 运行时测试基础设施
+│   ├── runtime/              # 运行时测试
+│   ├── tooling/              # 测试工具链自身的测试
+│   ├── workflows/            # 工作流引擎测试
+│   ├── workflow-*/           # 各工作流的专项测试（literature-*、mineru、tag-*）
+│   ├── acp/ assistant/ dashboard/ shared/ synthesis/  # 各领域测试
+│   ├── zotero-host/          # Zotero Host adapter 测试
+│   ├── skillrunner/          # SkillRunner 测试
 │   ├── helpers/              # 测试辅助工具
 │   ├── fixtures/             # 测试 fixtures
 │   ├── setup/                # 测试环境初始化
-│   ├── mock-skillrunner/     # Mock Skill-Runner 服务
-│   └── workflow-*/           # 各工作流的专项测试
-├── scripts/                  # 构建、治理与运维脚本（按交付域分组）
-├── skills_builtin/           # 内置 Skill 定义（~22 个 skill 目录）
-│   ├── literature-analysis/
-│   ├── literature-deep-reading/
-│   ├── literature-explainer/
-│   ├── literature-translator/
-│   ├── tag-regulator/
-│   ├── topic-synthesis-*/    # topic-synthesis 拆分后的多个 skill
-│   └── ...                   # 其他 skills
+│   └── mock-skillrunner/     # Mock Skill-Runner 服务
+├── scripts/                  # 构建、治理与运维脚本（按交付域分组：host-bridge、content-package、acp-ws-bridge、synthesis、system-e2e、internal）
+├── skills_builtin/           # 内置 Skill 定义（26 个 skill 目录；literature-analysis / literature-explainer / literature-translator 是 submodule）
 ├── skills_src/               # Skill 模板与合约源码
 │   ├── topic-synthesis/      # topic-synthesis 合约、运行时、模板
 │   └── literature-deep-reading/  # literature-deep-reading 合约与渲染器
@@ -103,23 +114,24 @@
 │   └── workflow-debug-probe/ # 调试探针工作流
 ├── openspec/                 # OpenSpec 规格与变更管理
 │   ├── config.yaml
-│   ├── specs/                # 规格文件（~228 个 spec）
+│   ├── specs/                # 规格文件（365 个 capability 目录）
 │   └── changes/              # 变更记录（含 archive）
+├── packages/                 # npm workspaces（synthesis-application、synthesis-contracts、synthesis-engine、synthesis-repository）
 ├── profiles/                 # Hermes Profile 发布目录
 ├── profiles_src/             # Hermes Profile 源文件
 ├── contracts/                # Host Bridge 与 Synthesis sidecar 跨语言契约
 ├── releases/                 # 受治理的发布身份与 receipt
 ├── rust/                     # Zotero Bridge、ACP WS Bridge 与 Synthesis sidecar
 ├── artifacts/                # 开发过程工件（设计评审、审计报告、playbook 等）
-├── assets/                   # 共享资产（Skill Runner 输出合约 Python 库）
+├── assets/                   # 共享资产（Skill Runner 输出合约 Python 库、站点图片）
 ├── feeds/                    # 内容订阅 feed
 ├── site/                     # Docusaurus 用户文档站点
 ├── tools/                    # 开发辅助工具
-├── typings/                  # TypeScript 类型声明
-├── non-existing-zotero-data/ # 模拟 Zotero 数据目录（用于测试）
+├── typings/                  # TypeScript 类型声明（global、i10n、prefs）
+├── non-existing-zotero-data/ # 模拟 Zotero 数据目录（用于测试，.gitignore 排除）
 ├── .env / .env.example       # 环境变量
 ├── package.json              # Node.js 依赖与脚本
-├── tsconfig.json             # TypeScript 配置
+├── tsconfig.json             # TypeScript 配置（另有 dashboard / sidebar / synthesis 三份子配置）
 ├── zotero-plugin.config.ts   # 插件构建配置
 ├── eslint.config.mjs         # ESLint 配置
 └── README.md                 # 项目说明
@@ -152,9 +164,10 @@
 
 # 本机实机测试二进制
 
-- Linux x86_64 的 Zotero 正式版安装树存放在仓库外 `~/Workspace/Artifact/Zotero-Skills/zotero-hosts/`：`archives/` 保留官方归档字节，`linux-x86_64/<version>/Zotero_linux-x86_64/` 是可直接启动的安装树。属于本机测试数据，不进入仓库，也不参与构建或发布。
-- 当前为 7.0.32、9.0.6、10.0.2。7.0.32 与 9.0.6 的摘要与 `tests/zotero/compatibility-matrix.json` 一致；10.0.2 是 Zotero 10 线路当前最新正式版，而矩阵的 `zotero-10-*` 目标仍固定 10.0.1，两者的小版本差异是有意保留的，不得据此改矩阵。
-- 手工启动会在安装树里写入自动更新残留（`active-update.xml`、`updates/`），可能让安装树静默偏离目录名标注的版本；实机验证优先走 `npm run start:direct`，它经 `patchPrefsJs` 关闭自动更新。
+- Linux x86_64 与 Windows x86_64 的 Zotero 正式版安装树存放在仓库外 `zotero-hosts/`：`archives/` 保留官方归档字节，`linux-x86_64/<version>/Zotero_linux-x86_64/` 与 `windows-x64/<version>/Zotero_win-x64/zotero.exe` 是可直接启动的安装树。Linux 侧根在 `~/Workspace/Artifact/Zotero-Skills/`，Windows 侧根在 `D:\Workspace\Artifact\Zotero-Skills\`。属于本机测试数据，不进入仓库，也不参与构建或发布。
+- 当前为 7.0.32、9.0.6、10.0.2，两个平台都是这三个版本。7.0.32 与 9.0.6 的摘要与 `tests/zotero/compatibility-matrix.json` 一致；10.0.2 是 Zotero 10 线路的稳定版（官方已推进到 10.0.3），而矩阵的 `zotero-10-*` 目标仍固定 10.0.1，两者的补丁版本差异是有意保留的，不得据此改矩阵。
+- 平台记录分文件：Linux 侧是 `manifest.json`，Windows 侧是 `manifest.windows-x64.json`，后者额外记录归档条目与安装树的逐条比对结果和启动验证方法。
+- 手工启动会在安装树里写入自动更新残留（`active-update.xml`、`updates/`），可能让安装树静默偏离目录名标注的版本；实机验证优先走 `npm run start:direct`，它经 `patchPrefsJs` 关闭自动更新。Windows 的 `zotero.exe` 是启动器桩，转交请求后立即退出，判断 Zotero 是否在运行要按安装树路径查进程。
 - 来源、摘要、启动、污染恢复与刷新流程见 `docs/dev/zotero-host-binaries.md`。
 
 # Host Bridge Agent-facing Surface硬约束
