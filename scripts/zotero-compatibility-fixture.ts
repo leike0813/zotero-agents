@@ -671,10 +671,22 @@ function splitCommandLines(value: string) {
     .filter(Boolean);
 }
 
+export function resolveLocalArchiveCommandLocation(archivePath: string): {
+  cwd: string;
+  archiveName: string;
+} {
+  const pathApi = path.win32.isAbsolute(archivePath) ? path.win32 : path;
+  return {
+    cwd: pathApi.dirname(archivePath),
+    archiveName: pathApi.basename(archivePath),
+  };
+}
+
 async function listTarEntries(archivePath: string): Promise<ArchiveEntry[]> {
+  const archive = resolveLocalArchiveCommandLocation(archivePath);
   const [namesResult, detailsResult] = await Promise.all([
-    execFileText("tar", ["-tf", archivePath]),
-    execFileText("tar", ["-tvf", archivePath]),
+    execFileText("tar", ["-tf", archive.archiveName], { cwd: archive.cwd }),
+    execFileText("tar", ["-tvf", archive.archiveName], { cwd: archive.cwd }),
   ]);
   const names = splitCommandLines(namesResult.stdout);
   const details = splitCommandLines(detailsResult.stdout);
@@ -803,26 +815,30 @@ async function extractHostArchive(args: {
   format: CompatibilityTarget["archiveFormat"];
   stagingRoot: string;
 }): Promise<void> {
+  const archive = resolveLocalArchiveCommandLocation(args.archivePath);
   if (args.format === "tar.bz2" || args.format === "tar.xz") {
     validateArchiveEntries(await listTarEntries(args.archivePath));
-    await execFileText("tar", [
-      "-xf",
-      args.archivePath,
-      "-C",
-      args.stagingRoot,
-      "--no-same-owner",
-      "--no-same-permissions",
-    ]);
+    await execFileText(
+      "tar",
+      [
+        "-xf",
+        archive.archiveName,
+        "-C",
+        args.stagingRoot,
+        "--no-same-owner",
+        "--no-same-permissions",
+      ],
+      { cwd: archive.cwd },
+    );
     return;
   }
   if (args.format === "zip") {
     validateArchiveEntries(await listZipEntries(args.archivePath));
-    await execFileText("tar", [
-      "-xf",
-      args.archivePath,
-      "-C",
-      args.stagingRoot,
-    ]);
+    await execFileText(
+      "tar",
+      ["-xf", archive.archiveName, "-C", args.stagingRoot],
+      { cwd: archive.cwd },
+    );
     return;
   }
   if (process.platform !== "darwin") {

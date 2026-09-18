@@ -15,6 +15,7 @@ import {
   ensureCachedHostArchive,
   loadCompatibilityManifest,
   materializeZoteroHostForRun,
+  resolveLocalArchiveCommandLocation,
   resolveCompatibilityTarget,
   runOwnedCommand,
   validateArchiveEntries,
@@ -1038,6 +1039,18 @@ describe("Zotero compatibility fixture contracts", function () {
   });
 
   describe("archive safety", function () {
+    it("passes Windows archives to tar as a local basename", function () {
+      assert.deepEqual(
+        resolveLocalArchiveCommandLocation(
+          "D:\\a\\_temp\\zotero-host-cache\\archives\\host.zip",
+        ),
+        {
+          cwd: "D:\\a\\_temp\\zotero-host-cache\\archives",
+          archiveName: "host.zip",
+        },
+      );
+    });
+
     it("accepts normal files and directories", function () {
       assert.doesNotThrow(() =>
         validateArchiveEntries([
