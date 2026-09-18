@@ -682,6 +682,30 @@ export function resolveLocalArchiveCommandLocation(archivePath: string): {
   };
 }
 
+export function resolveZipExtractionCommand(args: {
+  archivePath: string;
+  stagingRoot: string;
+  platform?: NodeJS.Platform;
+}): { file: string; args: string[]; cwd?: string } {
+  if ((args.platform || process.platform) === "win32") {
+    return {
+      file: "powershell",
+      args: [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        `Expand-Archive -LiteralPath '${args.archivePath.replace(/'/g, "''")}' -DestinationPath '${args.stagingRoot.replace(/'/g, "''")}' -Force`,
+      ],
+    };
+  }
+  const archive = resolveLocalArchiveCommandLocation(args.archivePath);
+  return {
+    file: "tar",
+    args: ["-xf", archive.archiveName, "-C", args.stagingRoot],
+    cwd: archive.cwd,
+  };
+}
+
 async function listTarEntries(archivePath: string): Promise<ArchiveEntry[]> {
   const archive = resolveLocalArchiveCommandLocation(archivePath);
   const [namesResult, detailsResult] = await Promise.all([
@@ -834,11 +858,8 @@ async function extractHostArchive(args: {
   }
   if (args.format === "zip") {
     validateArchiveEntries(await listZipEntries(args.archivePath));
-    await execFileText(
-      "tar",
-      ["-xf", archive.archiveName, "-C", args.stagingRoot],
-      { cwd: archive.cwd },
-    );
+    const command = resolveZipExtractionCommand(args);
+    await execFileText(command.file, command.args, { cwd: command.cwd });
     return;
   }
   if (process.platform !== "darwin") {

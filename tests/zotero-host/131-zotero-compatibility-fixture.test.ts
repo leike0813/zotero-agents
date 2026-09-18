@@ -17,6 +17,7 @@ import {
   materializeZoteroHostForRun,
   persistCompatibilityHostFactsEvent,
   resolveLocalArchiveCommandLocation,
+  resolveZipExtractionCommand,
   resolveCompatibilityTarget,
   runOwnedCommand,
   validateArchiveEntries,
@@ -1048,6 +1049,25 @@ describe("Zotero compatibility fixture contracts", function () {
         {
           cwd: "D:\\a\\_temp\\zotero-host-cache\\archives",
           archiveName: "host.zip",
+        },
+      );
+    });
+
+    it("extracts Windows ZIP hosts with the native archive command", function () {
+      assert.deepEqual(
+        resolveZipExtractionCommand({
+          archivePath: "D:\\cache\\host.zip",
+          stagingRoot: "D:\\runs\\host",
+          platform: "win32",
+        }),
+        {
+          file: "powershell",
+          args: [
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "Expand-Archive -LiteralPath 'D:\\cache\\host.zip' -DestinationPath 'D:\\runs\\host' -Force",
+          ],
         },
       );
     });
