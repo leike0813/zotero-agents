@@ -17,6 +17,7 @@ import {
   startSystemE2EEventSink,
 } from "./system-e2e/manifest";
 import { resolveCurrentHostBridgeCli } from "../tests/helpers/hostBridgeCliHarness";
+import { persistCompatibilityHostFactsEvent } from "./zotero-compatibility-fixture";
 
 type Child = ReturnType<typeof spawn>;
 type SpawnOptions = Parameters<typeof spawn>[2];
@@ -545,6 +546,12 @@ async function main() {
     });
     let persistence = persistRunManifest(manifestPath, collector.snapshot());
     const sink = await startSystemE2EEventSink(async (event) => {
+      const compatibilityRunRoot = String(
+        testEnv.ZOTERO_COMPAT_RUN_ROOT || "",
+      ).trim();
+      if (compatibilityRunRoot) {
+        await persistCompatibilityHostFactsEvent(compatibilityRunRoot, event);
+      }
       const requestedRestart = parseSystemE2ERestartRequest(event);
       if (requestedRestart) {
         if (restartRequest) {

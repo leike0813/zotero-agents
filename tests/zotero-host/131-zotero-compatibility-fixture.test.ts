@@ -15,6 +15,7 @@ import {
   ensureCachedHostArchive,
   loadCompatibilityManifest,
   materializeZoteroHostForRun,
+  persistCompatibilityHostFactsEvent,
   resolveLocalArchiveCommandLocation,
   resolveCompatibilityTarget,
   runOwnedCommand,
@@ -1084,6 +1085,28 @@ describe("Zotero compatibility fixture contracts", function () {
 
     afterEach(async function () {
       await fs.rm(tempRoot, { recursive: true, force: true });
+    });
+
+    it("persists host facts received by the System E2E event sink", async function () {
+      const event = {
+        type: "debug",
+        data: {
+          kind: "zotero-compatibility-host-facts",
+          version: "10.0.1",
+          appBuildId: "20260918000000",
+        },
+      };
+
+      assert.isTrue(await persistCompatibilityHostFactsEvent(tempRoot, event));
+      assert.deepEqual(
+        JSON.parse(
+          await fs.readFile(
+            path.join(tempRoot, "diagnostics", "host-facts.json"),
+            "utf8",
+          ),
+        ),
+        event.data,
+      );
     });
 
     it("creates disjoint state roots for each run", async function () {

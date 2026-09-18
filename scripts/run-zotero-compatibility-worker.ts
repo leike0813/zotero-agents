@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { persistCompatibilityHostFactsEvent } from "./zotero-compatibility-fixture";
 
 function requiredEnvironment(name: string) {
   const value = String(process.env[name] || "").trim();
@@ -72,8 +73,6 @@ async function main() {
   );
   const mode = requiredEnvironment("ZOTERO_COMPAT_MODE");
   const domain = requiredEnvironment("ZOTERO_TEST_DOMAIN");
-  const hostFactsPath = path.join(runRoot, "diagnostics", "host-facts.json");
-  await fs.mkdir(path.dirname(hostFactsPath), { recursive: true });
   await createDirectoryLink(
     path.join(projectRoot, "node_modules"),
     path.join(runRoot, "node_modules"),
@@ -127,16 +126,7 @@ async function main() {
   internals.builder.run = async () => undefined;
   const originalOnData = internals.reporter.onData.bind(internals.reporter);
   internals.reporter.onData = async (body) => {
-    if (
-      body?.type === "debug" &&
-      body?.data?.kind === "zotero-compatibility-host-facts"
-    ) {
-      await fs.writeFile(
-        hostFactsPath,
-        `${JSON.stringify(body.data, null, 2)}\n`,
-        "utf8",
-      );
-    }
+    await persistCompatibilityHostFactsEvent(runRoot, body);
     await originalOnData(body);
   };
   await test.run();

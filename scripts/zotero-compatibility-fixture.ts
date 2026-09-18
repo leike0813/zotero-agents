@@ -1163,6 +1163,32 @@ function safeRunLabel(label: string): string {
   return normalized || "run";
 }
 
+export async function persistCompatibilityHostFactsEvent(
+  runRoot: string,
+  event: unknown,
+): Promise<boolean> {
+  const envelope = event as { type?: unknown; data?: unknown } | null;
+  const data = envelope?.data as { kind?: unknown } | null;
+  if (
+    envelope?.type !== "debug" ||
+    data?.kind !== "zotero-compatibility-host-facts"
+  ) {
+    return false;
+  }
+  const hostFactsPath = path.join(
+    path.resolve(runRoot),
+    "diagnostics",
+    "host-facts.json",
+  );
+  await fs.mkdir(path.dirname(hostFactsPath), { recursive: true });
+  await fs.writeFile(
+    hostFactsPath,
+    `${JSON.stringify(data, null, 2)}\n`,
+    "utf8",
+  );
+  return true;
+}
+
 export async function createRunLayout(
   parentRoot: string,
   label: string,
