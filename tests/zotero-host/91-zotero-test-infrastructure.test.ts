@@ -973,6 +973,58 @@ describe("zotero test infrastructure helpers", function () {
       assert.equal(env.MOZ_HEADLESS, "1");
     });
 
+    it("routes the Zotero binary through a stderr-draining launcher", function () {
+      const invocation = parseWrappedTestInvocation(
+        ["test:zotero:e2e", "full", "e2e"],
+        {},
+      );
+      const written: Array<{ path: string; content: string; log: string }> = [];
+      const env = buildTestEnvironment(
+        invocation,
+        { ZOTERO_PLUGIN_ZOTERO_BIN_PATH: "/opt/zotero/zotero" },
+        {
+          platform: "linux",
+          root: "/work",
+          writeLauncher: (launcherPath, content, logPath) => {
+            written.push({ path: launcherPath, content, log: logPath });
+          },
+        },
+      );
+
+      assert.equal(
+        env.ZOTERO_PLUGIN_ZOTERO_BIN_PATH,
+        "/work/.scaffold/zotero-stderr-drain.sh",
+      );
+      assert.lengthOf(written, 1);
+      assert.equal(written[0].path, env.ZOTERO_PLUGIN_ZOTERO_BIN_PATH);
+      assert.equal(written[0].log, "/work/.scaffold/zotero-stderr.log");
+      assert.include(written[0].content, "'/opt/zotero/zotero' \"$@\"");
+      assert.include(
+        written[0].content,
+        "2>>'/work/.scaffold/zotero-stderr.log'",
+      );
+    });
+
+    it("keeps the configured Zotero binary where no launcher can run", function () {
+      const invocation = parseWrappedTestInvocation(
+        ["test:zotero:e2e", "full", "e2e"],
+        {},
+      );
+      const env = buildTestEnvironment(
+        invocation,
+        { ZOTERO_PLUGIN_ZOTERO_BIN_PATH: "C:\\Zotero\\zotero.exe" },
+        {
+          platform: "win32",
+          root: "C:\\work",
+          writeLauncher: () => {
+            throw new Error("win32 must not install a shell launcher");
+          },
+        },
+      );
+
+      assert.equal(env.ZOTERO_PLUGIN_ZOTERO_BIN_PATH, "C:\\Zotero\\zotero.exe");
+    });
+
     it("suppresses first-run UI and automatic updates in test profiles", function () {
       assert.isFalse(
         ZOTERO_TEST_FIRST_RUN_PREFS["extensions.zotero.firstRun2"],

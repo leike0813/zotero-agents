@@ -85,6 +85,8 @@ Zotero 9 分类使用同一命令，只替换为 `windows-x64\9.0.6` 的安装�
 
 debug 构建会持续写入 `runtime/logs/citation-graph-crash-journal.json`。日志只保存生命周期阶段、布尔资源状态和计数；异常退出后的 active session 会在下次启动标记为 `interrupted`。压测结束时还会把日志复制到 `artifacts/test-diagnostics/citation-graph-crash-journal.json`。
 
+`scripts/run-zotero-test-with-mock.ts` 会把 Zotero 的 stderr 重定向到 `.scaffold/zotero-stderr.log`：测试脚手架的 `spawn(path, args, { env })` 只给 stdout 挂了 reader，从不读取 Zotero 的 stderr 管道，因此一旦 stderr 突发超过 socket 缓冲（Zotero 9/10 Linux 上 GTK 图标断言会一次写出上百 KB），Zotero 主线程就会阻塞在 `write(2)` 上，JS 定时器全部停止，整轮运行只能被外部超时杀掉。测试入口据此生成 `.scaffold/zotero-stderr-drain.sh`，把对应二进制换成 `exec <real> "$@" 2>>'<log>'`；Windows 上无法用脚本 shim，保持原路径。调整 Zotero 启动方式时不要绕过这个 shim。
+
 生产构建通过 release-elision 门禁替换整个监听模块；Host 与 Synthesis 页面 bundle 均不包含 schema、消息名、文件名或持久化实现。
 
 新增 E2E 用例时只断言用户可观察的终态、持久化结果和宿主存活性。不要断言内部调用顺序，也不要直接对金例来源目录执行写入。
