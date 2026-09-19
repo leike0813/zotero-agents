@@ -239,6 +239,7 @@ function sealedEnvironment() {
  */
 function recordSidecarLaunchFailure(args: {
   code: string;
+  lastFailureCode: string;
   restartCount: number;
   exitCode: number | null;
 }) {
@@ -252,6 +253,7 @@ function recordSidecarLaunchFailure(args: {
     message: `Synthesis sidecar launch failed: ${args.code}`,
     details: {
       code: args.code,
+      lastFailureCode: args.lastFailureCode,
       restartCount: args.restartCount,
       exitCode: args.exitCode,
     },
@@ -515,6 +517,7 @@ export function createSynthesisProductionRuntimeSupervisor(
       });
       recordSidecarLaunchFailure({
         code: reasonCode,
+        lastFailureCode: code,
         restartCount,
         exitCode: current?.exitCode ?? null,
       });

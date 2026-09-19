@@ -1020,6 +1020,7 @@ describe("Synthesis production runtime supervisor", function () {
     assert.equal(launchFailure?.stage, "failed");
     assert.deepEqual(launchFailure?.details, {
       code: "sidecar_crash_loop_fused",
+      lastFailureCode: "sidecar_process_exited_before_discovery",
       restartCount: 3,
       exitCode: 101,
     });
