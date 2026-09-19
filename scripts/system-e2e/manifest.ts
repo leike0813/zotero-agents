@@ -185,6 +185,7 @@ export function createRunManifestEventCollector(identity: RunIdentity) {
   const manifest = createRunManifest(currentIdentity);
   let familyCount = 0;
   let sawEnd = false;
+  let endFailed = false;
   let abort: { failurePhase: string; abortCode: string } | undefined;
   return {
     accept(payload: unknown) {
@@ -192,6 +193,14 @@ export function createRunManifestEventCollector(identity: RunIdentity) {
       const event = payload as { type?: unknown; data?: unknown };
       if (event.type === "end") {
         sawEnd = true;
+        const data =
+          event.data && typeof event.data === "object"
+            ? (event.data as Record<string, unknown>)
+            : {};
+        endFailed =
+          Number(data.failed || 0) > 0 ||
+          data.aborted === true ||
+          Number(data.aborted || 0) > 0;
         return;
       }
       if (
@@ -219,9 +228,11 @@ export function createRunManifestEventCollector(identity: RunIdentity) {
         };
       }
     },
-    finalize(_exitCode: number) {
+    finalize(exitCode: number) {
       if (abort) return manifest.abort(abort);
-      if (sawEnd && familyCount > 0) return manifest.complete();
+      if (sawEnd && !endFailed && exitCode === 0 && familyCount > 0) {
+        return manifest.complete();
+      }
       return manifest.incomplete();
     },
     snapshot: () => manifest.incomplete(),

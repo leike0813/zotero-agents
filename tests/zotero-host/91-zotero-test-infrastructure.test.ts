@@ -597,6 +597,23 @@ describe("zotero test infrastructure helpers", function () {
       assert.equal(manifest.zoteroVersion, "9.0.4");
       assert.equal(manifest.families[0].familyId, "SL");
       assert.notInclude(JSON.stringify(manifest), "must not enter manifest");
+
+      for (const [end, exitCode] of [
+        [{ failed: 1, aborted: 0 }, 0],
+        [{ failed: 0, aborted: 1 }, 0],
+        [{ failed: 0, aborted: 0 }, 1],
+      ] as const) {
+        const failed = createRunManifestEventCollector(identity);
+        failed.accept({
+          type: "debug",
+          data: {
+            kind: "system-e2e-family-result",
+            family: { familyId: "SL", result: "passed", ...evidence },
+          },
+        });
+        failed.accept({ type: "end", data: end });
+        assert.equal(failed.finalize(exitCode).terminalState, "incomplete");
+      }
     });
 
     it("accepts reporter events through a loopback-only sink", async function () {

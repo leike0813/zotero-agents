@@ -197,7 +197,9 @@ export async function runZoteroSharedTeardownForTests(args?: {
   captureZoteroLeakProbeSnapshot("pre-cleanup", args);
   await captureZoteroPerformanceSnapshot("pre-cleanup", args);
   try {
-    await cleanupBackgroundRuntimeForZoteroTests();
+    await cleanupBackgroundRuntimeForZoteroTests({
+      preserveRuntimeLogs: isSystemE2ERun(),
+    });
   } finally {
     captureZoteroLeakProbeSnapshot("post-background-cleanup", args);
     await captureZoteroPerformanceSnapshot("post-background-cleanup", args);

@@ -107,6 +107,70 @@ describe("Zotero host mutation authority", function () {
     assert.equal(effects, 1);
   });
 
+  it("arms the system E2E admission hold from the Zotero test preference", async function () {
+    const runtime = globalThis as Record<string, any>;
+    const previous = {
+      dataDirectory: runtime.Zotero.DataDirectory,
+      getPref: runtime.Zotero.Prefs.get,
+      PathUtils: runtime.PathUtils,
+      IOUtils: runtime.IOUtils,
+      Services: runtime.Services,
+    };
+    const writes: Array<[string, string]> = [];
+    const files = new Map<string, string>([
+      [
+        "/test-data/system-e2e/canonical-mutation-admission.armed.json",
+        JSON.stringify({ operationId: "system-e2e:hb:03" }),
+      ],
+      ["/test-data/system-e2e/canonical-mutation-admission.release", "release"],
+    ]);
+    try {
+      runtime.Services = { prefs: { getStringPref: () => "" } };
+      runtime.Zotero.DataDirectory = { dir: "/test-data" };
+      runtime.Zotero.Prefs.get = (key: string) =>
+        key === "extensions.zotero-agents.test.systemE2EEventUrl"
+          ? "http://127.0.0.1:3210/events"
+          : undefined;
+      runtime.PathUtils = { join: (...parts: string[]) => parts.join("/") };
+      runtime.IOUtils = {
+        exists: async (path: string) => files.has(path),
+        readUTF8: async (path: string) => files.get(path) || "",
+        writeUTF8: async (path: string, content: string) => {
+          writes.push([path, content]);
+          files.set(path, content);
+        },
+        remove: async (path: string) => {
+          files.delete(path);
+        },
+      };
+
+      await executeReservedMutation({
+        scope,
+        operationId: "system-e2e:hb:03",
+        operation,
+        semanticInput: { item: "A" },
+        execute: async () => ({
+          outcome: "unchanged" as const,
+          result: {},
+          changes: [],
+        }),
+      });
+
+      assert.deepEqual(writes, [
+        [
+          "/test-data/system-e2e/canonical-mutation-admission.held",
+          "system-e2e:hb:03",
+        ],
+      ]);
+    } finally {
+      runtime.Zotero.DataDirectory = previous.dataDirectory;
+      runtime.Zotero.Prefs.get = previous.getPref;
+      runtime.PathUtils = previous.PathUtils;
+      runtime.IOUtils = previous.IOUtils;
+      runtime.Services = previous.Services;
+    }
+  });
+
   it("never redispatches a failed operation identity", async function () {
     let effects = 0;
     const args = {

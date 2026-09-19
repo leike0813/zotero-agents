@@ -116,7 +116,9 @@ export function setBackgroundRuntimeCleanupDepsForTests(
     : defaultCleanupDeps;
 }
 
-export async function cleanupBackgroundRuntimeForZoteroTests() {
+export async function cleanupBackgroundRuntimeForZoteroTests(
+  options: { preserveRuntimeLogs?: boolean } = {},
+) {
   cleanupDeps.setDefaultSynthesisClientCompositionFactoryForTests();
   await Promise.resolve(cleanupDeps.resetDefaultSynthesisClientForTests());
   await Promise.resolve(
@@ -137,7 +139,9 @@ export async function cleanupBackgroundRuntimeForZoteroTests() {
   cleanupDeps.setSkillRunnerBackendReconcileFailureToastEmitterForTests();
   cleanupDeps.setSkillRunnerTaskLifecycleToastEmitterForTests();
   cleanupDeps.resetWorkflowTasks();
-  await Promise.resolve(cleanupDeps.clearRuntimeLogs());
+  if (!options.preserveRuntimeLogs) {
+    await Promise.resolve(cleanupDeps.clearRuntimeLogs());
+  }
   cleanupDeps.resetWorkflowSettingsReadDiagnosticsForTests();
   cleanupDeps.resetTestPerformanceProbeHooksForTests();
   cleanupDeps.resetWorkflowHostApiForTests();

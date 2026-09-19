@@ -144,10 +144,10 @@ const pinnedMutationReceipts = new Map<string, number>();
 
 function holdSystemE2EAdmissionCheckpoint(operationId: string) {
   const runtime = globalThis as typeof globalThis & {
-    Services?: {
-      prefs?: { getStringPref?: (key: string, fallback?: string) => string };
+    Zotero?: {
+      DataDirectory?: { dir?: string };
+      Prefs?: { get?: (key: string, global?: boolean) => unknown };
     };
-    Zotero?: { DataDirectory?: { dir?: string } };
     PathUtils?: { join?: (...parts: string[]) => string };
     IOUtils?: {
       exists?: (path: string) => Promise<boolean>;
@@ -159,9 +159,9 @@ function holdSystemE2EAdmissionCheckpoint(operationId: string) {
       ) => Promise<void>;
     };
   };
-  const eventUrl = runtime.Services?.prefs?.getStringPref?.(
+  const eventUrl = runtime.Zotero?.Prefs?.get?.(
     "extensions.zotero-agents.test.systemE2EEventUrl",
-    "",
+    true,
   );
   const dataDir = String(runtime.Zotero?.DataDirectory?.dir || "").trim();
   const join = runtime.PathUtils?.join;

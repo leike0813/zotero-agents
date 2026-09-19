@@ -34,11 +34,11 @@ outer runner 在 `artifacts/test-diagnostics/system-e2e/<runId>/run-manifest.jso
 
 sidecar 提供 `reference-after-first-page` 和 `maintenance-after-admission` 两个 test-private checkpoint。`HB-03` 另在 canonical mutation durable admission 后使用一次性、operation-scoped hold；outer runner 命中 hold 后终止准确的 Zotero PID，复制当前 scaffold profile/data，并在同一 invocation 内重启该 case。所有 checkpoint 默认不 armed、等待有界并在使用后清理，不属于 capability、DTO、CLI 或 MCP surface。checkpoint marker 和内部调用顺序不作为通过证据；恢复后只断言 public canonical mutation evidence、note projection、cleanup 与 Suite Health Gate。
 
-运行全部 catalog、单个 case，或指定精确宿主：
+运行全部 catalog、单个 family，或指定精确宿主：
 
 ```bash
 npm run test:zotero:e2e
-npm run test:zotero:e2e -- --grep HB-03
+ZOTERO_SYSTEM_E2E_FAMILIES=HB npm run test:zotero:e2e
 ZOTERO_PLUGIN_ZOTERO_BIN_PATH=/absolute/path/to/zotero npm run test:zotero:e2e
 ```
 

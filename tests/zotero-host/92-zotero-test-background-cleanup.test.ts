@@ -121,6 +121,19 @@ describe("zotero test background cleanup harness", function () {
     ]);
   });
 
+  it("preserves runtime logs when the caller is collecting system E2E evidence", async function () {
+    let cleared = false;
+    setBackgroundRuntimeCleanupDepsForTests({
+      clearRuntimeLogs: () => {
+        cleared = true;
+      },
+    });
+
+    await cleanupBackgroundRuntimeForZoteroTests({ preserveRuntimeLogs: true });
+
+    assert.isFalse(cleared);
+  });
+
   it("awaits async reconciler reset before subsequent cleanup steps", async function () {
     const calls: string[] = [];
     let release!: () => void;
