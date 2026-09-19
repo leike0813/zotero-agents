@@ -13,7 +13,10 @@ import { sha256Hex } from "../../../platform/hash";
 import { readRuntimeEnv } from "../../../platform/env";
 import { joinPath } from "../../../utils/path";
 import { yieldToEventLoop } from "../../../utils/runtimeCompatibility";
-import { getMozillaSubprocessModule } from "../../../platform/subprocess";
+import {
+  getMozillaSubprocessModule,
+  normalizeSubprocessExitCode,
+} from "../../../platform/subprocess";
 import {
   ensureRuntimeDirectory,
   getRuntimePersistencePaths,
@@ -23,6 +26,7 @@ import {
   replacePrivateRuntimeTextFileAtomically,
 } from "../../runtimePersistence";
 import { isSystemE2ETestRun } from "../../systemE2ETestRun";
+import { appendRuntimeLog } from "../../runtimeLogManager";
 import { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION } from "../../../../packages/synthesis-contracts/src/schemaVersion";
 import {
   createSynthesisProductionSidecarControlClient,
@@ -139,6 +143,7 @@ type Session = {
   closed?: Promise<void>;
   stderrDrain?: Promise<void>;
   stableFailureCode?: string;
+  exitCode?: number | null;
   stdoutTail: string;
   stderrTail: string;
   stdoutLineBuffer: string;
@@ -224,6 +229,33 @@ function sealedEnvironment() {
     }
   }
   return environment;
+}
+
+/**
+ * Records the sanitized facts of a terminal sidecar launch failure. The sidecar
+ * stderr tail stays private, so cell evidence would otherwise only ever see
+ * `sidecar_crash_loop_fused` with no way to tell why the process never reached
+ * readiness (observed on Windows runners).
+ */
+function recordSidecarLaunchFailure(args: {
+  code: string;
+  restartCount: number;
+  exitCode: number | null;
+}) {
+  appendRuntimeLog({
+    level: "error",
+    scope: "system",
+    component: "synthesis-sidecar-runtime",
+    operation: "launch",
+    phase: "launch",
+    stage: "failed",
+    message: `Synthesis sidecar launch failed: ${args.code}`,
+    details: {
+      code: args.code,
+      restartCount: args.restartCount,
+      exitCode: args.exitCode,
+    },
+  });
 }
 
 function appendTail(current: string, chunk: string) {
@@ -470,15 +502,21 @@ export function createSynthesisProductionRuntimeSupervisor(
       ? snapshot.restartCount
       : snapshot.restartCount + 1;
     if (terminal || restartCount > restartDelaysMs.length) {
+      const reasonCode =
+        terminal || restartCount <= restartDelaysMs.length
+          ? code
+          : "sidecar_crash_loop_fused";
       publish({
         status: code.includes("mismatch") ? "incompatible" : "unavailable",
         recoveryState: "manual-recovery-required",
-        reasonCode:
-          terminal || restartCount <= restartDelaysMs.length
-            ? code
-            : "sidecar_crash_loop_fused",
+        reasonCode,
         restartCount,
         nextRestartAt: undefined,
+      });
+      recordSidecarLaunchFailure({
+        code: reasonCode,
+        restartCount,
+        exitCode: current?.exitCode ?? null,
       });
       return;
     }
@@ -646,14 +684,20 @@ export function createSynthesisProductionRuntimeSupervisor(
       current.stderrDrain = drainStream(current, proc.stderr, "stderr").catch(
         () => undefined,
       );
-      current.closed = Promise.resolve()
+      const exitedSession = current;
+      exitedSession.closed = Promise.resolve()
         .then(() => proc.wait?.())
         .then(
-          () => undefined,
+          (value) => {
+            exitedSession.exitCode =
+              normalizeSubprocessExitCode(value) ??
+              normalizeSubprocessExitCode(proc.exitCode) ??
+              normalizeSubprocessExitCode(proc.exitValue);
+            return undefined;
+          },
           () => undefined,
         );
-      const exitedSession = current;
-      void current.closed.then(() => {
+      void exitedSession.closed.then(() => {
         if (
           session === current &&
           !controlledStop &&

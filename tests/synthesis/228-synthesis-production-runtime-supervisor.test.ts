@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
+import { listRuntimeLogs } from "../../src/modules/runtimeLogManager";
 import { SYNTHESIS_PRODUCTION_DISCOVERY_SCHEMA } from "../../packages/synthesis-contracts/src/sidecarProduction";
 import {
   SYNTHESIS_REVERSE_HOST_CALL_SCHEMA,
@@ -992,7 +993,7 @@ describe("Synthesis production runtime supervisor", function () {
             stdout: { readString: async () => "" },
             stderr: { readString: async () => "" },
             stdin: { close: async () => undefined },
-            wait: async () => undefined,
+            wait: async () => 101,
             kill: () => undefined,
           };
         },
@@ -1013,6 +1014,15 @@ describe("Synthesis production runtime supervisor", function () {
       "sidecar_crash_loop_fused",
     );
     assert.equal(crashSupervisor.getSnapshot().restartCount, 3);
+    const launchFailure = listRuntimeLogs({
+      component: "synthesis-sidecar-runtime",
+    }).at(-1);
+    assert.equal(launchFailure?.stage, "failed");
+    assert.deepEqual(launchFailure?.details, {
+      code: "sidecar_crash_loop_fused",
+      restartCount: 3,
+      exitCode: 101,
+    });
     await crashSupervisor.stop();
 
     let generationAttempts = 0;

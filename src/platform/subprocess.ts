@@ -154,6 +154,14 @@ function toFiniteExitCode(value: unknown) {
   return null;
 }
 
+/**
+ * Normalizes the exit code reported by any subprocess adapter, so callers that
+ * only need the numeric code do not re-implement the shape probing.
+ */
+export function normalizeSubprocessExitCode(value: unknown) {
+  return extractExitCode(value);
+}
+
 function extractExitCode(value: unknown) {
   const direct = toFiniteExitCode(value);
   if (direct !== null) {
