@@ -35,9 +35,13 @@
 
 ## 6. Calibrate, Promote, and Verify
 
-- [ ] 6.1 Run three clean independent workflow rounds for every candidate PR cell on its exact identity, retain each manifest, review the observed maximum, and explicitly promote only qualifying cells
-- [ ] 6.2 Run and review three clean rounds for every candidate main and release cell, regroup and restart calibration where a threshold is exceeded, and explicitly promote qualifying cells independently
+- [x] 6.1 Run three clean independent workflow rounds for every candidate PR cell on its exact identity, retain each manifest, review the observed maximum, and explicitly promote only qualifying cells
+  - `pull-request-zotero-10-linux-x64-e2e-sl-pm`: three clean rounds from the `e2e-calibration-pr-*-r9/r10/r11` runs (manifest run ids `4c89cee2`, `befe02dd`, `4c85bf7e`; receipts `passed`, manifests `complete`, 8 family entries, cleanup and health passed), maximum clean round 2.47 min against the 15 min PR threshold; promoted in `E2E_PROMOTION_STATE`.
+- [x] 6.2 Run and review three clean rounds for every candidate main and release cell, regroup and restart calibration where a threshold is exceeded, and explicitly promote qualifying cells independently
+  - main: `main-zotero-{7,9,10}-linux-x64-e2e-sl-rh-pa-pm-cg-hb` each ran three clean rounds (max 3.82 / 3.45 / 3.50 min against the 30 min threshold); release Linux: `release-zotero-{7,9,10}-linux-x64-e2e-sl-rh-pa-pm-cg-hb` each ran three clean rounds (max 3.57 / 3.31 / 3.45 min against the 45 min threshold). All rounds kept one calibration identity (same target, family group, `ubuntu-24.04`, `committed-seed`, `pre-staged-current-source`, `one-fresh-copied-profile-per-invocation`) and produced `complete` manifests with every family, cleanup and health passed. No threshold was exceeded, so no cell was regrouped.
+  - Three Windows release cells remain non-blocking: they fail with `sidecar_crash_loop_fused` and no trustworthy `CG-02` evidence, so they are not promoted.
 - [ ] 6.3 Verify all promoted Windows release cells include passing `CG-02` evidence and the recorded Zotero 9 classification; leave any unsupported cell non-blocking
+  - No Windows release cell is promoted; the three Windows cells stay `false` in `E2E_PROMOTION_STATE` because their System E2E runs fail and `CG-02` evidence is not trustworthy yet.
 - [ ] 6.4 Exercise weekly, stress, and manual large-gold triggers and verify they remain non-gating, first-failure preserving, and isolated from release authority
 - [x] 6.5 Update compatibility/E2E operator documentation with cell identities, calibration evidence, promotion edits, rerun semantics, and tag-bound release ordering; verify referenced commands and workflow names resolve
 - [ ] 6.6 Run planner/worker/receipt tests, workflow static validation, strict OpenSpec validation, and the promoted real-host cells; treat any missing real-machine round as incomplete rather than passing
