@@ -10,6 +10,7 @@ import {
   parseWrappedTestInvocation,
   normalizeTestDomain,
   resolveMockSkillRunnerPort,
+  resolveSystemE2EScaffoldRoot,
   waitForSystemE2EAdmissionCheckpoint,
 } from "../../scripts/run-zotero-test-with-mock";
 import { buildSynthesisCloseTestEnvironment } from "../../scripts/run-zotero-e2e-stress";
@@ -1026,6 +1027,26 @@ describe("zotero test infrastructure helpers", function () {
       );
 
       assert.equal(env.ZOTERO_PLUGIN_ZOTERO_BIN_PATH, "C:\\Zotero\\zotero.exe");
+    });
+
+    it("resolves the System E2E scaffold tree from the run-local data dir", function () {
+      assert.equal(
+        resolveSystemE2EScaffoldRoot({
+          ZOTERO_TEST_DATA_DIR: "/run/e2e-1/.scaffold/test/data",
+        }),
+        "/run/e2e-1/.scaffold/test",
+      );
+      assert.equal(
+        resolveSystemE2EScaffoldRoot({
+          ZOTERO_TEST_DATA_DIR: "/tmp/zotero-agents-test-data-9/Zotero_data",
+          ZOTERO_TEST_DATA_DIR_MANAGED: "1",
+        }),
+        path.resolve(".scaffold/test"),
+      );
+      assert.equal(
+        resolveSystemE2EScaffoldRoot({}),
+        path.resolve(".scaffold/test"),
+      );
     });
 
     it("publishes the System E2E run marker into the profile before launch", function () {

@@ -47,6 +47,26 @@ const ZOTERO_STDERR_LOG = path.join(".scaffold", "zotero-stderr.log");
 const SYSTEM_E2E_RESTART_KIND = "system-e2e-owner-restart-request";
 const SYSTEM_E2E_SCAFFOLD_ROOT = path.resolve(".scaffold/test");
 
+/**
+ * The compatibility worker chdirs the scaffold into a run root and publishes
+ * that run's data dir through `ZOTERO_TEST_DATA_DIR`; this wrapper keeps running
+ * in the project root. Deriving the scaffold tree from the caller-provided data
+ * dir is therefore the only way to watch the same admission checkpoint the
+ * plugin writes and to snapshot the same scaffold the restart resumes from.
+ * A wrapper-managed temp data dir has no scaffold tree of its own.
+ */
+export function resolveSystemE2EScaffoldRoot(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  if (env[TEST_DATA_DIR_MANAGED_ENV] !== "1") {
+    const providedDataDir = String(env[TEST_DATA_DIR_ENV] || "").trim();
+    if (providedDataDir) {
+      return path.dirname(path.resolve(providedDataDir));
+    }
+  }
+  return SYSTEM_E2E_SCAFFOLD_ROOT;
+}
+
 type SystemE2ERestartRequest = {
   caseId: "HB-03";
   operationId: string;
@@ -540,17 +560,16 @@ async function waitForExactProcessExit(processId: number) {
   throw new Error("system_e2e_restart_process_still_alive");
 }
 
-async function snapshotSystemE2EScaffold() {
+async function snapshotSystemE2EScaffold(scaffoldRoot: string) {
   const resumeRoot = await mkdtemp(
     path.join(os.tmpdir(), "zotero-agents-system-e2e-resume-"),
   );
   await Promise.all(
     ["data", "profile"].map((name) =>
-      cp(
-        path.join(SYSTEM_E2E_SCAFFOLD_ROOT, name),
-        path.join(resumeRoot, name),
-        { recursive: true, force: true },
-      ),
+      cp(path.join(scaffoldRoot, name), path.join(resumeRoot, name), {
+        recursive: true,
+        force: true,
+      }),
     ),
   );
   return resumeRoot;
@@ -650,7 +669,7 @@ async function main() {
         restartRequest = requestedRestart;
         restartBoundary = waitForSystemE2EAdmissionCheckpoint({
           checkpointPath: path.join(
-            SYSTEM_E2E_SCAFFOLD_ROOT,
+            resolveSystemE2EScaffoldRoot(testEnv),
             "data",
             "system-e2e",
             "canonical-mutation-admission.held",
@@ -743,7 +762,9 @@ async function main() {
     let code = await runTargetTests(invocation, targetEnv);
     if (restartRequest) {
       const completedRestart = await restartBoundary;
-      resumeRoot = await snapshotSystemE2EScaffold();
+      resumeRoot = await snapshotSystemE2EScaffold(
+        resolveSystemE2EScaffoldRoot(testEnv),
+      );
       console.log(`[system-e2e-resume] ${completedRestart.caseId}`);
       code = await runTargetTests(invocation, {
         ...targetEnv,
