@@ -30,6 +30,7 @@ import {
   settlePluginMutationAuthorityEntry,
   type PluginMutationAuthorityEntry,
 } from "./pluginStateStore";
+import { readSystemE2EEventUrl } from "./systemE2ETestRun";
 
 const TERMINAL_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const SYSTEM_E2E_CHECKPOINT_TIMEOUT_MS = 120_000;
@@ -144,10 +145,7 @@ const pinnedMutationReceipts = new Map<string, number>();
 
 function holdSystemE2EAdmissionCheckpoint(operationId: string) {
   const runtime = globalThis as typeof globalThis & {
-    Zotero?: {
-      DataDirectory?: { dir?: string };
-      Prefs?: { get?: (key: string, global?: boolean) => unknown };
-    };
+    Zotero?: { DataDirectory?: { dir?: string } };
     PathUtils?: { join?: (...parts: string[]) => string };
     IOUtils?: {
       exists?: (path: string) => Promise<boolean>;
@@ -159,10 +157,7 @@ function holdSystemE2EAdmissionCheckpoint(operationId: string) {
       ) => Promise<void>;
     };
   };
-  const eventUrl = runtime.Zotero?.Prefs?.get?.(
-    "extensions.zotero-agents.test.systemE2EEventUrl",
-    true,
-  );
+  const eventUrl = readSystemE2EEventUrl();
   const dataDir = String(runtime.Zotero?.DataDirectory?.dir || "").trim();
   const join = runtime.PathUtils?.join;
   const io = runtime.IOUtils;

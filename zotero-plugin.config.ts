@@ -40,6 +40,24 @@ export const ZOTERO_TEST_FIRST_RUN_PREFS = {
   "extensions.zotero.firstRunGuidanceShown.readAloud": false,
 } as const;
 
+export const SYSTEM_E2E_EVENT_URL_ENV = "ZOTERO_SYSTEM_E2E_EVENT_URL";
+export const SYSTEM_E2E_EVENT_URL_PREF =
+  "extensions.zotero-agents.test.systemE2EEventUrl";
+
+/**
+ * The System E2E runner also writes this preference into the runner page, but
+ * that happens after the plugin has already started. Profile preferences are in
+ * place before Zotero launches, so publish the same value here; the plugin
+ * needs it at startup to decide whether the sidecar has to expose its
+ * test-private checkpoints.
+ */
+export function resolveSystemE2ETestPrefs(
+  env: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
+  const eventUrl = String(env[SYSTEM_E2E_EVENT_URL_ENV] || "").trim();
+  return eventUrl ? { [SYSTEM_E2E_EVENT_URL_PREF]: eventUrl } : {};
+}
+
 export const ZOTERO_TEST_HEADLESS_ENV = "ZOTERO_TEST_HEADLESS";
 export const MOZ_HEADLESS_ENV = "MOZ_HEADLESS";
 export const ZOTERO_TEST_HEADLESS_WIDTH = "1280";
@@ -464,7 +482,10 @@ export default defineConfig({
     // starts from a fresh profile, so that first run would open a browser tab
     // each time. Pin the first-run flags here instead of relying on upstream
     // scaffold defaults.
-    prefs: { ...ZOTERO_TEST_FIRST_RUN_PREFS },
+    prefs: {
+      ...ZOTERO_TEST_FIRST_RUN_PREFS,
+      ...resolveSystemE2ETestPrefs(),
+    },
     waitForPlugin: `() => Zotero.${pkg.config.addonInstance}.data.initialized`,
     hooks: {
       "test:init": stageZoteroE2EFixture,

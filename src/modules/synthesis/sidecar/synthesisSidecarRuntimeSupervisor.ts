@@ -22,6 +22,7 @@ import {
   removeRuntimePath,
   replacePrivateRuntimeTextFileAtomically,
 } from "../../runtimePersistence";
+import { isSystemE2ETestRun } from "../../systemE2ETestRun";
 import { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION } from "../../../../packages/synthesis-contracts/src/schemaVersion";
 import {
   createSynthesisProductionSidecarControlClient,
@@ -322,7 +323,8 @@ export function createSynthesisProductionRuntimeSupervisor(
   const controlClient =
     options.controlClient || createSynthesisProductionSidecarControlClient();
   const diagnosticsEnabled =
-    options.diagnosticsEnabled ?? isSynthesisSidecarDiagnosticsAvailable();
+    options.diagnosticsEnabled ??
+    (isSynthesisSidecarDiagnosticsAvailable() || isSystemE2ETestRun());
 
   let snapshot: SynthesisSidecarSupervisorSnapshot = {
     status: "stopped",

@@ -2,6 +2,7 @@ import { assert } from "chai";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import { SYNTHESIS_PRODUCTION_DISCOVERY_SCHEMA } from "../../packages/synthesis-contracts/src/sidecarProduction";
 import {
   SYNTHESIS_REVERSE_HOST_CALL_SCHEMA,
@@ -830,6 +831,97 @@ describe("Synthesis production runtime supervisor", function () {
       fs.readFileSync(legacyVersionPath, "utf8"),
       "legacy-version\n",
     );
+  });
+
+  it("gates sidecar test seams on the System E2E run instead of the build mode", async function () {
+    this.timeout(15_000);
+    const runtime = globalThis as unknown as {
+      Zotero: { Prefs: { get: (key: string, global?: boolean) => unknown } };
+    };
+    const previousPrefsGet = runtime.Zotero.Prefs.get;
+    const launchConfigsFor = async (eventUrl: string) => {
+      const root = fs.mkdtempSync(
+        path.join(os.tmpdir(), "zs-supervisor-seam-"),
+      );
+      const configs: LaunchConfig[] = [];
+      let closeProcess = () => undefined;
+      const closed = new Promise<void>((resolve) => {
+        closeProcess = resolve;
+      });
+      runtime.Zotero.Prefs.get = (key: string, global?: boolean) =>
+        key === "extensions.zotero-agents.test.systemE2EEventUrl"
+          ? eventUrl
+          : previousPrefsGet(key, global);
+      const supervisor = createSynthesisProductionRuntimeSupervisor({
+        runtimeRoot: path.join(root, "runtime"),
+        profilePath: PROFILE_PATH,
+        libraryId: 7,
+        repositoryDbPath: path.join(root, "state", "synthesis.db"),
+        canonicalRoot: path.join(root, "data", "synthesis"),
+        reverseHost: {
+          host: "127.0.0.1",
+          port: 9134,
+          authorizationToken: "8".repeat(64),
+        },
+        resolvedInstall: readyInstall(),
+        subprocess: {
+          call: async (invocation: { arguments?: string[] }) => {
+            const configPath = invocation.arguments?.[2] || "";
+            const config = JSON.parse(
+              fs.readFileSync(configPath, "utf8"),
+            ) as LaunchConfig;
+            configs.push(config);
+            fs.writeFileSync(
+              path.join(config.profileRuntimeRoot, "discovery.json"),
+              JSON.stringify(discovery(config, "service-1")),
+            );
+            return {
+              stdout: { readString: async () => "" },
+              stderr: { readString: async () => "" },
+              stdin: { close: async () => closeProcess() },
+              wait: () => closed,
+              kill: () => closeProcess(),
+            };
+          },
+        } as never,
+        controlClient: {
+          health: async () => ({
+            serviceVersion: "0.1.0",
+            serviceInstanceId: "service-1",
+            bundleId: BUNDLE_ID,
+            computePool: {
+              state: "idle",
+              active: 0,
+              queued: 0,
+              restartCount: 0,
+              failureCount: 0,
+            },
+          }),
+          handshake: async () => ({}),
+          shutdown: async () => undefined,
+        } as never,
+        discoveryTimeoutMs: 500,
+        healthIntervalMs: 0,
+        restartDelaysMs: [1],
+      });
+      supervisor.start();
+      await waitForStatus(supervisor, "ready");
+      await supervisor.stop();
+      return configs;
+    };
+    setDebugModeOverrideForTests(false);
+    try {
+      const duringE2E = await launchConfigsFor("http://127.0.0.1:43210/events");
+      assert.lengthOf(duringE2E, 1);
+      assert.isTrue(duringE2E[0]?.diagnosticsEnabled);
+
+      const outsideE2E = await launchConfigsFor("");
+      assert.lengthOf(outsideE2E, 1);
+      assert.isFalse(outsideE2E[0]?.diagnosticsEnabled);
+    } finally {
+      runtime.Zotero.Prefs.get = previousPrefsGet;
+      setDebugModeOverrideForTests();
+    }
   });
 
   it("surfaces a deterministic child startup code before discovery without retaining raw stderr", async function () {

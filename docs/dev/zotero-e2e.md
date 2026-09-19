@@ -34,6 +34,8 @@ outer runner 在 `artifacts/test-diagnostics/system-e2e/<runId>/run-manifest.jso
 
 sidecar 提供 `reference-after-first-page` 和 `maintenance-after-admission` 两个 test-private checkpoint。`HB-03` 另在 canonical mutation durable admission 后使用一次性、operation-scoped hold；outer runner 命中 hold 后终止准确的 Zotero PID，复制当前 scaffold profile/data，并在同一 invocation 内重启该 case。所有 checkpoint 默认不 armed、等待有界并在使用后清理，不属于 capability、DTO、CLI 或 MCP surface。checkpoint marker 和内部调用顺序不作为通过证据；恢复后只断言 public canonical mutation evidence、note projection、cleanup 与 Suite Health Gate。
 
+这些 seam 跟随 System E2E 运行本身，而不是构建模式：`scripts/run-zotero-test-with-mock.ts` 已知 event sink 地址时会把它写进 scaffold 的 `test.prefs`，于是 `extensions.zotero-agents.test.systemE2EEventUrl` 在 Zotero 启动前就存在于 profile 里，插件在启动时即可判定「这是一次 System E2E 运行」并让 sidecar 暴露 test-private checkpoint。runner page 之后设置同一 pref 只是重复确认。这样 debug 构建、`main` 构建和 tag 上的 release 候选物跑同一份 catalog 时行为一致，校准证据才与阻塞 lane 的身份一致；不要把这些 seam 重新绑回 debug/构建模式。
+
 运行全部 catalog、单个 family，或指定精确宿主：
 
 ```bash

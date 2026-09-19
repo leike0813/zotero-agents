@@ -24,8 +24,11 @@ import {
   patchZoteroTestRunnerHtml,
 } from "../../scripts/patch-zotero-test-runner";
 import {
+  resolveSystemE2ETestPrefs,
   resolveTestEntries,
   resolveZoteroTestDisplayMode,
+  SYSTEM_E2E_EVENT_URL_ENV,
+  SYSTEM_E2E_EVENT_URL_PREF,
   ZOTERO_TEST_FIRST_RUN_PREFS,
   ZOTERO_TEST_HEADLESS_ENV,
   stageZoteroE2EFixture,
@@ -1023,6 +1026,18 @@ describe("zotero test infrastructure helpers", function () {
       );
 
       assert.equal(env.ZOTERO_PLUGIN_ZOTERO_BIN_PATH, "C:\\Zotero\\zotero.exe");
+    });
+
+    it("publishes the System E2E run marker into the profile before launch", function () {
+      assert.deepEqual(resolveSystemE2ETestPrefs({}), {});
+      assert.deepEqual(
+        resolveSystemE2ETestPrefs({
+          [SYSTEM_E2E_EVENT_URL_ENV]: "http://127.0.0.1:43210/events",
+        }),
+        {
+          [SYSTEM_E2E_EVENT_URL_PREF]: "http://127.0.0.1:43210/events",
+        },
+      );
     });
 
     it("suppresses first-run UI and automatic updates in test profiles", function () {
