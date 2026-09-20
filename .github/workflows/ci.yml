@@ -53,6 +53,7 @@ jobs:
     runs-on: ubuntu-24.04
     needs:
       - build
+      - compatibility-plan
     continue-on-error: true
     steps:
       - name: Setup JS
@@ -70,7 +71,9 @@ jobs:
           path: .scaffold/build
       - name: Prepare current-source Linux sidecar once
         env:
-          ZOTERO_COMPAT_LANE: ${{ github.event_name == 'pull_request' && 'pull-request' || 'main' }}
+          # The candidate records the lane inside its artifact identity, so it
+          # must come from the resolved gate rather than the event name.
+          ZOTERO_COMPAT_LANE: ${{ needs.compatibility-plan.outputs.gate }}
         run: >-
           npm run test:zotero:compatibility:prepare --
           --build-root "$GITHUB_WORKSPACE/.scaffold/build"
@@ -83,6 +86,7 @@ jobs:
   compatibility-plan:
     runs-on: ubuntu-24.04
     outputs:
+      gate: ${{ steps.plan.outputs.gate }}
       blocking: ${{ steps.plan.outputs.blocking }}
       e2eBlocking: ${{ steps.plan.outputs.e2eBlocking }}
       nonblocking: ${{ steps.plan.outputs.nonblocking }}
@@ -98,6 +102,7 @@ jobs:
           gate="${{ inputs.gate }}"
           if [[ -z "$gate" ]]; then gate=pull-request; fi
           if [[ "${{ github.event_name }}" == "push" ]]; then gate=main; fi
+          echo "gate=$gate" >> "$GITHUB_OUTPUT"
           npx tsx scripts/run-zotero-compatibility-matrix.ts plan --gate "$gate" --json > "$RUNNER_TEMP/zotero-compatibility-plan.json"
           echo "blocking=$(jq -c '{include: [.include[] | select(.blocking and .domain != "e2e")]}' "$RUNNER_TEMP/zotero-compatibility-plan.json")" >> "$GITHUB_OUTPUT"
           echo "e2eBlocking=$(jq -c '{include: [.include[] | select(.blocking and .domain == "e2e")]}' "$RUNNER_TEMP/zotero-compatibility-plan.json")" >> "$GITHUB_OUTPUT"

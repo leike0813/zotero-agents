@@ -1149,6 +1149,16 @@ describe("Zotero compatibility fixture contracts", function () {
       ]);
       assert.include(planStep.run, "gate=pull-request");
       assert.include(planStep.run, "github.event_name");
+      assert.include(planStep.run, 'echo "gate=$gate"');
+      // The candidate writes the lane into its artifact identity, so it has to
+      // take the resolved gate instead of the event name.
+      assert.strictEqual(
+        workflow.jobs["compatibility-e2e-linux-candidate"].steps.find(
+          (step: { name?: string }) =>
+            step.name === "Prepare current-source Linux sidecar once",
+        ).env.ZOTERO_COMPAT_LANE,
+        "${{ needs.compatibility-plan.outputs.gate }}",
+      );
       assert.notProperty(workflow.jobs, "create-release");
     });
   });
