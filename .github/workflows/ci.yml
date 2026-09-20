@@ -7,6 +7,18 @@ on:
   pull_request:
     branches:
       - main
+  # Manual runs exist to resolve the real Zotero compatibility matrix for one
+  # gate. They never publish; the release workflow stays tag-bound.
+  workflow_dispatch:
+    inputs:
+      gate:
+        description: Compatibility gate to resolve
+        required: true
+        type: choice
+        default: pull-request
+        options:
+          - pull-request
+          - main
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -83,7 +95,8 @@ jobs:
         id: plan
         shell: bash
         run: |
-          gate=pull-request
+          gate="${{ inputs.gate }}"
+          if [[ -z "$gate" ]]; then gate=pull-request; fi
           if [[ "${{ github.event_name }}" == "push" ]]; then gate=main; fi
           npx tsx scripts/run-zotero-compatibility-matrix.ts plan --gate "$gate" --json > "$RUNNER_TEMP/zotero-compatibility-plan.json"
           echo "blocking=$(jq -c '{include: [.include[] | select(.blocking and .domain != "e2e")]}' "$RUNNER_TEMP/zotero-compatibility-plan.json")" >> "$GITHUB_OUTPUT"

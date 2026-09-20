@@ -1131,6 +1131,23 @@ describe("Zotero compatibility fixture contracts", function () {
       );
       assert.notInclude(condition, "failure");
     });
+
+    it("resolves a manually dispatched compatibility gate without publishing", async function () {
+      const workflow = parseYaml(
+        await fs.readFile(".github/workflows/ci.yml", "utf8"),
+      ) as any;
+      const planStep = workflow.jobs["compatibility-plan"].steps.find(
+        (step: { name?: string }) => String(step.name).startsWith("Resolve "),
+      );
+
+      assert.deepEqual(workflow.on.workflow_dispatch.inputs.gate.options, [
+        "pull-request",
+        "main",
+      ]);
+      assert.include(planStep.run, "gate=pull-request");
+      assert.include(planStep.run, "github.event_name");
+      assert.notProperty(workflow.jobs, "create-release");
+    });
   });
 
   describe("archive safety", function () {
