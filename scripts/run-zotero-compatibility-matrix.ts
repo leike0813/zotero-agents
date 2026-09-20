@@ -38,6 +38,7 @@ import {
   type RunManifest,
 } from "./system-e2e/manifest";
 import { collectCellRuntimeEvidence } from "./system-e2e/runtimeEvidence";
+import { buildSynthesisCloseTestEnvironment } from "./run-zotero-e2e-stress";
 
 const PROJECT_ROOT = process.cwd();
 const DEFAULT_MANIFEST = path.join(
@@ -188,6 +189,7 @@ export function parseCompatibilityCliArgs(args: string[]): CliOptions {
       "weekly",
       "stress",
       "manual-gold",
+      "cg-02-windows",
     ].includes(options.gate)
   ) {
     throw new Error(`Unsupported compatibility gate: ${options.gate}`);
@@ -385,14 +387,15 @@ async function runWorker(args: {
               path.join(args.options.buildRoot, "addon"),
             ).buildFingerprint
           : process.env.ZOTERO_SYNTHESIS_SIDECAR_BUILD_IDENTITY,
-      ...(args.options.fixtureScale === "stress"
-        ? {
-            ZOTERO_TEST_ENTRY:
-              "tests/zotero/ui/full/276-dashboard-synthesis-close.zotero.test.ts",
-            ZOTERO_SYNTHESIS_CLOSE_CYCLES:
-              process.env.ZOTERO_SYNTHESIS_CLOSE_CYCLES || "100",
-          }
-        : {}),
+      // Both the stress lane and the Windows CG-02 lane run the same close
+      // test; the catalog shape adds the CG-02 case identity and its own lane
+      // tag. `buildSynthesisCloseTestEnvironment` owns that shape for the local
+      // commands too, so the cell cannot drift from them.
+      ...(args.options.gate === "cg-02-windows"
+        ? buildSynthesisCloseTestEnvironment(["--catalog"])
+        : args.options.fixtureScale === "stress"
+          ? buildSynthesisCloseTestEnvironment([])
+          : {}),
       ...(args.options.fixtureScale === "large-gold"
         ? { ZOTERO_E2E_FIXTURE: "gold" }
         : {}),
@@ -686,7 +689,7 @@ async function readWeeklyAttempt(receiptPath: string) {
 function printHelp() {
   process.stdout.write(`Zotero compatibility fixture\n\n`);
   process.stdout.write(
-    `  plan --gate pull-request|main|release|weekly|stress|manual-gold --json\n`,
+    `  plan --gate pull-request|main|release|weekly|stress|manual-gold|cg-02-windows --json\n`,
   );
   process.stdout.write(`  prepare --build-root <canonical-build-root>\n`);
   process.stdout.write(`  acquire --target <target-id>\n`);

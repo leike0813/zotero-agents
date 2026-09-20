@@ -489,6 +489,37 @@ describe("Zotero compatibility fixture contracts", function () {
       });
     });
 
+    it("plans one Windows CG-02 catalog cell per Windows target", async function () {
+      const manifest = await loadCompatibilityManifest(MATRIX_PATH);
+      const cells = buildCompatibilityPlan(manifest, "cg-02-windows");
+
+      assert.deepEqual(
+        cells.map((cell) => cell.targetId),
+        [
+          "zotero-7-windows-x64",
+          "zotero-9-windows-x64",
+          "zotero-10-windows-x64",
+        ],
+      );
+      assert.isTrue(
+        cells.every(
+          (cell) =>
+            cell.lane === "cg-02-windows" &&
+            cell.blocking === false &&
+            cell.mode === "behavior" &&
+            cell.suite === "full" &&
+            cell.families?.length === 0 &&
+            cell.fixtureScale === "stress",
+        ),
+      );
+      // The Windows promotion precondition cites CG-02, so the lane has to be
+      // reachable from a tag the evidence workflow understands.
+      assert.include(
+        cells.map((cell) => cell.id),
+        "cg-02-windows-zotero-10-windows-x64-e2e",
+      );
+    });
+
     it("rejects missing digests and undeclared runners", function () {
       const invalid = {
         schemaId: "zotero-agents.zotero-compatibility-matrix.v1",
@@ -1047,13 +1078,23 @@ describe("Zotero compatibility fixture contracts", function () {
         "e2e-calibration-pr-*",
         "e2e-calibration-main-*",
         "e2e-calibration-release-*",
+        "e2e-calibration-cg02-*",
       ]);
       assert.include(laneStep.run, "e2e-calibration-pr-*) lane=pull-request");
       assert.include(laneStep.run, "e2e-calibration-main-*) lane=main");
       assert.include(laneStep.run, "e2e-calibration-release-*) lane=release");
       assert.include(
+        laneStep.run,
+        "e2e-calibration-cg02-*) lane=cg-02-windows",
+      );
+      assert.include(
         workflow.jobs["prepare-windows"].if,
         "needs.prepare.outputs.lane == 'release'",
+      );
+      // The CG-02 lane runs on Windows, so it needs the Windows candidate too.
+      assert.include(
+        workflow.jobs["prepare-windows"].if,
+        "needs.prepare.outputs.lane == 'cg-02-windows'",
       );
       assert.include(planStep.run, 'select(.domain == "e2e")');
       assert.include(

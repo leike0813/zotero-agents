@@ -24,7 +24,8 @@ export type CompatibilityE2ELane =
   | CompatibilityGate
   | "weekly"
   | "stress"
-  | "manual-gold";
+  | "manual-gold"
+  | "cg-02-windows";
 export type CompatibilityScenarioFamily = Phase1FamilyId;
 export type CompatibilityFixtureScale =
   | "committed-seed"
@@ -481,6 +482,20 @@ export function buildCompatibilityPlan(
   }
   if (gate === "stress") {
     addE2ECell("stress", "zotero-10-linux-x64", [], "stress");
+    return cells;
+  }
+  if (gate === "cg-02-windows") {
+    // The Windows promotion precondition needs a trustworthy CG-02 run per
+    // Windows target. The cell keeps the e2e domain so it still verifies the
+    // prepared plugin and sidecar identity, while the close test itself is
+    // selected by the catalog entry override.
+    for (const targetId of [
+      "zotero-7-windows-x64",
+      "zotero-9-windows-x64",
+      "zotero-10-windows-x64",
+    ]) {
+      addE2ECell("cg-02-windows", targetId, [], "stress");
+    }
     return cells;
   }
   if (gate === "manual-gold") {

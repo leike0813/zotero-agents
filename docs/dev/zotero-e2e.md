@@ -108,6 +108,9 @@ debug 构建会持续写入 `runtime/logs/citation-graph-crash-journal.json`。�
 | weekly | 与 release 相同的六个目标，前缀为 `weekly-` | 全部六组 | non-gating |
 | stress | `stress-zotero-10-linux-x64-e2e` | 既有 close-stress 场景 | non-gating |
 | manual gold | `manual-gold-zotero-10-linux-x64-e2e-rh-pa-pm-cg` | `RH/PA/PM/CG` | non-gating |
+| CG-02 Windows | `cg-02-windows-zotero-{7,9,10}-windows-x64-e2e` | close 生命周期（`CG-02` catalog 形态） | non-gating |
+
+`CG-02` Windows cell 与 stress cell 跑同一个 close 测试，区别只在形态：catalog 形态带 `CG-02` case identity、30 轮，并把 `ZOTERO_E2E_TRIGGER_LANE` 标为 `cg-02-windows`；stress 形态是 100 轮、无 case identity。两种形态的 env 都由 `scripts/run-zotero-e2e-stress.ts` 的 `buildSynthesisCloseTestEnvironment` 生成，compat cell 直接复用它，本机命令是 `npm run test:zotero:e2e:cg-02`（catalog）与 `npm run test:zotero:e2e:stress`。Windows release cell 的晋级前置条件引用 `CG-02`，所以该 lane 由 `e2e-calibration-cg02-*` tag 触发。
 
 查看规划或在本机运行单个 cell：
 
@@ -131,9 +134,9 @@ CI 也接受 `workflow_dispatch`：输入 `gate`（`pull-request` 或 `main`）�
 
 tag 发布由 `.github/workflows/release.yml` 的 `Release` workflow 执行：先生成唯一 `release-candidate`，再为 Linux/Windows 准备 sidecar 并完成 release compatibility jobs，promoted release cell 由 `release-compatibility-e2e-blocking` 用对应平台的候选物执行，最后 `create-release` 下载同一候选物发布；`npm run release` 只校验 XPI，不重新构建。`create-release` 要求 promoted lane 成功或整条跳过（当前无 promoted release Windows cell 时即后者），promoted cell 失败则不会发布。main 证据不能替代 tag-bound release 证据。
 
-scheduled 与手工证据由 `.github/workflows/system-e2e-evidence.yml` 的 `System E2E Evidence` workflow 执行。周日 cron 是 weekly，周三 cron 是 stress；`workflow_dispatch` 可显式选择 `weekly`、`stress` 或 `manual-gold`。manual-gold 从 repository variables `ZOTERO_E2E_GOLD_DATA_DIR` 与 `ZOTERO_E2E_GOLD_PROFILE_DIR` 读取 runner 上的只读来源，未配置或路径无效时该 invocation 必须失败。它们都不提供 release authority。
+scheduled 与手工证据由 `.github/workflows/system-e2e-evidence.yml` 的 `System E2E Evidence` workflow 执行。周日 cron 是 weekly，周三 cron 是 stress；`workflow_dispatch` 可显式选择 `weekly`、`stress` 或 `manual-gold`（该 workflow 进入默认分支前 `workflow_dispatch` 不可用，则改用 tag 触发）。manual-gold 从 repository variables `ZOTERO_E2E_GOLD_DATA_DIR` 与 `ZOTERO_E2E_GOLD_PROFILE_DIR` 读取 runner 上的只读来源，未配置或路径无效时该 invocation 必须失败。CG-02 只在 Windows target 上运行，由 `e2e-calibration-cg02-*` tag 触发。它们都不提供 release authority。
 
-新 workflow 尚未进入默认分支时，用 `e2e-calibration-pr-*`、`e2e-calibration-main-*`、`e2e-calibration-release-*` tag 从该 tag 指向的提交启动非发布校准。每个 lane 创建三枚唯一 tag，分别保留三个独立 workflow run；每次 push 最多包含三枚 tag（建议同一轮各推 PR/main/release 一枚），超过三枚时 GitHub 不创建 tag push workflow run。workflow 只选 planner 中的 E2E cells，release 校准包含 Linux/Windows，但不调用 `npm run release`，也不产生发布 authority。
+新 workflow 尚未进入默认分支时，用 `e2e-calibration-pr-*`、`e2e-calibration-main-*`、`e2e-calibration-release-*`、`e2e-calibration-cg02-*` tag 从该 tag 指向的提交启动非发布校准。每个 lane 创建三枚唯一 tag，分别保留三个独立 workflow run；每次 push 最多包含三枚 tag（建议同一轮各推 PR/main/release 一枚），超过三枚时 GitHub 不创建 tag push workflow run。workflow 只选 planner 中的 E2E cells，release 校准包含 Linux/Windows，但不调用 `npm run release`，也不产生发布 authority。
 
 每个 prospective blocking cell 需要三个独立 workflow run 的完整、干净 manifest。三轮必须具有相同的 Zotero target/version、runner OS/image、family grouping、fixture scale、sidecar startup model 和 invocation/profile model，并使用不同 workflow run、run ID 与 profile identity。`complete` 终态、所有 family 通过、cleanup/health 通过、无残留 process/port/lock 缺一不可。普通源码 commit、插件摘要、sidecar fingerprint 或 fixture revision 的变化本身不清零校准 identity。
 
