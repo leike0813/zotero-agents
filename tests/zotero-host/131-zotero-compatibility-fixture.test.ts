@@ -1046,6 +1046,74 @@ describe("Zotero compatibility fixture contracts", function () {
       );
       assert.notInclude(workflowSource, "npm run release");
     });
+
+    it("runs a promoted E2E cell from the prepared candidate in a hard gate", async function () {
+      for (const [file, jobId, candidateJob, candidateArtifact] of [
+        [
+          ".github/workflows/ci.yml",
+          "zotero-compatibility-e2e-blocking",
+          "compatibility-e2e-linux-candidate",
+          "compatibility-e2e-linux-x64",
+        ],
+        [
+          ".github/workflows/release.yml",
+          "release-compatibility-e2e-blocking",
+          "release-e2e-candidate",
+          "release-e2e-${{ matrix.platform }}",
+        ],
+      ] as const) {
+        const workflow = parseYaml(await fs.readFile(file, "utf8")) as any;
+        const plan = workflow.jobs[Object.keys(workflow.jobs).find(
+          (id) => id.endsWith("compatibility-plan"),
+        )!];
+        const lane = workflow.jobs[jobId];
+
+        assert.include(
+          plan.steps.find((step: { name?: string }) =>
+            String(step.name).startsWith("Resolve "),
+          ).run,
+          'select(.blocking and .domain != "e2e")',
+        );
+        assert.include(
+          plan.steps.find((step: { name?: string }) =>
+            String(step.name).startsWith("Resolve "),
+          ).run,
+          'select(.blocking and .domain == "e2e")',
+        );
+        assert.property(lane, "needs", jobId);
+        assert.includeMembers(lane.needs, [candidateJob]);
+        assert.notProperty(lane, "continue-on-error");
+        assert.include(
+          lane.steps.find(
+            (step: { name?: string }) =>
+              step.name === "Download platform E2E candidate" ||
+              step.name === "Download immutable E2E candidate",
+          ).with.name,
+          candidateArtifact,
+        );
+      }
+    });
+
+    it("publishes a release only after the promoted E2E lane succeeds or stays empty", async function () {
+      const workflow = parseYaml(
+        await fs.readFile(".github/workflows/release.yml", "utf8"),
+      ) as any;
+      const publish = workflow.jobs["create-release"];
+
+      assert.includeMembers(publish.needs, [
+        "release-compatibility-e2e-blocking",
+      ]);
+      const condition = String(publish.if).replace(/\s+/g, " ");
+      assert.include(
+        condition,
+        "needs.release-compatibility-e2e-blocking.result == 'success'",
+      );
+      assert.include(
+        condition,
+        "needs.release-compatibility-e2e-blocking.result == 'skipped'",
+      );
+      assert.notInclude(condition, "failure");
+    });
   });
 
   describe("archive safety", function () {
