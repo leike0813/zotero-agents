@@ -18,6 +18,7 @@ import {
   removeRuntimePathStrict,
   replaceRuntimeTextFileAtomically,
   resolveRuntimeTemporaryDirectory,
+  setRuntimeFilePermissions,
   validateManagedAbsolutePath,
   validateManagedRelativePath,
   validateManagedRelativePathSet,
@@ -182,6 +183,44 @@ describe("runtime persistence governance", function () {
         } else {
           delete runtime[name];
         }
+      }
+    }
+  });
+
+  it("applies a read-only mode through the Windows file adapter", async function () {
+    const runtime = globalThis as Record<string, unknown>;
+    const platform = Object.getOwnPropertyDescriptor(process, "platform");
+    const zotero = Object.getOwnPropertyDescriptor(runtime, "Zotero");
+    const file = { exists: () => true, permissions: 0o666 };
+    try {
+      // Gecko maps any-write to the read-only attribute on Windows, so the
+      // helper has to reach the adapter there instead of refusing outright.
+      Object.defineProperty(process, "platform", {
+        configurable: true,
+        value: "win32",
+      });
+      Object.defineProperty(runtime, "Zotero", {
+        configurable: true,
+        writable: true,
+        value: { File: { pathToFile: () => file } },
+      });
+
+      assert.isTrue(
+        await setRuntimeFilePermissions("D:\\a\\_temp\\metadata.json", 0o444),
+      );
+      assert.strictEqual(file.permissions, 0o444);
+      assert.isTrue(
+        await setRuntimeFilePermissions("D:\\a\\_temp\\metadata.json", 0o600),
+      );
+      assert.strictEqual(file.permissions, 0o600);
+    } finally {
+      if (zotero) {
+        Object.defineProperty(runtime, "Zotero", zotero);
+      } else {
+        delete runtime.Zotero;
+      }
+      if (platform) {
+        Object.defineProperty(process, "platform", platform);
       }
     }
   });

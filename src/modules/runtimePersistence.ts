@@ -1038,9 +1038,12 @@ export async function moveRuntimePath(args: {
 
 export async function setRuntimeFilePermissions(pathRaw: string, mode: number) {
   const path = normalizeString(pathRaw);
-  if (!path || getPlatform() === "win32") {
+  if (!path) {
     return false;
   }
+  // Windows has no POSIX modes, but Gecko's nsIFile maps any-write to the
+  // read-only attribute, so the mode still expresses "writable or not" there.
+  // Callers must not read a mode back as an access-control list.
   assertNativeRuntimeFsPath(path, "chmod runtime file");
   const runtime = globalThis as {
     Zotero?: {
