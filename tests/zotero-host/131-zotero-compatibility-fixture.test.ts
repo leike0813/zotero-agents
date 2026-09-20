@@ -1041,7 +1041,7 @@ describe("Zotero compatibility fixture contracts", function () {
         await fs.readFile(".github/workflows/system-e2e-evidence.yml", "utf8"),
       ) as any;
       assert.lengthOf(workflow.on.schedule, 2);
-      assert.deepEqual(workflow.on.workflow_dispatch.inputs.lane.options, [
+      assert.includeMembers(workflow.on.workflow_dispatch.inputs.lane.options, [
         "weekly",
         "stress",
         "manual-gold",
@@ -1061,7 +1061,7 @@ describe("Zotero compatibility fixture contracts", function () {
       );
     });
 
-    it("bootstraps non-publishing calibration lanes from branch-local tags", async function () {
+    it("bootstraps non-publishing calibration lanes from tags and a debug dispatch", async function () {
       const workflowSource = await fs.readFile(
         ".github/workflows/system-e2e-evidence.yml",
         "utf8",
@@ -1078,15 +1078,21 @@ describe("Zotero compatibility fixture contracts", function () {
         "e2e-calibration-pr-*",
         "e2e-calibration-main-*",
         "e2e-calibration-release-*",
-        "e2e-calibration-cg02-*",
       ]);
       assert.include(laneStep.run, "e2e-calibration-pr-*) lane=pull-request");
       assert.include(laneStep.run, "e2e-calibration-main-*) lane=main");
       assert.include(laneStep.run, "e2e-calibration-release-*) lane=release");
-      assert.include(
-        laneStep.run,
-        "e2e-calibration-cg02-*) lane=cg-02-windows",
-      );
+      assert.notInclude(laneStep.run, "e2e-calibration-cg02");
+      // CG-02 reads the close lifecycle out of the debug-only crash journal,
+      // which a production build elides, and the plugin build shape follows the
+      // checked-out branch. A calibration tag is a detached production build, so
+      // the lane is dispatched on a debug branch instead of triggered by a tag.
+      assert.deepEqual(workflow.on.workflow_dispatch.inputs.lane.options, [
+        "weekly",
+        "stress",
+        "manual-gold",
+        "cg-02-windows",
+      ]);
       assert.include(
         workflow.jobs["prepare-windows"].if,
         "needs.prepare.outputs.lane == 'release'",

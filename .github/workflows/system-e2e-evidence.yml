@@ -6,7 +6,6 @@ on:
       - e2e-calibration-pr-*
       - e2e-calibration-main-*
       - e2e-calibration-release-*
-      - e2e-calibration-cg02-*
   schedule:
     - cron: "17 3 * * 0"
     - cron: "17 3 * * 3"
@@ -21,6 +20,11 @@ on:
           - weekly
           - stress
           - manual-gold
+          # CG-02 observes the close lifecycle through the debug-only crash
+          # journal, which a production build elides, so this lane has to run
+          # on a debug build branch:
+          #   gh workflow run system-e2e-evidence.yml --ref dev -f lane=cg-02-windows
+          - cg-02-windows
 
 permissions:
   contents: read
@@ -49,7 +53,6 @@ jobs:
               e2e-calibration-pr-*) lane=pull-request ;;
               e2e-calibration-main-*) lane=main ;;
               e2e-calibration-release-*) lane=release ;;
-              e2e-calibration-cg02-*) lane=cg-02-windows ;;
               *) echo "Unsupported calibration tag" >&2; exit 1 ;;
             esac
           fi
