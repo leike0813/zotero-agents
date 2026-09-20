@@ -18,5 +18,8 @@
 
 ## 3. Verify on the runner
 
-- [ ] 3.1 Run one Windows calibration round and verify the cells no longer report `step: runtime-directory` with `NS_ERROR_FILE_NAME_TOO_LONG`, recording the new classification or the absence of a launch failure
-- [ ] 3.2 Verify `npm run test:node:zotero-host`, `npm run test:node:synthesis`, and `npm run test:node:runtime` hold their documented baselines, and that `openspec validate shorten-windows-sidecar-session-paths --strict` passes
+- [x] 3.1 Run one Windows calibration round and verify the cells no longer report `step: runtime-directory` with `NS_ERROR_FILE_NAME_TOO_LONG`, recording the new classification or the absence of a launch failure
+  - `e2e-calibration-release-431d6836-r14` (run `35487844842`): all three Windows cells carry **zero** `synthesis-sidecar-runtime` entries, where the previous round carried exactly one fused launch per cell, and each cell logs 430–608 `synthesis-sidecar-business` operations ending in `succeeded`. The cells finish the suite in 3.8–4.6 min instead of spending 26 min in restart-and-timeout.
+  - The cells still fail, now with `{code: test_failed, phase: test-e2e}` after running real cases: 6 of 10 planned cases pass, and the four failures are `PA-01` (`family_cleanup_indeterminate`), `PM-01`, `PM-04`, and `RH-02`. Three of them share one cause — the runner cannot write `<session root>/test-checkpoints/<checkpoint>.armed` and receives `NS_ERROR_FILE_NOT_FOUND`, so the checkpoint directory the writer expects is not there on Windows. This is a different, narrower defect than the one this change fixed.
+- [x] 3.2 Verify `npm run test:node:zotero-host`, `npm run test:node:synthesis`, and `npm run test:node:runtime` hold their documented baselines, and that `openspec validate shorten-windows-sidecar-session-paths --strict` passes
+  - `zotero-host` holds its documented nine `102` failures, `synthesis` and `runtime` are green, `tsc --noEmit` is clean, and `openspec validate … --strict` passes.
