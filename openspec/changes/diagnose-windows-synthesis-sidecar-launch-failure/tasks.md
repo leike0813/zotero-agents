@@ -2,10 +2,14 @@
 
 ## 1. Classification-grade launch-failure record
 
-- [ ] 1.1 Extend the System E2E launch-failure record with the failing stage (`pre-create`, `spawn`, `pre-discovery`), the raw error name, the platform error number when the thrown error exposes one, the exit value when a process existed, and the attempted path length — never the path text; verify with runner-side tests that each field is populated for its own trigger and that no absolute path appears in the serialized record
-- [ ] 1.2 Tag each step of `launch()` — runtime-directory creation, install resolution, config write, process spawn — so the stage comes from which step threw; verify by making each step throw in turn through the supervisor's existing test seam and asserting the reported stage
-- [ ] 1.3 Leave the product runtime-log entry exactly as change 04 left it (`code`, `lastFailureCode`, `restartCount`, `exitCode`); verify the existing supervisor tests and the `runtime-log-pipeline` contract tests still pass unchanged
-- [ ] 1.4 Verify the record survives the trip into the uploaded per-cell diagnostics: extend the runtime-evidence writer's round-trip test so a failure record without a session is still captured
+- [x] 1.1 Extend the System E2E launch-failure record with the failing stage (`pre-create`, `spawn`, `pre-discovery`), the raw error name, the platform error number when the thrown error exposes one, the exit value when a process existed, and the attempted path length — never the path text; verify with runner-side tests that each field is populated for its own trigger and that no absolute path appears in the serialized record
+  - `attemptedChars` is the field name because the log pipeline's `PRIVATE_LOCATION_KEY` redaction rewrites any `path`-ish key, numbers included, to `<redacted>`.
+- [x] 1.2 Tag each step of `launch()` — runtime-directory creation, install resolution, config write, process spawn — so the stage comes from which step threw; verify by making each step throw in turn through the supervisor's existing test seam and asserting the reported stage
+  - `tests/synthesis/228-synthesis-production-runtime-supervisor.test.ts` drives the install step with an XPCOM-shaped failure and asserts `{stage: pre-create, step: install, errorName: NS_ERROR_FILE_NAME_TOO_LONG, errorNumber: 0x80520011}`, and drives the discovery step and asserts `{stage: pre-discovery, step: discovery, attemptedChars: <discovery path length>}`.
+- [x] 1.3 Leave the product runtime-log entry exactly as change 04 left it (`code`, `lastFailureCode`, `restartCount`, `exitCode`); verify the existing supervisor tests and the `runtime-log-pipeline` contract tests still pass unchanged
+  - The record gains the classification fields only while `isSystemE2ETestRun()` holds, so the existing fused-crash assertion of the four-field shape passes unchanged. The `synthesis` domain shard is clean; the `runtime` domain shard keeps one failure that predates this change — `tests/runtime/239-runtime-host-adaptation-governance.test.ts` flags `src/modules/zoteroHostMutationAuthority.ts:163` for selecting `IOUtils` itself, and that line came in with `222667ee`.
+- [x] 1.4 Verify the record survives the trip into the uploaded per-cell diagnostics: extend the runtime-evidence writer's round-trip test so a failure record without a session is still captured
+  - `tests/zotero-host/131-zotero-compatibility-fixture.test.ts` seeds the runtime log with a launch-failure entry carrying the classification and asserts the copied `runtime-logs.json` in the diagnostics directory carries it unchanged; the empty-`sessions` case is already covered by the neighbouring test.
 
 ## 2. Classify the Windows failure
 

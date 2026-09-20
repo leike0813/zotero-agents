@@ -165,6 +165,74 @@ function errorCode(error: unknown) {
   );
 }
 
+/**
+ * The launch steps that can fail before the sidecar reaches readiness. The
+ * step, not the message, decides which part of the launch failed, so the
+ * classification holds on every platform.
+ */
+type SynthesisSidecarLaunchStep =
+  | "profile"
+  | "runtime-directory"
+  | "install"
+  | "config-write"
+  | "spawn"
+  | "discovery";
+
+type SynthesisSidecarLaunchFailure = {
+  step: SynthesisSidecarLaunchStep;
+  error?: unknown;
+  /**
+   * Length of the path the failing step attempted, never the path itself. The
+   * name avoids the log pipeline's location redaction, which rewrites any
+   * `path`-ish key to `<redacted>` whatever its value is.
+   */
+  attemptedChars?: number;
+};
+
+const XPCOM_FAILURE_PATTERN =
+  /failure code: (0x[0-9a-f]+) \(([A-Z][A-Z0-9_]*)\)/i;
+
+function launchStageForStep(step: SynthesisSidecarLaunchStep) {
+  if (step === "spawn") {
+    return "spawn";
+  }
+  return step === "discovery" ? "pre-discovery" : "pre-create";
+}
+
+/**
+ * Reads the platform error identity a classification needs. Gecko exposes the
+ * nsresult as a structured `result` on the thrown object and repeats it inside
+ * the message; the message is only inspected when the structured value is
+ * missing.
+ */
+function launchErrorIdentity(error: unknown) {
+  const candidate = (error ?? {}) as {
+    name?: unknown;
+    result?: unknown;
+    message?: unknown;
+  };
+  const message =
+    typeof candidate.message === "string"
+      ? candidate.message
+      : String(error ?? "");
+  const parsed = XPCOM_FAILURE_PATTERN.exec(message);
+  const declaredName =
+    typeof candidate.name === "string" &&
+    candidate.name.length > 0 &&
+    candidate.name !== "Error"
+      ? candidate.name
+      : undefined;
+  const errorName = parsed?.[2] ?? declaredName;
+  const errorNumber =
+    typeof candidate.result === "number"
+      ? `0x${(candidate.result >>> 0).toString(16)}`
+      : parsed?.[1]?.toLowerCase();
+  return {
+    ...(errorName ? { errorName } : {}),
+    ...(errorNumber ? { errorNumber } : {}),
+  };
+}
+
 function defaultRandomHex(byteCount: number) {
   const bytes = new Uint8Array(byteCount);
   const crypto = (globalThis as { crypto?: Crypto }).crypto;
@@ -236,13 +304,30 @@ function sealedEnvironment() {
  * stderr tail stays private, so cell evidence would otherwise only ever see
  * `sidecar_crash_loop_fused` with no way to tell why the process never reached
  * readiness (observed on Windows runners).
+ *
+ * The classification fields are added only for a System E2E run: they exist so
+ * one compatibility round can tell a launch that never created a process from
+ * one that never reached discovery, and production entries keep the four
+ * business-level facts they always carried.
  */
 function recordSidecarLaunchFailure(args: {
   code: string;
   lastFailureCode: string;
   restartCount: number;
   exitCode: number | null;
+  failure?: SynthesisSidecarLaunchFailure;
 }) {
+  const classification =
+    args.failure && isSystemE2ETestRun()
+      ? {
+          stage: launchStageForStep(args.failure.step),
+          step: args.failure.step,
+          ...launchErrorIdentity(args.failure.error),
+          ...(args.failure.attemptedChars === undefined
+            ? {}
+            : { attemptedChars: args.failure.attemptedChars }),
+        }
+      : {};
   appendRuntimeLog({
     level: "error",
     scope: "system",
@@ -256,6 +341,7 @@ function recordSidecarLaunchFailure(args: {
       lastFailureCode: args.lastFailureCode,
       restartCount: args.restartCount,
       exitCode: args.exitCode,
+      ...classification,
     },
   });
 }
@@ -484,6 +570,7 @@ export function createSynthesisProductionRuntimeSupervisor(
     code: string,
     current: Session | null,
     launchGeneration = generation,
+    failure?: SynthesisSidecarLaunchFailure,
   ) => {
     if (launchGeneration !== generation) {
       return;
@@ -520,6 +607,7 @@ export function createSynthesisProductionRuntimeSupervisor(
         lastFailureCode: code,
         restartCount,
         exitCode: current?.exitCode ?? null,
+        ...(failure ? { failure } : {}),
       });
       return;
     }
@@ -617,6 +705,8 @@ export function createSynthesisProductionRuntimeSupervisor(
       nextRestartAt: undefined,
     });
     let current: Session | null = null;
+    let launchStep: SynthesisSidecarLaunchStep = "profile";
+    let attemptedPathLength: number | undefined;
     try {
       if (!subprocess?.call) {
         throw new Error("sidecar_subprocess_unavailable");
@@ -631,7 +721,11 @@ export function createSynthesisProductionRuntimeSupervisor(
         profileId,
         supervisorInstanceId,
       });
+      launchStep = "runtime-directory";
+      attemptedPathLength = paths.sessionRoot.length;
       await ensureRuntimeDirectory(paths.sessionRoot);
+      launchStep = "install";
+      attemptedPathLength = undefined;
       const install =
         options.resolvedInstall ?? (await installer.ensureInstalled());
       validateInstall(install);
@@ -670,10 +764,14 @@ export function createSynthesisProductionRuntimeSupervisor(
         lifecycleToken: randomHex(32),
         port: 0,
       });
+      launchStep = "config-write";
+      attemptedPathLength = paths.configPath.length;
       await replacePrivateRuntimeTextFileAtomically(
         paths.configPath,
         `${JSON.stringify(config)}\n`,
       );
+      launchStep = "spawn";
+      attemptedPathLength = install.executablePath.length;
       const proc = await subprocess.call({
         command: install.executablePath,
         arguments: ["serve", "--config", paths.configPath],
@@ -711,10 +809,16 @@ export function createSynthesisProductionRuntimeSupervisor(
               exitedSession.stableFailureCode || "sidecar_process_exited",
               exitedSession,
               launchGeneration,
+              {
+                step: "discovery",
+                attemptedChars: exitedSession.paths.discoveryPath.length,
+              },
             ),
           );
         }
       });
+      launchStep = "discovery";
+      attemptedPathLength = paths.discoveryPath.length;
       const discovery = await waitForDiscoveryOrExit(current);
       if (
         discovery.profileId !== profileId ||
@@ -749,7 +853,13 @@ export function createSynthesisProductionRuntimeSupervisor(
       });
       scheduleHealth(current);
     } catch (error) {
-      await fail(errorCode(error), current, launchGeneration);
+      await fail(errorCode(error), current, launchGeneration, {
+        step: launchStep,
+        error,
+        ...(attemptedPathLength === undefined
+          ? {}
+          : { attemptedChars: attemptedPathLength }),
+      });
     }
   }
 

@@ -117,7 +117,9 @@ the raw error name, the platform error number when the thrown error exposes one,
 a process existed, and the length (never the text) of the deepest path the failing step attempted.
 
 The stage is what resolves the current ambiguity: `exitCode: null` and `sessions: []` each admit more
-than one reading, while a `pre-create` stage pins the failure before `session = current`.
+than one reading, while a `pre-create` stage pins the failure before `session = current`. The
+attempted length is recorded as `attemptedChars` rather than anything containing `path`, because the
+log pipeline's location redaction rewrites a `path`-ish key to `<redacted>` whatever its value is.
 
 Alternative: match `NS_ERROR_FILE_NAME_TOO_LONG` in the message. Rejected because message matching is
 brittle and would hard-code one platform's failure.

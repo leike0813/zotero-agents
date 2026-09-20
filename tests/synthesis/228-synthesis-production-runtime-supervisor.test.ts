@@ -1103,4 +1103,137 @@ describe("Synthesis production runtime supervisor", function () {
     assert.equal(generationAttempts, 2);
     await delayedSupervisor.stop();
   });
+
+  it("classifies a pre-create launch failure into its nsresult for a System E2E run", async function () {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-supervisor-classify-"),
+    );
+    const runtime = globalThis as unknown as {
+      Zotero: { Prefs: { get: (key: string, global?: boolean) => unknown } };
+    };
+    const previousPrefsGet = runtime.Zotero.Prefs.get;
+    runtime.Zotero.Prefs.get = (key: string, global?: boolean) =>
+      key === "extensions.zotero-agents.test.systemE2EEventUrl"
+        ? "http://127.0.0.1:1/system-e2e"
+        : previousPrefsGet(key, global);
+    const xpcomFailure = Object.assign(
+      new Error(
+        '[Exception... "Component returned failure code: 0x80520011 (NS_ERROR_FILE_NAME_TOO_LONG) [nsIFile.create]" nsresult: "0x80520011 (NS_ERROR_FILE_NAME_TOO_LONG)" location: "JS frame :: resource://gre/modules/IOUtils.sys.mjs" data: no]',
+      ),
+      { name: "NS_ERROR_FILE_NAME_TOO_LONG", result: 0x80520011 },
+    );
+    try {
+      const supervisor = createSynthesisProductionRuntimeSupervisor({
+        runtimeRoot: path.join(root, "runtime"),
+        profilePath: PROFILE_PATH,
+        libraryId: 7,
+        repositoryDbPath: path.join(root, "state", "synthesis.db"),
+        canonicalRoot: path.join(root, "data", "synthesis"),
+        reverseHost: {
+          host: "127.0.0.1",
+          port: 9134,
+          authorizationToken: "8".repeat(64),
+        },
+        installer: {
+          ensureInstalled: async () => {
+            throw xpcomFailure;
+          },
+        } as never,
+        subprocess: {
+          call: async () => {
+            throw new Error("the launch must not reach the process step");
+          },
+        } as never,
+        controlClient: {} as never,
+        discoveryTimeoutMs: 100,
+        healthIntervalMs: 0,
+        restartDelaysMs: [1, 1],
+      });
+      supervisor.start();
+      await waitForSnapshot(
+        supervisor,
+        (snapshot) => snapshot.recoveryState === "manual-recovery-required",
+      );
+      const launchFailure = listRuntimeLogs({
+        component: "synthesis-sidecar-runtime",
+      }).at(-1);
+      assert.deepEqual(launchFailure?.details, {
+        code: "sidecar_crash_loop_fused",
+        lastFailureCode: "[Exception...",
+        restartCount: 3,
+        exitCode: null,
+        stage: "pre-create",
+        step: "install",
+        errorName: "NS_ERROR_FILE_NAME_TOO_LONG",
+        errorNumber: "0x80520011",
+      });
+      await supervisor.stop();
+    } finally {
+      runtime.Zotero.Prefs.get = previousPrefsGet;
+    }
+  });
+
+  it("records the failing launch step for a discovery failure in a System E2E run", async function () {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-supervisor-step-"));
+    const runtime = globalThis as unknown as {
+      Zotero: { Prefs: { get: (key: string, global?: boolean) => unknown } };
+    };
+    const previousPrefsGet = runtime.Zotero.Prefs.get;
+    runtime.Zotero.Prefs.get = (key: string, global?: boolean) =>
+      key === "extensions.zotero-agents.test.systemE2EEventUrl"
+        ? "http://127.0.0.1:1/system-e2e"
+        : previousPrefsGet(key, global);
+    try {
+      let sessionRoot = "";
+      const supervisor = createSynthesisProductionRuntimeSupervisor({
+        runtimeRoot: path.join(root, "runtime"),
+        profilePath: PROFILE_PATH,
+        libraryId: 7,
+        repositoryDbPath: path.join(root, "state", "synthesis.db"),
+        canonicalRoot: path.join(root, "data", "synthesis"),
+        reverseHost: {
+          host: "127.0.0.1",
+          port: 9134,
+          authorizationToken: "8".repeat(64),
+        },
+        resolvedInstall: readyInstall(),
+        subprocess: {
+          call: async (invocation: { workdir?: string }) => {
+            sessionRoot = invocation.workdir || "";
+            return {
+              stdout: { readString: async () => "" },
+              stderr: { readString: async () => "" },
+              stdin: { close: async () => undefined },
+              wait: async () => 101,
+              kill: () => undefined,
+            };
+          },
+        } as never,
+        controlClient: {} as never,
+        discoveryTimeoutMs: 100,
+        healthIntervalMs: 0,
+        restartDelaysMs: [1, 1],
+      });
+      supervisor.start();
+      await waitForSnapshot(
+        supervisor,
+        (snapshot) => snapshot.recoveryState === "manual-recovery-required",
+      );
+      const launchFailure = listRuntimeLogs({
+        component: "synthesis-sidecar-runtime",
+      }).at(-1);
+      assert.deepEqual(launchFailure?.details, {
+        code: "sidecar_crash_loop_fused",
+        lastFailureCode: "sidecar_process_exited_before_discovery",
+        restartCount: 3,
+        exitCode: 101,
+        stage: "pre-discovery",
+        step: "discovery",
+        attemptedChars: path.join(sessionRoot, "discovery.json").length,
+      });
+      await supervisor.stop();
+    } finally {
+      runtime.Zotero.Prefs.get = previousPrefsGet;
+    }
+  });
 });

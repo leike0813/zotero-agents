@@ -1573,7 +1573,30 @@ describe("Zotero compatibility fixture contracts", function () {
         pid: 4243,
       });
       await fs.mkdir(paths.logsDir, { recursive: true });
-      await fs.writeFile(paths.runtimeLogPath, '{"fragments":[]}\n');
+      const launchFailureDetails = {
+        code: "sidecar_crash_loop_fused",
+        lastFailureCode: "[Exception...",
+        restartCount: 4,
+        exitCode: null,
+        stage: "pre-create",
+        step: "runtime-directory",
+        errorName: "NS_ERROR_FILE_NAME_TOO_LONG",
+        errorNumber: "0x80520011",
+        attemptedChars: 305,
+      };
+      await fs.writeFile(
+        paths.runtimeLogPath,
+        `${JSON.stringify({
+          entries: [
+            {
+              component: "synthesis-sidecar-runtime",
+              operation: "launch",
+              stage: "failed",
+              details: launchFailureDetails,
+            },
+          ],
+        })}\n`,
+      );
 
       const written = await collectCellRuntimeEvidence({
         runtimeRootOverride: layout.runtime,
@@ -1608,6 +1631,16 @@ describe("Zotero compatibility fixture contracts", function () {
       );
       assert.isTrue(evidence.runtimeLog.present);
       assert.isTrue(evidence.runtimeLog.captured);
+      // The classification a launch failure carries has to reach the uploaded
+      // diagnostics unchanged, because this copy is the only channel from the
+      // plugin to a cell's evidence directory.
+      const capturedLog = JSON.parse(
+        await fs.readFile(
+          path.join(layout.diagnostics, "runtime-logs.json"),
+          "utf8",
+        ),
+      );
+      assert.deepEqual(capturedLog.entries[0].details, launchFailureDetails);
       assert.notInclude(await fs.readFile(evidencePath, "utf8"), tempRoot);
     });
 
