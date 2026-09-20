@@ -120,7 +120,7 @@ gh workflow run system-e2e-evidence.yml --ref dev -f lane=cg-02-windows
 
 它读的是 close 生命周期的 `citation-graph-crash-journal.json`（断言 `sigma-renderer-created`、`sigma-destroy-complete`、`host-cleanup-complete`），而这个 journal 属于 `citationGraphCrashJournal` 诊断组，`scripts/runtime-diagnostics-esbuild.ts` 在 `__debug_mode__ === "false"` 时把该组整体替换为 no-op stub，`tests/runtime/97` 也要求 release 变体中该组为 0 字节。插件构建形态跟随 checkout 的分支名（`zotero-plugin.config.ts` 的 `DEBUG_MODE`），校准 tag 是 detached checkout，得到的是生产构建，所以 tag 触发的 `CG-02` cell 必然只缺这一条观测通道（`c20bbe63` 的 r3 即如此：30 轮跑完、431 条生命周期阶段、`final-close-idle-survived` 宿主与数据库均存活，断言仍读到空文件）。在 `dev` 分支上分派则构建 debug 变体，journal 存在。这份证据描述 close 生命周期逻辑，不是 release 形态产物，2026-09-18 的 Windows 30 轮分类同样来自 debug 构建。
 
-catalog 形态把 entry 固定为 close 用例本身，所以发布 `zotero-compatibility-host-facts` 的 foundation 用例不会运行，而 compatibility receipt 正是靠这份事实判定 cell；`276` 因此在自己的 catalog 分支里、close 循环之前发布同一事件。改变该 lane 的 entry 或 case identity 时必须同时保住这份发布，否则 receipt 会以 `host_facts_missing` 拒绝整轮。
+catalog 形态把 entry 固定为 close 用例本身，所以发布 `zotero-compatibility-host-facts` 的 foundation 用例不会运行，而 compatibility receipt 正是靠这份事实判定 cell；`276` 因此在自己的 catalog 分支里、close 循环之前发布同一事件。改变该 lane 的 entry 或 case identity 时必须同时保住这份发布，否则 receipt 会以 `host_facts_missing` 拒绝整轮。同一原因也让断言依据必须走 run-scoped 目录：Zotero 进程里的默认诊断目录是平台 temp 目录，没有 workflow 会归档它，所以 crash journal 由 harness 经 `ZOTERO_SYNTHESIS_CLOSE_CRASH_JOURNAL_PATH` 指到 `artifacts/test-diagnostics/system-e2e/<runId>/`，与 `synthesis-close-lifecycle.json` 并排归档，断言依据本身因此可复查。
 
 查看规划或在本机运行单个 cell：
 

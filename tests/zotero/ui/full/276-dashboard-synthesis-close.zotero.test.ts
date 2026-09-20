@@ -42,6 +42,24 @@ type TestRuntime = typeof globalThis & {
 let previousAddon: unknown;
 let previousZtoolkit: unknown;
 
+async function writeCloseDiagnosticsFile(
+  envName: string,
+  defaultFileName: string,
+  content: string,
+) {
+  const explicitPath = readDiagnosticsEnv(envName);
+  const outputPath = explicitPath
+    ? explicitPath
+    : joinPath(resolveDefaultTestDiagnosticsDirectory(), defaultFileName);
+  await ensureDiagnosticsDirectory(
+    outputPath.slice(
+      0,
+      Math.max(outputPath.lastIndexOf("/"), outputPath.lastIndexOf("\\")),
+    ),
+  );
+  await writeDiagnosticsText(outputPath, content);
+}
+
 async function recordCloseLifecycleStage(
   stage: string,
   details: Record<string, unknown> = {},
@@ -51,23 +69,9 @@ async function recordCloseLifecycleStage(
     occurredAt: new Date().toISOString(),
     ...details,
   });
-  const explicitPath = readDiagnosticsEnv(
+  await writeCloseDiagnosticsFile(
     "ZOTERO_SYNTHESIS_CLOSE_DIAGNOSTICS_PATH",
-  );
-  const outputPath = explicitPath
-    ? explicitPath
-    : joinPath(
-        resolveDefaultTestDiagnosticsDirectory(),
-        "synthesis-close-lifecycle.json",
-      );
-  await ensureDiagnosticsDirectory(
-    outputPath.slice(
-      0,
-      Math.max(outputPath.lastIndexOf("/"), outputPath.lastIndexOf("\\")),
-    ),
-  );
-  await writeDiagnosticsText(
-    outputPath,
+    "synthesis-close-lifecycle.json",
     JSON.stringify(
       {
         schema: "synthesis-close-lifecycle-diagnostics.v1",
@@ -490,10 +494,13 @@ describe("Dashboard and Synthesis close lifecycle in Zotero", function () {
         ),
       );
       assert.isString(crashJournal);
-      const outputDirectory = resolveDefaultTestDiagnosticsDirectory();
-      await ensureDiagnosticsDirectory(outputDirectory);
-      await writeDiagnosticsText(
-        joinPath(outputDirectory, "citation-graph-crash-journal.json"),
+      // Inside Zotero the default diagnostics directory is the platform temp
+      // directory, which no workflow uploads, so the run-scoped path the
+      // harness sets is what gets the journal archived beside the lifecycle
+      // diagnostics it is asserted from.
+      await writeCloseDiagnosticsFile(
+        "ZOTERO_SYNTHESIS_CLOSE_CRASH_JOURNAL_PATH",
+        "citation-graph-crash-journal.json",
         crashJournal!,
       );
       assert.include(crashJournal!, "sigma-renderer-created");
