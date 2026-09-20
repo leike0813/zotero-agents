@@ -309,7 +309,7 @@ describe("Zotero compatibility fixture contracts", function () {
       );
     });
 
-    it("plans six blocking lite cells and one non-blocking SL+PM E2E cell for pull requests", async function () {
+    it("plans six blocking lite cells and one promoted blocking SL+PM E2E cell for pull requests", async function () {
       const manifest = await loadCompatibilityManifest(MATRIX_PATH);
       const plan = buildCompatibilityPlan(manifest, "pull-request");
       const lite = plan.filter((cell) => cell.domain === "all");
@@ -342,7 +342,7 @@ describe("Zotero compatibility fixture contracts", function () {
           fixtureScale: "committed-seed",
           sidecarStartupModel: "pre-staged-current-source",
           invocationProfileModel: "one-fresh-copied-profile-per-invocation",
-          blocking: false,
+          blocking: true,
         },
       );
     });
@@ -378,7 +378,7 @@ describe("Zotero compatibility fixture contracts", function () {
       });
     }
 
-    it("plans one non-blocking all-family Linux E2E cell per Zotero major on main", async function () {
+    it("plans one promoted blocking all-family Linux E2E cell per Zotero major on main", async function () {
       const manifest = await loadCompatibilityManifest(MATRIX_PATH);
       const cells = buildCompatibilityPlan(manifest, "main").filter(
         (cell) => cell.domain === "e2e",
@@ -392,7 +392,7 @@ describe("Zotero compatibility fixture contracts", function () {
         cells.every(
           (cell) =>
             cell.lane === "main" &&
-            cell.blocking === false &&
+            cell.blocking === true &&
             cell.fixtureScale === "committed-seed" &&
             cell.invocationProfileModel ===
               "one-fresh-copied-profile-per-invocation" &&
@@ -422,10 +422,19 @@ describe("Zotero compatibility fixture contracts", function () {
         cells.every(
           (cell) =>
             cell.lane === "release" &&
-            cell.blocking === false &&
             JSON.stringify(cell.families) ===
               JSON.stringify(["SL", "RH", "PA", "PM", "CG", "HB"]),
         ),
+      );
+      assert.isTrue(
+        cells
+          .filter((cell) => cell.platform === "linux-x64")
+          .every((cell) => cell.blocking),
+      );
+      assert.isTrue(
+        cells
+          .filter((cell) => cell.platform === "windows-x64")
+          .every((cell) => cell.blocking === false),
       );
       assert.deepEqual(
         plan
@@ -789,7 +798,15 @@ describe("Zotero compatibility fixture contracts", function () {
       const calibration = validateCalibrationRounds(
         [1, 2, 3].map((index) => cleanRound(linux, index)),
       );
-      assert.isFalse(E2E_PROMOTION_STATE[linux.id]);
+      // The release Linux cell is promoted after three reviewed clean rounds;
+      // no Windows cell may be promoted before CG-02 and the Zotero 9
+      // classification are recorded.
+      assert.isTrue(E2E_PROMOTION_STATE[linux.id]);
+      assert.isFalse(
+        E2E_PROMOTION_STATE[
+          "release-zotero-10-windows-x64-e2e-sl-rh-pa-pm-cg-hb"
+        ],
+      );
       assert.lengthOf(Object.keys(E2E_PROMOTION_STATE), 10);
       assert.deepInclude(
         evaluateE2EPromotion({

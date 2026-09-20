@@ -93,21 +93,22 @@ export type CompatibilityArtifactIdentity = {
  * reviewed. Windows release cells additionally need passing, trustworthy
  * `CG-02` evidence and a recorded Zotero 9 classification.
  *
- * No cell is promoted yet. All seven Linux cells have completed their three
- * clean rounds (evidence recorded in the change's `tasks.md`), but the blocking
- * lanes in `ci.yml` and `release.yml` still feed cells the plain plugin build
- * instead of the prepared immutable candidate, so a promoted E2E cell cannot
- * execute there. Promotion stays withheld until that wiring lands and the
- * Windows release cells pass.
+ * Promoted 2026-09-19 from calibration rounds r9/r10/r11: every promoted cell
+ * produced three `complete` run manifests with all families, cleanup and health
+ * passed, on one identity per cell (same target, family group, `ubuntu-24.04`,
+ * `committed-seed`, `pre-staged-current-source`,
+ * `one-fresh-copied-profile-per-invocation`), with a maximum clean round of
+ * 2.47 min (PR), 3.82 min (main) and 3.57 min (release), far below the
+ * 15/30/45 min thresholds. Run ids are recorded in the change's `tasks.md`.
  */
 export const E2E_PROMOTION_STATE: Readonly<Record<string, boolean>> = {
-  "pull-request-zotero-10-linux-x64-e2e-sl-pm": false,
-  "main-zotero-7-linux-x64-e2e-sl-rh-pa-pm-cg-hb": false,
-  "main-zotero-9-linux-x64-e2e-sl-rh-pa-pm-cg-hb": false,
-  "main-zotero-10-linux-x64-e2e-sl-rh-pa-pm-cg-hb": false,
-  "release-zotero-7-linux-x64-e2e-sl-rh-pa-pm-cg-hb": false,
-  "release-zotero-9-linux-x64-e2e-sl-rh-pa-pm-cg-hb": false,
-  "release-zotero-10-linux-x64-e2e-sl-rh-pa-pm-cg-hb": false,
+  "pull-request-zotero-10-linux-x64-e2e-sl-pm": true,
+  "main-zotero-7-linux-x64-e2e-sl-rh-pa-pm-cg-hb": true,
+  "main-zotero-9-linux-x64-e2e-sl-rh-pa-pm-cg-hb": true,
+  "main-zotero-10-linux-x64-e2e-sl-rh-pa-pm-cg-hb": true,
+  "release-zotero-7-linux-x64-e2e-sl-rh-pa-pm-cg-hb": true,
+  "release-zotero-9-linux-x64-e2e-sl-rh-pa-pm-cg-hb": true,
+  "release-zotero-10-linux-x64-e2e-sl-rh-pa-pm-cg-hb": true,
   "release-zotero-7-windows-x64-e2e-sl-rh-pa-pm-cg-hb": false,
   "release-zotero-9-windows-x64-e2e-sl-rh-pa-pm-cg-hb": false,
   "release-zotero-10-windows-x64-e2e-sl-rh-pa-pm-cg-hb": false,
