@@ -22,7 +22,9 @@
 - [x] 4.2 Make the sidecar read that field with the previous session-root derivation as its fallback, and pass the checkpoint directory to the seam directly; verify the Rust workspace tests pass
 - [x] 4.3 Point the E2E test seam at the configured root, falling back to the session-root derivation only when the config omits it, and verify the seam's call sites all use it
 - [x] 4.4 Extend the budget test to the deepest writer — a checkpoint file with a 32-character name and the longest state suffix — and verify it fails against a layout that keeps the checkpoints under the session root
-- [ ] 4.5 Verify on one Windows calibration round that `PM-01`, `PM-04`, and `RH-02` no longer fail on the checkpoint write, recording whatever remains
+- [x] 4.5 Verify on one Windows calibration round that `PM-01`, `PM-04`, and `RH-02` no longer fail on the checkpoint write, recording whatever remains
+  - `e2e-calibration-release-16f8fa24-r15` (run `35491202904`): all three Windows cells keep zero sidecar runtime entries and now report `10 passed, 1 failed`, against `7 passed, 4 failed` in r14. `PM-01`, `PM-04`, and `RH-02` pass; the checkpoint write is gone from the failures, and `PM-04` now spends 36 s in the seam's hold-and-release instead of failing to arm it.
+  - The one remaining failure is `PA-01` (`family_cleanup_indeterminate`, plus a boolean assertion inside `reads a historical Topic without rewriting its read-only metadata`). It failed in r14 as well and is not something this change claims to fix.
 
 ## 3. Verify on the runner
 
