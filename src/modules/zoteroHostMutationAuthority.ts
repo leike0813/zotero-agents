@@ -30,6 +30,12 @@ import {
   settlePluginMutationAuthorityEntry,
   type PluginMutationAuthorityEntry,
 } from "./pluginStateStore";
+import {
+  readRuntimeTextFile,
+  removeRuntimePath,
+  runtimePathExists,
+  writeRuntimeTextFile,
+} from "./runtimePersistence";
 import { readSystemE2EEventUrl } from "./systemE2ETestRun";
 
 const TERMINAL_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -147,29 +153,19 @@ function holdSystemE2EAdmissionCheckpoint(operationId: string) {
   const runtime = globalThis as typeof globalThis & {
     Zotero?: { DataDirectory?: { dir?: string } };
     PathUtils?: { join?: (...parts: string[]) => string };
-    IOUtils?: {
-      exists?: (path: string) => Promise<boolean>;
-      readUTF8?: (path: string) => Promise<string>;
-      writeUTF8?: (path: string, content: string) => Promise<void>;
-      remove?: (
-        path: string,
-        options?: { ignoreAbsent?: boolean },
-      ) => Promise<void>;
-    };
   };
   const eventUrl = readSystemE2EEventUrl();
   const dataDir = String(runtime.Zotero?.DataDirectory?.dir || "").trim();
   const join = runtime.PathUtils?.join;
-  const io = runtime.IOUtils;
-  if (!eventUrl || !dataDir || !join || !io?.exists || !io.readUTF8) return;
+  if (!eventUrl || !dataDir || !join) return;
 
   return (async () => {
     const root = join(dataDir, "system-e2e");
     const armedPath = join(root, "canonical-mutation-admission.armed.json");
-    if (!(await io.exists(armedPath))) return;
+    if (!(await runtimePathExists(armedPath))) return;
     let armed: { operationId?: unknown };
     try {
-      armed = JSON.parse(await io.readUTF8(armedPath)) as {
+      armed = JSON.parse(await readRuntimeTextFile(armedPath)) as {
         operationId?: unknown;
       };
     } catch {
@@ -177,15 +173,15 @@ function holdSystemE2EAdmissionCheckpoint(operationId: string) {
     }
     if (String(armed.operationId || "").trim() !== operationId) return;
 
-    await io.remove?.(armedPath, { ignoreAbsent: true });
+    await removeRuntimePath(armedPath);
     const heldPath = join(root, "canonical-mutation-admission.held");
     const releasePath = join(root, "canonical-mutation-admission.release");
-    await io.writeUTF8?.(heldPath, operationId);
+    await writeRuntimeTextFile(heldPath, operationId);
     const deadline = Date.now() + SYSTEM_E2E_CHECKPOINT_TIMEOUT_MS;
     while (Date.now() < deadline) {
-      if (await io.exists(releasePath)) {
-        await io.remove?.(releasePath, { ignoreAbsent: true });
-        await io.remove?.(heldPath, { ignoreAbsent: true });
+      if (await runtimePathExists(releasePath)) {
+        await removeRuntimePath(releasePath);
+        await removeRuntimePath(heldPath);
         return;
       }
       await new Promise((resolve) => setTimeout(resolve, 10));

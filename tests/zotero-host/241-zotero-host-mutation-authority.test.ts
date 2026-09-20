@@ -132,7 +132,15 @@ describe("Zotero host mutation authority", function () {
           ? "http://127.0.0.1:3210/events"
           : undefined;
       runtime.PathUtils = { join: (...parts: string[]) => parts.join("/") };
+      // The governed writer ensures its parent directory and then writes text,
+      // so the stub models both the directory it needs and the stat that
+      // confirms it. The checkpoint no longer reaches IOUtils directly.
       runtime.IOUtils = {
+        makeDirectory: async () => undefined,
+        stat: async (path: string) => ({
+          type: path.endsWith("/system-e2e") ? "directory" : "file",
+          size: 0,
+        }),
         exists: async (path: string) => files.has(path),
         readUTF8: async (path: string) => files.get(path) || "",
         writeUTF8: async (path: string, content: string) => {
