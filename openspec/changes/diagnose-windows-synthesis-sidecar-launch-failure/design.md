@@ -77,6 +77,12 @@ after the worker exits (`scripts/system-e2e/runtimeEvidence.ts:132-158`), and `c
 the session root on failure, so an empty array also results when a session was created and then
 cleaned up.
 
+**Confirmed on 2026-09-20.** The first Windows round after the instrumentation,
+`e2e-calibration-release-640ccd91-r13`, returned
+`{stage: pre-create, step: runtime-directory, errorName: NS_ERROR_FILE_NAME_TOO_LONG, errorNumber: 0x80520011, attemptedChars: 304}`
+for the Zotero 7 and Zotero 9 cells and `305` for the Zotero 10 cell; the one-character difference is
+that target id, which independently confirms the path chain. The arithmetic above predicted 305.
+
 One more difference is worth recording because it separates this lane from the `domain all` cells:
 the failing lane's installed sidecar reports bundleId `821ca045…` / fingerprint `389a7cb5…`, while
 the committed `addon/bin/win32-x64/synthesis-sidecar` prebuild reports `e5594b06…` / `e6eef533…`.
