@@ -73,21 +73,31 @@ Alternative: keep `-behavior-full` and shorten the domain directory to one chara
 
 ### 4. Pin the budget with a test, not with a comment
 
-A run-layout test builds the deepest Windows target's layout under a deliberately long run root (45
-characters, longer than the CI runner's 29) and asserts that the sidecar session root plus the
-`config.json` and `discovery.json` files inside it stay at or below 250 characters. That is 10
-characters of reserve below the Windows limit, and the assertion fails on the current layout.
+A run-layout test builds the deepest planned target's layout, then measures the sidecar session root
+and the `config.json` and `discovery.json` files inside it against the CI runner's run root
+(`D:\a\_temp\zotero-compat-runs`, 29 characters). The measurement is normalised so the machine's own
+temp directory cannot affect it. The session root must stay at or below 244 characters and the two
+files at or below 250, which is 10 characters of reserve below the Windows limit and fails on the
+current layout (283 for the session root, since the test builds the post-change cell label).
+
+The test also asserts that the persistence layer's runtime root is `<run root>\runtime`, so reverting
+the change in decision 2 costs exactly the eight characters that assertion protects.
 
 Alternative: assert only the session root. Rejected because the launch writes files inside it, and the
-file names are part of what must fit.
+file names are part of what must fit. Alternative: assert against a longer run root. Rejected because
+the fix as scoped only guarantees the CI runner's root; a local Windows run whose `%TEMP%` is deeper
+than CI's is not covered, and the test says so by using the runner's own root rather than an invented
+one.
 
 ## Risks / Trade-offs
 
 - **The receipt's `runId` changes shape** → nothing parses it by format, and `runId` is not part of a
   cell's calibration identity, so no calibration round is invalidated; the change is visible only in new
   evidence.
-- **A Windows local run can use a longer temp root than the CI's** → the budget test asserts against a
-  longer root than CI uses, so local runs stay inside it too.
+- **A Windows local run can use a longer temp root than the CI's** → the budget is stated against the
+  CI runner's root, which is where calibration and promotion happen; the test says so instead of
+  pretending to cover a deeper one, and the default local run root keeps the same layout so a
+  developer only hits the limit if `%TEMP%` is much deeper than CI's.
 - **Shorter tokens raise collision odds if many runs start at once in one root** → 32 bits per token
   across two levels, with a few cells per run, keeps the risk negligible; the layout already relies on
   the parent root being per-run.

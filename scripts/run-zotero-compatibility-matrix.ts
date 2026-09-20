@@ -397,7 +397,9 @@ async function runWorker(args: {
         ? { ZOTERO_E2E_FIXTURE: "gold" }
         : {}),
       ZOTERO_TEST_DATA_DIR: args.layout.data,
-      ZOTERO_SKILLS_RUNTIME_ROOT: args.layout.runtime,
+      // The persistence layer appends its own `runtime` level, so the plugin's
+      // data root is the run root and not the layout's `runtime` directory.
+      ZOTERO_SKILLS_RUNTIME_ROOT: args.layout.root,
       CI: "true",
     },
     stdoutPath,
@@ -415,10 +417,9 @@ async function runCell(options: CliOptions): Promise<string> {
     process.stdout.write(`${JSON.stringify({ target, options }, null, 2)}\n`);
     return "";
   }
-  const layout = await createRunLayout(
-    options.runsRoot,
-    `${target.id}-${options.mode}-${options.suite}`,
-  );
+  // Mode and suite stay out of the directory name: the receipt and the uploaded
+  // artifact name carry both, and the run path has a Windows length budget.
+  const layout = await createRunLayout(options.runsRoot, target.id);
   const source = await sourceIdentity().catch(() => ({
     commit: "unknown",
     dirty: true,
@@ -523,7 +524,7 @@ async function runCell(options: CliOptions): Promise<string> {
       if (options.mode === "behavior" && options.domain === "e2e") {
         receipt.diagnostics.push(
           ...(await collectCellRuntimeEvidence({
-            runtimeRootOverride: segment.runtime,
+            runtimeRootOverride: segment.root,
             diagnosticsDir: segment.diagnostics,
           })),
         );

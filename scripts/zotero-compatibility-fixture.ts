@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { createReadStream, createWriteStream } from "node:fs";
 import fs from "node:fs/promises";
@@ -1228,7 +1228,11 @@ export async function createRunLayout(
   parentRoot: string,
   label: string,
 ): Promise<CompatibilityRunLayout> {
-  const runId = `${safeRunLabel(label)}-${randomUUID()}`;
+  // The run id contributes to every path the plugin builds underneath it, and
+  // Windows refuses those past 260 characters, so the random part is a short
+  // token rather than a UUID. Four random bytes keep concurrent runs in one
+  // parent root distinct.
+  const runId = `${safeRunLabel(label)}-${randomBytes(4).toString("hex")}`;
   const root = path.resolve(parentRoot, runId);
   const resolvedParent = path.resolve(parentRoot);
   if (path.dirname(root) !== resolvedParent) {

@@ -40,6 +40,7 @@ import {
 import { collectCellRuntimeEvidence } from "../../scripts/system-e2e/runtimeEvidence";
 import {
   getRuntimePersistencePaths,
+  getSynthesisSidecarLifecyclePaths,
   getSynthesisSidecarRuntimePaths,
 } from "../../src/modules/runtimePersistence";
 import {
@@ -1266,6 +1267,37 @@ describe("Zotero compatibility fixture contracts", function () {
         "diagnostics",
         "receipt",
       ]);
+    });
+
+    it("keeps a sidecar session inside the Windows path budget", async function () {
+      const manifest = await loadCompatibilityManifest(MATRIX_PATH);
+      // The deepest planned target decides the budget, so a longer target id
+      // cannot quietly push the session path past the limit.
+      const deepestTarget = manifest.targets
+        .map((target) => target.id)
+        .reduce((longest, candidate) =>
+          candidate.length > longest.length ? candidate : longest,
+        );
+      // Measured against the CI runner's own run root, and normalised so the
+      // budget does not depend on this machine's temp directory.
+      const canonicalRootLength = "D:\\a\\_temp\\zotero-compat-runs".length;
+      const budgetRoot = path.join(tempRoot, "budget");
+      const cell = await createRunLayout(budgetRoot, deepestTarget);
+      const segment = await createRunLayout(cell.root, "e2e");
+      const paths = getRuntimePersistencePaths(segment.root);
+      const lifecycle = getSynthesisSidecarLifecyclePaths({
+        runtimeRoot: paths.runtimeRoot,
+        profileId: "a".repeat(64),
+        supervisorInstanceId: `sup-${"b".repeat(32)}`,
+      });
+      const onRunner = (value: string) =>
+        canonicalRootLength + (value.length - budgetRoot.length);
+
+      // The persistence layer owns the only `runtime` level below the run root.
+      assert.strictEqual(paths.runtimeRoot, path.join(segment.root, "runtime"));
+      assert.isAtMost(onRunner(lifecycle.sessionRoot), 244);
+      assert.isAtMost(onRunner(lifecycle.configPath), 250);
+      assert.isAtMost(onRunner(lifecycle.discoveryPath), 250);
     });
 
     it("removes run-owned state while retaining receipts and diagnostics", async function () {
