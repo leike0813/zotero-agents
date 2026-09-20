@@ -1080,9 +1080,12 @@ describe("Zotero compatibility fixture contracts", function () {
         ],
       ] as const) {
         const workflow = parseYaml(await fs.readFile(file, "utf8")) as any;
-        const plan = workflow.jobs[Object.keys(workflow.jobs).find(
-          (id) => id.endsWith("compatibility-plan"),
-        )!];
+        const plan =
+          workflow.jobs[
+            Object.keys(workflow.jobs).find((id) =>
+              id.endsWith("compatibility-plan"),
+            )!
+          ];
         const lane = workflow.jobs[jobId];
 
         assert.include(

@@ -99,11 +99,12 @@ debug 构建会持续写入 `runtime/logs/citation-graph-crash-journal.json`。�
 
 固定 cell 如下：
 
-| Lane | Cell identity | Families | 初始状态 |
+| Lane | Cell identity | Families | 当前状态 |
 | --- | --- | --- | --- |
-| PR | `pull-request-zotero-10-linux-x64-e2e-sl-pm` | `SL/PM` | non-blocking |
-| main | `main-zotero-{7,9,10}-linux-x64-e2e-sl-rh-pa-pm-cg-hb` | 全部六组 | 各自 non-blocking |
-| release | `release-zotero-{7,9,10}-{linux,windows}-x64-e2e-sl-rh-pa-pm-cg-hb` | 全部六组 | 各自 non-blocking |
+| PR | `pull-request-zotero-10-linux-x64-e2e-sl-pm` | `SL/PM` | blocking（已晋级） |
+| main | `main-zotero-{7,9,10}-linux-x64-e2e-sl-rh-pa-pm-cg-hb` | 全部六组 | blocking（已晋级） |
+| release Linux | `release-zotero-{7,9,10}-linux-x64-e2e-sl-rh-pa-pm-cg-hb` | 全部六组 | blocking（已晋级） |
+| release Windows | `release-zotero-{7,9,10}-windows-x64-e2e-sl-rh-pa-pm-cg-hb` | 全部六组 | non-blocking（`CG-02` 未通过） |
 | weekly | 与 release 相同的六个目标，前缀为 `weekly-` | 全部六组 | non-gating |
 | stress | `stress-zotero-10-linux-x64-e2e` | 既有 close-stress 场景 | non-gating |
 | manual gold | `manual-gold-zotero-10-linux-x64-e2e-rh-pa-pm-cg` | `RH/PA/PM/CG` | non-gating |
@@ -124,7 +125,11 @@ npm run test:zotero:compatibility:run -- \
   --build-root="$PWD/.scaffold/build"
 ```
 
-PR 与 main 由 `.github/workflows/ci.yml` 的 `CI` workflow 执行。tag 发布由 `.github/workflows/release.yml` 的 `Release` workflow 执行：先生成唯一 `release-candidate`，再为 Linux/Windows 准备 sidecar 并完成 release compatibility jobs，最后 `create-release` 下载同一候选物发布；`npm run release` 只校验 XPI，不重新构建。main 证据不能替代 tag-bound release 证据。
+PR 与 main 由 `.github/workflows/ci.yml` 的 `CI` workflow 执行。规划把 blocking cell 拆成 E2E 与非 E2E 两个矩阵：长期存在的 blocking cell 使用 `build` 产出的普通插件构建；已晋级的 E2E cell 则由 `zotero-compatibility-e2e-blocking` 执行，下载 `prepare` 写出的候选物（staged sidecar 加 `compatibility-artifact-identity.json`），并按 planner 给出的 family grouping 与 fixture scale 运行。这条 lane 不带 `continue-on-error`，候选物缺失会直接失败而不是静默跳过；没有 promoted cell 时它的空矩阵整条跳过，因此既有 blocking cell 的关键路径不受 sidecar 准备影响。
+
+CI 也接受 `workflow_dispatch`：输入 `gate`（`pull-request` 或 `main`），走同一条 planner 路径解析并运行该 gate 的真实矩阵，用于复核晋级与校准，不产生任何发布。该入口依赖 `ci.yml` 已在默认分支注册。
+
+tag 发布由 `.github/workflows/release.yml` 的 `Release` workflow 执行：先生成唯一 `release-candidate`，再为 Linux/Windows 准备 sidecar 并完成 release compatibility jobs，promoted release cell 由 `release-compatibility-e2e-blocking` 用对应平台的候选物执行，最后 `create-release` 下载同一候选物发布；`npm run release` 只校验 XPI，不重新构建。`create-release` 要求 promoted lane 成功或整条跳过（当前无 promoted release Windows cell 时即后者），promoted cell 失败则不会发布。main 证据不能替代 tag-bound release 证据。
 
 scheduled 与手工证据由 `.github/workflows/system-e2e-evidence.yml` 的 `System E2E Evidence` workflow 执行。周日 cron 是 weekly，周三 cron 是 stress；`workflow_dispatch` 可显式选择 `weekly`、`stress` 或 `manual-gold`。manual-gold 从 repository variables `ZOTERO_E2E_GOLD_DATA_DIR` 与 `ZOTERO_E2E_GOLD_PROFILE_DIR` 读取 runner 上的只读来源，未配置或路径无效时该 invocation 必须失败。它们都不提供 release authority。
 
@@ -134,7 +139,7 @@ scheduled 与手工证据由 `.github/workflows/system-e2e-evidence.yml` 的 `Sy
 
 分组只看三轮中最大的干净耗时；候选阈值依次为 PR 15 分钟、main 30 分钟、release 45 分钟、weekly/stress 60 分钟、manual-gold 90 分钟。这些值不写入产品 timeout。超过阈值时先拆为 `SL/RH/PA/PM/CG` 与 `HB`，仍超限才拆为 `SL/PM`、`RH/PA/CG`、`HB`，不得拆开 family。
 
-晋级是对 `E2E_PROMOTION_STATE` 中单个 cell 的显式代码修改；没有自动晋级，也不要求无关 cell 同时晋级。评审 PR 应列出三份 workflow artifact 中的 compatibility receipt、Run Manifest reference、最大耗时和校准 identity。Windows release cell 还必须有可信且通过的 `CG-02` 证据，以及实际运行得到的 Zotero 9 分类；条件不全就保持 `false`。
+晋级是对 `E2E_PROMOTION_STATE` 中单个 cell 的显式代码修改；没有自动晋级，也不要求无关 cell 同时晋级。评审 PR 应列出三份 workflow artifact 中的 compatibility receipt、Run Manifest reference、最大耗时和校准 identity。Windows release cell 还必须有可信且通过的 `CG-02` 证据，以及实际运行得到的 Zotero 9 分类；条件不全就保持 `false`。晋级后该 cell 进入对应 workflow 的 promoted lane，从候选物执行并成为硬门禁。
 
 只有 weekly 允许自动诊断重跑。第一次非通过后，`weekly-run` 以新 profile、新 run ID 和 `predecessorRunId` 完整重跑该 cell 一次，两份 manifest 分开保留；后继通过记为 `intermittent`，再次失败记为 `persistent`，两种情况 workflow 都保留第一次失败。PR、main、release、stress 和 manual-gold 不自动重跑。
 
