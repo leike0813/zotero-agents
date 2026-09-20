@@ -32,6 +32,7 @@ import { alertWindow } from "../../workflowExecution/feedbackSeam";
 import { writeRuntimeTextFile } from "../../runtimePersistence";
 import { readPackagedBinaryAsset } from "../../packagedAssetResolver";
 import { recordCitationGraphCrashJournalPhase } from "../debug/citationGraphCrashJournal";
+import { isSystemE2ETestRun } from "../../systemE2ETestRun";
 import { isTransientStorageBusyError } from "../../guardedSqlite";
 import {
   getDefaultSynthesisClient,
@@ -94,6 +95,15 @@ import {
 
 const CITATION_GRAPH_CRASH_JOURNAL_ENABLED =
   typeof __debug_mode__ !== "undefined" && __debug_mode__;
+
+/**
+ * The close-lifecycle System E2E case reads the crash journal as evidence, and a
+ * calibration candidate is a production build, so the journal has to follow that
+ * run as well as the build mode.
+ */
+function citationGraphCrashJournalEnabled() {
+  return CITATION_GRAPH_CRASH_JOURNAL_ENABLED || isSystemE2ETestRun();
+}
 
 type SynthesisExportGraphSnapshot = ReturnType<
   typeof buildSynthesisUiSnapshot
@@ -411,7 +421,7 @@ function installSynthesisWorkbenchBridge(runtime: SynthesisWorkbenchRuntime) {
       });
     },
   };
-  if (CITATION_GRAPH_CRASH_JOURNAL_ENABLED) {
+  if (citationGraphCrashJournalEnabled()) {
     bridge.recordCitationGraphCrashJournalPhase = (stage, details = {}) =>
       recordCitationGraphCrashJournalPhase(stage, details);
   }
@@ -4068,7 +4078,7 @@ async function refreshGraphLayoutIfNeeded(runtime: SynthesisWorkbenchRuntime) {
 
 function cleanupSynthesisRuntime(runtime: SynthesisWorkbenchRuntime) {
   if (runtime.cleanedUp) return;
-  if (CITATION_GRAPH_CRASH_JOURNAL_ENABLED) {
+  if (citationGraphCrashJournalEnabled()) {
     void recordCitationGraphCrashJournalPhase("host-cleanup-start", {
       tabId: runtime.tabId,
       frameConnected: runtime.frame.isConnected,
@@ -4100,7 +4110,7 @@ function cleanupSynthesisRuntime(runtime: SynthesisWorkbenchRuntime) {
   runtime.removeSidecarStatusListener = undefined;
   const frameWindow = runtime.frameWindow || resolveFrameWindow(runtime.frame);
   try {
-    if (CITATION_GRAPH_CRASH_JOURNAL_ENABLED) {
+    if (citationGraphCrashJournalEnabled()) {
       void recordCitationGraphCrashJournalPhase("host-pagehide-dispatch", {
         frameConnected: runtime.frame.isConnected,
         frameWindowPresent: Boolean(frameWindow),
@@ -4116,7 +4126,7 @@ function cleanupSynthesisRuntime(runtime: SynthesisWorkbenchRuntime) {
   runtime.removeFrameLoadListener?.();
   runtime.removeFrameLoadListener = undefined;
   runtime.removeMessageListener?.();
-  if (CITATION_GRAPH_CRASH_JOURNAL_ENABLED) {
+  if (citationGraphCrashJournalEnabled()) {
     void recordCitationGraphCrashJournalPhase("host-cleanup-complete", {
       frameConnected: runtime.frame.isConnected,
     });
@@ -4150,7 +4160,7 @@ function attachWorkbenchBridge(runtime: SynthesisWorkbenchRuntime) {
     handleAction(runtime, data as SynthesisWorkbenchActionEnvelope);
   };
   runtime.hostWindow.addEventListener("message", onMessage);
-  if (CITATION_GRAPH_CRASH_JOURNAL_ENABLED) {
+  if (citationGraphCrashJournalEnabled()) {
     void recordCitationGraphCrashJournalPhase("host-bridge-attached", {
       tabId: runtime.tabId,
       frameConnected: runtime.frame.isConnected,
