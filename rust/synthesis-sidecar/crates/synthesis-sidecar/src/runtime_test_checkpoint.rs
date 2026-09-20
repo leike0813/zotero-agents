@@ -6,8 +6,7 @@ use std::time::{Duration, Instant};
 pub(crate) const REFERENCE_AFTER_FIRST_PAGE: &str = "reference-after-first-page";
 pub(crate) const MAINTENANCE_AFTER_ADMISSION: &str = "maintenance-after-admission";
 
-pub(crate) fn hold_once(checkpoint_root: &Path, name: &str) {
-    let root = checkpoint_root;
+pub(crate) fn hold_once(root: &Path, name: &str) {
     let armed = root.join(format!("{name}.armed"));
     if !armed.is_file() {
         return;

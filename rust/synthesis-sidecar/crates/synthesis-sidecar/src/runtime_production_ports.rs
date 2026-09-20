@@ -114,9 +114,10 @@ impl ProductionApplications {
             .as_deref()
             .filter(|config| config.diagnostics_enabled)
             .map(|config| {
-                config.test_checkpoint_root.clone().unwrap_or_else(|| {
-                    config.profile_runtime_root.join("test-checkpoints")
-                })
+                config
+                    .test_checkpoint_root
+                    .clone()
+                    .unwrap_or_else(|| config.profile_runtime_root.join("test-checkpoints"))
             })
     }
 
