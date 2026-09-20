@@ -1,4 +1,5 @@
 import { isDebugModeEnabled } from "../../debugMode";
+import { isSystemE2ETestRun } from "../../systemE2ETestRun";
 import {
   getRuntimePersistencePaths,
   readRuntimeTextFile,
@@ -109,7 +110,9 @@ async function ensureCurrent() {
 }
 
 export function initializeCitationGraphCrashJournal() {
-  if (!isDebugModeEnabled()) return Promise.resolve();
+  if (!isDebugModeEnabled() && !isSystemE2ETestRun()) {
+    return Promise.resolve();
+  }
   return enqueue(async () => {
     const journal = await loadDocument();
     if (journal.current?.status === "active") {
@@ -128,7 +131,9 @@ export function recordCitationGraphCrashJournalPhase(
   stage: string,
   details: Record<string, unknown> = {},
 ) {
-  if (!isDebugModeEnabled()) return Promise.resolve();
+  if (!isDebugModeEnabled() && !isSystemE2ETestRun()) {
+    return Promise.resolve();
+  }
   return enqueue(async () => {
     const current = await ensureCurrent();
     const safeDetails = sanitizeDetails(details);
@@ -143,7 +148,9 @@ export function recordCitationGraphCrashJournalPhase(
 }
 
 export function finishCitationGraphCrashJournal() {
-  if (!isDebugModeEnabled()) return Promise.resolve();
+  if (!isDebugModeEnabled() && !isSystemE2ETestRun()) {
+    return Promise.resolve();
+  }
   return enqueue(async () => {
     const journal = await loadDocument();
     const current = journal.current;
@@ -164,7 +171,9 @@ export function finishCitationGraphCrashJournal() {
 }
 
 export function readCitationGraphCrashJournal() {
-  if (!isDebugModeEnabled()) return Promise.resolve(emptyDocument());
+  if (!isDebugModeEnabled() && !isSystemE2ETestRun()) {
+    return Promise.resolve(emptyDocument());
+  }
   return enqueue(async () => {
     await loadDocument();
     return JSON.parse(JSON.stringify(document)) as CitationGraphCrashJournal;
