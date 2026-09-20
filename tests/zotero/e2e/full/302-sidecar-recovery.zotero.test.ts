@@ -157,7 +157,10 @@ async function clientFor(found: { discovery: Discovery; path: string }) {
   });
   return {
     ...composition,
-    sessionRoot,
+    // The sidecar is told where the seam keeps its checkpoints; the session root
+    // itself is too deep to hold them on Windows.
+    checkpointRoot:
+      launch.testCheckpointRoot || joinPath(sessionRoot, "test-checkpoints"),
     controlConnection: {
       discovery: found.discovery,
       clientToken: launch.clientToken,
@@ -214,33 +217,32 @@ async function replayableReferenceRefresh(
 }
 
 async function checkpointPath(
-  sessionRoot: string,
+  checkpointRoot: string,
   name: string,
   state: "armed" | "held" | "release",
 ) {
-  const root = joinPath(sessionRoot, "test-checkpoints");
-  await IOUtils.makeDirectory(root, { createAncestors: true });
-  return joinPath(root, `${name}.${state}`);
+  await IOUtils.makeDirectory(checkpointRoot, { createAncestors: true });
+  return joinPath(checkpointRoot, `${name}.${state}`);
 }
 
-async function armCheckpoint(sessionRoot: string, name: string) {
-  const path = await checkpointPath(sessionRoot, name, "armed");
+async function armCheckpoint(checkpointRoot: string, name: string) {
+  const path = await checkpointPath(checkpointRoot, name, "armed");
   await IOUtils.writeUTF8(path, "");
 }
 
-async function releaseCheckpoint(sessionRoot: string, name: string) {
-  const path = await checkpointPath(sessionRoot, name, "release");
+async function releaseCheckpoint(checkpointRoot: string, name: string) {
+  const path = await checkpointPath(checkpointRoot, name, "release");
   await IOUtils.writeUTF8(path, "");
 }
 
-async function waitForCheckpoint(sessionRoot: string, name: string) {
-  const path = await checkpointPath(sessionRoot, name, "held");
+async function waitForCheckpoint(checkpointRoot: string, name: string) {
+  const path = await checkpointPath(checkpointRoot, name, "held");
   await waitUntil(async () => ((await IOUtils.exists(path)) ? path : null));
 }
 
-async function removeCheckpointFiles(sessionRoot: string, name: string) {
+async function removeCheckpointFiles(checkpointRoot: string, name: string) {
   for (const state of ["armed", "held", "release"] as const) {
-    await IOUtils.remove(await checkpointPath(sessionRoot, name, state), {
+    await IOUtils.remove(await checkpointPath(checkpointRoot, name, state), {
       ignoreAbsent: true,
     });
   }
@@ -888,14 +890,14 @@ describe("System E2E sidecar recovery", function () {
           ownedItems.push(
             ...(await createSyntheticReferences("System E2E reference")),
           );
-          await armCheckpoint(composition.sessionRoot, checkpoint);
+          await armCheckpoint(composition.checkpointRoot, checkpoint);
           caseStage = "submit-refresh";
           const submitted =
             composition.client.references.refreshReferenceSidecarNow();
-          await waitForCheckpoint(composition.sessionRoot, checkpoint);
+          await waitForCheckpoint(composition.checkpointRoot, checkpoint);
           ownedItems[0].setField("title", "System E2E reference mutated");
           await ownedItems[0].saveTx();
-          await releaseCheckpoint(composition.sessionRoot, checkpoint);
+          await releaseCheckpoint(composition.checkpointRoot, checkpoint);
 
           caseStage = "wait-failed-refresh";
           const failed = await waitForTerminal(
@@ -937,7 +939,7 @@ describe("System E2E sidecar recovery", function () {
         }
       },
       cleanup: async () => {
-        await removeCheckpointFiles(composition.sessionRoot, checkpoint);
+        await removeCheckpointFiles(composition.checkpointRoot, checkpoint);
         await eraseItems(ownedItems);
         await composition.dispose();
         return "passed";
@@ -1254,18 +1256,18 @@ describe("System E2E sidecar recovery", function () {
             )),
           );
           await Zotero.Promise.delay(250);
-          await armCheckpoint(composition.sessionRoot, checkpoint);
+          await armCheckpoint(composition.checkpointRoot, checkpoint);
           const requestId = "system-e2e-pm-01-exact-replay";
           const firstPromise = replayableReferenceRefresh(
             composition.controlConnection,
             requestId,
           );
-          await waitForCheckpoint(composition.sessionRoot, checkpoint);
+          await waitForCheckpoint(composition.checkpointRoot, checkpoint);
           const replay = await replayableReferenceRefresh(
             composition.controlConnection,
             requestId,
           );
-          await releaseCheckpoint(composition.sessionRoot, checkpoint);
+          await releaseCheckpoint(composition.checkpointRoot, checkpoint);
           const first = await firstPromise;
           assert.equal(replay.operation_id, first.operation_id);
           operationId = first.operation_id;
@@ -1299,7 +1301,7 @@ describe("System E2E sidecar recovery", function () {
         }
       },
       cleanup: async () => {
-        await removeCheckpointFiles(composition.sessionRoot, checkpoint);
+        await removeCheckpointFiles(composition.checkpointRoot, checkpoint);
         await eraseItems(ownedItems);
         const restored = await waitForTerminal(
           composition.client,
@@ -1366,7 +1368,7 @@ describe("System E2E sidecar recovery", function () {
             )),
           );
           await Zotero.Promise.delay(250);
-          await armCheckpoint(initialComposition.sessionRoot, checkpoint);
+          await armCheckpoint(initialComposition.checkpointRoot, checkpoint);
           let submitFailure = "";
           const submitted = replayableReferenceRefresh(
             initialComposition.controlConnection,
@@ -1376,7 +1378,7 @@ describe("System E2E sidecar recovery", function () {
               error instanceof Error ? error.message : String(error);
             return undefined;
           });
-          await waitForCheckpoint(initialComposition.sessionRoot, checkpoint);
+          await waitForCheckpoint(initialComposition.checkpointRoot, checkpoint);
           const operations =
             await initialComposition.client.debug.listOperations({
               limit: 100,
@@ -1456,7 +1458,7 @@ describe("System E2E sidecar recovery", function () {
         }
       },
       cleanup: async () => {
-        await removeCheckpointFiles(initialComposition.sessionRoot, checkpoint);
+        await removeCheckpointFiles(initialComposition.checkpointRoot, checkpoint);
         await eraseItems(ownedItems);
         let restored: SynthesisPublicMaintenanceOperation | undefined;
         if (!replacementComposition) {
@@ -1529,27 +1531,27 @@ describe("System E2E sidecar recovery", function () {
             )),
           );
           await armCheckpoint(
-            initialComposition.sessionRoot,
+            initialComposition.checkpointRoot,
             maintenanceCheckpoint,
           );
           await armCheckpoint(
-            initialComposition.sessionRoot,
+            initialComposition.checkpointRoot,
             referenceCheckpoint,
           );
 
           const submitted =
             initialComposition.client.references.refreshReferenceSidecarNow();
           await waitForCheckpoint(
-            initialComposition.sessionRoot,
+            initialComposition.checkpointRoot,
             maintenanceCheckpoint,
           );
           await releaseCheckpoint(
-            initialComposition.sessionRoot,
+            initialComposition.checkpointRoot,
             maintenanceCheckpoint,
           );
           const accepted = await submitted;
           await waitForCheckpoint(
-            initialComposition.sessionRoot,
+            initialComposition.checkpointRoot,
             referenceCheckpoint,
           );
           const running =
@@ -1593,7 +1595,7 @@ describe("System E2E sidecar recovery", function () {
           );
 
           await armCheckpoint(
-            replacementComposition.sessionRoot,
+            replacementComposition.checkpointRoot,
             referenceCheckpoint,
           );
           const retryRequest = {
@@ -1612,11 +1614,11 @@ describe("System E2E sidecar recovery", function () {
           assert.notEqual(firstRetry.operation_id, accepted.operation_id);
           assert.equal(duplicateRetry.operation_id, firstRetry.operation_id);
           await waitForCheckpoint(
-            replacementComposition.sessionRoot,
+            replacementComposition.checkpointRoot,
             referenceCheckpoint,
           );
           await releaseCheckpoint(
-            replacementComposition.sessionRoot,
+            replacementComposition.checkpointRoot,
             referenceCheckpoint,
           );
           const retried = await waitForTerminal(
@@ -1638,16 +1640,16 @@ describe("System E2E sidecar recovery", function () {
       },
       cleanup: async () => {
         await removeCheckpointFiles(
-          initialComposition.sessionRoot,
+          initialComposition.checkpointRoot,
           maintenanceCheckpoint,
         );
         await removeCheckpointFiles(
-          initialComposition.sessionRoot,
+          initialComposition.checkpointRoot,
           referenceCheckpoint,
         );
         if (replacementComposition) {
           await removeCheckpointFiles(
-            replacementComposition.sessionRoot,
+            replacementComposition.checkpointRoot,
             referenceCheckpoint,
           );
         }
@@ -1708,11 +1710,11 @@ describe("System E2E sidecar recovery", function () {
             )),
           );
           await Zotero.Promise.delay(250);
-          await armCheckpoint(composition.sessionRoot, checkpoint);
+          await armCheckpoint(composition.checkpointRoot, checkpoint);
           const accepted =
             await composition.client.references.refreshReferenceSidecarNow();
           operationId = accepted.operation_id;
-          await waitForCheckpoint(composition.sessionRoot, checkpoint);
+          await waitForCheckpoint(composition.checkpointRoot, checkpoint);
           const running = await waitUntil(async () => {
             const operation = await composition.client.maintenance.getOperation(
               {
@@ -1737,7 +1739,7 @@ describe("System E2E sidecar recovery", function () {
           assert.equal(stillRunning.status, "running");
           assert.equal(stillRunning.phase, "cancel_requested");
 
-          await releaseCheckpoint(composition.sessionRoot, checkpoint);
+          await releaseCheckpoint(composition.checkpointRoot, checkpoint);
           const terminal = await waitForTerminal(composition.client, accepted);
           assert.equal(
             terminal.status,
@@ -1758,10 +1760,10 @@ describe("System E2E sidecar recovery", function () {
         }
       },
       cleanup: async () => {
-        await releaseCheckpoint(composition.sessionRoot, checkpoint).catch(
+        await releaseCheckpoint(composition.checkpointRoot, checkpoint).catch(
           () => undefined,
         );
-        await removeCheckpointFiles(composition.sessionRoot, checkpoint);
+        await removeCheckpointFiles(composition.checkpointRoot, checkpoint);
         await eraseItems(ownedItems);
         const restored = await waitForTerminal(
           composition.client,

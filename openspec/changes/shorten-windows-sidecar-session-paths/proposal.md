@@ -24,13 +24,17 @@ not any file the plugin controls — past the 260-character limit. This change r
 - Drop the `-<mode>-<suite>` suffix from the cell directory label. The compatibility receipt and the
   uploaded artifact name already carry mode and suite, and the label is the last thing worth trading
   for path budget, which removes 14 more characters.
+- Give the System E2E test seam an explicit checkpoint directory. It was derived from the session root,
+  which put the checkpoint files 50 characters deeper than anything the launch writes; the launch
+  config now carries an optional `testCheckpointRoot` that the plugin sets for such a run, and the
+  sidecar falls back to the session root when it is absent.
 - Pin a path budget with a test: for the deepest Windows target and a CI-shaped run root, the sidecar
-  session root and the files the launch writes inside it must stay under the limit with headroom. That
-  test fails on the current layout, which is what makes this class of failure impossible to reintroduce
-  silently.
+  session root, the files the launch writes inside it, and the deepest test-seam checkpoint file must
+  all stay under the limit with headroom. That test fails on the current layout, which is what makes
+  this class of failure impossible to reintroduce silently.
 
-Measured result: the session root goes from 305 to 227 characters, `config.json` from 317 to 239, and
-`discovery.json` from 320 to 242 — 18 characters of headroom below the 260-character limit.
+Measured result: the session root goes from 305 to 227 characters, `config.json` from 317 to 239,
+`discovery.json` from 320 to 242, and the deepest checkpoint file from 279 to about 131.
 
 ## Capabilities
 

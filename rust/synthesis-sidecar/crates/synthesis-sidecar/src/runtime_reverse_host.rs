@@ -329,6 +329,7 @@ mod tests {
             profile_id: "1".repeat(64),
             library_id: 1,
             profile_runtime_root: PathBuf::new(),
+            test_checkpoint_root: None,
             runtime_root_id: "2".repeat(64),
             data_root_id: "3".repeat(64),
             bundle_id: "4".repeat(64),

@@ -6,8 +6,8 @@ use std::time::{Duration, Instant};
 pub(crate) const REFERENCE_AFTER_FIRST_PAGE: &str = "reference-after-first-page";
 pub(crate) const MAINTENANCE_AFTER_ADMISSION: &str = "maintenance-after-admission";
 
-pub(crate) fn hold_once(runtime_root: &Path, name: &str) {
-    let root = runtime_root.join("test-checkpoints");
+pub(crate) fn hold_once(checkpoint_root: &Path, name: &str) {
+    let root = checkpoint_root;
     let armed = root.join(format!("{name}.armed"));
     if !armed.is_file() {
         return;
@@ -42,7 +42,7 @@ mod tests {
         let checkpoint_root = root.join("test-checkpoints");
         fs::create_dir(&checkpoint_root).expect("checkpoint directory");
         fs::write(checkpoint_root.join("fixture.armed"), b"").expect("arm checkpoint");
-        let held_root = root.to_path_buf();
+        let held_root = checkpoint_root.clone();
         let held = thread::spawn(move || hold_once(&held_root, "fixture"));
         let deadline = Instant::now() + Duration::from_secs(1);
         while !checkpoint_root.join("fixture.held").is_file() && Instant::now() < deadline {
@@ -51,7 +51,7 @@ mod tests {
         assert!(checkpoint_root.join("fixture.held").is_file());
 
         let started = Instant::now();
-        hold_once(&root, "fixture");
+        hold_once(&checkpoint_root, "fixture");
         assert!(started.elapsed() < Duration::from_millis(100));
 
         fs::write(checkpoint_root.join("fixture.release"), b"").expect("release checkpoint");

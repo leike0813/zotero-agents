@@ -109,11 +109,15 @@ impl ProductionApplications {
             .unwrap_or_default()
     }
 
-    pub(crate) fn test_checkpoint_root(&self) -> Option<&std::path::Path> {
+    pub(crate) fn test_checkpoint_root(&self) -> Option<std::path::PathBuf> {
         self.config
             .as_deref()
             .filter(|config| config.diagnostics_enabled)
-            .map(|config| config.profile_runtime_root.as_path())
+            .map(|config| {
+                config.test_checkpoint_root.clone().unwrap_or_else(|| {
+                    config.profile_runtime_root.join("test-checkpoints")
+                })
+            })
     }
 
     pub(crate) fn call_host(&self, capability: &str, payload: Value) -> Result<Value, String> {
@@ -250,7 +254,10 @@ pub(crate) fn build_production_applications(
         .as_deref()
         .filter(|config| config.diagnostics_enabled)
     {
-        let checkpoint_root = config.profile_runtime_root.clone();
+        let checkpoint_root = config
+            .test_checkpoint_root
+            .clone()
+            .unwrap_or_else(|| config.profile_runtime_root.join("test-checkpoints"));
         references = references.with_paging_checkpoint(Arc::new(move || {
             hold_once(&checkpoint_root, REFERENCE_AFTER_FIRST_PAGE);
         }));

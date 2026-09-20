@@ -73,21 +73,38 @@ Alternative: keep `-behavior-full` and shorten the domain directory to one chara
 
 ### 4. Pin the budget with a test, not with a comment
 
-A run-layout test builds the deepest planned target's layout, then measures the sidecar session root
-and the `config.json` and `discovery.json` files inside it against the CI runner's run root
-(`D:\a\_temp\zotero-compat-runs`, 29 characters). The measurement is normalised so the machine's own
-temp directory cannot affect it. The session root must stay at or below 244 characters and the two
-files at or below 250, which is 10 characters of reserve below the Windows limit and fails on the
-current layout (283 for the session root, since the test builds the post-change cell label).
+A run-layout test builds the deepest planned target's layout, then measures every path a writer under
+the run root produces against the CI runner's run root (`D:\a\_temp\zotero-compat-runs`, 29
+characters). The measurement is normalised so the machine's own temp directory cannot affect it. The
+session root must stay at or below 244 characters, the `config.json` and `discovery.json` the launch
+writes at or below 250, and the deepest test-seam checkpoint file at or below 250 — that file is
+measured as a 32-character checkpoint name plus the longest state suffix, so the budget covers the
+naming room the seam actually uses rather than the two names that happen to exist.
 
 The test also asserts that the persistence layer's runtime root is `<run root>\runtime`, so reverting
 the change in decision 2 costs exactly the eight characters that assertion protects.
 
-Alternative: assert only the session root. Rejected because the launch writes files inside it, and the
-file names are part of what must fit. Alternative: assert against a longer run root. Rejected because
-the fix as scoped only guarantees the CI runner's root; a local Windows run whose `%TEMP%` is deeper
-than CI's is not covered, and the test says so by using the runner's own root rather than an invented
-one.
+Alternative: assert only the paths the launch writes. Rejected — that is the mistake the first
+version of this change made, and the Windows round found the checkpoint files at 277 and 278
+characters while every path the launch writes was inside the budget.
+
+### 5. Give the test seam its own checkpoint root instead of shaving names
+
+The seam's checkpoints are coordination files between the test and the sidecar, and they were derived
+from the session root, which is the deepest directory the layout owns. The launch config now carries an
+optional `testCheckpointRoot`, the plugin sets it to `<plugin data root>/test-checkpoints` while a
+System E2E run is active, and the sidecar uses it with the previous session-root derivation as its
+fallback.
+
+That moves the files from 279 characters to about 131 and keeps every name and state suffix readable.
+The field is optional and omitted outside a System E2E run, so production launch configs are unchanged
+and the schema version does not move.
+
+Alternatives rejected: shortening the directory name and the checkpoint names (that reached 250 with
+nothing left over for a new checkpoint, and produced names like `tc/maint-adm.release`); walking up
+from the session root on both sides (it teaches the sidecar the lifecycle directory layout, which it
+does not otherwise know); and shortening the plugin's profile or supervisor identity formats (product
+identity, out of this change's scope).
 
 ## Risks / Trade-offs
 

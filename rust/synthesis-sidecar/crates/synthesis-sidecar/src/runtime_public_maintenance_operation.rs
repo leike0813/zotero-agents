@@ -255,7 +255,7 @@ pub(crate) fn submit(
 ) -> Result<MaintenanceOperationView, String> {
     submit_with_checkpoint(apps, background_tasks, route, request_id, args, || {
         if let Some(root) = apps.test_checkpoint_root() {
-            hold_once(root, MAINTENANCE_AFTER_ADMISSION);
+            hold_once(&root, MAINTENANCE_AFTER_ADMISSION);
         }
     })
 }

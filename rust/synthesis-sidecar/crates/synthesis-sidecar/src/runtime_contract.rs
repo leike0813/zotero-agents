@@ -70,6 +70,11 @@ pub struct NativeLaunchConfig {
     pub profile_id: String,
     pub library_id: i64,
     pub profile_runtime_root: PathBuf,
+    /// System E2E test-seam checkpoint directory. Optional and set only for such
+    /// a run; it sits outside the session root because a session path already
+    /// sits close to the Windows path limit.
+    #[serde(default)]
+    pub test_checkpoint_root: Option<PathBuf>,
     pub runtime_root_id: String,
     pub data_root_id: String,
     pub bundle_id: String,
@@ -249,6 +254,10 @@ pub fn rebuild_native_launch_config(value: &str) -> Result<NativeLaunchConfig, S
         || config.port != 0
         || config.library_id <= 0
         || !absolute_path(&config.profile_runtime_root)
+        || config
+            .test_checkpoint_root
+            .as_ref()
+            .is_some_and(|root| !absolute_path(root))
         || !absolute_path(&config.repository_db_path)
         || !absolute_path(&config.canonical_root)
         || !sha256(&config.profile_id)

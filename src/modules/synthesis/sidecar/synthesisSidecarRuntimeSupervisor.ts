@@ -743,6 +743,12 @@ export function createSynthesisProductionRuntimeSupervisor(
         profileId,
         libraryId: options.libraryId ?? 1,
         profileRuntimeRoot: paths.sessionRoot,
+        // The E2E test seam shares its checkpoints with the sidecar through this
+        // directory. It hangs off the plugin data root rather than the session
+        // root, which is already close to the Windows path limit.
+        ...(isSystemE2ETestRun()
+          ? { testCheckpointRoot: joinPath(runtimeRoot, "test-checkpoints") }
+          : {}),
         runtimeRootId: await hashText(runtimeRoot),
         dataRootId: await hashText(options.canonicalRoot),
         bundleId: install.bundleId,

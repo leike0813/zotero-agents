@@ -16,6 +16,14 @@
 - [x] 2.2 Verify the budget covers every planned Windows cell by asserting the longest planned target id is the one the test uses
   - The test derives the target from the manifest by longest id instead of naming one, so a longer planned target raises the measurement rather than escaping it.
 
+## 4. Cover the deepest writer under the run root
+
+- [x] 4.1 Add an optional `testCheckpointRoot` to the sidecar launch config, set by the plugin to `<plugin data root>/test-checkpoints` only while a System E2E run is active, and verify the config contract tests on both sides accept it while production configs stay unchanged
+- [x] 4.2 Make the sidecar read that field with the previous session-root derivation as its fallback, and pass the checkpoint directory to the seam directly; verify the Rust workspace tests pass
+- [x] 4.3 Point the E2E test seam at the configured root, falling back to the session-root derivation only when the config omits it, and verify the seam's call sites all use it
+- [x] 4.4 Extend the budget test to the deepest writer — a checkpoint file with a 32-character name and the longest state suffix — and verify it fails against a layout that keeps the checkpoints under the session root
+- [ ] 4.5 Verify on one Windows calibration round that `PM-01`, `PM-04`, and `RH-02` no longer fail on the checkpoint write, recording whatever remains
+
 ## 3. Verify on the runner
 
 - [x] 3.1 Run one Windows calibration round and verify the cells no longer report `step: runtime-directory` with `NS_ERROR_FILE_NAME_TOO_LONG`, recording the new classification or the absence of a launch failure

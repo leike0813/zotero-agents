@@ -1298,6 +1298,18 @@ describe("Zotero compatibility fixture contracts", function () {
       assert.isAtMost(onRunner(lifecycle.sessionRoot), 244);
       assert.isAtMost(onRunner(lifecycle.configPath), 250);
       assert.isAtMost(onRunner(lifecycle.discoveryPath), 250);
+      // The deepest writer under the run root is the System E2E test seam, which
+      // shares checkpoint files with the sidecar.
+      assert.isAtMost(
+        onRunner(
+          path.join(
+            segment.root,
+            "test-checkpoints",
+            `${"n".repeat(32)}.release`,
+          ),
+        ),
+        250,
+      );
     });
 
     it("removes run-owned state while retaining receipts and diagnostics", async function () {
