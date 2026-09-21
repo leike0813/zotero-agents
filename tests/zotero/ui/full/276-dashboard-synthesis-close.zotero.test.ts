@@ -18,7 +18,7 @@ import {
   resolveDefaultTestDiagnosticsDirectory,
   writeDiagnosticsText,
 } from "../../testDiagnosticsOutput";
-import { emitZoteroTestDebug } from "../../diagnosticBridge";
+import { emitZoteroTestDebug, isSystemE2ERun } from "../../diagnosticBridge";
 import {
   getRuntimePersistencePaths,
   readRuntimeTextFile,
@@ -345,12 +345,13 @@ describe("Dashboard and Synthesis close lifecycle in Zotero", function () {
   it("keeps the host responsive when Citation Graph closes and Synthesis reopens", async function () {
     const catalogCase =
       readDiagnosticsEnv("ZOTERO_SYSTEM_E2E_CASE") === "CG-02";
-    if (catalogCase) {
-      // The catalog shape runs this case alone, so the foundation case that
-      // normally publishes an invocation's host facts never runs, and the
-      // compatibility receipt admits a cell by exactly those facts. They
-      // describe the host this case ran on rather than the case's outcome, so
-      // they are published before the close cycles.
+    if (isSystemE2ERun()) {
+      // Every shape that reaches this case pins the runner entry to this
+      // directory, so the foundation case that normally publishes an
+      // invocation's host facts never runs, and the compatibility receipt
+      // admits a cell by exactly those facts. They describe the host this case
+      // ran on rather than the case's outcome, so they are published before
+      // the close cycles.
       await emitZoteroTestDebug({
         kind: "zotero-compatibility-host-facts",
         version: String(Zotero.version || "").trim(),
