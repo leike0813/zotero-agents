@@ -3498,6 +3498,10 @@ mod tests {
                 .expect("migrated path");
             assert_eq!(value, expected);
         }
+        // SQLite holds the database file open without FILE_SHARE_DELETE, so on
+        // Windows removing the root while this connection is alive fails with
+        // ERROR_SHARING_VIOLATION.
+        drop(connection);
         fs::remove_dir_all(root).expect("cleanup");
     }
 

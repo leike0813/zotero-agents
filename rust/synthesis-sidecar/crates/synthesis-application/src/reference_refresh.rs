@@ -898,10 +898,9 @@ impl ReferenceRefreshApplication {
             }) && let Some(citation_payload) =
                 payload_by_locator.get(citation_read.locator.as_str())
                 && let Some(references_basis) = citation_payload.references_basis.as_deref()
+                && references_basis != read.expected_hash
             {
-                if references_basis != read.expected_hash {
-                    return Err("references_basis_mismatch".into());
-                }
+                return Err("references_basis_mismatch".into());
             }
             for (index, reference) in references.references.iter().enumerate() {
                 let title = reference.bibliography.title.trim().to_owned();
