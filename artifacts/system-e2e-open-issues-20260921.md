@@ -16,7 +16,7 @@
 | 2 | 两个 cron 从未触发，也不会触发 | 高 | 否，需 workflow 进入默认分支 |
 | 3 | weekly 重跑与真实 large-gold 两处验证缺口 | 中 | 部分，需私有库 runner |
 | 4 | Zotero 9 分类是人工记录而非机器门禁 | 中 | 是 |
-| 5 | `Verify Synthesis Sidecar` 长期红 | 中 | 是 |
+| 5 | `Verify Synthesis Sidecar` 长期红（已解决 2026-09-21） | 中 | 是 |
 | 6 | Windows 用例覆盖比 Linux 窄 | 低 | 是，但属产品范围决策 |
 
 ---
@@ -105,13 +105,13 @@ weekly 是唯一允许自动诊断重跑的 lane（`weekly-run`，见 `system-e2
 
   根因有两层。**第一层**：该用例在还握着重新打开的 SQLite `Connection` 时就调用 `fs::remove_dir_all(root)`，而 SQLite 打开数据库文件时不含 `FILE_SHARE_DELETE`，Windows 因此回 `ERROR_SHARING_VIOLATION`（os error 32）。**第二层**（让现象更难读）：`root` 是按值传进 `fs::remove_dir_all` 的，于是 `TestRoot` 在该调用内部就被 drop，`Drop` 里的二次删除再次失败并 panic，抢在用例自己的 `.expect("cleanup")` 之前爆发——所以报错点落在 `test-support/src/lib.rs:72`，而不是断言行。稳定性方面两次独立 run（`35498580817`、`35497129932`）失败的都是同一个用例、同一位置，说明这是确定性缺陷而非偶发抖动。
 
-**修复状态（2026-09-21）**：`a2df51bb` 收掉 clippy 那处链式判断，并在该用例中先 `drop(connection)` 再清理（与文件里其余 fixture 用例的写法一致）。本机验证：`cargo fmt --all --check`、`cargo clippy … -D warnings`、`cargo test --workspace --locked --no-fail-fast` 全绿（33 个 target，最大 111 passed）。**windows 那一半只能由 workflow 本身确认**——POSIX 允许 unlink 已打开的文件，本机无法复现。
+**已解决（2026-09-21，`a2df51bb`）**：clippy 那处把多余的嵌套 `if` 并进 let-chain；该用例先 `drop(connection)` 再清理（与文件里其余 fixture 用例的写法一致）。本机验证：`cargo fmt --all --check`、`cargo clippy … -D warnings`、`cargo test --workspace --locked --no-fail-fast` 全绿（33 个 target，最大 111 passed）。**windows 那一半只能由 workflow 自己确认**——POSIX 允许 unlink 已打开的文件，本机复现不了。
 
-**待确认**：`Verify Synthesis Sidecar` 在 `a2df51bb` 上是否三 job 全绿。绿了本条即可从清单移除。
+确认轮：`Verify Synthesis Sidecar` run `35560126040`（`a2df51bb`）四个 job——linux / windows / macos / receipt——**全部 success，无失败步骤**。本条关闭，保留在清单里仅作记录。
 
 **影响**：它不阻断 System E2E 校准，也不阻断发布主线，但持续红会让"CI 全绿"这个信号失真——尤其对一个已经有多条非阻塞 lane 的仓库。
 
-**recheck_when**：`a2df51bb` 之后的 `Verify Synthesis Sidecar` run；`synthesis-repository` 的 fixture 拆除写法变更；`rust/synthesis-sidecar` 的 clippy / 测试入口变更。
+**recheck_when**：`synthesis-repository` 的 fixture 拆除写法变更；`rust/synthesis-sidecar` 的 clippy / 测试入口变更。
 
 ---
 
