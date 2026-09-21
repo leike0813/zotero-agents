@@ -304,13 +304,32 @@ fn authors(value: &str) -> Vec<String> {
         .and_then(|value| value.as_array().cloned())
         .unwrap_or_default()
         .into_iter()
-        .filter_map(|value| value.as_str().map(str::to_owned))
+        .filter_map(|value| value.as_str().map(bounded_identifier))
         .filter(|value| !value.is_empty())
         .collect()
 }
 
 fn bounded_text(value: &str) -> String {
     value.chars().take(500).collect()
+}
+
+fn bounded_identifier(value: &str) -> String {
+    value
+        .chars()
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(500)
+        .collect()
 }
 
 fn roles(value: &str) -> Vec<(String, i64)> {
@@ -653,7 +672,7 @@ fn window_public_node(node: &ApplicationCitationGraphNode) -> Value {
         "aliases":[node.node_id],
         "title":bounded_text(&node.title),
         "year":node.year,
-        "authors":node.authors,
+        "authors":node.authors.iter().map(|author| bounded_identifier(author)).filter(|author| !author.is_empty()).collect::<Vec<_>>(),
         "low_signal":false,
         "visibility":node.visibility,
         "display_tier":if node.has_zotero_binding { "library" } else if node.visibility == "hover_only" { "single_external" } else { "shared_external" },
@@ -1435,6 +1454,14 @@ pub(crate) fn dispatch(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sanitizes_graph_authors_for_the_wire_contract() {
+        assert_eq!(
+            authors(r#"["Ada\nLovelace","\u0000","Grace Hopper"]"#),
+            vec!["Ada Lovelace", "Grace Hopper"]
+        );
+    }
 
     #[test]
     fn layout_window_requires_matching_basis_version_and_complete_coordinates() {

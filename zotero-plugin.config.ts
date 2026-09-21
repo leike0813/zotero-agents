@@ -250,8 +250,8 @@ export async function stageZoteroE2EFixture(
     String(env.ZOTERO_E2E_FIXTURE || "")
       .trim()
       .toLowerCase() === "gold" || Boolean(dataSource || profileSource);
-  if (!goldSelected) {
-    const fixtureRoot = path.resolve("tests/fixtures/zotero-e2e");
+  const fixtureRoot = path.resolve("tests/fixtures/zotero-e2e");
+  const materializeScenarioBaseline = async () => {
     const fixture = await materializeCommittedSeed({
       sourceDir: path.join(fixtureRoot, "committed-seed-v1"),
       targetDir: path.join(testRoot, "data", "system-e2e"),
@@ -262,6 +262,10 @@ export async function stageZoteroE2EFixture(
     env.ZOTERO_E2E_FIXTURE_ID = fixture.identity.fixtureId;
     env.ZOTERO_E2E_FIXTURE_SCHEMA_VERSION = fixture.identity.schemaVersion;
     env.ZOTERO_E2E_FIXTURE_REVISION = String(fixture.identity.fixtureRevision);
+    return fixture;
+  };
+  if (!goldSelected) {
+    const fixture = await materializeScenarioBaseline();
     return { kind: "committed-seed" as const, fixture: fixture.identity };
   }
   if (!dataSource) {
@@ -279,6 +283,7 @@ export async function stageZoteroE2EFixture(
       path.join(dataTarget, "zotero-agents/runtime/synthesis/service-runtime"),
     ].map((target) => fs.rm(target, { recursive: true, force: true })),
   );
+  await materializeScenarioBaseline();
   if (profileSource) {
     await fs.cp(profileSource, path.join(testRoot, "profile"), {
       recursive: true,

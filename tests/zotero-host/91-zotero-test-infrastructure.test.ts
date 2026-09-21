@@ -345,6 +345,43 @@ describe("zotero test infrastructure helpers", function () {
       );
     });
 
+    it("materializes the portable scenario baseline beside private gold", async function () {
+      const root = await mkdtemp(path.join(os.tmpdir(), "system-e2e-gold-"));
+      const dataSource = path.join(root, "gold-data");
+      const profileSource = path.join(root, "gold-profile");
+      const testRoot = path.join(root, "test");
+      await mkdir(dataSource, { recursive: true });
+      await mkdir(profileSource, { recursive: true });
+      await writeFile(path.join(dataSource, "zotero.sqlite"), "private-gold");
+      await writeFile(path.join(profileSource, "prefs.js"), "gold-profile");
+
+      const staged = await stageZoteroE2EFixture({
+        domain: "e2e",
+        env: {
+          ZOTERO_E2E_FIXTURE: "gold",
+          ZOTERO_E2E_GOLD_DATA_DIR: dataSource,
+          ZOTERO_E2E_GOLD_PROFILE_DIR: profileSource,
+        },
+        testRoot,
+      });
+
+      assert.equal(staged?.kind, "private-gold");
+      assert.equal(
+        await readFile(path.join(testRoot, "data", "zotero.sqlite"), "utf8"),
+        "private-gold",
+      );
+      assert.equal(
+        await readFile(path.join(testRoot, "profile", "prefs.js"), "utf8"),
+        "gold-profile",
+      );
+      assert.isString(
+        await readFile(
+          path.join(testRoot, "data", "system-e2e", "seed.json"),
+          "utf8",
+        ),
+      );
+    });
+
     it("restores the same scaffold profile and data for a runner-owned restart", async function () {
       const root = await mkdtemp(path.join(os.tmpdir(), "system-e2e-resume-"));
       const resumeRoot = path.join(root, "resume");

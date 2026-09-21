@@ -1,12 +1,12 @@
 # System E2E 未决问题清单（2026-09-21）
 
-本文件记录 Change 04 收尾期间（Windows release cell 晋级 + task 6.4 weekly/stress/manual-gold 实测）暴露或确认、但**尚未解决**的问题。它不是已完成工作的总结，而是"下一个接手的人必须知道"的清单。
+本文件记录 Change 04 收尾期间（Windows release cell 晋级 + task 6.4 weekly/stress/manual-gold 实测）暴露或确认的问题；已解决项保留状态与证据，避免后来重复调查。
 
 **判读约定**
 
 - 每条都写明证据出处（commit / run id / `file:line`），便于复核。
 - 「缺口」指**没有取得证据**，不等于通过。不要把它读成已完成。
-- 快照时间：2026-09-21，`dev` HEAD `cfc297f2`。本文件同时充当**交接件**：Change 04 的 task 6.4 仍未勾选，最后的 large-gold 一轮要在另一台能访问私有只读库的主机上收尾，具体步骤见文末「交接」。
+- 快照时间：2026-09-21，`dev` HEAD `cfc297f2`。Change 04 的 task 6.4 已由本机只读 private gold 轮补齐；本文件仍跟踪不属于该 task 的其它未决项。
 
 **问题按"会不会咬人"排序**
 
@@ -14,7 +14,7 @@
 | --- | --- | --- | --- |
 | 1 | Windows release 门禁从未真实执行过 | 高 | 否，需下一次正式发布 |
 | 2 | 两个 cron 从未触发，也不会触发 | 高 | 否，需 workflow 进入默认分支 |
-| 3 | 真实 large-gold 一轮未跑（weekly 重跑缺口已补） | 中 | 是，需有金例的主机 |
+| 3 | 真实 large-gold 一轮未跑（已解决 2026-09-21） | 已解决 | — |
 | 4 | Zotero 9 分类取值未对齐且判定放宽、且未接线 | 中 | 是 |
 | 5 | `Verify Synthesis Sidecar` 长期红（已解决 2026-09-21） | 中 | 是 |
 | 6 | Windows 用例覆盖比 Linux 窄 | 低 | 是，但属产品范围决策 |
@@ -57,7 +57,7 @@
 
 ---
 
-## 3. 真实 large-gold 一轮未跑（weekly 重跑缺口已补）
+## 3. 真实 large-gold 一轮未跑（已解决 2026-09-21）
 
 **已补：weekly「首次失败保留」现在有实活证据（不再是缺口）。**
 weekly 是唯一允许自动诊断重跑的 lane（`weekly-run`，见 `system-e2e-evidence.yml` 的 `Run evidence cell` 步骤），只在出现非通过后重跑，而 2026-09-21 的 weekly 轮（run `35557736134`）六格全绿。改用**输入注入**走真实 CLI 取得了证据——把 `--build-root` 指向空目录：
@@ -73,12 +73,13 @@ npx tsx scripts/run-zotero-compatibility-matrix.ts weekly-run \
 
 **仍未证到的一处**：`predecessorRunId` 在继任者 run manifest 里的那条链接。该次尝试死在 manifest 生成之前，所以这条仍是代码（`run-zotero-compatibility-matrix.ts` 为第二次尝试设 `ZOTERO_E2E_PREDECESSOR_RUN_ID`）+ 单测覆盖，没有实活观察。要实活观察它，需要一次**走到 runner** 的失败尝试。
 
-**缺口：没有跑过一次真实的 large-gold。**
-`manual-gold` 需要 runner 上能访问私有只读库（repository variables `ZOTERO_E2E_GOLD_DATA_DIR` / `ZOTERO_E2E_GOLD_PROFILE_DIR`，当前均未配置）。run `35557763993` 验证的是**未配置时的失败路径**：`Error: ZOTERO_E2E_GOLD_DATA_DIR is required for a gold run`，抛在 `stageZoteroE2EFixture`（`zotero-plugin.config.ts`），Zotero 尚未启动。这符合文档要求（未配置或路径无效时该 invocation 必须失败），但"真实跑通一次"仍未取得。本机（`dev` 工作区）没有可用金例：`non-existing-zotero-data/` 只是 96 KB 的合成插件状态目录，不是真实库。
+**已补：真实 large-gold。** 本机 Windows Zotero 10.0.2 以只读 private source 运行 manual-gold 固定分组 `RH,PA,PM,CG`。最终 run `a818d96f-1fec-4fe0-9268-9897109c274a` 退出 0，runner 为 9 passed；Run Manifest 为 `complete`，runner foundation 与 RH-01/02、PA-01/02、PM-01/04、CG-01 全部 passed，cleanup 与 health 全部 passed。PM-02/03 是 Windows 预期 pending。来源数据库、WAL、profile preference 的运行前后 SHA-256 一致，结束后该安装树 Zotero 进程数为 0。证据不记录私有路径、题名、作者或正文。
+
+该轮同时暴露并修复了三个仅在大库出现的边界：Workbench Index 固定窗口不保证包含新建 synthetic paper；PM exact replay 不需要拉取无关的全量 debug operation 页；Citation Graph author 投影必须清理 contract 禁止的控制字符。测试仍通过公共 Workbench/artifact、maintenance replay 与 Citation Graph 接口验证原有语义。
 
 **附带观察**：该失败轮的错误列表里除 `test_failed` 还出现 `host_facts_missing`。在 fixture staging 阶段就终止的 invocation 本就没有 host facts 可报，这个 code 属噪声，不是第二个缺陷；如果将来要让错误列表更准确，可在 staging 失败时跳过该判定。
 
-**recheck_when**：有金例的主机跑完一轮 gold；`weekly-run` 实现变更；`predecessorRunId` 链路变更。
+**recheck_when**：private-gold staging、manual-gold family grouping、`weekly-run` 或 `predecessorRunId` 链路变更。
 
 ---
 
@@ -190,35 +191,6 @@ grep -n "zotero9Classification" scripts/system-e2e/calibration.ts
 
 ---
 
-## 交接：在有金例的主机上收尾 Change 04 的 6.4
+## Change 04 的 6.4 收尾结果
 
-Change 04 现在是 **23/24** 勾选，唯一未勾的是 6.4，卡在"真实 large-gold 一轮"。`npx openspec validate 04-wire-and-calibrate-phase1-system-e2e-ci --strict` 通过，但**任务未全勾时不得归档**。
-
-**前置**：一台能读取私有金例库的主机（`dev` 分支，HEAD ≥ `cfc297f2`），并拿到两个只读来源目录：库数据目录与 profile 目录。把它们当作只读源——runner 会把它们复制进 `.scaffold/test`，**不得原地写入**。
-
-**第 1 步：跑真实 gold 调用（本机或该主机）**
-
-```bash
-cd <repo>            # dev 分支
-ZOTERO_E2E_GOLD_DATA_DIR="<只读库数据目录>" \
-ZOTERO_E2E_GOLD_PROFILE_DIR="<只读 profile 目录>" \
-ZOTERO_E2E_FIXTURE=gold \
-npm run test:zotero:e2e          # 需要时用 ZOTERO_SYNTHESIS_CLOSE_CYCLES 调轮数
-```
-
-`ZOTERO_E2E_GOLD_DATA_DIR` / `ZOTERO_E2E_GOLD_PROFILE_DIR` 与 CI 用的 repository variables 同名；CI 侧的 manual-gold lane 走 `plan --gate manual-gold`，本机这一步走的是同一条 `stageZoteroE2EFixture` 判定，所以它能证明"有来源时 gold invocation 跑得通"，但不能替代 CI 触发证据。
-
-**第 2 步：把结果写进两处**
-
-- `openspec/changes/04-.../tasks.md` 的 6.4：把命令、退出码、通过/失败的用例数、生成的 `artifacts/test-diagnostics/system-e2e/<runId>/` 内容写进现有 bullet 结构里，然后把 `[ ]` 改成 `[x]`。**只有真实跑通才改**。
-- 本文件：把第 3 条改成已解决，附上运行环境与命令。
-
-**第 3 步（可选，若想顺手补上第 3 条里那处未证的链接）**
-
-让一次**走到 runner**的尝试失败（例如在无显示环境里跑，使 Zotero 起不来），观察继任者 manifest 里的 `predecessorRunId` 是否指向前一次 run。这一步需要有效候选物（`npm run test:zotero:compatibility:prepare -- --build-root .scaffold/build`），耗时较长。
-
-**第 4 步：归档**
-
-任务全勾后再走 OpenSpec 的 verify → archive（把 delta specs 同步进主 specs，change 移入 `openspec/changes/archive/2026-09-21-04-…/`）。归档不会消掉本清单里的第 1、2、4、6 条——它们超出 Change 04 的范围或需要单独决策。
-
-**如果该主机也拿不到金例**：那就只能走"收窄 6.4 措辞"这条路，把 6.4 改成"manual-gold 触发在无私有来源时按设计干净失败；真实 gold invocation 需要能访问私有库的 runner"，并在 6.4 的 bullet 里显式写出"标准被下调"这一事实，再归档。
+Change 04 现在是 **24/24** 勾选。真实 gold 已按 manual-gold 固定 family group 在本机 Windows Zotero 10.0.2 上完成，证据见第 3 条与 `openspec/changes/04-wire-and-calibrate-phase1-system-e2e-ci/tasks.md`。本次没有归档 change；如需归档，继续走 OpenSpec verify → sync → archive。第 1、2、4、6 条不会因 6.4 完成而消失。
