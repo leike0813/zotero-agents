@@ -427,16 +427,7 @@ describe("Zotero compatibility fixture contracts", function () {
               JSON.stringify(["SL", "RH", "PA", "PM", "CG", "HB"]),
         ),
       );
-      assert.isTrue(
-        cells
-          .filter((cell) => cell.platform === "linux-x64")
-          .every((cell) => cell.blocking),
-      );
-      assert.isTrue(
-        cells
-          .filter((cell) => cell.platform === "windows-x64")
-          .every((cell) => cell.blocking === false),
-      );
+      assert.isTrue(cells.every((cell) => cell.blocking));
       assert.deepEqual(
         plan
           .filter(
@@ -830,11 +821,11 @@ describe("Zotero compatibility fixture contracts", function () {
       const calibration = validateCalibrationRounds(
         [1, 2, 3].map((index) => cleanRound(linux, index)),
       );
-      // The release Linux cell is promoted after three reviewed clean rounds;
-      // no Windows cell may be promoted before CG-02 and the Zotero 9
-      // classification are recorded.
+      // Every cell is promoted only after three reviewed clean rounds; the
+      // Windows cells additionally carry passing `CG-02` evidence and the
+      // recorded Zotero 9 classification.
       assert.isTrue(E2E_PROMOTION_STATE[linux.id]);
-      assert.isFalse(
+      assert.isTrue(
         E2E_PROMOTION_STATE[
           "release-zotero-10-windows-x64-e2e-sl-rh-pa-pm-cg-hb"
         ],

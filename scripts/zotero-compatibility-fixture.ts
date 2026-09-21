@@ -110,9 +110,9 @@ export const E2E_PROMOTION_STATE: Readonly<Record<string, boolean>> = {
   "release-zotero-7-linux-x64-e2e-sl-rh-pa-pm-cg-hb": true,
   "release-zotero-9-linux-x64-e2e-sl-rh-pa-pm-cg-hb": true,
   "release-zotero-10-linux-x64-e2e-sl-rh-pa-pm-cg-hb": true,
-  "release-zotero-7-windows-x64-e2e-sl-rh-pa-pm-cg-hb": false,
-  "release-zotero-9-windows-x64-e2e-sl-rh-pa-pm-cg-hb": false,
-  "release-zotero-10-windows-x64-e2e-sl-rh-pa-pm-cg-hb": false,
+  "release-zotero-7-windows-x64-e2e-sl-rh-pa-pm-cg-hb": true,
+  "release-zotero-9-windows-x64-e2e-sl-rh-pa-pm-cg-hb": true,
+  "release-zotero-10-windows-x64-e2e-sl-rh-pa-pm-cg-hb": true,
 };
 
 export type CompatibilityManifest = {
