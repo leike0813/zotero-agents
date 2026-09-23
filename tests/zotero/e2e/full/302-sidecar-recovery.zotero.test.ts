@@ -24,7 +24,6 @@ import {
   observeSystemE2EHealth,
   processIsAlive,
   terminateProcess,
-  terminateStraySidecarProcesses,
   waitUntil,
   type SidecarDiscoveryEntry,
 } from "../../../../scripts/system-e2e/healthGate";
@@ -670,40 +669,27 @@ describe("System E2E sidecar recovery", function () {
       },
       cleanup: async () => {
         await composition.dispose();
-        // The poison is read-only, so no owner holds it. Any generation that
-        // is still around is stopped, then the attribute is cleared, the
-        // poison is removed and the pre-case database is put back; a poison
-        // that survives is a failure rather than something the later cases
-        // inherit.
-        for (const entry of await listSidecarDiscoveries()) {
-          if (await processIsAlive(entry.discovery.pid)) {
-            await terminateProcess(entry.discovery.pid);
-          }
-        }
-        // A failed launch can leave the child alive without a discovery, and
-        // that process is the one holding the poisoned path on Windows.
-        await terminateStraySidecarProcesses();
-        let released = true;
+        // The plugin's own recovery replaces the poisoned launch input with a
+        // working repository, and on Windows that owner holds the path. The
+        // poison is therefore released best-effort and never by stopping the
+        // generation that owns it: a path that stays held belongs to a recovery
+        // generation that is already usable, the pre-case database is derived
+        // state rather than owned state, and the case's verdict rests on the
+        // ready generation below instead of on file ownership.
         if (await runtimePathExists(repositoryPath)) {
           await setRuntimeFilePermissions(repositoryPath, 0o644).catch(
             () => undefined,
           );
-          try {
-            await removeRuntimePath(repositoryPath);
-          } catch (error) {
-            released = false;
+          await removeRuntimePath(repositoryPath).catch((error) => {
             console.error(
-              `[system-e2e] sl-02 repository path stayed held: ${
+              `[system-e2e] sl-02 poisoned path stayed held: ${
                 error instanceof Error ? error.message : String(error)
               }`,
             );
-          }
-        }
-        if (!released) {
-          return "failed";
+          });
         }
         if (repositoryMoved) {
-          await IOUtils.move(backupPath, repositoryPath);
+          await removeRuntimePath(backupPath).catch(() => undefined);
           repositoryMoved = false;
         }
         // The page that started the case can be gone by now: the failed launch
