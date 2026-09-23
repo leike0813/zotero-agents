@@ -14,6 +14,11 @@ import {
   SYNTHESIS_SIDECAR_CAPABILITIES,
   SYNTHESIS_SIDECAR_PROTOCOL,
 } from "../../packages/synthesis-contracts/src/sidecarSystem";
+import {
+  isSystemE2ELaunchFaultArmed,
+  setSystemE2ELaunchFault,
+  SYSTEM_E2E_EVENT_URL_PREF,
+} from "../../src/modules/systemE2ETestRun";
 import { createSynthesisProductionOwner } from "../../src/modules/synthesis/production/synthesisProductionOwner";
 import {
   createSynthesisReverseHostBroker,
@@ -969,6 +974,58 @@ describe("Synthesis production runtime supervisor", function () {
     assert.equal(supervisor.getSnapshot().restartCount, 0);
     assert.equal(supervisor.getDiagnosticEvidence().stderrTail, "");
     await supervisor.stop();
+  });
+
+  it("fails an armed catalog launch fault before spawning a child", async function () {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-supervisor-fault-"));
+    let attempts = 0;
+    const faultSupervisor = createSynthesisProductionRuntimeSupervisor({
+      runtimeRoot: path.join(root, "fault-runtime"),
+      profilePath: PROFILE_PATH,
+      libraryId: 7,
+      repositoryDbPath: path.join(root, "fault-state", "synthesis.db"),
+      canonicalRoot: path.join(root, "fault-data", "synthesis"),
+      reverseHost: {
+        host: "127.0.0.1",
+        port: 9134,
+        authorizationToken: "8".repeat(64),
+      },
+      resolvedInstall: readyInstall(),
+      subprocess: {
+        call: async () => {
+          attempts += 1;
+          return {
+            stdout: { readString: async () => "" },
+            stderr: { readString: async () => "" },
+            stdin: { close: async () => undefined },
+            wait: async () => 0,
+            kill: () => undefined,
+          };
+        },
+      } as never,
+      controlClient: {} as never,
+      discoveryTimeoutMs: 100,
+      healthIntervalMs: 0,
+      restartDelaysMs: [1, 1],
+    });
+    Zotero.Prefs.set(
+      SYSTEM_E2E_EVENT_URL_PREF,
+      "http://127.0.0.1:1/events",
+      true,
+    );
+    setSystemE2ELaunchFault(true);
+    assert.isTrue(isSystemE2ELaunchFaultArmed());
+    faultSupervisor.start();
+    await waitForSnapshot(
+      faultSupervisor,
+      (snapshot) => snapshot.recoveryState === "manual-recovery-required",
+    );
+    assert.equal(faultSupervisor.getSnapshot().reasonCode, "invalid_config");
+    assert.equal(attempts, 0);
+    setSystemE2ELaunchFault(false);
+    assert.isFalse(isSystemE2ELaunchFaultArmed());
+    Zotero.Prefs.clear(SYSTEM_E2E_EVENT_URL_PREF, true);
+    await faultSupervisor.stop();
   });
 
   it("fuses unknown startup crashes and ignores a delayed retry from an older generation", async function () {

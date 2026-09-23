@@ -38,6 +38,7 @@ import {
   writeRuntimeTextFile,
 } from "../../../../src/modules/runtimePersistence";
 import { detectRuntimePlatform } from "../../../../src/platform/runtimePlatform";
+import { setSystemE2ELaunchFault } from "../../../../src/modules/systemE2ETestRun";
 import { executeOneShotSubprocess } from "../../../../src/platform/subprocess";
 import { joinPath } from "../../../../src/utils/path";
 import { getPref, setPref } from "../../../../src/utils/prefs";
@@ -608,34 +609,20 @@ describe("System E2E sidecar recovery", function () {
 
   // prettier-ignore
   sl("SL-02 rolls back owners when launch input fails before ready", async function () {
+    setSystemE2ELaunchFault(false);
     const initial = await waitUntil(() => readyDiscovery());
     const composition = await clientFor(initial);
     const frame = await openSynthesisWorkbench();
-    const repositoryPath = getRuntimePersistencePaths().synthesisDbPath;
-    const backupPath = `${repositoryPath}.system-e2e-sl02-backup`;
     let launchFailureCode = "";
-    let repositoryMoved = false;
 
     const result = await runFamilyLifecycle({
       declaration: PHASE1_FAMILY_DECLARATIONS.SL,
       execute: async () => {
-        await IOUtils.remove(backupPath, {
-          recursive: true,
-          ignoreAbsent: true,
-        });
-        await IOUtils.move(repositoryPath, backupPath);
-        repositoryMoved = true;
-        // A read-only, non-database file at the database path is a durable
-        // pre-ready failure: the sidecar cannot open it and neither the sidecar
-        // nor the plugin can replace it, while the case can still clear the
-        // attribute and remove it afterwards, which a directory at that path
-        // never allowed on Windows. A plain file there only made the failure
-        // race the plugin's own repository recovery.
-        await writeRuntimeTextFile(
-          repositoryPath,
-          "system-e2e-sl02-poisoned-repository\n",
-        );
-        await setRuntimeFilePermissions(repositoryPath, 0o444);
+        // The fault is a runner-owned launch input rather than a file the
+        // sidecar and the plugin also own, so the pre-ready failure is
+        // deterministic on every platform and the rollback asserts the same
+        // things everywhere.
+        setSystemE2ELaunchFault(true);
         const fetchOwner = Zotero.getMainWindow() as unknown as {
           fetch: typeof globalThis.fetch;
         };
@@ -643,58 +630,45 @@ describe("System E2E sidecar recovery", function () {
           fetch: fetchOwner.fetch.bind(fetchOwner),
           timeoutMs: 10_000,
         }).shutdown(composition.controlConnection);
-        launchFailureCode = await waitUntil(() => {
-          const indicator = frame.contentDocument?.querySelector<HTMLElement>(
-            ".sidecar-runtime-indicator.is-error",
-          );
-          const reason = Array.from(
-            indicator?.querySelectorAll<HTMLElement>(
-              ".sidecar-runtime-row > span:last-child",
-            ) || [],
-          )
-            .map((element) => element.textContent?.trim() || "")
-            .find((value) => /^(repository_|invalid_config)/u.test(value));
-          return reason || null;
-        });
-        assert.match(launchFailureCode, /^repository_|^invalid_config/);
+        launchFailureCode = await waitUntil(
+          () => {
+            const indicator = frame.contentDocument?.querySelector<HTMLElement>(
+              ".sidecar-runtime-indicator.is-error",
+            );
+            const reason = Array.from(
+              indicator?.querySelectorAll<HTMLElement>(
+                ".sidecar-runtime-row > span:last-child",
+              ) || [],
+            )
+              .map((element) => element.textContent?.trim() || "")
+              .find((value) => /^(repository_|invalid_config)/u.test(value));
+            return reason || null;
+          },
+          120_000,
+          "sl-02-launch-failure-indicator",
+        );
+        assert.equal(launchFailureCode, "invalid_config");
         assert.isEmpty(await listSidecarDiscoveries());
-        await waitUntil(async () => {
-          if (await processIsAlive(initial.discovery.pid)) return null;
-          // Windows has no flock; discovery removal above and process exit are the release evidence there.
-          return detectRuntimePlatform() === "win32" ||
-            (await productionLockAvailable())
-            ? true
-            : null;
-        });
+        await waitUntil(
+          async () => {
+            if (await processIsAlive(initial.discovery.pid)) return null;
+            // Windows has no flock; discovery removal above and process exit
+            // are the release evidence there.
+            return detectRuntimePlatform() === "win32" ||
+              (await productionLockAvailable())
+              ? true
+              : null;
+          },
+          120_000,
+          "sl-02-generation-released",
+        );
       },
       cleanup: async () => {
+        setSystemE2ELaunchFault(false);
         await composition.dispose();
-        // The plugin's own recovery replaces the poisoned launch input with a
-        // working repository, and on Windows that owner holds the path. The
-        // poison is therefore released best-effort and never by stopping the
-        // generation that owns it: a path that stays held belongs to a recovery
-        // generation that is already usable, the pre-case database is derived
-        // state rather than owned state, and the case's verdict rests on the
-        // ready generation below instead of on file ownership.
-        if (await runtimePathExists(repositoryPath)) {
-          await setRuntimeFilePermissions(repositoryPath, 0o644).catch(
-            () => undefined,
-          );
-          await removeRuntimePath(repositoryPath).catch((error) => {
-            console.error(
-              `[system-e2e] sl-02 poisoned path stayed held: ${
-                error instanceof Error ? error.message : String(error)
-              }`,
-            );
-          });
-        }
-        if (repositoryMoved) {
-          await removeRuntimePath(backupPath).catch(() => undefined);
-          repositoryMoved = false;
-        }
         // The page that started the case can be gone by now: the failed launch
-        // and its recovery replace the workbench frames, so the retry is sent
-        // through a freshly opened one.
+        // replaces the workbench frames, so the retry is sent through a freshly
+        // opened one.
         const recoveryFrame = await openSynthesisWorkbench();
         await recoveryFrame.contentWindow?.__zoteroSkillsSynthesisWorkbenchBridge?.postMessage(
           "retrySynthesisSidecar",

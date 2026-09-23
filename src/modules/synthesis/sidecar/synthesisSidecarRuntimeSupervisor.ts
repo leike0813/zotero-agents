@@ -25,7 +25,10 @@ import {
   removeRuntimePath,
   replacePrivateRuntimeTextFileAtomically,
 } from "../../runtimePersistence";
-import { isSystemE2ETestRun } from "../../systemE2ETestRun";
+import {
+  isSystemE2ELaunchFaultArmed,
+  isSystemE2ETestRun,
+} from "../../systemE2ETestRun";
 import { appendRuntimeLog } from "../../runtimeLogManager";
 import { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION } from "../../../../packages/synthesis-contracts/src/schemaVersion";
 import {
@@ -772,6 +775,13 @@ export function createSynthesisProductionRuntimeSupervisor(
       });
       launchStep = "config-write";
       attemptedPathLength = paths.configPath.length;
+      if (isSystemE2ELaunchFaultArmed()) {
+        // The catalog's launch-failure case owns this fault: the launch input
+        // is invalid before anything is written or spawned, which is the one
+        // pre-ready failure the runner can produce deterministically on every
+        // platform.
+        throw new Error("invalid_config");
+      }
       await replacePrivateRuntimeTextFileAtomically(
         paths.configPath,
         `${JSON.stringify(config)}\n`,
