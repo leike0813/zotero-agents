@@ -976,6 +976,54 @@ describe("Synthesis production runtime supervisor", function () {
     await supervisor.stop();
   });
 
+  it("retries a production-lock conflict inside the bounded budget", async function () {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-supervisor-lock-"));
+    let attempts = 0;
+    const supervisor = createSynthesisProductionRuntimeSupervisor({
+      runtimeRoot: path.join(root, "runtime"),
+      profilePath: PROFILE_PATH,
+      libraryId: 7,
+      repositoryDbPath: path.join(root, "state", "synthesis.db"),
+      canonicalRoot: path.join(root, "data", "synthesis"),
+      reverseHost: {
+        host: "127.0.0.1",
+        port: 9134,
+        authorizationToken: "8".repeat(64),
+      },
+      resolvedInstall: readyInstall(),
+      subprocess: {
+        call: async () => {
+          attempts += 1;
+          return {
+            stdout: { readString: async () => "" },
+            stderr: { readString: async () => "production_lock_conflict\n" },
+            stdin: { close: async () => undefined },
+            wait: async () => 1,
+            kill: () => undefined,
+          };
+        },
+      } as never,
+      controlClient: {} as never,
+      discoveryTimeoutMs: 100,
+      healthIntervalMs: 0,
+      diagnosticsEnabled: false,
+      restartDelaysMs: [1, 1],
+    });
+
+    supervisor.start();
+    await waitForSnapshot(
+      supervisor,
+      (snapshot) => snapshot.recoveryState === "manual-recovery-required",
+    );
+    assert.equal(attempts, 3);
+    assert.equal(
+      supervisor.getSnapshot().reasonCode,
+      "sidecar_crash_loop_fused",
+    );
+    assert.equal(supervisor.getSnapshot().restartCount, 3);
+    await supervisor.stop();
+  });
+
   it("fails an armed catalog launch fault before spawning a child", async function () {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-supervisor-fault-"));
     let attempts = 0;

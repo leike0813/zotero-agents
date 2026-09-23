@@ -552,7 +552,13 @@ export function createSynthesisProductionRuntimeSupervisor(
     await removeRuntimePath(current.paths.sessionRoot).catch(() => false);
   };
 
+  // A deterministic failure is the same failure on every attempt, so retrying
+  // it only delays the terminal state. A production-lock conflict is not one of
+  // them: it means another generation was still running when this launch
+  // started, which the bounded retry policy resolves as soon as that process is
+  // gone and the fuse bounds it otherwise.
   const classifyTerminal = (code: string) =>
+    code !== "production_lock_conflict" &&
     [
       "invalid_config",
       "unsupported_target",
@@ -560,7 +566,6 @@ export function createSynthesisProductionRuntimeSupervisor(
       "sidecar_discovery_identity_mismatch",
       "sidecar_health_identity_mismatch",
       "sidecar_handshake_identity_mismatch",
-      "production_lock_conflict",
       "protocol_mismatch",
       "schema_mismatch",
       "profile_mismatch",

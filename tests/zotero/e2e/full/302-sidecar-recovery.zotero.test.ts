@@ -110,23 +110,32 @@ async function readyDiscovery(
 async function responsiveReadyDiscovery(
   excludedServiceInstanceId?: string,
 ): Promise<SidecarDiscoveryEntry> {
-  return waitUntil(
-    async () => {
-      const found = await readyDiscovery(excludedServiceInstanceId);
-      if (!found) return null;
-      const composition = await clientFor(found);
-      try {
-        await composition.client.debug.listOperations({ limit: 1 });
-        return found;
-      } catch {
-        return null;
-      } finally {
-        await composition.dispose();
-      }
-    },
-    120_000,
-    "responsive-ready-generation",
-  );
+  const probe = async () => {
+    const found = await readyDiscovery(excludedServiceInstanceId);
+    if (!found) return null;
+    const composition = await clientFor(found);
+    try {
+      await composition.client.debug.listOperations({ limit: 1 });
+      return found;
+    } catch {
+      return null;
+    } finally {
+      await composition.dispose();
+    }
+  };
+  try {
+    return await waitUntil(probe, 30_000, "responsive-ready-generation");
+  } catch {
+    // The supervisor owns recovery, and its public recovery action is the
+    // workbench retry: a terminal launch failure is otherwise final for the
+    // rest of the invocation, which no later case could recover from.
+    const frame = await openSynthesisWorkbench();
+    await frame.contentWindow?.__zoteroSkillsSynthesisWorkbenchBridge?.postMessage(
+      "retrySynthesisSidecar",
+      {},
+    );
+    return waitUntil(probe, 120_000, "recovered-ready-generation");
+  }
 }
 
 function parentPath(path: string) {
