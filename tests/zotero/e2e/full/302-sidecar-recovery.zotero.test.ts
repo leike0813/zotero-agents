@@ -676,11 +676,13 @@ describe("System E2E sidecar recovery", function () {
         }
         const poisonedPath = `${repositoryPath}.system-e2e-sl02-poison`;
         try {
-          await moveRuntimePath({
-            sourcePath: repositoryPath,
-            targetPath: poisonedPath,
-            overwrite: true,
-          });
+          if (await runtimePathExists(repositoryPath)) {
+            await moveRuntimePath({
+              sourcePath: repositoryPath,
+              targetPath: poisonedPath,
+              overwrite: true,
+            });
+          }
         } catch (error) {
           throw new Error(
             `system_e2e_sl02_poison_release_failed:${
