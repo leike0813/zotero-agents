@@ -32,6 +32,7 @@ const SIDECAR_TERMINAL_OPERATION_STATUSES = new Set([
 export async function waitUntil<Value>(
   read: () => Value | null | undefined | Promise<Value | null | undefined>,
   timeoutMs = 120_000,
+  label = "",
 ) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -39,7 +40,11 @@ export async function waitUntil<Value>(
     if (value) return value;
     await Zotero.Promise.delay(50);
   }
-  throw new Error("system_e2e_condition_not_reached");
+  throw new Error(
+    label
+      ? `system_e2e_condition_not_reached:${label}`
+      : "system_e2e_condition_not_reached",
+  );
 }
 
 export async function assertRemainsStable(
@@ -91,7 +96,16 @@ export async function terminateProcess(pid: number) {
           timeoutMs: 10_000,
         });
   if (result.outcome === "exited" && result.exitCode === 0) {
-    return;
+    // A kill tool reports success once it has delivered the request, so the
+    // generation is only evidence-backed terminated once it is observably gone.
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      if (!(await processIsAlive(pid))) {
+        return;
+      }
+      await Zotero.Promise.delay(50);
+    }
+    throw new Error(`system_e2e_terminate_survived:${pid}`);
   }
   // A generation that already exited is terminated too: both kill tools report
   // that case as a non-zero "no such process", and the checkpoint-driven
@@ -104,11 +118,16 @@ export async function terminateProcess(pid: number) {
   );
 }
 
+export type SidecarDiscoveryEntry = {
+  discovery: SidecarDiscovery;
+  path: string;
+};
+
 export async function listSidecarDiscoveries() {
   const runtime = getSynthesisSidecarRuntimePaths(
     getRuntimePersistencePaths().runtimeRoot,
   );
-  const found: Array<{ discovery: SidecarDiscovery; path: string }> = [];
+  const found: SidecarDiscoveryEntry[] = [];
   for (const profileRoot of await listRuntimeChildDirectories(
     runtime.profilesDir,
   )) {

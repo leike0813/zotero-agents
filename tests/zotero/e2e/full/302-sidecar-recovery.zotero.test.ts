@@ -6,7 +6,6 @@ import {
   canonicalizeSynthesisContractJson,
   hashSynthesisContractCanonicalJson,
   rebuildSynthesisReferenceCapabilityResult,
-  rebuildSynthesisProductionDiscovery,
   rebuildSynthesisSidecarLaunchConfig,
   SynthesisClientError,
   type SynthesisPublicMaintenanceOperation,
@@ -26,6 +25,7 @@ import {
   processIsAlive,
   terminateProcess,
   waitUntil,
+  type SidecarDiscoveryEntry,
 } from "../../../../scripts/system-e2e/healthGate";
 import {
   getRuntimePersistencePaths,
@@ -57,7 +57,6 @@ import { renderPayloadBlock } from "../../../../src/modules/zoteroHost/notePaylo
 import { emitZoteroTestDebug } from "../../diagnosticBridge";
 import { readDiagnosticsEnv } from "../../testDiagnosticsOutput";
 
-type Discovery = ReturnType<typeof rebuildSynthesisProductionDiscovery>;
 type WorkbenchFrame = HTMLIFrameElement & {
   contentWindow: Window & {
     __zoteroSkillsSynthesisWorkbenchBridge?: {
@@ -91,7 +90,9 @@ type HostBridgeCliEnvelope = {
   error?: { code?: string; message?: string };
 };
 
-async function readyDiscovery(excludedServiceInstanceId?: string) {
+async function readyDiscovery(
+  excludedServiceInstanceId?: string,
+): Promise<SidecarDiscoveryEntry | undefined> {
   return (await listSidecarDiscoveries()).find(
     ({ discovery }) =>
       discovery.lifecycleState === "ready" &&
@@ -103,7 +104,7 @@ function parentPath(path: string) {
   return path.slice(0, Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")));
 }
 
-async function clientFor(found: { discovery: Discovery; path: string }) {
+async function clientFor(found: SidecarDiscoveryEntry) {
   const sessionRoot = parentPath(found.path);
   const source = await readRuntimeTextFile(
     joinPath(sessionRoot, "config.json"),
@@ -202,7 +203,11 @@ async function releaseCheckpoint(checkpointRoot: string, name: string) {
 
 async function waitForCheckpoint(checkpointRoot: string, name: string) {
   const path = await checkpointPath(checkpointRoot, name, "held");
-  await waitUntil(async () => ((await IOUtils.exists(path)) ? path : null));
+  await waitUntil(
+    async () => ((await IOUtils.exists(path)) ? path : null),
+    120_000,
+    `checkpoint-${name}`,
+  );
 }
 
 async function removeCheckpointFiles(checkpointRoot: string, name: string) {
@@ -217,14 +222,18 @@ async function waitForTerminal(
   client: Awaited<ReturnType<typeof clientFor>>["client"],
   accepted: SynthesisPublicMaintenanceOperation,
 ) {
-  return waitUntil(async () => {
-    const operation = await client.maintenance.getOperation({
-      operation_id: accepted.operation_id,
-    });
-    return operation.status === "pending" || operation.status === "running"
-      ? null
-      : operation;
-  });
+  return waitUntil(
+    async () => {
+      const operation = await client.maintenance.getOperation({
+        operation_id: accepted.operation_id,
+      });
+      return operation.status === "pending" || operation.status === "running"
+        ? null
+        : operation;
+    },
+    120_000,
+    `terminal-${accepted.operation_id}`,
+  );
 }
 
 function diagnosticCodes(operation: SynthesisPublicMaintenanceOperation) {
@@ -450,19 +459,22 @@ async function openSynthesisWorkbench() {
   )) as WorkbenchFrame;
 }
 
-async function recoverReadySidecar(previous: {
-  discovery: Discovery;
-  path: string;
-}) {
-  await waitUntil(async () =>
-    (await runtimePathExists(previous.path)) ? null : true,
+async function recoverReadySidecar(previous: SidecarDiscoveryEntry) {
+  await waitUntil(
+    async () => ((await runtimePathExists(previous.path)) ? null : true),
+    120_000,
+    "recover-previous-discovery-removed",
   );
   const frame = await openSynthesisWorkbench();
   await frame.contentWindow.__zoteroSkillsSynthesisWorkbenchBridge?.postMessage(
     "retrySynthesisSidecar",
     {},
   );
-  return waitUntil(() => readyDiscovery(previous.discovery.serviceInstanceId));
+  return waitUntil(
+    () => readyDiscovery(previous.discovery.serviceInstanceId),
+    120_000,
+    "recover-replacement-ready",
+  );
 }
 
 async function emitCase(args: {
@@ -530,7 +542,7 @@ describe("System E2E sidecar recovery", function () {
     const initial = await waitUntil(() => readyDiscovery());
     const composition = await clientFor(initial);
     let shutdownAccepted = false;
-    let restored: Awaited<ReturnType<typeof readyDiscovery>>;
+    let restored: SidecarDiscoveryEntry;
     let caseError = "";
 
     const result = await runFamilyLifecycle({
@@ -687,27 +699,35 @@ describe("System E2E sidecar recovery", function () {
   // prettier-ignore
   sl("SL-03 replaces an externally terminated ready generation", async function () {
     const initial = await waitUntil(() => readyDiscovery());
-    let replacement: Awaited<ReturnType<typeof readyDiscovery>>;
+    let replacement: SidecarDiscoveryEntry;
+    let caseError = "";
 
     const result = await runFamilyLifecycle({
       declaration: PHASE1_FAMILY_DECLARATIONS.SL,
       execute: async () => {
-        await terminateProcess(initial.discovery.pid);
-        replacement = await waitUntil(() =>
-          readyDiscovery(initial.discovery.serviceInstanceId),
-        );
-        assert.notEqual(
-          replacement.discovery.supervisorInstanceId,
-          initial.discovery.supervisorInstanceId,
-        );
-        assert.isFalse(
-          await runtimePathExists(initial.path),
-          "terminated generation kept its discovery",
-        );
-        assert.isFalse(
-          await processIsAlive(initial.discovery.pid),
-          "terminated generation process stayed alive",
-        );
+        try {
+          await terminateProcess(initial.discovery.pid);
+          replacement = await waitUntil(
+            () => readyDiscovery(initial.discovery.serviceInstanceId),
+            120_000,
+            "sl-03-replacement-ready",
+          );
+          assert.notEqual(
+            replacement.discovery.supervisorInstanceId,
+            initial.discovery.supervisorInstanceId,
+          );
+          assert.isFalse(
+            await runtimePathExists(initial.path),
+            "terminated generation kept its discovery",
+          );
+          assert.isFalse(
+            await processIsAlive(initial.discovery.pid),
+            "terminated generation process stayed alive",
+          );
+        } catch (error) {
+          caseError = error instanceof Error ? error.message : String(error);
+          throw error;
+        }
       },
       cleanup: async () => {
         if (!replacement || (await processIsAlive(initial.discovery.pid))) {
@@ -1345,30 +1365,70 @@ describe("System E2E sidecar recovery", function () {
             await initialComposition.client.debug.listOperations({
               limit: 100,
             });
-          const [accepted] = operations.rows.filter(
+          const newOperations = operations.rows.filter(
             (operation) =>
               !existingIds.has(operation.operationId) &&
               operation.operationType === "client.refreshReferenceSidecarNow",
           );
+          const [accepted] = newOperations;
           assert.isOk(accepted);
           assert.equal(accepted.status, "pending");
           operationId = accepted.operationId;
 
           await terminateProcess(initial.discovery.pid);
-          assert.isUndefined(await submitted);
+          const submittedResult = (await submitted) as
+            | { operation_id?: string }
+            | undefined;
+          assert.isUndefined(
+            submittedResult,
+            JSON.stringify({
+              submitFailure,
+              acceptedOperationId: accepted.operationId,
+              resolvedOperationId: submittedResult?.operation_id,
+              newOperations: newOperations.map(
+                (operation) =>
+                  `${operation.operationId}:${operation.status}:${operation.phase}`,
+              ),
+              armed: await IOUtils.exists(
+                await checkpointPath(
+                  initialComposition.checkpointRoot,
+                  checkpoint,
+                  "armed",
+                ),
+              ),
+              held: await IOUtils.exists(
+                await checkpointPath(
+                  initialComposition.checkpointRoot,
+                  checkpoint,
+                  "held",
+                ),
+              ),
+              release: await IOUtils.exists(
+                await checkpointPath(
+                  initialComposition.checkpointRoot,
+                  checkpoint,
+                  "release",
+                ),
+              ),
+            }),
+          );
           assert.isNotEmpty(submitFailure);
           const replacement = await recoverReadySidecar(initial);
           replacementComposition = await clientFor(replacement);
 
-          const continuation = await waitUntil(async () => {
-            const operation =
-              await replacementComposition!.client.maintenance.getOperation({
-                operation_id: operationId!,
-              });
-            return operation.phase === "continuation_required"
-              ? operation
-              : null;
-          });
+          const continuation = await waitUntil(
+            async () => {
+              const operation =
+                await replacementComposition!.client.maintenance.getOperation({
+                  operation_id: operationId!,
+                });
+              return operation.phase === "continuation_required"
+                ? operation
+                : null;
+            },
+            120_000,
+            "pm-02-continuation-required",
+          );
           assert.equal(continuation.status, "pending");
           await assertRemainsStable(
             async () =>
@@ -1420,8 +1480,10 @@ describe("System E2E sidecar recovery", function () {
         await removeCheckpointFiles(initialComposition.checkpointRoot, checkpoint);
         let restored: SynthesisPublicMaintenanceOperation | undefined;
         if (!replacementComposition) {
-          const replacement = await waitUntil(() =>
-            readyDiscovery(initial.discovery.serviceInstanceId),
+          const replacement = await waitUntil(
+            () => readyDiscovery(initial.discovery.serviceInstanceId),
+            120_000,
+            "pm-03-replacement-ready",
           ).catch(() => undefined);
           if (replacement) {
             replacementComposition = await clientFor(replacement);
