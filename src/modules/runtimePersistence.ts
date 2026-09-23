@@ -1837,6 +1837,14 @@ export function runtimeRelativePath(rootRaw: string, targetRaw: string) {
   return target.startsWith(prefix) ? target.slice(prefix.length) : target;
 }
 
+// Windows refuses to unlink a runtime path while the process that owns it still
+// holds a handle, and a generation cleanup always races the death of that
+// process, so every removal retries for a bounded window. POSIX unlinks such
+// paths immediately, which is why the window is short and why a removal that
+// still fails once it elapses stays a failure.
+const RUNTIME_PATH_REMOVAL_RETRY_WINDOW_MS = 5_000;
+const RUNTIME_PATH_REMOVAL_RETRY_DELAY_MS = 50;
+
 export async function removeRuntimePath(pathRaw: string) {
   const path = normalizeString(pathRaw);
   if (!path) {
@@ -1851,45 +1859,60 @@ export async function removeRuntimePath(pathRaw: string) {
       File?: { removeDir?: (path: string, options?: unknown) => Promise<void> };
     };
   };
+  let attempt: (() => Promise<void>) | null = null;
   if (
     typeof runtime.IOUtils?.remove === "function" &&
     typeof runtime.IOUtils.exists === "function" &&
     (await runtime.IOUtils.exists(path).catch(() => false))
   ) {
-    await runtime.IOUtils.remove(path, {
-      recursive: true,
-      ignoreAbsent: true,
-    });
-    return true;
+    attempt = () =>
+      runtime.IOUtils!.remove!(path, {
+        recursive: true,
+        ignoreAbsent: true,
+      });
+  } else {
+    const fs = await tryNodeFs();
+    if (fs) {
+      try {
+        await fs.access(path);
+      } catch {
+        return false;
+      }
+      attempt = () => fs.rm(path, { force: true, recursive: true });
+    } else if (typeof runtime.IOUtils?.remove === "function") {
+      if (
+        typeof runtime.IOUtils.exists === "function" &&
+        !(await runtime.IOUtils.exists(path).catch(() => false))
+      ) {
+        return false;
+      }
+      attempt = () =>
+        runtime.IOUtils!.remove!(path, {
+          recursive: true,
+          ignoreAbsent: true,
+        });
+    } else if (typeof runtime.OS?.File?.removeDir === "function") {
+      attempt = () =>
+        runtime.OS!.File!.removeDir!(path, { ignoreAbsent: true });
+    }
   }
-  const fs = await tryNodeFs();
-  if (fs) {
+  if (!attempt) {
+    return false;
+  }
+  const deadline = Date.now() + RUNTIME_PATH_REMOVAL_RETRY_WINDOW_MS;
+  for (;;) {
     try {
-      await fs.access(path);
-    } catch {
-      return false;
+      await attempt();
+      return true;
+    } catch (error) {
+      if (Date.now() >= deadline) {
+        throw error;
+      }
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, RUNTIME_PATH_REMOVAL_RETRY_DELAY_MS);
+      });
     }
-    await fs.rm(path, { force: true, recursive: true });
-    return true;
   }
-  if (typeof runtime.IOUtils?.remove === "function") {
-    if (
-      typeof runtime.IOUtils.exists === "function" &&
-      !(await runtime.IOUtils.exists(path).catch(() => false))
-    ) {
-      return false;
-    }
-    await runtime.IOUtils.remove(path, {
-      recursive: true,
-      ignoreAbsent: true,
-    });
-    return true;
-  }
-  if (typeof runtime.OS?.File?.removeDir === "function") {
-    await runtime.OS.File.removeDir(path, { ignoreAbsent: true });
-    return true;
-  }
-  return false;
 }
 
 export async function removeRuntimePathStrict(pathRaw: string) {

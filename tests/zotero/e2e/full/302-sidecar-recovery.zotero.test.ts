@@ -647,10 +647,7 @@ describe("System E2E sidecar recovery", function () {
       },
       cleanup: async () => {
         await composition.dispose();
-        await IOUtils.remove(repositoryPath, {
-          recursive: true,
-          ignoreAbsent: true,
-        });
+        await removeRuntimePath(repositoryPath);
         if (repositoryMoved) {
           await IOUtils.move(backupPath, repositoryPath);
           repositoryMoved = false;
@@ -703,8 +700,14 @@ describe("System E2E sidecar recovery", function () {
           replacement.discovery.supervisorInstanceId,
           initial.discovery.supervisorInstanceId,
         );
-        assert.isFalse(await runtimePathExists(initial.path));
-        assert.isFalse(await processIsAlive(initial.discovery.pid));
+        assert.isFalse(
+          await runtimePathExists(initial.path),
+          "terminated generation kept its discovery",
+        );
+        assert.isFalse(
+          await processIsAlive(initial.discovery.pid),
+          "terminated generation process stayed alive",
+        );
       },
       cleanup: async () => {
         if (!replacement || (await processIsAlive(initial.discovery.pid))) {

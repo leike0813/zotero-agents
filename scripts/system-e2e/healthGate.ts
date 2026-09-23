@@ -78,25 +78,30 @@ export async function processIsAlive(pid: number) {
 }
 
 export async function terminateProcess(pid: number) {
-  if (detectRuntimePlatform() === "win32") {
-    const result = await executeOneShotSubprocess({
-      command: "taskkill.exe",
-      args: ["/PID", String(pid), "/F"],
-      timeoutMs: 10_000,
-    });
-    if (result.outcome !== "exited" || result.exitCode !== 0) {
-      throw new Error(`system_e2e_terminate_failed:${pid}`);
-    }
+  const result =
+    detectRuntimePlatform() === "win32"
+      ? await executeOneShotSubprocess({
+          command: "taskkill.exe",
+          args: ["/PID", String(pid), "/F"],
+          timeoutMs: 10_000,
+        })
+      : await executeOneShotSubprocess({
+          command: "/bin/kill",
+          args: ["-KILL", String(pid)],
+          timeoutMs: 10_000,
+        });
+  if (result.outcome === "exited" && result.exitCode === 0) {
     return;
   }
-  const result = await executeOneShotSubprocess({
-    command: "/bin/kill",
-    args: ["-KILL", String(pid)],
-    timeoutMs: 10_000,
-  });
-  if (result.outcome !== "exited" || result.exitCode !== 0) {
-    throw new Error(`system_e2e_terminate_failed:${pid}`);
+  // A generation that already exited is terminated too: both kill tools report
+  // that case as a non-zero "no such process", and the checkpoint-driven
+  // crashes can win the race against the explicit termination.
+  if (!(await processIsAlive(pid))) {
+    return;
   }
+  throw new Error(
+    `system_e2e_terminate_failed:${pid}:${result.outcome}:${String(result.exitCode)}:${result.stderr.trim()}`,
+  );
 }
 
 export async function listSidecarDiscoveries() {

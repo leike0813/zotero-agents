@@ -538,7 +538,11 @@ function terminateExactProcess(processId: number) {
     return waitForExactProcessExit(processId);
   }
   return new Promise<void>((resolve, reject) => {
-    const killer = spawn("taskkill", ["/PID", String(processId), "/T", "/F"], {
+    // The controlled fault is the death of the owning Zotero process alone. A
+    // tree kill would also hard-kill the sidecar child, which on POSIX observes
+    // parent-pipe EOF and exits through its own cleanup path instead, so the
+    // Windows fault has to stay the same shape.
+    const killer = spawn("taskkill", ["/PID", String(processId), "/F"], {
       stdio: "ignore",
       windowsHide: true,
     });
@@ -548,7 +552,7 @@ function terminateExactProcess(processId: number) {
         ? resolve()
         : reject(new Error(`system_e2e_restart_taskkill_failed:${code}`)),
     );
-  });
+  }).then(() => waitForExactProcessExit(processId));
 }
 
 async function waitForExactProcessExit(processId: number) {
