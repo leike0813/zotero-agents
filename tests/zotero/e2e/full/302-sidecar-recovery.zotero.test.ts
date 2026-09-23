@@ -20,10 +20,16 @@ import {
   type Phase1FamilyId,
 } from "../../../../scripts/system-e2e/familyLifecycle";
 import {
+  assertRemainsStable,
+  listSidecarDiscoveries,
+  observeSystemE2EHealth,
+  processIsAlive,
+  terminateProcess,
+  waitUntil,
+} from "../../../../scripts/system-e2e/healthGate";
+import {
   getRuntimePersistencePaths,
-  getSynthesisSidecarRuntimePaths,
   getRuntimeFilePermissions,
-  listRuntimeChildDirectories,
   moveRuntimePath,
   readRuntimeTextFile,
   removeRuntimePath,
@@ -85,49 +91,8 @@ type HostBridgeCliEnvelope = {
   error?: { code?: string; message?: string };
 };
 
-async function waitUntil<Value>(
-  read: () => Value | null | undefined | Promise<Value | null | undefined>,
-  timeoutMs = 120_000,
-) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const value = await read();
-    if (value) return value;
-    await Zotero.Promise.delay(50);
-  }
-  throw new Error("system_e2e_condition_not_reached");
-}
-
-async function discoveries() {
-  const runtime = getSynthesisSidecarRuntimePaths(
-    getRuntimePersistencePaths().runtimeRoot,
-  );
-  const found: Array<{ discovery: Discovery; path: string }> = [];
-  for (const profileRoot of await listRuntimeChildDirectories(
-    runtime.profilesDir,
-  )) {
-    for (const sessionRoot of await listRuntimeChildDirectories(
-      joinPath(profileRoot, "sessions"),
-    )) {
-      const path = joinPath(sessionRoot, "discovery.json");
-      try {
-        const source = await readRuntimeTextFile(path);
-        if (source) {
-          found.push({
-            discovery: rebuildSynthesisProductionDiscovery(JSON.parse(source)),
-            path,
-          });
-        }
-      } catch {
-        // Session cleanup may win between listing and reading.
-      }
-    }
-  }
-  return found;
-}
-
 async function readyDiscovery(excludedServiceInstanceId?: string) {
-  return (await discoveries()).find(
+  return (await listSidecarDiscoveries()).find(
     ({ discovery }) =>
       discovery.lifecycleState === "ready" &&
       discovery.serviceInstanceId !== excludedServiceInstanceId,
@@ -271,10 +236,13 @@ function diagnosticCodes(operation: SynthesisPublicMaintenanceOperation) {
     : [];
 }
 
+// The sidecar re-reads Host facts asynchronously after a mutation; give it a fixed settle window before submitting a refresh.
+const HOST_FACTS_SETTLE_MS = 250;
+
 async function refreshReferencesAfterMutation(
   client: Awaited<ReturnType<typeof clientFor>>["client"],
 ) {
-  await Zotero.Promise.delay(250);
+  await Zotero.Promise.delay(HOST_FACTS_SETTLE_MS);
   let restored = await waitForTerminal(
     client,
     await client.references.refreshReferenceSidecarNow(),
@@ -283,7 +251,7 @@ async function refreshReferencesAfterMutation(
     restored.status === "failed" &&
     diagnosticCodes(restored).includes("basis_mismatch")
   ) {
-    await Zotero.Promise.delay(250);
+    await Zotero.Promise.delay(HOST_FACTS_SETTLE_MS);
     restored = await waitForTerminal(
       client,
       await client.references.retryReferenceSidecarRefresh(),
@@ -309,6 +277,14 @@ async function eraseItems(items: Zotero.Item[]) {
     items.map((item) => item.id).filter(Boolean),
   );
   items.length = 0;
+}
+
+async function cleanupOwnedReferences(
+  ownedItems: Zotero.Item[],
+  client: Awaited<ReturnType<typeof clientFor>>["client"],
+) {
+  await eraseItems(ownedItems);
+  return refreshReferencesAfterMutation(client).catch(() => undefined);
 }
 
 function paperRef(item: Zotero.Item) {
@@ -383,15 +359,6 @@ async function addPayloadNote(
   );
   await note.saveTx();
   return note;
-}
-
-async function processIsAlive(pid: number) {
-  const result = await executeOneShotSubprocess({
-    command: "/bin/kill",
-    args: ["-0", String(pid)],
-    timeoutMs: 10_000,
-  });
-  return result.outcome === "exited" && result.exitCode === 0;
 }
 
 async function productionLockAvailable() {
@@ -498,23 +465,6 @@ async function recoverReadySidecar(previous: {
   return waitUntil(() => readyDiscovery(previous.discovery.serviceInstanceId));
 }
 
-async function observeHealth(residualOwnedState: string[] = []) {
-  const plugin = (Zotero as any)[config.addonInstance];
-  const ready = await discoveries();
-  return {
-    status: "passed" as const,
-    hostResponsive: Boolean(
-      Zotero.getMainWindow() && !Zotero.getMainWindow().closed,
-    ),
-    pluginResponsive: Boolean(plugin?.data?.initialized),
-    sidecarReady:
-      ready.length === 1 && ready[0].discovery.lifecycleState === "ready",
-    undeclaredOperations: 0,
-    managedProcesses: 0,
-    residualOwnedState,
-  };
-}
-
 async function emitCase(args: {
   familyId: Phase1FamilyId;
   caseId: string;
@@ -577,7 +527,6 @@ describe("System E2E sidecar recovery", function () {
 
   // prettier-ignore
   sl("SL-01 stops through public system.shutdown and restores a healthy owner", async function () {
-    if (detectRuntimePlatform() !== "linux") this.skip();
     const initial = await waitUntil(() => readyDiscovery());
     const composition = await clientFor(initial);
     let shutdownAccepted = false;
@@ -620,7 +569,7 @@ describe("System E2E sidecar recovery", function () {
         ).catch(() => undefined);
         return restored ? "passed" : "indeterminate";
       },
-      healthGate: () => observeHealth(),
+      healthGate: () => observeSystemE2EHealth(),
     });
 
     await emitCase({
@@ -647,7 +596,6 @@ describe("System E2E sidecar recovery", function () {
 
   // prettier-ignore
   sl("SL-02 rolls back owners when launch input fails before ready", async function () {
-    if (detectRuntimePlatform() !== "linux") this.skip();
     const initial = await waitUntil(() => readyDiscovery());
     const composition = await clientFor(initial);
     const frame = await openSynthesisWorkbench();
@@ -687,13 +635,15 @@ describe("System E2E sidecar recovery", function () {
           return reason || null;
         });
         assert.match(launchFailureCode, /^repository_|^invalid_config/);
-        assert.isEmpty(await discoveries());
-        await waitUntil(async () =>
-          !(await processIsAlive(initial.discovery.pid)) &&
-          (await productionLockAvailable())
+        assert.isEmpty(await listSidecarDiscoveries());
+        await waitUntil(async () => {
+          if (await processIsAlive(initial.discovery.pid)) return null;
+          // Windows has no flock; discovery removal above and process exit are the release evidence there.
+          return detectRuntimePlatform() === "win32" ||
+            (await productionLockAvailable())
             ? true
-            : null,
-        );
+            : null;
+        });
       },
       cleanup: async () => {
         await composition.dispose();
@@ -713,7 +663,7 @@ describe("System E2E sidecar recovery", function () {
           ? "passed"
           : "indeterminate";
       },
-      healthGate: () => observeHealth(),
+      healthGate: () => observeSystemE2EHealth(),
     });
 
     await emitCase({
@@ -739,20 +689,13 @@ describe("System E2E sidecar recovery", function () {
 
   // prettier-ignore
   sl("SL-03 replaces an externally terminated ready generation", async function () {
-    if (detectRuntimePlatform() !== "linux") this.skip();
     const initial = await waitUntil(() => readyDiscovery());
     let replacement: Awaited<ReturnType<typeof readyDiscovery>>;
 
     const result = await runFamilyLifecycle({
       declaration: PHASE1_FAMILY_DECLARATIONS.SL,
       execute: async () => {
-        const killed = await executeOneShotSubprocess({
-          command: "/bin/kill",
-          args: ["-KILL", String(initial.discovery.pid)],
-          timeoutMs: 10_000,
-        });
-        assert.equal(killed.outcome, "exited");
-        assert.equal(killed.exitCode, 0);
+        await terminateProcess(initial.discovery.pid);
         replacement = await waitUntil(() =>
           readyDiscovery(initial.discovery.serviceInstanceId),
         );
@@ -769,7 +712,7 @@ describe("System E2E sidecar recovery", function () {
         }
         return "passed";
       },
-      healthGate: () => observeHealth(),
+      healthGate: () => observeSystemE2EHealth(),
     });
 
     await emitCase({
@@ -812,7 +755,7 @@ describe("System E2E sidecar recovery", function () {
               "System E2E coherent reference",
             )),
           );
-          await Zotero.Promise.delay(250);
+          await Zotero.Promise.delay(HOST_FACTS_SETTLE_MS);
           const expectedRefs = new Set(ownedItems.map(paperRef));
           const completed = await waitForTerminal(
             composition.client,
@@ -863,10 +806,10 @@ describe("System E2E sidecar recovery", function () {
         }
       },
       cleanup: async () => {
-        await eraseItems(ownedItems);
-        const restored = await refreshReferencesAfterMutation(
+        const restored = await cleanupOwnedReferences(
+          ownedItems,
           composition.client,
-        ).catch(() => undefined);
+        );
         await composition.dispose();
         if (restored?.status !== "completed") {
           caseError = `cleanup-refresh:${restored?.status || "unavailable"}:${
@@ -875,7 +818,7 @@ describe("System E2E sidecar recovery", function () {
         }
         return restored?.status === "completed" ? "passed" : "indeterminate";
       },
-      healthGate: () => observeHealth(),
+      healthGate: () => observeSystemE2EHealth(),
     });
 
     await emitCase({
@@ -946,7 +889,7 @@ describe("System E2E sidecar recovery", function () {
           failedOperationId = failed.operation_id;
 
           caseStage = "submit-retry";
-          await Zotero.Promise.delay(250);
+          await Zotero.Promise.delay(HOST_FACTS_SETTLE_MS);
           const retried = await waitForTerminal(
             composition.client,
             await composition.client.references.retryReferenceSidecarRefresh(),
@@ -976,7 +919,7 @@ describe("System E2E sidecar recovery", function () {
         await composition.dispose();
         return "passed";
       },
-      healthGate: () => observeHealth(),
+      healthGate: () => observeSystemE2EHealth(),
     });
 
     await emitCase({
@@ -1145,7 +1088,7 @@ describe("System E2E sidecar recovery", function () {
         await composition.dispose();
         return cleaned ? "passed" : "indeterminate";
       },
-      healthGate: () => observeHealth(),
+      healthGate: () => observeSystemE2EHealth(),
     });
 
     await emitCase({
@@ -1229,14 +1172,14 @@ describe("System E2E sidecar recovery", function () {
         }
       },
       cleanup: async () => {
-        await eraseItems(ownedItems);
-        const restored = await refreshReferencesAfterMutation(
+        const restored = await cleanupOwnedReferences(
+          ownedItems,
           composition.client,
-        ).catch(() => undefined);
+        );
         await composition.dispose();
         return restored?.status === "completed" ? "passed" : "indeterminate";
       },
-      healthGate: () => observeHealth(),
+      healthGate: () => observeSystemE2EHealth(),
     });
 
     await emitCase({
@@ -1282,7 +1225,7 @@ describe("System E2E sidecar recovery", function () {
               1,
             )),
           );
-          await Zotero.Promise.delay(250);
+          await Zotero.Promise.delay(HOST_FACTS_SETTLE_MS);
           await armCheckpoint(composition.checkpointRoot, checkpoint);
           const requestId = "system-e2e-pm-01-exact-replay";
           const firstPromise = replayableReferenceRefresh(
@@ -1320,14 +1263,14 @@ describe("System E2E sidecar recovery", function () {
       },
       cleanup: async () => {
         await removeCheckpointFiles(composition.checkpointRoot, checkpoint);
-        await eraseItems(ownedItems);
-        const restored = await refreshReferencesAfterMutation(
+        const restored = await cleanupOwnedReferences(
+          ownedItems,
           composition.client,
-        ).catch(() => undefined);
+        );
         await composition.dispose();
         return restored?.status === "completed" ? "passed" : "indeterminate";
       },
-      healthGate: () => observeHealth(),
+      healthGate: () => observeSystemE2EHealth(),
     });
 
     await emitCase({
@@ -1354,7 +1297,6 @@ describe("System E2E sidecar recovery", function () {
 
   // prettier-ignore
   pm("PM-02 requires explicit continuation after admitted restart", async function () {
-    if (detectRuntimePlatform() !== "linux") this.skip();
     const initial = await waitUntil(() => readyDiscovery());
     const initialComposition = await clientFor(initial);
     const checkpoint = "maintenance-after-admission";
@@ -1384,7 +1326,7 @@ describe("System E2E sidecar recovery", function () {
               1,
             )),
           );
-          await Zotero.Promise.delay(250);
+          await Zotero.Promise.delay(HOST_FACTS_SETTLE_MS);
           await armCheckpoint(initialComposition.checkpointRoot, checkpoint);
           let submitFailure = "";
           const submitted = replayableReferenceRefresh(
@@ -1409,13 +1351,7 @@ describe("System E2E sidecar recovery", function () {
           assert.equal(accepted.status, "pending");
           operationId = accepted.operationId;
 
-          const killed = await executeOneShotSubprocess({
-            command: "/bin/kill",
-            args: ["-KILL", String(initial.discovery.pid)],
-            timeoutMs: 10_000,
-          });
-          assert.equal(killed.outcome, "exited");
-          assert.equal(killed.exitCode, 0);
+          await terminateProcess(initial.discovery.pid);
           assert.isUndefined(await submitted);
           assert.isNotEmpty(submitFailure);
           const replacement = await recoverReadySidecar(initial);
@@ -1431,12 +1367,15 @@ describe("System E2E sidecar recovery", function () {
               : null;
           });
           assert.equal(continuation.status, "pending");
-          await Zotero.Promise.delay(100);
-          const unreplayed =
-            await replacementComposition.client.maintenance.getOperation({
-              operation_id: operationId!,
-            });
-          assert.equal(unreplayed.phase, "continuation_required");
+          await assertRemainsStable(
+            async () =>
+              (
+                await replacementComposition!.client.maintenance.getOperation({
+                  operation_id: operationId!,
+                })
+              ).phase === "continuation_required",
+            "pm-02-continuation-not-replayed",
+          );
           const unchanged =
             await replacementComposition.client.references.getSidecarIndex();
           assert.equal(
@@ -1476,7 +1415,6 @@ describe("System E2E sidecar recovery", function () {
       },
       cleanup: async () => {
         await removeCheckpointFiles(initialComposition.checkpointRoot, checkpoint);
-        await eraseItems(ownedItems);
         let restored: SynthesisPublicMaintenanceOperation | undefined;
         if (!replacementComposition) {
           const replacement = await waitUntil(() =>
@@ -1487,15 +1425,18 @@ describe("System E2E sidecar recovery", function () {
           }
         }
         if (replacementComposition) {
-          restored = await refreshReferencesAfterMutation(
+          restored = await cleanupOwnedReferences(
+            ownedItems,
             replacementComposition.client,
-          ).catch(() => undefined);
+          );
+        } else {
+          await eraseItems(ownedItems);
         }
         await initialComposition.dispose();
         await replacementComposition?.dispose();
         return restored?.status === "completed" ? "passed" : "indeterminate";
       },
-      healthGate: () => observeHealth(),
+      healthGate: () => observeSystemE2EHealth(),
     });
 
     await emitCase({
@@ -1522,7 +1463,6 @@ describe("System E2E sidecar recovery", function () {
 
   // prettier-ignore
   pm("PM-03 reconciles a killed running operation without replay", async function () {
-    if (detectRuntimePlatform() !== "linux") this.skip();
     const initial = await waitUntil(() => readyDiscovery());
     const initialComposition = await clientFor(initial);
     const maintenanceCheckpoint = "maintenance-after-admission";
@@ -1576,13 +1516,7 @@ describe("System E2E sidecar recovery", function () {
             });
           assert.equal(running.status, "running");
 
-          const killed = await executeOneShotSubprocess({
-            command: "/bin/kill",
-            args: ["-KILL", String(initial.discovery.pid)],
-            timeoutMs: 10_000,
-          });
-          assert.equal(killed.outcome, "exited");
-          assert.equal(killed.exitCode, 0);
+          await terminateProcess(initial.discovery.pid);
           const replacement = await recoverReadySidecar(initial);
           replacementComposition = await clientFor(replacement);
 
@@ -1597,12 +1531,15 @@ describe("System E2E sidecar recovery", function () {
             "restart_external_effect_unknown",
           );
           failedOperationId = failed.operation_id;
-          await Zotero.Promise.delay(100);
-          const unreplayed =
-            await replacementComposition.client.maintenance.getOperation({
-              operation_id: accepted.operation_id,
-            });
-          assert.equal(unreplayed.status, "failed");
+          await assertRemainsStable(
+            async () =>
+              (
+                await replacementComposition!.client.maintenance.getOperation({
+                  operation_id: accepted.operation_id,
+                })
+              ).status === "failed",
+            "pm-03-failed-not-replayed",
+          );
           const unchanged =
             await replacementComposition.client.references.getSidecarIndex();
           assert.equal(
@@ -1674,7 +1611,7 @@ describe("System E2E sidecar recovery", function () {
         await replacementComposition?.dispose();
         return "passed";
       },
-      healthGate: () => observeHealth(),
+      healthGate: () => observeSystemE2EHealth(),
     });
 
     await emitCase({
@@ -1725,7 +1662,7 @@ describe("System E2E sidecar recovery", function () {
               "System E2E maintenance cancellation",
             )),
           );
-          await Zotero.Promise.delay(250);
+          await Zotero.Promise.delay(HOST_FACTS_SETTLE_MS);
           await armCheckpoint(composition.checkpointRoot, checkpoint);
           const accepted =
             await composition.client.references.refreshReferenceSidecarNow();
@@ -1747,13 +1684,19 @@ describe("System E2E sidecar recovery", function () {
             });
           assert.equal(cancelRequested.status, "running");
           assert.equal(cancelRequested.phase, "cancel_requested");
-          await Zotero.Promise.delay(100);
-          const stillRunning =
-            await composition.client.maintenance.getOperation({
-              operation_id: accepted.operation_id,
-            });
-          assert.equal(stillRunning.status, "running");
-          assert.equal(stillRunning.phase, "cancel_requested");
+          await assertRemainsStable(
+            async () => {
+              const operation =
+                await composition.client.maintenance.getOperation({
+                  operation_id: accepted.operation_id,
+                });
+              return (
+                operation.status === "running" &&
+                operation.phase === "cancel_requested"
+              );
+            },
+            "pm-04-cancel-requested-stable",
+          );
 
           await releaseCheckpoint(composition.checkpointRoot, checkpoint);
           const terminal = await waitForTerminal(composition.client, accepted);
@@ -1780,14 +1723,14 @@ describe("System E2E sidecar recovery", function () {
           () => undefined,
         );
         await removeCheckpointFiles(composition.checkpointRoot, checkpoint);
-        await eraseItems(ownedItems);
-        const restored = await refreshReferencesAfterMutation(
+        const restored = await cleanupOwnedReferences(
+          ownedItems,
           composition.client,
-        ).catch(() => undefined);
+        );
         await composition.dispose();
         return restored?.status === "completed" ? "passed" : "indeterminate";
       },
-      healthGate: () => observeHealth(),
+      healthGate: () => observeSystemE2EHealth(),
     });
 
     await emitCase({
@@ -1890,17 +1833,40 @@ describe("System E2E sidecar recovery", function () {
             basis: { expectedGraphHash: newGraphHash },
           });
           assert.equal(unchanged.graph_hash, newGraphHash);
-          assert.deepEqual(facts.edges, [[facts.nodes[0], facts.nodes[1]]]);
+          const slice = await composition.client.graph.getSlice({
+            paperRef: paperRef(source),
+            direction: "outgoing",
+            depth: 1,
+            expectedGraphHash: newGraphHash,
+          });
+          assert.equal(slice.graph_hash, newGraphHash);
+          const sourceNode = slice.nodes.find(
+            (node) => node.node_id === paperRef(source),
+          );
+          assert.equal(sourceNode?.kind, "library_paper");
+          const edge = slice.edges.find(
+            (entry) => entry.source === paperRef(source),
+          );
+          assert.isOk(edge, "rebuilt graph contains the synthetic citation edge");
+          assert.isOk(
+            slice.nodes.some(
+              (node) =>
+                node.node_id === edge!.target &&
+                (node.node_id === paperRef(target) ||
+                  node.title === facts.nodes[1]),
+            ),
+            "citation edge resolves to the synthetic target",
+          );
         } catch (error) {
           caseError = error instanceof Error ? error.message : String(error);
           throw error;
         }
       },
       cleanup: async () => {
-        await eraseItems(ownedItems);
-        const referenceRefresh = await refreshReferencesAfterMutation(
+        const referenceRefresh = await cleanupOwnedReferences(
+          ownedItems,
           composition.client,
-        ).catch(() => undefined);
+        );
         const graphRebuild = await waitForTerminal(
           composition.client,
           await composition.client.graph.rebuildCitationGraphCacheNow(),
@@ -1915,7 +1881,7 @@ describe("System E2E sidecar recovery", function () {
           ? "passed"
           : "indeterminate";
       },
-      healthGate: () => observeHealth(),
+      healthGate: () => observeSystemE2EHealth(),
     });
 
     await emitCase({
@@ -2035,7 +2001,7 @@ describe("System E2E sidecar recovery", function () {
           ? "failed"
           : "passed";
       },
-      healthGate: () => observeHealth(),
+      healthGate: () => observeSystemE2EHealth(),
     });
 
     await emitCase({
@@ -2153,7 +2119,7 @@ describe("System E2E sidecar recovery", function () {
           ? "failed"
           : "passed";
       },
-      healthGate: () => observeHealth(),
+      healthGate: () => observeSystemE2EHealth(),
     });
 
     await emitCase({
@@ -2184,7 +2150,6 @@ describe("System E2E Host Bridge owner restart", function () {
 
   // prettier-ignore
   hb("HB-03 reconciles admitted canonical mutation evidence without replay", async function () {
-    if (detectRuntimePlatform() !== "linux") this.skip();
     const resume =
       readDiagnosticsEnv("ZOTERO_SYSTEM_E2E_RESUME_CASE") === "HB-03";
     const facts = (await readPhase1StructuralFacts()).unicodeNote;
@@ -2343,7 +2308,10 @@ describe("System E2E Host Bridge owner restart", function () {
           : "passed";
       },
       healthGate: () =>
-        observeHealth(processGone ? [] : ["interrupted-host-process"]),
+        observeSystemE2EHealth({
+          residualOwnedState: processGone ? [] : ["interrupted-host-process"],
+          exemptMutationOperationIds: [state.operationId],
+        }),
     });
 
     await emitCase({
