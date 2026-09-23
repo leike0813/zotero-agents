@@ -625,13 +625,17 @@ describe("System E2E sidecar recovery", function () {
         });
         await IOUtils.move(repositoryPath, backupPath);
         repositoryMoved = true;
-        // A non-database file at the database path fails repository
-        // preparation. A directory there would be undeletable on Windows while
-        // any handle is open, and the cleanup has to put the database back.
+        // A read-only, non-database file at the database path is a durable
+        // pre-ready failure: the sidecar cannot open it and neither the sidecar
+        // nor the plugin can replace it, while the case can still clear the
+        // attribute and remove it afterwards, which a directory at that path
+        // never allowed on Windows. A plain file there only made the failure
+        // race the plugin's own repository recovery.
         await writeRuntimeTextFile(
           repositoryPath,
           "system-e2e-sl02-poisoned-repository\n",
         );
+        await setRuntimeFilePermissions(repositoryPath, 0o444);
         const fetchOwner = Zotero.getMainWindow() as unknown as {
           fetch: typeof globalThis.fetch;
         };
@@ -665,27 +669,23 @@ describe("System E2E sidecar recovery", function () {
       },
       cleanup: async () => {
         await composition.dispose();
-        // The plugin may already have recovered by re-initializing the
-        // repository, and that owner holds the database path: Windows refuses
-        // to move or delete a path a live process holds. The holders are
-        // stopped and the poisoned path is moved aside so the pre-case
-        // database can be put back, and a repository the recovery already
-        // replaced with a valid one is kept as-is, because the poisoned launch
-        // input is gone either way and the pre-case database is derived state.
+        // The poison is read-only, so no owner holds it. Any generation that
+        // is still around is stopped, then the attribute is cleared, the
+        // poison is removed and the pre-case database is put back; a poison
+        // that survives is a failure rather than something the later cases
+        // inherit.
         for (const entry of await listSidecarDiscoveries()) {
           if (await processIsAlive(entry.discovery.pid)) {
             await terminateProcess(entry.discovery.pid);
           }
         }
-        const poisonedPath = `${repositoryPath}.system-e2e-sl02-poison`;
         let released = true;
         if (await runtimePathExists(repositoryPath)) {
+          await setRuntimeFilePermissions(repositoryPath, 0o644).catch(
+            () => undefined,
+          );
           try {
-            await moveRuntimePath({
-              sourcePath: repositoryPath,
-              targetPath: poisonedPath,
-              overwrite: true,
-            });
+            await removeRuntimePath(repositoryPath);
           } catch (error) {
             released = false;
             console.error(
@@ -695,20 +695,26 @@ describe("System E2E sidecar recovery", function () {
             );
           }
         }
-        if (released && repositoryMoved) {
+        if (!released) {
+          return "failed";
+        }
+        if (repositoryMoved) {
           await IOUtils.move(backupPath, repositoryPath);
           repositoryMoved = false;
         }
-        if (repositoryMoved) {
-          await removeRuntimePath(backupPath).catch(() => undefined);
-          repositoryMoved = false;
-        }
-        await removeRuntimePath(poisonedPath).catch(() => undefined);
-        await frame.contentWindow.__zoteroSkillsSynthesisWorkbenchBridge?.postMessage(
+        // The page that started the case can be gone by now: the failed launch
+        // and its recovery replace the workbench frames, so the retry is sent
+        // through a freshly opened one.
+        const recoveryFrame = await openSynthesisWorkbench();
+        await recoveryFrame.contentWindow?.__zoteroSkillsSynthesisWorkbenchBridge?.postMessage(
           "retrySynthesisSidecar",
           {},
         );
-        return (await waitUntil(() => readyDiscovery()))
+        return (await waitUntil(
+          () => readyDiscovery(),
+          120_000,
+          "sl-02-recovered-ready",
+        ))
           ? "passed"
           : "indeterminate";
       },
