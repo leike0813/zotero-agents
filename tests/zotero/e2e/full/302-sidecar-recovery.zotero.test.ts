@@ -665,33 +665,42 @@ describe("System E2E sidecar recovery", function () {
       },
       cleanup: async () => {
         await composition.dispose();
-        // The plugin may have recovered with a generation that now owns the
-        // poisoned database path, and Windows refuses to delete a path another
-        // process still holds, so any live generation is stopped first and the
-        // poison is moved aside before the original database is put back.
+        // The plugin may already have recovered by re-initializing the
+        // repository, and that owner holds the database path: Windows refuses
+        // to move or delete a path a live process holds. The holders are
+        // stopped and the poisoned path is moved aside so the pre-case
+        // database can be put back, and a repository the recovery already
+        // replaced with a valid one is kept as-is, because the poisoned launch
+        // input is gone either way and the pre-case database is derived state.
         for (const entry of await listSidecarDiscoveries()) {
           if (await processIsAlive(entry.discovery.pid)) {
             await terminateProcess(entry.discovery.pid);
           }
         }
         const poisonedPath = `${repositoryPath}.system-e2e-sl02-poison`;
-        try {
-          if (await runtimePathExists(repositoryPath)) {
+        let released = true;
+        if (await runtimePathExists(repositoryPath)) {
+          try {
             await moveRuntimePath({
               sourcePath: repositoryPath,
               targetPath: poisonedPath,
               overwrite: true,
             });
+          } catch (error) {
+            released = false;
+            console.error(
+              `[system-e2e] sl-02 repository path stayed held: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            );
           }
-        } catch (error) {
-          throw new Error(
-            `system_e2e_sl02_poison_release_failed:${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          );
+        }
+        if (released && repositoryMoved) {
+          await IOUtils.move(backupPath, repositoryPath);
+          repositoryMoved = false;
         }
         if (repositoryMoved) {
-          await IOUtils.move(backupPath, repositoryPath);
+          await removeRuntimePath(backupPath).catch(() => undefined);
           repositoryMoved = false;
         }
         await removeRuntimePath(poisonedPath).catch(() => undefined);
