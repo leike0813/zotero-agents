@@ -303,15 +303,29 @@ function sealedEnvironment() {
 }
 
 /**
- * Records the sanitized facts of a terminal sidecar launch failure. The sidecar
- * stderr tail stays private, so cell evidence would otherwise only ever see
- * `sidecar_crash_loop_fused` with no way to tell why the process never reached
- * readiness (observed on Windows runners).
+ * The launch step and sanitized error identity of one failed attempt. The
+ * sidecar stderr tail stays private, so evidence would otherwise only ever see
+ * a reason code with no way to tell a launch that never created a process from
+ * one that never reached discovery (observed on Windows runners).
  *
- * The classification fields are added only for a System E2E run: they exist so
- * one compatibility round can tell a launch that never created a process from
- * one that never reached discovery, and production entries keep the four
+ * The fields are added only for a System E2E run: production entries keep the
  * business-level facts they always carried.
+ */
+function launchFailureClassification(failure?: SynthesisSidecarLaunchFailure) {
+  return failure && isSystemE2ETestRun()
+    ? {
+        stage: launchStageForStep(failure.step),
+        step: failure.step,
+        ...launchErrorIdentity(failure.error),
+        ...(failure.attemptedChars === undefined
+          ? {}
+          : { attemptedChars: failure.attemptedChars }),
+      }
+    : {};
+}
+
+/**
+ * Records the sanitized facts of a terminal sidecar launch failure.
  */
 function recordSidecarLaunchFailure(args: {
   code: string;
@@ -320,17 +334,7 @@ function recordSidecarLaunchFailure(args: {
   exitCode: number | null;
   failure?: SynthesisSidecarLaunchFailure;
 }) {
-  const classification =
-    args.failure && isSystemE2ETestRun()
-      ? {
-          stage: launchStageForStep(args.failure.step),
-          step: args.failure.step,
-          ...launchErrorIdentity(args.failure.error),
-          ...(args.failure.attemptedChars === undefined
-            ? {}
-            : { attemptedChars: args.failure.attemptedChars }),
-        }
-      : {};
+  const classification = launchFailureClassification(args.failure);
   appendRuntimeLog({
     level: "error",
     scope: "system",
@@ -626,6 +630,26 @@ export function createSynthesisProductionRuntimeSupervisor(
       reasonCode: code,
       restartCount,
       nextRestartAt: new Date(restartAt).toISOString(),
+    });
+    // A scheduled restart is the one lifecycle state that used to leave no
+    // evidence at all: the terminal entry only lands when the budget is spent,
+    // so a runtime that kept restarting inside its budget looked idle.
+    appendRuntimeLog({
+      level: "warn",
+      scope: "system",
+      component: "synthesis-sidecar-runtime",
+      operation: "launch",
+      phase: "launch",
+      stage: "restart-scheduled",
+      message: `Synthesis sidecar restart scheduled: ${code}`,
+      details: {
+        code,
+        restartCount,
+        attemptBudget: restartDelaysMs.length,
+        nextRestartAt: new Date(restartAt).toISOString(),
+        exitCode: current?.exitCode ?? null,
+        ...launchFailureClassification(failure),
+      },
     });
     restartTimer = setTimer(
       () => {
