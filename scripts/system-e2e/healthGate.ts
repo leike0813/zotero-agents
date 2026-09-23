@@ -11,8 +11,12 @@ import {
 } from "../../src/modules/runtimePersistence";
 import { createNativeSynthesisClientComposition } from "../../src/modules/synthesisClient/nativeComposition";
 import { listMutationOperations } from "../../src/modules/zoteroHostMutationAuthority";
+import { getWindowsExecutableCandidates } from "../../src/modules/windowsCommandResolution";
 import { detectRuntimePlatform } from "../../src/platform/runtimePlatform";
-import { executeOneShotSubprocess } from "../../src/platform/subprocess";
+import {
+  executeOneShotSubprocess,
+  type OneShotSubprocessResult,
+} from "../../src/platform/subprocess";
 import { joinPath } from "../../src/utils/path";
 
 type SidecarDiscovery = ReturnType<typeof rebuildSynthesisProductionDiscovery>;
@@ -61,41 +65,52 @@ export async function assertRemainsStable(
   } while (Date.now() < deadline);
 }
 
+// A bare Windows tool name resolves to no execution adapter inside Zotero, so
+// every probe and kill runs an absolute System32/Sysnative candidate with
+// hidden execution, which is the only shape the XPCOM adapter accepts.
+async function runSystemTool(tool: string, args: string[]) {
+  const candidates =
+    detectRuntimePlatform() === "win32"
+      ? [...getWindowsExecutableCandidates(tool), tool]
+      : [tool];
+  let last: OneShotSubprocessResult | undefined;
+  for (const command of candidates) {
+    last = await executeOneShotSubprocess({
+      command,
+      args,
+      timeoutMs: 10_000,
+      hidden: true,
+    });
+    if (last.outcome === "exited") {
+      return last;
+    }
+  }
+  throw new Error(
+    `system_e2e_process_tool_unavailable:${tool}:${last?.outcome || "unattempted"}:${last?.stderr.trim() || ""}`,
+  );
+}
+
 export async function processIsAlive(pid: number) {
   if (detectRuntimePlatform() === "win32") {
-    const result = await executeOneShotSubprocess({
-      command: "tasklist.exe",
-      args: ["/FI", `PID eq ${pid}`, "/NH"],
-      timeoutMs: 10_000,
-    });
+    const result = await runSystemTool("tasklist", [
+      "/FI",
+      `PID eq ${pid}`,
+      "/NH",
+    ]);
     return (
-      result.outcome === "exited" &&
-      result.exitCode === 0 &&
-      new RegExp(`\\b${pid}\\b`).test(result.stdout)
+      result.exitCode === 0 && new RegExp(`\\b${pid}\\b`).test(result.stdout)
     );
   }
-  const result = await executeOneShotSubprocess({
-    command: "/bin/kill",
-    args: ["-0", String(pid)],
-    timeoutMs: 10_000,
-  });
-  return result.outcome === "exited" && result.exitCode === 0;
+  const result = await runSystemTool("/bin/kill", ["-0", String(pid)]);
+  return result.exitCode === 0;
 }
 
 export async function terminateProcess(pid: number) {
   const result =
     detectRuntimePlatform() === "win32"
-      ? await executeOneShotSubprocess({
-          command: "taskkill.exe",
-          args: ["/PID", String(pid), "/F"],
-          timeoutMs: 10_000,
-        })
-      : await executeOneShotSubprocess({
-          command: "/bin/kill",
-          args: ["-KILL", String(pid)],
-          timeoutMs: 10_000,
-        });
-  if (result.outcome === "exited" && result.exitCode === 0) {
+      ? await runSystemTool("taskkill", ["/PID", String(pid), "/F"])
+      : await runSystemTool("/bin/kill", ["-KILL", String(pid)]);
+  if (result.exitCode === 0) {
     // A kill tool reports success once it has delivered the request, so the
     // generation is only evidence-backed terminated once it is observably gone.
     const deadline = Date.now() + 10_000;
@@ -114,7 +129,7 @@ export async function terminateProcess(pid: number) {
     return;
   }
   throw new Error(
-    `system_e2e_terminate_failed:${pid}:${result.outcome}:${String(result.exitCode)}:${result.stderr.trim()}`,
+    `system_e2e_terminate_failed:${pid}:${String(result.exitCode)}:${result.stderr.trim()}`,
   );
 }
 
