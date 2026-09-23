@@ -25,6 +25,21 @@ export type SystemE2ESidecarOperationLister = () => Promise<{
   rows: Array<{ operationId: string; status: string }>;
 }>;
 
+// The supervisor replaces a generation the case terminated, so readiness is a
+// single published discovery for the installed bundle rather than any discovery.
+function sidecarGenerationReady(
+  entries: SidecarDiscoveryEntry[],
+  bundleId: string,
+) {
+  return (
+    entries.length === 1 &&
+    entries[0].discovery.lifecycleState === "ready" &&
+    entries[0].discovery.bundleId === bundleId
+  );
+}
+
+const SIDECAR_SETTLE_WINDOW_MS = 20_000;
+
 const SIDECAR_TERMINAL_OPERATION_STATUSES = new Set([
   "completed",
   "succeeded",
@@ -210,11 +225,18 @@ export async function observeSystemE2EHealth(args?: {
   const manifest = JSON.parse(
     await IOUtils.readUTF8(PathUtils.join(runtime.currentDir, "manifest.json")),
   );
-  const found = await listSidecarDiscoveries();
-  const sidecarReady =
-    found.length === 1 &&
-    found[0].discovery.lifecycleState === "ready" &&
-    found[0].discovery.bundleId === manifest.bundleId;
+  // A family can finish while the supervisor is still replacing a generation
+  // that the case itself terminated, and a missing ready generation at that
+  // moment is a transient of the product's own recovery rather than a leak:
+  // the observation waits for the runtime to settle before judging it.
+  let found = await listSidecarDiscoveries();
+  let sidecarReady = sidecarGenerationReady(found, manifest.bundleId);
+  const settleDeadline = Date.now() + SIDECAR_SETTLE_WINDOW_MS;
+  while (!sidecarReady && Date.now() < settleDeadline) {
+    await Zotero.Promise.delay(100);
+    found = await listSidecarDiscoveries();
+    sidecarReady = sidecarGenerationReady(found, manifest.bundleId);
+  }
 
   let aliveDiscoveries = 0;
   for (const entry of found) {

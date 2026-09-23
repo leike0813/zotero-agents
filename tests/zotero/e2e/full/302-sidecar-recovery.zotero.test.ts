@@ -101,6 +101,34 @@ async function readyDiscovery(
   );
 }
 
+/**
+ * The cases that follow a terminated generation start from the replacement,
+ * and a discovery can briefly name a generation the supervisor is already
+ * replacing. The probe makes "ready" mean "answers the next request", which is
+ * what every case actually depends on.
+ */
+async function responsiveReadyDiscovery(
+  excludedServiceInstanceId?: string,
+): Promise<SidecarDiscoveryEntry> {
+  return waitUntil(
+    async () => {
+      const found = await readyDiscovery(excludedServiceInstanceId);
+      if (!found) return null;
+      const composition = await clientFor(found);
+      try {
+        await composition.client.debug.listOperations({ limit: 1 });
+        return found;
+      } catch {
+        return null;
+      } finally {
+        await composition.dispose();
+      }
+    },
+    120_000,
+    "responsive-ready-generation",
+  );
+}
+
 function parentPath(path: string) {
   return path.slice(0, Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")));
 }
@@ -540,7 +568,7 @@ describe("System E2E sidecar recovery", function () {
 
   // prettier-ignore
   sl("SL-01 stops through public system.shutdown and restores a healthy owner", async function () {
-    const initial = await waitUntil(() => readyDiscovery());
+    const initial = await responsiveReadyDiscovery();
     const composition = await clientFor(initial);
     let shutdownAccepted = false;
     let restored: SidecarDiscoveryEntry;
@@ -610,7 +638,7 @@ describe("System E2E sidecar recovery", function () {
   // prettier-ignore
   sl("SL-02 rolls back owners when launch input fails before ready", async function () {
     setSystemE2ELaunchFault(false);
-    const initial = await waitUntil(() => readyDiscovery());
+    const initial = await responsiveReadyDiscovery();
     const composition = await clientFor(initial);
     const frame = await openSynthesisWorkbench();
     let launchFailureCode = "";
@@ -708,7 +736,7 @@ describe("System E2E sidecar recovery", function () {
 
   // prettier-ignore
   sl("SL-03 replaces an externally terminated ready generation", async function () {
-    const initial = await waitUntil(() => readyDiscovery());
+    const initial = await responsiveReadyDiscovery();
     let replacement: SidecarDiscoveryEntry;
     let caseError = "";
 
@@ -769,7 +797,7 @@ describe("System E2E sidecar recovery", function () {
 
   // prettier-ignore
   rh("RH-01 refreshes every reference page on one coherent basis", async function () {
-    const ready = await waitUntil(() => readyDiscovery());
+    const ready = await responsiveReadyDiscovery();
     const composition = await clientFor(ready);
     const ownedItems: Zotero.Item[] = [];
     let operationId: string | undefined;
@@ -879,7 +907,7 @@ describe("System E2E sidecar recovery", function () {
 
   // prettier-ignore
   rh("RH-02 rejects a mixed-basis paged refresh and retries fresh", async function () {
-    const ready = await waitUntil(() => readyDiscovery());
+    const ready = await responsiveReadyDiscovery();
     const composition = await clientFor(ready);
     const checkpoint = "reference-after-first-page";
     const ownedItems: Zotero.Item[] = [];
@@ -986,7 +1014,7 @@ describe("System E2E sidecar recovery", function () {
   // prettier-ignore
   pa("PA-01 reads a historical Topic without rewriting its read-only metadata", async function () {
     const facts = (await readPhase1StructuralFacts()).historicalTopic;
-    const ready = await waitUntil(() => readyDiscovery());
+    const ready = await responsiveReadyDiscovery();
     let composition = await clientFor(ready);
     const canonicalRoot = getRuntimePersistencePaths().synthesisDataRoot;
     let canonicalTopicRoot = "";
@@ -1147,7 +1175,7 @@ describe("System E2E sidecar recovery", function () {
 
   // prettier-ignore
   pa("PA-02 keeps valid Index neighbors when one artifact is oversized", async function () {
-    const ready = await waitUntil(() => readyDiscovery());
+    const ready = await responsiveReadyDiscovery();
     const composition = await clientFor(ready);
     const ownedItems: Zotero.Item[] = [];
     let operationId: string | undefined;
@@ -1239,7 +1267,7 @@ describe("System E2E sidecar recovery", function () {
 
   // prettier-ignore
   pm("PM-01 exactly replays one admitted maintenance operation", async function () {
-    const ready = await waitUntil(() => readyDiscovery());
+    const ready = await responsiveReadyDiscovery();
     const composition = await clientFor(ready);
     const checkpoint = "maintenance-after-admission";
     const ownedItems: Zotero.Item[] = [];
@@ -1330,7 +1358,7 @@ describe("System E2E sidecar recovery", function () {
 
   // prettier-ignore
   pm("PM-02 requires explicit continuation after admitted restart", async function () {
-    const initial = await waitUntil(() => readyDiscovery());
+    const initial = await responsiveReadyDiscovery();
     const initialComposition = await clientFor(initial);
     const checkpoint = "maintenance-after-admission";
     const ownedItems: Zotero.Item[] = [];
@@ -1538,7 +1566,7 @@ describe("System E2E sidecar recovery", function () {
 
   // prettier-ignore
   pm("PM-03 reconciles a killed running operation without replay", async function () {
-    const initial = await waitUntil(() => readyDiscovery());
+    const initial = await responsiveReadyDiscovery();
     const initialComposition = await clientFor(initial);
     const maintenanceCheckpoint = "maintenance-after-admission";
     const referenceCheckpoint = "reference-after-first-page";
@@ -1719,7 +1747,7 @@ describe("System E2E sidecar recovery", function () {
 
   // prettier-ignore
   pm("PM-04 cancels a running operation only at promotion", async function () {
-    const ready = await waitUntil(() => readyDiscovery());
+    const ready = await responsiveReadyDiscovery();
     const composition = await clientFor(ready);
     const checkpoint = "reference-after-first-page";
     const ownedItems: Zotero.Item[] = [];
@@ -1833,7 +1861,7 @@ describe("System E2E sidecar recovery", function () {
   // prettier-ignore
   cg("CG-01 rejects a stale graph view after public rebuild", async function () {
     const facts = (await readPhase1StructuralFacts()).citationGraph;
-    const ready = await waitUntil(() => readyDiscovery());
+    const ready = await responsiveReadyDiscovery();
     const composition = await clientFor(ready);
     const ownedItems: Zotero.Item[] = [];
     let oldGraphHash = "";
