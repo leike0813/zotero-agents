@@ -625,7 +625,13 @@ describe("System E2E sidecar recovery", function () {
         });
         await IOUtils.move(repositoryPath, backupPath);
         repositoryMoved = true;
-        await IOUtils.makeDirectory(repositoryPath);
+        // A non-database file at the database path fails repository
+        // preparation. A directory there would be undeletable on Windows while
+        // any handle is open, and the cleanup has to put the database back.
+        await writeRuntimeTextFile(
+          repositoryPath,
+          "system-e2e-sl02-poisoned-repository\n",
+        );
         const fetchOwner = Zotero.getMainWindow() as unknown as {
           fetch: typeof globalThis.fetch;
         };
@@ -659,7 +665,22 @@ describe("System E2E sidecar recovery", function () {
       },
       cleanup: async () => {
         await composition.dispose();
-        await removeRuntimePath(repositoryPath);
+        try {
+          await removeRuntimePath(repositoryPath);
+        } catch (error) {
+          const found = await listSidecarDiscoveries();
+          const alive: string[] = [];
+          for (const entry of found) {
+            if (await processIsAlive(entry.discovery.pid)) {
+              alive.push(
+                `${entry.discovery.pid}:${entry.discovery.lifecycleState}`,
+              );
+            }
+          }
+          throw new Error(
+            `${error instanceof Error ? error.message : String(error)} | sidecarDiscoveries=${found.length} aliveSidecarPids=${alive.join(",") || "none"}`,
+          );
+        }
         if (repositoryMoved) {
           await IOUtils.move(backupPath, repositoryPath);
           repositoryMoved = false;
@@ -753,8 +774,8 @@ describe("System E2E sidecar recovery", function () {
             },
           ],
     });
-    assert.isFalse(result.abort);
-    assert.equal(result.result, "passed");
+    assert.isFalse(result.abort, caseError);
+    assert.equal(result.result, "passed", caseError);
   });
 
   // prettier-ignore

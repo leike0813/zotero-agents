@@ -856,6 +856,10 @@ export function createSynthesisProductionRuntimeSupervisor(
         healthObservedAt: new Date(now()).toISOString(),
         readyAt: new Date(now()).toISOString(),
         nextRestartAt: undefined,
+        // A generation that reached ready ends the failure episode, so the
+        // retry budget and the fuse measure consecutive failures rather than
+        // every isolated restart of one long-lived session.
+        restartCount: 0,
       });
       scheduleHealth(current);
     } catch (error) {
