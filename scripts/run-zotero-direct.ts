@@ -24,12 +24,21 @@ import {
   unwatchFile,
   writeFileSync,
 } from "fs";
-import { dirname, resolve, join } from "path";
+import { basename, dirname, resolve, join } from "path";
 import { spawn, execFileSync, execSync } from "child_process";
 import { createHash } from "crypto";
 import * as net from "net";
 import { tmpdir } from "os";
 import { fileURLToPath } from "url";
+import {
+  resolveNativeCrashPrivateRoot,
+  stagePrivateZoteroCrashFixture,
+  startZoteroNativeCrashCapture,
+  terminateWindowsZoteroHostProcess,
+  waitForWindowsZoteroHostExit,
+  waitForWindowsZoteroHostProcess,
+  type ZoteroNativeCrashCapture,
+} from "./zotero-native-crash-capture";
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const SCRIPT_DIR = dirname(SCRIPT_PATH);
@@ -42,6 +51,7 @@ if (process.argv[1] && resolve(process.argv[1]) === SCRIPT_PATH) {
 
 const SHOULD_BUILD =
   process.argv.includes("--build") || process.argv.includes("-b");
+const CAPTURE_NATIVE_CRASH = process.argv.includes("--capture-native-crash");
 const ADDON_ID = "zotero-skills@leike0813@gmail.com";
 const ADDON_SOURCE_DIR = resolve(ROOT, ".scaffold/build/addon");
 const PREFS_PREFIX = "extensions.zotero.zotero-skills";
@@ -331,7 +341,10 @@ export function patchRuntimeRootPref(
   writeFileSync(prefsPath, lines.join("\n") + "\n", "utf-8");
 }
 
-function patchPrefsJs(profile: string): void {
+function patchPrefsJs(
+  profile: string,
+  env: NodeJS.ProcessEnv = process.env,
+): void {
   const prefsPath = join(profile, "prefs.js");
 
   const requiredPrefs: Record<string, string | number | boolean> = {
@@ -355,7 +368,7 @@ function patchPrefsJs(profile: string): void {
     "browser.link.open_newwindow": 3,
     "extensions.zotero.firstRun.skipFirefoxProfileAccessCheck": true,
     "extensions.zotero.firstRunGuidance": false,
-    [`${PREFS_PREFIX}.runtimeRoot`]: resolveDirectRuntimeRoot(process.env),
+    [`${PREFS_PREFIX}.runtimeRoot`]: resolveDirectRuntimeRoot(env),
   };
   const prefsToRemove = [
     "extensions.lastAppBuildId",
@@ -555,18 +568,26 @@ async function installTemporaryAddon(port: number): Promise<void> {
   client.disconnect();
 }
 
-async function launchZotero(): Promise<{
+async function launchZotero(
+  options: {
+    profile?: string;
+    dataDir?: string;
+    env?: NodeJS.ProcessEnv;
+  } = {},
+): Promise<{
   port: number;
   proc: ReturnType<typeof spawn>;
+  bin: string;
+  profile: string;
 }> {
   const port = await findFreeTcpPort();
   const bin = getZoteroBinary();
-  const profile = getProfilePath();
-  const dataDir = getDataDir();
+  const profile = options.profile || getProfilePath();
+  const dataDir = options.dataDir || getDataDir();
 
   const args = [
     "--purgecaches",
-    "no-remote",
+    "-no-remote",
     "-profile",
     profile,
     "--jsdebugger",
@@ -584,7 +605,7 @@ async function launchZotero(): Promise<{
     stdio: ["ignore", "pipe", "pipe"],
     detached: false,
     windowsHide: true,
-    env: buildZoteroLaunchEnv(process.env),
+    env: buildZoteroLaunchEnv(options.env || process.env),
   });
 
   proc.on("error", (err) => {
@@ -597,7 +618,7 @@ async function launchZotero(): Promise<{
   console.log(
     `[done] Zotero started (PID ${proc.pid}), debugger on port ${port}`,
   );
-  return { port, proc };
+  return { port, proc, bin, profile };
 }
 
 function waitForProcessClose(proc: ReturnType<typeof spawn>) {
@@ -625,33 +646,120 @@ async function main() {
     runBuild();
   }
 
-  const profile = getProfilePath();
+  let profile = getProfilePath();
+  let dataDir = getDataDir();
+  let launchEnv = process.env;
+  let crashCapture: ZoteroNativeCrashCapture | undefined;
+  let crashFixture:
+    | Awaited<ReturnType<typeof stagePrivateZoteroCrashFixture>>
+    | undefined;
+  let crashSummaryPath = "";
   if (!existsSync(ADDON_SOURCE_DIR)) {
     throw new Error(
       `Build output not found at ${ADDON_SOURCE_DIR}. Run with --build or "npm run build" first.`,
     );
   }
 
-  patchPrefsJs(profile);
+  if (CAPTURE_NATIVE_CRASH) {
+    if (process.platform !== "win32") {
+      throw new Error("native crash capture is supported only on Windows");
+    }
+    if (!dataDir) {
+      throw new Error(
+        "ZOTERO_PLUGIN_DATA_DIR is required for native crash capture",
+      );
+    }
+    crashFixture = await stagePrivateZoteroCrashFixture({
+      profileSource: profile,
+      dataSource: dataDir,
+      privateRoot: resolveNativeCrashPrivateRoot(process.env),
+      workspaceRoot: ROOT,
+      env: process.env,
+    });
+    profile = crashFixture.profileDir;
+    dataDir = crashFixture.dataDir;
+    launchEnv = {
+      ...process.env,
+      ZOTERO_PLUGIN_PROFILE_PATH: profile,
+      ZOTERO_PLUGIN_DATA_DIR: dataDir,
+    };
+    crashSummaryPath = resolve(
+      ROOT,
+      "artifacts/test-diagnostics/native-crash",
+      basename(crashFixture.root),
+      "zotero-native-crash-summary.json",
+    );
+    try {
+      crashCapture = await startZoteroNativeCrashCapture({
+        profileDir: profile,
+        privateRoot: join(crashFixture.root, "capture"),
+        publicSummaryPath: crashSummaryPath,
+        zoteroBinaryPath: getZoteroBinary(),
+        workspaceRoot: ROOT,
+        env: launchEnv,
+      });
+      launchEnv = crashCapture.env;
+    } catch (error) {
+      await crashFixture.cleanup();
+      throw error;
+    }
+  }
+
+  patchPrefsJs(profile, launchEnv);
   const synthesisBundle = inspectDirectSynthesisBundle();
   console.log(
     `[synthesis-sidecar] preflight ready target=${synthesisBundle.target} bundle=${synthesisBundle.bundleId} fingerprint=${synthesisBundle.buildFingerprint}`,
   );
   const stopSynthesisLogWatcher = watchDirectSynthesisRuntimeLogs(
-    resolveDirectRuntimeRoot(process.env),
+    resolveDirectRuntimeRoot(launchEnv),
   );
-  const { port, proc } = await launchZotero();
-  const stop = (exitCode: number) => {
+  const { port, proc, bin } = await launchZotero({
+    profile,
+    dataDir,
+    env: launchEnv,
+  });
+  let stopping = false;
+  let windowsHostProcessId: number | undefined;
+  const stop = async (exitCode: number) => {
+    if (stopping) return;
+    stopping = true;
     stopSynthesisLogWatcher();
-    try {
-      proc.kill();
-    } catch {
-      // ignore
+    if (process.platform === "win32" && crashCapture) {
+      try {
+        const processId =
+          windowsHostProcessId ||
+          (
+            await waitForWindowsZoteroHostProcess({
+              installRoot: dirname(bin),
+              profileDir: profile,
+              timeoutMs: 3_000,
+            })
+          ).processId;
+        await terminateWindowsZoteroHostProcess(processId);
+        await waitForWindowsZoteroHostExit(processId, 10_000);
+      } catch {
+        process.exit(exitCode);
+        return;
+      }
+    } else {
+      try {
+        proc.kill();
+      } catch {
+        // ignore
+      }
     }
+    if (crashCapture) {
+      try {
+        await crashCapture.finish();
+      } catch {
+        exitCode = 1;
+      }
+    }
+    await crashFixture?.cleanup();
     process.exit(exitCode);
   };
-  process.once("SIGINT", () => stop(130));
-  process.once("SIGTERM", () => stop(143));
+  process.once("SIGINT", () => void stop(130));
+  process.once("SIGTERM", () => void stop(143));
 
   // Zotero takes a moment to boot and open the debugger server.
   // The scaffold retries up to 150 times with 1s intervals.
@@ -664,7 +772,26 @@ async function main() {
       console.log(
         "[done] Plugin loaded. Zotero is running without hot-reload; close Zotero or press Ctrl+C to stop.",
       );
-      const exitCode = await waitForProcessClose(proc);
+      let exitCode: number;
+      if (process.platform === "win32" && crashCapture) {
+        const host = await waitForWindowsZoteroHostProcess({
+          installRoot: dirname(bin),
+          profileDir: profile,
+        });
+        windowsHostProcessId = host.processId;
+        console.log(`[done] Zotero host identified (PID ${host.processId})`);
+        await waitForWindowsZoteroHostExit(host.processId);
+        exitCode = proc.exitCode || 0;
+      } else {
+        exitCode = await waitForProcessClose(proc);
+      }
+      if (crashCapture) {
+        const summary = await crashCapture.finish();
+        console.log(`[native-crash-capture] ${summary.status}`);
+        console.log(`[native-crash-summary] ${crashSummaryPath}`);
+        if (summary.status !== "no_crash_observed") exitCode = 1;
+      }
+      await crashFixture?.cleanup();
       stopSynthesisLogWatcher();
       process.exit(exitCode);
       return;

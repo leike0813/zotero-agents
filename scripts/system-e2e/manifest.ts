@@ -3,7 +3,7 @@ import { createServer } from "node:http";
 import path from "node:path";
 import type { FixtureIdentity } from "./fixture";
 
-type ArtifactReference =
+export type ArtifactReference =
   | {
       status: "referenced";
       kind: string;
@@ -173,6 +173,36 @@ export function createRunManifest(identity: RunIdentity) {
             },
       );
     },
+    recordArtifact(
+      familyId: string,
+      caseId: string,
+      artifact: ArtifactReference,
+    ) {
+      let family = families.find(
+        (entry) => entry.familyId === familyId && entry.caseId === caseId,
+      );
+      if (!family) {
+        family = {
+          familyId,
+          caseId,
+          result: "failed",
+          failureCode: "runner_evidence_after_host_exit",
+          typedEvidence: [],
+          lifecycle: [],
+          cleanup: "indeterminate",
+          health: "indeterminate",
+          artifacts: [],
+        };
+        families.push(family);
+      }
+      if (
+        !family.artifacts.some(
+          (entry) => JSON.stringify(entry) === JSON.stringify(artifact),
+        )
+      ) {
+        family.artifacts.push({ ...artifact });
+      }
+    },
     complete: () => finish("complete"),
     abort: (failure: { failurePhase: string; abortCode: string }) =>
       finish("aborted", failure),
@@ -227,6 +257,14 @@ export function createRunManifestEventCollector(identity: RunIdentity) {
           abortCode: String(data.abortCode || "system_e2e_aborted"),
         };
       }
+    },
+    recordArtifact(
+      familyId: string,
+      caseId: string,
+      artifact: ArtifactReference,
+    ) {
+      manifest.recordArtifact(familyId, caseId, artifact);
+      familyCount = Math.max(familyCount, 1);
     },
     finalize(exitCode: number) {
       if (abort) return manifest.abort(abort);

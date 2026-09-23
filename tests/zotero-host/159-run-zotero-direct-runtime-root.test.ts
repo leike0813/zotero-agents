@@ -13,6 +13,11 @@ import {
   buildStartWithMockEnv,
   patchStartWithMockRuntimePrefs,
 } from "../../scripts/run-zotero-start-with-mock";
+import {
+  resolveNativeCrashPrivateRoot,
+  selectWindowsZoteroHostProcess,
+  stagePrivateZoteroCrashFixture,
+} from "../../scripts/zotero-native-crash-capture";
 
 describe("run-zotero-direct runtime root safety", function () {
   it("uses the configured Zotero data dir before the temporary fallback", function () {
@@ -83,6 +88,98 @@ describe("run-zotero-direct runtime root safety", function () {
       () => resolveDirectSynthesisTarget("win32", "arm64"),
       /synthesis_sidecar_direct_target_unsupported/,
     );
+  });
+
+  it("keeps native crash artifacts outside the workspace by default", function () {
+    assert.equal(
+      resolveNativeCrashPrivateRoot({
+        LOCALAPPDATA: "C:\\Users\\person\\AppData\\Local",
+      }),
+      path.win32.join(
+        "C:\\Users\\person\\AppData\\Local",
+        "Zotero Agents",
+        "crash-captures",
+      ),
+    );
+  });
+
+  it("selects the real Windows host by install tree and copied profile", function () {
+    const selected = selectWindowsZoteroHostProcess(
+      [
+        {
+          processId: 10,
+          executablePath: "C:\\Zotero\\zotero.exe",
+          commandLine: '"C:\\Zotero\\zotero.exe"',
+        },
+        {
+          processId: 42,
+          executablePath: "C:\\Zotero\\zotero.exe",
+          commandLine:
+            '"C:\\Zotero\\zotero.exe" -profile "D:\\Private\\profile"',
+        },
+        {
+          processId: 99,
+          executablePath: "C:\\Other\\zotero.exe",
+          commandLine:
+            '"C:\\Other\\zotero.exe" -profile "D:\\Private\\profile"',
+        },
+      ],
+      {
+        installRoot: "C:\\Zotero",
+        profileDir: "D:\\Private\\profile",
+      },
+    );
+
+    assert.equal(selected?.processId, 42);
+  });
+
+  it("stages private profile and data copies without retaining profile locks", async function () {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-crash-fixture-"));
+    const workspace = path.join(root, "workspace");
+    const sourceProfile = path.join(root, "source-profile");
+    const sourceData = path.join(root, "source-data");
+    try {
+      await Promise.all([
+        fs.mkdir(sourceProfile, { recursive: true }),
+        fs.mkdir(sourceData, { recursive: true }),
+        fs.mkdir(workspace, { recursive: true }),
+      ]);
+      await Promise.all([
+        fs.writeFile(path.join(sourceProfile, "prefs.js"), "source-profile"),
+        fs.writeFile(path.join(sourceProfile, "parent.lock"), "locked"),
+        fs.writeFile(path.join(sourceData, "zotero.sqlite"), "source-data"),
+      ]);
+
+      const fixture = await stagePrivateZoteroCrashFixture({
+        profileSource: sourceProfile,
+        dataSource: sourceData,
+        privateRoot: path.join(root, "private"),
+        workspaceRoot: workspace,
+      });
+
+      assert.equal(
+        await fs.readFile(path.join(fixture.profileDir, "prefs.js"), "utf8"),
+        "source-profile",
+      );
+      assert.equal(
+        await fs.readFile(path.join(fixture.dataDir, "zotero.sqlite"), "utf8"),
+        "source-data",
+      );
+      let copiedLockExists = true;
+      try {
+        await fs.access(path.join(fixture.profileDir, "parent.lock"));
+      } catch {
+        copiedLockExists = false;
+      }
+      assert.isFalse(copiedLockExists);
+      assert.equal(
+        await fs.readFile(path.join(sourceProfile, "parent.lock"), "utf8"),
+        "locked",
+      );
+      await fixture.cleanup();
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 
   it("selects only unseen Synthesis lifecycle events for terminal output", function () {

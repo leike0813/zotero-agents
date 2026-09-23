@@ -165,5 +165,11 @@ jobs:
           path: |
             ${{ runner.temp }}/zotero-compat-runs
             artifacts/test-diagnostics/system-e2e
+            !${{ runner.temp }}/zotero-compat-runs/**/*.dmp
+            !${{ runner.temp }}/zotero-compat-runs/**/*.extra
+            !${{ runner.temp }}/zotero-compat-runs/**/*.cdb.log
+            !artifacts/test-diagnostics/system-e2e/**/*.dmp
+            !artifacts/test-diagnostics/system-e2e/**/*.extra
+            !artifacts/test-diagnostics/system-e2e/**/*.cdb.log
           if-no-files-found: warn
           retention-days: 90

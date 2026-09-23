@@ -1,5 +1,5 @@
 import { assert } from "chai";
-import { mkdtemp, mkdir, readFile, writeFile } from "fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "fs/promises";
 import os from "os";
 import path from "path";
 import {
@@ -55,6 +55,12 @@ import {
   validateFamilyDeclarations,
 } from "../../scripts/system-e2e/familyLifecycle";
 import { shouldRunPerTestSharedTeardown } from "../zotero/diagnosticBridge";
+import {
+  buildZoteroNativeCrashEnvironment,
+  parseCdbCrashEvidence,
+  selectNewCrashArtifactNames,
+  startZoteroNativeCrashCapture,
+} from "../../scripts/zotero-native-crash-capture";
 
 const SAMPLE_HTML = `<!DOCTYPE html>
 <html>
@@ -657,6 +663,42 @@ describe("zotero test infrastructure helpers", function () {
       }
     });
 
+    it("retains runner-owned crash evidence when the host exits before reporting its family", function () {
+      const collector = createRunManifestEventCollector({
+        runId: "run-native-crash",
+        triggerLane: "cg-02-windows",
+        sourceCommit: "abc123",
+        pluginVersion: "0.0.0",
+        zoteroVersion: "pending-runtime",
+        platform: "win32",
+        architecture: "x64",
+        sidecarBuildIdentity: "sidecar-1",
+        fixture: {
+          fixtureId: "fixture",
+          schemaVersion: "v1",
+          fixtureRevision: 1,
+        },
+        startedAt: "2026-09-23T00:00:00.000Z",
+      });
+
+      collector.recordArtifact("CG", "CG-02", {
+        status: "referenced",
+        kind: "native-crash-summary",
+        producer: "CG-02",
+        mediaType: "application/json",
+        relativePath:
+          "artifacts/test-diagnostics/system-e2e/run-native-crash/zotero-native-crash-summary.json",
+      });
+
+      const manifest = collector.finalize(1);
+      assert.equal(manifest.terminalState, "incomplete");
+      assert.equal(manifest.families[0].caseId, "CG-02");
+      assert.deepInclude(manifest.families[0].artifacts[0], {
+        kind: "native-crash-summary",
+        producer: "CG-02",
+      });
+    });
+
     it("accepts reporter events through a loopback-only sink", async function () {
       const accepted: unknown[] = [];
       const sink = await startSystemE2EEventSink((event) => {
@@ -837,6 +879,161 @@ describe("zotero test infrastructure helpers", function () {
     assert.equal(catalog.ZOTERO_SYNTHESIS_CLOSE_CYCLES, "30");
     assert.equal(catalog.ZOTERO_SYSTEM_E2E_CASE, "CG-02");
     assert.equal(catalog.ZOTERO_E2E_TRIGGER_LANE, "cg-02-windows");
+  });
+
+  describe("Windows native crash evidence", function () {
+    it("enables Mozilla full dumps only for the captured Zotero child", function () {
+      const source = {
+        KEEP: "yes",
+        MOZ_CRASHREPORTER_DISABLE: "1",
+      } as NodeJS.ProcessEnv;
+      const captured = buildZoteroNativeCrashEnvironment(source);
+
+      assert.deepInclude(captured, {
+        KEEP: "yes",
+        MOZ_CRASHREPORTER: "1",
+        MOZ_CRASHREPORTER_NO_REPORT: "1",
+        MOZ_CRASHREPORTER_FULLDUMP: "1",
+      });
+      assert.notProperty(captured, "MOZ_CRASHREPORTER_DISABLE");
+      assert.notProperty(source, "MOZ_CRASHREPORTER");
+    });
+
+    it("collects only dump artifacts created after the session baseline", function () {
+      const selected = selectNewCrashArtifactNames(
+        new Set(["old.dmp", "old.extra"]),
+        ["old.dmp", "old.extra", "new.dmp", "new.extra", "notes.txt"],
+      );
+
+      assert.deepEqual(selected, ["new.dmp", "new.extra"]);
+    });
+
+    it("whitelists CDB evidence without leaking paths or arbitrary extra fields", function () {
+      const evidence = parseCdbCrashEvidence(
+        [
+          "EXCEPTION_CODE: (NTSTATUS) 0xc0000005",
+          "MODULE_NAME: xul",
+          "IMAGE_NAME: xul.dll",
+          "FAILURE_BUCKET_ID: NULL_POINTER_READ_c0000005_xul.dll!GraphOwner::close",
+          "===FAULTING_STACK===",
+          "00 00000000`0012f000 00007ffa`12345678 xul!GraphOwner::close+0x2a",
+          "===ALL_THREADS===",
+          ".  0  Id: 1234.5678 Suspend: 0 Teb: 00000000 Unfrozen",
+          "00 00000000`0012f000 00007ffa`12345678 xul!GraphOwner::close+0x2a",
+          "   1  Id: 1234.9999 Suspend: 0 Teb: 00000000 Unfrozen",
+          "00 00000000`0022f000 00007ffa`87654321 ntdll!NtWaitForSingleObject+0x14",
+          "C:\\Users\\person\\private-source.cpp:42 token=secret-value",
+        ].join("\n"),
+        {
+          ProcessType: "main",
+          BuildID: "20260826142222",
+          URL: "https://secret.invalid/paper",
+          Comments: "token=secret-value",
+        },
+      );
+      const serialized = JSON.stringify(evidence);
+
+      assert.equal(evidence.exceptionCode, "0xc0000005");
+      assert.equal(evidence.faultingModule, "xul.dll");
+      assert.equal(evidence.processType, "main");
+      assert.lengthOf(evidence.threads, 2);
+      assert.notInclude(serialized, "C:\\Users");
+      assert.notInclude(serialized, "secret.invalid");
+      assert.notInclude(serialized, "secret-value");
+    });
+
+    it("moves a new dump out of the profile and publishes only its sanitized summary", async function () {
+      const root = await mkdtemp(path.join(os.tmpdir(), "zs-native-crash-"));
+      const workspace = path.join(root, "workspace");
+      const profile = path.join(workspace, "profile");
+      const minidumps = path.join(profile, "minidumps");
+      const privateRoot = path.join(root, "private");
+      const summaryPath = path.join(workspace, "summary.json");
+      const cdbPath = path.join(root, "cdb.exe");
+      try {
+        await Promise.all([
+          mkdir(minidumps, { recursive: true }),
+          mkdir(privateRoot, { recursive: true }),
+          writeFile(cdbPath, "fake"),
+        ]);
+        await writeFile(path.join(minidumps, "old.dmp"), "old");
+        const capture = await startZoteroNativeCrashCapture({
+          profileDir: profile,
+          privateRoot,
+          publicSummaryPath: summaryPath,
+          zoteroBinaryPath: path.join(root, "zotero.exe"),
+          workspaceRoot: workspace,
+          cdbPath,
+          settleMs: 0,
+          runCdb: async () => ({
+            exitCode: 0,
+            output: [
+              "EXCEPTION_CODE: (NTSTATUS) 0xc0000005",
+              "IMAGE_NAME: xul.dll",
+              "===FAULTING_STACK===",
+              "00 00000000`0012f000 00007ffa`12345678 xul!close+0x2a",
+              "===ALL_THREADS===",
+              ".  0  Id: 1.2 Suspend: 0 Teb: 0 Unfrozen",
+              "00 00000000`0012f000 00007ffa`12345678 xul!close+0x2a",
+              "===MODULES===",
+            ].join("\n"),
+          }),
+        });
+        await writeFile(path.join(minidumps, "new.dmp"), "private-memory");
+        await writeFile(
+          path.join(minidumps, "new.extra"),
+          JSON.stringify({
+            ProcessType: "main",
+            BuildID: "20260826142222",
+            URL: "https://secret.invalid",
+          }),
+        );
+
+        const summary = await capture.finish();
+        const publicText = await readFile(summaryPath, "utf8");
+        const privateSessions = await readdir(privateRoot);
+
+        assert.equal(summary.status, "crash_captured");
+        assert.equal(summary.dumpCount, 1);
+        assert.notInclude(await readdir(minidumps), "new.dmp");
+        assert.include(await readdir(minidumps), "old.dmp");
+        assert.notInclude(publicText, "private-memory");
+        assert.notInclude(publicText, "secret.invalid");
+        assert.lengthOf(privateSessions, 1);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
+    it("fails closed with a public capture-incomplete summary when CDB is missing", async function () {
+      const root = await mkdtemp(path.join(os.tmpdir(), "zs-native-crash-"));
+      const workspace = path.join(root, "workspace");
+      const profile = path.join(workspace, "profile");
+      const summaryPath = path.join(workspace, "summary.json");
+      try {
+        await mkdir(profile, { recursive: true });
+        let failure: unknown;
+        try {
+          await startZoteroNativeCrashCapture({
+            profileDir: profile,
+            privateRoot: path.join(root, "private"),
+            publicSummaryPath: summaryPath,
+            zoteroBinaryPath: path.join(root, "zotero.exe"),
+            workspaceRoot: workspace,
+            cdbPath: path.join(root, "missing-cdb.exe"),
+            env: {},
+          });
+        } catch (error) {
+          failure = error;
+        }
+        assert.match(String(failure), /zotero_native_crash_cdb_unavailable/);
+        const summary = JSON.parse(await readFile(summaryPath, "utf8"));
+        assert.equal(summary.status, "capture_incomplete");
+        assert.deepEqual(summary.evidenceGaps, ["cdb_unavailable"]);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
   });
 
   it("routes the full E2E domain without adding it to ordinary suites", function () {

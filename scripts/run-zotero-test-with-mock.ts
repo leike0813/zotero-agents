@@ -20,6 +20,10 @@ import {
 } from "./system-e2e/manifest";
 import { resolveCurrentHostBridgeCli } from "../tests/helpers/hostBridgeCliHarness";
 import { persistCompatibilityHostFactsEvent } from "./zotero-compatibility-fixture";
+import {
+  startZoteroNativeCrashCapture,
+  type ZoteroNativeCrashCapture,
+} from "./zotero-native-crash-capture";
 
 type Child = ReturnType<typeof spawn>;
 type SpawnOptions = Parameters<typeof spawn>[2];
@@ -599,12 +603,14 @@ async function main() {
     | {
         env: NodeJS.ProcessEnv;
         finish: (exitCode: number) => Promise<void>;
+        recordNativeCrashArtifact: () => Promise<void>;
         close: () => Promise<void>;
       }
     | undefined;
   let restartRequest: SystemE2ERestartRequest | undefined;
   let restartBoundary: Promise<SystemE2ERestartRequest> | undefined;
   let resumeRoot = "";
+  let nativeCrashSummaryPath = "";
   if (testEnv.ZOTERO_TEST_DOMAIN === "e2e") {
     const hostBridgeCli = await resolveCurrentHostBridgeCli();
     testEnv.ZOTERO_BRIDGE_CLI = hostBridgeCli.cliPath;
@@ -634,6 +640,10 @@ async function main() {
       path.dirname(manifestPath),
       "citation-graph-crash-journal.json",
     );
+    nativeCrashSummaryPath = path.join(
+      path.dirname(manifestPath),
+      "zotero-native-crash-summary.json",
+    );
     await mkdir(path.dirname(manifestPath), { recursive: true });
     const sourceCommit =
       String(testEnv.GITHUB_SHA || testEnv.CI_COMMIT_SHA || "").trim() ||
@@ -657,6 +667,7 @@ async function main() {
         : {}),
     });
     let persistence = persistRunManifest(manifestPath, collector.snapshot());
+    let nativeCrashArtifactRecorded = false;
     publishRunManifestReference(manifestPath);
     const sink = await startSystemE2EEventSink(async (event) => {
       const compatibilityRunRoot = String(
@@ -709,6 +720,28 @@ async function main() {
         await persistence;
         await persistRunManifest(manifestPath, collector.finalize(exitCode));
       },
+      recordNativeCrashArtifact: async () => {
+        if (nativeCrashArtifactRecorded) return;
+        try {
+          await readFile(nativeCrashSummaryPath, "utf8");
+        } catch {
+          return;
+        }
+        nativeCrashArtifactRecorded = true;
+        collector.recordArtifact("CG", "CG-02", {
+          status: "referenced",
+          kind: "native-crash-summary",
+          producer: "CG-02",
+          mediaType: "application/json",
+          relativePath: path
+            .relative(process.cwd(), nativeCrashSummaryPath)
+            .replace(/\\/g, "/"),
+        });
+        persistence = persistence.then(() =>
+          persistRunManifest(manifestPath, collector.snapshot()),
+        );
+        await persistence;
+      },
       close: sink.close,
     };
   }
@@ -757,10 +790,25 @@ async function main() {
     void trap(1);
   });
 
+  let nativeCrashCapture: ZoteroNativeCrashCapture | undefined;
   try {
     const mockBaseUrl = await waitForMockReady(mock);
+    if (
+      process.platform === "win32" &&
+      effectiveTestEnv.ZOTERO_SYSTEM_E2E_CASE === "CG-02"
+    ) {
+      nativeCrashCapture = await startZoteroNativeCrashCapture({
+        profileDir: path.join(resolveSystemE2EScaffoldRoot(testEnv), "profile"),
+        publicSummaryPath: nativeCrashSummaryPath,
+        zoteroBinaryPath: String(
+          effectiveTestEnv.ZOTERO_PLUGIN_ZOTERO_BIN_PATH || "",
+        ),
+        workspaceRoot: process.cwd(),
+        env: effectiveTestEnv,
+      });
+    }
     const targetEnv = buildMockSkillRunnerEndpointEnvironment(
-      effectiveTestEnv,
+      nativeCrashCapture?.env || effectiveTestEnv,
       mockBaseUrl,
     );
     console.log(`[test-skillrunner-endpoint] ${mockBaseUrl}`);
@@ -777,11 +825,26 @@ async function main() {
         ZOTERO_SYSTEM_E2E_RESUME_ROOT: resumeRoot,
       });
     }
+    if (nativeCrashCapture) {
+      const crashSummary = await nativeCrashCapture.finish();
+      await systemE2ERun?.recordNativeCrashArtifact();
+      console.log(`[native-crash-capture] ${crashSummary.status}`);
+      if (crashSummary.status !== "no_crash_observed") code = 1;
+    }
     await systemE2ERun?.finish(code);
     await cleanup();
     process.exit(code);
   } catch (error) {
     console.error(error);
+    if (nativeCrashCapture) {
+      try {
+        const crashSummary = await nativeCrashCapture.finish();
+        console.log(`[native-crash-capture] ${crashSummary.status}`);
+      } catch (captureError) {
+        console.error(captureError);
+      }
+    }
+    await systemE2ERun?.recordNativeCrashArtifact();
     try {
       await systemE2ERun?.finish(1);
     } catch (manifestError) {
