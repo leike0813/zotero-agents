@@ -24,6 +24,7 @@ import {
   observeSystemE2EHealth,
   processIsAlive,
   terminateProcess,
+  terminateStraySidecarProcesses,
   waitUntil,
   type SidecarDiscoveryEntry,
 } from "../../../../scripts/system-e2e/healthGate";
@@ -679,6 +680,9 @@ describe("System E2E sidecar recovery", function () {
             await terminateProcess(entry.discovery.pid);
           }
         }
+        // A failed launch can leave the child alive without a discovery, and
+        // that process is the one holding the poisoned path on Windows.
+        await terminateStraySidecarProcesses();
         let released = true;
         if (await runtimePathExists(repositoryPath)) {
           await setRuntimeFilePermissions(repositoryPath, 0o644).catch(

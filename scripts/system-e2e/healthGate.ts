@@ -138,6 +138,36 @@ export type SidecarDiscoveryEntry = {
   path: string;
 };
 
+// The installed runtime executable, which is the only image a stray sidecar
+// process can carry. See `scripts/synthesis/package-synthesis-sidecar-runtime`.
+const SYNTHESIS_SIDECAR_IMAGE =
+  detectRuntimePlatform() === "win32"
+    ? "synthesis-sidecar.exe"
+    : "synthesis-sidecar";
+
+/**
+ * A failed launch can leave the sidecar child alive without ever publishing a
+ * discovery, and on Windows that process keeps the handle that blocks its
+ * repository path. Generation-scoped termination cannot see such a process, so
+ * the image name is the fallback; "no such process" is not a failure, and the
+ * reported code is kept in the runner output for the record.
+ */
+export async function terminateStraySidecarProcesses() {
+  if (detectRuntimePlatform() !== "win32") {
+    return;
+  }
+  const result = await runSystemTool("taskkill", [
+    "/IM",
+    SYNTHESIS_SIDECAR_IMAGE,
+    "/F",
+  ]);
+  if (result.exitCode !== 0) {
+    console.error(
+      `[system-e2e] stray sidecar termination reported ${String(result.exitCode)}: ${result.stderr.trim()}`,
+    );
+  }
+}
+
 export async function listSidecarDiscoveries() {
   const runtime = getSynthesisSidecarRuntimePaths(
     getRuntimePersistencePaths().runtimeRoot,
