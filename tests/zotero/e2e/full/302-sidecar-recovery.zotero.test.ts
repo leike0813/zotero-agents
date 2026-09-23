@@ -665,26 +665,34 @@ describe("System E2E sidecar recovery", function () {
       },
       cleanup: async () => {
         await composition.dispose();
-        try {
-          await removeRuntimePath(repositoryPath);
-        } catch (error) {
-          const found = await listSidecarDiscoveries();
-          const alive: string[] = [];
-          for (const entry of found) {
-            if (await processIsAlive(entry.discovery.pid)) {
-              alive.push(
-                `${entry.discovery.pid}:${entry.discovery.lifecycleState}`,
-              );
-            }
+        // The plugin may have recovered with a generation that now owns the
+        // poisoned database path, and Windows refuses to delete a path another
+        // process still holds, so any live generation is stopped first and the
+        // poison is moved aside before the original database is put back.
+        for (const entry of await listSidecarDiscoveries()) {
+          if (await processIsAlive(entry.discovery.pid)) {
+            await terminateProcess(entry.discovery.pid);
           }
+        }
+        const poisonedPath = `${repositoryPath}.system-e2e-sl02-poison`;
+        try {
+          await moveRuntimePath({
+            sourcePath: repositoryPath,
+            targetPath: poisonedPath,
+            overwrite: true,
+          });
+        } catch (error) {
           throw new Error(
-            `${error instanceof Error ? error.message : String(error)} | sidecarDiscoveries=${found.length} aliveSidecarPids=${alive.join(",") || "none"}`,
+            `system_e2e_sl02_poison_release_failed:${
+              error instanceof Error ? error.message : String(error)
+            }`,
           );
         }
         if (repositoryMoved) {
           await IOUtils.move(backupPath, repositoryPath);
           repositoryMoved = false;
         }
+        await removeRuntimePath(poisonedPath).catch(() => undefined);
         await frame.contentWindow.__zoteroSkillsSynthesisWorkbenchBridge?.postMessage(
           "retrySynthesisSidecar",
           {},

@@ -645,6 +645,21 @@ describe("zotero test infrastructure helpers", function () {
       assert.equal(manifest.families[0].familyId, "SL");
       assert.notInclude(JSON.stringify(manifest), "must not enter manifest");
 
+      const restarted = createRunManifestEventCollector(identity);
+      restarted.accept({
+        type: "debug",
+        data: {
+          kind: "system-e2e-family-result",
+          family: { familyId: "SL", result: "passed", ...evidence },
+        },
+      });
+      restarted.accept({
+        type: "debug",
+        data: { kind: "zotero-test-fail-detail", title: "SL-02" },
+      });
+      restarted.accept({ type: "end", data: { failed: 0, aborted: 0 } });
+      assert.equal(restarted.finalize(0).terminalState, "incomplete");
+
       for (const [end, exitCode] of [
         [{ failed: 1, aborted: 0 }, 0],
         [{ failed: 0, aborted: 1 }, 0],
@@ -833,6 +848,28 @@ describe("zotero test infrastructure helpers", function () {
       });
       assert.isTrue(result.abort);
       assert.equal(result.abortCode, "family_cleanup_indeterminate");
+    });
+
+    it("records a throwing cleanup as a failed cleanup", async function () {
+      const result = await runFamilyLifecycle({
+        declaration: family,
+        execute: async () => undefined,
+        cleanup: async () => {
+          throw new Error("cleanup exploded");
+        },
+        healthGate: async () => ({
+          status: "passed",
+          hostResponsive: true,
+          pluginResponsive: true,
+          sidecarReady: true,
+          undeclaredOperations: 0,
+          managedProcesses: 0,
+          residualOwnedState: [],
+        }),
+      });
+      assert.isTrue(result.abort);
+      assert.equal(result.cleanup, "failed");
+      assert.equal(result.abortCode, "family_cleanup_failed");
     });
 
     it("fails the Suite Health Gate on an undeclared leak", async function () {
