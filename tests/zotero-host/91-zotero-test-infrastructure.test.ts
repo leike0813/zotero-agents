@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { spawn } from "node:child_process";
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "fs/promises";
 import os from "os";
 import path from "path";
@@ -7,6 +8,9 @@ import {
   buildForwardedTestArgs,
   buildTestEnvironment,
   parseSystemE2ERestartRequest,
+  parseSystemE2EPeerRestartRequest,
+  buildSystemE2EResumeEnvironment,
+  terminateExactProcess,
   parseWrappedTestInvocation,
   normalizeTestDomain,
   resolveMockSkillRunnerPort,
@@ -475,6 +479,77 @@ describe("zotero test infrastructure helpers", function () {
       await writeFile(checkpointPath, "system-e2e:hb:03", "utf8");
 
       assert.equal(await admitted, "held");
+    });
+
+    it("accepts the Phase 2 restart cases and preserves the relaunch environment", async function () {
+      for (const [caseId, operationId] of [
+        ["AC-05", "system-e2e:ac:05"],
+        ["SR-02", "system-e2e:sr:02"],
+      ]) {
+        assert.deepEqual(
+          parseSystemE2ERestartRequest({
+            type: "debug",
+            data: {
+              kind: "system-e2e-owner-restart-request",
+              caseId,
+              operationId,
+              processId: 4242,
+            },
+          }),
+          { caseId, operationId, processId: 4242 },
+        );
+      }
+      assert.isNull(
+        parseSystemE2ERestartRequest({
+          type: "debug",
+          data: {
+            kind: "system-e2e-owner-restart-request",
+            caseId: "SR-02",
+            operationId: "wrong-operation",
+            processId: 4242,
+          },
+        }),
+      );
+      const env = {
+        ZOTERO_TEST_DATA_DIR: "/copied/data",
+        ZOTERO_TEST_SKILLRUNNER_ENDPOINT: "http://127.0.0.1:18030",
+        ZOTERO_TEST_GREP: "SR-02",
+      };
+      assert.deepEqual(
+        buildSystemE2EResumeEnvironment(env, "SR-02", "/resume"),
+        {
+          ...env,
+          ZOTERO_SYSTEM_E2E_RESUME_CASE: "SR-02",
+          ZOTERO_SYSTEM_E2E_RESUME_ROOT: "/resume",
+        },
+      );
+      assert.deepEqual(
+        parseSystemE2EPeerRestartRequest({
+          type: "debug",
+          data: { kind: "system-e2e-peer-restart-request", caseId: "SR-03" },
+        }),
+        { caseId: "SR-03" },
+      );
+    });
+
+    it("confirms exact child termination before returning", async function () {
+      const child = spawn(
+        process.execPath,
+        ["-e", "setInterval(() => {}, 1000)"],
+        {
+          stdio: "ignore",
+        },
+      );
+      const exited = new Promise<number | null>((resolve) =>
+        child.once("exit", resolve),
+      );
+      assert.isNumber(child.pid);
+      try {
+        await terminateExactProcess(child.pid!);
+        assert.isNull(await exited);
+      } finally {
+        child.kill("SIGKILL");
+      }
     });
 
     it("rejects private database files and absolute paths", async function () {

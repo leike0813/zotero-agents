@@ -48,6 +48,30 @@ ZOTERO_PLUGIN_ZOTERO_BIN_PATH=/absolute/path/to/zotero npm run test:zotero:e2e
 
 兼容矩阵 cell 的 receipt 引用 `diagnostics/` 下的 `runner.stdout.log`、`runner.stderr.log` 与 `host-facts.json`，并在运行布局被清理前落盘 `sidecar-runtime-evidence.json`。该文件记录已安装 bundle 的 target、bundleId、buildFingerprint 和缺失文件数，逐 session 记录 discovery `lifecycleState`、bundleId 是否与安装件一致、是否记录进程，以及 runtime log 的存在与大小；log 不超过 512 KiB 时另存 `runtime-logs.json`。它用于判断 cell 是否装上 sidecar、是否产生 ready session，不复制 bundle、session token 或绝对路径。cell worker 在 manifest 首次落盘时就发布 Run Manifest reference，被超时终止的 cell 因此仍能把 receipt 绑定到自己的 manifest 与日志，而不是退化成 `run_manifest_reference_missing`。
 
+## Phase 2 ACP 与 SkillRunner catalog
+
+`tests/zotero/e2e/full/303-phase2-acp-skillrunner.zotero.test.ts` 包含十四个 case：`AC-01`–`AC-05`、`AO-01`、`AT-01`、`SR-01`–`SR-04`、`AW-01`、`AW-02`、`AP-01`。它们沿用上述单一 runner、Committed Seed、family cleanup、Suite Health Gate 与 Run Manifest。Linux Zotero 10 的整组运行可用：
+
+```bash
+ZOTERO_TEST_GREP='System E2E runner foundation|AC-0[1-5]|AO-01|AT-01|SR-0[1-4]|AW-0[1-2]|AP-01' \
+ZOTERO_PLUGIN_ZOTERO_BIN_PATH=/absolute/path/to/zotero \
+npm run test:zotero:e2e
+```
+
+ACP 进程 fixture 是 `tests/fixtures/acp/acp-composer-reply-agent.mjs`。`ZOTERO_ACP_COMPOSER_E2E_MODE` 选择 `normal`、`startup-stall`、`exit-during-turn` 或 `cancel-result-race`；`normal` 还提供 Host Bridge 手工写审批与 transcript side-channel 交错输出。`ZOTERO_ACP_COMPOSER_E2E_MODE_FILE` 在子进程启动时读取 mode，供同一 backend 配置下的 AC-05 探测与重启使用。`ZOTERO_ACP_COMPOSER_E2E_EVIDENCE` 指向本轮复制 profile 中的 NDJSON，记录 mode、PID 与请求阶段，不记录 token。
+
+Mock SkillRunner 的 `POST /__test/handshake-delay` 设置握手延迟，`POST /__test/hold-jobs` 暂停作业终态，`POST /__test/jobs` 返回本实例的 request ID 集合。SR-03 由 outer runner 重启同一端口的 mock peer，新实例的内存请求表为空；AC-05 与 SR-02 则由 outer runner 终止准确的 Zotero 子进程，确认退出后以同一复制 profile/data 和 endpoint 环境重启。SR-02 第一次外部终止即命中 durable `apply.started`，因此未添加测试 checkpoint。所有重启证据仍在本轮 Run Manifest 中归档。
+
+Windows 的 AP-01 另在真实 Zotero 10/Windows 上运行，检查 native Skill root 路径和材料化完成后的 readiness。PowerShell 示例：
+
+```powershell
+$env:ZOTERO_TEST_GREP = 'System E2E runner foundation|AP-01'
+$env:ZOTERO_PLUGIN_ZOTERO_BIN_PATH = 'D:\Workspace\Artifact\Zotero-Skills\zotero-hosts\windows-x64\10.0.2\Zotero_win-x64\zotero.exe'
+npm run test:zotero:e2e
+```
+
+没有 Windows 宿主时记录 `skipped`，不能把 Linux AP-01 结果记作 Windows 通过。Phase 2 当前不增加 CI 阻塞 cell。
+
 ## LiSongTao 金例
 
 金例只提交去标识化结构契约：`tests/fixtures/zotero-e2e/lisongtao-v1.json`。标题、作者、路径和正文不会进入仓库。运行时把指定库与 profile 复制到 `.scaffold/test`，不会修改来源目录；副本中的 machine-bound canonical identity、sidecar executable/runtime 与旧日志会被清除并由测试实例重建。

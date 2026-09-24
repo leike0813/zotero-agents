@@ -106,6 +106,7 @@ import {
   cloneJsonObject,
   createAcpHardTimeoutMonitor,
   errorMessage,
+  isConfirmedAcpPromptInterruption,
   isObservableAcpPromptOutputUpdateKind,
   markAcpSkillRunContinuationRunning,
   prepareAcpSkillRunHostBridgeCli,
@@ -1611,7 +1612,10 @@ export async function recoverAcpSkillRunConversation(args: {
       });
       return;
     }
-    if (recoveredInterruptionRequested) {
+    if (
+      recoveredInterruptionRequested &&
+      isConfirmedAcpPromptInterruption(promptOutcome.stopReason)
+    ) {
       recoveredInterruptWatchdog?.clear();
       recoveredInterruptWatchdog = null;
       upsertAcpSkillRun(
@@ -1647,6 +1651,22 @@ export async function recoverAcpSkillRunConversation(args: {
             },
       );
       return;
+    }
+    if (recoveredInterruptionRequested) {
+      recoveredInterruptWatchdog?.clear();
+      recoveredInterruptWatchdog = null;
+      recoveredInterruptionRequested = false;
+      upsertAcpSkillRun({
+        requestId,
+        promptInterruptState: "unconfirmed",
+        event: {
+          stage: "interrupt-unconfirmed",
+          message:
+            "ACP prompt returned a result after interruption was requested.",
+          level: "warn",
+          details: { recovered: true, stopReason: promptOutcome.stopReason },
+        },
+      });
     }
     if (!shouldContinueWorkflow) {
       upsertAcpSkillRun(

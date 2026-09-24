@@ -52,7 +52,7 @@ describe("System E2E runner foundation", function () {
   this.timeout(180_000);
 
   before(async function () {
-    if (readDiagnosticsEnv("ZOTERO_SYSTEM_E2E_RESUME_CASE") === "HB-03") {
+    if (readDiagnosticsEnv("ZOTERO_SYSTEM_E2E_RESUME_CASE")) {
       this.skip();
     }
     assert.isTrue(isSystemE2ERun(), "runner event sink must be visible");

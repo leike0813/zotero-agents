@@ -1,5 +1,6 @@
 export type SkillRunnerCreatePayload = {
   skill_id?: unknown;
+  skill_source?: unknown;
   engine?: unknown;
   input?: unknown;
   parameter?: unknown;
@@ -8,7 +9,10 @@ export type SkillRunnerCreatePayload = {
 export function validateCreatePayload(payload: unknown) {
   const body = (payload || {}) as SkillRunnerCreatePayload;
   const errors: string[] = [];
-  if (typeof body.skill_id !== "string" || body.skill_id.length === 0) {
+  if (
+    body.skill_source !== "temp_upload" &&
+    (typeof body.skill_id !== "string" || body.skill_id.length === 0)
+  ) {
     errors.push("skill_id is required");
   }
   if (typeof body.engine !== "string" || body.engine.length === 0) {
