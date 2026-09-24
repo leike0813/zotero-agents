@@ -265,7 +265,7 @@ grep -n "zotero9Classification" scripts/system-e2e/calibration.ts
 
 ## `repair-system-e2e-health-gate-and-coverage` 的 Windows 收口
 
-Windows 三格与 Linux 三格在 run `35939765551`（`a1849277`）全部通过：每格 manifest 记满 16 条 family 记录（`runner-foundation-01` + 十五个 catalog case），`terminalState: complete`，每个 family `passed` 且 cleanup/health passed；此前在 Windows `pending` 的六个用例 `SL-01`、`SL-02`、`SL-03`、`PM-02`、`PM-03`、`HB-03` 全部实跑通过。
+Windows 三格与 Linux 三格在 run `35939765551`（`a1849277`）全部通过：每格 manifest 记满 16 条 family 记录（`runner-foundation-01` + 十五个 catalog case），`terminalState: complete`，每个 family `passed` 且 cleanup/health passed；此前在 Windows `pending` 的六个用例 `SL-01`、`SL-02`、`SL-03`、`PM-02`、`PM-03`、`HB-03` 全部实跑通过。确认轮 `35941308695`（同一 commit）复现同一结果，即最终代码在 Windows 上连续两轮 clean（其前身证据是 intermittent）。
 
 收口过程共 15 轮 weekly 派发（`35848097038` … `35939765551`），全部由真实 Windows 证据驱动；暴露并修掉的六处缺陷见第 6、7、8、9、10 条与上表。SL-02 的 pre-ready 故障最后改为 runner-owned launch 故障（`8a2bb136`）：`extensions.zotero-agents.test.systemE2ELaunchFault` 只在 System E2E 运行时生效，supervisor 在写配置或 spawn 之前以 `invalid_config` 失败，生产进程永不继承。
 
