@@ -22,6 +22,7 @@
 | 7 | Windows 进程工具从未真正执行（已解决 2026-09-23） | 已解决 | — |
 | 8 | sidecar 重试预算按生命周期累计，一轮故障 fuse 掉整轮（已解决 2026-09-23） | 已解决 | — |
 | 9 | 用例在 family 记录之外失败不会让 cell 变红（已解决 2026-09-23） | 已解决 | — |
+| 10 | sidecar 生命周期在 Windows 上的四处缺陷：陈旧 discovery、锁冲突当确定性失败、计划重启不可见、恢复途中判定（已解决 2026-09-24） | 已解决 | — |
 
 ---
 
@@ -237,11 +238,36 @@ grep -n "zotero9Classification" scripts/system-e2e/calibration.ts
 
 ---
 
+## 10. sidecar 生命周期在 Windows 上的四处缺陷（已解决 2026-09-24）
+
+**共同现象**：解锁后的 kill 类用例（`SL-03`、`PA-01`、`PM-02`、`PM-03`）在 Windows 上让运行时长尾退化——某个用例起手拿到陈旧或正在被替换的 generation，随后 `PA`/`PM`/`CG`/`HB` 连续 `suite_health_indeterminate`、`recover-*` 超时或缺失记录。
+
+**证据与修复**（每项都由真实 Windows 轮次的 manifest、plugin 运行日志或 durable 表给出）：
+
+- **陈旧 discovery 永不清理**。run `35936143544`（`ed3ba263`）Zotero 10 两轮都卡在 `system_e2e_condition_not_reached:recover-previous-discovery-removed`；`sidecar-runtime-evidence.json` 显示 `sessions[0].lifecycleState: ready`（指向早已死亡的进程）与 `sessions[1].lifecycleState: null`。根因：旧 generation 的退出若是在 supervisor 换到新 session *之后* 才被观测到，原守卫会整段跳过（既不 `fail` 也不 `stop`），其 session root 与 `discovery.json` 永久残留。已修（`a1849277`）：该观测改为清理被取代的 session；`cleanupSession` 在 session root 仍然存在时打印，不再吞掉失败。
+- **`production_lock_conflict` 被当成确定性失败**。run `35928427988`（`7d6b9d64`）Zotero 7 两轮 incomplete，plugin 日志记 `{code: "production_lock_conflict", step: "discovery", exitCode: 1}` 后进入 `manual-recovery-required`，再不自启。锁冲突本质是「上一个 generation 还在」的时序条件。已修（`505b4522`）：改为走有界重试阶梯，持续冲突仍由 fuse 收敛；`tests/synthesis/228` 断言「3 次尝试后 fuse」。
+- **计划重启完全不可见**。run `35932956082`（`505b4522`）Zotero 10 intermittent，plugin 日志里除 SL-02 自身的 armed 故障外空无一物——预算内的重启不产生任何证据。已修（`ed3ba263`）：每次计划重启记录 reason code、第几次尝试、预算与下次重启时间（System E2E 运行时附 launch 分类）。
+- **health gate 在恢复途中就下判断**。同一轮里 `PM-03`/`HB-*` 报 `suite_health_indeterminate`，而运行时只是处在重试阶梯中。已修（`7d6b9d64` + `ed3ba263`）：用例起手要求 discovery 真实应答下一次请求（`responsiveReadyDiscovery`，拿不到时升级到 workbench 的公开恢复动作），health gate 先等待一个完整有界阶梯（60 s）再判定，泄漏检测不变。
+
+**验证**：run `35939765551`（`a1849277`）六格全绿，见下节收口记录。
+
+**recheck_when**：`synthesisSidecarRuntimeSupervisor` 的退出观测、重启记账、session 清理或 health 间隔变更；`DEFAULT_RESTART_DELAYS_MS` 变更。
+
+---
+
 ## 附：本清单未包含的内容
 
 - Change 04 已完成部分（Linux 七格晋级、Windows 三格晋级、CG-02 debug lane 转绿、三轮记录）见 `openspec/changes/04-wire-and-calibrate-phase1-system-e2e-ci/tasks.md`。
 - 已归档的根因诊断见 `openspec/changes/archive/2026-09-20-diagnose-windows-synthesis-sidecar-launch-failure/` 与 `...-shorten-windows-sidecar-session-paths/`。
 - 运行命令与 lane 表见 `docs/dev/zotero-e2e.md`。
+
+---
+
+## `repair-system-e2e-health-gate-and-coverage` 的 Windows 收口
+
+Windows 三格与 Linux 三格在 run `35939765551`（`a1849277`）全部通过：每格 manifest 记满 16 条 family 记录（`runner-foundation-01` + 十五个 catalog case），`terminalState: complete`，每个 family `passed` 且 cleanup/health passed；此前在 Windows `pending` 的六个用例 `SL-01`、`SL-02`、`SL-03`、`PM-02`、`PM-03`、`HB-03` 全部实跑通过。
+
+收口过程共 15 轮 weekly 派发（`35848097038` … `35939765551`），全部由真实 Windows 证据驱动；暴露并修掉的六处缺陷见第 6、7、8、9、10 条与上表。SL-02 的 pre-ready 故障最后改为 runner-owned launch 故障（`8a2bb136`）：`extensions.zotero-agents.test.systemE2ELaunchFault` 只在 System E2E 运行时生效，supervisor 在写配置或 spawn 之前以 `invalid_config` 失败，生产进程永不继承。
 
 ---
 
