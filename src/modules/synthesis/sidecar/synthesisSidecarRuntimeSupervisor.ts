@@ -23,6 +23,7 @@ import {
   getSynthesisSidecarLifecyclePaths,
   readRuntimeTextFile,
   removeRuntimePath,
+  runtimePathExists,
   replacePrivateRuntimeTextFileAtomically,
 } from "../../runtimePersistence";
 import {
@@ -553,7 +554,17 @@ export function createSynthesisProductionRuntimeSupervisor(
   };
 
   const cleanupSession = async (current: Session) => {
-    await removeRuntimePath(current.paths.sessionRoot).catch(() => false);
+    const removed = await removeRuntimePath(current.paths.sessionRoot).catch(
+      () => false,
+    );
+    // A session root that survives publishes a discovery for a generation that
+    // is gone, so a removal that did not take effect is reported rather than
+    // swallowed.
+    if (!removed && (await runtimePathExists(current.paths.sessionRoot))) {
+      console.error(
+        `[system-e2e] sidecar session cleanup left ${current.paths.sessionRoot}`,
+      );
+    }
   };
 
   // A deterministic failure is the same failure on every attempt, so retrying
@@ -844,11 +855,17 @@ export function createSynthesisProductionRuntimeSupervisor(
           () => undefined,
         );
       void exitedSession.closed.then(() => {
-        if (
-          session === current &&
-          !controlledStop &&
-          snapshot.status !== "starting"
-        ) {
+        if (session !== current) {
+          // The supervisor already moved on before this generation's exit was
+          // observed, so no `fail`/`stop` path will ever run for it. Its
+          // runtime path and discovery still have to go: leaving them behind
+          // publishes a ready discovery for a dead process, and every reader
+          // that trusts it keeps failing on a generation that is gone
+          // (observed as a stuck run on Windows).
+          void cleanupSession(exitedSession);
+          return;
+        }
+        if (!controlledStop && snapshot.status !== "starting") {
           void exitedSession.stderrDrain?.finally(() =>
             fail(
               exitedSession.stableFailureCode || "sidecar_process_exited",
