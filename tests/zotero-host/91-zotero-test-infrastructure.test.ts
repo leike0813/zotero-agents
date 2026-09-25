@@ -942,7 +942,7 @@ describe("zotero test infrastructure helpers", function () {
       assert.notInclude(serialized, "secret-value");
     });
 
-    it("moves a new dump out of the profile and publishes only its sanitized summary", async function () {
+    it("analyzes a new dump offline when online symbols fail", async function () {
       const root = await mkdtemp(path.join(os.tmpdir(), "zs-native-crash-"));
       const workspace = path.join(root, "workspace");
       const profile = path.join(workspace, "profile");
@@ -950,6 +950,7 @@ describe("zotero test infrastructure helpers", function () {
       const privateRoot = path.join(root, "private");
       const summaryPath = path.join(workspace, "summary.json");
       const cdbPath = path.join(root, "cdb.exe");
+      let cdbCalls = 0;
       try {
         await Promise.all([
           mkdir(minidumps, { recursive: true }),
@@ -965,19 +966,23 @@ describe("zotero test infrastructure helpers", function () {
           workspaceRoot: workspace,
           cdbPath,
           settleMs: 0,
-          runCdb: async () => ({
-            exitCode: 0,
-            output: [
-              "EXCEPTION_CODE: (NTSTATUS) 0xc0000005",
-              "IMAGE_NAME: xul.dll",
-              "===FAULTING_STACK===",
-              "00 00000000`0012f000 00007ffa`12345678 xul!close+0x2a",
-              "===ALL_THREADS===",
-              ".  0  Id: 1.2 Suspend: 0 Teb: 0 Unfrozen",
-              "00 00000000`0012f000 00007ffa`12345678 xul!close+0x2a",
-              "===MODULES===",
-            ].join("\n"),
-          }),
+          runCdb: async ({ symbolMode }) => {
+            cdbCalls++;
+            assert.equal(symbolMode, cdbCalls === 1 ? "online" : "offline");
+            return {
+              exitCode: cdbCalls === 1 ? 1 : 0,
+              output: [
+                "EXCEPTION_CODE: (NTSTATUS) 0xc0000005",
+                "IMAGE_NAME: xul.dll",
+                "===FAULTING_STACK===",
+                "00 00000000`0012f000 00007ffa`12345678 xul!close+0x2a",
+                "===ALL_THREADS===",
+                ".  0  Id: 1.2 Suspend: 0 Teb: 0 Unfrozen",
+                "00 00000000`0012f000 00007ffa`12345678 xul!close+0x2a",
+                "===MODULES===",
+              ].join("\n"),
+            };
+          },
         });
         await writeFile(path.join(minidumps, "new.dmp"), "private-memory");
         await writeFile(
@@ -994,6 +999,11 @@ describe("zotero test infrastructure helpers", function () {
         const privateSessions = await readdir(privateRoot);
 
         assert.equal(summary.status, "crash_captured");
+        assert.equal(cdbCalls, 2);
+        assert.include(
+          summary.crashes[0].evidenceGaps,
+          "online_symbols_unavailable",
+        );
         assert.equal(summary.dumpCount, 1);
         assert.notInclude(await readdir(minidumps), "new.dmp");
         assert.include(await readdir(minidumps), "old.dmp");

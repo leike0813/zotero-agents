@@ -118,6 +118,12 @@ describe("run-zotero-direct runtime root safety", function () {
             '"C:\\Zotero\\zotero.exe" -profile "D:\\Private\\profile"',
         },
         {
+          processId: 43,
+          executablePath: "C:\\Zotero\\zotero.exe",
+          commandLine:
+            '"C:\\Zotero\\zotero.exe" -foreground -profile "D:\\Private\\profile\\chrome_debugger_profile" -chrome chrome://devtools/content/framework/browser-toolbox/window.html',
+        },
+        {
           processId: 99,
           executablePath: "C:\\Other\\zotero.exe",
           commandLine:

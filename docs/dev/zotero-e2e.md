@@ -87,7 +87,7 @@ Zotero 9 分类使用同一命令，只替换为 `windows-x64\9.0.6` 的安装�
 
 debug 构建会持续写入 `runtime/logs/citation-graph-crash-journal.json`。日志只保存生命周期阶段、布尔资源状态和计数；异常退出后的 active session 会在下次启动标记为 `interrupted`。压测结束时还会把日志复制到 `artifacts/test-diagnostics/citation-graph-crash-journal.json`。
 
-Windows `CG-02` 还启用 Zotero 自带的 Mozilla Crash Reporter：`MOZ_CRASHREPORTER=1`、`MOZ_CRASHREPORTER_NO_REPORT=1` 与 `MOZ_CRASHREPORTER_FULLDUMP=1` 只注入被测 Zotero 子进程。runner 在启动前记录复制 profile 的 `minidumps` 基线，结束后只转移本轮新增的 `.dmp` 与 `.extra`，再用 CDB 对 dump 运行 `!analyze -v`、`.ecxr`、故障线程栈、全线程栈和模块清单。原始文件与 CDB 日志保存在仓库外；run-scoped 目录只写 `zotero-native-crash-summary.v1` 脱敏摘要。摘要状态为 `no_crash_observed`、`crash_captured` 或 `capture_incomplete`，后两者都会让本轮失败。CDB 缺失时 runner 在启动 Zotero 前以 `capture_incomplete` 失败。
+Windows `CG-02` 还启用 Zotero 自带的 Mozilla Crash Reporter：`MOZ_CRASHREPORTER=1`、`MOZ_CRASHREPORTER_NO_REPORT=1` 与 `MOZ_CRASHREPORTER_FULLDUMP=1` 只注入被测 Zotero 子进程。runner 在启动前记录复制 profile 的 `minidumps` 基线，结束后只转移本轮新增的 `.dmp` 与 `.extra`，再用 CDB 对 dump 运行 `!analyze -v`、`.ecxr`、故障线程栈、全线程栈和模块清单。在线符号分析超过 60 秒或失败时，CDB 使用已缓存符号离线重试，并在崩溃证据中记录 `online_symbols_unavailable`。原始文件与 CDB 日志保存在仓库外；run-scoped 目录只写 `zotero-native-crash-summary.v1` 脱敏摘要。摘要状态为 `no_crash_observed`、`crash_captured` 或 `capture_incomplete`，后两者都会让本轮失败。CDB 缺失时 runner 在启动 Zotero 前以 `capture_incomplete` 失败。
 
 手工复现使用同一条证据链：
 
@@ -95,7 +95,9 @@ Windows `CG-02` 还启用 Zotero 自带的 Mozilla Crash Reporter：`MOZ_CRASHRE
 npm run start:direct -- --capture-native-crash
 ```
 
-该模式要求 `.env` 同时配置 `ZOTERO_PLUGIN_PROFILE_PATH` 与 `ZOTERO_PLUGIN_DATA_DIR`，并把两者复制到仓库外的独立会话目录后再启动；来源 profile/data 不会被 Zotero 打开。CDB 默认从 Windows Kits x64 目录发现，也可用 `ZOTERO_NATIVE_CRASH_CDB_PATH` 指定；私有证据根可用 `ZOTERO_NATIVE_CRASH_PRIVATE_DIR` 覆盖，但不得位于工作区内。Windows 的 `zotero.exe` 是启动器桩，runner 按安装树路径和复制后的 `-profile` 参数识别真正的宿主进程。可公开分享的文件只有 `artifacts/test-diagnostics/native-crash/<session>/zotero-native-crash-summary.json`；不得上传原始 dump、`.extra`、CDB 日志或符号缓存。
+受控验收可在主进程调试控制台执行 `window.location.href = 'about:crashparent'`；预期宿主退出，摘要记录 `crash_captured`，命令以非零状态结束。
+
+该模式要求 `.env` 同时配置 `ZOTERO_PLUGIN_PROFILE_PATH` 与 `ZOTERO_PLUGIN_DATA_DIR`，并把两者复制到仓库外的独立会话目录后再启动；来源 profile/data 不会被 Zotero 打开。CDB 默认从 Windows Kits x64 目录发现，也可用 `ZOTERO_NATIVE_CRASH_CDB_PATH` 指定；私有证据根可用 `ZOTERO_NATIVE_CRASH_PRIVATE_DIR` 覆盖，但不得位于工作区内。Windows 的 `zotero.exe` 是启动器桩，runner 按安装树路径和精确的 `-profile` 参数识别真正的宿主进程，排除 Browser Toolbox 的 `chrome_debugger_profile`。可公开分享的文件只有 `artifacts/test-diagnostics/native-crash/<session>/zotero-native-crash-summary.json`；不得上传原始 dump、`.extra`、CDB 日志或符号缓存。
 
 `scripts/run-zotero-test-with-mock.ts` 会把 Zotero 的 stderr 重定向到 `.scaffold/zotero-stderr.log`：测试脚手架的 `spawn(path, args, { env })` 只给 stdout 挂了 reader，从不读取 Zotero 的 stderr 管道，因此一旦 stderr 突发超过 socket 缓冲（Zotero 9/10 Linux 上 GTK 图标断言会一次写出上百 KB），Zotero 主线程就会阻塞在 `write(2)` 上，JS 定时器全部停止，整轮运行只能被外部超时杀掉。测试入口据此生成 `.scaffold/zotero-stderr-drain.sh`，把对应二进制换成 `exec <real> "$@" 2>>'<log>'`；Windows 上无法用脚本 shim，保持原路径。调整 Zotero 启动方式时不要绕过这个 shim。
 

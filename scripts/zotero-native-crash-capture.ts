@@ -143,10 +143,13 @@ export function selectWindowsZoteroHostProcess(
     ) {
       return false;
     }
-    return process.commandLine
-      .replaceAll("/", "\\")
-      .toLowerCase()
-      .includes(profileDir);
+    const profile = process.commandLine.match(
+      /(?:^|\s)-profile\s+(?:"([^"]+)"|(\S+))/i,
+    );
+    return (
+      profile !== null &&
+      normalizedWindowsPath(profile[1] || profile[2]) === profileDir
+    );
   });
   return matches.length === 1 ? matches[0] : null;
 }
@@ -452,6 +455,7 @@ function runCdbProcess(args: {
   cdbPath: string;
   dumpPath: string;
   symbolCache: string;
+  symbolMode: "online" | "offline";
 }): Promise<CdbRunResult> {
   const commands = [
     ".reload",
@@ -474,14 +478,19 @@ function runCdbProcess(args: {
         "-z",
         args.dumpPath,
         "-y",
-        `srv*${args.symbolCache}*https://msdl.microsoft.com/download/symbols`,
+        args.symbolMode === "online"
+          ? `srv*${args.symbolCache}*https://msdl.microsoft.com/download/symbols`
+          : `cache*${args.symbolCache}`,
         "-c",
         commands,
       ],
       { stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
     );
     const chunks: Buffer[] = [];
-    const timer = setTimeout(() => child.kill(), 300_000);
+    const timer = setTimeout(
+      () => child.kill(),
+      args.symbolMode === "online" ? 60_000 : 300_000,
+    );
     child.stdout?.on("data", (chunk: Buffer) => chunks.push(chunk));
     child.stderr?.on("data", (chunk: Buffer) => chunks.push(chunk));
     child.on("error", (error) => {
@@ -562,6 +571,7 @@ export async function startZoteroNativeCrashCapture(args: {
     cdbPath: string;
     dumpPath: string;
     symbolCache: string;
+    symbolMode: "online" | "offline";
   }) => Promise<CdbRunResult>;
   settleMs?: number;
 }): Promise<ZoteroNativeCrashCapture> {
@@ -651,21 +661,32 @@ export async function startZoteroNativeCrashCapture(args: {
             } else {
               evidenceGaps.push(`dump_${index + 1}_extra_missing`);
             }
-            const result = await (args.runCdb || runCdbProcess)({
+            const runCdb = args.runCdb || runCdbProcess;
+            const cdbArgs = {
               cdbPath,
               dumpPath: privateDump,
               symbolCache,
-            });
+            };
+            const online = await runCdb({ ...cdbArgs, symbolMode: "online" });
+            const offlineFallback = online.exitCode !== 0;
+            const result = offlineFallback
+              ? await runCdb({ ...cdbArgs, symbolMode: "offline" })
+              : online;
             await writeFile(
               path.join(rawRoot, `${stem}.cdb.log`),
-              result.output,
+              offlineFallback
+                ? `${online.output}\n===OFFLINE_FALLBACK===\n${result.output}`
+                : result.output,
               "utf8",
             );
             if (result.exitCode !== 0) {
               evidenceGaps.push(`dump_${index + 1}_cdb_failed`);
               continue;
             }
-            crashes.push(parseCdbCrashEvidence(result.output, extra));
+            const crash = parseCdbCrashEvidence(result.output, extra);
+            if (offlineFallback)
+              crash.evidenceGaps.push("online_symbols_unavailable");
+            crashes.push(crash);
           } catch {
             evidenceGaps.push(`dump_${index + 1}_analysis_failed`);
           }

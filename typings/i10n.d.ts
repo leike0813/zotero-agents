@@ -826,6 +826,7 @@ export type FluentMessageId =
   | 'synthesis-action-remove-alias'
   | 'synthesis-action-reopen'
   | 'synthesis-action-repair-rebuild'
+  | 'synthesis-action-restore'
   | 'synthesis-action-resume-webdav-sync'
   | 'synthesis-action-retry'
   | 'synthesis-action-retry-graph-loading'
