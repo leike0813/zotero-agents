@@ -7,6 +7,7 @@
 - 每条都写明证据出处（commit / run id / `file:line`），便于复核。
 - 「缺口」指**没有取得证据**，不等于通过。不要把它读成已完成。
 - 快照时间：2026-09-21，`dev` HEAD `cfc297f2`。Change 04 的 task 6.4 已由本机只读 private gold 轮补齐；本文件仍跟踪不属于该 task 的其它未决项。
+- 2026-09-23 追加：`repair-system-e2e-health-gate-and-coverage` 的 Windows 校准轮暴露并修掉了第 6、7、8、9 条，证据见文末的收口记录；上面这一行 HEAD 指 Change 04 收尾时的状态，不代表当前 HEAD。
 
 **问题按"会不会咬人"排序**
 
@@ -17,7 +18,11 @@
 | 3 | 真实 large-gold 一轮未跑（已解决 2026-09-21） | 已解决 | — |
 | 4 | Zotero 9 分类取值未对齐且判定放宽、且未接线 | 中 | 是 |
 | 5 | `Verify Synthesis Sidecar` 长期红（已解决 2026-09-21） | 中 | 是 |
-| 6 | Windows 用例覆盖比 Linux 窄 | 低 | 是，但属产品范围决策 |
+| 6 | Windows 用例覆盖比 Linux 窄（已解决 2026-09-23） | 已解决 | — |
+| 7 | Windows 进程工具从未真正执行（已解决 2026-09-23） | 已解决 | — |
+| 8 | sidecar 重试预算按生命周期累计，一轮故障 fuse 掉整轮（已解决 2026-09-23） | 已解决 | — |
+| 9 | 用例在 family 记录之外失败不会让 cell 变红（已解决 2026-09-23） | 已解决 | — |
+| 10 | sidecar 生命周期在 Windows 上的四处缺陷：陈旧 discovery、锁冲突当确定性失败、计划重启不可见、恢复途中判定（已解决 2026-09-24） | 已解决 | — |
 
 ---
 
@@ -179,7 +184,74 @@ grep -n "zotero9Classification" scripts/system-e2e/calibration.ts
 
 **下一步（需决策）**：要么补齐这六个用例在 Windows 上的实现，要么把 cell 的 family 声明收窄到 Windows 真实覆盖的范围，让名字不再高估覆盖面。属产品范围决策，不擅自改。
 
+**已解决（2026-09-23，`repair-system-e2e-health-gate-and-coverage`）**：选择补齐实现，六个 skip 全部移除（`f6ee8757`）。补齐过程连带修掉三处使 Windows 变红的原因，见第 7、8、9 条；用例侧另有两处必须跟着改：SL-02 的投毒从「在数据库路径建目录」改成写一个非数据库文件，且它的清理不再依赖 Windows 的 unlink/rename 语义（先停持有方，能移开就恢复原库，否则保留插件恢复出的有效 repository），SL-03 的 `caseError` 接入最终断言。
+
+**验证**：run 35866757210（`3b3323f2`）三格 Windows 的 manifest 各记 15 条 family 记录且缺 SL-02，同时 cell 报绿——即本条的覆盖缺口已缩到 1 个用例，而 cell 的绿色是第 9 条的漏报；修掉第 9 条后 run 35888034215（`adc459a1`）正确变红。最终覆盖证据见本文件末尾的收口记录。
+
 **recheck_when**：`tests/zotero/e2e/full` 与 `tests/zotero/ui/full` 的用例平台条件变更；planner 的 family 分组变更。
+
+---
+
+## 7. Windows 进程工具从未真正执行
+
+**现象**：`scripts/system-e2e/healthGate.ts` 的 `processIsAlive` / `terminateProcess` 用裸命令名调用 `tasklist.exe` / `taskkill.exe`，在 Zotero 里解析不到任何执行适配器（`src/platform/subprocess.ts` 的 `createWindowsXpcomAdapter` 要求 `hidden: true` 且绝对路径），两者一律返回 `unavailable`：探活把每个 generation 都报成已死，杀进程则被当成「已经退出」直接返回。
+
+**证据**：
+
+- round 1（run 35848097038，`f6ee8757`）PM-02 报 `system_e2e_terminate_failed:1116`。
+- round 2（run 35853309893，`efeb777f`）的 durable 表给出决定性事实：`synt_operation` 里 PM-02 的 operation `created 11:33:39.808`、`started 11:34:39.810`——恰好 +60.0 s，正是 `hold_once` 的等待上限，说明 sidecar 从未被杀，hold 是自己超时释放。
+- 同一缺陷让 Suite Health Gate 的 `managedProcesses` fail open，这正是本 change 要修的那类漏报。
+
+**已解决（2026-09-23，`73c94404`）**：探活与 kill 改走 `getWindowsExecutableCandidates` 解析出的 `System32` / `Sysnative` 绝对路径 + `hidden: true`（仓库其它 Windows 工具调用的既有形态）；工具无法执行时抛 `system_e2e_process_tool_unavailable` 而不是谎报进程已死；kill 返回成功后仍校验该 pid 确实消失，否则报 `system_e2e_terminate_survived`。
+
+**验证**：POSIX 分支用真实子进程 smoke（alive→true、terminate→false、无效 pid 容忍）；run 35866757210 起 Windows 三格的 SL-03 / PM-02 / PM-03 全部 passed。
+
+**recheck_when**：`platform/subprocess.ts` 的适配器选择或 Windows 候选解析变更；healthGate 的平台分派变更。
+
+---
+
+## 8. sidecar 重试预算按生命周期累计，一轮故障 fuse 掉整轮
+
+**现象**：Windows 三格在杀进程真正生效后整轮级联失败：plugin 日志 `synthesis-sidecar-runtime / launch / failed` 记 `{code: "sidecar_crash_loop_fused", lastFailureCode: "sidecar_health_failed", restartCount: 4, exitCode: 0}`，此后 PA-01、PA-02、PM-01..04、CG-01 各自空等 120 s 超时。
+
+**根因**：`synthesisSidecarRuntimeSupervisor` 的 `restartCount` 只在 `stop()` / 显式 `recover()` 清零，一次外部终止在 Windows 上会经「进程退出」与「下一次 health probe」两次计入；Phase 1 里有四个用例终止 ready generation（SL-01、SL-03、PA-01、PM-02、PM-03 中的前四个），累计即越过 3 次预算并 fuse。`synthesis-sidecar-runtime-supervision` 要的是每次失败 episode 的有界重试与针对 crash loop 的 fuse。
+
+**已解决（2026-09-23，`3b3323f2`）**：ready 世代发布时把 `restartCount` 归零，延迟阶梯与 fuse 改为按连续失败计算；`tests/synthesis/228` 的 fuse/重试用例未回退（15 passing）。
+
+**验证**：run 35866757210 起 Windows 三格的 PA-01、PA-02、PM-01..04、CG-01 全部 passed。
+
+**recheck_when**：`DEFAULT_RESTART_DELAYS_MS`、fuse 判定或 supervisor 的重启记账变更。
+
+---
+
+## 9. 用例在 family 记录之外失败不会让 cell 变红
+
+**现象**：run 35866757210（`3b3323f2`）三格 Windows cell 全绿，但每格 manifest 只有 15 条 family 记录（缺 `SL-02`）：该用例的 cleanup 抛错，从未走到 `emitCase`。
+
+**根因**：manifest 的 `complete` 判定只看 `end` 事件（`failed === 0`）与已有的 family 记录；主 invocation 因 HB-03 要求重启宿主而被终止、没有 `end`，恢复 invocation 的 `1 passed` 就把整轮标成 `complete`。`zotero-test-fail-detail` 事件其实已由 reporter 镜像到 sink，但 collector 忽略它；`runFamilyLifecycle` 也只捕获 execute，不捕获 cleanup 抛错。
+
+**已解决（2026-09-23，`40306036`）**：collector 把 `zotero-test-fail-detail` 记为整轮失败且跨重启保持（sticky），失败用例不再可能留下 `complete` 但缺记录的 manifest；抛错的 cleanup 记为 `family_cleanup_failed` 并把消息写进归档的 runner 输出；`tests/zotero-host/91` 覆盖这两条契约。
+
+**验证**：run 35888034215（`adc459a1`）三格 Windows 因 SL-02 如实变红（Linux 三格不受影响仍绿）。
+
+**recheck_when**：manifest collector 的事件集合或 `finalize` 判定变更；reporter 镜像的事件种类变更。
+
+---
+
+## 10. sidecar 生命周期在 Windows 上的四处缺陷（已解决 2026-09-24）
+
+**共同现象**：解锁后的 kill 类用例（`SL-03`、`PA-01`、`PM-02`、`PM-03`）在 Windows 上让运行时长尾退化——某个用例起手拿到陈旧或正在被替换的 generation，随后 `PA`/`PM`/`CG`/`HB` 连续 `suite_health_indeterminate`、`recover-*` 超时或缺失记录。
+
+**证据与修复**（每项都由真实 Windows 轮次的 manifest、plugin 运行日志或 durable 表给出）：
+
+- **陈旧 discovery 永不清理**。run `35936143544`（`ed3ba263`）Zotero 10 两轮都卡在 `system_e2e_condition_not_reached:recover-previous-discovery-removed`；`sidecar-runtime-evidence.json` 显示 `sessions[0].lifecycleState: ready`（指向早已死亡的进程）与 `sessions[1].lifecycleState: null`。根因：旧 generation 的退出若是在 supervisor 换到新 session *之后* 才被观测到，原守卫会整段跳过（既不 `fail` 也不 `stop`），其 session root 与 `discovery.json` 永久残留。已修（`a1849277`）：该观测改为清理被取代的 session；`cleanupSession` 在 session root 仍然存在时打印，不再吞掉失败。
+- **`production_lock_conflict` 被当成确定性失败**。run `35928427988`（`7d6b9d64`）Zotero 7 两轮 incomplete，plugin 日志记 `{code: "production_lock_conflict", step: "discovery", exitCode: 1}` 后进入 `manual-recovery-required`，再不自启。锁冲突本质是「上一个 generation 还在」的时序条件。已修（`505b4522`）：改为走有界重试阶梯，持续冲突仍由 fuse 收敛；`tests/synthesis/228` 断言「3 次尝试后 fuse」。
+- **计划重启完全不可见**。run `35932956082`（`505b4522`）Zotero 10 intermittent，plugin 日志里除 SL-02 自身的 armed 故障外空无一物——预算内的重启不产生任何证据。已修（`ed3ba263`）：每次计划重启记录 reason code、第几次尝试、预算与下次重启时间（System E2E 运行时附 launch 分类）。
+- **health gate 在恢复途中就下判断**。同一轮里 `PM-03`/`HB-*` 报 `suite_health_indeterminate`，而运行时只是处在重试阶梯中。已修（`7d6b9d64` + `ed3ba263`）：用例起手要求 discovery 真实应答下一次请求（`responsiveReadyDiscovery`，拿不到时升级到 workbench 的公开恢复动作），health gate 先等待一个完整有界阶梯（60 s）再判定，泄漏检测不变。
+
+**验证**：run `35939765551`（`a1849277`）六格全绿，见下节收口记录。
+
+**recheck_when**：`synthesisSidecarRuntimeSupervisor` 的退出观测、重启记账、session 清理或 health 间隔变更；`DEFAULT_RESTART_DELAYS_MS` 变更。
 
 ---
 
@@ -188,6 +260,14 @@ grep -n "zotero9Classification" scripts/system-e2e/calibration.ts
 - Change 04 已完成部分（Linux 七格晋级、Windows 三格晋级、CG-02 debug lane 转绿、三轮记录）见 `openspec/changes/04-wire-and-calibrate-phase1-system-e2e-ci/tasks.md`。
 - 已归档的根因诊断见 `openspec/changes/archive/2026-09-20-diagnose-windows-synthesis-sidecar-launch-failure/` 与 `...-shorten-windows-sidecar-session-paths/`。
 - 运行命令与 lane 表见 `docs/dev/zotero-e2e.md`。
+
+---
+
+## `repair-system-e2e-health-gate-and-coverage` 的 Windows 收口
+
+Windows 三格与 Linux 三格在 run `35939765551`（`a1849277`）全部通过：每格 manifest 记满 16 条 family 记录（`runner-foundation-01` + 十五个 catalog case），`terminalState: complete`，每个 family `passed` 且 cleanup/health passed；此前在 Windows `pending` 的六个用例 `SL-01`、`SL-02`、`SL-03`、`PM-02`、`PM-03`、`HB-03` 全部实跑通过。确认轮 `35941308695`（同一 commit）复现同一结果，即最终代码在 Windows 上连续两轮 clean（其前身证据是 intermittent）。
+
+收口过程共 15 轮 weekly 派发（`35848097038` … `35939765551`），全部由真实 Windows 证据驱动；暴露并修掉的六处缺陷见第 6、7、8、9、10 条与上表。SL-02 的 pre-ready 故障最后改为 runner-owned launch 故障（`8a2bb136`）：`extensions.zotero-agents.test.systemE2ELaunchFault` 只在 System E2E 运行时生效，supervisor 在写配置或 spawn 之前以 `invalid_config` 失败，生产进程永不继承。
 
 ---
 

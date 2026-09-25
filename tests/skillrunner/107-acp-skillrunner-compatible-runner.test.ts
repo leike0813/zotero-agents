@@ -2655,6 +2655,29 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.isUndefined(task);
   });
 
+  it("fails a non-recoverable workflow run when its transient task row is absent on startup", function () {
+    upsertAcpSkillRun({
+      requestId: "acp-orphaned-startup",
+      backendId: "backend-acp",
+      backendType: "acp",
+      workflowId: "debug-apply-single-result",
+      status: "running",
+      conversationState: "starting",
+      conversationRecoveryState: "unavailable",
+    });
+
+    const result = reconcileAcpSkillRunWorkflowTasksOnStartup();
+
+    assert.equal(result.failedCount, 1);
+    const run = getAcpSkillRunRecord("acp-orphaned-startup");
+    assert.equal(run?.status, "failed");
+    const recoveryEvents = run?.events.filter(
+      (event) => event.stage === "startup-recovery-unavailable",
+    );
+    assert.lengthOf(recoveryEvents || [], 1);
+    assert.equal(recoveryEvents?.[0].details?.reason, "startup_reconcile");
+  });
+
   it("migrates legacy recoverable failed ACP run records on hydrate", function () {
     const updatedAt = "2026-06-12T08:00:00.000Z";
     upsertPluginRunStoreEntry("acp", {
@@ -2877,7 +2900,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     });
   });
 
-  it("keeps an interrupted active prompt out of output repair after end_turn", async function () {
+  it("keeps a cancelled active prompt out of output repair", async function () {
     const root = await mkTempRoot();
     const { entry } = await createSkill(root);
     let updateListener: ((event: any) => void | Promise<void>) | null = null;
@@ -2926,7 +2949,7 @@ describe("ACP SkillRunner-compatible runner", function () {
           resolvePrompt = resolve;
           resolvePromptStarted();
         });
-        return { stopReason: "end_turn" };
+        return { stopReason: "cancelled" };
       },
       cancel: async () => {
         cancelCalls += 1;
@@ -12082,7 +12105,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     }
   });
 
-  it("keeps an interrupted recovered prompt out of convergence after end_turn", async function () {
+  it("keeps a cancelled recovered prompt out of convergence", async function () {
     const root = await mkTempRoot();
     const { entry } = await createSkill(root, {
       executionModes: ["interactive"],
@@ -12138,7 +12161,7 @@ describe("ACP SkillRunner-compatible runner", function () {
         await new Promise<void>((resolve) => {
           releasePrompt = resolve;
         });
-        return { stopReason: "end_turn" };
+        return { stopReason: "cancelled" };
       },
       cancel: async () => {
         cancelCalls += 1;
@@ -14099,7 +14122,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     }
   });
 
-  it("keeps an interrupted live deferred reply out of output repair after end_turn", async function () {
+  it("keeps a cancelled live deferred reply out of output repair", async function () {
     this.timeout(10000);
     const root = await mkTempRoot();
     const { entry } = await createSkill(root, {
@@ -14173,7 +14196,7 @@ describe("ACP SkillRunner-compatible runner", function () {
           releaseReplyPrompt = resolve;
           resolveReplyPromptStarted?.();
         });
-        return { stopReason: "end_turn" };
+        return { stopReason: "cancelled" };
       },
       cancel: async () => {
         if (promptCount === 1) {

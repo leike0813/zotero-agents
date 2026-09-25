@@ -2,6 +2,7 @@ import type { BackendInstance } from "../../backends/types";
 import { loadBackendsRegistry } from "../../backends/registry";
 import { getPref, setPref } from "../../utils/prefs";
 import { appendRuntimeLog } from "../../modules/runtimeLogManager";
+import { resolveRuntimeHostCapabilities } from "../../utils/runtimeBridge";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -464,8 +465,7 @@ export async function refreshSkillRunnerModelCacheForBackend(args: {
     };
   }
   const fetchImpl =
-    args.fetchImpl ||
-    ((globalThis as { fetch?: FetchLike }).fetch as FetchLike);
+    args.fetchImpl || (resolveRuntimeHostCapabilities().fetch as FetchLike);
   if (typeof fetchImpl !== "function") {
     appendSkillRunnerModelCacheLog({
       backend,

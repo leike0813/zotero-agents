@@ -167,7 +167,20 @@ export async function runFamilyLifecycle(args: {
     result = "failed";
   }
   transitions.push("family-cleanup");
-  const cleanup = await args.cleanup();
+  let cleanup: "passed" | "failed" | "indeterminate";
+  try {
+    cleanup = await args.cleanup();
+  } catch (error) {
+    // A cleanup that throws is a failed cleanup. Letting it escape would fail
+    // the runner test without any family record, which is exactly the gap the
+    // manifest reads as a complete run.
+    cleanup = "failed";
+    console.error(
+      `[system-e2e] family cleanup failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
   if (cleanup !== "passed") {
     return {
       result: "failed" as const,

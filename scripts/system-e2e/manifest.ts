@@ -215,7 +215,7 @@ export function createRunManifestEventCollector(identity: RunIdentity) {
   const manifest = createRunManifest(currentIdentity);
   let familyCount = 0;
   let sawEnd = false;
-  let endFailed = false;
+  let sawFailure = false;
   let abort: { failurePhase: string; abortCode: string } | undefined;
   return {
     accept(payload: unknown) {
@@ -227,7 +227,8 @@ export function createRunManifestEventCollector(identity: RunIdentity) {
           event.data && typeof event.data === "object"
             ? (event.data as Record<string, unknown>)
             : {};
-        endFailed =
+        sawFailure =
+          sawFailure ||
           Number(data.failed || 0) > 0 ||
           data.aborted === true ||
           Number(data.aborted || 0) > 0;
@@ -256,6 +257,13 @@ export function createRunManifestEventCollector(identity: RunIdentity) {
           failurePhase: String(data.failurePhase || "runner"),
           abortCode: String(data.abortCode || "system_e2e_aborted"),
         };
+      } else if (data.kind === "zotero-test-fail-detail") {
+        // A case can fail outside every family record, for example in a setup
+        // step or a throwing cleanup, and the invocation that owns those cases
+        // never reaches its end event when the run restarts on purpose. A
+        // reported case failure therefore fails the run instead of leaving a
+        // manifest that reads complete while one case carries no verdict.
+        sawFailure = true;
       }
     },
     recordArtifact(
@@ -268,7 +276,7 @@ export function createRunManifestEventCollector(identity: RunIdentity) {
     },
     finalize(exitCode: number) {
       if (abort) return manifest.abort(abort);
-      if (sawEnd && !endFailed && exitCode === 0 && familyCount > 0) {
+      if (sawEnd && !sawFailure && exitCode === 0 && familyCount > 0) {
         return manifest.complete();
       }
       return manifest.incomplete();

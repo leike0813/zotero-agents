@@ -23,9 +23,13 @@ import {
   getSynthesisSidecarLifecyclePaths,
   readRuntimeTextFile,
   removeRuntimePath,
+  runtimePathExists,
   replacePrivateRuntimeTextFileAtomically,
 } from "../../runtimePersistence";
-import { isSystemE2ETestRun } from "../../systemE2ETestRun";
+import {
+  isSystemE2ELaunchFaultArmed,
+  isSystemE2ETestRun,
+} from "../../systemE2ETestRun";
 import { appendRuntimeLog } from "../../runtimeLogManager";
 import { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION } from "../../../../packages/synthesis-contracts/src/schemaVersion";
 import {
@@ -300,15 +304,29 @@ function sealedEnvironment() {
 }
 
 /**
- * Records the sanitized facts of a terminal sidecar launch failure. The sidecar
- * stderr tail stays private, so cell evidence would otherwise only ever see
- * `sidecar_crash_loop_fused` with no way to tell why the process never reached
- * readiness (observed on Windows runners).
+ * The launch step and sanitized error identity of one failed attempt. The
+ * sidecar stderr tail stays private, so evidence would otherwise only ever see
+ * a reason code with no way to tell a launch that never created a process from
+ * one that never reached discovery (observed on Windows runners).
  *
- * The classification fields are added only for a System E2E run: they exist so
- * one compatibility round can tell a launch that never created a process from
- * one that never reached discovery, and production entries keep the four
+ * The fields are added only for a System E2E run: production entries keep the
  * business-level facts they always carried.
+ */
+function launchFailureClassification(failure?: SynthesisSidecarLaunchFailure) {
+  return failure && isSystemE2ETestRun()
+    ? {
+        stage: launchStageForStep(failure.step),
+        step: failure.step,
+        ...launchErrorIdentity(failure.error),
+        ...(failure.attemptedChars === undefined
+          ? {}
+          : { attemptedChars: failure.attemptedChars }),
+      }
+    : {};
+}
+
+/**
+ * Records the sanitized facts of a terminal sidecar launch failure.
  */
 function recordSidecarLaunchFailure(args: {
   code: string;
@@ -317,17 +335,7 @@ function recordSidecarLaunchFailure(args: {
   exitCode: number | null;
   failure?: SynthesisSidecarLaunchFailure;
 }) {
-  const classification =
-    args.failure && isSystemE2ETestRun()
-      ? {
-          stage: launchStageForStep(args.failure.step),
-          step: args.failure.step,
-          ...launchErrorIdentity(args.failure.error),
-          ...(args.failure.attemptedChars === undefined
-            ? {}
-            : { attemptedChars: args.failure.attemptedChars }),
-        }
-      : {};
+  const classification = launchFailureClassification(args.failure);
   appendRuntimeLog({
     level: "error",
     scope: "system",
@@ -546,10 +554,26 @@ export function createSynthesisProductionRuntimeSupervisor(
   };
 
   const cleanupSession = async (current: Session) => {
-    await removeRuntimePath(current.paths.sessionRoot).catch(() => false);
+    const removed = await removeRuntimePath(current.paths.sessionRoot).catch(
+      () => false,
+    );
+    // A session root that survives publishes a discovery for a generation that
+    // is gone, so a removal that did not take effect is reported rather than
+    // swallowed.
+    if (!removed && (await runtimePathExists(current.paths.sessionRoot))) {
+      console.error(
+        `[system-e2e] sidecar session cleanup left ${current.paths.sessionRoot}`,
+      );
+    }
   };
 
+  // A deterministic failure is the same failure on every attempt, so retrying
+  // it only delays the terminal state. A production-lock conflict is not one of
+  // them: it means another generation was still running when this launch
+  // started, which the bounded retry policy resolves as soon as that process is
+  // gone and the fuse bounds it otherwise.
   const classifyTerminal = (code: string) =>
+    code !== "production_lock_conflict" &&
     [
       "invalid_config",
       "unsupported_target",
@@ -557,7 +581,6 @@ export function createSynthesisProductionRuntimeSupervisor(
       "sidecar_discovery_identity_mismatch",
       "sidecar_health_identity_mismatch",
       "sidecar_handshake_identity_mismatch",
-      "production_lock_conflict",
       "protocol_mismatch",
       "schema_mismatch",
       "profile_mismatch",
@@ -618,6 +641,26 @@ export function createSynthesisProductionRuntimeSupervisor(
       reasonCode: code,
       restartCount,
       nextRestartAt: new Date(restartAt).toISOString(),
+    });
+    // A scheduled restart is the one lifecycle state that used to leave no
+    // evidence at all: the terminal entry only lands when the budget is spent,
+    // so a runtime that kept restarting inside its budget looked idle.
+    appendRuntimeLog({
+      level: "warn",
+      scope: "system",
+      component: "synthesis-sidecar-runtime",
+      operation: "launch",
+      phase: "launch",
+      stage: "restart-scheduled",
+      message: `Synthesis sidecar restart scheduled: ${code}`,
+      details: {
+        code,
+        restartCount,
+        attemptBudget: restartDelaysMs.length,
+        nextRestartAt: new Date(restartAt).toISOString(),
+        exitCode: current?.exitCode ?? null,
+        ...launchFailureClassification(failure),
+      },
     });
     restartTimer = setTimer(
       () => {
@@ -772,6 +815,13 @@ export function createSynthesisProductionRuntimeSupervisor(
       });
       launchStep = "config-write";
       attemptedPathLength = paths.configPath.length;
+      if (isSystemE2ELaunchFaultArmed()) {
+        // The catalog's launch-failure case owns this fault: the launch input
+        // is invalid before anything is written or spawned, which is the one
+        // pre-ready failure the runner can produce deterministically on every
+        // platform.
+        throw new Error("invalid_config");
+      }
       await replacePrivateRuntimeTextFileAtomically(
         paths.configPath,
         `${JSON.stringify(config)}\n`,
@@ -805,11 +855,17 @@ export function createSynthesisProductionRuntimeSupervisor(
           () => undefined,
         );
       void exitedSession.closed.then(() => {
-        if (
-          session === current &&
-          !controlledStop &&
-          snapshot.status !== "starting"
-        ) {
+        if (session !== current) {
+          // The supervisor already moved on before this generation's exit was
+          // observed, so no `fail`/`stop` path will ever run for it. Its
+          // runtime path and discovery still have to go: leaving them behind
+          // publishes a ready discovery for a dead process, and every reader
+          // that trusts it keeps failing on a generation that is gone
+          // (observed as a stuck run on Windows).
+          void cleanupSession(exitedSession);
+          return;
+        }
+        if (!controlledStop && snapshot.status !== "starting") {
           void exitedSession.stderrDrain?.finally(() =>
             fail(
               exitedSession.stableFailureCode || "sidecar_process_exited",
@@ -856,6 +912,10 @@ export function createSynthesisProductionRuntimeSupervisor(
         healthObservedAt: new Date(now()).toISOString(),
         readyAt: new Date(now()).toISOString(),
         nextRestartAt: undefined,
+        // A generation that reached ready ends the failure episode, so the
+        // retry budget and the fuse measure consecutive failures rather than
+        // every isolated restart of one long-lived session.
+        restartCount: 0,
       });
       scheduleHealth(current);
     } catch (error) {

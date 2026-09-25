@@ -27,6 +27,7 @@ import {
   clearPluginMutationAuthorityEntriesForTests,
   expirePluginMutationAuthorityEntryEvidence,
   getPluginMutationAuthorityEntry,
+  listPluginMutationAuthorityEntries,
   settlePluginMutationAuthorityEntry,
   type PluginMutationAuthorityEntry,
 } from "./pluginStateStore";
@@ -634,6 +635,13 @@ export function getMutationOperation(args: {
     return { state: "settled", result: resolved.result };
   }
   return { state: "unavailable" };
+}
+
+export function listMutationOperations(args: {
+  scope: ZoteroHostMutationCallerScope;
+}): PluginMutationAuthorityEntry[] {
+  const scope = requireScope(args.scope);
+  return listPluginMutationAuthorityEntries(scope);
 }
 
 /**

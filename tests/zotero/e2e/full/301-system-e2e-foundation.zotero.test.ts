@@ -1,10 +1,6 @@
 import { assert } from "chai";
-import { config } from "../../../../package.json";
 import { runFamilyLifecycle } from "../../../../scripts/system-e2e/familyLifecycle";
-import {
-  getRuntimePersistencePaths,
-  getSynthesisSidecarRuntimePaths,
-} from "../../../../src/modules/runtimePersistence";
+import { observeSystemE2EHealth } from "../../../../scripts/system-e2e/healthGate";
 import { emitZoteroTestDebug, isSystemE2ERun } from "../../diagnosticBridge";
 import { readDiagnosticsEnv } from "../../testDiagnosticsOutput";
 
@@ -52,46 +48,11 @@ async function materializeCommittedSeed() {
   assert.isOk(baselineAttachment?.id);
 }
 
-async function observeHealth(residualOwnedState: string[] = []) {
-  const plugin = (Zotero as any)[config.addonInstance];
-  const runtime = getSynthesisSidecarRuntimePaths(
-    getRuntimePersistencePaths().runtimeRoot,
-  );
-  const manifest = JSON.parse(
-    await IOUtils.readUTF8(PathUtils.join(runtime.currentDir, "manifest.json")),
-  );
-  const discoveries: Array<{ bundleId?: string; lifecycleState?: string }> = [];
-  for (const profileRoot of await IOUtils.getChildren(runtime.profilesDir)) {
-    const sessionsRoot = PathUtils.join(profileRoot, "sessions");
-    if (!(await IOUtils.exists(sessionsRoot))) continue;
-    for (const sessionRoot of await IOUtils.getChildren(sessionsRoot)) {
-      const discoveryPath = PathUtils.join(sessionRoot, "discovery.json");
-      if (await IOUtils.exists(discoveryPath)) {
-        discoveries.push(JSON.parse(await IOUtils.readUTF8(discoveryPath)));
-      }
-    }
-  }
-  return {
-    status: "passed" as const,
-    hostResponsive: Boolean(
-      Zotero.getMainWindow() && !Zotero.getMainWindow().closed,
-    ),
-    pluginResponsive: Boolean(plugin?.data?.initialized),
-    sidecarReady:
-      discoveries.length === 1 &&
-      discoveries[0].lifecycleState === "ready" &&
-      discoveries[0].bundleId === manifest.bundleId,
-    undeclaredOperations: 0,
-    managedProcesses: 0,
-    residualOwnedState,
-  };
-}
-
 describe("System E2E runner foundation", function () {
   this.timeout(180_000);
 
   before(async function () {
-    if (readDiagnosticsEnv("ZOTERO_SYSTEM_E2E_RESUME_CASE") === "HB-03") {
+    if (readDiagnosticsEnv("ZOTERO_SYSTEM_E2E_RESUME_CASE")) {
       this.skip();
     }
     assert.isTrue(isSystemE2ERun(), "runner event sink must be visible");
@@ -112,7 +73,7 @@ describe("System E2E runner foundation", function () {
       );
     }
     await materializeCommittedSeed();
-    const initialHealth = await observeHealth();
+    const initialHealth = await observeSystemE2EHealth();
     assert.deepEqual(initialHealth, {
       status: "passed",
       hostResponsive: true,
@@ -145,7 +106,10 @@ describe("System E2E runner foundation", function () {
         ownedNote = undefined;
         return "passed";
       },
-      healthGate: () => observeHealth(ownedNote ? ["foundation-note"] : []),
+      healthGate: () =>
+        observeSystemE2EHealth({
+          residualOwnedState: ownedNote ? ["foundation-note"] : [],
+        }),
     });
 
     await emitZoteroTestDebug({

@@ -19,6 +19,7 @@ import {
   ASSISTANT_INTERACTION_TOTAL_MAX_BYTES,
   ASSISTANT_PENDING_INTERACTION_FILE_LIMIT,
 } from "../../shared/assistantInteractionContract";
+import { resolveRuntimeHostCapabilities } from "../../utils/runtimeBridge";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -492,7 +493,7 @@ export class SkillRunnerManagementClient {
       args.requestTimeoutMs,
       DEFAULT_MANAGEMENT_REQUEST_TIMEOUT_MS,
     );
-    const runtimeFetch = (globalThis as { fetch?: FetchLike }).fetch;
+    const runtimeFetch = resolveRuntimeHostCapabilities().fetch;
     this.fetchImpl = args.fetchImpl || (runtimeFetch as FetchLike);
     if (typeof this.fetchImpl !== "function") {
       throw new Error("fetch() is unavailable in current runtime");

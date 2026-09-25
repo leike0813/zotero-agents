@@ -89,6 +89,28 @@ export function createMutationAuthorityTable(getAdapter: () => SqlAdapter) {
     return row ? normalizePluginMutationAuthorityEntry(row) : null;
   }
 
+  function listPluginMutationAuthorityEntries(
+    scopeRaw: string,
+  ): PluginMutationAuthorityEntry[] {
+    const scope = normalizeString(scopeRaw);
+    if (!scope) {
+      return [];
+    }
+    throwMutationAuthorityStorageFault("read");
+    const rows = getAdapter().all(
+      `
+        SELECT scope, operation_id, operation, semantic_digest,
+          semantic_input_json, state, result_json, created_at, terminal_at,
+          last_accessed_at
+        FROM plugin_mutation_authority
+        WHERE scope=@scope
+        ORDER BY created_at, operation_id
+      `,
+      { scope },
+    );
+    return rows.map(normalizePluginMutationAuthorityEntry);
+  }
+
   function claimPluginMutationAuthorityEntry(
     entry: PluginMutationAuthorityEntry,
   ): { claimed: boolean; entry: PluginMutationAuthorityEntry } {
@@ -219,6 +241,7 @@ export function createMutationAuthorityTable(getAdapter: () => SqlAdapter) {
 
   return {
     getPluginMutationAuthorityEntry,
+    listPluginMutationAuthorityEntries,
     claimPluginMutationAuthorityEntry,
     settlePluginMutationAuthorityEntry,
     expirePluginMutationAuthorityEntryEvidence,

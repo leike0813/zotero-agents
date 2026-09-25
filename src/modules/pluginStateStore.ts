@@ -899,6 +899,7 @@ export {
 
 const {
   getPluginMutationAuthorityEntry,
+  listPluginMutationAuthorityEntries,
   claimPluginMutationAuthorityEntry,
   settlePluginMutationAuthorityEntry,
   expirePluginMutationAuthorityEntryEvidence,
@@ -908,6 +909,7 @@ const {
 
 export {
   getPluginMutationAuthorityEntry,
+  listPluginMutationAuthorityEntries,
   claimPluginMutationAuthorityEntry,
   settlePluginMutationAuthorityEntry,
   expirePluginMutationAuthorityEntryEvidence,

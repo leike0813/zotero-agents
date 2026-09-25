@@ -94,6 +94,40 @@ describe("runtime bridge", function () {
     );
   });
 
+  it("binds fetch to the host window when one is available", async function () {
+    const runtime = globalThis as Record<string, unknown>;
+    const previousWindow = Object.getOwnPropertyDescriptor(runtime, "window");
+    const previousFetch = Object.getOwnPropertyDescriptor(runtime, "fetch");
+    const calls: string[] = [];
+    const hostWindow = {
+      fetch() {
+        calls.push(this === hostWindow ? "window" : "wrong-owner");
+        return Promise.resolve({} as Response);
+      },
+    };
+    try {
+      Object.defineProperty(runtime, "window", {
+        configurable: true,
+        value: hostWindow,
+      });
+      Object.defineProperty(runtime, "fetch", {
+        configurable: true,
+        value: () => {
+          calls.push("global");
+          return Promise.resolve({} as Response);
+        },
+      });
+      await resolveRuntimeHostCapabilities().fetch?.("http://localhost");
+      assert.deepEqual(calls, ["window"]);
+    } finally {
+      if (previousWindow)
+        Object.defineProperty(runtime, "window", previousWindow);
+      else delete runtime.window;
+      if (previousFetch) Object.defineProperty(runtime, "fetch", previousFetch);
+      else delete runtime.fetch;
+    }
+  });
+
   it("prefers the most complete Zotero candidate by shape", function () {
     const runtime = globalThis as Record<string, unknown>;
     const previousZotero = Object.getOwnPropertyDescriptor(runtime, "Zotero");

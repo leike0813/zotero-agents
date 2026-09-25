@@ -29,6 +29,7 @@ import {
 } from "../../modules/skillRunner/run/skillRunnerProviderStateMachine";
 import { delay } from "../../utils/runtimeCompatibility";
 import { readRuntimeBytes } from "../../modules/runtimePersistence";
+import { resolveRuntimeHostCapabilities } from "../../utils/runtimeBridge";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -412,11 +413,11 @@ export class SkillRunnerClient {
       args.requestTimeoutMs,
       DEFAULT_HTTP_REQUEST_TIMEOUT_MS,
     );
-    const globalFetch = (globalThis as { fetch?: FetchLike }).fetch;
+    const runtimeFetch = resolveRuntimeHostCapabilities().fetch;
     if (typeof args.fetchImpl === "function") {
       this.fetchImpl = args.fetchImpl;
-    } else if (typeof globalFetch === "function") {
-      this.fetchImpl = globalFetch.bind(globalThis);
+    } else if (typeof runtimeFetch === "function") {
+      this.fetchImpl = runtimeFetch;
     } else {
       throw new Error("fetch() is unavailable in current runtime");
     }

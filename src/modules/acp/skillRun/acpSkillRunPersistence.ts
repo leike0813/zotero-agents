@@ -1144,11 +1144,13 @@ export function reconcileAcpSkillRunWorkflowTasksOnStartup() {
       },
     });
   }
+  const taskRequestIds = new Set<string>();
   for (const task of listWorkflowTasks()) {
     if (!isAcpSkillRunWorkflowTask(task) || !task.requestId) {
       continue;
     }
     const requestId = normalizeString(task.requestId);
+    taskRequestIds.add(requestId);
     const run = runsByRequestId.get(requestId);
     const removed = removeWorkflowTasksByBackendAndRequestIds({
       backendId: task.backendId || run?.backendId || "",
@@ -1160,8 +1162,18 @@ export function reconcileAcpSkillRunWorkflowTasksOnStartup() {
     }
     if (isTerminalStatus(run.status)) {
       terminalSyncedCount += 1;
+    }
+  }
+  for (const run of runsByRequestId.values()) {
+    if (
+      run.removedAt ||
+      run.archivedAt ||
+      isTerminalStatus(run.status) ||
+      (!taskRequestIds.has(run.requestId) && !run.workflowId)
+    ) {
       continue;
     }
+    const requestId = run.requestId;
     if (isRecoverableAcpSkillRunAfterStartup(run)) {
       if (
         run.conversationRecoveryState !== "available" ||
@@ -1201,6 +1213,7 @@ export function reconcileAcpSkillRunWorkflowTasksOnStartup() {
         message:
           "ACP skill run was left active by a previous plugin session and cannot be recovered.",
         level: "error",
+        details: { reason: "startup_reconcile" },
       },
     });
     failedCount += 1;

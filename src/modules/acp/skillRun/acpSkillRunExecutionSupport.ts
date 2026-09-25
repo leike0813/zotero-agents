@@ -115,6 +115,10 @@ function normalizeString(value: unknown) {
   return String(value || "").trim();
 }
 
+export function isConfirmedAcpPromptInterruption(stopReason: unknown) {
+  return normalizeString(stopReason) === "cancelled";
+}
+
 export function recordAcpSkillRunAdapterDiagnostic(args: {
   requestId: string;
   runtimeDir?: string;

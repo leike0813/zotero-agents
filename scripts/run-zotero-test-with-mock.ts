@@ -72,10 +72,16 @@ export function resolveSystemE2EScaffoldRoot(
 }
 
 type SystemE2ERestartRequest = {
-  caseId: "HB-03";
+  caseId: "HB-03" | "AC-05" | "SR-02";
   operationId: string;
   processId: number;
 };
+
+const RESTART_OPERATION_IDS = {
+  "HB-03": "system-e2e:hb:03",
+  "AC-05": "system-e2e:ac:05",
+  "SR-02": "system-e2e:sr:02",
+} as const;
 
 export function parseSystemE2ERestartRequest(
   event: unknown,
@@ -94,14 +100,51 @@ export function parseSystemE2ERestartRequest(
   const operationId = String(data.operationId || "").trim();
   if (
     data.kind !== SYSTEM_E2E_RESTART_KIND ||
-    data.caseId !== "HB-03" ||
-    operationId !== "system-e2e:hb:03" ||
+    typeof data.caseId !== "string" ||
+    !(data.caseId in RESTART_OPERATION_IDS) ||
+    operationId !==
+      RESTART_OPERATION_IDS[
+        data.caseId as keyof typeof RESTART_OPERATION_IDS
+      ] ||
     !Number.isInteger(processId) ||
     processId <= 1
   ) {
     return null;
   }
-  return { caseId: "HB-03", operationId, processId };
+  return {
+    caseId: data.caseId as SystemE2ERestartRequest["caseId"],
+    operationId,
+    processId,
+  };
+}
+
+export function parseSystemE2EPeerRestartRequest(event: unknown) {
+  if (!event || typeof event !== "object") return null;
+  const envelope = event as { type?: unknown; data?: unknown };
+  if (
+    envelope.type !== "debug" ||
+    !envelope.data ||
+    typeof envelope.data !== "object"
+  ) {
+    return null;
+  }
+  const data = envelope.data as Record<string, unknown>;
+  return data.kind === "system-e2e-peer-restart-request" &&
+    data.caseId === "SR-03"
+    ? { caseId: "SR-03" as const }
+    : null;
+}
+
+export function buildSystemE2EResumeEnvironment(
+  env: NodeJS.ProcessEnv,
+  caseId: SystemE2ERestartRequest["caseId"],
+  resumeRoot: string,
+): NodeJS.ProcessEnv {
+  return {
+    ...env,
+    ZOTERO_SYSTEM_E2E_RESUME_CASE: caseId,
+    ZOTERO_SYSTEM_E2E_RESUME_ROOT: resumeRoot,
+  };
 }
 
 export async function waitForSystemE2EAdmissionCheckpoint(args: {
@@ -318,6 +361,9 @@ export function buildTestEnvironment(
     ZOTERO_TEST_MODE: testMode,
     ZOTERO_TEST_DOMAIN: testDomain,
     [TEST_DATA_DIR_ENV]: testDataDir,
+    ...(testDomain === "e2e"
+      ? { ZOTERO_SYSTEM_E2E_NODE_PATH: process.execPath }
+      : {}),
   };
   if (
     testDomain === "e2e" &&
@@ -419,6 +465,30 @@ function spawnNpm(args: string[], options?: SpawnOptions) {
   return spawn("npm", args, options);
 }
 
+function spawnMockSkillRunner(args: {
+  host: string;
+  port: string;
+  env: NodeJS.ProcessEnv;
+}) {
+  return spawn(
+    process.execPath,
+    [
+      "--import",
+      "tsx",
+      path.resolve("scripts/mock-skillrunner-serve.ts"),
+      "--host",
+      args.host,
+      "--port",
+      args.port,
+    ],
+    {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: args.env,
+      detached: process.platform !== "win32",
+    },
+  );
+}
+
 function waitForMockReady(mock: Child, timeoutMs = 8000) {
   return new Promise<string>((resolve, reject) => {
     let settled = false;
@@ -502,34 +572,44 @@ function runTargetTests(
   });
 }
 
-function terminateMock(mock: Child) {
-  return new Promise<void>((resolve) => {
-    if (!mock.pid) {
-      resolve();
-      return;
-    }
+async function terminateMock(mock: Child) {
+  if (!mock.pid || mock.exitCode !== null || mock.signalCode !== null) return;
+  const exited = new Promise<void>((resolve) =>
+    mock.once("exit", () => resolve()),
+  );
+  const killed = new Promise<void>((resolve, reject) => {
     if (process.platform === "win32") {
       const killer = spawn("taskkill", ["/PID", String(mock.pid), "/T", "/F"], {
         stdio: "ignore",
       });
-      killer.on("exit", () => resolve());
+      killer.on("error", reject);
+      killer.on("exit", (code) =>
+        code === 0
+          ? resolve()
+          : reject(new Error(`mock_skillrunner_taskkill_failed:${code}`)),
+      );
       return;
     }
     try {
-      process.kill(-mock.pid, "SIGTERM");
-      resolve();
+      process.kill(-mock.pid!, "SIGKILL");
     } catch {
-      try {
-        mock.kill("SIGTERM");
-      } catch {
-        // ignore
-      }
-      resolve();
+      mock.kill("SIGKILL");
     }
+    resolve();
   });
+  await killed;
+  await Promise.race([
+    exited,
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () => reject(new Error("mock_skillrunner_termination_timeout")),
+        5_000,
+      ),
+    ),
+  ]);
 }
 
-function terminateExactProcess(processId: number) {
+export function terminateExactProcess(processId: number) {
   if (processId === process.pid) {
     throw new Error("system_e2e_restart_refused_runner_pid");
   }
@@ -538,7 +618,11 @@ function terminateExactProcess(processId: number) {
     return waitForExactProcessExit(processId);
   }
   return new Promise<void>((resolve, reject) => {
-    const killer = spawn("taskkill", ["/PID", String(processId), "/T", "/F"], {
+    // The controlled fault is the death of the owning Zotero process alone. A
+    // tree kill would also hard-kill the sidecar child, which on POSIX observes
+    // parent-pipe EOF and exits through its own cleanup path instead, so the
+    // Windows fault has to stay the same shape.
+    const killer = spawn("taskkill", ["/PID", String(processId), "/F"], {
       stdio: "ignore",
       windowsHide: true,
     });
@@ -548,7 +632,7 @@ function terminateExactProcess(processId: number) {
         ? resolve()
         : reject(new Error(`system_e2e_restart_taskkill_failed:${code}`)),
     );
-  });
+  }).then(() => waitForExactProcessExit(processId));
 }
 
 async function waitForExactProcessExit(processId: number) {
@@ -610,6 +694,10 @@ async function main() {
   let restartRequest: SystemE2ERestartRequest | undefined;
   let restartBoundary: Promise<SystemE2ERestartRequest> | undefined;
   let resumeRoot = "";
+  const resumeRoots: string[] = [];
+  let mock: Child | undefined;
+  let mockBaseUrl = "";
+  let peerRestarted = false;
   let nativeCrashSummaryPath = "";
   if (testEnv.ZOTERO_TEST_DOMAIN === "e2e") {
     const hostBridgeCli = await resolveCurrentHostBridgeCli();
@@ -682,18 +770,39 @@ async function main() {
           throw new Error("system_e2e_restart_already_requested");
         }
         restartRequest = requestedRestart;
-        restartBoundary = waitForSystemE2EAdmissionCheckpoint({
-          checkpointPath: path.join(
-            resolveSystemE2EScaffoldRoot(testEnv),
-            "data",
-            "system-e2e",
-            "canonical-mutation-admission.held",
-          ),
-          operationId: requestedRestart.operationId,
-        }).then(async () => {
+        restartBoundary = (
+          requestedRestart.caseId === "HB-03"
+            ? waitForSystemE2EAdmissionCheckpoint({
+                checkpointPath: path.join(
+                  resolveSystemE2EScaffoldRoot(testEnv),
+                  "data",
+                  "system-e2e",
+                  "canonical-mutation-admission.held",
+                ),
+                operationId: requestedRestart.operationId,
+              })
+            : Promise.resolve("held" as const)
+        ).then(async () => {
           await terminateExactProcess(requestedRestart.processId);
           return requestedRestart;
         });
+      }
+      if (parseSystemE2EPeerRestartRequest(event)) {
+        if (peerRestarted || !mock || !mockBaseUrl) {
+          throw new Error("system_e2e_peer_restart_unavailable");
+        }
+        peerRestarted = true;
+        await terminateMock(mock);
+        const fixedPort = new URL(mockBaseUrl).port;
+        mock = spawnMockSkillRunner({
+          host: mockHost,
+          port: fixedPort,
+          env: testEnv,
+        });
+        const restartedUrl = await waitForMockReady(mock);
+        if (restartedUrl !== mockBaseUrl) {
+          throw new Error("system_e2e_peer_restart_endpoint_changed");
+        }
       }
       collector.accept(event);
       persistence = persistence.then(() =>
@@ -747,14 +856,11 @@ async function main() {
   }
 
   const effectiveTestEnv = systemE2ERun?.env || testEnv;
-  const mock = spawnNpm(
-    ["run", "mock:skillrunner", "--", "--host", mockHost, "--port", mockPort],
-    {
-      stdio: ["ignore", "pipe", "pipe"],
-      env: effectiveTestEnv,
-      detached: process.platform !== "win32",
-    },
-  );
+  mock = spawnMockSkillRunner({
+    host: mockHost,
+    port: mockPort,
+    env: effectiveTestEnv,
+  });
 
   let cleaned = false;
   const cleanup = async () => {
@@ -762,10 +868,10 @@ async function main() {
       return;
     }
     cleaned = true;
-    await terminateMock(mock);
+    if (mock) await terminateMock(mock);
     await systemE2ERun?.close();
-    if (resumeRoot) {
-      await rm(resumeRoot, { recursive: true, force: true });
+    for (const root of resumeRoots) {
+      await rm(root, { recursive: true, force: true });
     }
     await cleanupTestDataDir(testEnv);
   };
@@ -792,7 +898,7 @@ async function main() {
 
   let nativeCrashCapture: ZoteroNativeCrashCapture | undefined;
   try {
-    const mockBaseUrl = await waitForMockReady(mock);
+    mockBaseUrl = await waitForMockReady(mock);
     if (
       process.platform === "win32" &&
       effectiveTestEnv.ZOTERO_SYSTEM_E2E_CASE === "CG-02"
@@ -813,17 +919,23 @@ async function main() {
     );
     console.log(`[test-skillrunner-endpoint] ${mockBaseUrl}`);
     let code = await runTargetTests(invocation, targetEnv);
-    if (restartRequest) {
-      const completedRestart = await restartBoundary;
+    while (restartRequest) {
+      const completedRestart = await restartBoundary!;
       resumeRoot = await snapshotSystemE2EScaffold(
         resolveSystemE2EScaffoldRoot(testEnv),
       );
+      resumeRoots.push(resumeRoot);
       console.log(`[system-e2e-resume] ${completedRestart.caseId}`);
-      code = await runTargetTests(invocation, {
-        ...targetEnv,
-        ZOTERO_SYSTEM_E2E_RESUME_CASE: completedRestart.caseId,
-        ZOTERO_SYSTEM_E2E_RESUME_ROOT: resumeRoot,
-      });
+      restartRequest = undefined;
+      restartBoundary = undefined;
+      code = await runTargetTests(
+        invocation,
+        buildSystemE2EResumeEnvironment(
+          targetEnv,
+          completedRestart.caseId,
+          resumeRoot,
+        ),
+      );
     }
     if (nativeCrashCapture) {
       const crashSummary = await nativeCrashCapture.finish();

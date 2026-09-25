@@ -107,6 +107,7 @@ import {
   errorMessage,
   findWorkspaceActivitySnapshot,
   handleAcpSkillRunPermissionRequest,
+  isConfirmedAcpPromptInterruption,
   isObservableAcpPromptOutputUpdateKind,
   markAcpSkillRunContinuationRunning,
   prepareAcpSkillRunHostBridgeCli,
@@ -2328,7 +2329,10 @@ export async function executeAcpSkillRunnerJob(args: {
           });
           return;
         }
-        if (interruptionRequested) {
+        if (
+          interruptionRequested &&
+          isConfirmedAcpPromptInterruption(promptOutcome.stopReason)
+        ) {
           clearInterruptWatchdog();
           upsertAcpSkillRun({
             requestId: workspace.requestId,
@@ -2345,6 +2349,24 @@ export async function executeAcpSkillRunnerJob(args: {
             },
           });
           return;
+        }
+        if (interruptionRequested) {
+          clearInterruptWatchdog();
+          interruptionRequested = false;
+          upsertAcpSkillRun({
+            requestId: workspace.requestId,
+            promptInterruptState: "unconfirmed",
+            event: {
+              stage: "interrupt-unconfirmed",
+              message:
+                "ACP prompt returned a result after interruption was requested.",
+              level: "warn",
+              details: {
+                detachedReply: true,
+                stopReason: promptOutcome.stopReason,
+              },
+            },
+          });
         }
         const promptFailure = classifyAcpPromptFailure(promptOutcome);
         let detachedConvergence: AcpSkillOutputConvergenceResult;
@@ -2712,7 +2734,10 @@ export async function executeAcpSkillRunnerJob(args: {
           },
         };
       }
-      if (interruptionRequested) {
+      if (
+        interruptionRequested &&
+        isConfirmedAcpPromptInterruption(promptResult.stopReason)
+      ) {
         clearInterruptWatchdog();
         keepConversationAlive = true;
         hardTimeoutMonitor?.clear();
@@ -2765,6 +2790,21 @@ export async function executeAcpSkillRunnerJob(args: {
             status: "interrupted",
           },
         };
+      }
+      if (interruptionRequested) {
+        clearInterruptWatchdog();
+        interruptionRequested = false;
+        upsertAcpSkillRun({
+          requestId: workspace.requestId,
+          promptInterruptState: "unconfirmed",
+          event: {
+            stage: "interrupt-unconfirmed",
+            message:
+              "ACP prompt returned a result after interruption was requested.",
+            level: "warn",
+            details: { stopReason: promptResult.stopReason },
+          },
+        });
       }
       const promptFailure = classifyAcpPromptFailure(promptResult);
       if (promptFailure?.stage === "acp-prompt-no-output") {

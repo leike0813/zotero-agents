@@ -1,4 +1,5 @@
 import { validateCreatePayload, validateMultipartHasField } from "./contracts";
+import { randomUUID } from "node:crypto";
 import { joinPath } from "../../src/utils/path";
 import { ZipBundleReader } from "../../src/workflows/zipBundleReader";
 
@@ -95,12 +96,15 @@ export async function startMockSkillRunnerServer(args: {
   host?: string;
   port?: number;
   handshake?: MockHandshakeConfig;
+  handshakeDelayMs?: number;
 }) {
   const httpMod = await dynamicImport("http");
   const fsMod = await dynamicImport("fs/promises");
   const createServer =
     httpMod.createServer as typeof import("http").createServer;
   const jobs = new Map<string, MockJob>();
+  const instanceId = randomUUID();
+  let holdJobs = false;
   const traffic: TrafficRecord[] = [];
   let nextId = 1;
   const bundleBytes = Buffer.from(await fsMod.readFile(args.bundlePath));
@@ -132,6 +136,7 @@ export async function startMockSkillRunnerServer(args: {
     // keep fallback result template when fixture result JSON is unavailable
   }
   const pollDelayMs = Math.max(0, args.pollDelayMs ?? 50);
+  let handshakeDelayMs = Math.max(0, args.handshakeDelayMs ?? 0);
   const handshakeConfig =
     args.handshake === undefined
       ? {
@@ -222,6 +227,36 @@ export async function startMockSkillRunnerServer(args: {
         });
       }
 
+      if (method === "POST" && url === "/__test/jobs") {
+        res.statusCode = 200;
+        res.setHeader("content-type", "application/json");
+        res.end(
+          JSON.stringify({ instanceId, requestIds: Array.from(jobs.keys()) }),
+        );
+        return;
+      }
+
+      if (method === "POST" && url === "/__test/hold-jobs") {
+        const payload = JSON.parse(bodyRaw || "{}");
+        holdJobs = payload.enabled === true;
+        res.statusCode = 200;
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ held: holdJobs }));
+        return;
+      }
+
+      if (method === "POST" && url === "/__test/handshake-delay") {
+        const payload = JSON.parse(bodyRaw || "{}");
+        const requestedDelay = Number(payload.delayMs);
+        handshakeDelayMs = Number.isFinite(requestedDelay)
+          ? Math.min(10_000, Math.max(0, Math.floor(requestedDelay)))
+          : 0;
+        res.statusCode = 200;
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ delayMs: handshakeDelayMs }));
+        return;
+      }
+
       if (method === "POST" && url === "/v1/jobs") {
         let payload: unknown;
         try {
@@ -239,7 +274,7 @@ export async function startMockSkillRunnerServer(args: {
           res.end(JSON.stringify({ error: validated.errors.join("; ") }));
           return;
         }
-        const requestId = String(nextId++);
+        const requestId = `${instanceId}-${nextId++}`;
         const expectedUploadTargets = resolveExpectedUploadTargets(payload);
         jobs.set(requestId, {
           id: requestId,
@@ -293,6 +328,9 @@ export async function startMockSkillRunnerServer(args: {
         url === "/v1/system/handshake" &&
         handshakeConfig !== false
       ) {
+        if (handshakeDelayMs) {
+          await new Promise((resolve) => setTimeout(resolve, handshakeDelayMs));
+        }
         const status = Math.floor(Number(handshakeConfig.status || 200));
         res.statusCode = Number.isFinite(status) ? status : 200;
         res.setHeader("content-type", "application/json");
@@ -347,13 +385,19 @@ export async function startMockSkillRunnerServer(args: {
           res.end(JSON.stringify({ error: "job not found" }));
           return;
         }
-        const hasFileField = validateMultipartHasField(bodyRaw, "file");
-        if (!hasFileField) {
+        const createPayload = isObject(job.createPayload)
+          ? job.createPayload
+          : {};
+        const requiredField =
+          createPayload.skill_source === "temp_upload"
+            ? "skill_package"
+            : "file";
+        if (!validateMultipartHasField(bodyRaw, requiredField)) {
           res.statusCode = 400;
           res.setHeader("content-type", "application/json");
           res.end(
             JSON.stringify({
-              error: "missing multipart field: file",
+              error: `missing multipart field: ${requiredField}`,
             }),
           );
           return;
@@ -377,6 +421,66 @@ export async function startMockSkillRunnerServer(args: {
         return;
       }
 
+      const chatStreamMatch = url.match(/^\/v1\/jobs\/([^/]+)\/chat(?:\?.*)?$/);
+      if (method === "GET" && chatStreamMatch) {
+        if (!jobs.has(chatStreamMatch[1])) {
+          res.statusCode = 404;
+          res.setHeader("content-type", "application/json");
+          res.end(JSON.stringify({ error: "job not found" }));
+          return;
+        }
+        res.statusCode = 200;
+        res.setHeader("content-type", "text/event-stream");
+        res.end("event: snapshot\ndata: {}\n\n");
+        return;
+      }
+
+      const chatHistoryMatch = url.match(
+        /^\/v1\/jobs\/([^/]+)\/chat\/history(?:\?.*)?$/,
+      );
+      if (method === "GET" && chatHistoryMatch) {
+        const requestId = chatHistoryMatch[1];
+        const job = jobs.get(requestId);
+        res.setHeader("content-type", "application/json");
+        if (!job) {
+          res.statusCode = 404;
+          res.end(JSON.stringify({ error: "job not found" }));
+          return;
+        }
+        const events =
+          job.uploadReceived && job.pollCount >= 1
+            ? [
+                {
+                  seq: 1,
+                  role: "assistant",
+                  kind: "assistant_message",
+                  text: "System E2E SkillRunner running transcript",
+                  ts: new Date().toISOString(),
+                },
+              ]
+            : [];
+        if (job.uploadReceived && job.pollCount >= 2 && !holdJobs) {
+          events.push({
+            seq: 2,
+            role: "assistant",
+            kind: "assistant_final",
+            text: "System E2E SkillRunner completed transcript",
+            ts: new Date().toISOString(),
+          });
+        }
+        res.statusCode = 200;
+        res.end(
+          JSON.stringify({
+            request_id: requestId,
+            events,
+            cursor_floor: 0,
+            cursor_ceiling: events.length,
+            source: "mock-skillrunner",
+          }),
+        );
+        return;
+      }
+
       const pollMatch = url.match(/^\/v1\/jobs\/([^/]+)$/);
       if (method === "GET" && pollMatch) {
         const requestId = pollMatch[1];
@@ -390,7 +494,9 @@ export async function startMockSkillRunnerServer(args: {
         await new Promise((resolve) => setTimeout(resolve, pollDelayMs));
         job.pollCount += 1;
         let status = "queued";
-        if (!job.uploadReceived) {
+        if (holdJobs && job.uploadReceived) {
+          status = "running";
+        } else if (!job.uploadReceived) {
           status = "queued";
         } else if (job.pollCount === 1) {
           status = "running";
@@ -455,6 +561,37 @@ export async function startMockSkillRunnerServer(args: {
           ? job.createPayload
           : {};
         const skillId = String(createPayload.skill_id || "").trim();
+        const debugParameter = isObject(createPayload.parameter)
+          ? createPayload.parameter
+          : {};
+        if (
+          skillId === "debug-apply-result-probe" ||
+          (createPayload.skill_source === "temp_upload" &&
+            debugParameter.workflow_id === "debug-apply-single-result" &&
+            debugParameter.step_id === "result")
+        ) {
+          const parameter = isObject(createPayload.parameter)
+            ? createPayload.parameter
+            : {};
+          const runKey = String(parameter.run_key || "");
+          res.statusCode = 200;
+          res.setHeader("content-type", "application/json");
+          res.end(
+            JSON.stringify({
+              request_id: requestId,
+              result: {
+                kind: "debug_apply_contract_result",
+                workflow_id: parameter.workflow_id,
+                step_id: parameter.step_id,
+                run_key: runKey,
+                apply_mode: "result",
+                tag: parameter.tag || `debug-result:${runKey}`,
+                message: "synthetic SkillRunner result",
+              },
+            }),
+          );
+          return;
+        }
         if (skillId === "tag-regulator") {
           const inlineInput = isObject(createPayload.input)
             ? createPayload.input

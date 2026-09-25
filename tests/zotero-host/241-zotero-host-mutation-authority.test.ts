@@ -3,7 +3,9 @@ import { strict as assert } from "node:assert";
 import {
   claimPluginMutationAuthorityEntry,
   configurePluginMutationAuthorityStorageFaultForTests,
+  expirePluginMutationAuthorityEntryEvidence,
   resetPluginStateStoreForTests,
+  settlePluginMutationAuthorityEntry,
 } from "../../src/modules/pluginStateStore";
 import {
   assertWorkflowHostErrorDetails,
@@ -15,6 +17,7 @@ import {
   configureMutationAuthorityRuntimeForTests,
   executeReservedMutation,
   getMutationOperation,
+  listMutationOperations,
   lookupReservedMutation,
   lookupTrustedStoredAttachmentMutation,
   resetMutationAuthorityLiveStateForTests,
@@ -1043,5 +1046,88 @@ describe("Zotero host mutation authority", function () {
         error.code === "conflict" &&
         error.details.reason === "idempotency_conflict",
     );
+  });
+
+  it("enumerates an empty scope as an empty array", function () {
+    assert.deepEqual(listMutationOperations({ scope }), []);
+  });
+
+  it("isolates enumeration to the requested scope", function () {
+    const now = new Date().toISOString();
+    for (const ownerId of ["authority-list-a", "authority-list-b"]) {
+      claimPluginMutationAuthorityEntry({
+        scope: ownerId,
+        operationId: `list-op-${ownerId}`,
+        operation,
+        semanticDigest: `sha256:list-op-${ownerId}`,
+        semanticInput: '{"item":"A"}',
+        state: "started",
+        result: "",
+        createdAt: now,
+        terminalAt: "",
+        lastAccessedAt: now,
+      });
+    }
+
+    const listed = listMutationOperations({
+      scope: { ownerId: "authority-list-a" },
+    });
+
+    assert.deepEqual(
+      listed.map((entry) => entry.operationId),
+      ["list-op-authority-list-a"],
+    );
+    assert.equal(listed[0].scope, "authority-list-a");
+  });
+
+  it("enumerates started, terminal, and identity-only entries", function () {
+    const now = new Date().toISOString();
+    const claim = (operationId: string) => {
+      claimPluginMutationAuthorityEntry({
+        scope: scope.ownerId,
+        operationId,
+        operation,
+        semanticDigest: `sha256:${operationId}`,
+        semanticInput: '{"item":"A"}',
+        state: "started",
+        result: "",
+        createdAt: now,
+        terminalAt: "",
+        lastAccessedAt: now,
+      });
+    };
+    claim("list-started");
+    claim("list-terminal");
+    settlePluginMutationAuthorityEntry({
+      scope: scope.ownerId,
+      operationId: "list-terminal",
+      result: '{"outcome":"unchanged"}',
+      terminalAt: now,
+      lastAccessedAt: now,
+    });
+    claim("list-identity-only");
+    settlePluginMutationAuthorityEntry({
+      scope: scope.ownerId,
+      operationId: "list-identity-only",
+      result: '{"outcome":"unchanged"}',
+      terminalAt: now,
+      lastAccessedAt: now,
+    });
+    expirePluginMutationAuthorityEntryEvidence({
+      scope: scope.ownerId,
+      operationId: "list-identity-only",
+      lastAccessedAt: now,
+    });
+
+    const states = new Map(
+      listMutationOperations({ scope }).map((entry) => [
+        entry.operationId,
+        entry.state,
+      ]),
+    );
+
+    assert.equal(states.get("list-started"), "started");
+    assert.equal(states.get("list-terminal"), "terminal");
+    assert.equal(states.get("list-identity-only"), "identity_only");
   });
 });

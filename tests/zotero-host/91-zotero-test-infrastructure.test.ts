@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { spawn } from "node:child_process";
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "fs/promises";
 import os from "os";
 import path from "path";
@@ -7,6 +8,9 @@ import {
   buildForwardedTestArgs,
   buildTestEnvironment,
   parseSystemE2ERestartRequest,
+  parseSystemE2EPeerRestartRequest,
+  buildSystemE2EResumeEnvironment,
+  terminateExactProcess,
   parseWrappedTestInvocation,
   normalizeTestDomain,
   resolveMockSkillRunnerPort,
@@ -477,6 +481,77 @@ describe("zotero test infrastructure helpers", function () {
       assert.equal(await admitted, "held");
     });
 
+    it("accepts the Phase 2 restart cases and preserves the relaunch environment", async function () {
+      for (const [caseId, operationId] of [
+        ["AC-05", "system-e2e:ac:05"],
+        ["SR-02", "system-e2e:sr:02"],
+      ]) {
+        assert.deepEqual(
+          parseSystemE2ERestartRequest({
+            type: "debug",
+            data: {
+              kind: "system-e2e-owner-restart-request",
+              caseId,
+              operationId,
+              processId: 4242,
+            },
+          }),
+          { caseId, operationId, processId: 4242 },
+        );
+      }
+      assert.isNull(
+        parseSystemE2ERestartRequest({
+          type: "debug",
+          data: {
+            kind: "system-e2e-owner-restart-request",
+            caseId: "SR-02",
+            operationId: "wrong-operation",
+            processId: 4242,
+          },
+        }),
+      );
+      const env = {
+        ZOTERO_TEST_DATA_DIR: "/copied/data",
+        ZOTERO_TEST_SKILLRUNNER_ENDPOINT: "http://127.0.0.1:18030",
+        ZOTERO_TEST_GREP: "SR-02",
+      };
+      assert.deepEqual(
+        buildSystemE2EResumeEnvironment(env, "SR-02", "/resume"),
+        {
+          ...env,
+          ZOTERO_SYSTEM_E2E_RESUME_CASE: "SR-02",
+          ZOTERO_SYSTEM_E2E_RESUME_ROOT: "/resume",
+        },
+      );
+      assert.deepEqual(
+        parseSystemE2EPeerRestartRequest({
+          type: "debug",
+          data: { kind: "system-e2e-peer-restart-request", caseId: "SR-03" },
+        }),
+        { caseId: "SR-03" },
+      );
+    });
+
+    it("confirms exact child termination before returning", async function () {
+      const child = spawn(
+        process.execPath,
+        ["-e", "setInterval(() => {}, 1000)"],
+        {
+          stdio: "ignore",
+        },
+      );
+      const exited = new Promise<number | null>((resolve) =>
+        child.once("exit", resolve),
+      );
+      assert.isNumber(child.pid);
+      try {
+        await terminateExactProcess(child.pid!);
+        assert.isNull(await exited);
+      } finally {
+        child.kill("SIGKILL");
+      }
+    });
+
     it("rejects private database files and absolute paths", async function () {
       const root = await mkdtemp(path.join(os.tmpdir(), "system-e2e-private-"));
       await writeFile(path.join(root, "zotero.sqlite"), "private", "utf8");
@@ -644,6 +719,21 @@ describe("zotero test infrastructure helpers", function () {
       assert.equal(manifest.zoteroVersion, "9.0.4");
       assert.equal(manifest.families[0].familyId, "SL");
       assert.notInclude(JSON.stringify(manifest), "must not enter manifest");
+
+      const restarted = createRunManifestEventCollector(identity);
+      restarted.accept({
+        type: "debug",
+        data: {
+          kind: "system-e2e-family-result",
+          family: { familyId: "SL", result: "passed", ...evidence },
+        },
+      });
+      restarted.accept({
+        type: "debug",
+        data: { kind: "zotero-test-fail-detail", title: "SL-02" },
+      });
+      restarted.accept({ type: "end", data: { failed: 0, aborted: 0 } });
+      assert.equal(restarted.finalize(0).terminalState, "incomplete");
 
       for (const [end, exitCode] of [
         [{ failed: 1, aborted: 0 }, 0],
@@ -833,6 +923,28 @@ describe("zotero test infrastructure helpers", function () {
       });
       assert.isTrue(result.abort);
       assert.equal(result.abortCode, "family_cleanup_indeterminate");
+    });
+
+    it("records a throwing cleanup as a failed cleanup", async function () {
+      const result = await runFamilyLifecycle({
+        declaration: family,
+        execute: async () => undefined,
+        cleanup: async () => {
+          throw new Error("cleanup exploded");
+        },
+        healthGate: async () => ({
+          status: "passed",
+          hostResponsive: true,
+          pluginResponsive: true,
+          sidecarReady: true,
+          undeclaredOperations: 0,
+          managedProcesses: 0,
+          residualOwnedState: [],
+        }),
+      });
+      assert.isTrue(result.abort);
+      assert.equal(result.cleanup, "failed");
+      assert.equal(result.abortCode, "family_cleanup_failed");
     });
 
     it("fails the Suite Health Gate on an undeclared leak", async function () {
