@@ -1,17 +1,18 @@
 ## Context
 
-The two R9b deletion changes own source retirement and local native-only gates.
-They do not authorize remote seven-target dispatch or provide all environments
-needed for XPI, data, failure-injection, and Zotero 7/9 acceptance. The accepted
-pre-deletion candidate remains the safety baseline; this change evaluates the
-post-deletion candidate and makes no product code changes.
+Both R9b deletion changes are archived. Their local gates do not supply the
+final candidate XPI, isolated data and failure-injection results, or current
+blocking Zotero 7/9/10 compatibility results. The pre-deletion candidate
+remains a historical safety baseline; this change evaluates a source-fresh
+post-deletion candidate without changing product behavior.
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-- Produce one machine-readable, reviewable receipt set tied to an immutable
-  post-retirement source identity.
+- Produce one reviewable acceptance decision from the existing machine-readable
+  prebuild v4, verification v2, package, and compatibility evidence plus any
+  missing installation, migration, and process receipts.
 - Reuse governed native build, synchronization, package, installation, process,
   migration, and real-machine harnesses.
 - Distinguish passed, failed, pending, not-applicable, and not-authorized facts.
@@ -19,7 +20,8 @@ post-deletion candidate and makes no product code changes.
 
 **Non-Goals:**
 
-- Publish a release, tag, GitHub asset, content feed, or Gitee mirror.
+- Publish a release, create a release tag or asset, advance a content feed or
+  production pointer, or synchronize a Gitee mirror.
 - Reintroduce Node/plugin owners or add an implementation selector for testing.
 - Treat local simulation as a substitute for a required target or real-machine
   result.
@@ -27,21 +29,29 @@ post-deletion candidate and makes no product code changes.
 
 ## Decisions
 
-### 1. Use one candidate identity envelope
+### 1. Join existing identities for one candidate
 
-Every receipt carries the source commit, Rust toolchain, Cargo lock digest,
-workflow identity, seven target fingerprints, and universal-XPI digest. A
-collector rejects mixed envelopes instead of merging individually green
-results. This prevents accidental acceptance of an unbuildable combination.
+Pin one pushed source commit and use its prebuild v4 result, matching trusted
+verification v2 result, seven manifest-v3 bundle identities, and the digest of
+one built universal XPI. Resolve Rust toolchain and Cargo lock identity from
+the governed build inputs and receipts. Installation and real-machine results
+must identify the XPI bytes actually installed, the selected bundle identity,
+the source identity, and their run/host provenance. Reject mixed or missing
+links instead of inventing a second release-set format. A release-set v2 or
+complete release receipt is not a prerequisite for this non-publishing gate;
+neither is written or advanced by acceptance.
 
 Alternative: accept the newest result for each platform independently.
 Rejected because source or toolchain drift can hide cross-platform defects.
 
 ### 2. Separate evidence production from the completion decision
 
-Build, package, install, failure, migration, and real-machine jobs emit typed
-receipts. A final read-only evaluator checks required membership, identity,
-status, privacy, and budgets. It does not dispatch jobs or publish artifacts.
+Reuse the prebuild, verification, XPI, compatibility-cell, and Run Manifest
+evidence already emitted by their owners. Capture only missing cases in
+privacy-safe receipts. A final read-only review checks required membership,
+identity, status, privacy, and budgets. Add a small evaluator or test-harness
+adapter only if existing checks cannot make that decision reproducibly. The
+decision does not dispatch jobs or publish artifacts.
 
 Alternative: let the workflow declare completion as its final step. Rejected
 because some evidence comes from operator-controlled real machines and because
@@ -63,17 +73,32 @@ executables and observe discovery, RPC, process exit, and filesystem cleanup.
 Unit or source-shape evidence may diagnose a failure but cannot replace these
 acceptance cases.
 
-### 5. Keep authorization boundaries explicit
+### 5. Bind real-machine evidence to the packaged candidate
 
-Remote candidate dispatch, signing required by an acceptance environment, and
-real-machine execution begin only under their separate authorization. Release,
-feed, and Gitee actions are never part of this change. Pending authorization is
-a normal recorded state, not a passing result.
+Use the current compatibility matrix and its blocking policy: Zotero 7, 9,
+and 10 on Linux x64 and Windows x64 require the promoted Phase 1 System E2E
+families (`SL`, `RH`, `PA`, `PM`, `CG`, `HB`) and their Run Manifest, cleanup,
+health, and sidecar-runtime evidence. Record macOS Zotero 10 XPI-smoke cells
+according to their current nonblocking policy; do not silently promote them.
+Existing release E2E preparation stages a current-source sidecar into a
+platform candidate, and ordinary System E2E also builds from source. Neither
+result proves byte identity with the universal XPI by itself. Before counting
+a cell, compare its installed XPI digest and selected bundle identity with
+the pinned acceptance candidate. If the existing runner cannot preserve and
+report those bytes, extend that runner or leave the cell pending.
+
+### 6. Keep authorization boundaries explicit
+
+Remote prebuild dispatch and any signing or real-machine work that needs
+separate authority retain that boundary. The prebuild's immutable-set
+publication is build evidence, not release publication. No release tag, asset,
+feed, mutable production pointer, or Gitee action belongs to this change.
+Pending authorization is a recorded state, never a passing result.
 
 ## Risks / Trade-offs
 
-- **Candidate bytes change during a long matrix** → Pin and re-verify the
-  identity envelope before every environment run.
+- **Candidate bytes change during a long matrix** → Pin and re-verify the XPI
+  digest and selected bundle identity before every environment run.
 - **A platform is temporarily unavailable** → Record it as pending and keep the
   completion decision false; do not infer from another architecture.
 - **Existing-data fixtures expose private content** → Use isolated minimal
@@ -85,14 +110,16 @@ a normal recorded state, not a passing result.
 
 ## Migration Plan
 
-1. Confirm both retirement changes are locally complete and pin the final
-   source/toolchain/lock identity.
-2. Under separate authorization, produce and verify all seven native bundles.
-3. Assemble the universal XPI and run native-only inventory, integrity, license,
-   provenance, SBOM, freshness, and size checks without publishing.
+1. Confirm both retirement changes are archived and pin the pushed source,
+   toolchain, Cargo lock, and current matrix identities.
+2. Under the applicable authority, obtain and verify the matching prebuild v4
+   and verification v2 results and all seven native bundles.
+3. Assemble one unpublished universal XPI and run native-only inventory,
+   integrity, license, provenance, SBOM, freshness, and size checks.
 4. Run clean, upgrade, offline, corrupt/wrong-platform, process lifecycle,
    production-lock, migration, backup/failure, and runbook cases.
-5. Run the agreed Zotero 7/9 real-machine matrix.
+5. Run the current blocking Zotero 7/9/10 Linux/Windows cells on the same XPI;
+   record the nonblocking matrix cells separately.
 6. Evaluate the complete receipt set. Any missing or mismatched fact leaves the
    change open; a complete passing set permits the R9/Stage-1 completion claim.
 

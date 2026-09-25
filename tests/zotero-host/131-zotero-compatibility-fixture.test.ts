@@ -39,6 +39,10 @@ import {
 } from "../../scripts/system-e2e/manifest";
 import { collectCellRuntimeEvidence } from "../../scripts/system-e2e/runtimeEvidence";
 import {
+  evaluateCandidateCell,
+  evaluateCandidateMatrix,
+} from "../../scripts/system-e2e/acceptance";
+import {
   getRuntimePersistencePaths,
   getSynthesisSidecarLifecyclePaths,
   getSynthesisSidecarRuntimePaths,
@@ -111,6 +115,185 @@ function calibrationManifest(args: {
 }
 
 describe("Zotero compatibility fixture contracts", function () {
+  describe("Synthesis candidate acceptance", function () {
+    it("reports every absent blocking release cell as pending", async function () {
+      const manifest = await loadCompatibilityManifest(MATRIX_PATH);
+      const result = evaluateCandidateMatrix(
+        buildCompatibilityPlan(manifest, "release"),
+        new Map(),
+      );
+      assert.strictEqual(result.status, "pending");
+      assert.lengthOf(result.cells, 6);
+      assert.isTrue(result.cells.every((cell) => cell.status === "pending"));
+      assert.isTrue(result.cells.some((cell) => cell.id.includes("zotero-10")));
+    });
+
+    it("binds a passing cell to the exact XPI and installed bundle", function () {
+      const sourceCommit = "a".repeat(40);
+      const xpiDigest = "b".repeat(64);
+      const buildFingerprint = "c".repeat(64);
+      const bundleId = "d".repeat(64);
+      const cell: CompatibilityExecutionCell = {
+        id: "release-zotero-10-linux-x64-e2e-sl-rh-pa-pm-cg-hb",
+        lane: "release",
+        targetId: "zotero-10-linux-x64",
+        version: "10.0.1",
+        platform: "linux-x64",
+        families: ["SL", "RH", "PA", "PM", "CG", "HB"],
+        runnerEnvironment: { os: "linux", image: "ubuntu-24.04" },
+        fixtureScale: "committed-seed",
+        sidecarStartupModel: "pre-staged-current-source",
+        invocationProfileModel: "one-fresh-copied-profile-per-invocation",
+        blocking: true,
+        pluginDigest: xpiDigest,
+        sidecarFingerprint: buildFingerprint,
+        runManifestReference:
+          "artifacts/test-diagnostics/system-e2e/run-1/run-manifest.json",
+      };
+      const receipt = createCompatibilityReceipt({
+        runId: "compat-1",
+        source: { commit: sourceCommit, dirty: false },
+        plugin: {
+          version: "0.9.0",
+          artifactPath: "/ignored/candidate.xpi",
+          artifactSha256: xpiDigest,
+          manifestMin: "7.0.0",
+          manifestMax: "10.*",
+        },
+        host: {
+          id: cell.targetId,
+          requestedVersion: cell.version,
+          platform: cell.platform,
+          archiveSha256: "e".repeat(64),
+          downloadUrl: "https://example.invalid/zotero",
+        },
+        execution: { mode: "behavior", suite: "full", domain: "e2e", cell },
+      });
+      receipt.status = "passed";
+      receipt.host.observedVersion = cell.version;
+      receipt.cleanup.complete = true;
+      const baseManifest = calibrationManifest({
+        runId: "run-1",
+        cell,
+        sourceCommit,
+      });
+      const caseIds = [
+        "SL-01",
+        "SL-02",
+        "SL-03",
+        "RH-01",
+        "RH-02",
+        "PA-01",
+        "PA-02",
+        "PM-01",
+        "PM-02",
+        "PM-03",
+        "PM-04",
+        "CG-01",
+        "HB-01",
+        "HB-02",
+        "HB-03",
+      ];
+      const manifest: RunManifest = {
+        ...baseManifest,
+        families: caseIds.map((caseId) => ({
+          ...baseManifest.families.find(
+            (family) => family.familyId === caseId.slice(0, 2),
+          )!,
+          caseId,
+        })),
+      };
+      const runtime = {
+        schemaVersion: "system-e2e-sidecar-runtime-evidence.v1" as const,
+        runtimeRootPresent: true,
+        install: {
+          present: true,
+          target: "linux-x64",
+          bundleId,
+          buildFingerprint,
+          declaredFiles: 4,
+          missingFiles: 0,
+        },
+        sessions: [],
+        runtimeLog: { present: true, bytes: 0, captured: true },
+      };
+      const candidate = { sourceCommit, xpiDigest, bundleId, buildFingerprint };
+      const input = { candidate, receipt, manifest, runtime };
+
+      assert.deepEqual(evaluateCandidateCell(input), []);
+      assert.include(
+        evaluateCandidateCell({
+          ...input,
+          receipt: {
+            ...receipt,
+            plugin: { ...receipt.plugin, artifactSha256: "f".repeat(64) },
+          },
+        }),
+        "xpi_mismatch",
+      );
+      assert.include(
+        evaluateCandidateCell({
+          ...input,
+          runtime: {
+            ...runtime,
+            install: { ...runtime.install, bundleId: "f".repeat(64) },
+          },
+        }),
+        "bundle_mismatch",
+      );
+      assert.include(
+        evaluateCandidateCell({
+          ...input,
+          manifest: { ...manifest, terminalState: "incomplete" },
+        }),
+        "run_incomplete",
+      );
+      assert.include(
+        evaluateCandidateCell({
+          ...input,
+          manifest: {
+            ...manifest,
+            families: manifest.families.filter(
+              (family) => family.caseId !== "HB-03",
+            ),
+          },
+        }),
+        "run_incomplete",
+      );
+      assert.include(
+        evaluateCandidateCell({
+          ...input,
+          manifest: { ...manifest, runId: "another-run" },
+        }),
+        "run_incomplete",
+      );
+      assert.include(
+        evaluateCandidateCell({
+          ...input,
+          runtime: {
+            ...runtime,
+            install: { ...runtime.install, target: "win32-x64" },
+          },
+        }),
+        "bundle_mismatch",
+      );
+      assert.include(
+        evaluateCandidateCell({
+          ...input,
+          manifest: {
+            ...manifest,
+            families: manifest.families.map((family) =>
+              family.caseId === "HB-03"
+                ? { ...family, familyId: "SL" }
+                : family,
+            ),
+          },
+        }),
+        "run_incomplete",
+      );
+    });
+  });
+
   describe("compatibility worker membership", function () {
     const cases = [
       {

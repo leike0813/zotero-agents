@@ -167,6 +167,10 @@ retirement is locally implemented, but its refreshed native bundle set and
 external acceptance remain pending; no XPI publication, release, or
 synchronization is authorized by the current evidence.
 
+The [R9 / Stage 1 acceptance evidence map](../dev/synthesis-r9-stage1-acceptance.md)
+tracks candidate identity, the six blocking compatibility cells, and the
+remaining isolated process and migration rehearsals.
+
 | Area | Status | Notes |
 | --- | --- | --- |
 | Library and artifact truth | current | Zotero Library and literature artifacts remain Host-owned SSOTs; Synthesis stores bounded projections and durable approved decisions. |

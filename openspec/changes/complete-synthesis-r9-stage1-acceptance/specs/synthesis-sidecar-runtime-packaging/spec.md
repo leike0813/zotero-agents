@@ -2,8 +2,9 @@
 
 ### Requirement: Final package acceptance SHALL verify seven bundles and one universal XPI
 
-The post-retirement acceptance gate SHALL verify all seven manifest-v3 native
-bundles and one universal XPI from the same candidate. It SHALL validate exact
+The post-retirement acceptance gate SHALL verify a trusted prebuild v4 result,
+matching verification v2 result, all seven manifest-v3 native bundles, and one
+unpublished universal XPI from the same source. It SHALL validate exact
 inventory, hashes, fingerprints, provenance, SBOM, license material, required
 platform signatures, freshness, and the 15 MiB per-target, 75 MiB aggregate,
 and 100 MiB universal-XPI compressed budgets. It MUST reject Node/npm
@@ -20,11 +21,17 @@ implementation selectors, stale binaries, and undeclared files.
 - **WHEN** final package inventory or size validation runs
 - **THEN** acceptance fails before any completion claim
 
+#### Scenario: A platform test stages different XPI bytes
+- **WHEN** a test stages a current-source sidecar or rebuilds its own XPI
+- **THEN** its result cannot satisfy final package acceptance until the
+  installed XPI digest and selected bundle match the pinned candidate
+
 ### Requirement: Package acceptance SHALL remain non-publishing
 
-Building, synchronizing, and verifying the acceptance candidate SHALL NOT
-create a release, tag, asset publication, feed update, mutable production
-pointer, or Gitee synchronization.
+Building, synchronizing, and verifying the acceptance candidate MAY publish
+the governed immutable prebuild set but SHALL NOT create a release, release
+tag, release asset, feed update, mutable production pointer, or Gitee
+synchronization.
 
 #### Scenario: Package validation passes
 - **WHEN** every bundle and universal-XPI check succeeds

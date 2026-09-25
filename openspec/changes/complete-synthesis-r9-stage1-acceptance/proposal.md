@@ -1,23 +1,25 @@
 ## Why
 
-The two R9b retirement changes can remove obsolete plugin and Node owners using
-local, source-bound evidence, but the final seven-platform, universal-XPI, data
-migration, failure-recovery, and Zotero 7/9 real-machine matrix requires
-separate execution authorization and environments. Keeping those external
-checks inside the deletion change would either block source retirement or tempt
-an unexecuted acceptance claim.
+Both R9b retirement changes are archived, while final seven-platform,
+universal-XPI, data-migration, failure-recovery, and real-machine acceptance
+remains unclaimed. The governed prebuild and verification receipts and the
+Zotero compatibility matrix now provide evidence sources that this change
+must join without treating source retirement or routine CI success as final
+acceptance.
 
 ## What Changes
 
-- Establish one post-retirement acceptance change that binds all results to the
-  same source, Rust toolchain, Cargo lock, native fingerprints, and XPI bytes.
-- Build and verify the seven manifest-v3 native bundles and the universal XPI
-  without publishing, tagging, advancing feeds, or synchronizing Gitee.
+- Bind the existing prebuild v4 and verification v2 evidence, seven native
+  bundles, one universal XPI, and environment results to one source and
+  candidate identity. Missing or mismatched evidence remains pending or failed.
+- Build and verify the seven manifest-v3 native bundles and one universal XPI.
+  The governed prebuild may publish its immutable content-addressed set; the
+  candidate XPI is not released or used to advance a production pointer.
 - Exercise clean and existing profiles, offline and upgrade installation,
   corrupt and wrong-platform bundles, crash/restart/parent-EOF, production lock
   conflict, registered migration success/failure, and operator recovery.
-- Run representative Zotero 7 and Zotero 9 real-machine smoke across the agreed
-  platform matrix.
+- Run the current blocking Linux/Windows Zotero 7/9/10 compatibility cells
+  against the same candidate XPI and record nonblocking matrix cells separately.
 - Keep R9 and Stage 1 explicitly incomplete until every required receipt exists
   for one identity; record missing evidence as pending or failed.
 
@@ -29,8 +31,8 @@ None.
 
 ### Modified Capabilities
 
-- `synthesis-rust-sidecar-migration-governance`: Move final R9/Stage-1
-  acceptance into a separately authorized, source-bound post-retirement gate.
+- `synthesis-rust-sidecar-migration-governance`: Bind the already separate
+  R9/Stage-1 completion gate to current source and candidate evidence.
 - `synthesis-sidecar-runtime-packaging`: Require the post-retirement
   seven-target bundle and universal-XPI inventories, integrity evidence, and
   size budgets without implying publication.
@@ -48,5 +50,6 @@ None.
   process tests, installation harnesses, and operator runbooks after
   `remove-synthesis-plugin-legacy-owner` and
   `remove-synthesis-node-sidecar-stack` are locally complete.
-- Produces acceptance receipts and documentation only; release publication,
-  tags/assets, feeds, and Gitee remain separately authorized work.
+- Reuses existing evidence formats and may add only the acceptance evidence
+  collection or test-harness support needed for uncovered cases. Release
+  publication, release tags/assets, feeds, and Gitee remain separate work.

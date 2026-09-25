@@ -27,12 +27,15 @@ assertions.
 
 ### Requirement: Real-machine acceptance SHALL cover supported Zotero generations
 
-Representative real-machine smoke SHALL run the final candidate under Zotero 7
-and Zotero 9 across the agreed platform matrix. Each run SHALL verify install,
-startup, authenticated readiness, bounded calls from every public operation
-surface, shutdown, and restart using the same candidate identity.
+Final acceptance SHALL cover the current blocking Zotero 7, 9, and 10
+Linux x64 and Windows x64 compatibility cells using the pinned candidate XPI.
+Each cell SHALL run its promoted Phase 1 System E2E catalog and verify Run
+Manifest completion, family outcomes, cleanup, health, installed XPI digest,
+and selected sidecar bundle identity. Any macOS Zotero 10 XPI-smoke results
+SHALL be recorded separately under the compatibility matrix's nonblocking
+policy.
 
-#### Scenario: One Zotero generation or platform is missing
+#### Scenario: One required Zotero generation or platform is missing
 - **WHEN** the acceptance matrix is reviewed
 - **THEN** R9 and Stage 1 remain incomplete
 - **AND** the missing environment is reported explicitly

@@ -3,41 +3,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { synthesisSidecarRuntimeTargetBundlePath } from "../../packages/synthesis-contracts/src/sidecarRuntimeBundle";
 import { SYNTHESIS_SIDECAR_RUNTIME_TARGET_MATRIX } from "./synthesis-sidecar-runtime-release-governance";
+import { readCandidateXpi } from "../system-e2e/acceptance";
 
 function argument(name: string) {
   const prefix = `--${name}=`;
   return process.argv
     .find((value) => value.startsWith(prefix))
     ?.slice(prefix.length);
-}
-
-function listZipEntries(buffer: Buffer) {
-  let eocd = -1;
-  for (let offset = buffer.length - 22; offset >= 0; offset -= 1) {
-    if (buffer.readUInt32LE(offset) === 0x06054b50) {
-      eocd = offset;
-      break;
-    }
-  }
-  if (eocd < 0) {
-    throw new Error("Invalid XPI: central directory footer is missing");
-  }
-  const count = buffer.readUInt16LE(eocd + 10);
-  let offset = buffer.readUInt32LE(eocd + 16);
-  const entries = new Set<string>();
-  for (let index = 0; index < count; index += 1) {
-    if (buffer.readUInt32LE(offset) !== 0x02014b50) {
-      throw new Error(`Invalid XPI central directory entry ${index}`);
-    }
-    const nameLength = buffer.readUInt16LE(offset + 28);
-    const extraLength = buffer.readUInt16LE(offset + 30);
-    const commentLength = buffer.readUInt16LE(offset + 32);
-    entries.add(
-      buffer.subarray(offset + 46, offset + 46 + nameLength).toString("utf8"),
-    );
-    offset += 46 + nameLength + extraLength + commentLength;
-  }
-  return entries;
 }
 
 async function findXpi(root: string) {
@@ -60,7 +32,8 @@ async function findXpi(root: string) {
 
 export async function checkSynthesisSidecarRuntimeXpi(root = process.cwd()) {
   const xpi = await findXpi(root);
-  const entries = listZipEntries(await fs.readFile(xpi));
+  const candidate = readCandidateXpi(xpi);
+  const entries = new Set(candidate.entryNames);
   const missing: string[] = [];
   const forbidden = Array.from(entries).filter((entry) =>
     entry.startsWith("bin/synthesis-sidecar/"),
@@ -96,6 +69,7 @@ export async function checkSynthesisSidecarRuntimeXpi(root = process.cwd()) {
   return {
     ok: missing.length === 0 && forbidden.length === 0,
     xpi,
+    xpiDigest: candidate.xpiDigest,
     targets: [...SYNTHESIS_SIDECAR_RUNTIME_TARGET_MATRIX],
     missing,
     forbidden,

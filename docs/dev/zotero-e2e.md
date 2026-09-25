@@ -2,6 +2,8 @@
 
 E2E 测试复用现有 `zotero-plugin-scaffold`、Mock SkillRunner 和 Zotero 测试报告器。项目只有一个 System E2E runner：`npm run test:zotero:e2e` 通过 `scripts/run-zotero-test-with-mock.ts` 运行 `tests/zotero/e2e/full`。`npm run test:zotero:e2e:stress` 保留原入口。当前 CI 门禁不因 runner foundation 自动增加阻塞 lane。
 
+R9 / Stage 1 候选验收的 XPI、sidecar 安装身份与六个阻塞 cell 的证据关联见 [验收证据表](./synthesis-r9-stage1-acceptance.md)。
+
 ## 测试层级
 
 - Node 测试覆盖纯逻辑、契约和进程级 sidecar 路由。
