@@ -25,6 +25,10 @@ import {
 } from "../../../../src/modules/skillRunner/run/skillRunnerRunStore";
 import { deletePluginRunStoreEntry } from "../../../../src/modules/pluginStateStore";
 import { probeAcpBackendRuntimeOptions } from "../../../../src/modules/acp/transport/acpBackendProbe";
+import {
+  getAcpWebSocketBridgeSnapshot,
+  shutdownAcpWebSocketBridgeService,
+} from "../../../../src/modules/acp/transport/acpWebSocketBridgeService";
 import { createWorkflowHostApi } from "../../../../src/workflows/hostApi";
 import { getPref, setPref } from "../../../../src/utils/prefs";
 import { setDebugModeOverrideForTests } from "../../../../src/modules/debugMode";
@@ -2802,6 +2806,10 @@ describe("System E2E Phase 2 ACP and SkillRunner", function () {
         if (conversationId) {
           await disconnectAcpConversation({ backendId, conversationId });
           await deleteActiveAcpConversation({ backendId, conversationId });
+        }
+        if (Zotero.isWin) {
+          await shutdownAcpWebSocketBridgeService();
+          assert.isNull(getAcpWebSocketBridgeSnapshot());
         }
         if (workspaceDir) await removeRuntimePath(workspaceDir);
         setPref("backendsConfigJson", previousBackendConfig);

@@ -39,13 +39,13 @@
 
 - [x] 6.1 Implement `AW-01` (SkillRunner detach/reattach preserves publication identity); verify transcript revision stays monotonic across close and reopen, the run and validated reply payload remain current, and transcript updates do not rebuild unrelated managed regions.
 - [x] 6.2 Implement `AW-02` (Linux chrome iframe publishes a completed transcript); verify a completed SkillRunner run with at least one transcript boundary renders its row in the Linux Zotero chrome iframe without a forced timer probe.
-- [ ] 6.3 Implement `AP-01` (Windows ACP Skill materialization uses native paths); verify workspace roots are materially present through Zotero native file APIs with native path syntax, and readiness is published only after materialization succeeds.
+- [x] 6.3 Implement `AP-01` (Windows ACP Skill materialization uses native paths); verify workspace roots are materially present through Zotero native file APIs with native path syntax, and readiness is published only after materialization succeeds.
 
 ## 7. Serial catalog execution
 
 - [x] 7.1 Declare the Family Namespace, Owned State, and restart-preserved state for the two restart cases, and verify every other family cleans up before yielding the profile.
 - [x] 7.2 Run all fourteen cases serially on Zotero 10/Linux through `npm run test:zotero:e2e` in one copied profile; verify the Run Manifest is terminal and complete with per-case public/typed, lifecycle, cleanup, and Suite Health Gate evidence, and with no undeclared carry-over.
-- [ ] 7.3 Run `AP-01` on Zotero 10/Windows and verify a trustworthy terminal manifest with native-path materialization evidence; record a skipped Windows run as skipped rather than as a pass.
+- [x] 7.3 Run `AP-01` on Zotero 10/Windows and verify a trustworthy terminal manifest with native-path materialization evidence; record a skipped Windows run as skipped rather than as a pass.
 
 ## 8. Documentation and verification
 
@@ -54,4 +54,4 @@
 - [x] 8.3 Run type check, lint, formatting, and build; verify no production module gained a reachable fault interface and no new blocking CI cell was added.
 - [x] 8.4 Run strict OpenSpec validation for this change; verify it reports valid with the zero-delta `skip_specs` acknowledgement, and confirm no `specs/` directory was created.
 
-Windows `AP-01` (6.3, 7.3) remains unverified: this run used a Linux host, and no Windows Zotero host was available. The Linux install tree labeled 10.0.2 identified itself as Zotero 10.0.3 in the terminal Run Manifest.
+Windows `AP-01` passed on Zotero 10.0.2 (`win32-x64`) with the current-source sidecar. `artifacts/test-diagnostics/system-e2e/5e73936f-89f9-43b5-b1a0-416ef06daba2/run-manifest.json` is `complete`; `AP-01` records `acp_chat_skills_materialized`, typed `ready`, five lifecycle checkpoints, and passed cleanup and health. The AP family now shuts down its Windows ACP bridge before yielding the profile; the runner exited without manual process termination. The earlier Linux install tree labeled 10.0.2 identified itself as Zotero 10.0.3 in its terminal Run Manifest.
