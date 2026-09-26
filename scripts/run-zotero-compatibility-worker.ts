@@ -27,11 +27,15 @@ export function resolveCompatibilityWorkerEntries(
   mode: string,
   configuredEntries: readonly unknown[],
   domain = "all",
+  installCandidateXpi = false,
 ) {
   return mode === "xpi-smoke"
     ? ["tests/zotero/compatibility/xpi"]
     : domain === "e2e"
-      ? configuredEntries.map(String)
+      ? [
+          ...(installCandidateXpi ? ["tests/zotero/compatibility/xpi"] : []),
+          ...configuredEntries.map(String),
+        ]
       : [...configuredEntries.map(String), "tests/zotero/compatibility/probe"];
 }
 
@@ -105,6 +109,7 @@ async function main() {
     mode,
     configuredEntries,
     domain,
+    process.env.ZOTERO_COMPAT_INSTALL_CANDIDATE_XPI === "1",
   );
   context.test.watch = false;
   context.test.headless = resolveZoteroTestDisplayMode().needsXvfb;
@@ -113,6 +118,8 @@ async function main() {
     "extensions.zotero.zotero-skills.compatibilityTestXpiPath": String(
       process.env.ZOTERO_COMPAT_XPI_PATH || "",
     ).trim(),
+    "extensions.zotero.zotero-skills.compatibilityKeepXpiInstalled":
+      process.env.ZOTERO_COMPAT_INSTALL_CANDIDATE_XPI === "1",
   };
   process.chdir(runRoot);
   const test = new Test(context);

@@ -14,8 +14,12 @@ binds:
 - target and target triple;
 - service and protocol versions;
 - capability roster;
-- provenance and license inventory;
-- platform-signature evidence.
+- provenance and license inventory.
+
+Platform-signature status is carried by the launch configuration and reported
+by native health/handshake, not stored in manifest v3. Unpublished Windows and
+macOS candidates may report `unsigned-candidate`; Linux reports
+`not-applicable`. Release signing is a separate governance gate.
 
 Installation verifies the rebuilt manifest and every listed file before the
 runtime can be launched. An optional `expiresAt` remains release-governance

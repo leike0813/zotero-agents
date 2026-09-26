@@ -116,10 +116,10 @@ function calibrationManifest(args: {
 
 describe("Zotero compatibility fixture contracts", function () {
   describe("Synthesis candidate acceptance", function () {
-    it("reports every absent blocking release cell as pending", async function () {
+    it("reports every absent blocking acceptance cell as pending", async function () {
       const manifest = await loadCompatibilityManifest(MATRIX_PATH);
       const result = evaluateCandidateMatrix(
-        buildCompatibilityPlan(manifest, "release"),
+        buildCompatibilityPlan(manifest, "acceptance"),
         new Map(),
       );
       assert.strictEqual(result.status, "pending");
@@ -134,15 +134,15 @@ describe("Zotero compatibility fixture contracts", function () {
       const buildFingerprint = "c".repeat(64);
       const bundleId = "d".repeat(64);
       const cell: CompatibilityExecutionCell = {
-        id: "release-zotero-10-linux-x64-e2e-sl-rh-pa-pm-cg-hb",
-        lane: "release",
+        id: "acceptance-zotero-10-linux-x64-e2e-sl-rh-pa-pm-cg-hb",
+        lane: "acceptance",
         targetId: "zotero-10-linux-x64",
         version: "10.0.1",
         platform: "linux-x64",
         families: ["SL", "RH", "PA", "PM", "CG", "HB"],
         runnerEnvironment: { os: "linux", image: "ubuntu-24.04" },
         fixtureScale: "committed-seed",
-        sidecarStartupModel: "pre-staged-current-source",
+        sidecarStartupModel: "pinned-universal-xpi",
         invocationProfileModel: "one-fresh-copied-profile-per-invocation",
         blocking: true,
         pluginDigest: xpiDigest,
@@ -345,6 +345,19 @@ describe("Zotero compatibility fixture contracts", function () {
       assert.deepEqual(resolveCompatibilityWorkerEntries("xpi-smoke", []), [
         "tests/zotero/compatibility/xpi",
       ]);
+      assert.deepEqual(
+        resolveCompatibilityWorkerEntries(
+          "behavior",
+          ["tests/zotero/setup", "tests/zotero/e2e/full"],
+          "e2e",
+          true,
+        ),
+        [
+          "tests/zotero/compatibility/xpi",
+          "tests/zotero/setup",
+          "tests/zotero/e2e/full",
+        ],
+      );
     });
 
     it("materializes a discoverable run-local Zotero test tree", async function () {
@@ -442,6 +455,30 @@ describe("Zotero compatibility fixture contracts", function () {
       assert.strictEqual(
         parseCompatibilityCliArgs(["run", "--mode", "xpi-smoke"]).mode,
         "xpi-smoke",
+      );
+      const acceptance = parseCompatibilityCliArgs([
+        "run",
+        "--gate=acceptance",
+        "--domain=e2e",
+        "--suite=full",
+        "--install-candidate-xpi",
+      ]);
+      assert.isTrue(acceptance.installCandidateXpi);
+      assert.isTrue(acceptance.blocking);
+      assert.isTrue(
+        parseCompatibilityCliArgs([
+          "prepare",
+          "--gate=acceptance",
+          "--install-candidate-xpi",
+        ]).installCandidateXpi,
+      );
+      assert.throws(
+        () => parseCompatibilityCliArgs(["run", "--gate=acceptance"]),
+        /candidate.*xpi/i,
+      );
+      assert.throws(
+        () => parseCompatibilityCliArgs(["run", "--install-candidate-xpi"]),
+        /candidate.*e2e/i,
       );
       assert.deepEqual(
         parseCompatibilityCliArgs([

@@ -164,6 +164,8 @@ async function recentRuns(repository: string) {
       "per_page=100",
       "-F",
       `page=${page}`,
+      "--jq",
+      "{workflow_runs: [.workflow_runs[] | {id, conclusion, event, head_sha}]}",
     ]);
     const parsed = JSON.parse(stdout) as {
       workflow_runs?: Array<{

@@ -39,6 +39,7 @@ import {
 } from "./system-e2e/manifest";
 import { collectCellRuntimeEvidence } from "./system-e2e/runtimeEvidence";
 import { buildSynthesisCloseTestEnvironment } from "./run-zotero-e2e-stress";
+import { readCandidateXpi } from "./system-e2e/acceptance";
 
 const PROJECT_ROOT = process.cwd();
 const DEFAULT_MANIFEST = path.join(
@@ -68,6 +69,7 @@ type CliOptions = {
   timeoutMs: number;
   fixtureScale: CompatibilityFixtureScale;
   blocking: boolean;
+  installCandidateXpi: boolean;
   dryRun: boolean;
   json: boolean;
 };
@@ -117,12 +119,15 @@ export function parseCompatibilityCliArgs(args: string[]): CliOptions {
     fixtureScale: (process.env.ZOTERO_COMPAT_FIXTURE_SCALE ||
       "committed-seed") as CompatibilityFixtureScale,
     blocking: process.env.ZOTERO_COMPAT_BLOCKING === "true",
+    installCandidateXpi: false,
     dryRun: false,
     json: false,
   };
   for (let index = 1; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--dry-run") options.dryRun = true;
+    else if (arg === "--install-candidate-xpi")
+      options.installCandidateXpi = true;
     else if (arg === "--json") options.json = true;
     else if (arg.startsWith("--gate="))
       options.gate = arg.slice(7) as CompatibilityE2ELane;
@@ -186,6 +191,7 @@ export function parseCompatibilityCliArgs(args: string[]): CliOptions {
       "pull-request",
       "main",
       "release",
+      "acceptance",
       "weekly",
       "stress",
       "manual-gold",
@@ -207,10 +213,28 @@ export function parseCompatibilityCliArgs(args: string[]): CliOptions {
     throw new Error("Compatibility timeout must be at least 1000 ms");
   }
   if (
+    options.installCandidateXpi &&
+    options.command !== "prepare" &&
+    (options.command !== "run" ||
+      options.mode !== "behavior" ||
+      options.suite !== "full" ||
+      options.domain !== "e2e")
+  ) {
+    throw new Error("Candidate XPI installation requires a full E2E run");
+  }
+  if (
+    options.gate === "acceptance" &&
+    (options.command === "prepare" || options.command === "run") &&
+    !options.installCandidateXpi
+  ) {
+    throw new Error("Acceptance requires candidate XPI installation");
+  }
+  if (
     !["committed-seed", "stress", "large-gold"].includes(options.fixtureScale)
   ) {
     throw new Error(`Unsupported compatibility fixture scale`);
   }
+  if (options.gate === "acceptance") options.blocking = true;
   return options;
 }
 
@@ -289,6 +313,23 @@ async function pluginIdentity(buildRoot: string) {
       manifest.applications?.zotero?.strict_max_version || "",
     ),
   };
+}
+
+function assertCandidateXpiMatchesBuild(
+  buildRoot: string,
+  plugin: Awaited<ReturnType<typeof pluginIdentity>>,
+) {
+  const sidecar = inspectDirectSynthesisBundle(path.join(buildRoot, "addon"));
+  const candidate = readCandidateXpi(plugin.artifactPath);
+  const selected = candidate.manifests[sidecar.target];
+  if (
+    candidate.xpiDigest !== plugin.artifactSha256 ||
+    selected?.bundleId !== sidecar.bundleId ||
+    selected.buildFingerprint !== sidecar.buildFingerprint
+  ) {
+    throw new Error("candidate_xpi_staged_bundle_mismatch");
+  }
+  return sidecar;
 }
 
 async function unavailablePluginIdentity(buildRoot: string) {
@@ -377,6 +418,9 @@ async function runWorker(args: {
       ZOTERO_COMPAT_XPI_PATH: args.xpiPath,
       ZOTERO_COMPAT_MODE: args.options.mode,
       ZOTERO_COMPAT_PREBUILT_ARTIFACTS: "1",
+      ZOTERO_COMPAT_INSTALL_CANDIDATE_XPI: args.options.installCandidateXpi
+        ? "1"
+        : "0",
       ZOTERO_TEST_MODE: args.options.suite,
       ZOTERO_TEST_DOMAIN: args.domain,
       ZOTERO_SYSTEM_E2E_FAMILIES: args.options.families.join(","),
@@ -473,9 +517,9 @@ async function runCell(options: CliOptions): Promise<string> {
       );
     }
     if (options.mode === "behavior" && options.domain === "e2e") {
-      const sidecar = inspectDirectSynthesisBundle(
-        path.join(options.buildRoot, "addon"),
-      );
+      const sidecar = options.installCandidateXpi
+        ? assertCandidateXpiMatchesBuild(options.buildRoot, plugin)
+        : inspectDirectSynthesisBundle(path.join(options.buildRoot, "addon"));
       expectedArtifactIdentity = await readPreparedArtifactIdentity(
         options.buildRoot,
       );
@@ -689,12 +733,12 @@ async function readWeeklyAttempt(receiptPath: string) {
 function printHelp() {
   process.stdout.write(`Zotero compatibility fixture\n\n`);
   process.stdout.write(
-    `  plan --gate pull-request|main|release|weekly|stress|manual-gold|cg-02-windows --json\n`,
+    `  plan --gate pull-request|main|release|acceptance|weekly|stress|manual-gold|cg-02-windows --json\n`,
   );
   process.stdout.write(`  prepare --build-root <canonical-build-root>\n`);
   process.stdout.write(`  acquire --target <target-id>\n`);
   process.stdout.write(
-    `  run|weekly-run --target <target-id> --mode behavior|xpi-smoke --suite lite|full --domain all|core|ui|workflow|e2e [--families SL,RH,PA,PM,CG,HB]\n`,
+    `  run|weekly-run --target <target-id> --mode behavior|xpi-smoke --suite lite|full --domain all|core|ui|workflow|e2e [--families SL,RH,PA,PM,CG,HB] [--install-candidate-xpi]\n`,
   );
   process.stdout.write(`  matrix --gate pull-request|main|release\n`);
 }
@@ -703,11 +747,13 @@ async function main() {
   const options = parseCompatibilityCliArgs(process.argv.slice(2));
   if (options.command === "help") return printHelp();
   if (options.command === "prepare") {
-    stageDirectSynthesisBundle(path.join(options.buildRoot, "addon"));
+    if (!options.installCandidateXpi) {
+      stageDirectSynthesisBundle(path.join(options.buildRoot, "addon"));
+    }
     const plugin = await pluginIdentity(options.buildRoot);
-    const sidecar = inspectDirectSynthesisBundle(
-      path.join(options.buildRoot, "addon"),
-    );
+    const sidecar = options.installCandidateXpi
+      ? assertCandidateXpiMatchesBuild(options.buildRoot, plugin)
+      : inspectDirectSynthesisBundle(path.join(options.buildRoot, "addon"));
     const source = await sourceIdentity();
     const identity: Required<CompatibilityArtifactIdentity> = {
       lane: options.gate,

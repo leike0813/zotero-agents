@@ -22,6 +22,7 @@ export type CompatibilitySuite = "lite" | "full";
 export type CompatibilityDomain = "all" | "core" | "ui" | "workflow" | "e2e";
 export type CompatibilityE2ELane =
   | CompatibilityGate
+  | "acceptance"
   | "weekly"
   | "stress"
   | "manual-gold"
@@ -71,7 +72,7 @@ export type CompatibilityExecutionCell = {
     image: string;
   };
   fixtureScale: CompatibilityFixtureScale;
-  sidecarStartupModel: "pre-staged-current-source";
+  sidecarStartupModel: "pre-staged-current-source" | "pinned-universal-xpi";
   invocationProfileModel: "one-fresh-copied-profile-per-invocation";
   blocking: boolean;
   pluginDigest: string;
@@ -299,7 +300,10 @@ export function createE2EExecutionCell(args: {
       ),
     },
     fixtureScale: args.fixtureScale,
-    sidecarStartupModel: "pre-staged-current-source",
+    sidecarStartupModel:
+      args.lane === "acceptance"
+        ? "pinned-universal-xpi"
+        : "pre-staged-current-source",
     invocationProfileModel: "one-fresh-copied-profile-per-invocation",
     blocking: args.blocking,
     pluginDigest: args.pluginDigest,
@@ -461,9 +465,15 @@ export function buildCompatibilityPlan(
       lane,
       families: [...families],
       fixtureScale,
-      sidecarStartupModel: "pre-staged-current-source",
+      sidecarStartupModel:
+        lane === "acceptance"
+          ? "pinned-universal-xpi"
+          : "pre-staged-current-source",
       invocationProfileModel: "one-fresh-copied-profile-per-invocation",
-      blocking: E2E_PROMOTION_STATE[id] ?? false,
+      blocking:
+        lane === "acceptance"
+          ? target.policy.blocking
+          : (E2E_PROMOTION_STATE[id] ?? false),
     });
   };
   const releaseE2ETargets = [
@@ -477,6 +487,12 @@ export function buildCompatibilityPlan(
   if (gate === "weekly") {
     for (const targetId of releaseE2ETargets) {
       addE2ECell("weekly", targetId, ["SL", "RH", "PA", "PM", "CG", "HB"]);
+    }
+    return cells;
+  }
+  if (gate === "acceptance") {
+    for (const targetId of releaseE2ETargets) {
+      addE2ECell("acceptance", targetId, ["SL", "RH", "PA", "PM", "CG", "HB"]);
     }
     return cells;
   }

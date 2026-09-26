@@ -8,6 +8,8 @@ declare global {
 
 const ADDON_ID = "zotero-skills@leike0813@gmail.com";
 const XPI_PREF = "extensions.zotero.zotero-skills.compatibilityTestXpiPath";
+const KEEP_XPI_PREF =
+  "extensions.zotero.zotero-skills.compatibilityKeepXpiInstalled";
 
 function waitUntil(check: () => boolean, timeoutMs = 20_000) {
   return new Promise<void>((resolve, reject) => {
@@ -47,7 +49,7 @@ function localFile(filePath: string) {
 describe("formal XPI compatibility smoke", function () {
   this.timeout(60_000);
 
-  it("installs, starts, and uninstalls the canonical XPI", async function () {
+  it("installs and starts the canonical XPI", async function () {
     const xpiPath = Services.prefs.getStringPref(XPI_PREF, "").trim();
     assert.isNotEmpty(xpiPath);
     const addonManager = getAddonManager();
@@ -77,7 +79,9 @@ describe("formal XPI compatibility smoke", function () {
       xpiActive: true,
     });
 
-    await installedAddon.uninstall();
-    await waitUntil(() => (Zotero as any).ZoteroSkills === undefined);
+    if (!Services.prefs.getBoolPref(KEEP_XPI_PREF, false)) {
+      await installedAddon.uninstall();
+      await waitUntil(() => (Zotero as any).ZoteroSkills === undefined);
+    }
   });
 });

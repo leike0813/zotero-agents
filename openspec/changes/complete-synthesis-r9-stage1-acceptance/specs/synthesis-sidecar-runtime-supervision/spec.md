@@ -14,6 +14,12 @@ assertions.
 - **THEN** it removes discovery, drains within the bounded lifecycle deadline,
   and exits without leaving an owner or child process
 
+#### Scenario: A forced host-owner death leaves an older session's discovery
+- **WHEN** a new sidecar wins the production lock after the old owner exits
+- **THEN** it removes stale session discovery under the same profile before
+  publishing its own ready discovery
+- **AND** a process that loses the lock does not alter the live owner's session
+
 #### Scenario: Another process owns the production lock
 - **WHEN** the candidate starts against a basis held by another live owner
 - **THEN** it fails with `production_lock_conflict` before opening storage

@@ -128,7 +128,9 @@ export function evaluateCandidateCell(args: {
     receipt.execution.mode !== "behavior" ||
     receipt.execution.suite !== "full" ||
     receipt.execution.domain !== "e2e" ||
-    !cell?.blocking
+    !cell?.blocking ||
+    cell.lane !== "acceptance" ||
+    cell.sidecarStartupModel !== "pinned-universal-xpi"
   ) {
     reasons.push("cell_not_passed");
   }
@@ -215,13 +217,14 @@ export function evaluateCandidateCell(args: {
   return reasons;
 }
 
-/** Evaluates the release plan's blocking E2E cells without inferring passes. */
+/** Evaluates the acceptance plan's blocking E2E cells without inferring passes. */
 export function evaluateCandidateMatrix(
   plan: readonly CompatibilityPlanCell[],
   observed: ReadonlyMap<string, Parameters<typeof evaluateCandidateCell>[0]>,
 ) {
   const required = plan.filter(
-    (cell) => cell.lane === "release" && cell.domain === "e2e" && cell.blocking,
+    (cell) =>
+      cell.lane === "acceptance" && cell.domain === "e2e" && cell.blocking,
   );
   if (required.length === 0) throw new Error("acceptance_matrix_empty");
   const cells = required.map((cell) => {

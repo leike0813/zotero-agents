@@ -1,6 +1,7 @@
 use crate::runtime_contract::{NativeLaunchConfig, current_time_ms};
 use crate::runtime_file_system::sync_directory;
 use serde_json::Value;
+use std::ffi::OsStr;
 use std::fmt;
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::Write;
@@ -271,6 +272,35 @@ impl RuntimeOwnership {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(_) => return Err("stale_discovery_cleanup_failed".into()),
         }
+        if let Some(sessions_dir) = config.profile_runtime_root.parent().filter(|sessions| {
+            config.profile_runtime_root.file_name()
+                == Some(OsStr::new(&config.supervisor_instance_id))
+                && sessions.file_name() == Some(OsStr::new("sessions"))
+                && sessions.parent().is_some_and(|profile| {
+                    profile.file_name() == Some(OsStr::new(&config.profile_id))
+                        && profile.parent().and_then(Path::file_name)
+                            == Some(OsStr::new("profiles"))
+                })
+        }) {
+            match fs::read_dir(sessions_dir) {
+                Ok(entries) => {
+                    for entry in entries {
+                        let entry = entry.map_err(|_| "stale_discovery_cleanup_failed")?;
+                        if entry.path() != config.profile_runtime_root
+                            && entry
+                                .file_type()
+                                .map_err(|_| "stale_discovery_cleanup_failed")?
+                                .is_dir()
+                        {
+                            fs::remove_dir_all(entry.path())
+                                .map_err(|_| "stale_discovery_cleanup_failed")?;
+                        }
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(_) => return Err("stale_discovery_cleanup_failed".into()),
+            }
+        }
         Ok(Self {
             _production_lock: lock,
             discovery_path,
@@ -306,7 +336,10 @@ mod tests {
             schema: "synthesis-sidecar-launch-config.v4".into(),
             profile_id: "1".repeat(64),
             library_id: 1,
-            profile_runtime_root: root.join("runtime/session"),
+            profile_runtime_root: root
+                .join("runtime/profiles")
+                .join("1".repeat(64))
+                .join("sessions/supervisor-1"),
             test_checkpoint_root: None,
             runtime_root_id: "2".repeat(64),
             data_root_id: "3".repeat(64),
@@ -350,13 +383,26 @@ mod tests {
             b"stale-but-owned",
         )
         .expect("owned discovery");
+        let previous_session = config
+            .profile_runtime_root
+            .parent()
+            .unwrap()
+            .join("previous");
+        fs::create_dir_all(&previous_session).expect("previous session");
+        fs::write(
+            previous_session.join("discovery.json"),
+            b"leave-while-locked",
+        )
+        .expect("previous discovery");
         assert_eq!(
             RuntimeOwnership::acquire(&config).unwrap_err(),
             "production_lock_conflict"
         );
         assert!(config.profile_runtime_root.join("discovery.json").exists());
+        assert!(previous_session.join("discovery.json").exists());
         drop(first);
         RuntimeOwnership::acquire(&config).expect("lock after release");
+        assert!(!previous_session.exists());
     }
 
     #[test]
@@ -366,9 +412,18 @@ mod tests {
         fs::create_dir_all(&config.profile_runtime_root).expect("runtime root");
         let discovery = config.profile_runtime_root.join("discovery.json");
         fs::write(&discovery, b"stale").expect("stale discovery");
+        let previous_session = config
+            .profile_runtime_root
+            .parent()
+            .unwrap()
+            .join("previous");
+        fs::create_dir_all(&previous_session).expect("previous session");
+        fs::write(previous_session.join("discovery.json"), b"stale-ready")
+            .expect("previous discovery");
 
         let ownership = RuntimeOwnership::acquire(&config).expect("acquire ownership");
         assert!(!discovery.exists());
+        assert!(!previous_session.exists());
         drop(ownership);
     }
 
@@ -385,6 +440,19 @@ mod tests {
         );
         fs::remove_dir(&discovery).expect("remove blocking directory");
         RuntimeOwnership::acquire(&config).expect("lock released after cleanup failure");
+    }
+
+    #[test]
+    fn non_session_parent_is_not_scanned_for_cleanup() {
+        let root = TestRoot::new("synthesis-unrelated-path");
+        let mut config = config(&root);
+        config.profile_runtime_root = root.join("arbitrary/session");
+        let unrelated = root.join("arbitrary/keep");
+        fs::create_dir_all(&unrelated).expect("unrelated directory");
+        fs::write(unrelated.join("data"), b"keep").expect("unrelated data");
+
+        RuntimeOwnership::acquire(&config).expect("acquire ownership");
+        assert!(unrelated.join("data").exists());
     }
 
     #[test]

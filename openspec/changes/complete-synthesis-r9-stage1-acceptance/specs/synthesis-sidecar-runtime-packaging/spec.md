@@ -5,11 +5,16 @@
 The post-retirement acceptance gate SHALL verify a trusted prebuild v4 result,
 matching verification v2 result, all seven manifest-v3 native bundles, and one
 unpublished universal XPI from the same source. It SHALL validate exact
-inventory, hashes, fingerprints, provenance, SBOM, license material, required
-platform signatures, freshness, and the 15 MiB per-target, 75 MiB aggregate,
+inventory, hashes, fingerprints, provenance, the Cargo-lock-matched
+`licenses.json` inventory, native smoke/handshake platform-signature status,
+freshness, and the 15 MiB per-target, 75 MiB aggregate,
 and 100 MiB universal-XPI compressed budgets. It MUST reject Node/npm
 executables or archives, JavaScript service/package trees, D3 runtime,
 implementation selectors, stale binaries, and undeclared files.
+For this unpublished candidate, `unsigned-candidate` is an acceptable
+Windows/macOS status and `not-applicable` is the Linux status. This gate does
+not claim a separate SBOM receipt or signed release binaries; release signing
+remains governed separately. Manifest v3 does not carry a signature field.
 
 #### Scenario: Seven-target candidate is assembled
 - **WHEN** all target bundles are synchronized into the candidate add-on tree
@@ -37,3 +42,16 @@ synchronization.
 - **WHEN** every bundle and universal-XPI check succeeds
 - **THEN** the result is recorded as acceptance evidence only
 - **AND** publication still requires separate explicit authorization
+
+## MODIFIED Requirements
+
+### Requirement: The XPI SHALL contain the complete native runtime
+
+Each supported target SHALL contain one manifest-v3 Rust runtime bundle. The
+manifest SHALL bind the executable, complete file inventory, hashes,
+provenance, protocol, capabilities, and target triple. Platform-signature
+status SHALL be carried by launch configuration and native health/handshake.
+
+#### Scenario: A packaged file is missing or changed
+- **WHEN** installation verifies the selected target bundle
+- **THEN** verification fails before any executable is launched

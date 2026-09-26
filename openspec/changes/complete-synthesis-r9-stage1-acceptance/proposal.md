@@ -20,6 +20,8 @@ acceptance.
   conflict, registered migration success/failure, and operator recovery.
 - Run the current blocking Linux/Windows Zotero 7/9/10 compatibility cells
   against the same candidate XPI and record nonblocking matrix cells separately.
+- Repair stale sidecar discovery from an earlier session after forced Zotero
+  owner termination, then rebuild and rerun acceptance on the changed source.
 - Keep R9 and Stage 1 explicitly incomplete until every required receipt exists
   for one identity; record missing evidence as pending or failed.
 
@@ -45,7 +47,8 @@ None.
 
 ## Impact
 
-- Adds no product runtime or compatibility path.
+- Changes only the product runtime's production-lock-winner cleanup needed for
+  the observed HB-03 restart failure; it adds no compatibility path.
 - Uses the surviving native prebuild/package verification workflows, Rust
   process tests, installation harnesses, and operator runbooks after
   `remove-synthesis-plugin-legacy-owner` and

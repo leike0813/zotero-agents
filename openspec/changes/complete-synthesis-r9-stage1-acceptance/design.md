@@ -4,7 +4,8 @@ Both R9b deletion changes are archived. Their local gates do not supply the
 final candidate XPI, isolated data and failure-injection results, or current
 blocking Zotero 7/9/10 compatibility results. The pre-deletion candidate
 remains a historical safety baseline; this change evaluates a source-fresh
-post-deletion candidate without changing product behavior.
+post-deletion candidate. A lifecycle defect exposed by the first acceptance
+cell is included for repair and requires a new source-bound candidate.
 
 ## Goals / Non-Goals
 
@@ -25,7 +26,7 @@ post-deletion candidate without changing product behavior.
 - Reintroduce Node/plugin owners or add an implementation selector for testing.
 - Treat local simulation as a substitute for a required target or real-machine
   result.
-- Change sidecar behavior while collecting acceptance evidence.
+- Change unrelated product behavior while collecting acceptance evidence.
 
 ## Decisions
 
@@ -86,6 +87,11 @@ result proves byte identity with the universal XPI by itself. Before counting
 a cell, compare its installed XPI digest and selected bundle identity with
 the pinned acceptance candidate. If the existing runner cannot preserve and
 report those bytes, extend that runner or leave the cell pending.
+The source is pinned on a pushed development commit, so the tag-bound
+`release` lane cannot run this unpublished candidate. Use a distinct
+`acceptance` lane with the same six blocking matrix targets and full Phase 1
+family roster. Its preparation preserves the universal XPI, and its worker
+installs that XPI before the catalog. Keep release-lane tag requirements intact.
 
 ### 6. Keep authorization boundaries explicit
 
@@ -115,7 +121,8 @@ Pending authorization is a recorded state, never a passing result.
 2. Under the applicable authority, obtain and verify the matching prebuild v4
    and verification v2 results and all seven native bundles.
 3. Assemble one unpublished universal XPI and run native-only inventory,
-   integrity, license, provenance, SBOM, freshness, and size checks.
+   integrity, Cargo-lock-matched license inventory, provenance, native
+   smoke/handshake platform-signature status, freshness, and size checks.
 4. Run clean, upgrade, offline, corrupt/wrong-platform, process lifecycle,
    production-lock, migration, backup/failure, and runbook cases.
 5. Run the current blocking Zotero 7/9/10 Linux/Windows cells on the same XPI;
@@ -126,3 +133,9 @@ Pending authorization is a recorded state, never a passing result.
 Rollback is simply discarding the unpublished candidate and preserving the
 previous accepted source. Runtime recovery during tests follows the native
 restart, repair, forward-migration, or explicit stopped-service restore paths.
+
+The first Zotero 7 Linux HB-03 cell exposed stale ready discovery from a
+previous session after its host owner was force-terminated. The production-lock
+winner must remove old session discovery before publishing readiness. That
+product correction invalidates the earlier seven-bundle/XPI identity; all
+acceptance results must be joined to a rebuilt source-bound candidate.

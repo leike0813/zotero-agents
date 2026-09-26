@@ -3,6 +3,11 @@
 E2E 测试复用现有 `zotero-plugin-scaffold`、Mock SkillRunner 和 Zotero 测试报告器。项目只有一个 System E2E runner：`npm run test:zotero:e2e` 通过 `scripts/run-zotero-test-with-mock.ts` 运行 `tests/zotero/e2e/full`。`npm run test:zotero:e2e:stress` 保留原入口。当前 CI 门禁不因 runner foundation 自动增加阻塞 lane。
 
 R9 / Stage 1 候选验收的 XPI、sidecar 安装身份与六个阻塞 cell 的证据关联见 [验收证据表](./synthesis-r9-stage1-acceptance.md)。
+该验收使用兼容性 runner 的 `acceptance` lane：先以
+`npm run test:zotero:compatibility:prepare -- --gate=acceptance --install-candidate-xpi`
+校验已经构建的 XPI，再用相同 `--gate=acceptance --install-candidate-xpi`
+运行各个 `--mode=behavior --suite=full --domain=e2e` cell。worker 在 catalog
+之前通过 Zotero AddonManager 安装 XPI；`release` lane 仍只接收 tag 候选。
 
 ## 测试层级
 
@@ -11,7 +16,7 @@ R9 / Stage 1 候选验收的 XPI、sidecar 安装身份与六个阻塞 cell 的�
 - `tests/zotero/e2e/full` 覆盖完整插件构建、本地 Rust sidecar、真实 Host reverse-RPC 与跨页面业务流程。
 - `npm run test:zotero:e2e:stress` 专门重复 Citation Graph 打开、关闭和重开，默认 100 轮。
 
-E2E 构建会把当前源码编译出的 Synthesis sidecar 放入测试插件，不使用仓库中既有的发布二进制。
+普通 E2E 构建会把当前源码编译出的 Synthesis sidecar 放入测试插件，不使用仓库中既有的发布二进制。上述候选验收 lane 则安装已固定摘要的通用 XPI。
 
 ## Suite Baseline 与 family 生命周期
 

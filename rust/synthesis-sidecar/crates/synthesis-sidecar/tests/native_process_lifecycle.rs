@@ -153,7 +153,10 @@ fn target_identity() -> (&'static str, &'static str, Value) {
 }
 
 fn write_launch_config(root: &Path, reverse_host_port: u16) -> (PathBuf, PathBuf, String) {
-    let runtime_root = root.join("runtime/session");
+    let runtime_root = root
+        .join("runtime/profiles")
+        .join("1".repeat(64))
+        .join("sessions/supervisor-1");
     let discovery_path = runtime_root.join("discovery.json");
     let config_path = root.join("launch-config.json");
     let lifecycle_token = "8".repeat(64);
@@ -886,6 +889,14 @@ fn parent_input_close_exits_successfully_and_removes_discovery() {
     fs::create_dir_all(discovery_path.parent().expect("discovery parent"))
         .expect("runtime directory");
     fs::write(&discovery_path, b"stale").expect("stale discovery");
+    let previous_session = discovery_path
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("previous");
+    fs::create_dir_all(&previous_session).expect("previous session");
+    fs::write(previous_session.join("discovery.json"), b"stale-ready").expect("previous discovery");
     let mut child = Command::new(env!("CARGO_BIN_EXE_synthesis-sidecar"))
         .arg("serve")
         .arg("--config")
@@ -898,6 +909,7 @@ fn parent_input_close_exits_successfully_and_removes_discovery() {
 
     let discovery = wait_for_discovery(&mut child, &discovery_path);
     assert_eq!(discovery["lifecycleState"], "ready");
+    assert!(!previous_session.exists());
     drop(child.stdin.take());
     assert!(wait_for_exit(&mut child).success());
     assert!(!discovery_path.exists());
