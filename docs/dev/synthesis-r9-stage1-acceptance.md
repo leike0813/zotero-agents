@@ -70,9 +70,34 @@ parent EOF, active-handler drain, production-lock rejection with unchanged
 repository and owner discovery bytes, and owner release followed by a successful
 new lock winner. A forced process death left old discovery; the next lock winner
 removed it before publishing its own readiness. The new Windows Phase 1 HB-03
-case also passed on these candidate bytes.
-These local rehearsals do not establish network-disabled Zotero installation,
-registered migration, the full crash/fuse matrix, or operator recovery.
+case also passed on these candidate bytes. The same real-process harness then
+confirmed a pre-ready launch failure published no discovery and recovered on a
+fresh launch, while a forced post-ready death left stale discovery that the
+next lock winner cleared. A separate real supervisor rehearsal at
+`.scaffold/r9-real-supervisor-8632-receipt.json` used the packaged executable
+with actual OS child processes. Three injected pre-ready process deaths used
+the configured two-retry budget and produced one `sidecar_crash_loop_fused`
+terminal snapshot; no fourth child launched until explicit recovery. Recovery
+reached ready, a post-ready forced death restarted successfully, and an
+injected missed graceful-stop path caused one forced kill after 507 ms with no
+live child. The fault adapter only injects process death and suppresses the
+graceful signal in the deadline case; the supervisor and native executable are
+the production implementations.
+
+An isolated migration rehearsal used the same packaged executable and a
+synthetic foundation-v5 database copied from a read-only source. Receipt
+`.scaffold/r9-migration-cases-8632-receipt.json` records a registered v5→v6
+migration, verified v5 backup with one durable reference binding, restart on
+the v6 database, backup failure, an injected migration transaction failure,
+unknown schema variant, and retry after removing the injected fault. Failures
+published no ready discovery. The original SQLite and canonical-tree SHA-256
+values remained unchanged. The fixture tests the registered schema path; it
+does not claim coverage of private user data or every historical schema.
+The operator rehearsal receipt `.scaffold/r9-operator-runbook-8632-receipt.json`
+records a compatible v6 restart, repair and retry after a failed migration,
+forward migration with a verified backup, and a stopped-service restore from
+that v5 backup into an isolated copy followed by native startup and a durable
+reference-binding check. Network-disabled Zotero installation remains open.
 
 The six-cell read-only decision is `pending`: all three Windows cells passed,
 while Linux 7/9/10 receipts for this **same source and native set** are missing.

@@ -21,14 +21,14 @@
 - [ ] 4.1 Install the pinned XPI into isolated clean-profile and offline cases; verify its digest, authenticated readiness, representative reads, shutdown, and restart
 - [x] 4.2 Run existing-profile and XPI-upgrade cases on isolated copies; verify the pinned XPI replaces current runtime atomically and preserves unrelated profile data and inert legacy lifecycle files
 - [x] 4.3 Run corrupt, stale, and wrong-platform bundle cases and verify fail-closed behavior leaves the previous runtime usable
-- [ ] 4.4 Run registered migration success, backup failure, migration failure, unknown-variant, and retry cases on isolated profile copies and verify original source hashes remain unchanged
+- [x] 4.4 Run registered migration success, backup failure, migration failure, unknown-variant, and retry cases on isolated profile copies and verify original source hashes remain unchanged
 
 ## 5. Exercise Real Process Recovery
 
 - [x] 5.1 Run authenticated shutdown and parent-input EOF cases and verify response flush, discovery removal, bounded drain, process exit, and zero orphan state
-- [ ] 5.2 Run pre-ready and post-ready crash, bounded restart, fuse, forced-termination, and explicit recovery cases and verify one causal terminal result per generation
+- [x] 5.2 Run pre-ready and post-ready crash, bounded restart, fuse, forced-termination, and explicit recovery cases and verify one causal terminal result per generation
 - [x] 5.3 Run production-lock conflict and subsequent owner-release cases and verify the losing process never opens storage while the existing owner remains healthy
-- [ ] 5.4 Rehearse the operator runbook for compatible restart, repair, forward migration, and stopped-service restore and record the observable outcomes
+- [x] 5.4 Rehearse the operator runbook for compatible restart, repair, forward migration, and stopped-service restore and record the observable outcomes
 - [x] 5.5 Repair stale discovery cleanup across previous session roots after a forced host-owner death; verify the lock winner clears it before readiness, a live lock loser leaves it intact, and the HB-03 real-machine case passes on rebuilt candidate bytes
 
 ## 6. Run the Current Zotero Compatibility Matrix

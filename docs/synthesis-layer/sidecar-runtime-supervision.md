@@ -48,8 +48,9 @@ there is no PID file, owner marker, lease timeout, or stale-owner recovery.
 After acquiring that lock, the winner removes discovery files from previous
 sessions of the same profile before publishing its own readiness. A contender
 that fails to acquire the lock leaves the live owner's discovery untouched.
-The Zotero 7/9/10 Linux Phase 1 HB-03 acceptance cases passed this owner-restart
-path on the pinned unpublished XPI; Windows acceptance remains pending.
+Zotero 7/9/10 Windows Phase 1 HB-03 acceptance cases passed this path on the
+current unpublished candidate. Linux cases passed on an earlier source; they
+remain pending for the current source and native bundle set.
 
 Discovery publication is the readiness commit. Before that commit, an explicit
 startup owner rolls back every acquired resource and keeps the first startup
