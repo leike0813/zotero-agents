@@ -8,6 +8,8 @@ R9 / Stage 1 候选验收的 XPI、sidecar 安装身份与六个阻塞 cell 的�
 校验已经构建的 XPI，再用相同 `--gate=acceptance --install-candidate-xpi`
 运行各个 `--mode=behavior --suite=full --domain=e2e` cell。worker 在 catalog
 之前通过 Zotero AddonManager 安装 XPI；`release` lane 仍只接收 tag 候选。
+当前固定 XPI 的 Zotero 7/9/10 Linux x64 Phase 1 cell 均已通过；Windows x64
+三个阻塞 cell 尚未运行，六 cell 验收决策仍为 `pending`。
 
 ## 测试层级
 

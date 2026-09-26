@@ -76,3 +76,8 @@ npm run prebuild:synthesis-sidecar:dispatch -- --help
 
 The command dispatches or resumes the exact run, synchronizes the local
 bundles, runs freshness, and reports formal-verification status separately.
+
+The current unpublished R9 / Stage 1 candidate has a verified seven-target
+prebuild and one 56,309,181-byte universal XPI. Its SHA-256, native provenance,
+license inventory, selected bundle identities, and remaining acceptance gates
+are recorded in the [acceptance evidence map](../dev/synthesis-r9-stage1-acceptance.md).

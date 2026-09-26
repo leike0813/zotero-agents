@@ -158,14 +158,13 @@ maintenance-operation receipt and continue through bounded phases with explicit
 progress, cancellation, retry, and one terminal.
 
 Local domain parity, production-route performance, and representative Zotero
-7.0.32/Zotero 9.0.4 Linux checks are complete for the current executable source
-identity and closed operation inventory. Repository-wide strict OpenSpec,
-format, lint, TypeScript, Rust, production-route, performance, and production
-build gates are also complete. Acceptance remains blocked on the governed
-seven-platform build, final packaging, signing, and release gates. R9b source
-retirement is locally implemented, but its refreshed native bundle set and
-external acceptance remain pending; no XPI publication, release, or
-synchronization is authorized by the current evidence.
+checks are complete for the current executable source identity and closed
+operation inventory. The R9 / Stage 1 unpublished candidate now has a governed
+seven-platform native build, matching verification, and one universal XPI.
+Zotero 7.0.32, 9.0.6, and 10.0.1 Linux acceptance cells passed with that XPI.
+The three Windows cells and the remaining isolated upgrade, migration, and
+process rehearsals are still pending. This evidence does not authorize XPI
+publication, a release, or synchronization.
 
 The [R9 / Stage 1 acceptance evidence map](../dev/synthesis-r9-stage1-acceptance.md)
 tracks candidate identity, the six blocking compatibility cells, and the
@@ -182,4 +181,4 @@ remaining isolated process and migration rehearsals.
 | Client and transfer boundary | current | TypeScript composes the grouped client, stages large content through authenticated transfer/locator contracts, resolves export delivery, and never exposes paths, credentials, or runtime internals. |
 | Remote export delivery | Host-owned authority | Rust builds bounded canonical entries; the Host adapter alone materializes temporary ZIP bytes, registers opaque exports, and cleans them up. |
 | Migration evidence | current | Language-neutral corpora, fixed pre-retirement observables, and Rust-native tests preserve stable evidence without an executable Node/TypeScript application oracle. |
-| Migration acceptance | source retirement local gates complete | Native Stage-1, TypeScript/Rust builds, strict boundaries, and local XPI inventory pass. The packaged seven-target bundles are stale against the current build fingerprint; a source-fresh prebuild, final package evidence, and Zotero 7/9 real-machine acceptance remain incomplete. |
+| Migration acceptance | partial | Governed seven-target prebuild, package inventory, and Zotero 7/9/10 Linux Phase 1 cells pass for one pinned XPI; Windows cells and isolated upgrade, migration, and recovery rehearsals remain open. |
