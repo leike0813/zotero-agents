@@ -88,6 +88,8 @@ export async function listRecentWorkflowRuns(args: {
     "GET",
     "-F",
     `per_page=${args.maximum ?? 100}`,
+    "--jq",
+    "{workflow_runs: [.workflow_runs[] | {id, conclusion, head_sha}]}",
   ]);
   const parsed = JSON.parse(output);
   if (!parsed || !Array.isArray(parsed.workflow_runs)) {
@@ -123,6 +125,8 @@ export async function listRunArtifacts(args: {
     "GET",
     "-F",
     "per_page=100",
+    "--jq",
+    "{artifacts: [.artifacts[] | {id, name, size_in_bytes, archive_download_url, expired}]}",
   ]);
   const parsed = JSON.parse(output);
   if (!parsed || !Array.isArray(parsed.artifacts)) {
