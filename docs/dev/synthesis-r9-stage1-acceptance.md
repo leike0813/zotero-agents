@@ -99,7 +99,8 @@ forward migration with a verified backup, and a stopped-service restore from
 that v5 backup into an isolated copy followed by native startup and a durable
 reference-binding check. Network-disabled Zotero installation remains open.
 
-The six-cell read-only decision is `pending`: all three Windows cells passed,
+The six-cell read-only decision at `.scaffold/r9-matrix-decision-8632.json` is
+`pending`: all three Windows cells passed,
 while Linux 7/9/10 receipts for this **same source and native set** are missing.
 The older Linux receipts below belong to `a7dd12b5…` and cannot be combined
 with these Windows receipts. macOS Zotero 10 XPI smoke has no current receipt;
