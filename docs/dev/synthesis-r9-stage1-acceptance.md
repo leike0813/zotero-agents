@@ -3,9 +3,8 @@
 The active change is `complete-synthesis-r9-stage1-acceptance`. Its decision
 uses one pushed source commit and pinned host-built universal XPIs. The two R9b
 retirement changes are archived; that fact alone does not complete R9 or Stage 1.
-The first candidate was invalidated by the HB-03 source repair. A replacement
-source commit, seven-platform build, and XPI are now fixed below; real-machine
-and data-safety results remain pending.
+The first candidate was invalidated by the HB-03 source repair. The current
+candidate and its outstanding gates are recorded below.
 
 ## Evidence joins
 
@@ -26,6 +25,62 @@ format is needed for this join. Remote workflow trust and the remaining case
 receipts still need verification before a final acceptance decision.
 
 ## Current unpublished candidate (2026-09-26)
+
+The pinned candidate source is pushed commit
+`8632cfd537ae9aa3eae9b05da2c907764c932a77` on `dev`. Its governed
+seven-platform prebuild is run `36220332872` (successful retry of the Windows
+job in the same run), aggregate
+`565ebab01a97dd675781c40b82d232632eaab774949171c05c46e133b2c719f7`,
+immutable-set commit `7054c0d13f95076f28470e2aef40ad44012fdd24`.
+Freshness, the seven-target synchronization, and the existing verification-v2
+resolver passed. The native build fingerprint is
+`74fc56c1bf04d0dcfd571ba42abbc8fb042d8119a6c0cd88a178e652b88a4f18`.
+The Windows-built universal XPI is `.scaffold/build/zotero-agents.xpi`,
+SHA-256 `080d2b35d68c42c79f844eb631920059ff219d3cc4b60af8a2f99e07b38856cf`,
+56,309,177 compressed bytes. Its package check found all seven manifest-v3
+bundles with no missing or forbidden files. Its Windows bundle ID is
+`46efcfbd11138e7d6a8bf9f8cd2d47bb2665c3cc022771983ea2acdbaefa3881`;
+the Linux bundle ID in the same native set is
+`cc5120c507f88d5545f1a1a6bf89330f6422e1e291e3db476f496725e742e36b`.
+
+A clean detached checkout of that source, with `GITHUB_SHA` and `GITHUB_REF`
+fixed, ran the acceptance lane against this XPI. Windows Zotero 7.0.32, 9.0.6,
+and 10.0.1 passed at
+`C:/Users/leike/zr9new/zotero-7-windows-x64-c00d8db6/receipt.json`,
+`C:/Users/leike/zr9new/zotero-9-windows-x64-9e863c89/receipt.json`, and
+`C:/Users/leike/zr9new/zotero-10-windows-x64-c4447ab6/receipt.json`.
+Each receipt has `dirty=false`, the pinned XPI hash, complete cleanup, and a
+complete Run Manifest with all 16 records passed. Each installed the bundle
+ID and build fingerprint above. The read-only candidate-cell evaluator returns
+no reasons for these three cells after correcting the Windows host-platform to
+native-target comparison (`windows-x64` → `win32-x64`). The first Zotero 7 run
+failed before starting Zotero because the isolated checkout lacked a
+`node_modules` junction; its failed receipt is excluded.
+
+The isolated Zotero 7 XPI upgrade smoke at
+`C:/Users/leike/zr9upgrade8632/zotero-7-windows-x64-c45b8ebd/receipt.json`
+passed with `dirty=false`: it replaced local XPI 0.6.2 with the pinned 0.9.0
+XPI and preserved an unrelated profile marker. The candidate-bound installer
+rehearsal `.scaffold/r9-installer-cases-8632-receipt.json` replaced a previous
+bundle with this bundle, preserved unrelated data and inert legacy lifecycle
+files, and rejected corrupt, wrong-platform, and stale assets while retaining
+the installed runtime. The candidate-bound real-process receipt
+`.scaffold/native-r9-rehearsal-8632-receipt.json` passed authenticated shutdown,
+parent EOF, active-handler drain, production-lock rejection with unchanged
+repository and owner discovery bytes, and owner release followed by a successful
+new lock winner. A forced process death left old discovery; the next lock winner
+removed it before publishing its own readiness. The new Windows Phase 1 HB-03
+case also passed on these candidate bytes.
+These local rehearsals do not establish network-disabled Zotero installation,
+registered migration, the full crash/fuse matrix, or operator recovery.
+
+The six-cell read-only decision is `pending`: all three Windows cells passed,
+while Linux 7/9/10 receipts for this **same source and native set** are missing.
+The older Linux receipts below belong to `a7dd12b5…` and cannot be combined
+with these Windows receipts. macOS Zotero 10 XPI smoke has no current receipt;
+it remains nonblocking under the matrix policy. R9 and Stage 1 are not complete.
+
+## Previous unpublished candidate (2026-09-26)
 
 - Pushed source: `a7dd12b5980373ca204c91433e474e21bc262b23` on `dev`.
   The two R9b retirement changes are archived; the blocking compatibility

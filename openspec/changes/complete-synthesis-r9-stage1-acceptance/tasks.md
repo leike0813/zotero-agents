@@ -19,7 +19,7 @@
 ## 4. Exercise Installation, Upgrade, and Data Safety
 
 - [ ] 4.1 Install the pinned XPI into isolated clean-profile and offline cases; verify its digest, authenticated readiness, representative reads, shutdown, and restart
-- [ ] 4.2 Run existing-profile and XPI-upgrade cases on isolated copies; verify the pinned XPI replaces current runtime atomically and preserves unrelated profile data and inert legacy lifecycle files
+- [x] 4.2 Run existing-profile and XPI-upgrade cases on isolated copies; verify the pinned XPI replaces current runtime atomically and preserves unrelated profile data and inert legacy lifecycle files
 - [x] 4.3 Run corrupt, stale, and wrong-platform bundle cases and verify fail-closed behavior leaves the previous runtime usable
 - [ ] 4.4 Run registered migration success, backup failure, migration failure, unknown-variant, and retry cases on isolated profile copies and verify original source hashes remain unchanged
 
@@ -33,7 +33,7 @@
 
 ## 6. Run the Current Zotero Compatibility Matrix
 
-- [x] 6.1 Run the acceptance lane's Zotero 7/9/10 Linux x64 cells with the pinned XPI and promoted Phase 1 System E2E catalog; verify Run Manifest, cleanup, health, and installed sidecar evidence
+- [ ] 6.1 Run the acceptance lane's Zotero 7/9/10 Linux x64 cells with the pinned XPI and promoted Phase 1 System E2E catalog; verify Run Manifest, cleanup, health, and installed sidecar evidence
 - [ ] 6.2 Run the matching acceptance-lane Zotero 7/9/10 Windows x64 cells with one pinned Windows-built XPI from the same source and seven native bundles as Linux; record macOS Zotero 10 XPI-smoke results separately under their current nonblocking policy
 - [ ] 6.3 Compare each cell's installed XPI SHA-256 with its pinned host-built candidate and selected bundle identity with the common native set; adapt the existing runner if it cannot report those facts, and leave missing or restaged-byte evidence pending
 

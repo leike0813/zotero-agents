@@ -205,7 +205,8 @@ export function evaluateCandidateCell(args: {
     runtime.schemaVersion !== "system-e2e-sidecar-runtime-evidence.v1" ||
     !runtime.runtimeRootPresent ||
     !runtime.install.present ||
-    runtime.install.target !== cell?.platform ||
+    runtime.install.target !==
+      (cell?.platform === "windows-x64" ? "win32-x64" : cell?.platform) ||
     runtime.install.missingFiles !== 0 ||
     runtime.install.bundleId !== candidate.bundleId ||
     runtime.install.buildFingerprint !== candidate.buildFingerprint ||

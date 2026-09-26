@@ -221,6 +221,41 @@ describe("Zotero compatibility fixture contracts", function () {
       const input = { candidate, receipt, manifest, runtime };
 
       assert.deepEqual(evaluateCandidateCell(input), []);
+      const windowsCell = {
+        ...cell,
+        id: "acceptance-zotero-10-windows-x64-e2e-sl-rh-pa-pm-cg-hb",
+        targetId: "zotero-10-windows-x64",
+        platform: "windows-x64" as const,
+        runnerEnvironment: { os: "windows", image: "windows-2025" },
+      };
+      const windowsInput = {
+        ...input,
+        receipt: {
+          ...receipt,
+          host: {
+            ...receipt.host,
+            id: windowsCell.targetId,
+            platform: windowsCell.platform,
+          },
+          execution: { ...receipt.execution, cell: windowsCell },
+        },
+        manifest: { ...manifest, platform: "win32" as const },
+        runtime: {
+          ...runtime,
+          install: { ...runtime.install, target: "win32-x64" },
+        },
+      };
+      assert.deepEqual(evaluateCandidateCell(windowsInput), []);
+      assert.include(
+        evaluateCandidateCell({
+          ...windowsInput,
+          runtime: {
+            ...windowsInput.runtime,
+            install: { ...windowsInput.runtime.install, target: "linux-x64" },
+          },
+        }),
+        "bundle_mismatch",
+      );
       assert.include(
         evaluateCandidateCell({
           ...input,
