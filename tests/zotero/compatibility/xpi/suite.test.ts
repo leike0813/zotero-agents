@@ -10,6 +10,8 @@ const ADDON_ID = "zotero-skills@leike0813@gmail.com";
 const XPI_PREF = "extensions.zotero.zotero-skills.compatibilityTestXpiPath";
 const KEEP_XPI_PREF =
   "extensions.zotero.zotero-skills.compatibilityKeepXpiInstalled";
+const PREVIOUS_XPI_PREF =
+  "extensions.zotero.zotero-skills.compatibilityPreviousXpiPath";
 
 function waitUntil(check: () => boolean, timeoutMs = 20_000) {
   return new Promise<void>((resolve, reject) => {
@@ -59,8 +61,30 @@ describe("formal XPI compatibility smoke", function () {
     await temporaryAddon.uninstall();
     await waitUntil(() => (Zotero as any).ZoteroSkills === undefined);
 
+    const previousPath = Services.prefs
+      .getStringPref(PREVIOUS_XPI_PREF, "")
+      .trim();
+    let previousVersion = "";
+    const marker = PathUtils.join(
+      Services.dirsvc.get("ProfD", Components.interfaces.nsIFile).path,
+      "compatibility-upgrade-preserve.txt",
+    );
+    if (previousPath) {
+      const previousInstall = await addonManager.getInstallForFile(
+        localFile(previousPath),
+      );
+      assert.exists(previousInstall);
+      await previousInstall.install();
+      const previousAddon = await addonManager.getAddonByID(ADDON_ID);
+      assert.exists(previousAddon);
+      assert.isTrue(Boolean(previousAddon.isActive));
+      previousVersion = String(previousAddon.version);
+      await IOUtils.writeUTF8(marker, "unrelated-profile-data\n");
+    }
+
     const install = await addonManager.getInstallForFile(localFile(xpiPath));
     assert.exists(install);
+    const candidateVersion = String(install.addon?.version || "");
     await install.install();
     await waitUntil(
       () =>
@@ -70,6 +94,11 @@ describe("formal XPI compatibility smoke", function () {
 
     const installedAddon = await addonManager.getAddonByID(ADDON_ID);
     assert.exists(installedAddon);
+    if (previousPath) {
+      assert.notEqual(previousVersion, candidateVersion);
+      assert.equal(installedAddon.version, candidateVersion);
+      assert.equal(await IOUtils.readUTF8(marker), "unrelated-profile-data\n");
+    }
     assert.isFalse(Boolean(installedAddon.appDisabled));
     assert.isTrue(Boolean(installedAddon.isActive));
     window.debug?.({
@@ -77,6 +106,9 @@ describe("formal XPI compatibility smoke", function () {
       version: String(Zotero.version || "").trim(),
       appBuildId: String(Services.appinfo?.appBuildID || "").trim(),
       xpiActive: true,
+      ...(previousPath
+        ? { previousVersion, installedVersion: String(installedAddon.version) }
+        : {}),
     });
 
     if (!Services.prefs.getBoolPref(KEEP_XPI_PREF, false)) {

@@ -34,7 +34,9 @@ cell is included for repair and requires a new source-bound candidate.
 
 Pin one pushed source commit and use its prebuild v4 result, matching trusted
 verification v2 result, seven manifest-v3 bundle identities, and the digest of
-one built universal XPI. Resolve Rust toolchain and Cargo lock identity from
+one universal XPI per build host. Their compressed bytes may differ, but each
+must contain the same seven verified native bundles and derive from the same
+source commit. Resolve Rust toolchain and Cargo lock identity from
 the governed build inputs and receipts. Installation and real-machine results
 must identify the XPI bytes actually installed, the selected bundle identity,
 the source identity, and their run/host provenance. Reject mixed or missing
@@ -125,7 +127,8 @@ Pending authorization is a recorded state, never a passing result.
    smoke/handshake platform-signature status, freshness, and size checks.
 4. Run clean, upgrade, offline, corrupt/wrong-platform, process lifecycle,
    production-lock, migration, backup/failure, and runbook cases.
-5. Run the current blocking Zotero 7/9/10 Linux/Windows cells on the same XPI;
+5. Run the current blocking Zotero 7/9/10 Linux/Windows cells on each host's
+   pinned XPI from the same source and native bundle set;
    record the nonblocking matrix cells separately.
 6. Evaluate the complete receipt set. Any missing or mismatched fact leaves the
    change open; a complete passing set permits the R9/Stage-1 completion claim.

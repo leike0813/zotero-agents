@@ -295,6 +295,30 @@ describe("Zotero compatibility fixture contracts", function () {
   });
 
   describe("compatibility worker membership", function () {
+    it("keeps a Windows sidecar launch config under the path limit", function () {
+      if (process.platform !== "win32") this.skip();
+      const options = parseCompatibilityCliArgs([
+        "run",
+        "--gate=acceptance",
+        "--install-candidate-xpi",
+        "--mode=behavior",
+        "--suite=full",
+        "--domain=e2e",
+      ]);
+      const runtimeRoot = path.join(
+        options.runsRoot,
+        "zotero-7-windows-x64-12345678",
+        "e2e-12345678",
+        "runtime",
+      );
+      const lifecycle = getSynthesisSidecarLifecyclePaths({
+        runtimeRoot,
+        profileId: "a".repeat(64),
+        supervisorInstanceId: `sup-${"b".repeat(32)}`,
+      });
+      assert.isBelow(lifecycle.configPath.length + 20, 260);
+    });
+
     const cases = [
       {
         name: "lite",
@@ -372,6 +396,17 @@ describe("Zotero compatibility fixture contracts", function () {
         );
         await fs.mkdir(path.dirname(testFile), { recursive: true });
         await fs.writeFile(testFile, "export {};\n", "utf8");
+        for (const name of [
+          "300-gold.zotero.test.ts",
+          "301-foundation.zotero.test.ts",
+          "302-recovery.zotero.test.ts",
+          "303-phase2.zotero.test.ts",
+        ]) {
+          await fs.writeFile(
+            path.join(path.dirname(testFile), name),
+            "export {};\n",
+          );
+        }
         for (const relative of [
           "tests/fixtures",
           "tests/helpers",
@@ -387,7 +422,11 @@ describe("Zotero compatibility fixture contracts", function () {
           "utf8",
         );
 
-        await materializeCompatibilityTestWorkspace(projectRoot, runRoot);
+        await materializeCompatibilityTestWorkspace(
+          projectRoot,
+          runRoot,
+          "acceptance",
+        );
 
         assert.isFalse(
           (await fs.lstat(path.join(runRoot, "tests/zotero"))).isSymbolicLink(),
@@ -403,6 +442,30 @@ describe("Zotero compatibility fixture contracts", function () {
           (
             await fs.lstat(path.join(runRoot, "tests/fixtures"))
           ).isSymbolicLink(),
+        );
+        assert.deepEqual(
+          (
+            await fs.readdir(path.join(runRoot, "tests/zotero/e2e/acceptance"))
+          ).sort(),
+          [
+            "300-gold.zotero.test.ts",
+            "301-foundation.zotero.test.ts",
+            "302-recovery.zotero.test.ts",
+          ],
+        );
+        assert.deepEqual(
+          resolveCompatibilityWorkerEntries(
+            "behavior",
+            ["tests/zotero/setup", "tests/zotero/e2e/full"],
+            "e2e",
+            true,
+            "acceptance",
+          ),
+          [
+            "tests/zotero/compatibility/xpi",
+            "tests/zotero/setup",
+            "tests/zotero/e2e/acceptance",
+          ],
         );
       } finally {
         await fs.rm(projectRoot, { recursive: true, force: true });

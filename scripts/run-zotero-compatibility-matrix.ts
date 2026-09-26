@@ -113,7 +113,12 @@ export function parseCompatibilityCliArgs(args: string[]): CliOptions {
       "zotero-agents",
       "zotero-hosts",
     ),
-    runsRoot: path.join(os.tmpdir(), "zotero-agents-compat"),
+    // The sidecar nests session/config paths below each run; long Windows temp
+    // paths exceed MAX_PATH before the process can publish readiness.
+    runsRoot:
+      process.platform === "win32"
+        ? path.join(os.homedir(), "zc")
+        : path.join(os.tmpdir(), "zotero-agents-compat"),
     buildRoot: path.join(PROJECT_ROOT, ".scaffold", "build"),
     timeoutMs: 30 * 60_000,
     fixtureScale: (process.env.ZOTERO_COMPAT_FIXTURE_SCALE ||

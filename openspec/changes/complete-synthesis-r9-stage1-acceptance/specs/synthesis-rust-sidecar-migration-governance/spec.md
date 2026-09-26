@@ -4,10 +4,12 @@
 
 Final R9 and Stage-1 acceptance SHALL join the source commit, matching trusted
 prebuild v4 and verification v2 results, Rust toolchain, Cargo lock identity,
-seven native bundle fingerprints, universal-XPI hash, workflow identity,
+seven native bundle fingerprints, each host-built universal-XPI hash, workflow identity,
 current blocking compatibility matrix, and every required result to one
 immutable candidate. Environment receipts SHALL prove the XPI bytes installed
 and selected bundle identity; a source-matched but restaged XPI is insufficient.
+Host-built XPI bytes MAY differ when their source commit and seven native bundle
+identities match; each environment receipt MUST match its host's pinned XPI hash.
 Missing, mixed-source, stale, inferred, filtered, or manually substituted
 evidence MUST leave acceptance incomplete. A release-set or complete release
 receipt MUST NOT be required for this non-publishing acceptance decision.

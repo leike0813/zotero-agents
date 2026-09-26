@@ -1,7 +1,7 @@
 # Synthesis R9 / Stage 1 acceptance evidence
 
 The active change is `complete-synthesis-r9-stage1-acceptance`. Its decision
-uses one pushed source commit and one unpublished universal XPI. The two R9b
+uses one pushed source commit and pinned host-built universal XPIs. The two R9b
 retirement changes are archived; that fact alone does not complete R9 or Stage 1.
 The first candidate was invalidated by the HB-03 source repair. A replacement
 source commit, seven-platform build, and XPI are now fixed below; real-machine
@@ -13,7 +13,7 @@ and data-safety results remain pending.
 | --- | --- | --- |
 | Source, build recipe, Cargo lock and seven archives | prebuild result v4 and immutable set | Rebuild the result and set, check workflow run identity, source SHA, fingerprints, archive digests and seven targets. |
 | Linux, Windows and macOS verification | verification result v2 | Revalidate the successful workflow run and its source/build identity. |
-| Packaged bytes | one universal XPI | Record its SHA-256; verify each manifest-v3 bundle, exact declared files, hashes, common build identity, native-only inventory and size budgets. |
+| Packaged bytes | one universal XPI per build host | Record each SHA-256; verify each manifest-v3 bundle, exact declared files, hashes, common source/native identity, native-only inventory and size budgets. |
 | Zotero behavior | compatibility receipt v1, Run Manifest v1 and sidecar-runtime-evidence v1 | Join the receipt's XPI digest and source SHA to the candidate; join the installed bundle ID to the manifest inside that XPI; require all 15 Phase 1 cases, cleanup and health. |
 | Upgrade, migration and lifecycle failures | isolated profile/process case receipts | Record exact candidate identity, outcome, original-source hashes and cleanup; unit or source-shape results are diagnostic evidence only. |
 
@@ -82,10 +82,59 @@ Run Manifest `83d02107-5067-4ab5-99b0-0d31a08977e4`. Zotero 10 Linux
 Run Manifest `23006745-a4c7-4ebe-8056-907eac2a3b8b`. Each had all 15
 Phase 1 cases once, complete cleanup and health, the pinned XPI digest, and
 the same installed Linux bundle ID. The candidate-cell evaluator returned no
-reasons for either. The read-only six-cell matrix decision is `pending`: the
-three Linux cells passed and Zotero 7/9/10 Windows x64 each have `missing`.
-The Windows machine is currently unavailable for remote execution; no Windows
-result is inferred from the Linux or native smoke evidence.
+reasons for either. The clean-source six-cell decision remains `pending`:
+the three Linux cells passed, while the three Windows results below are
+diagnostic and do not satisfy that gate.
+
+Windows host-built XPI bytes may differ from the Linux XPI by the user's
+acceptance choice. The first Windows diagnostic build from the current `dev`
+checkout produced `.scaffold/build/zotero-agents.xpi`, SHA-256
+`7b96006c8d061956336059aa475814df5bf5fec447a45fe5b1ca142130bc0366`.
+Its package check passed all seven manifest-v3 bundles; the selected Windows
+bundle ID is `0ec89c17bc4b81471cd29c13520a255718f0e70a868f44e83c75c2a320e1d584`
+and build fingerprint is the same `74fc56c1…` as the Linux candidate. The
+source checkout is `c1e169bb7afd7154f2b45e3d77bce19a0b22f70b`, which
+differs from the pinned prebuild source `a7dd12b5…` by documentation; the
+runner worktree also contains an uncommitted Phase 1 test-selection repair.
+These receipts are diagnostic and cannot satisfy the clean, same-source gate.
+
+The Windows diagnostic receipts are
+`C:/Users/leike/zr9/zotero-7-windows-x64-f04cb083/receipt.json`
+(Run Manifest `0152ef99-362a-4dd4-a277-8c2e4736976b`),
+`C:/Users/leike/zr9/zotero-9-windows-x64-00585d8c/receipt.json`
+(`91f20917-1470-4e4c-b54a-9fad74dd6c61`), and
+`C:/Users/leike/zr9/zotero-10-windows-x64-0d1b8d5d/receipt.json`
+(`b8043664-9796-4b11-acca-a4eaf654ce9c`). They observed Zotero
+7.0.32/9.0.6/10.0.1 respectively. Each receipt passed with complete cleanup;
+each Run Manifest completed the 15 Phase 1 cases and foundation, with all 16
+records passed. Each installed the Windows XPI digest and bundle ID above.
+The first default-path Windows attempt never reached sidecar readiness: its
+session `config.json` path reached 263 characters. A short isolated run root
+removed that failure. The original acceptance worker also included Phase 2
+test file `303`, whose `AC-05` restart failed and reran Phase 1 in the same
+attempt. The worker now selects only Phase 1 files `300`–`302` for acceptance;
+its focused test and the three diagnostic real-machine cells passed.
+
+A clean detached checkout of `a7dd12b5…` built the Windows host XPI at
+`.scaffold/acceptance-a7-stage2/.scaffold/build/zotero-agents.xpi`, SHA-256
+`5d80826d256b74963cf0d5cca06fcd9933d2c80285728d54b1aa598f94e07d94`.
+Its source and seven native identities match the Linux candidate. A separate
+Zotero 7.0.32 Windows XPI-smoke receipt at
+`C:/Users/leike/zr9xpi/zotero-7-windows-x64-5fb59370/receipt.json` passed
+with `dirty=false`, this XPI digest, active add-on startup and complete cleanup.
+The first detached-checkout smoke attempt lacked the explicit source ref and
+was recorded as `unknown/dirty`; only the second receipt is counted. The
+smoke verifies local-file installation on an isolated profile, but does not
+establish a network-disabled offline case or a full XPI upgrade.
+
+The existing XPI-smoke runner now has an opt-in old-XPI upgrade path. On an
+isolated Zotero 7.0.32 Windows profile, it installed the local 0.6.2 XPI,
+then replaced it with the pinned 0.9.0 Windows XPI and preserved an unrelated
+profile file. Receipt
+`C:/Users/leike/zr9upgrade/zotero-7-windows-x64-b51255d4/receipt.json`
+passed and cleaned up; its runner log records both installed versions. The
+runner source had uncommitted test changes (`dirty=true`), so this is a
+diagnostic upgrade rehearsal and not a clean candidate-bound 4.2 receipt.
 
 A separate isolated installer rehearsal read the exact Linux assets from the
 pinned XPI. It installed the previous tracked bundle
@@ -95,8 +144,20 @@ inert legacy lifecycle files. Installation used only local XPI bytes. Corrupt
 executable bytes and a Windows manifest supplied to the Linux installer were
 both rejected; the already installed candidate remained ready. This covers
 bundle-level upgrade and fail-closed behavior, but does not establish a full
-Zotero XPI upgrade, the stale-bundle case, or the remaining migration and
-operator runbook cases.
+Zotero XPI upgrade or the remaining migration and operator runbook cases.
+
+The Windows candidate-specific installer receipt at
+`.scaffold/r9-installer-cases-receipt.json` records offline reads from the
+pinned `5d80826d…` XPI into a fresh isolated runtime root. Corrupt executable
+bytes and a wrong-platform manifest were rejected before replacing `current`.
+The previous actual Windows bundle (`aa8f7a2b…`, build fingerprint `565beec4…`)
+failed the governed freshness preflight with `build_fingerprint_mismatch`.
+After each rejection, the installed candidate bundle remained unchanged;
+unrelated profile data and inert legacy lifecycle files retained their bytes.
+The installed executable then passed the production durable smoke: two read
+canaries, four compute operations, authenticated shutdown and reopened
+repository. This completes the corrupt/stale/wrong-platform fail-closed gate.
+The local asset reader does not establish network-disabled Zotero installation.
 
 An isolated native-process rehearsal used the packaged Linux executable whose
 SHA-256 is `d8285bdb49085f3d6435fc920118a183eee64cefc9b14053f766c9d23494ece6`.
@@ -108,11 +169,27 @@ After that owner stopped, a new owner acquired the lock and passed handshake.
 The rehearsal does not cover active-handler drain, the complete crash/fuse
 matrix, or stopped-service restore.
 
-The acceptance decision remains `pending`. The open blocking work is the
-three Windows real-machine cells; complete isolated clean/offline and Zotero
-XPI-upgrade cases; stale-bundle recovery; registered migration success and
-failure cases with original-source hash preservation; active-handler drain,
-the complete crash/fuse matrix, and operator-runbook rehearsals. Rust native
+The packaged Windows executable (`861a7bc132a2feaef8d87bbbb3cc25e032494239e4c7ce0b111ff05d2f38c865`)
+also passed an isolated native-process rehearsal bound to the Windows XPI
+`5d80826d256b74963cf0d5cca06fcd9933d2c80285728d54b1aa598f94e07d94`.
+Its local receipt is `.scaffold/native-r9-rehearsal-receipt.json`.
+Authenticated shutdown flushed a successful response, removed discovery, and
+exited 0 in 156 ms; parent-input EOF removed discovery and exited 0 in 152 ms.
+With an active, incomplete HTTP request, shutdown flushed its response, closed
+the socket, removed discovery, and exited 0 in 253 ms (15 ms after the
+shutdown response). A subsequent Windows process query found no remaining
+`synthesis-sidecar.exe`. The rehearsal used new short profile roots and a
+loopback reverse host; no network download was required. The packaged-binary
+durable smoke also passed two representative read canaries, four compute
+operations, graceful shutdown, and a reopened production repository. Together
+these results satisfy the real-process shutdown/EOF/drain gate. They do not
+cover a fuse, migration, or operator restore.
+
+The acceptance decision remains `pending`. The open blocking work is clean,
+same-source Windows real-machine receipts; complete isolated clean/offline and Zotero
+XPI-upgrade cases; registered migration success and
+failure cases with original-source hash preservation; the complete crash/fuse
+matrix, and operator-runbook rehearsals. Rust native
 process tests and the Linux Phase 1 lifecycle cases are diagnostic or partial
 evidence for those broader gates. No R9 or Stage 1 completion claim is made.
 

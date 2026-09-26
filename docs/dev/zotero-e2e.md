@@ -7,9 +7,12 @@ R9 / Stage 1 候选验收的 XPI、sidecar 安装身份与六个阻塞 cell 的�
 `npm run test:zotero:compatibility:prepare -- --gate=acceptance --install-candidate-xpi`
 校验已经构建的 XPI，再用相同 `--gate=acceptance --install-candidate-xpi`
 运行各个 `--mode=behavior --suite=full --domain=e2e` cell。worker 在 catalog
-之前通过 Zotero AddonManager 安装 XPI；`release` lane 仍只接收 tag 候选。
-当前固定 XPI 的 Zotero 7/9/10 Linux x64 Phase 1 cell 均已通过；Windows x64
-三个阻塞 cell 尚未运行，六 cell 验收决策仍为 `pending`。
+之前通过 Zotero AddonManager 安装 XPI，验收 lane 仅投影 Phase 1 的
+`300`–`302` 测试文件；Windows 默认使用短的隔离根，避免 sidecar session
+配置路径超过系统限制。`release` lane 仍只接收 tag 候选。
+固定 Linux XPI 的 Zotero 7/9/10 Phase 1 cell 均已通过；三个 Windows cell
+已有全通过的 dirty-source 诊断结果，但仍需 clean、same-source receipt，
+六 cell 验收决策保持 `pending`。
 
 ## 测试层级
 
@@ -192,6 +195,12 @@ gh workflow run system-e2e-evidence.yml --ref dev -f lane=cg-02-windows
 catalog 形态把 entry 固定为 close 用例本身，所以发布 `zotero-compatibility-host-facts` 的 foundation 用例不会运行，而 compatibility receipt 正是靠这份事实判定 cell；`276` 因此在自己的 catalog 分支里、close 循环之前发布同一事件。改变该 lane 的 entry 或 case identity 时必须同时保住这份发布，否则 receipt 会以 `host_facts_missing` 拒绝整轮。同一原因也让断言依据必须走 run-scoped 目录：Zotero 进程里的默认诊断目录是平台 temp 目录，没有 workflow 会归档它，所以 crash journal 由 harness 经 `ZOTERO_SYNTHESIS_CLOSE_CRASH_JOURNAL_PATH` 指到 `artifacts/test-diagnostics/system-e2e/<runId>/`，与 `synthesis-close-lifecycle.json` 并排归档，断言依据本身因此可复查。
 
 查看规划或在本机运行单个 cell：
+
+验证旧版 XPI 到候选 XPI 的隔离 profile 升级时，可将
+`ZOTERO_COMPAT_PREVIOUS_XPI_PATH` 指向同一插件 ID、兼容目标 Zotero 版本的
+本地旧版 XPI，再运行 `xpi-smoke` cell。测试先安装旧版，再安装构建根中的
+候选 XPI，并核对插件版本与无关 profile 文件。缺少该环境变量时保持普通
+安装烟测路径；升级结果仍须以 cell receipt 的源码及 XPI 身份判断是否可计入验收。
 
 ```bash
 npm run test:zotero:compatibility:plan -- --gate main --json

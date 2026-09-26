@@ -4,13 +4,16 @@
 
 The post-retirement acceptance gate SHALL verify a trusted prebuild v4 result,
 matching verification v2 result, all seven manifest-v3 native bundles, and one
-unpublished universal XPI from the same source. It SHALL validate exact
-inventory, hashes, fingerprints, provenance, the Cargo-lock-matched
+unpublished universal XPI from the same source. Every additional host-built
+XPI used by a blocking environment SHALL pass the same exact inventory,
+hash, fingerprint, provenance, and Cargo-lock-matched
 `licenses.json` inventory, native smoke/handshake platform-signature status,
 freshness, and the 15 MiB per-target, 75 MiB aggregate,
 and 100 MiB universal-XPI compressed budgets. It MUST reject Node/npm
 executables or archives, JavaScript service/package trees, D3 runtime,
 implementation selectors, stale binaries, and undeclared files.
+Host-built XPI digests MAY differ, but their source commit and seven native
+bundle identities MUST match.
 For this unpublished candidate, `unsigned-candidate` is an acceptable
 Windows/macOS status and `not-applicable` is the Linux status. This gate does
 not claim a separate SBOM receipt or signed release binaries; release signing
