@@ -33,9 +33,9 @@
 
 ## 6. Run the Current Zotero Compatibility Matrix
 
-- [ ] 6.1 Run the acceptance lane's Zotero 7/9/10 Linux x64 cells with the pinned XPI and promoted Phase 1 System E2E catalog; verify Run Manifest, cleanup, health, and installed sidecar evidence
+- [x] 6.1 Run the acceptance lane's Zotero 7/9/10 Linux x64 cells with the pinned XPI and promoted Phase 1 System E2E catalog; verify Run Manifest, cleanup, health, and installed sidecar evidence
 - [x] 6.2 Run the matching acceptance-lane Zotero 7/9/10 Windows x64 cells with one pinned Windows-built XPI from the same source and seven native bundles as Linux; record macOS Zotero 10 XPI-smoke results separately under their current nonblocking policy
-- [ ] 6.3 Compare each cell's installed XPI SHA-256 with its pinned host-built candidate and selected bundle identity with the common native set; adapt the existing runner if it cannot report those facts, and leave missing or restaged-byte evidence pending
+- [x] 6.3 Compare each cell's installed XPI SHA-256 with its pinned host-built candidate and selected bundle identity with the common native set; adapt the existing runner if it cannot report those facts, and leave missing or restaged-byte evidence pending
 
 ## 7. Decide and Document Acceptance
 

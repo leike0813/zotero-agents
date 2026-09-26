@@ -99,12 +99,24 @@ forward migration with a verified backup, and a stopped-service restore from
 that v5 backup into an isolated copy followed by native startup and a durable
 reference-binding check. Network-disabled Zotero installation remains open.
 
-The six-cell read-only decision at `.scaffold/r9-matrix-decision-8632.json` is
-`pending`: all three Windows cells passed,
-while Linux 7/9/10 receipts for this **same source and native set** are missing.
-The older Linux receipts below belong to `a7dd12b5…` and cannot be combined
-with these Windows receipts. macOS Zotero 10 XPI smoke has no current receipt;
-it remains nonblocking under the matrix policy. R9 and Stage 1 are not complete.
+The Linux host built its own universal XPI from the same source and seven native
+bundles, at `.scaffold/r9-linux-8632/zotero-agents-linux.xpi`, SHA-256
+`6afed81777d3a9bddeee5329192219fd21285483dd8f4ece41c40c84e2536b1f`
+(56,261,121 compressed bytes). Its package check passed all seven bundles.
+Zotero 7.0.32, 9.0.6, and 10.0.1 Linux acceptance receipts are copied under
+`.scaffold/r9-linux-8632/zotero-{7,9,10}/`. Their Run Manifest IDs are
+`51be3d43-e5e0-4570-86a4-399f5e191ebc`,
+`9df7b27f-5353-44dc-93a9-7138c4690be6`, and
+`7654ce13-84f6-46f4-a7f6-f04be55f72ff`. Each receipt reports the pinned
+Linux XPI digest, `dirty=false`, complete cleanup, all 16 Run Manifest records
+passed with health and cleanup passed, and installed bundle ID `cc5120c5…`.
+The read-only comparison found all seven bundle IDs identical between the
+Windows and Linux host-built XPIs. The six-cell decision at
+`.scaffold/r9-matrix-decision-8632.json` is now `passed` with no cell reasons.
+The older Linux receipts below belong to `a7dd12b5…` and are historical.
+macOS Zotero 10 XPI smoke has no current receipt and remains nonblocking.
+Network-disabled Zotero installation is still missing, so R9 and Stage 1 are
+not complete.
 
 ## Previous unpublished candidate (2026-09-26)
 
