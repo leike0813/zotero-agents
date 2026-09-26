@@ -98,11 +98,21 @@ bundle-level upgrade and fail-closed behavior, but does not establish a full
 Zotero XPI upgrade, the stale-bundle case, or the remaining migration and
 operator runbook cases.
 
+An isolated native-process rehearsal used the packaged Linux executable whose
+SHA-256 is `d8285bdb49085f3d6435fc920118a183eee64cefc9b14053f766c9d23494ece6`.
+It passed authenticated handshake, shutdown response followed by process exit,
+parent-input EOF exit, and discovery removal. A second process targeting the
+same repository exited with `production_lock_conflict`, published no discovery,
+and left the database hash unchanged while the first owner remained responsive.
+After that owner stopped, a new owner acquired the lock and passed handshake.
+The rehearsal does not cover active-handler drain, the complete crash/fuse
+matrix, or stopped-service restore.
+
 The acceptance decision remains `pending`. The open blocking work is the
 three Windows real-machine cells; complete isolated clean/offline and Zotero
 XPI-upgrade cases; stale-bundle recovery; registered migration success and
-failure cases with original-source hash preservation; and packaged-executable
-EOF, crash/fuse, lock-conflict, and operator-runbook rehearsals. Rust native
+failure cases with original-source hash preservation; active-handler drain,
+the complete crash/fuse matrix, and operator-runbook rehearsals. Rust native
 process tests and the Linux Phase 1 lifecycle cases are diagnostic or partial
 evidence for those broader gates. No R9 or Stage 1 completion claim is made.
 

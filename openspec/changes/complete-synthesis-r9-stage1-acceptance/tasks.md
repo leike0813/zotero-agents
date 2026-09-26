@@ -27,7 +27,7 @@
 
 - [ ] 5.1 Run authenticated shutdown and parent-input EOF cases and verify response flush, discovery removal, bounded drain, process exit, and zero orphan state
 - [ ] 5.2 Run pre-ready and post-ready crash, bounded restart, fuse, forced-termination, and explicit recovery cases and verify one causal terminal result per generation
-- [ ] 5.3 Run production-lock conflict and subsequent owner-release cases and verify the losing process never opens storage while the existing owner remains healthy
+- [x] 5.3 Run production-lock conflict and subsequent owner-release cases and verify the losing process never opens storage while the existing owner remains healthy
 - [ ] 5.4 Rehearse the operator runbook for compatible restart, repair, forward migration, and stopped-service restore and record the observable outcomes
 - [x] 5.5 Repair stale discovery cleanup across previous session roots after a forced host-owner death; verify the lock winner clears it before readiness, a live lock loser leaves it intact, and the HB-03 real-machine case passes on rebuilt candidate bytes
 
