@@ -8,8 +8,14 @@
 // calls FTL itself.
 
 import { memo } from "preact/compat";
+import { useState } from "preact/hooks";
 
 export type { BackendManagerActionEnvelope } from "../../shared/dashboardWireContract";
+import type { BackendManagerBuiltinAgentSnapshot } from "../../shared/dashboardWireContract";
+import type {
+  PiProviderConfiguration,
+  PiProviderDefaults,
+} from "../../shared/piProviderContract";
 import { CustomSelect } from "../../shared/customSelect";
 import { equalBySignature } from "../../shared/regionEquality";
 
@@ -100,6 +106,7 @@ export type BackendManagerSnapshot = {
   initialProviderType?: string;
   providers: BackendManagerProviderView[];
   rows: BackendManagerDraftRow[];
+  builtinAgent?: BackendManagerBuiltinAgentSnapshot;
   skillRunnerHealth: Record<
     string,
     {
@@ -148,11 +155,13 @@ export type BackendManagerBodySelection = {
   hasGenericHttpPresets: boolean;
   labels: BackendManagerLabels;
   rows: BackendManagerBodyRowEntry[];
+  builtinAgent?: BackendManagerBuiltinAgentSnapshot;
 };
 
 export type BackendManagerFooterSelection = {
   status: { text: string; tone: string } | null;
   labels: BackendManagerLabels;
+  showProfileSave?: boolean;
 };
 
 export type BackendManagerAcpPresetDialogState = {
@@ -223,6 +232,11 @@ export type BackendManagerRegionHandlers = {
   cancelGenericHttpDialog(): void;
   confirmGenericHttpDialog(presetId: string): void;
   openPresetLink(url: string): void;
+  upsertPiConfiguration(configuration: PiProviderConfiguration): void;
+  deletePiConfiguration(id: string): void;
+  setPiDefaults(defaults: PiProviderDefaults): void;
+  refreshPiOverlay(path: string): void;
+  queryPiCatalog(provider: string, query: string): void;
 };
 
 // ---------------------------------------------------------------------------
@@ -717,6 +731,371 @@ export const BackendManagerHeaderRegion = memo(
   regionEqual,
 );
 
+const EMPTY_PI_CONFIGURATION: PiProviderConfiguration = {
+  id: "",
+  label: "",
+  provider: "",
+  modelId: "",
+  authVariant: "api-key",
+  enabled: true,
+};
+
+function PiConfigurationPanel(props: {
+  value: BackendManagerBuiltinAgentSnapshot;
+  labels: BackendManagerLabels;
+  handlers: BackendManagerRegionHandlers;
+}) {
+  const { value, labels, handlers } = props;
+  const [draft, setDraft] = useState<PiProviderConfiguration>({
+    ...EMPTY_PI_CONFIGURATION,
+  });
+  const [defaults, setDefaults] = useState<PiProviderDefaults>(value.defaults);
+  const [overlayPath, setOverlayPath] = useState(value.overlayPath);
+  const statusLabels: Record<string, string> = {
+    configured: labelText(labels, "piStatusConfigured", "Configured"),
+    disabled: labelText(labels, "disabled", "Disabled"),
+    incomplete: labelText(labels, "piStatusIncomplete", "Incomplete"),
+    "needs-auth": labelText(labels, "piStatusNeedsAuth", "Credential required"),
+    invalid: labelText(labels, "piStatusInvalid", "Model unavailable"),
+    unavailable: labelText(
+      labels,
+      "piStatusUnavailable",
+      "Catalog unavailable",
+    ),
+  };
+  const update = (patch: Partial<PiProviderConfiguration>) =>
+    setDraft((current) => ({ ...current, ...patch }));
+  const field = (
+    key: keyof PiProviderConfiguration,
+    label: string,
+    input: "text" | "url" = "text",
+  ) => (
+    <label class="backend-field">
+      <span>{label}</span>
+      <input
+        class="backend-input"
+        type={input}
+        data-pi-field={key}
+        value={String(draft[key] || "")}
+        onInput={(event) =>
+          update({ [key]: (event.target as HTMLInputElement).value })
+        }
+        onChange={
+          key === "provider"
+            ? (event) =>
+                handlers.queryPiCatalog(
+                  (event.target as HTMLInputElement).value,
+                  "",
+                )
+            : undefined
+        }
+        list={
+          key === "provider"
+            ? "pi-provider-options"
+            : key === "modelId"
+              ? "pi-model-options"
+              : undefined
+        }
+      />
+    </label>
+  );
+  const selectDefault = (key: keyof PiProviderDefaults, label: string) => (
+    <label class="backend-field">
+      <span>{label}</span>
+      <select
+        class="backend-input"
+        value={defaults[key]?.configurationId || ""}
+        onChange={(event) => {
+          const configurationId = (event.target as HTMLSelectElement).value;
+          setDefaults((current) => ({
+            ...current,
+            [key]: configurationId ? { configurationId } : undefined,
+          }));
+        }}
+      >
+        <option value="">
+          {labelText(labels, "piNoDefault", "No default")}
+        </option>
+        {value.configurations
+          .filter(
+            (entry) => value.configurationStatus[entry.id] === "configured",
+          )
+          .map((entry) => (
+            <option value={entry.id} key={entry.id}>
+              {entry.label || entry.id}
+            </option>
+          ))}
+      </select>
+    </label>
+  );
+  return (
+    <section class="backend-provider-section backend-pi-section">
+      <header class="backend-provider-header">
+        <h2 class="backend-provider-title">
+          {labelText(labels, "piTitle", "Built-in Agent")}
+        </h2>
+        <button
+          type="button"
+          class="backend-button"
+          data-pi-action="add"
+          onClick={() => setDraft({ ...EMPTY_PI_CONFIGURATION })}
+        >
+          {labelText(labels, "piAdd", "Add configuration")}
+        </button>
+      </header>
+      <p class="backend-pi-status" role="status">
+        {value.catalog.modelCount} {labelText(labels, "piModels", "models")} ·{" "}
+        {labelText(
+          labels,
+          value.catalog.status === "ready"
+            ? "piCatalogReady"
+            : value.catalog.status === "loading"
+              ? "piCatalogLoading"
+              : "piCatalogError",
+          value.catalog.status === "ready"
+            ? "Catalog ready"
+            : value.catalog.status === "loading"
+              ? "Loading catalog"
+              : "Catalog unavailable",
+        )}
+      </p>
+      {value.configurations.every(
+        (entry) => value.configurationStatus[entry.id] !== "configured",
+      ) ? (
+        <p class="backend-pi-unavailable">
+          {labelText(
+            labels,
+            "piUnavailable",
+            "No usable provider configuration.",
+          )}
+        </p>
+      ) : null}
+      <div class="backend-pi-grid">
+        <label class="backend-field">
+          <span>{labelText(labels, "piConfigurations", "Configurations")}</span>
+          <select
+            class="backend-input"
+            value={draft.id}
+            onChange={(event) => {
+              const id = (event.target as HTMLSelectElement).value;
+              setDraft(
+                value.configurations.find((entry) => entry.id === id) || {
+                  ...EMPTY_PI_CONFIGURATION,
+                },
+              );
+            }}
+          >
+            <option value="">
+              {labelText(labels, "piNew", "New configuration")}
+            </option>
+            {value.configurations.map((entry) => (
+              <option value={entry.id} key={entry.id}>
+                {entry.label || entry.id}
+              </option>
+            ))}
+          </select>
+        </label>
+        {draft.id ? (
+          <p class="backend-pi-configuration-status" role="status">
+            {statusLabels[value.configurationStatus[draft.id]] || ""}
+          </p>
+        ) : null}
+        {field("label", labelText(labels, "piLabel", "Name"))}
+        {field("provider", labelText(labels, "piProvider", "Provider"))}
+        <datalist id="pi-provider-options">
+          {value.catalog.providers.map((provider) => (
+            <option value={provider} key={provider} />
+          ))}
+        </datalist>
+        {field("modelId", labelText(labels, "piModel", "Model"))}
+        <datalist id="pi-model-options">
+          {value.models
+            .filter((model) => model.provider === draft.provider)
+            .map((model) => (
+              <option value={model.id} key={model.id}>
+                {model.name}
+              </option>
+            ))}
+        </datalist>
+        <label class="backend-field">
+          <span>{labelText(labels, "piAuth", "Authentication")}</span>
+          <select
+            class="backend-input"
+            value={draft.authVariant}
+            onChange={(event) =>
+              update({
+                authVariant: (event.target as HTMLSelectElement)
+                  .value as PiProviderConfiguration["authVariant"],
+                credentialRef: undefined,
+              })
+            }
+          >
+            <option value="api-key">API key</option>
+            <option value="openai-codex">OpenAI Codex</option>
+            <option value="none">
+              {labelText(labels, "authNone", "None")}
+            </option>
+          </select>
+        </label>
+        <label class="backend-field">
+          <span>{labelText(labels, "piCredential", "Credential")}</span>
+          <select
+            class="backend-input"
+            value={draft.credentialRef || ""}
+            onChange={(event) =>
+              update({
+                credentialRef: (event.target as HTMLSelectElement).value,
+              })
+            }
+          >
+            <option value="">
+              {labelText(labels, "piNoCredential", "No credential")}
+            </option>
+            {value.credentials
+              .filter((entry) => entry.kind === draft.authVariant)
+              .map((entry) => (
+                <option value={entry.id} key={entry.id}>
+                  {entry.label} ({entry.masked})
+                </option>
+              ))}
+          </select>
+        </label>
+        {field(
+          "baseUrl",
+          labelText(labels, "piEndpoint", "Custom endpoint"),
+          "url",
+        )}
+        <label class="backend-field">
+          <span>{labelText(labels, "piDialect", "API dialect")}</span>
+          <select
+            class="backend-input"
+            value={draft.api || ""}
+            onChange={(event) =>
+              update({
+                api: (event.target as HTMLSelectElement)
+                  .value as PiProviderConfiguration["api"],
+              })
+            }
+          >
+            <option value="">
+              {labelText(labels, "piCatalogDefault", "Catalog default")}
+            </option>
+            <option value="openai-responses">openai-responses</option>
+            <option value="openai-completions">openai-completions</option>
+          </select>
+        </label>
+        <label class="backend-field">
+          <span>{labelText(labels, "piReasoning", "Reasoning")}</span>
+          <select
+            class="backend-input"
+            value={draft.reasoning || "off"}
+            onChange={(event) =>
+              update({
+                reasoning: (event.target as HTMLSelectElement)
+                  .value as PiProviderConfiguration["reasoning"],
+              })
+            }
+          >
+            {["off", "minimal", "low", "medium", "high", "xhigh", "max"].map(
+              (level) => (
+                <option value={level} key={level}>
+                  {level}
+                </option>
+              ),
+            )}
+          </select>
+        </label>
+        <label class="backend-field backend-checkbox-field">
+          <input
+            type="checkbox"
+            checked={draft.enabled}
+            onChange={(event) =>
+              update({ enabled: (event.target as HTMLInputElement).checked })
+            }
+          />
+          {labelText(labels, "enabled", "Enabled")}
+        </label>
+      </div>
+      <div class="backend-provider-actions">
+        <button
+          type="button"
+          class="backend-button primary"
+          data-pi-action="save"
+          onClick={() => {
+            handlers.upsertPiConfiguration(draft);
+          }}
+        >
+          {labelText(labels, "piSave", "Save configuration")}
+        </button>
+        {draft.id ? (
+          <button
+            type="button"
+            class="backend-button danger"
+            data-pi-action="delete"
+            onClick={() => {
+              handlers.deletePiConfiguration(draft.id);
+              setDraft({ ...EMPTY_PI_CONFIGURATION });
+            }}
+          >
+            {labelText(labels, "remove", "Remove")}
+          </button>
+        ) : null}
+      </div>
+      <section class="backend-pi-defaults">
+        <h3>{labelText(labels, "piDefaults", "Defaults")}</h3>
+        <div class="backend-pi-grid">
+          {selectDefault("global", labelText(labels, "piGlobal", "Global"))}
+          {selectDefault(
+            "conversation",
+            labelText(labels, "piConversation", "Conversation"),
+          )}
+          {selectDefault(
+            "skillRun",
+            labelText(labels, "piSkillRun", "Skill Run"),
+          )}
+        </div>
+        <button
+          type="button"
+          class="backend-button"
+          data-pi-action="defaults"
+          onClick={() => handlers.setPiDefaults(defaults)}
+        >
+          {labelText(labels, "piSaveDefaults", "Save defaults")}
+        </button>
+      </section>
+      <section class="backend-pi-credentials">
+        <h3>{labelText(labels, "piCredentials", "Saved credentials")}</h3>
+        {value.credentials.map((entry) => (
+          <div class="backend-pi-credential-row" key={entry.id}>
+            <span>
+              {entry.label} ({entry.masked})
+            </span>
+          </div>
+        ))}
+      </section>
+      <section class="backend-pi-overlay">
+        <h3>{labelText(labels, "piOverlay", "models.yml overlay")}</h3>
+        <input
+          class="backend-input"
+          type="text"
+          value={overlayPath}
+          onInput={(event) =>
+            setOverlayPath((event.target as HTMLInputElement).value)
+          }
+        />
+        <button
+          type="button"
+          class="backend-button"
+          data-pi-action="refresh"
+          onClick={() => handlers.refreshPiOverlay(overlayPath)}
+        >
+          {labelText(labels, "piRefresh", "Import / refresh")}
+        </button>
+      </section>
+    </section>
+  );
+}
+
 export const BackendManagerBodyRegion = memo(function BackendManagerBodyRegion(
   props: RegionProps<BackendManagerBodySelection>,
 ) {
@@ -730,71 +1109,79 @@ export const BackendManagerBodyRegion = memo(function BackendManagerBodyRegion(
         handlers.reportBodyScroll((event.target as HTMLElement).scrollTop)
       }
     >
-      <section class="backend-provider-section">
-        <header class="backend-provider-header">
-          <h2 class="backend-provider-title">{selection.providerTitle}</h2>
-          <div class="backend-provider-actions">
-            {selection.providerType === "acp" ? (
+      {selection.builtinAgent ? (
+        <PiConfigurationPanel
+          value={selection.builtinAgent}
+          labels={labels}
+          handlers={handlers}
+        />
+      ) : (
+        <section class="backend-provider-section">
+          <header class="backend-provider-header">
+            <h2 class="backend-provider-title">{selection.providerTitle}</h2>
+            <div class="backend-provider-actions">
+              {selection.providerType === "acp" ? (
+                <button
+                  type="button"
+                  class="backend-button"
+                  onClick={() => handlers.openAcpPresetDialog()}
+                >
+                  {labelText(labels, "addAcpPreset", "Add ACP Preset")}
+                </button>
+              ) : null}
+              {selection.providerType === "generic-http" &&
+              selection.hasGenericHttpPresets ? (
+                <button
+                  type="button"
+                  class="backend-button"
+                  onClick={() => handlers.openGenericHttpPresetDialog()}
+                >
+                  {labelText(
+                    labels,
+                    "addGenericHttpPreset",
+                    "Add Generic HTTP Preset",
+                  )}
+                </button>
+              ) : null}
               <button
                 type="button"
                 class="backend-button"
-                onClick={() => handlers.openAcpPresetDialog()}
+                onClick={() => handlers.addRow()}
               >
-                {labelText(labels, "addAcpPreset", "Add ACP Preset")}
+                {providerAddLabel(labels, {
+                  type: selection.providerType,
+                  label: selection.providerLabel,
+                })}
               </button>
-            ) : null}
-            {selection.providerType === "generic-http" &&
-            selection.hasGenericHttpPresets ? (
-              <button
-                type="button"
-                class="backend-button"
-                onClick={() => handlers.openGenericHttpPresetDialog()}
-              >
-                {labelText(
-                  labels,
-                  "addGenericHttpPreset",
-                  "Add Generic HTTP Preset",
-                )}
-              </button>
-            ) : null}
-            <button
-              type="button"
-              class="backend-button"
-              onClick={() => handlers.addRow()}
-            >
-              {providerAddLabel(labels, {
-                type: selection.providerType,
-                label: selection.providerLabel,
-              })}
-            </button>
+            </div>
+          </header>
+          <div class="backend-provider-rows">
+            {selection.rows.length === 0 ? (
+              <p class="backend-empty">
+                {labelText(labels, "noProfiles", "No profiles configured.")}
+              </p>
+            ) : (
+              selection.rows.map((entry) =>
+                entry.row.type === "acp" ? (
+                  <AcpRow
+                    key={entry.index}
+                    labels={labels}
+                    entry={entry}
+                    handlers={handlers}
+                  />
+                ) : (
+                  <HttpRow
+                    key={entry.index}
+                    labels={labels}
+                    entry={entry}
+                    handlers={handlers}
+                  />
+                ),
+              )
+            )}
           </div>
-        </header>
-        <div class="backend-provider-rows">
-          {selection.rows.length === 0 ? (
-            <p class="backend-empty">
-              {labelText(labels, "noProfiles", "No profiles configured.")}
-            </p>
-          ) : (
-            selection.rows.map((entry) =>
-              entry.row.type === "acp" ? (
-                <AcpRow
-                  key={entry.index}
-                  labels={labels}
-                  entry={entry}
-                  handlers={handlers}
-                />
-              ) : (
-                <HttpRow
-                  key={entry.index}
-                  labels={labels}
-                  entry={entry}
-                  handlers={handlers}
-                />
-              ),
-            )
-          )}
-        </div>
-      </section>
+        </section>
+      )}
     </section>
   );
 }, regionEqual);
@@ -823,13 +1210,15 @@ export const BackendManagerFooterRegion = memo(
           >
             {labelText(labels, "cancel", "Cancel")}
           </button>
-          <button
-            type="button"
-            class="backend-button primary"
-            onClick={() => handlers.save()}
-          >
-            {labelText(labels, "save", "Save")}
-          </button>
+          {selection.showProfileSave !== false ? (
+            <button
+              type="button"
+              class="backend-button primary"
+              onClick={() => handlers.save()}
+            >
+              {labelText(labels, "save", "Save")}
+            </button>
+          ) : null}
         </div>
       </footer>
     );

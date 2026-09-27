@@ -562,7 +562,39 @@
   color: var(--zs-danger);
 }
 
+.backend-pi-section {
+  display: grid;
+  gap: 16px;
+}
+
+.backend-pi-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.backend-pi-status,
+.backend-pi-section > p {
+  margin: 0;
+  color: var(--zs-muted);
+}
+
+.backend-pi-defaults,
+.backend-pi-overlay {
+  display: grid;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--zs-border);
+}
+
+.backend-pi-overlay .backend-input {
+  width: 100%;
+}
+
 @media (max-width: 1100px) {
+  .backend-pi-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
   .backend-http-grid,
   .backend-acp-grid {
     grid-template-columns: minmax(0, 1fr);

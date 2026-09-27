@@ -400,7 +400,41 @@ export type BackendManagerActionName =
   | "open-nodejs-download"
   | "open-preset-link"
   | "add-acp-preset"
-  | "add-generic-http-preset";
+  | "add-generic-http-preset"
+  | "pi-upsert-configuration"
+  | "pi-delete-configuration"
+  | "pi-set-defaults"
+  | "pi-refresh-overlay"
+  | "pi-catalog-query";
+
+export type BackendManagerBuiltinAgentSnapshot = {
+  configurations: import("./piProviderContract").PiProviderConfiguration[];
+  configurationStatus: Record<
+    string,
+    | "configured"
+    | "disabled"
+    | "incomplete"
+    | "needs-auth"
+    | "invalid"
+    | "unavailable"
+  >;
+  credentials: import("./piProviderContract").PiCredentialMetadata[];
+  defaults: import("./piProviderContract").PiProviderDefaults;
+  overlayPath: string;
+  catalog: {
+    status: "loading" | "ready" | "error";
+    revision: string;
+    modelCount: number;
+    providers: string[];
+    error?: string;
+  };
+  models: Array<
+    Pick<
+      import("./piProviderContract").PiCatalogModel,
+      "provider" | "id" | "name"
+    >
+  >;
+};
 
 export type BackendManagerActionPayloadMap = {
   ready: DashboardEmptyActionPayload;
@@ -436,6 +470,18 @@ export type BackendManagerActionPayloadMap = {
   "add-generic-http-preset": DashboardActionPayloadShape<{
     presetId: string;
     rows: BackendManagerDialogDraftRow[];
+  }>;
+  "pi-upsert-configuration": DashboardActionPayloadShape<{
+    configuration: import("./piProviderContract").PiProviderConfiguration;
+  }>;
+  "pi-delete-configuration": DashboardActionPayloadShape<{ id: string }>;
+  "pi-set-defaults": DashboardActionPayloadShape<{
+    defaults: import("./piProviderContract").PiProviderDefaults;
+  }>;
+  "pi-refresh-overlay": DashboardActionPayloadShape<{ path: string }>;
+  "pi-catalog-query": DashboardActionPayloadShape<{
+    provider: string;
+    query: string;
   }>;
 };
 

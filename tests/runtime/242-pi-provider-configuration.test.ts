@@ -1,0 +1,238 @@
+import { assert } from "chai";
+import { getPref, setPref } from "../../src/utils/prefs";
+import {
+  deletePiProviderConfiguration,
+  loadPiProviderConfigurationState,
+  resolvePiModelSelection,
+  setPiProviderDefaults,
+  upsertPiProviderConfiguration,
+} from "../../src/modules/piProviderConfiguration";
+
+describe("Pi provider configuration", function () {
+  const original = { value: "" };
+  beforeEach(function () {
+    original.value = String(getPref("piProviderConfigurationJson") || "");
+    setPref("piProviderConfigurationJson", "");
+  });
+  afterEach(function () {
+    setPref("piProviderConfigurationJson", original.value);
+  });
+
+  const model = {
+    provider: "openai",
+    id: "gpt-test",
+    name: "Test",
+    api: "openai-responses" as const,
+    baseUrl: "https://api.openai.com/v1",
+    contextWindow: 1000,
+    maxTokens: 100,
+    input: ["text"],
+    supportsTools: true,
+    reasoning: ["off", "low", "high"] as const,
+    source: "bundled" as const,
+  };
+  const credentials = [
+    { id: "key-a", kind: "api-key" as const },
+    { id: "key-b", kind: "api-key" as const },
+  ];
+
+  it("isolates configurations, applies precedence, and freezes a secret-free selection", function () {
+    upsertPiProviderConfiguration({
+      id: "a",
+      label: "A",
+      provider: "openai",
+      modelId: "gpt-test",
+      authVariant: "api-key",
+      credentialRef: "key-a",
+      enabled: true,
+    });
+    upsertPiProviderConfiguration({
+      id: "b",
+      label: "B",
+      provider: "openai",
+      modelId: "gpt-test",
+      authVariant: "api-key",
+      credentialRef: "key-b",
+      enabled: true,
+    });
+    setPiProviderDefaults(
+      {
+        global: { configurationId: "a" },
+        conversation: { configurationId: "b" },
+      },
+      credentials,
+      { models: [model] },
+    );
+    const byKind = resolvePiModelSelection({
+      kind: "conversation",
+      catalog: { revision: "rev-1", models: [model] },
+      credentials,
+    });
+    assert.equal(byKind.configurationId, "b");
+    const byOwner = resolvePiModelSelection({
+      kind: "conversation",
+      catalog: { revision: "rev-1", models: [model] },
+      credentials,
+      ownerSelection: { configurationId: "a" },
+    });
+    assert.equal(byOwner.configurationId, "a");
+    const selected = resolvePiModelSelection({
+      kind: "conversation",
+      catalog: { revision: "rev-1", models: [model] },
+      credentials,
+      ownerSelection: { configurationId: "a" },
+      explicit: { configurationId: "b", reasoning: "high" },
+    });
+    assert.equal(selected.configurationId, "b");
+    assert.equal(selected.credentialRef, "key-b");
+    assert.equal(selected.reasoning, "high");
+    assert.isTrue(Object.isFrozen(selected));
+    assert.notInclude(JSON.stringify(selected), "secret-B");
+    deletePiProviderConfiguration("b");
+    assert.equal(selected.configurationId, "b");
+    assert.isUndefined(
+      loadPiProviderConfigurationState().defaults.conversation,
+    );
+    assert.lengthOf(loadPiProviderConfigurationState().configurations, 1);
+    assert.equal(loadPiProviderConfigurationState().configurations[0].id, "a");
+    assert.equal(
+      resolvePiModelSelection({
+        kind: "conversation",
+        catalog: { revision: "rev-1", models: [model] },
+        credentials,
+      }).configurationId,
+      "a",
+    );
+    setPiProviderDefaults({}, credentials, { models: [model] });
+    assert.equal(
+      resolvePiModelSelection({
+        kind: "conversation",
+        catalog: { revision: "rev-1", models: [model] },
+        credentials,
+      }).configurationId,
+      "a",
+    );
+  });
+
+  it("does not select a credential with the wrong authentication kind", function () {
+    upsertPiProviderConfiguration({
+      id: "a",
+      label: "A",
+      provider: "openai",
+      modelId: "gpt-test",
+      authVariant: "api-key",
+      credentialRef: "wrong-kind",
+      enabled: true,
+    });
+    assert.throws(() =>
+      resolvePiModelSelection({
+        kind: "conversation",
+        catalog: { revision: "rev-1", models: [model] },
+        credentials: [{ id: "wrong-kind", kind: "openai-codex" }],
+      }),
+    );
+  });
+
+  it("skips incomplete models in the catalog-backed fallback", function () {
+    for (const [id, modelId] of [
+      ["a", "incomplete"],
+      ["b", "gpt-test"],
+    ])
+      upsertPiProviderConfiguration({
+        id,
+        label: id,
+        provider: "openai",
+        modelId,
+        authVariant: "api-key",
+        credentialRef: "key-a",
+        reasoning: id === "b" ? "max" : undefined,
+        enabled: true,
+      });
+    upsertPiProviderConfiguration({
+      id: "c",
+      label: "c",
+      provider: "openai",
+      modelId: "gpt-test",
+      authVariant: "api-key",
+      credentialRef: "key-a",
+      enabled: true,
+    });
+    assert.throws(() =>
+      setPiProviderDefaults({ global: { configurationId: "b" } }, credentials, {
+        models: [model],
+      }),
+    );
+    const selected = resolvePiModelSelection({
+      kind: "conversation",
+      catalog: {
+        revision: "rev-1",
+        models: [{ ...model, id: "incomplete", contextWindow: 0 }, model],
+      },
+      credentials,
+    });
+    assert.equal(selected.configurationId, "c");
+  });
+
+  it("rejects remote HTTP and unsupported explicit reasoning", function () {
+    assert.throws(
+      () =>
+        upsertPiProviderConfiguration({
+          id: "bad",
+          label: "Bad",
+          provider: "custom",
+          modelId: "test",
+          authVariant: "none",
+          enabled: true,
+          baseUrl: "http://example.com/v1",
+          api: "openai-completions",
+        }),
+      /https|endpoint/i,
+    );
+    assert.throws(() =>
+      upsertPiProviderConfiguration({
+        id: "mapped",
+        label: "Mapped",
+        provider: "custom",
+        modelId: "test",
+        authVariant: "none",
+        enabled: true,
+        baseUrl: "http://[::ffff:8.8.8.8]/v1",
+        api: "openai-completions",
+      }),
+    );
+    upsertPiProviderConfiguration({
+      id: "a",
+      label: "A",
+      provider: "openai",
+      modelId: "gpt-test",
+      authVariant: "none",
+      baseUrl: "https://api.example.com/v1",
+      api: "openai-responses",
+      enabled: true,
+    });
+    assert.throws(
+      () =>
+        resolvePiModelSelection({
+          kind: "conversation",
+          catalog: { revision: "rev-1", models: [model] },
+          explicit: { configurationId: "a", reasoning: "max" },
+        }),
+      /reasoning/i,
+    );
+  });
+
+  it("does not overwrite an invalid persisted Pi document", function () {
+    setPref("piProviderConfigurationJson", "{broken");
+    assert.throws(() =>
+      upsertPiProviderConfiguration({
+        id: "a",
+        label: "A",
+        provider: "openai",
+        modelId: "gpt-test",
+        authVariant: "none",
+        enabled: true,
+      }),
+    );
+    assert.equal(getPref("piProviderConfigurationJson"), "{broken");
+  });
+});

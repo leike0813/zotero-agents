@@ -3,6 +3,8 @@ import { config } from "../../package.json";
 type BasePluginPrefsMap = _ZoteroTypes.Prefs["PluginPrefsMap"];
 type PluginPrefsMap = BasePluginPrefsMap & {
   backendsConfigJson: string;
+  piProviderConfigurationJson: string;
+  piCredentialEncryptedJson: string;
   workflowSettingsJson: string;
   taskDashboardHistoryJson: string;
   runtimeLogsJson: string;

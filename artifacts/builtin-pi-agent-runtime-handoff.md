@@ -3,7 +3,7 @@
 - 状态核对：2026-09-28
 - 工作分支：`dev-agent-harness`
 - 实施路线：[地图 #10](https://github.com/leike0813/zotero-agents/issues/10)、[执行计划 #26](https://github.com/leike0813/zotero-agents/issues/26)
-- 已完成切片：W0 C01（提交 `fbd297d4`）与 W1 C02（本工作区实现，未提交）；[C01 归档 change](../openspec/changes/archive/2026-09-27-establish-pi-runtime-contract-and-spine/)、[C02 归档 change](../openspec/changes/archive/2026-09-27-establish-pi-owner-persistence/)
+- 已完成切片：W0 C01（提交 `fbd297d4`）、W1 C02（提交 `1da0cd84`）、W1 C03（本工作区实现，未提交）。[C01 归档 change](../openspec/changes/archive/2026-09-27-establish-pi-runtime-contract-and-spine/)、[C02 归档 change](../openspec/changes/archive/2026-09-27-establish-pi-owner-persistence/)、[C03 归档 change](../openspec/changes/archive/2026-09-28-establish-pi-provider-configuration/)
 
 本文是持续更新的工作交接。**后续每个 Pi Runtime 相关 change 完成、归档或改变实施决定时，实施者须在交接前按实际进度更新本文**：核对已实现边界、下一步、验证结果、未解决风险及链接，并更新状态日期。拟议能力不得写成已交付能力；实现与规格冲突时先核对代码和正式决策。
 
@@ -11,7 +11,7 @@
 
 这份文档帮助后续 change 接续已确定的产品边界和实现进度。内置 Pi Agent Runtime 最终应成为完整 Agent：支持可持久化的多轮交互、经策略中介使用 Shell、文件和网络能力，并通过稳定的插件内边界操作 Zotero 文献库。
 
-W0 C01 已建立无 Node.js 依赖的瞬态 Pi 运行时骨架，W1 C02 已增加项目自有的 Pi owner 持久化基础。真实模型调用、工具、用户界面和自动恢复仍需依照地图与执行计划分步实现。早期兼容性原型只保留为历史证据。
+W0 C01 已建立无 Node.js 依赖的瞬态 Pi 运行时骨架，W1 C02 已增加项目自有的 Pi owner 持久化基础，W1 C03 增加模型目录、配置、加密凭据和 Backend Manager 独立页面。真实模型调用、Agent 会话界面、工具和自动恢复仍需依照地图与执行计划分步实现。早期兼容性原型只保留为历史证据。
 
 ## 统一术语
 
@@ -60,6 +60,14 @@ C01 没有生产 caller；Zotero 用例直接导入生产模块。真实 provide
 - [`tests/runtime/241-pi-owner-persistence.test.ts`](../tests/runtime/241-pi-owner-persistence.test.ts) 覆盖索引和 SQLite 投影故障、显式尾部修复、已提交损坏及缺失父项；[`tests/runtime/piOwnerPersistenceShared.ts`](../tests/runtime/piOwnerPersistenceShared.ts) 同时供 Node 与真实 Zotero 用例使用，包含重复创建 owner 不覆盖历史的回归边界。Node 定向 6 项、runtime-platform-persistence 分片 10 文件、真实 Zotero 定向 1 项、TypeScript、Prettier/ESLint 定向检查、`npm run build` 和 OpenSpec 严格校验通过。
 - [能力规格](../openspec/specs/builtin-pi-owner-persistence/spec.md)与 C02 change 同步。全量 Zotero core 套件未运行：本次用户明确接受以定向真实宿主验证作为 C02 门禁；C01 既有全量套件阻塞仍未解决。
 
+### W1 C03：模型目录、配置与凭据
+
+- [`src/modules/piModelCatalog.ts`](../src/modules/piModelCatalog.ts) 使用固定的 `@oh-my-pi/pi-catalog/models@18.0.11` 静态目录，并将本地 `models.yml` 限制为只读、无凭据的 provider/model 白名单；有效数据经归一化后缓存在现有 runtime cache。未知模型未声明的能力保持缺失，冲突的 bundled identity 被拒绝。
+- [`src/modules/piProviderConfiguration.ts`](../src/modules/piProviderConfiguration.ts) 保存 profile 内多份 Pi 配置与全局、Conversation、Skill Run 默认项，按显式选择、owner 选择、kind 默认、全局默认、可用配置的顺序解析，并冻结不含密钥的选择快照。自定义端点明确 API dialect，远端只接受 HTTPS；本地端点记录后续 Local Network preflight 所需标记。
+- [`src/modules/piCredentialStore.ts`](../src/modules/piCredentialStore.ts) 保存多个带标签的 API key / OpenAI Codex 加密记录；AES-GCM profile key 放在既有 `plugin_meta`。页面只拿到掩码元数据；损坏或缺失的密文与密钥读取失败即关闭，不回退到其他凭据。profile 全部可读者仍能取得 key，本设计不承诺 OS 密钥库隔离。
+- Backend Manager 增加独立的“内置 Agent”页：管理配置、目录 overlay 和默认项，显示已保存凭据的掩码状态，不把 Pi 数据写入 `backendsConfigJson` 或 `BackendInstance`；API key 页面录入/清除、OpenAI Codex 连接与真实模型执行仍属于后续 change。
+- Node 定向测试覆盖配置优先级、认证类型、目录白名单与 last-good 缓存、凭据替换及篡改；`runtime-provider-registry`、`dashboard`、`ui` 分片通过。真实 Zotero lite core 定向 5 项、UI 定向 1 项通过，UI 测试曾发现 Zotero 插件全局缺少 `structuredClone`，现已改用显式空状态构造。`npm run test:node` 全量运行未通过：多个非 Pi 分片失败，文献工作流出现 `embedded payload attachment is unavailable`；本次没有把这些失败归因于 C03，也没有全量 Node 通过证据。用户已接受 C03 的定向真实 Zotero core/UI 门禁，全量 Zotero 套件未运行。
+
 当前写入会扫描 owner 的完整历史以检查损坏，并重建无 payload 索引；长历史的写入吞吐仍需实测后优化。C02 的持久化 API 尚无生产 caller，传入的 JSON payload 必须由后续 caller 在边界完成凭据脱敏。后续 lifecycle / startup reconciliation 由 C17 负责。
 
 ### Pi core Zotero 兼容性原型
@@ -105,7 +113,7 @@ git show research/pi-agent-sandbox-models:artifact/pi-agent-runtime/sandbox-and-
 
 ## 当前工作区状态
 
-在状态核对时，C01 已进入 `dev-agent-harness` 的提交 `fbd297d4`；C02 的代码和文档留在当前未提交工作区。`PiRuntime` 与 C02 持久化接口都尚无生产 caller。工作区还保有与 C02 无关的 artifacts 整理和 Strong Sandbox 研究文档改动；后续执行者应先检查最新工作树与 #10/#26，再选择下一项 change。本节不代替当时的 `git status` 或 issue 状态。
+在状态核对时，C01、C02 已分别进入 `dev-agent-harness` 的提交 `fbd297d4`、`1da0cd84`；C03 尚未提交。`PiRuntime`、C02 owner 持久化接口和 C03 选择接口尚未连成真实模型执行路径。工作区中另有 Host Bridge 发布面文件的未提交变化；后续执行者须按最新 `git status` 辨别所有权，不覆盖并行改动。
 
 ## 建议的系统边界
 
@@ -145,9 +153,8 @@ git show research/pi-agent-sandbox-models:artifact/pi-agent-runtime/sandbox-and-
 ### Runtime 与 provider
 
 - C01 已固定 `0.84.4`；后续升级需重跑 browser 兼容性与真实宿主探针。
-- provider adapter 是随插件静态打包、按 provider 分包，还是按配置延迟加载。
-- 首批支持哪些 provider；禁止使用 `providers/all` 的构建门禁如何落地。
-- API key 的存储、读取、脱敏、日志与删除边界。
+- C03 已固定静态目录；C04 仍须确定真实 provider adapter 的导入边界、首批可运行 provider 和不导入 `providers/all` 的构建门禁。
+- C03 已提供 API key 加密存储、脱敏元数据与显式删除；C04/C05 仍须接入实际调用时读取、错误归一化和日志脱敏，C05 只处理 OpenAI Codex OAuth。
 - 真实 fetch 的 CORS、Zotero proxy、重试、超时、限流和错误归一化。
 - 多会话并发、插件禁用/卸载、窗口关闭和异常退出时的资源清理。
 
@@ -176,7 +183,7 @@ git show research/pi-agent-sandbox-models:artifact/pi-agent-runtime/sandbox-and-
 
 ## 下一步实施入口
 
-W0 C01 与 W1 C02 已完成。下一项 change 应从 [执行计划 #26](https://github.com/leike0813/zotero-agents/issues/26) 当前顺序和 [地图 #10](https://github.com/leike0813/zotero-agents/issues/10) 领取，而非重新创建一个笼统的 MVP change。C02 的定向 Zotero 门禁豁免仅适用于本切片；后续验证范围仍以当次决定为准。
+W0 C01、W1 C02 与本次 W1 C03 是后续接线基础。下一项 change 应从 [执行计划 #26](https://github.com/leike0813/zotero-agents/issues/26) 当前顺序和 [地图 #10](https://github.com/leike0813/zotero-agents/issues/10) 领取，而非重新创建一个笼统的 MVP change。C03 经用户确认采用定向真实 Zotero core/UI 验证；全量 Zotero 套件仍无本次通过证据。
 
 接续工作首先复核 `PiRuntime`、C02 canonical transcript 与下一票的输入/输出契约，按 TDD 在现有测试目录中扩展真实调用路径。接入真实 provider 时再按实际导入决定是否需要原型中 `provider-env.js → node:fs` 的精确 guard；不得为了尚未导入的 provider 预先添加广泛 polyfill。Assistant Workspace、工具和自动恢复分别遵守 ADR 0001/0003、区域级 DOM identity 约束和 ADR 0002。每项能力的完成证据应落在对应 OpenSpec change 与测试中，并回写本文状态。
 
@@ -186,7 +193,7 @@ W0 C01 与 W1 C02 已完成。下一项 change 应从 [执行计划 #26](https:/
 
 - `src/modules/assistant*.ts`、`src/shared`：Assistant Workspace 的模型、snapshot、wire contract、transcript projection 与渲染边界。
 - `src/modules/acp*.ts`、`src/providers/acp`：会话、事件、取消、消息合并和 provider 适配先例。
-- `src/backends`、`src/providers`、`src/modules/backendManager*`：内置 runtime 的注册与选择边界。
+- `src/backends`、`src/providers`、`src/modules/workflow/settings/backendManager.ts`：既有 Backend Profile 与 C03 独立 Pi 配置边界。
 - `src/workflows`、`src/modules/workflow*`、`src/modules/workflowExecution`：任务执行与自由会话是否应共享的协议。
 - `src/modules/zoteroHostCapabilityBroker.ts`、`src/modules/hostBridge/`：可复用 Zotero 能力、Host Bridge 投影和现有安全边界。
 - `src/platform`：平台命令、路径、环境与子进程抽象；只能用于理解现状，不能把 Node-only 代码带进插件 runtime。
@@ -224,4 +231,4 @@ W0 C01 与 W1 C02 已完成。下一项 change 应从 [执行计划 #26](https:/
 2. 以最新 issue 的下一项 change 为范围，追踪实际代码调用链，写明与 `PiRuntime`、owner、provider、Tool Gateway 的边界；按项目流程完成规格、TDD 和宿主验证。
 3. **每个后续实现 change 结束时更新本文**：推进“已完成的证据”和“后续需要落实的边界”，记录验证通过与未完成的范围，替换失效链接和旧路径，再更新状态日期。只记已确认事实；研究建议和规划保留其状态标识。
 
-本次 C01 的全量 Zotero core 套件结果仍待补齐；C02 依据本次确认的定向宿主门禁完成，没有全量通过证据。后续若复跑，应在本文记录实际命令、宿主版本、通过范围或阻塞原因，不把定向结果写成全量通过。
+本次 C01 的全量 Zotero core 套件结果仍待补齐；C02 和 C03 依据各自确认的定向宿主门禁完成，没有全量通过证据。C03 全量 Node 套件仍有其他分片失败，后续复跑应记录实际命令、通过范围和失败原因，不把定向结果写成全量通过。

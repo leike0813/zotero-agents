@@ -179,7 +179,7 @@ const SHARDS: ShardDefinition[] = [
     label: "Runtime provider registry",
     select: (filePath) =>
       inDirectory(filePath, "runtime") &&
-      /^(?:33-provider|57-backend-manager|181-provider-profile)/.test(
+      /^(?:33-provider|57-backend-manager|181-provider-profile|242-pi-provider-configuration|243-pi-model-catalog|244-pi-credential-store)/.test(
         path.basename(filePath),
       ),
   },

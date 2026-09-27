@@ -53,7 +53,21 @@ import {
   listGenericHttpBackendPresets,
 } from "./genericHttpBackendPresets";
 import { getRuntimeCommandRegistrySnapshot } from "../../../platform/command";
-import type { BackendManagerActionEnvelope } from "../../../shared/dashboardWireContract";
+import type {
+  BackendManagerActionEnvelope,
+  BackendManagerBuiltinAgentSnapshot,
+} from "../../../shared/dashboardWireContract";
+import type { PiCatalog } from "../../piModelCatalog";
+import { listPiCredentials } from "../../piCredentialStore";
+import {
+  deletePiProviderConfiguration,
+  loadPiProviderConfigurationState,
+  setPiOverlayPath,
+  setPiProviderDefaults,
+  upsertPiProviderConfiguration,
+  type PiProviderConfiguration,
+  type PiProviderDefaults,
+} from "../../piProviderConfiguration";
 
 const BACKENDS_CONFIG_PREF_KEY = "backendsConfigJson";
 const PROVIDER_SECTIONS = [
@@ -131,6 +145,7 @@ type BackendManagerSnapshot = {
   initialProviderType?: string;
   providers: Array<{ type: string; label: string; title: string }>;
   rows: BackendManagerDraftRow[];
+  builtinAgent: BackendManagerBuiltinAgentSnapshot;
   skillRunnerHealth: Record<
     string,
     {
@@ -202,6 +217,8 @@ export type SkillRunnerManagementLaunchPayload = {
 const HTML_NS = "http://www.w3.org/1999/xhtml";
 
 let activeBackendManagerFrameWindow: Window | null = null;
+let activePiCatalog: PiCatalog | null = null;
+let activePiCatalogError = "";
 
 function createHtmlElement<K extends keyof HTMLElementTagNameMap>(
   doc: Document,
@@ -2273,6 +2290,127 @@ function createBackendManagerDraftSignature(rows: BackendManagerDraftRow[]) {
 
 function buildBackendManagerLabels() {
   return {
+    piTitle: localizeBackendManager(
+      "backend-manager-pi-title",
+      "Built-in Agent",
+    ),
+    piAdd: localizeBackendManager(
+      "backend-manager-pi-add",
+      "Add configuration",
+    ),
+    piModels: localizeBackendManager("backend-manager-pi-models", "models"),
+    piCatalogReady: localizeBackendManager(
+      "backend-manager-pi-catalog-ready",
+      "Catalog ready",
+    ),
+    piCatalogLoading: localizeBackendManager(
+      "backend-manager-pi-catalog-loading",
+      "Loading catalog",
+    ),
+    piCatalogError: localizeBackendManager(
+      "backend-manager-pi-catalog-error",
+      "Catalog unavailable",
+    ),
+    piStatusConfigured: localizeBackendManager(
+      "backend-manager-pi-status-configured",
+      "Configured",
+    ),
+    piStatusIncomplete: localizeBackendManager(
+      "backend-manager-pi-status-incomplete",
+      "Incomplete",
+    ),
+    piStatusNeedsAuth: localizeBackendManager(
+      "backend-manager-pi-status-needs-auth",
+      "Credential required",
+    ),
+    piStatusInvalid: localizeBackendManager(
+      "backend-manager-pi-status-invalid",
+      "Model unavailable",
+    ),
+    piStatusUnavailable: localizeBackendManager(
+      "backend-manager-pi-status-unavailable",
+      "Catalog unavailable",
+    ),
+    piUnavailable: localizeBackendManager(
+      "backend-manager-pi-unavailable",
+      "No usable provider configuration.",
+    ),
+    piConfigurations: localizeBackendManager(
+      "backend-manager-pi-configurations",
+      "Configurations",
+    ),
+    piNew: localizeBackendManager(
+      "backend-manager-pi-new",
+      "New configuration",
+    ),
+    piLabel: localizeBackendManager("backend-manager-pi-label", "Name"),
+    piProvider: localizeBackendManager(
+      "backend-manager-pi-provider",
+      "Provider",
+    ),
+    piModel: localizeBackendManager("backend-manager-pi-model", "Model"),
+    piAuth: localizeBackendManager("backend-manager-pi-auth", "Authentication"),
+    piCredential: localizeBackendManager(
+      "backend-manager-pi-credential",
+      "Credential",
+    ),
+    piNoCredential: localizeBackendManager(
+      "backend-manager-pi-no-credential",
+      "No credential",
+    ),
+    piCredentials: localizeBackendManager(
+      "backend-manager-pi-credentials",
+      "Saved credentials",
+    ),
+    piEndpoint: localizeBackendManager(
+      "backend-manager-pi-endpoint",
+      "Custom endpoint",
+    ),
+    piDialect: localizeBackendManager(
+      "backend-manager-pi-dialect",
+      "API dialect",
+    ),
+    piCatalogDefault: localizeBackendManager(
+      "backend-manager-pi-catalog-default",
+      "Catalog default",
+    ),
+    piReasoning: localizeBackendManager(
+      "backend-manager-pi-reasoning",
+      "Reasoning",
+    ),
+    piSave: localizeBackendManager(
+      "backend-manager-pi-save",
+      "Save configuration",
+    ),
+    piDefaults: localizeBackendManager(
+      "backend-manager-pi-defaults",
+      "Defaults",
+    ),
+    piGlobal: localizeBackendManager("backend-manager-pi-global", "Global"),
+    piConversation: localizeBackendManager(
+      "backend-manager-pi-conversation",
+      "Conversation",
+    ),
+    piSkillRun: localizeBackendManager(
+      "backend-manager-pi-skill-run",
+      "Skill Run",
+    ),
+    piNoDefault: localizeBackendManager(
+      "backend-manager-pi-no-default",
+      "No default",
+    ),
+    piSaveDefaults: localizeBackendManager(
+      "backend-manager-pi-save-defaults",
+      "Save defaults",
+    ),
+    piOverlay: localizeBackendManager(
+      "backend-manager-pi-overlay",
+      "models.yml overlay",
+    ),
+    piRefresh: localizeBackendManager(
+      "backend-manager-pi-refresh",
+      "Import / refresh",
+    ),
     addProfile: localizeBackendManager(
       "backend-manager-provider-add",
       "Add { $provider } Profile",
@@ -2493,6 +2631,42 @@ function buildBackendManagerSnapshot(
   args?: { initialProviderType?: string },
 ): BackendManagerSnapshot {
   const npxRuntimeStatus = getBackendManagerNpxRuntimeStatus();
+  const piState = loadPiProviderConfigurationState();
+  const piCredentials = listPiCredentials();
+  const configurationStatus: BackendManagerBuiltinAgentSnapshot["configurationStatus"] =
+    {};
+  for (const entry of piState.configurations) {
+    const model = activePiCatalog?.models.find(
+      (candidate) =>
+        candidate.provider === entry.provider && candidate.id === entry.modelId,
+    );
+    if (!entry.enabled) configurationStatus[entry.id] = "disabled";
+    else if (
+      !entry.provider ||
+      !entry.modelId ||
+      (entry.authVariant === "none" && !entry.baseUrl)
+    )
+      configurationStatus[entry.id] = "incomplete";
+    else if (
+      entry.authVariant !== "none" &&
+      !piCredentials.some(
+        (credential) =>
+          credential.id === entry.credentialRef &&
+          credential.kind === entry.authVariant,
+      )
+    )
+      configurationStatus[entry.id] = "needs-auth";
+    else if (!activePiCatalog) configurationStatus[entry.id] = "unavailable";
+    else if (
+      !model ||
+      model.contextWindow <= 0 ||
+      model.maxTokens <= 0 ||
+      !model.input.includes("text") ||
+      !model.reasoning.includes(entry.reasoning || "off")
+    )
+      configurationStatus[entry.id] = "invalid";
+    else configurationStatus[entry.id] = "configured";
+  }
   return {
     title: localizeBackendManager("backend-manager-title", "Backend Manager"),
     help: localizeBackendManager(
@@ -2516,6 +2690,29 @@ function buildBackendManagerSnapshot(
       };
     }),
     rows,
+    builtinAgent: {
+      configurations: piState.configurations,
+      configurationStatus,
+      credentials: piCredentials,
+      defaults: piState.defaults,
+      overlayPath: piState.overlayPath,
+      catalog: {
+        status: activePiCatalogError
+          ? "error"
+          : activePiCatalog
+            ? "ready"
+            : "loading",
+        revision: activePiCatalog?.revision || "",
+        modelCount: activePiCatalog?.models.length || 0,
+        providers: activePiCatalog
+          ? Array.from(
+              new Set(activePiCatalog.models.map((model) => model.provider)),
+            ).sort()
+          : [],
+        ...(activePiCatalogError ? { error: activePiCatalogError } : {}),
+      },
+      models: [],
+    },
     acpPresets: listAcpBackendPresets().map((preset) => ({
       id: preset.id,
       label: preset.displayName,
@@ -2585,6 +2782,8 @@ export async function openBackendManagerDialog(
     postBackendManagerProviderSelection(args?.initialProviderType);
     return;
   }
+  activePiCatalog = null;
+  activePiCatalogError = "";
 
   const alertWindow = getAlertWindow(args?.window);
   const initialProviderType = normalizeBackendManagerProviderType(
@@ -2681,6 +2880,102 @@ export async function openBackendManagerDialog(
             : {};
         if (action === "ready") {
           pushSnapshot("backend-manager-dialog:init");
+          void (async () => {
+            try {
+              const { loadPiModelCatalog, refreshPiModelCatalog } =
+                await import("../../piModelCatalog");
+              try {
+                activePiCatalog = await refreshPiModelCatalog({
+                  overlayPath:
+                    loadPiProviderConfigurationState().overlayPath || undefined,
+                });
+                activePiCatalogError = "";
+              } catch {
+                activePiCatalog = await loadPiModelCatalog();
+                activePiCatalogError = "Catalog overlay could not be loaded";
+              }
+            } catch {
+              activePiCatalog = null;
+              activePiCatalogError = "Model catalog is unavailable";
+            }
+            pushSnapshot("backend-manager-dialog:snapshot");
+          })();
+          return;
+        }
+        if (action === "pi-catalog-query") {
+          const provider = String(payload.provider || "").trim();
+          const query = String(payload.query || "")
+            .trim()
+            .toLowerCase()
+            .slice(0, 128);
+          const models = (activePiCatalog?.models || [])
+            .filter(
+              (model) =>
+                model.provider === provider &&
+                (!query ||
+                  model.id.toLowerCase().includes(query) ||
+                  model.name.toLowerCase().includes(query)),
+            )
+            .slice(0, 100)
+            .map(({ provider, id, name }) => ({ provider, id, name }));
+          postToFrame("backend-manager-dialog:action-result", {
+            action,
+            ok: true,
+            models,
+          });
+          return;
+        }
+        if (action.startsWith("pi-")) {
+          void (async () => {
+            try {
+              const randomId = () => {
+                const bytes = new Uint8Array(16);
+                globalThis.crypto.getRandomValues(bytes);
+                return `pi-${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+              };
+              if (action === "pi-upsert-configuration") {
+                const raw = payload.configuration as PiProviderConfiguration;
+                if (!raw || typeof raw !== "object")
+                  throw new Error("Pi configuration is required");
+                upsertPiProviderConfiguration({
+                  ...raw,
+                  id: String(raw.id || "").trim() || randomId(),
+                });
+              } else if (action === "pi-delete-configuration") {
+                deletePiProviderConfiguration(String(payload.id || ""));
+              } else if (action === "pi-set-defaults") {
+                if (!activePiCatalog)
+                  throw new Error("Pi catalog is unavailable");
+                setPiProviderDefaults(
+                  payload.defaults as PiProviderDefaults,
+                  listPiCredentials(),
+                  activePiCatalog,
+                );
+              } else if (action === "pi-refresh-overlay") {
+                const { refreshPiModelCatalog } =
+                  await import("../../piModelCatalog");
+                const path = String(payload.path || "").trim();
+                activePiCatalog = await refreshPiModelCatalog({
+                  overlayPath: path || undefined,
+                });
+                setPiOverlayPath(path);
+                activePiCatalogError = "";
+              } else {
+                throw new Error("Unknown Pi action");
+              }
+              postToFrame("backend-manager-dialog:action-result", {
+                action,
+                ok: true,
+              });
+              pushSnapshot("backend-manager-dialog:snapshot");
+            } catch (error) {
+              postToFrame("backend-manager-dialog:action-result", {
+                action,
+                ok: false,
+                error: String(error),
+              });
+            }
+          })();
           return;
         }
         if (action === "draft-changed") {

@@ -9,6 +9,8 @@ declare namespace _ZoteroTypes {
     PluginPrefsMap: {
       "skillRunnerEndpoint": string;
       "backendsConfigJson": string;
+      "piProviderConfigurationJson": string;
+      "piCredentialEncryptedJson": string;
       "workflowSettingsJson": string;
       "skillRunnerModelCacheJson": string;
       "skillRunnerDeferredTasksJson": string;

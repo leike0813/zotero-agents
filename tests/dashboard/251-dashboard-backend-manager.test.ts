@@ -261,6 +261,39 @@ describe("dashboard backend-manager page (src/dashboard)", function () {
     restoreSidebarDomGlobals();
   });
 
+  it("keeps Built-in Agent actions separate from Backend Profile rows", function () {
+    const page = createPage();
+    initPage(page, {
+      builtinAgent: {
+        configurations: [],
+        configurationStatus: {},
+        credentials: [],
+        defaults: {},
+        overlayPath: "",
+        catalog: {
+          status: "ready",
+          revision: "r1",
+          modelCount: 1,
+          providers: ["openai"],
+        },
+        models: [],
+      },
+    } as Partial<BackendManagerSnapshot>);
+    const tabs = Array.from(
+      page.root.querySelectorAll(".backend-provider-tab"),
+    );
+    assert.equal(tabs[tabs.length - 1].textContent, "Built-in Agent");
+    page.actions.length = 0;
+    clickButton(tabs[tabs.length - 1]);
+    assert.isOk(page.root.querySelector(".backend-pi-unavailable"));
+    clickButton(page.root.querySelector("[data-pi-action='add']"));
+    assert.ok(page.root.querySelector("[data-pi-field='provider']"));
+    clickButton(page.root.querySelector("[data-pi-action='save']"));
+    assert.equal(page.actions.at(-1)?.action, "pi-upsert-configuration");
+    assert.equal(page.controller.state.rows.length, 3);
+    assert.isFalse(page.actions.some((entry) => entry.action === "save"));
+  });
+
   it("renders loading until init, then sorted tabs and the active provider rows", function () {
     const page = createPage();
     assert.equal(

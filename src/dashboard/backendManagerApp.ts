@@ -28,6 +28,7 @@ import {
   type BackendManagerView,
 } from "./components/BackendManagerRegion";
 import type {
+  BackendManagerBuiltinAgentSnapshot,
   BackendManagerActionEnvelopeFor,
   BackendManagerActionHandler,
   BackendManagerActionName,
@@ -39,6 +40,7 @@ import {
 } from "./backendManagerRenderer";
 
 const PROVIDER_ORDER = ["acp", "skillrunner", "generic-http"];
+const PI_SECTION = "builtin-agent";
 
 export type BackendManagerActionSender = BackendManagerActionHandler;
 
@@ -127,7 +129,13 @@ function labelsOf(
 }
 
 function providerList(snapshot: BackendManagerSnapshot | null) {
-  const providers = (snapshot && snapshot.providers) || [];
+  const providers = ((snapshot && snapshot.providers) || []).slice();
+  if (snapshot?.builtinAgent)
+    providers.push({
+      type: PI_SECTION,
+      label: snapshot.labels.piTitle || "Built-in Agent",
+      title: snapshot.labels.piTitle || "Built-in Agent",
+    });
   return providers.slice().sort((a, b) => {
     const ai = PROVIDER_ORDER.indexOf(a.type);
     const bi = PROVIDER_ORDER.indexOf(b.type);
@@ -303,6 +311,8 @@ export function createBackendManagerController(
             providerTitle: provider.title || provider.label || provider.type,
             hasGenericHttpPresets: genericHttpPresetList(snapshot).length > 0,
             labels,
+            builtinAgent:
+              provider.type === PI_SECTION ? snapshot.builtinAgent : undefined,
             rows: state.rows
               .map((row, index) => ({ row, index }))
               .filter((entry) => entry.row.type === provider.type)
@@ -318,6 +328,7 @@ export function createBackendManagerController(
       footer: {
         status: state.statusMessage,
         labels,
+        showProfileSave: provider?.type !== PI_SECTION,
       },
       acpDialog: state.acpPresetDialog
         ? {
@@ -392,7 +403,8 @@ export function createBackendManagerController(
       ? state.snapshot.rows.map(cleanRow)
       : [];
     syncSkillRunnerReachabilityFromSnapshot();
-    setActiveProviderType(String(state.snapshot.initialProviderType || ""));
+    if (!state.activeProviderType)
+      setActiveProviderType(String(state.snapshot.initialProviderType || ""));
     ensureActiveProvider();
     renderCurrent();
     emitDraftChanged();
@@ -401,6 +413,25 @@ export function createBackendManagerController(
   function handleActionResult(payload: Record<string, unknown>): void {
     if (disposed) return;
     const action = String(payload.action || "");
+    if (action.startsWith("pi-")) {
+      if (payload.ok === false)
+        showStatusMessage(String(payload.error || "Pi action failed"), "error");
+      else if (action !== "pi-catalog-query")
+        showStatusMessage(String(payload.message || "Saved"), "success");
+      if (
+        action === "pi-catalog-query" &&
+        Array.isArray(payload.models) &&
+        state.snapshot?.builtinAgent
+      ) {
+        state.snapshot.builtinAgent = {
+          ...state.snapshot.builtinAgent,
+          models:
+            payload.models as BackendManagerBuiltinAgentSnapshot["models"],
+        };
+        renderCurrent();
+      }
+      return;
+    }
     if (action === "add-acp-preset" && payload.row) {
       state.rows.push(cleanRow(payload.row));
       state.acpPresetDialog = null;
@@ -508,7 +539,8 @@ export function createBackendManagerController(
       renderCurrent();
     },
     addRow() {
-      if (!state.activeProviderType) return;
+      if (!state.activeProviderType || state.activeProviderType === PI_SECTION)
+        return;
       state.rows.push(emptyRow(state.activeProviderType));
       emitDraftChanged();
       renderCurrent();
@@ -569,6 +601,7 @@ export function createBackendManagerController(
       deps.sendAction("cancel", { rows: state.rows });
     },
     save() {
+      if (state.activeProviderType === PI_SECTION) return;
       deps.sendAction("save", { rows: state.rows });
     },
     selectAcpDialogPreset(presetId) {
@@ -627,6 +660,21 @@ export function createBackendManagerController(
     },
     openPresetLink(url) {
       deps.sendAction("open-preset-link", { url });
+    },
+    upsertPiConfiguration(configuration) {
+      deps.sendAction("pi-upsert-configuration", { configuration });
+    },
+    deletePiConfiguration(id) {
+      deps.sendAction("pi-delete-configuration", { id });
+    },
+    setPiDefaults(defaults) {
+      deps.sendAction("pi-set-defaults", { defaults });
+    },
+    refreshPiOverlay(path) {
+      deps.sendAction("pi-refresh-overlay", { path });
+    },
+    queryPiCatalog(provider, query) {
+      deps.sendAction("pi-catalog-query", { provider, query });
     },
   };
 
