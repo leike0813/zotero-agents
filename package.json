@@ -170,6 +170,8 @@
     "docs:serve": "cd site && npx docusaurus serve"
   },
   "dependencies": {
+    "@earendil-works/pi-agent-core": "0.84.4",
+    "@earendil-works/pi-ai": "0.84.4",
     "ajv": "^8.12.0",
     "ajv-formats": "^2.1.1",
     "graphology": "^0.26.0",
