@@ -169,7 +169,7 @@ const SHARDS: ShardDefinition[] = [
     label: "Runtime platform and persistence",
     select: (filePath) =>
       inDirectory(filePath, "runtime") &&
-      /^(?:108-runtime-persistence|164-runtime-platform|184-runtime-file-transfer|186-runtime-file-range|189-runtime-tree|239-runtime-host|45-runtime-log|52-runtime-bridge|97-runtime-diagnostics)/.test(
+      /^(?:108-runtime-persistence|164-runtime-platform|184-runtime-file-transfer|186-runtime-file-range|189-runtime-tree|239-runtime-host|241-pi-owner-persistence|45-runtime-log|52-runtime-bridge|97-runtime-diagnostics)/.test(
         path.basename(filePath),
       ),
   },

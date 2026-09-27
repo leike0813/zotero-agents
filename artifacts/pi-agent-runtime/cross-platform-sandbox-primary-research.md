@@ -37,7 +37,7 @@ Strong Executor 候选遵守以下条件：
 以下事实来自本仓库的一手文档：
 
 - 领域词汇把 Tool Gateway 定义为唯一受控入口；`Workspace Scope` 是 owner 获得授权的文件系统根集合；`Trusted Native Execution` 明确依赖 Agent 信任；这些词汇见 [`CONTEXT.md`](../../CONTEXT.md)。
-- [`builtin-pi-agent-runtime-handoff-20260825.md`](../builtin-pi-agent-runtime-handoff-20260825.md) 记录了此前“Strong 不可用即 fail closed”的假设。ADR 0002 已取代该 MVP 执行结论；Zotero Native Tools 只交换稳定 DTO 的边界仍然有效。
+- [内置 Pi Agent Runtime 工作交接](../builtin-pi-agent-runtime-handoff.md) 已按 ADR 0002 更新当前边界。其初版曾假设“MVP 无 Strong 即 fail closed”；Zotero Native Tools 只交换稳定 DTO 的约束仍然有效。
 - Pi Runtime 的持久化 owner 与 transcript 是项目事实源；低层 Pi 只是可重建的临时执行器，不应把 sandbox receipt 或运行状态扩展成第二套历史，见 [`docs/adr/0001-project-owned-pi-persistence.md`](../../docs/adr/0001-project-owned-pi-persistence.md)。
 - 项目发布约束要求 Host Bridge CLI 七平台预构建采用 `host-bridge-cli-prebuilds` 内容寻址集合；workflow、校验、receipt、同步和恢复脚本不得污染 CLI build fingerprint；正式发布须显式 dispatch，见 [`AGENTS.md`](../../AGENTS.md)。现有实现也把 `buildFingerprint`、`binaryAggregateSha256`、平台二进制和 release manifest 作为可验证身份，见 [`scripts/host-bridge-cli-release-governance.mjs`](../../scripts/host-bridge-cli-release-governance.mjs) 与 [`scripts/sync-host-bridge-cli-prebuilds.ts`](../../scripts/sync-host-bridge-cli-prebuilds.ts)。
 - 插件构建把 `addon/bin/**/*` 纳入产物，并使用 GitHub release update URL，见 [`zotero-plugin.config.ts`](../../zotero-plugin.config.ts)。这提供了“随 XPI 带 platform/arch helper”的既有打包 seam，但不表示 Sandbox Executor 已经存在。
@@ -689,7 +689,7 @@ Network receipt 至少报告 `effective`、`rawSockets`、`dns`、allowlist dige
 ### 本仓库
 
 - [`CONTEXT.md`](../../CONTEXT.md)：Tool Gateway、Workspace Scope、Strong/Restricted 领域术语。
-- [`builtin-pi-agent-runtime-handoff-20260825.md`](../builtin-pi-agent-runtime-handoff-20260825.md)：已确认 Pi/插件/executor/Zotero Native 边界和 fail-closed 决议。
+- [内置 Pi Agent Runtime 工作交接](../builtin-pi-agent-runtime-handoff.md)：当前实施进度与 Pi、插件、Tool Gateway、Zotero Native 边界；Strong 的 fail-closed 条件以 ADR 0002 为准。
 - [`docs/adr/0001-project-owned-pi-persistence.md`](../../docs/adr/0001-project-owned-pi-persistence.md)：owner/transcript/runtime 持久化边界。
 - [`AGENTS.md`](../../AGENTS.md)：Host Bridge 七平台预构建、内容寻址、release receipt、GitHub/Gitee 发布约束。
 - [`scripts/host-bridge-cli-release-governance.mjs`](../../scripts/host-bridge-cli-release-governance.mjs)、[`scripts/sync-host-bridge-cli-prebuilds.ts`](../../scripts/sync-host-bridge-cli-prebuilds.ts)：现有 fingerprint/checksum/prebuild manifest 实现。

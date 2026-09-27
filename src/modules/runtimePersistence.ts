@@ -30,6 +30,7 @@ export type RuntimePersistencePaths = {
   root: string;
   runtimeRoot: string;
   dataDir: string;
+  piOwnersDir: string;
   synthesisDataRoot: string;
   stateDir: string;
   /** Workflow/plugin runtime database for task rows, ACP/SkillRunner ledgers, and product metadata. */
@@ -621,6 +622,7 @@ export function getRuntimePersistencePaths(
     root,
     runtimeRoot,
     dataDir,
+    piOwnersDir: joinPath(dataDir, "pi", "owners"),
     synthesisDataRoot: joinPath(dataDir, "synthesis"),
     stateDir,
     stateDbPath: joinPath(stateDir, SQLITE_FILE_NAME),
@@ -955,7 +957,7 @@ export async function writeRuntimeBytes(
       await runtime.IOUtils.write(
         path,
         data,
-        options.overwrite ? { mode: "overwrite" } : undefined,
+        options.overwrite ? { mode: "overwrite" } : { mode: "create" },
       );
       return;
     } catch (error) {

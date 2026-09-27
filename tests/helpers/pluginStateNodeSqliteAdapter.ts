@@ -5,7 +5,7 @@ import {
   type SqlAdapter,
 } from "../../src/modules/pluginStateStore/core";
 
-function createNodeSqliteAdapter(): SqlAdapter {
+export function createNodeSqliteAdapter(): SqlAdapter {
   const database = new DatabaseSync(":memory:");
   let transactionDepth = 0;
 

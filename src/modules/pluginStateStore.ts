@@ -30,6 +30,10 @@ import {
   createLiteratureMigrationTables,
   ensureLiteratureMigrationTablesSchema,
 } from "./pluginStateStore/literatureMigrationTables";
+import {
+  createPiOwnerRegistryTable,
+  ensurePiOwnerRegistrySchema,
+} from "./pluginStateStore/piOwnerTable";
 
 export const PLUGIN_TASK_DOMAIN_SKILLRUNNER = "skillrunner";
 export const PLUGIN_TASK_DOMAIN_ACP = "acp";
@@ -607,6 +611,7 @@ function ensureSchema(db: SqlAdapter) {
   ensureRunTablesSchema(db);
   ensureMutationAuthorityTableSchema(db);
   ensureLiteratureMigrationTablesSchema(db);
+  ensurePiOwnerRegistrySchema(db);
 }
 
 function parseLegacyDocument(rawValue: string) {
@@ -785,6 +790,9 @@ function getAdapter() {
   return adapter;
 }
 
+export const { upsertPiOwnerRegistry, getPiOwnerRegistry } =
+  createPiOwnerRegistryTable(getAdapter);
+
 const {
   listPluginRunStoreEntries,
   listPluginRunStoreEntriesFiltered,
@@ -952,6 +960,7 @@ export function resetPluginStateStoreForTests() {
     db.run("DELETE FROM plugin_mutation_authority");
     db.run("DELETE FROM plugin_literature_artifact_migration_sets");
     db.run("DELETE FROM plugin_literature_artifact_migration_runs");
+    db.run("DELETE FROM pi_owner_registry");
     db.run("DELETE FROM plugin_meta");
   }
   configurePluginMutationAuthorityStorageFaultForTests(undefined);
