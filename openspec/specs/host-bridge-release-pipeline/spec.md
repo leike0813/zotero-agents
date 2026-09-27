@@ -117,7 +117,7 @@ The plugin release workflow SHALL verify restored Host Bridge CLI prebuilds agai
 
 #### Scenario: Manifest fingerprint is stale
 
-- **WHEN** `cli/zotero-bridge/release.json` records a build fingerprint different from current CLI build inputs
+- **WHEN** `releases/host-bridge/cli-release.json` records a build fingerprint different from current CLI build inputs
 - **THEN** the release workflow fails before `npm run test:gate:release`
 
 #### Scenario: Binary checksum is stale

@@ -4,27 +4,27 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - "native/synthesis-sidecar/**"
+      - "rust/synthesis-sidecar/**"
       - "packages/synthesis-application/src/**"
       - "packages/synthesis-contracts/**"
       - "packages/synthesis-engine/src/**"
       - "packages/synthesis-repository/src/**"
-      - "scripts/check-synthesis-*.ts"
-      - "scripts/smoke-synthesis-rust-*.ts"
-      - "scripts/synthesis-sidecar-runtime-release-governance.ts"
+      - "scripts/synthesis/check-synthesis-*.ts"
+      - "scripts/synthesis/smoke-synthesis-rust-*.ts"
+      - "scripts/synthesis/synthesis-sidecar-runtime-release-governance.ts"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/verify-synthesis-sidecar.yml"
   pull_request:
     paths:
-      - "native/synthesis-sidecar/**"
+      - "rust/synthesis-sidecar/**"
       - "packages/synthesis-application/src/**"
       - "packages/synthesis-contracts/**"
       - "packages/synthesis-engine/src/**"
       - "packages/synthesis-repository/src/**"
-      - "scripts/check-synthesis-*.ts"
-      - "scripts/smoke-synthesis-rust-*.ts"
-      - "scripts/synthesis-sidecar-runtime-release-governance.ts"
+      - "scripts/synthesis/check-synthesis-*.ts"
+      - "scripts/synthesis/smoke-synthesis-rust-*.ts"
+      - "scripts/synthesis/synthesis-sidecar-runtime-release-governance.ts"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/verify-synthesis-sidecar.yml"
@@ -54,14 +54,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          build_fingerprint="$(npx tsx -e 'import { computeSynthesisSidecarRuntimeIdentities } from "./scripts/synthesis-sidecar-runtime-release-governance.ts"; computeSynthesisSidecarRuntimeIdentities().then(x => process.stdout.write(x.buildFingerprint))')"
+          build_fingerprint="$(npx tsx -e 'import { computeSynthesisSidecarRuntimeIdentities } from "./scripts/synthesis/synthesis-sidecar-runtime-release-governance.ts"; computeSynthesisSidecarRuntimeIdentities().then(x => process.stdout.write(x.buildFingerprint))')"
           printf 'SYNTHESIS_RUST_BUILD_FINGERPRINT=%s\n' "$build_fingerprint" >> "$GITHUB_ENV"
       - name: Format and lint
         run: |
-          cargo +${{ env.RUST_TOOLCHAIN }} fmt --manifest-path native/synthesis-sidecar/Cargo.toml --all --check
-          cargo +${{ env.RUST_TOOLCHAIN }} clippy --workspace --all-targets --locked --manifest-path native/synthesis-sidecar/Cargo.toml -- -D warnings
+          cargo +${{ env.RUST_TOOLCHAIN }} fmt --manifest-path rust/synthesis-sidecar/Cargo.toml --all --check
+          cargo +${{ env.RUST_TOOLCHAIN }} clippy --workspace --all-targets --locked --manifest-path rust/synthesis-sidecar/Cargo.toml -- -D warnings
       - name: Run complete Rust workspace
-        run: cargo +${{ env.RUST_TOOLCHAIN }} test --workspace --locked --no-fail-fast --manifest-path native/synthesis-sidecar/Cargo.toml
+        run: cargo +${{ env.RUST_TOOLCHAIN }} test --workspace --locked --no-fail-fast --manifest-path rust/synthesis-sidecar/Cargo.toml
       - name: Run shared contract and license gates
         run: |
           npm run check:synthesis-cross-language-contracts
@@ -84,10 +84,10 @@ jobs:
       - name: Compute governed identities
         shell: bash
         run: |
-          build_fingerprint="$(npx tsx -e 'import { computeSynthesisSidecarRuntimeIdentities } from "./scripts/synthesis-sidecar-runtime-release-governance.ts"; computeSynthesisSidecarRuntimeIdentities().then(x => process.stdout.write(x.buildFingerprint))')"
+          build_fingerprint="$(npx tsx -e 'import { computeSynthesisSidecarRuntimeIdentities } from "./scripts/synthesis/synthesis-sidecar-runtime-release-governance.ts"; computeSynthesisSidecarRuntimeIdentities().then(x => process.stdout.write(x.buildFingerprint))')"
           printf 'SYNTHESIS_RUST_BUILD_FINGERPRINT=%s\n' "$build_fingerprint" >> "$GITHUB_ENV"
       - name: Run complete Rust workspace
-        run: cargo +${{ env.RUST_TOOLCHAIN }} test --workspace --locked --no-fail-fast --manifest-path native/synthesis-sidecar/Cargo.toml
+        run: cargo +${{ env.RUST_TOOLCHAIN }} test --workspace --locked --no-fail-fast --manifest-path rust/synthesis-sidecar/Cargo.toml
 
   macos:
     runs-on: macos-15
@@ -104,10 +104,10 @@ jobs:
       - name: Compute governed identities
         shell: bash
         run: |
-          build_fingerprint="$(npx tsx -e 'import { computeSynthesisSidecarRuntimeIdentities } from "./scripts/synthesis-sidecar-runtime-release-governance.ts"; computeSynthesisSidecarRuntimeIdentities().then(x => process.stdout.write(x.buildFingerprint))')"
+          build_fingerprint="$(npx tsx -e 'import { computeSynthesisSidecarRuntimeIdentities } from "./scripts/synthesis/synthesis-sidecar-runtime-release-governance.ts"; computeSynthesisSidecarRuntimeIdentities().then(x => process.stdout.write(x.buildFingerprint))')"
           printf 'SYNTHESIS_RUST_BUILD_FINGERPRINT=%s\n' "$build_fingerprint" >> "$GITHUB_ENV"
       - name: Run complete Rust workspace
-        run: cargo +${{ env.RUST_TOOLCHAIN }} test --workspace --locked --no-fail-fast --manifest-path native/synthesis-sidecar/Cargo.toml
+        run: cargo +${{ env.RUST_TOOLCHAIN }} test --workspace --locked --no-fail-fast --manifest-path rust/synthesis-sidecar/Cargo.toml
 
   receipt:
     if: ${{ github.event_name != 'pull_request' }}
@@ -124,7 +124,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          identities="$(npx tsx -e 'import { computeSynthesisSidecarRuntimeIdentities } from "./scripts/synthesis-sidecar-runtime-release-governance.ts"; computeSynthesisSidecarRuntimeIdentities().then(x => process.stdout.write(JSON.stringify(x)))')"
+          identities="$(npx tsx -e 'import { computeSynthesisSidecarRuntimeIdentities } from "./scripts/synthesis/synthesis-sidecar-runtime-release-governance.ts"; computeSynthesisSidecarRuntimeIdentities().then(x => process.stdout.write(JSON.stringify(x)))')"
           jq -n \
             --arg repository "$GITHUB_REPOSITORY" \
             --arg event "$GITHUB_EVENT_NAME" \

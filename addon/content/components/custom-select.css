@@ -7,13 +7,15 @@
 
 .custom-select-trigger {
   box-sizing: border-box;
+  width: 100%;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 4px 8px;
+  padding: 5px 8px;
+  min-height: 28px;
   background-color: transparent;
-  border: 1px solid var(--zs-border-strong, var(--border-color, #ccc));
-  border-radius: 4px;
+  border: 1px solid var(--zs-border-strong, var(--line-strong, #ccc));
+  border-radius: 8px;
   cursor: pointer;
   user-select: none;
   white-space: nowrap;

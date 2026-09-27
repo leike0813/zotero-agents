@@ -1,217 +1,65 @@
 # 선택 컨텍스트
 
-사용자가 Zotero에서 항목을 선택하면, 플러그인은 사용자가 선택한 것과 각 선택 항목이 어떤 타입에 속하는지 설명하는 구조화된 **선택 컨텍스트(SelectionContext)** 를 구축합니다. 이 컨텍스트는 `buildRequest` 훅의 입력 기반 역할을 합니다.
+워크플로 시작 시 정확한 선택 순서를 읽고 Broker의 모든 페이지를 완료한 뒤 입력을 고정합니다. 페이지 사이에 선택이 바뀌면 획득이 실패합니다. 설정 미리보기와 실행은 같은 입력을 사용하며 명시적 입력과 저장된 입력에는 완전한 `{libraryId, key}` 참조를 사용합니다.
 
-## 선택 타입
+## 구조
 
-선택된 항목 타입의 조합에 따라, `selectionContext.selectionType`은 다음 값 중 하나를 반환합니다:
-
-| 타입 | 설명 |
-|------|------|
-| `"parent"` | 선택된 모든 항목이 부모 항목(최상위 항목) |
-| `"child"` | 선택된 모든 항목이 자식 항목(최상위가 아닌 항목) |
-| `"attachment"` | 선택된 모든 항목이 첨부파일 |
-| `"note"` | 선택된 모든 항목이 노트 |
-| `"mixed"` | 선택된 항목이 여러 타입의 혼합 |
-| `"none"` | 선택된 항목 없음 |
-
-## 컨텍스트 구조
+`items`는 `kind`, `ref`, `itemType`을 갖는 순서 있는 배열입니다. `title`과 `parentRef`는 선택 사항이며 첨부파일에는 `filename`, `contentType`, `createdAt`, `fileState`가 포함될 수 있습니다. 네이티브 객체, 숫자 항목 ID, 로컬 경로는 포함하지 않습니다. 빈 선택은 `items: []`입니다.
 
 ```ts
-selectionContext = {
-  selectionType: "parent",       // 선택 타입
-  items: {
-    parents: [ /* 부모 항목 목록 */ ],
-    children: [ /* 자식 항목 목록 */ ],
-    attachments: [ /* 첨부파일 목록 */ ],
-    notes: [ /* 노트 목록 */ ],
-  },
-  summary: {
-    parentCount: 2,
-    childCount: 0,
-    attachmentCount: 0,
-    noteCount: 0,
-  },
-  warnings: [],                  // 경고 메시지
-  sampledAt: "2026-01-15T...",   // 컨텍스트 생성 시각
-}
-```
-
-각 타입의 항목은 풍부한 컨텍스트 정보를 포함합니다.
-
-### 부모 항목 (ParentContext)
-
-부모 항목은 Zotero 라이브러리의 최상위 항목입니다(예: 저널 기사, 책, 웹 페이지 등). 각 부모 항목 컨텍스트는 다음을 포함합니다:
-
-```ts
-{
-  item: Zotero.Item,         // 항목 객체
-  id: number,                // 항목 ID
-  title: string,             // 제목
-  attachments: [             // 이 항목의 자식 첨부파일
-    { type, filePath, mimeType, dateAdded, ... }
+const selectionContext = {
+  items: [
+    {
+      kind: "attachment",
+      ref: { libraryId: 1, key: "ATTACH01" },
+      itemType: "attachment",
+      title: "Paper.pdf",
+      parentRef: { libraryId: 1, key: "PARENT01" },
+    },
   ],
-  notes: [                   // 이 항목의 자식 노트
-    { id, content, ... }
-  ],
-  tags: string[],            // 태그 목록
-  collections: string[],     // 포함된 컬렉션
-  children: [                // 기타 자식 항목
-    { id, type, ... }
-  ],
-}
+  sampledAt: "2026-09-06T00:00:00.000Z",
+};
 ```
 
-### 첨부파일 (AttachmentContext)
+## Hook에서 읽기
 
-첨부파일은 항목의 파일 첨부입니다(PDF, Markdown 등). 각 첨부파일 컨텍스트는 다음을 포함합니다:
-
-```ts
-{
-  item: Zotero.Item,         // 첨부파일 항목 객체
-  id: number,                // 항목 ID
-  filePath: string,          // 로컬 파일 경로
-  fileName: string,          // 파일명
-  mimeType: string,          // MIME 타입 (예: "application/pdf")
-  dateAdded: Date,           // 추가된 날짜
-  parentItem: {              // 소유 부모 항목
-    id: number,
-    key: string,
-    libraryID: number,
-  },
-  tags: string[],
-  collections: string[],
-}
-```
-
-### 노트 (NoteContext)
-
-```ts
-{
-  item: Zotero.Item,
-  id: number,
-  content: string,           // 노트 내용 (HTML)
-  parentItem: { id, key, libraryID },
-  tags: string[],
-}
-```
-
-## 훅에서 선택 컨텍스트 사용
-
-### 선택된 첨부파일 가져오기
+Hook은 준비된 입력 단위를 처리합니다. 고정된 참조로 `runtime.hostApi.library`에서 추가 정보를 읽습니다. `hasMore`가 true이면 `nextCursor`로 계속 읽고 현재 선택을 다시 획득하지 마세요.
 
 ```js
-export function buildRequest({ selectionContext, runtime }) {
-  const attachments = selectionContext.items.attachments;
-
+export async function buildRequest({ selectionContext, runtime }) {
+  const refs = selectionContext.items.map((item) => item.ref);
+  const details = [];
+  for (const ref of refs) {
+    details.push(await runtime.hostApi.library.getItemDetail(ref));
+  }
   return {
-    kind: "skillrunner.job.v1",
-    create: { skill_id: "my-skill" },
-    input: {
-      files: attachments.map((attachment) => ({
-        path: runtime.helpers.getAttachmentFilePath(attachment),
-        name: runtime.helpers.getAttachmentFileName(attachment),
-      })),
-    },
+    kind: "pass-through.run.v1",
+    selectionContext,
+    parameter: { titles: details.map((detail) => detail.item.title || "") },
   };
 }
 ```
 
-### 선택된 부모 항목과 자식 콘텐츠 가져오기
+## 파일과 선택 정책
 
-```js
-export function buildRequest({ selectionContext, runtime }) {
-  const parents = selectionContext.items.parents;
+로컬 입력 준비는 `library.getItemDetail(ref)`를 확인하고 `file.state === "available"`일 때만 `file.path`를 사용합니다. 선택, 작업 및 저장 데이터에는 참조를 유지합니다. 파일을 사용할 수 없으면 준비가 실패합니다.
 
-  for (const parent of parents) {
-    const title = parent.item.getField("title");
-    const attachments = parent.attachments;  // 이 부모 항목의 첨부파일
-    const notes = parent.notes;              // 이 부모 항목의 노트
-  }
-
-  // ...
-}
-```
-
-### 선택 타입 확인하여 동작 결정
-
-```js
-export function preflight({ selectionContext }) {
-  const { selectionType } = selectionContext;
-
-  if (selectionType === "none") {
-    // 선택된 항목 없음, 건너뛰기
-    return { kind: "skip", reason: "no selected items" };
-  }
-
-  if (selectionType === "attachment") {
-    // 사용자가 첨부파일만 선택, 첨부파일 처리 로직 사용
-  } else if (selectionType === "parent") {
-    // 사용자가 부모 항목만 선택, 첫 번째 적절한 첨부파일 확장
-  }
-
-  return { kind: "continue", context: { selectionType } };
-}
-```
-
-### Attachment Candidate Planning
+부모 항목 승격, 중복 제거, Markdown/PDF 우선순위는 `validateSelection`의 이름 있는 선택기가 담당합니다. MinerU는 직접 선택된 PDF만 처리하며 부모를 선택했을 때만 적합한 PDF를 모두 확장합니다. `inputs.member`와 `inputs.grouping`이 입력 단위를 정의합니다.
 
 ```json
 {
   "inputs": {
-    "member": {
-      "kind": "attachment",
-      "accepts": { "mime": ["application/pdf"] }
-    },
+    "member": { "kind": "attachment", "accepts": { "mime": ["application/pdf"] } },
     "grouping": { "mode": "each" }
   },
   "validateSelection": {
-    "require": {
-      "selection": {
-        "counts": { "attachments": { "min": 1 } },
-        "allowMixed": false
-      }
-    },
     "select": { "policy": "input-member", "source": "selected" },
-    "filters": [
-      { "kind": "source-file-exists", "phase": "availability" }
-    ]
+    "filters": [{ "kind": "source-file-exists", "phase": "availability" }]
   }
 }
 ```
 
-`require.selection` reads the original SelectionContext once. The selector
-produces ordered candidates, attachment MIME compatibility runs before filters,
-and `inputs.grouping` creates immutable top-level units.
+빈 입력에는 `member.kind: "selection"`, `grouping.mode: "all"`, `selection` 선택기 및 `trigger.requiresSelection: false`를 사용하고 선택 조건에서도 빈 입력을 허용하세요.
 
-### Workflows Without Selected Items
-
-Use `member.kind: "selection"`, `grouping.mode: "all"`, the `selection`
-selector, and `trigger.requiresSelection: false`. The selector then produces
-the complete empty SelectionContext as the single member. Selection
-requirements remain active and must not make the empty selection impossible.
-
-## Declarative Candidate Filters
-
-```json
-{
-  "validateSelection": {
-    "select": { "policy": "generated-note-candidates" },
-    "filters": [
-      {
-        "kind": "generated-note-kinds-absent",
-        "phase": "availability",
-        "noteKinds": ["digest"]
-      }
-    ]
-  }
-}
-```
-
-`validateSelection` owns candidate production and filtering. `inputs` owns
-the execution member and grouping. Hooks consume the prepared unit and must not
-reconstruct selection planning.
-## 다음 단계
-
-- [호스트 API 레퍼런스](#doc/workflows%2Fcustom%2Fhost-api) — 훅에서 Zotero 데이터를 조작하기 위한 완전한 API
-- [매니페스트 작성하기](#doc/workflows%2Fcustom%2Fmanifest) — Workflow의 입력 유닛 타입 정의
+- [Host API](#doc/workflows%2Fcustom%2Fhost-api)
+- [Manifest](#doc/workflows%2Fcustom%2Fmanifest#selection-validation)

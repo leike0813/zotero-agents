@@ -6,6 +6,9 @@ export const SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_META_KEY =
 const SYNTHESIS_REPOSITORY_FOUNDATION_PREVIOUS_SCHEMA_VERSIONS = new Set([
   "synthesis-repository-foundation.v1",
   "synthesis-repository-foundation.v2",
+  "synthesis-repository-foundation.v3",
+  "synthesis-repository-foundation.v4",
+  "synthesis-repository-foundation.v5",
 ]);
 export const SYNTHESIS_TOPIC_APPLICATION_REPOSITORY_SCHEMA_VERSION =
   "synthesis-topic-application-repository.v2" as const;

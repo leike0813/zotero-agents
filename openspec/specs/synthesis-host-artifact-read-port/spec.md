@@ -28,6 +28,19 @@ The Host SHALL read one artifact payload per request using a scan-issued opaque 
 - **THEN** the Host SHALL return `stale` and the current hash
 - **AND** the stale payload SHALL NOT be consumed by the application
 
+### Requirement: Index readiness SHALL use the Host Broker projection
+
+The Host SHALL expose bounded exact-paper artifact readiness containing
+artifact existence and Literature Analysis score. Synthesis Index SHALL consume
+this projection and SHALL NOT reconstruct readiness through paged artifact scan
+or managed-note payload reads.
+
+#### Scenario: Index reads one library page
+- **WHEN** Synthesis Index projects a bounded page of parent papers
+- **THEN** it SHALL call `library.artifacts.readiness` for those exact paper refs
+- **AND** the result SHALL contain no payload locator, note HTML, attachment path, or Zotero object
+- **AND** Zotero Library custom columns and Index SHALL agree because both route through the same Broker owner
+
 ### Requirement: Reference refresh reads only changed payloads
 
 Reference refresh SHALL scan descriptors, compare hashes with persisted artifact sidecars, and read only changed available references plus their matching available citation-analysis companions. Unchanged descriptors SHALL cause no payload read. Missing and decode-error references SHALL stale prior raw references without attempting a payload read.
@@ -44,7 +57,7 @@ Reference refresh SHALL scan descriptors, compare hashes with persisted artifact
 
 ### Requirement: Reference artifact transport SHALL use a capability-specific bound
 
-General reverse-Host responses SHALL retain the 1 MiB response and two-second timeout policy. `library.artifacts.scan_page` SHALL use the general 1 MiB response-body bound with a ten-second timeout. `library.artifacts.read` SHALL use an 8 MiB response-body bound and ten-second timeout. The Host endpoint and native client MUST enforce the same selected values, and a complete response SHALL be accepted after its declared `Content-Length` arrives without waiting for connection EOF.
+General reverse-Host responses SHALL retain the 1 MiB response and two-second timeout policy. `library.artifacts.scan_page` and `library.artifacts.readiness` SHALL use the general 1 MiB response-body bound with a ten-second timeout. `library.artifacts.read` SHALL use an 8 MiB response-body bound and ten-second timeout. The Host endpoint and native client MUST enforce the same selected values, and a complete response SHALL be accepted after its declared `Content-Length` arrives without waiting for connection EOF.
 
 #### Scenario: Reference artifact exceeds the general bound only
 - **WHEN** a valid `library.artifacts.read` response is larger than 1 MiB and no larger than 8 MiB
@@ -96,3 +109,22 @@ An operation MAY issue at most two concurrent artifact reads. Results SHALL be a
 - **WHEN** Reference refresh reads payloads for a bounded changed-source batch
 - **THEN** no more than two Host reads are active
 - **AND** deterministic result order is independent of completion order
+
+### Requirement: Artifact scanning SHALL isolate bounded note decode failures
+
+Artifact scanning SHALL convert a child note that exceeds the Broker note-payload byte limit into bounded decode diagnostics for the affected paper. The scan SHALL continue producing descriptors for that paper and the rest of the page. Missing artifacts whose state cannot be proved because of that note SHALL be `decode_error` without a readable locator, while independently readable artifacts SHALL retain their available descriptors. Transport, cursor, cancellation, and unclassified Host failures SHALL remain page failures.
+
+#### Scenario: One child note exceeds the payload limit
+- **WHEN** a bounded artifact page contains a paper with one child note that exceeds the Broker note-payload byte limit
+- **THEN** the Host SHALL return the artifact page without note content
+- **AND** affected missing artifacts SHALL carry bounded `resource_limited` decode diagnostics without a locator
+- **AND** independently readable artifacts and other papers SHALL remain available.
+
+### Requirement: Note payload limits SHALL use the public Broker error taxonomy
+
+The Host Broker SHALL translate note payload byte-limit failures to the public `resource_limited` capability error before Synthesis artifact scanning classifies them. Private codec error names SHALL NOT cross the Broker boundary.
+
+#### Scenario: A payload decoder rejects an oversized child note
+- **WHEN** artifact scanning reads a child note whose HTML, embedded payload, attachment, or encoded image exceeds the note payload byte limit
+- **THEN** the Broker SHALL report `resource_limited` with bounded byte-limit details
+- **AND** the artifact page SHALL remain available with an affected-note decode diagnostic.

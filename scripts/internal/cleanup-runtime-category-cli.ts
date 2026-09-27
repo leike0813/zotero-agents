@@ -1,7 +1,7 @@
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import type { RuntimePersistenceCategory } from "../../src/modules/runtimePersistence";
+import type { RuntimePersistenceCategory } from "../../src/modules/runtimePersistenceGovernance";
 
 type ParsedArgs = {
   root?: string;
@@ -268,9 +268,8 @@ export async function runRuntimePersistenceCleanupCli(args: {
     applyRuntimeRootFromZoteroDataDir();
 
     await installStandaloneZoteroRuntimeShim();
-    await import("../../src/modules/pluginStateStore");
     const { cleanupRuntimePersistenceCategory } =
-      await import("../../src/modules/runtimePersistence");
+      await import("../../src/modules/runtimePersistenceGovernance");
     const result = await cleanupRuntimePersistenceCategory(args.category);
     console.log(JSON.stringify(result, null, 2));
   } catch (error) {

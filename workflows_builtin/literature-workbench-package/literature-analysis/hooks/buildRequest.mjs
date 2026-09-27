@@ -1,6 +1,9 @@
 import {
   portableItemRef,
+  readHostPages,
   requireHostApi,
+  resolveAttachmentPath,
+  selectionItems,
   withPackageRuntimeScope,
 } from "../../lib/runtime.mjs";
 import {
@@ -12,34 +15,25 @@ import {
   buildParentSnapshot,
   selectIdentifier,
 } from "../../lib/metadataCurator.mjs";
-import { parseGeneratedNoteKind } from "../../lib/referencesNote.mjs";
-import { normalizeLiteratureScoreArtifact } from "../../lib/literatureScoreNote.mjs";
-
+import {
+  parseImportedCitationArtifact,
+  parseImportedReferencesArtifact,
+  parseImportedScoreArtifact,
+} from "../../lib/importSchemas.mjs";
 function normalizeString(value) {
   return String(value || "").trim();
 }
 
-function collectAttachments(selectionContext) {
-  const attachments = selectionContext?.items?.attachments;
-  return Array.isArray(attachments) ? attachments : [];
-}
-
-function resolveAttachmentPath(entry, runtime) {
-  void runtime;
-  const direct = entry?.filePath || entry?.path || entry?.item?.filePath;
-  const path = normalizeString(direct);
-  if (!path) {
-    throw new Error("literature-analysis buildRequest cannot resolve source attachment path");
+function resolveSourceAttachmentRef(selectionContext) {
+  const attachment = selectionItems(selectionContext).find(
+    (item) => item?.kind === "attachment",
+  );
+  if (!attachment?.ref) {
+    throw new Error(
+      "literature-analysis buildRequest requires one source attachment",
+    );
   }
-  return path;
-}
-
-function resolveSourceAttachmentPath(selectionContext, runtime) {
-  const attachments = collectAttachments(selectionContext);
-  if (attachments.length === 0) {
-    throw new Error("literature-analysis buildRequest requires one source attachment");
-  }
-  return resolveAttachmentPath(attachments[0], runtime);
+  return portableItemRef(attachment.ref);
 }
 
 function resolveWorkflowParams(executionOptions) {
@@ -54,14 +48,18 @@ function resolveWorkflowParams(executionOptions) {
 
 function resolveSupportedIdentifier(parentItem) {
   const identifier = selectIdentifier(
-    parentItem?.fields ? {
-      fields: parentItem.fields,
-      DOI: parentItem.fields.DOI,
-      ISBN: parentItem.fields.ISBN,
-      url: parentItem.fields.url,
-    } : buildParentSnapshot(parentItem), {
-    allowedTypes: ["DOI", "arXiv"],
-  });
+    parentItem?.fields
+      ? {
+          fields: parentItem.fields,
+          DOI: parentItem.fields.DOI,
+          ISBN: parentItem.fields.ISBN,
+          url: parentItem.fields.url,
+        }
+      : buildParentSnapshot(parentItem),
+    {
+      allowedTypes: ["DOI", "arXiv"],
+    },
+  );
   return normalizeString(identifier?.normalized);
 }
 
@@ -76,42 +74,135 @@ function resolveReadinessSpec(manifest) {
   return spec;
 }
 
+async function readManagedNote(host, note) {
+  try {
+    const detail = await host.library.getNoteDetail(note.ref, { format: "html" });
+    return detail.kind === "managed" ? detail : null;
+  } catch (error) {
+    if (["invalid_artifact", "legacy_artifact_requires_migration"].includes(error?.code)) {
+      // Citation detail enrichment scans the parent set to compute basis
+      // health. An unrelated malformed score must not hide otherwise
+      // readable readiness facts, so fall back to the payload owner for the
+      // one note being inspected. References/Citation remain canonical
+      // validated here; score validation remains the readiness rule below so
+      // an invalid score stays an invalid score candidate.
+      const candidates = [
+        {
+          noteKind: "digest",
+          payloadType: "digest-markdown",
+          parse: (value) => value,
+        },
+        {
+          noteKind: "references",
+          payloadType: "references-json",
+          parse: parseImportedReferencesArtifact,
+        },
+        {
+          noteKind: "citation-analysis",
+          payloadType: "citation-analysis-json",
+          parse: (value) => {
+            const canonical =
+              value && typeof value === "object" && !Array.isArray(value)
+                ? (() => {
+                    const { referencesBasis: _referencesBasis, ...rest } = value;
+                    return rest;
+                  })()
+                : value;
+            return parseImportedCitationArtifact(canonical);
+          },
+        },
+        {
+          noteKind: "literature-score",
+          payloadType: "literature-score-json",
+          parse: (value) => value,
+        },
+      ];
+      for (const candidate of candidates) {
+        try {
+          const payload = await host.library.getNotePayload(note.ref, {
+            payloadType: candidate.payloadType,
+          });
+          if (payload?.summary?.noteKind !== candidate.noteKind) continue;
+          const value = candidate.parse(payload.value);
+          return {
+            kind: "managed",
+            noteKind: candidate.noteKind,
+            title: note.title || candidate.noteKind,
+            payload: value,
+            payloadBytes: 0,
+            detailBytes: 0,
+            revision: note.revision || "",
+          };
+        } catch {
+          // Try the next declared payload type. The owner remains the
+          // authority for decoding and canonical validation.
+        }
+      }
+      return null;
+    }
+    throw error;
+  }
+}
+
 async function inspectReadiness(parentItem, manifest, runtime) {
   const spec = resolveReadinessSpec(manifest);
   const host = requireHostApi(runtime);
+  const noteSummaries = await readHostPages({
+    readPage: (page) =>
+      host.library.getItemNotes(portableItemRef(parentItem), page),
+    getItems: (page) => page.notes,
+    operation: "literature-analysis readiness note read",
+  });
   const notes = await Promise.all(
-    (await host.library.getItemNotes(portableItemRef(parentItem))).map(async (note) => {
-      const detail = await host.library.getNoteDetail(note.ref, { format: "html" });
-      return { note, kind: parseGeneratedNoteKind(detail.content) };
+    noteSummaries.map(async (note) => {
+      const detail = await readManagedNote(host, note);
+      return { note, detail, kind: detail?.noteKind || "" };
     }),
   );
   const artifacts = {};
   for (const artifactSpec of spec.artifacts) {
-    const candidates = notes.filter((entry) => artifactSpec.noteKinds.includes(entry.kind));
-    let status = candidates.length ? "available" : "missing";
-    if (candidates.length && artifactSpec.payload) {
+    const candidates = notes.filter((entry) =>
+      artifactSpec.noteKinds.includes(entry.kind),
+    );
+    let status = candidates.length === 1 ? "available" : candidates.length ? "invalid" : "missing";
+    if (candidates.length === 1 && artifactSpec.payload) {
       status = "invalid";
       for (const candidate of candidates) {
-        try {
-          const payload = (await host.library.getNotePayload(candidate.note.ref, {
-            payloadType: artifactSpec.payload.type,
-          })).value;
-          if (artifactSpec.payload.type === "literature-score-json") {
-            normalizeLiteratureScoreArtifact(payload);
+      try {
+          const payload = candidate.detail.payload;
+          if (artifactSpec.id === "score") {
+            parseImportedScoreArtifact(payload);
           }
-          if ((artifactSpec.payload.requirements || []).every((rule) => {
-            const value = rule.pointer.split("/").slice(1).reduce(
-              (current, segment) => current?.[segment.replaceAll("~1", "/").replaceAll("~0", "~")],
-              payload,
-            );
-            if (Object.hasOwn(rule, "const") && value !== rule.const) return false;
-            if (rule.type === "array" && !Array.isArray(value)) return false;
-            if (rule.type && rule.type !== "array" && typeof value !== rule.type) return false;
-            if (rule.length !== undefined && value?.length !== rule.length) return false;
-            if (rule.minimum !== undefined && value < rule.minimum) return false;
-            if (rule.maximum !== undefined && value > rule.maximum) return false;
-            return true;
-          })) {
+          if (
+            (artifactSpec.payload.requirements || []).every((rule) => {
+              const value = rule.pointer
+                .split("/")
+                .slice(1)
+                .reduce(
+                  (current, segment) =>
+                    current?.[
+                      segment.replaceAll("~1", "/").replaceAll("~0", "~")
+                    ],
+                  payload,
+                );
+              if (Object.hasOwn(rule, "const") && value !== rule.const)
+                return false;
+              if (rule.type === "array" && !Array.isArray(value)) return false;
+              if (
+                rule.type &&
+                rule.type !== "array" &&
+                typeof value !== rule.type
+              )
+                return false;
+              if (rule.length !== undefined && value?.length !== rule.length)
+                return false;
+              if (rule.minimum !== undefined && value < rule.minimum)
+                return false;
+              if (rule.maximum !== undefined && value > rule.maximum)
+                return false;
+              return true;
+            })
+          ) {
             status = "available";
             break;
           }
@@ -125,18 +216,31 @@ async function inspectReadiness(parentItem, manifest, runtime) {
       noteRefs: candidates.map((entry) => entry.note.ref),
     };
   }
-  const mode = spec.modes.find((candidate) => !candidate.default &&
-    (candidate.allAvailable || []).every((id) => artifacts[id]?.status === "available") &&
-    (candidate.allUnavailable || []).every((id) => artifacts[id]?.status !== "available"))?.id ||
-    spec.modes.find((candidate) => candidate.default)?.id || "";
+  const mode =
+    spec.modes.find(
+      (candidate) =>
+        !candidate.default &&
+        (candidate.allAvailable || []).every(
+          (id) => artifacts[id]?.status === "available",
+        ) &&
+        (candidate.allUnavailable || []).every(
+          (id) => artifacts[id]?.status !== "available",
+        ),
+    )?.id ||
+    spec.modes.find((candidate) => candidate.default)?.id ||
+    "";
   const readiness = {
     mode,
     accepted: spec.acceptModes.includes(mode),
-    evidenceHash: JSON.stringify(spec.artifacts.map(({ id }) => [id, artifacts[id]])),
+    evidenceHash: JSON.stringify(
+      spec.artifacts.map(({ id }) => [id, artifacts[id]]),
+    ),
     artifacts,
   };
   if (!readiness?.accepted) {
-    throw new Error("literature-analysis input already has all generated artifacts");
+    throw new Error(
+      "literature-analysis input already has all generated artifacts",
+    );
   }
   return readiness;
 }
@@ -147,10 +251,17 @@ async function buildRequestImpl({
   manifest,
   runtime,
 }) {
-  const sourcePath = resolveSourceAttachmentPath(selectionContext, runtime);
-  const parentCandidate = resolveParentItemFromSelection(selectionContext, runtime);
-  const parentRef = portableItemRef(parentCandidate);
-  const parentItem = (await requireHostApi(runtime).library.getItemDetail(parentRef)).item;
+  const sourceAttachmentRef = resolveSourceAttachmentRef(selectionContext);
+  const sourcePath = await resolveAttachmentPath(sourceAttachmentRef, runtime);
+  const parentRef = portableItemRef(
+    resolveParentItemFromSelection(selectionContext, runtime),
+  );
+  const parentDetail =
+    await requireHostApi(runtime).library.getItemDetail(parentRef);
+  if (parentDetail?.kind !== "regular") {
+    throw new Error("literature-analysis requires one regular parent item");
+  }
+  const parentItem = parentDetail.item;
   const params = resolveWorkflowParams(executionOptions);
   const identifier = resolveSupportedIdentifier(parentItem);
   const readiness = await inspectReadiness(parentItem, manifest, runtime);
@@ -213,7 +324,11 @@ async function buildRequestImpl({
     finalStepId = "tag-regulator";
   }
 
-  const confirmedReadiness = await inspectReadiness(parentItem, manifest, runtime);
+  const confirmedReadiness = await inspectReadiness(
+    parentItem,
+    manifest,
+    runtime,
+  );
   if (
     confirmedReadiness.mode !== readiness.mode ||
     confirmedReadiness.evidenceHash !== readiness.evidenceHash
@@ -225,7 +340,7 @@ async function buildRequestImpl({
 
   return {
     kind: "skillrunner.sequence.v1",
-    sourceAttachmentPaths: [sourcePath],
+    sourceAttachmentRefs: [sourceAttachmentRef],
     targetParentRef: parentRef,
     steps,
     final_step_id: finalStepId,

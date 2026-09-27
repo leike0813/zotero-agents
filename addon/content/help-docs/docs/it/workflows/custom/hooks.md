@@ -88,12 +88,17 @@ export function buildRequest({ selectionContext, executionOptions, runtime }) {
 **Esempio: richiesta che utilizza il contesto dell'unità preflight**
 
 ```js
-export function buildRequest({ selectionContext, preflight, runtime }) {
-  const attachment = selectionContext.items.attachments[0];
+export async function buildRequest({ selectionContext, preflight, runtime }) {
+  const selected = selectionContext.items.find((item) => item.kind === "attachment");
+  if (!selected) throw new Error("Source attachment is required");
+  const detail = await runtime.hostApi.library.getItemDetail(selected.ref);
+  if (detail.kind !== "attachment" || detail.item.file.state !== "available") {
+    throw new Error("Source attachment file is unavailable");
+  }
   return {
     kind: "generic-http.steps.v1",
     file: {
-      path: runtime.helpers.getAttachmentFilePath(attachment),
+      path: detail.item.file.path,
       page_ranges: preflight?.unit?.context?.page_ranges,
     },
   };
@@ -104,7 +109,13 @@ export function buildRequest({ selectionContext, preflight, runtime }) {
 
 ```js
 export async function buildRequest({ selectionContext, executionOptions, runtime }) {
-  const sourcePath = resolveAttachmentPath(selectionContext, runtime);
+  const selected = selectionContext.items.find((item) => item.kind === "attachment");
+  if (!selected) throw new Error("Source attachment is required");
+  const detail = await runtime.hostApi.library.getItemDetail(selected.ref);
+  if (detail.kind !== "attachment" || detail.item.file.state !== "available") {
+    throw new Error("Source attachment file is unavailable");
+  }
+  const sourcePath = detail.item.file.path;
   const language = executionOptions?.workflowParams?.language || "en-US";
 
   return {
@@ -401,17 +412,7 @@ export async function applyResult({ parent, bundleReader, runtime }) {
 
 | Funzione | Descrizione |
 |----------|-------------|
-| `getAttachmentParentId(entry)` | Ottenere l'ID dell'elemento genitore di un allegato |
-| `getAttachmentFilePath(entry)` | Ottenere il percorso locale del file dell'allegato |
-| `getAttachmentFileName(entry)` | Ottenere il nome del file dell'allegato |
-| `getAttachmentFileStem(entry)` | Ottenere il nome del file dell'allegato (senza estensione) |
-| `getAttachmentDateAdded(entry)` | Ottenere il timestamp `dateAdded` dell'allegato |
 | `basenameOrFallback(path, fallback)` | Estrarre il nome di base o restituire una stringa di ripiego |
-| `isMarkdownAttachment(entry)` | Verificare se è un allegato Markdown |
-| `isPdfAttachment(entry)` | Verificare se è un allegato PDF |
-| `pickEarliestPdfAttachment(entries)` | Selezionare il PDF più vecchio da un elenco di allegati |
-| `cloneSelectionContext(ctx)` | Copia profonda del contesto di selezione |
-| `withFilteredAttachments(ctx, items)` | Mantenere solo gli allegati specificati nel contesto |
 | `resolveItemRef(ref)` | Risolvere un riferimento a un elemento in un Zotero.Item |
 | `toHtmlNote(title, body)` | Convertire Markdown in contenuto di nota HTML |
 | `normalizeReferenceAuthors(value)` | Normalizzare l'elenco degli autori di riferimento |

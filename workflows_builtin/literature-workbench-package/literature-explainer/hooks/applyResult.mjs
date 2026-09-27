@@ -4,6 +4,7 @@ import {
   collectSkillOutputDiagnostics,
   formatSkillDiagnosticsForError,
 } from "../../lib/resultOutput.mjs";
+import { portableItemRef } from "../../lib/runtime.mjs";
 
 function stringifyUnknownError(error) {
   if (error instanceof Error) {
@@ -229,13 +230,11 @@ function resolveHostApi(runtime) {
 }
 
 function portableRef(value) {
-  const source = value?.ref || value || {};
-  const libraryId = Number(source.libraryId || source.libraryID);
-  const key = String(source.key || "").trim();
-  if (!Number.isSafeInteger(libraryId) || libraryId <= 0 || !key) {
+  try {
+    return portableItemRef(value);
+  } catch {
     throw new Error("literature-explainer requires a portable parent ref");
   }
-  return { libraryId, key };
 }
 
 export async function applyResult({

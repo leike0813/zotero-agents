@@ -1,0 +1,419 @@
+{
+  "capturedAt": "2026-09-06",
+  "deletionInventory": [
+    "DEL-03",
+    "DEL-04",
+    "DEL-08",
+    "DEL-14"
+  ],
+  "records": [
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/SKILL.md",
+      "substantiveInstructionLines": 176,
+      "normalizedProseCharacters": 31521
+    },
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/command-catalog.md",
+      "substantiveInstructionLines": 135,
+      "normalizedProseCharacters": 12611
+    },
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "addon/content/host-bridge-skills/zotero-library-agent/SKILL.md",
+      "substantiveInstructionLines": 93,
+      "normalizedProseCharacters": 11232
+    },
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "addon/content/host-bridge-skills/zotero-library-agent/references/research-task-model.md",
+      "substantiveInstructionLines": 214,
+      "normalizedProseCharacters": 17195
+    },
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "addon/content/host-bridge-skills/zotero-library-agent/references/workflow-catalog.md",
+      "substantiveInstructionLines": 339,
+      "normalizedProseCharacters": 31189
+    },
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "addon/content/host-bridge-skills/zotero-library-curation/SKILL.md",
+      "substantiveInstructionLines": 114,
+      "normalizedProseCharacters": 8454
+    },
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "addon/content/host-bridge-skills/zotero-library-curation/references/playbook.md",
+      "substantiveInstructionLines": 180,
+      "normalizedProseCharacters": 9679
+    },
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "addon/content/host-bridge-skills/zotero-library-query/SKILL.md",
+      "substantiveInstructionLines": 102,
+      "normalizedProseCharacters": 9511
+    },
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "addon/content/host-bridge-skills/zotero-library-query/references/playbook.md",
+      "substantiveInstructionLines": 138,
+      "normalizedProseCharacters": 10732
+    },
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "addon/content/host-bridge-skills/zotero-literature-acquisition/SKILL.md",
+      "substantiveInstructionLines": 105,
+      "normalizedProseCharacters": 8770
+    },
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "addon/content/host-bridge-skills/zotero-literature-acquisition/references/playbook.md",
+      "substantiveInstructionLines": 149,
+      "normalizedProseCharacters": 10243
+    },
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "addon/content/host-bridge-skills/zotero-literature-analysis/SKILL.md",
+      "substantiveInstructionLines": 113,
+      "normalizedProseCharacters": 8676
+    },
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "addon/content/host-bridge-skills/zotero-literature-analysis/references/playbook.md",
+      "substantiveInstructionLines": 136,
+      "normalizedProseCharacters": 9206
+    },
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "addon/content/host-bridge-skills/zotero-research-synthesis/SKILL.md",
+      "substantiveInstructionLines": 121,
+      "normalizedProseCharacters": 14792
+    },
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "addon/content/host-bridge-skills/zotero-research-synthesis/references/playbook.md",
+      "substantiveInstructionLines": 166,
+      "normalizedProseCharacters": 11895
+    },
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/SKILL.md",
+      "substantiveInstructionLines": 176,
+      "normalizedProseCharacters": 31521
+    },
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/command-catalog.md",
+      "substantiveInstructionLines": 135,
+      "normalizedProseCharacters": 12611
+    },
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-librarian/SKILL.md",
+      "substantiveInstructionLines": 113,
+      "normalizedProseCharacters": 13989
+    },
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/resident-operations.md",
+      "substantiveInstructionLines": 234,
+      "normalizedProseCharacters": 13972
+    },
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/automation-policy.md",
+      "substantiveInstructionLines": 232,
+      "normalizedProseCharacters": 14280
+    },
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/state-and-recovery.md",
+      "substantiveInstructionLines": 237,
+      "normalizedProseCharacters": 15940
+    },
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-library-agent/SKILL.md",
+      "substantiveInstructionLines": 93,
+      "normalizedProseCharacters": 11232
+    },
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-library-agent/references/research-task-model.md",
+      "substantiveInstructionLines": 214,
+      "normalizedProseCharacters": 17195
+    },
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-library-agent/references/workflow-catalog.md",
+      "substantiveInstructionLines": 339,
+      "normalizedProseCharacters": 31189
+    },
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-library-curation/SKILL.md",
+      "substantiveInstructionLines": 114,
+      "normalizedProseCharacters": 8454
+    },
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-library-curation/references/playbook.md",
+      "substantiveInstructionLines": 180,
+      "normalizedProseCharacters": 9679
+    },
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-library-query/SKILL.md",
+      "substantiveInstructionLines": 102,
+      "normalizedProseCharacters": 9511
+    },
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-library-query/references/playbook.md",
+      "substantiveInstructionLines": 138,
+      "normalizedProseCharacters": 10732
+    },
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-literature-acquisition/SKILL.md",
+      "substantiveInstructionLines": 105,
+      "normalizedProseCharacters": 8770
+    },
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-literature-acquisition/references/playbook.md",
+      "substantiveInstructionLines": 149,
+      "normalizedProseCharacters": 10243
+    },
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-literature-analysis/SKILL.md",
+      "substantiveInstructionLines": 113,
+      "normalizedProseCharacters": 8676
+    },
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-literature-analysis/references/playbook.md",
+      "substantiveInstructionLines": 136,
+      "normalizedProseCharacters": 9206
+    },
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-research-synthesis/SKILL.md",
+      "substantiveInstructionLines": 121,
+      "normalizedProseCharacters": 14792
+    },
+    {
+      "ref": "a60879d6e669b148fcf22d1d16433045c7080f54",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-research-synthesis/references/playbook.md",
+      "substantiveInstructionLines": 166,
+      "normalizedProseCharacters": 11895
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/SKILL.md",
+      "substantiveInstructionLines": 172,
+      "normalizedProseCharacters": 29559
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/command-catalog.md",
+      "substantiveInstructionLines": 135,
+      "normalizedProseCharacters": 12611
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-library-agent/SKILL.md",
+      "substantiveInstructionLines": 93,
+      "normalizedProseCharacters": 11232
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-library-agent/references/research-task-model.md",
+      "substantiveInstructionLines": 214,
+      "normalizedProseCharacters": 17195
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-library-agent/references/workflow-catalog.md",
+      "substantiveInstructionLines": 339,
+      "normalizedProseCharacters": 31189
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-library-curation/SKILL.md",
+      "substantiveInstructionLines": 114,
+      "normalizedProseCharacters": 8454
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-library-curation/references/playbook.md",
+      "substantiveInstructionLines": 180,
+      "normalizedProseCharacters": 9679
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-library-query/SKILL.md",
+      "substantiveInstructionLines": 102,
+      "normalizedProseCharacters": 9511
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-library-query/references/playbook.md",
+      "substantiveInstructionLines": 138,
+      "normalizedProseCharacters": 10732
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-literature-acquisition/SKILL.md",
+      "substantiveInstructionLines": 105,
+      "normalizedProseCharacters": 8770
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-literature-acquisition/references/playbook.md",
+      "substantiveInstructionLines": 149,
+      "normalizedProseCharacters": 10243
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-literature-analysis/SKILL.md",
+      "substantiveInstructionLines": 113,
+      "normalizedProseCharacters": 8676
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-literature-analysis/references/playbook.md",
+      "substantiveInstructionLines": 136,
+      "normalizedProseCharacters": 9206
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-research-synthesis/SKILL.md",
+      "substantiveInstructionLines": 121,
+      "normalizedProseCharacters": 14792
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-research-synthesis/references/playbook.md",
+      "substantiveInstructionLines": 166,
+      "normalizedProseCharacters": 11895
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/SKILL.md",
+      "substantiveInstructionLines": 172,
+      "normalizedProseCharacters": 29559
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/command-catalog.md",
+      "substantiveInstructionLines": 135,
+      "normalizedProseCharacters": 12611
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-librarian/SKILL.md",
+      "substantiveInstructionLines": 113,
+      "normalizedProseCharacters": 13808
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/resident-operations.md",
+      "substantiveInstructionLines": 234,
+      "normalizedProseCharacters": 13972
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/automation-policy.md",
+      "substantiveInstructionLines": 232,
+      "normalizedProseCharacters": 14196
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/state-and-recovery.md",
+      "substantiveInstructionLines": 237,
+      "normalizedProseCharacters": 15940
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-library-agent/SKILL.md",
+      "substantiveInstructionLines": 93,
+      "normalizedProseCharacters": 11232
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-library-agent/references/research-task-model.md",
+      "substantiveInstructionLines": 214,
+      "normalizedProseCharacters": 17195
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-library-agent/references/workflow-catalog.md",
+      "substantiveInstructionLines": 339,
+      "normalizedProseCharacters": 31189
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-library-curation/SKILL.md",
+      "substantiveInstructionLines": 114,
+      "normalizedProseCharacters": 8454
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-library-curation/references/playbook.md",
+      "substantiveInstructionLines": 180,
+      "normalizedProseCharacters": 9679
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-library-query/SKILL.md",
+      "substantiveInstructionLines": 102,
+      "normalizedProseCharacters": 9511
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-library-query/references/playbook.md",
+      "substantiveInstructionLines": 138,
+      "normalizedProseCharacters": 10732
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-literature-acquisition/SKILL.md",
+      "substantiveInstructionLines": 105,
+      "normalizedProseCharacters": 8770
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-literature-acquisition/references/playbook.md",
+      "substantiveInstructionLines": 149,
+      "normalizedProseCharacters": 10243
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-literature-analysis/SKILL.md",
+      "substantiveInstructionLines": 113,
+      "normalizedProseCharacters": 8676
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-literature-analysis/references/playbook.md",
+      "substantiveInstructionLines": 136,
+      "normalizedProseCharacters": 9206
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-research-synthesis/SKILL.md",
+      "substantiveInstructionLines": 121,
+      "normalizedProseCharacters": 14792
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-research-synthesis/references/playbook.md",
+      "substantiveInstructionLines": 166,
+      "normalizedProseCharacters": 11895
+    }
+  ]
+}

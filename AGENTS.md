@@ -4,7 +4,7 @@
 
 # 项目特点及目标
 
-1. 插件目标版本为 Zotero 7 + Zotero 9。
+1. 插件目标版本为 Zotero 7、Zotero 9 和 Zotero 10。
 2. 插件以 zotero-plugin-template 项目为模板开发。
 3. 插件采用模块化、工作流可插拔的设计理念。插件本体提供通用的 UI 界面及菜单。内部通过统一的工作流协议，由各组件分别按流程执行任务。插件本身不包含任何具体的业务逻辑。业务逻辑由用户通过“可插拔”的工作流文件或工作流包来声明和定义。
 4. 插件主要以通过ACP协议调用Agent工具为目标开发，兼容旧的Skill-Runner后端服务，但也应设计为兼容其他通用的REST API后端。
@@ -16,47 +16,59 @@
 - 内置 Skill 定义：`./skills_builtin`、Skill 模板源码：`./skills_src`
 - 内置工作流定义：`./workflows_builtin`
 - OpenSpec 规格与变更记录：`./openspec`
-- 参考文档/子模块：`./reference`
+- Synthesis 共享包（npm workspaces）：`./packages`
+- 参考文档/子模块：`./references`
 
 ```shell
 .
-├── .github/                  # GitHub Actions workflows
+├── .github/workflows/        # CI、发布与预构建 workflow
 ├── addon/                    # Zotero 插件静态资源
 │   ├── bootstrap.js          # 插件引导入口
 │   ├── manifest.json         # 插件清单
 │   ├── prefs.js              # 首选项默认值
 │   ├── content/
 │   │   ├── dashboard/        # Dashboard 页面（index.html, app.js, styles.css 等）
-│   │   ├── shared/           # 静态共享资产（css、markdown renderer、theme、vendor libs）
-│   │   ├── sidebar/          # 侧边栏页面（HTML/css；JS 由 src/sidebar 构建为 bundle）
 │   │   ├── synthesis/        # Synthesis 工作台页面
 │   │   ├── workspace/        # Assistant Workspace 页面
+│   │   ├── sidebar/          # 侧边栏页面（HTML/css；JS 由 src/sidebar 构建为 bundle）
 │   │   ├── harness/          # 只读 Harness 测试页面
 │   │   ├── help-center/      # 帮助中心入口
 │   │   ├── help-docs/        # 内嵌帮助文档（多语言）**自动生成，不要直接修改！**
+│   │   ├── host-bridge-skills/  # Host Bridge 内置 agent skill 包
 │   │   ├── components/       # 可复用 Web 组件
-│   │   ├── acp-runtime-prompts/templates/  # ACP 运行时 prompt 模板
-│   │   ├── acp-skill-patches/templates/    # ACP Skill Patch 模板
-│   │   └── markdown-reader/  # Markdown 附件阅读器
+│   │   ├── shared/           # 静态共享资产（css、markdown renderer、theme、vendor libs）
+│   │   ├── acp-runtime-prompts/  # ACP 运行时 prompt 模板
+│   │   ├── acp-skill-patches/    # ACP Skill Patch 模板
+│   │   ├── markdown-reader/  # Markdown 附件阅读器
+│   │   ├── icons/            # 插件图标
+│   │   ├── preferences.xhtml # 首选项面板
+│   │   └── zoteroPane.css    # 主窗口注入样式
 │   ├── locale/               # 多语言 FTL 文件（11 种语言）
-│   └── bin/                  # Host Bridge CLI 预编译二进制（跨平台）
-├── doc/                      # 架构文档
-│   ├── components/           # 各组件设计文档（~49 篇）
+│   └── bin/                  # Host Bridge CLI 预编译二进制（按七平台分目录 + zotero-bridge-release.json 身份文件）
+├── docs/                     # 架构文档与 ADR
+│   ├── adr/                  # 架构决策记录
+│   ├── components/           # 各组件设计文档（52 篇）
+│   ├── dev/                  # 开发与运维文档（Zotero E2E、实机测试二进制）
 │   └── synthesis-layer/      # Synthesis 层设计文档
-├── reference/                # 外部参考资料（Skill-Runner, zotero-plugin-toolkit, API 指南等）
+├── references/               # 固定版本的外部参考资料与源码基线（Zotero-7/9/10 与 Skill-Runner 为 submodule）
 ├── src/                      # TypeScript 源码
 │   ├── index.ts              # 插件入口
 │   ├── addon.ts              # 插件基类
 │   ├── hooks.ts              # 生命周期钩子
-│   ├── modules/              # 核心模块（~140 个模块文件）
-│   │   ├── acp*.ts           # ACP 协议相关（connection, transport, session, skill runner, transcript 等）
-│   │   ├── assistant*.ts     # Assistant 面板（model, renderer, view model, transcript）
-│   │   ├── workflow*.ts      # 工作流引擎（execute, runtime, settings, menu, editor 等）
-│   │   ├── skillRunner*.ts   # Skill-Runner 后端集成
-│   │   ├── hostBridge*.ts    # Host Bridge 服务
-│   │   ├── synthesis/        # Synthesis 子模块（~33 个文件）
-│   │   ├── workflowExecution/ # 工作流执行子模块（~18 个文件）
+│   ├── workspaceApp.ts / synthesisWorkbenchApp.ts  # 页面入口
+│   ├── modules/              # 核心跨层模块（~342 个文件）
+│   │   ├── acp/              # ACP transport、chat、skill run 与 diagnostics
+│   │   ├── assistant/        # Assistant workspace 与 publication
+│   │   ├── workflow/         # 工作流 catalog、settings 与 UI
+│   │   ├── workflowExecution/ # 工作流执行子模块（23 个文件）
+│   │   ├── skillRunner/      # SkillRunner connection、runtime、run 与 surface
+│   │   ├── hostBridge/       # Host Bridge server、MCP、permissions、workflow 与 CLI
+│   │   ├── zoteroHost/       # Zotero Host adapter 实现
+│   │   ├── synthesis/        # Synthesis 子模块（23 个文件）
 │   │   ├── harness/          # 只读测试 Harness 子模块
+│   │   ├── dashboard/        # Dashboard 页面 controller 与渲染器
+│   │   ├── preferences/      # 首选项面板
+│   │   ├── pluginStateStore/ # 插件侧持久化
 │   │   └── ...               # 其他模块（backendManager, debugMode, runtimeLog, notificationHub 等）
 │   ├── providers/            # 后端 Provider 实现
 │   │   ├── acp/              # ACP Provider
@@ -67,31 +79,31 @@
 │   ├── workflows/            # 工作流引擎核心
 │   ├── utils/                # 工具函数（locale, prefs, path, fileSystem, wait, window, ztoolkit 等）
 │   ├── config/               # 默认配置
-│   ├── handlers/             # Handler 注册
 │   ├── jobQueue/             # 任务队列
 │   ├── platform/             # 平台抽象（command, env, path, subprocess）
 │   ├── schemas/              # JSON Schema 定义
+│   ├── workers/              # Zotero worker 侧实现（runtimeFileRangeWorker）
+│   ├── dashboard/            # Dashboard 页面 Preact 区域与 controller
+│   ├── synthesis/            # Synthesis 页面 Preact 区域与 controller
 │   ├── shared/               # 共享前端组件与跨边界契约（citation graph, topic timeline, assistant wire/snapshot contract）
 │   └── sidebar/              # 侧边栏页面 JS（ES module .js，esbuild 打包到 addon/content/sidebar/*.bundle.js；只允许 import 相对路径与 src/shared）
-├── test/                     # 测试
-│   ├── core/                 # 核心功能测试（~100+ 测试文件）
-│   ├── node/core/            # Node.js 环境测试
+├── tests/                    # 测试（~326 个 *.test.ts）
+│   ├── zotero/               # Zotero 运行时测试基础设施（compatibility、core、e2e、ui、workflow）
+│   ├── host-bridge/          # Host Bridge 专项测试
 │   ├── ui/                   # UI 测试
-│   ├── zotero/               # Zotero 运行时测试基础设施
+│   ├── runtime/              # 运行时测试
+│   ├── tooling/              # 测试工具链自身的测试
+│   ├── workflows/            # 工作流引擎测试
+│   ├── workflow-*/           # 各工作流的专项测试（literature-*、mineru、tag-*）
+│   ├── acp/ assistant/ dashboard/ shared/ synthesis/  # 各领域测试
+│   ├── zotero-host/          # Zotero Host adapter 测试
+│   ├── skillrunner/          # SkillRunner 测试
 │   ├── helpers/              # 测试辅助工具
 │   ├── fixtures/             # 测试 fixtures
 │   ├── setup/                # 测试环境初始化
-│   ├── mock-skillrunner/     # Mock Skill-Runner 服务
-│   └── workflow-*/           # 各工作流的专项测试
-├── scripts/                  # 构建与运维脚本（~50 个 .ts/.mjs）
-├── skills_builtin/           # 内置 Skill 定义（~22 个 skill 目录）
-│   ├── literature-analysis/
-│   ├── literature-deep-reading/
-│   ├── literature-explainer/
-│   ├── literature-translator/
-│   ├── tag-regulator/
-│   ├── topic-synthesis-*/    # topic-synthesis 拆分后的多个 skill
-│   └── ...                   # 其他 skills
+│   └── mock-skillrunner/     # Mock Skill-Runner 服务
+├── scripts/                  # 构建、治理与运维脚本（按交付域分组：host-bridge、content-package、acp-ws-bridge、synthesis、system-e2e、internal）
+├── skills_builtin/           # 内置 Skill 定义（26 个 skill 目录；literature-analysis / literature-explainer / literature-translator 是 submodule）
 ├── skills_src/               # Skill 模板与合约源码
 │   ├── topic-synthesis/      # topic-synthesis 合约、运行时、模板
 │   └── literature-deep-reading/  # literature-deep-reading 合约与渲染器
@@ -102,23 +114,24 @@
 │   └── workflow-debug-probe/ # 调试探针工作流
 ├── openspec/                 # OpenSpec 规格与变更管理
 │   ├── config.yaml
-│   ├── specs/                # 规格文件（~228 个 spec）
+│   ├── specs/                # 规格文件（365 个 capability 目录）
 │   └── changes/              # 变更记录（含 archive）
+├── packages/                 # npm workspaces（synthesis-application、synthesis-contracts、synthesis-engine、synthesis-repository）
 ├── profiles/                 # Hermes Profile 发布目录
 ├── profiles_src/             # Hermes Profile 源文件
-├── cli/                      # Zotero Bridge CLI（Rust 项目）
-├── native/                   # Native 辅助程序（ACP WebSocket Bridge，Rust）
-├── deprecated/               # 已废弃的旧代码（保留参考）
-├── artifact/                 # 开发过程工件（设计评审、审计报告、playbook 等）
-├── assets/                   # 共享资产（Skill Runner 输出合约 Python 库）
+├── contracts/                # Host Bridge 与 Synthesis sidecar 跨语言契约
+├── releases/                 # 受治理的发布身份与 receipt
+├── rust/                     # Zotero Bridge、ACP WS Bridge 与 Synthesis sidecar
+├── artifacts/                # 开发过程工件（设计评审、审计报告、playbook 等）
+├── assets/                   # 共享资产（Skill Runner 输出合约 Python 库、站点图片）
 ├── feeds/                    # 内容订阅 feed
 ├── site/                     # Docusaurus 用户文档站点
 ├── tools/                    # 开发辅助工具
-├── typings/                  # TypeScript 类型声明
-├── non-existing-zotero-data/ # 模拟 Zotero 数据目录（用于测试）
+├── typings/                  # TypeScript 类型声明（global、i10n、prefs）
+├── non-existing-zotero-data/ # 模拟 Zotero 数据目录（用于测试，.gitignore 排除）
 ├── .env / .env.example       # 环境变量
 ├── package.json              # Node.js 依赖与脚本
-├── tsconfig.json             # TypeScript 配置
+├── tsconfig.json             # TypeScript 配置（另有 dashboard / sidebar / synthesis 三份子配置）
 ├── zotero-plugin.config.ts   # 插件构建配置
 ├── eslint.config.mjs         # ESLint 配置
 └── README.md                 # 项目说明
@@ -142,6 +155,30 @@ This is a single-context repository using a root `CONTEXT.md` and root `docs/adr
 - 开发过程注重文档化
 - 采用TDD模式：每一步开发前先写测试用例，再围绕测试实现
 - **切勿将Node.js环境中才能使用的代码用于插件环境**
+
+## E2E 测试约束
+
+- Zotero E2E 统一使用 `tests/zotero/e2e/full` 与 `npm run test:zotero:e2e`；不得另建平行 runner。
+- 真实库与 profile 只能作为只读来源复制到 `.scaffold/test` 后运行，测试不得直接修改来源目录。
+- 金例只提交去标识化结构契约，不得提交标题、作者、正文、本地路径或原始数据库。
+- E2E 必须使用当前源码构建的本地 Synthesis sidecar。Citation Graph 生命周期压力测试使用 `npm run test:zotero:e2e:stress`。
+
+# Zotero 源码参考基线
+
+- `references/Zotero-7` 固定到 tag `7.0.32`（commit `188c54c186fbbaa6889145986d43ba64160a44fa`）。
+- `references/Zotero-9` 固定到 tag `9.0.6`（commit `7132587c2d6d56725debe64908733a8140bc6be3`）。
+- `references/Zotero-10` 固定到 tag `10.0.1`（commit `36749bd0bd4fdac9ee46c16f7aa7bed094a0851f`）。
+- 三个目录是 shallow submodule，只初始化 Zotero 主仓；嵌套 submodule 仅在明确需要审计对应源码时按路径初始化。
+- 三个目录在 `.gitignore` 中精确排除，默认 `rg`、CodeGraph、Prettier、ESLint 和 TypeScript 检查不得扫描这些参考源码；有意调查时使用 `git -C references/Zotero-10 …`、`rg --no-ignore …` 等显式命令。
+- 更新基线时，先选择稳定 tag 并核对 tag 指向的 commit，再更新 gitlink；同时审阅 `tests/zotero/compatibility-matrix.json`、兼容性文档与公开支持声明。不得跟踪维护分支头。
+
+# 本机实机测试二进制
+
+- Linux x86_64 与 Windows x86_64 的 Zotero 正式版安装树存放在仓库外 `zotero-hosts/`：`archives/` 保留官方归档字节，`linux-x86_64/<version>/Zotero_linux-x86_64/` 与 `windows-x64/<version>/Zotero_win-x64/zotero.exe` 是可直接启动的安装树。Linux 侧根在 `~/Workspace/Artifact/Zotero-Skills/`，Windows 侧根在 `D:\Workspace\Artifact\Zotero-Skills\`。属于本机测试数据，不进入仓库，也不参与构建或发布。
+- 当前为 7.0.32、9.0.6、10.0.2，两个平台都是这三个版本。7.0.32 与 9.0.6 的摘要与 `tests/zotero/compatibility-matrix.json` 一致；10.0.2 是 Zotero 10 线路的稳定版（官方已推进到 10.0.3），而矩阵的 `zotero-10-*` 目标仍固定 10.0.1，两者的补丁版本差异是有意保留的，不得据此改矩阵。
+- 平台记录分文件：Linux 侧是 `manifest.json`，Windows 侧是 `manifest.windows-x64.json`，后者额外记录归档条目与安装树的逐条比对结果和启动验证方法。
+- 手工启动会在安装树里写入自动更新残留（`active-update.xml`、`updates/`），可能让安装树静默偏离目录名标注的版本；实机验证优先走 `npm run start:direct`，它经 `patchPrefsJs` 关闭自动更新。Windows 的 `zotero.exe` 是启动器桩，转交请求后立即退出，判断 Zotero 是否在运行要按安装树路径查进程。
+- 来源、摘要、启动、污染恢复与刷新流程见 `docs/dev/zotero-host-binaries.md`。
 
 # Host Bridge Agent-facing Surface硬约束
 
@@ -169,6 +206,18 @@ This is a single-context repository using a root `CONTEXT.md` and root `docs/adr
 - 新增 transcript cold-load / hydrate / mirror cache 逻辑时，不得把分页缓存设计成正确性 SSOT，也不得改写历史 transcript store 格式来满足 UI 首屏性能。
 - toolbar/banner/reply 区域折叠（`src/sidebar/assistantRegionCollapse.ts`）是容器 class 驱动的纯 chrome 表现态：只能切换区域容器上的 `is-region-collapsed` class 与 root 上的 `data-collapse-stage` 属性，不得进入任何区域的 signature/render key 或 panel DTO，不得触发 transcript 或其它区域的重渲染；折叠把手必须挂在区域容器上（Preact managed mount 之外）。
 
+# Dashboard / Synthesis 页面约束
+
+- 页面源码分别由 `src/dashboard/` 与 `src/synthesis/` 持有，HTML 提供固定区域容器；构建产物不得恢复为 `addon/` 下的手写页面实现。
+- 各 Preact 区域仅以自己的可见数据和交互状态比较 signature。日志、trace、graph-page 和 surface 更新不得进入无关 chrome 区域的比较输入。
+- Sigma 实例、camera 与 graph page 累积由 Graph 区域和页面 controller 持有；chrome 更新不得重建 graph 容器。页面卸载必须清理所属监听、observer 和计时器。
+- Dashboard 与 Synthesis 的跨边界 DTO 以 `src/shared/*WireContract.ts` 为唯一来源；页面重构不得改变宿主 action、snapshot 或消息语义。
+- standalone graph/topic 入口仅组合所需区域，不得导入完整 hosted renderer；文案在 projection/render 阶段解析，Markdown 使用共享 sanitize profile。
+- Synthesis surface 刷新失败必须保留对应 owner 已成功加载的内容与交互状态，错误诊断由 chrome 展示；仅无可用旧数据时显示错误占位符，切换标签后的 shell snapshot 不得充当该 surface 已加载的证据。
+- Dashboard README 使用共享 Markdown renderer 的 document profile 和原始 baseFileUri；文档滚动位置属于页面本地状态，不得进入区域 signature 或触发宿主消息。
+- 跨页面设计 token（控件色、字阶、间距、徽章）与共享模式（panel header、返回入口、空态、滚动工具类）以 `addon/content/shared/page-chrome.css` 为唯一来源；两页面不得再各自定义同名色值或另起私有别名层。
+- 滚动所有权模型（详见 `page-chrome.css` 头部注释）：页面根与 `.main` 永不滚动；每个面板固定自己的页头/工具栏/筛选/分页区，并有且仅有一个主内容滚动区（Dashboard 使用 `.zs-scroll-region` 工具类，Synthesis 各 surface 以自身表格容器如 `.concept-table-wrap`、`.tags-table-wrap` 充当）；概念审阅面板、标签导入浮层等有界二级子面板（`max-height` 百分比 + `overflow:auto`）允许保留自身滚动，但不得承载主内容；禁止页级滚动容器内嵌 `max-height` 滚动区（Dashboard `.table-wrap` 的 320px 仅对区域外的独立滚动容器生效，区域内以 `max-height:none` 压平）、禁止 grid/flex 行数与子元素数不匹配、sticky 元素必须位于真实滚动容器内。二级视图（详情/文档页）页头左侧第一位固定为 `.zs-back-link` 返回入口。
+
 # ACP Transcript Projection硬约束
 
 - ACP Chat / ACP Skills 的 transcript projection 不得假设后端已经正确整流 assistant message chunks；插件侧必须按协议语义维护稳定的 assistant text segment。
@@ -178,7 +227,7 @@ This is a single-context repository using a root `CONTEXT.md` and root `docs/adr
 
 # Synthesis Sidecar Runtime 生命周期硬约束
 
-- `native/synthesis-sidecar` 的生产运行时由 library target 持有；`main.rs` 只能保留 `worker` / `serve --config` CLI 适配，不得重新声明或组装 runtime module graph。
+- `rust/synthesis-sidecar` 的生产运行时由 library target 持有；`main.rs` 只能保留 `worker` / `serve --config` CLI 适配，不得重新声明或组装 runtime module graph。
 - `runtime_service::serve(&Path)` 是生产生命周期唯一入口，必须统一负责 config 读取、资源组装、listener bind、ready publication、运行期终止、500 ms 有界清理和 typed terminal result。
 - discovery 原子发布是 sidecar ready commit；stdout listening 事件仅用于诊断。ready 之前的失败必须回滚已取得的 owner，ready 之后的所有生命周期终止必须进入同一清理路径并移除 discovery。
 - `system.shutdown` 成功响应只表示停止请求已接受，必须先刷出响应再发布 stopping；进程退出才表示清理完成。父输入关闭与 authenticated shutdown 共用 reason-bearing stop signal。
@@ -210,18 +259,31 @@ This is a single-context repository using a root `CONTEXT.md` and root `docs/adr
 
 - `src/modules/runtimePersistence.ts` 是跨运行时文件系统 adapter 选择的唯一事实源；Workflow Host、输入物化、图片准备、附件导入等模块不得自行选择 `IOUtils`、`OS.File`、Node filesystem 或 Components stream。
 - Workflow Host runtime adapter 必须按调用晚绑定；不得因 `createWorkflowHostApi()` 缓存 projection 而缓存运行时 global、picker window 或 filesystem adapter。
-- `src/workflows/hostApi.ts` 只负责 Workflow Host API v11 的显式组合与投影；输入物化、文件选择、图片准备、stored attachment import 和 archive 的内部 adapter 不得泄漏为公共 host 成员。
+- `src/workflows/hostApi.ts` 只负责 Workflow Host API v12 的显式组合与投影；输入物化、文件选择、图片准备、stored attachment import 和 archive 的内部 adapter 不得泄漏为公共 host 成员。
 - `attachments.importStoredFile` 的 companion 路径与源文件必须在创建 Zotero attachment 前完成校验与 managed staging；创建后的复制或清理失败必须尝试删除新 attachment，并保留原始失败为主错误。
 
 # Zotero Host Capability Broker硬约束
 
+- 七项 navigation 必须使用 request admission 捕获的可信窗口，effect 前重新验证；缺失/失效即失败，不能退回 ambient window。Library selection 验证 exact target，Reader location 只向 captured window 的 built-in tab 提交。effect 开始后的取消不回滚、不报告无副作用取消、不自动重放；interactive scope 免逐次审批，automated/invalid scope 在审批路由前拒绝。
+- Reader 冷初始化使用 captured window 自有 tab 与原生 existing-tab 路径；tab identity 仅属私有兼容实现，打开前跨主窗口校验唯一性并禁用全局 Reader 复用。预建 tab 已是 UI effect，初始化失败不得自动重试或关闭别窗 tab 来补偿。
+- Ingest identity 候选由原生 Search 编译 SQL 合并去重后在源端 LIMIT 26，超过 25 整体拒绝。最终 identity/revision 检查与 metadata create 共用一个 Host slice 和原生 transaction；已审批 identity 变化必须 stale/conflict，不能隐式改成复用。网络、文件准备与审批保持槽外，事务内不得嵌套 saveTx；该保证不覆盖绕过 Broker/原生事务的裸宿主 writer。
+- Canonical mutation 的 scope/operationId/kind/semantic digest admission 与终态证据由 `zoteroHostMutationAuthority.ts` 和 `pluginStateStore.ts` 的 SQLite 记录持有；仅 durable insert winner 执行。重放先于资源准备，重启遗留 started 归 unknown，普通终态证据保留 30 天后只清 evidence，永久保留 identity binding；unknown/repair_required 不按龄删除。
+- 所有写入先做无副作用 preflight，私有 prepared plan 绑定范围、revision/state 和文件事实；审批等待后重新准备，digest 变化须重新审批，native slice 写入前再校验。公共 DTO 不接受 expectedRevision/token/path/fileId 写入授权；Bridge 文件 handle 仅在 adapter 转为私有 prepared-file。
+- Bridge/MCP/CLI 共用 profile-local host-bridge mutation scope，通过 `mutation.get_operation` 观察 canonical 证据；通用 HTTP operation store 不得抢占或重放 canonical mutation。Workflow 仅显式投影 `mutations.getOperation`，不得暴露 handlers 或 native mutation executor。
+- Selection 必须经 Broker 精确分页完成一次获取后锁定有序 canonical facts；分页 basis 变化使整次获取失败，不得混合页或自动重采样。Workflow settings/preparation/execute 共用锁定输入，显式与 durable 输入只接受完整 portable refs；promotion、去重和来源优先级仅属于命名 task selector。选择与任务 DTO 不携带 native ID 或路径，上传路径仅从最终 canonical attachment file descriptor 获取。
 - `src/modules/zoteroHostCapabilityBroker.ts` 中的 `ZoteroHostCapabilityBroker` 是 Zotero host capability 语义的唯一事实源；`WorkflowHostApi`、Host Bridge 与 MCP 是独立 projection，不得反向成为 broker 定义来源。
-- broker 公共输入只接受 portable JSON refs，公共 DTO 只允许 strict JSON 值；raw `Zotero.Item` / `Zotero.Collection` 仅可由 `src/workflows/hostApi.ts` 在 Workflow Host API v11 adapter 内归一化。
+- Managed Note 语义固定为 custom、conversation-note、digest、references、citation-analysis、literature-score 六类；完整 detail、canonical payload、provenance、health 与 derived projection 由 Broker owner 统一提供。
+- paired References/Citation 与 migration parent-set 通过 Broker 私有 writer 一次提交 identity/receipt；canonical verify 后的 legacy cleanup 是同一 authority operation 的 required tail，失败保留 canonical 结果并进入 repair_required。
+- library migration 仅由 Dashboard-local service 持有 scan/apply/stop/continue 生命周期；普通 Import UI 只对已确认的 recognized legacy 使用私有 converter，canonical 输入走普通 writer。
+- Source Reference ID 由 producer/authoring runtime 生成并由 contract-set 保留；basis 由 canonical artifact owner 重算，DOI、标题、作者、年份、内容 hash 或 Synthesis ID 不得推测迁移目标身份。
+- broker 公共输入只接受 portable JSON refs，公共 DTO 只允许 strict JSON 值；raw `Zotero.Item` / `Zotero.Collection` 仅可由 `src/workflows/hostApi.ts` 在 Workflow Host API v12 adapter 内归一化。
 - `WorkflowHostApi` 必须通过 member-level `Pick` 和显式对象字面量投影 broker；不得传播整个 broker domain，不得使用 spread、proxy、运行时 capability catalog 或隐式成员继承。
 - broker 不负责 authorization、permission、exposure、noninteractive policy、transport 或 remote locality；这些规则属于 Host Bridge/MCP adapter。
-- Host Bridge 是 attachment remote locality 的唯一 adapter。`library.get_item_attachments` 与 `mutation.execute` 的 attachment 输出必须共用同一投影，删除本地 `path`，只返回 opaque file handle 或 unavailable；MCP 必须复用 Host Bridge handler，不得另建路径策略。
+- Host Bridge 是 attachment remote locality 的唯一 adapter。`library.get_item_attachments` 与 operation-specific mutation 的 attachment 输出必须共用同一投影，删除本地 `path`，只返回 opaque file handle 或 unavailable；MCP 必须复用 Host Bridge handler，不得另建路径策略。
 - broker 失败统一使用 `ZoteroHostCapabilityError` 的稳定 `code`、`retryable` 和 strict-JSON `details`；不得把 raw ref、native cause 或宿主对象放入错误详情。
 - broker 测试替身必须完整且 fail-closed；不得用 partial object、`as any` 或默认真实 Zotero runtime 掩盖未配置能力。
+- Broker 普通列表读取必须从源头分页，默认 25、最大 100，仅物化当前页；单个目标读取失败必须使整页失败。payload 扫描保留全部候选，`total: null` 和空非末页不能作为完成依据。
+- 所有 Broker 实例共享进程级 FIFO Host 短片段 admission；native 循环至多 100 items 或 50 ms 后释放，取消或超时不能在底层 Host 工作 settle 前释放槽。网络、文件、callback 与 detached DTO 运算在槽外；MCP 只持有九个并发请求的 admission。
 
 # 发布流程硬约束
 
@@ -237,3 +299,31 @@ This is a single-context repository using a root `CONTEXT.md` and root `docs/adr
 - Gitee 发布只能通过独立的 `npm run sync:gitee-release` 命令执行。除非用户在当前任务中单独明确要求，Agent 不得自动执行、轮询或等待该命令。
 - Gitee 同步必须复用 GitHub 已发布的插件和 content package 原始字节，不得为 Gitee 重新构建产物、修改版本、创建修复提交或重新触发正式发布流程。
 - content package 的 GitHub release asset 是不可变产物：同名同版本仅允许复用 SHA-256 一致的文件；内容不同必须提升 content package 版本。
+
+## Cost-saving subagent delegation
+
+Proactively offload suitable bounded work to these lower-cost agents instead of spending the primary agent's context and model quota on routine execution:
+
+- `scout`: use for read-only local repository exploration, including file and symbol discovery, call-path tracing, configuration lookup, module summaries, and existing-test inspection.
+- `researcher`: use for current external research involving official documentation, standards, upstream source, changelogs, issues, papers, or community evidence.
+- `routine_worker`: use for fully specified, deterministic, low-risk edits and workflows whose material decisions and acceptance checks are already closed.
+
+Prefer these agents whenever the assignment fits their boundary, even when the primary agent could perform the work directly, provided delegation cost is reasonable.
+
+Independent `scout` and `researcher` assignments may run in parallel.
+
+Do not fork conversation history since it is not supported by current interface. Use self-contained delegation prompt.
+
+Keep the following work in the primary agent or another stronger specialist:
+
+- architecture and material planning decisions;
+- ambiguous or open-ended implementation;
+- unknown-cause debugging;
+- security, authentication, authorization, privacy, cryptography, billing, concurrency, data migration, destructive, deployment, or public-API changes;
+- final review, integration, verification, and completion judgment.
+
+Do not give `routine_worker` overlapping write ownership with another agent.
+
+Give every delegated task a bounded objective, explicit scope, required output, and stopping condition.
+
+Integrate the returned result without unnecessarily repeating the entire investigation, but spot-check facts that affect important decisions.

@@ -28,7 +28,9 @@ async function createTestParent({ manifest, runtime, runKey }) {
     fields: { title },
   });
   if (mutation.outcome !== "committed" && mutation.outcome !== "unchanged") {
-    throw new Error(mutation.attempt?.error?.message || "debug parent creation failed");
+    throw new Error(
+      mutation.attempt?.error?.message || "debug parent creation failed",
+    );
   }
   const parent = mutation.result.item;
   return {
@@ -64,7 +66,6 @@ export function buildSingleRequest({
     kind: "skillrunner.job.v1",
     skill_id: resolvedSkillId,
     mode: "auto",
-    targetParentID: parent.id,
     targetParentRef: parent.ref,
     taskName: parentTitle,
     input: {},
@@ -118,7 +119,6 @@ function buildSequenceRequest({
 }) {
   return {
     kind: "skillrunner.sequence.v1",
-    targetParentID: parent.id,
     targetParentRef: parent.ref,
     taskName: parentTitle,
     steps,
@@ -301,7 +301,9 @@ async function buildRequestImpl({ manifest, executionOptions, runtime }) {
         ],
       });
     default:
-      throw new Error(`unsupported debug apply contract workflow: ${workflowId}`);
+      throw new Error(
+        `unsupported debug apply contract workflow: ${workflowId}`,
+      );
   }
 }
 

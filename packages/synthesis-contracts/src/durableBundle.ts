@@ -638,7 +638,9 @@ export function createSynthesisDurableBundleCodec(options: CodecOptions) {
     const groups = new Map<string, SynthesisDurableAssetEnvelope[]>();
     for (const entry of entries) {
       const path = bundlePathFor(entry);
-      groups.set(path, [...(groups.get(path) ?? []), entry]);
+      const group = groups.get(path);
+      if (group) group.push(entry);
+      else groups.set(path, [entry]);
     }
     const packed: Array<{
       path: string;

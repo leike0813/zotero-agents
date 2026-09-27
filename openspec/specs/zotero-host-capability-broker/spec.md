@@ -3,19 +3,10 @@
 ## Purpose
 TBD - created by archiving change define-zotero-host-capability-broker. Update Purpose after archive.
 ## Requirements
-### Requirement: Handlers are internal mutation primitives
-
-The system SHALL treat `handlers` as an internal library for common Zotero mutation operations, not as a complete facade over the Zotero native API.
-
-#### Scenario: Handler scope is described
-
-- **WHEN** developer documentation or future capability specs describe `handlers`
-- **THEN** they MUST state that handlers cover a finite write-oriented DSL
-- **AND** they MUST NOT imply that handlers cover all Zotero native API capabilities.
 
 ### Requirement: Host API is the broker SSOT
 
-The system SHALL treat `ZoteroHostCapabilityBroker` as the canonical owner of JSON-safe Zotero context, navigation, library, metadata, and controlled mutation capabilities. `WorkflowHostApi` SHALL remain the workflow compatibility interface and SHALL expose broker capabilities only through an explicit projection. Host Bridge SHALL consume the canonical broker directly, and MCP SHALL consume the Host Bridge capability mirror.
+The system SHALL treat `ZoteroHostCapabilityBroker` as the canonical owner of JSON-safe Zotero context, navigation, library, metadata, and controlled mutation capabilities. `WorkflowHostApi` SHALL remain the workflow compatibility interface and SHALL expose only its declared read and mutation projection; it SHALL NOT expose Broker navigation members. Host Bridge SHALL consume the canonical broker directly, and MCP SHALL consume the Host Bridge capability mirror.
 
 #### Scenario: A new Zotero capability is added
 
@@ -80,7 +71,7 @@ The system SHALL prioritize read/context MCP tools before write tools.
 
 ### Requirement: Broker SSOT document stays synchronized
 
-The system SHALL maintain `doc/components/zotero-host-capability-broker-ssot.md` as the human-facing SSOT for this model.
+The system SHALL maintain `docs/components/zotero-host-capability-broker-ssot.md` as the human-facing SSOT for this model.
 
 #### Scenario: Related public contract changes
 
@@ -200,11 +191,11 @@ The Host SHALL expose generic operations to export complete Zotero item JSON, cr
 
 ### Requirement: Workflow Host API v12 current view SHALL identify selected library-tree sources
 
-The current-view DTO SHALL include ordered JSON-safe source refs for the selected library-tree rows and all distinct selected library ids. It SHALL include the scalar library id only when exactly one library is represented, and the optional normalized current collection only when the entire selection represents one real Zotero collection. Zotero host-version differences SHALL be contained inside the broker.
+The current-view DTO SHALL include ordered JSON-safe source refs for the selected library-tree rows and all distinct selected library ids. It SHALL include the scalar library id only when exactly one library is represented, and the optional normalized current collection only when the entire selection represents one real Zotero collection. Zotero host-version differences SHALL be contained inside the broker. Sources SHALL use libraryIds/selectedSources in the canonical small current-view DTO, Saved Search identity SHALL be a portable libraryId/key ref, and item selection arrays SHALL NOT be embedded.
 
 #### Scenario: One real collection row is selected
 - **WHEN** the current Zotero library view contains exactly one selected real collection
-- **THEN** `context.getCurrentView()` SHALL include one collection source with its normalized id, key, name, and library id
+- **THEN** `context.getCurrentView()` SHALL include one collection source with its portable ref, name, and library id
 - **AND** it SHALL include that collection as the current collection
 - **AND** it SHALL report the unique library id
 
@@ -420,19 +411,21 @@ The Broker SHALL enumerate live library pages, apply fixed criteria and budgets,
 #### Scenario: Traversal stops at a budget
 - **WHEN** max items, pages, or duration is reached before exhaustion
 - **THEN** the result is `resource_limited`, includes a criteria-bound resume cursor, and contains no completion evidence
+
 ### Requirement: Broker SHALL own canonical mutation admission and evidence
 
-The Broker SHALL reserve accepted mutation operations by caller scope and `operationId`, bind each reservation to a canonical request digest, serialize competing replays, verify final Host state, and retain bounded process-local outcomes. It MUST NOT persist a mutation ledger or expose registry records.
+The Broker SHALL durably bind caller scope and operationId to the operation kind and normalized semantic digest before any Host effect. It SHALL retain terminal receipts and attempts across restart, resolve identical identities without another effect, and retain permanent identity protection after ordinary evidence expires. Current-process promises SHALL coordinate live execution only; public observation SHALL expose only running, settled with result, or unavailable and SHALL NOT expose storage records.
 
 #### Scenario: Same operation is replayed with the same request
 
-- **WHEN** a caller repeats an accepted `operationId` with the same canonical request in the same Host process
+- **WHEN** a caller repeats an accepted operationId with the same canonical request, including after restart
 - **THEN** the Broker returns or waits for the original outcome without executing a second write
+- **AND** expired ordinary evidence returns outcome_unavailable while the identity remains protected.
 
 #### Scenario: Same operation identity carries different input
 
-- **WHEN** a caller reuses an accepted `operationId` with a different canonical request digest
-- **THEN** the Broker returns a conflict with reason `idempotency_conflict` before another write begins
+- **WHEN** a caller reuses an accepted operationId with a different canonical request digest
+- **THEN** the Broker returns a conflict with reason idempotency_conflict before another write begins.
 
 ### Requirement: Broker SHALL distinguish pre-admission errors from accepted attempts
 
@@ -461,3 +454,158 @@ The Broker SHALL provide one bibliography deep-module owner for format availabil
 - **WHEN** Research Bundle generation requests bibliography content
 - **THEN** it consumes the bibliography owner result
 - **AND** it retains ownership only of artifact naming and bundle layout
+
+### Requirement: Canonical Broker owns private mutation effects
+
+The system SHALL not expose, document, or retain handlers as a public write-oriented DSL. The Broker SHALL own canonical mutation semantics and may use narrowly scoped private native-effect helpers internally. Private helpers SHALL not define public operation names, request/result DTOs, Workflow Host members, Bridge capabilities, MCP tools, or result-apply contracts.
+
+#### Scenario: A canonical mutation needs native work
+- **WHEN** the Broker performs a canonical mutation
+- **THEN** it MAY call private native-effect helpers within the Broker implementation
+- **AND** callers SHALL enter only through the named canonical Broker operation.
+
+#### Scenario: A former handler-shaped entry point is requested
+- **WHEN** a workflow, Bridge, MCP, CLI, or result-apply consumer requests a former handlers operation
+- **THEN** the public boundary SHALL reject it as unsupported
+- **AND** it SHALL not adapt the request to a private helper.
+
+### Requirement: Broker owns mutation authority and observation
+
+The system SHALL treat ZoteroHostCapabilityBroker as the canonical owner of JSON-safe Zotero context, navigation, library, metadata, controlled mutation, durable mutation evidence, and read-only mutation observation. WorkflowHostApi SHALL expose broker capabilities only through explicit projection. Host Bridge SHALL consume the canonical broker directly, and MCP SHALL consume the Host Bridge capability mirror.
+
+#### Scenario: A caller observes a mutation
+- **WHEN** a trusted adapter needs the state of a canonical operation identity
+- **THEN** it SHALL call the Broker read-only mutation observation
+- **AND** it SHALL not use generic HTTP operation history or re-execute a mutation.
+
+### Requirement: Broker SHALL own canonical Managed Note semantic operations
+
+The Zotero Host Capability Broker SHALL be the sole public semantic owner for custom, conversation-note, digest, references, citation-analysis, and literature-score note reads and writes. It SHALL expose the six named operations and SHALL keep storage wrappers, payload attachments, derived images, singleton resolution, compensation, verification, and receipts inside that owner. Workflow, Bundle, Bridge, MCP, and migration callers SHALL consume the projection rather than reimplementing note orchestration.
+
+#### Scenario: A caller requests managed note detail
+- **WHEN** the Broker resolves an ordinary or managed note
+- **THEN** it SHALL return the closed discriminated semantic result
+- **AND** it SHALL not expose raw Zotero objects, local paths, storage wrappers, or native payload exceptions.
+
+#### Scenario: A caller writes a References/Citation pair
+- **WHEN** a trusted caller submits a validated pair for one parent
+- **THEN** the Broker SHALL verify the parent and current note facts and commit the pair in one Zotero transaction
+- **AND** one operation identity and one durable receipt SHALL cover the parent-set result.
+
+#### Scenario: A legacy payload reaches an ordinary Broker reader
+- **WHEN** a note contains a recognized legacy artifact shape
+- **THEN** the Broker SHALL return `legacy_artifact_requires_migration`
+- **AND** it SHALL not silently parse, normalize, or write the legacy shape.
+
+#### Scenario: Ordinary note content update targets a managed note
+- **WHEN** `notes.updateContent` receives a managed-note reference
+- **THEN** the Broker SHALL reject the update before changing note content or attachments
+- **AND** the caller SHALL use the matching managed semantic operation.
+
+### Requirement: Broker SHALL enforce strict canonical Source Reference and Citation identity
+
+Broker artifact inputs SHALL be strict JSON and SHALL accept only the versioned closed Source Reference/Citation contract. The Broker SHALL preserve explicit opaque source IDs on intentional editing/import, allocate IDs for new extraction or approved recovery, compute References basis from the complete canonical set, and derive Citation staleness from basis comparison. Caller-supplied IDs derived from position, content, DOI, title, or Synthesis identity SHALL not be accepted as authority. Matching facts SHALL remain the single declared DOI, URL, ISBN, ISSN, and citekey fields; aliases and duplicate representations SHALL be rejected.
+
+#### Scenario: Canonical references are rewritten
+- **WHEN** an authorized rewrite explicitly retains a sourceReferenceId
+- **THEN** the Broker SHALL retain that opaque ID and recompute the current basis
+- **AND** it SHALL not assign a new ID merely because the note revision changed.
+
+#### Scenario: A Citation uses an unknown source ID
+- **WHEN** a Citation write references an ID absent from the current complete References set
+- **THEN** Broker preflight SHALL fail before any note or attachment mutation
+- **AND** the error SHALL contain stable code/retryability and strict-JSON details only.
+
+#### Scenario: An alias or unknown artifact field is supplied
+- **WHEN** a caller submits a legacy alias, open-ended field, positional reference number, or duplicate representation
+- **THEN** the Broker SHALL reject the payload
+- **AND** it SHALL not delegate to a legacy handler or native fallback.
+
+### Requirement: Broker managed-artifact detail SHALL enforce the bounded public result
+
+Broker managed detail SHALL report complete normalized semantic content and serialized byte facts within the existing 1 MiB Broker domain budget. A downstream ToolResult adapter MAY apply its separate 50 KiB gate. If the complete Broker result exceeds 1 MiB, the Broker SHALL return typed `resource_limited` without truncation, pagination, implicit file export, or ordinary-note fallback.
+
+#### Scenario: Managed detail is within the result bound
+- **WHEN** a valid managed note is read and its semantic result fits the bound
+- **THEN** the Broker SHALL return the complete declared payload and health facts
+- **AND** it SHALL not return storage HTML as a substitute.
+
+#### Scenario: Managed detail exceeds a downstream ToolResult gate only
+- **WHEN** a complete managed detail result exceeds 50 KiB but remains within the 1 MiB Broker budget
+- **THEN** the Broker SHALL return the complete semantic result with exact byte facts
+- **AND** a downstream ToolResult adapter SHALL enforce its own gate without changing Broker semantics.
+
+#### Scenario: Managed detail exceeds the Broker budget
+- **WHEN** a complete managed detail result exceeds 1 MiB
+- **THEN** the Broker SHALL return `resource_limited`
+- **AND** it SHALL not drop fields or expose a path to bypass the budget.
+
+### Requirement: Broker trusted parent-set writes SHALL produce one identity and one receipt
+
+Broker-private workflow, migration, and paired-import seams MAY compose References and Citation input, but the canonical effect SHALL be one parent-set admission, one Zotero transaction, one operation identity, and one durable receipt. Public operations SHALL not permit callers to observe a half-pair or chain independent note receipts as a substitute.
+
+#### Scenario: Parent-set preflight fails
+- **WHEN** either artifact, parent, revision, source ID, permission, or computed basis fails validation
+- **THEN** the Broker SHALL perform no note or attachment write
+- **AND** it SHALL return one failed attempt for the parent-set operation.
+
+#### Scenario: Parent-set commit succeeds
+- **WHEN** all artifacts pass preflight and the transaction commits
+- **THEN** the Broker SHALL publish one confirmed parent-set result and receipt
+- **AND** downstream readers SHALL observe both artifacts and the resulting basis coherently.
+
+### Requirement: Navigation is separate from context queries
+
+The broker SHALL expose `focusZotero`, `selectLibraryView`,
+`selectCollection`, `selectSavedSearch`, `revealItems`, `openItem`, and
+`openReaderLocation` as a separate navigation capability family. Inputs SHALL
+use strict portable refs or the closed `ReaderLocation` union. Navigation SHALL
+resolve and validate every target before changing UI state, and SHALL use the
+trusted caller control to bind the effect to one captured Zotero window.
+
+#### Scenario: Caller reads context
+- **WHEN** a caller requests current view or selected items
+- **THEN** no navigation or focus effect SHALL occur.
+
+#### Scenario: Adapter invokes canonical navigation
+- **WHEN** an authorized and exposed adapter invokes one of the seven operations
+- **THEN** the broker SHALL return a JSON-safe operation-specific result
+- **AND** interaction, caller-scope, and exposure policy SHALL remain owned by the adapter.
+
+#### Scenario: Adapter invokes navigation
+- **WHEN** an authorized and exposed adapter invokes a navigation operation
+- **THEN** the broker SHALL return a JSON-safe navigation result
+- **AND** interaction and exposure policy SHALL remain owned by the adapter.
+
+#### Scenario: Target validation fails
+- **WHEN** any requested ref, view, location, duplicate, library, or window target is invalid
+- **THEN** the broker SHALL fail before the first UI effect
+- **AND** it SHALL not fall back to another window, context route, or live selection.
+
+### Requirement: Navigation SHALL return normalized target evidence
+
+Navigation calls SHALL preserve portable identity and request order. Library
+views SHALL use the closed supported set. `revealItems` SHALL accept 1–100
+unique item, note, or attachment refs from one library and SHALL reject mixed
+active/deleted targets. `openReaderLocation` SHALL support PDF page, annotation,
+and EPUB CFI locations only when the captured window can accept the exact
+location. Results SHALL contain only the minimal dispatch or selection evidence;
+all navigation errors SHALL be non-retryable.
+
+#### Scenario: Selection is revealed
+- **WHEN** an interactive caller supplies a bounded ordered set of valid unique item references
+- **THEN** the Host opens exactly those targets in the supplied order
+- **AND** the result preserves the same normalized reference order.
+
+#### Scenario: Selection is opened
+- **WHEN** an interactive caller supplies a bounded ordered set of valid unique item references
+- **THEN** the Host opens that selection and returns the same normalized reference order.
+
+#### Scenario: Reader location is accepted
+- **WHEN** the built-in Reader in the captured window initializes and accepts the normalized location
+- **THEN** the broker returns `reader_location_dispatched` with the target and location.
+
+#### Scenario: Exact Reader targeting is unavailable
+- **WHEN** the native runtime cannot prove that the requested location belongs to the captured window
+- **THEN** the broker returns `unsupported_operation` with `details.reason = location_unsupported`
+- **AND** it does not open a location-free or different-window Reader.

@@ -1,0 +1,10 @@
+Host Bridge canonical integration run record
+Date: 2026-09-06
+
+Command:
+./node_modules/.bin/tsx node_modules/mocha/bin/mocha test/core/101-zotero-mcp-server.test.ts test/core/106-host-bridge-server.test.ts test/core/107-host-bridge-capabilities.test.ts test/core/108-mcp-host-bridge-mirror.test.ts test/core/138-host-bridge-file-downloads.test.ts --require test/setup/zotero-mock.ts --full-trace --exit
+
+Result:
+176 passing (10s)
+
+This is a persisted run summary. The original terminal output was not redirected to a file.

@@ -111,6 +111,7 @@ export type SynthesisReferenceIndexRow = {
   missing_artifacts: string[];
   reference_count: number;
   unbound_reference_count: number;
+  ratingScore?: number;
   references?: SynthesisReferenceInstanceRow[];
 };
 

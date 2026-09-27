@@ -1,0 +1,1 @@
+{"aliases":[],"definition":"面向工程结构（混凝土、钢筋、钢结构、焊缝、复合材料及装配节点）的无损检测技术体系，涵盖超声、射线、涡流、磁粉、渗透、红外、声发射、雷达、振动与机器视觉等方法的原理、装备、信号处理、缺陷识别算法和检测性能评价，研究对象覆盖既有结构与施工/服役全过程。","discipline":"computer vision","id":"结构无损检测","research_area":"结构无损检测","scope_boundary":{"exclude":[],"include":["结构无损检测"],"notes":"Runtime-derived scope boundary from the split topic context payload."},"title":"结构无损检测"}

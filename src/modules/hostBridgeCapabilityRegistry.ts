@@ -1,10 +1,38 @@
-import { getHostBridgeApprovalRequirement } from "./hostBridgePermissionManager";
+import { getHostBridgeApprovalRequirement } from "./hostBridge/permissions/hostBridgePermissionManager";
+import {
+  executeHostBridgeCanonicalMutation,
+  HOST_BRIDGE_MUTATION_CALLER_SCOPE,
+} from "./hostBridge/server/hostBridgeMutationAdapter";
+import type {
+  AttachmentDetailDto,
+  JsonObject,
+  LibraryListItemsRequestDto,
+  MutationExecuteRequest,
+  MutationExecutionResult,
+  MutationPreviewResult,
+  MutationPreviewOperation,
+  MutationPreviewRequestByOperation,
+  MutationRequestByOperation,
+  MutationOperation,
+  SelectedItemsPageRequestDto,
+  WorkflowCallControl,
+} from "../workflows/types";
 import {
   registerHostBridgeFileHandle,
   registerHostBridgeFileHandlesInOrder,
   registerHostBridgeWorkflowArtifactFile,
+  acquireHostBridgeUploadedFileLease,
+  releaseHostBridgeUploadedFileLease,
   type HostBridgeFileDescriptor,
-} from "./hostBridgeFileRegistry";
+} from "./hostBridge/server/hostBridgeFileRegistry";
+import {
+  createCanonicalStoredAttachmentSource,
+  createStoredAttachmentCompleteSemanticInput,
+  createStoredAttachmentNonResourceSemanticInput,
+  createWorkflowPreparedStoredFiles,
+  type WorkflowStoredAttachmentPreparationRequest,
+} from "../workflows/workflowHostOwners";
+import { lookupTrustedStoredAttachmentMutation } from "./zoteroHostMutationAuthority";
 import {
   isDebugModeEnabled,
   isSkillRunnerConnectionAuditAvailable,
@@ -12,15 +40,15 @@ import {
 import {
   getRuntimePersistencePaths,
   readRuntimeBytes,
-  scanRuntimePersistenceUsage,
   writeRuntimeBytes,
 } from "./runtimePersistence";
 import { joinPath } from "../utils/path";
+import { ZoteroLibraryCursorError } from "./zoteroHost/zoteroLibraryPageQuery";
 import { createStoreZipBytes } from "./zipStore";
 import {
   chunkHostBridgeText,
   paginateHostBridgeRows,
-} from "./hostBridgePagination";
+} from "./hostBridge/server/hostBridgePagination";
 import {
   assertWorkflowProductStorageReady,
   exportWorkflowProductToDirectory,
@@ -32,35 +60,24 @@ import {
   WORKFLOW_PRODUCT_KIND_SKILL_RUN_FEEDBACK,
   type WorkflowProductAsset,
   type WorkflowProductRecord,
-} from "./workflowProductStore";
-import { scanPersistenceIntegrity } from "./persistenceIntegrity";
+} from "./workflow/catalog/workflowProductStore";
+import { scanRuntimePersistenceGovernance } from "./runtimePersistenceGovernance";
 import type {
   HostBridgeApprovalRequirement,
   HostBridgeCapabilityManifestEntry,
   HostBridgeConnectionMode,
   HostBridgeErrorCategory,
   HostBridgeStatusSnapshot,
-} from "./hostBridgeProtocol";
+} from "./hostBridge/server/hostBridgeProtocol";
 import {
   resolveZoteroHostCapabilityBroker,
-  getLegacyZoteroItemAttachments,
-  getLegacyZoteroItemDetail,
-  getLegacyZoteroItemNotes,
-  getLegacyZoteroNoteDetail,
-  getLegacyZoteroNotePayload,
-  getLegacyZoteroCurrentView,
-  getLegacyZoteroSelectedItems,
-  listLegacyZoteroLibraryItems,
-  listLegacyZoteroNotePayloads,
   ZoteroHostCapabilityError,
+  type ZoteroHostCanonicalMutationControl,
   type ZoteroHostCapabilityBroker,
   type ZoteroHostCollectionRefInput,
   type ZoteroHostItemRefInput,
   type ZoteroHostLibraryListArgs,
   type ZoteroHostLibrarySyncSnapshotRequest,
-  type ZoteroHostMutationRequest,
-  type ZoteroHostNoteDetailArgs,
-  type ZoteroHostNotePayloadDetailArgs,
   type ZoteroHostAttachmentDto,
 } from "./zoteroHostCapabilityBroker";
 import { resolveRuntimeZotero } from "../utils/runtimeBridge";
@@ -83,18 +100,23 @@ import { getDefaultSynthesisClient } from "./synthesisClient/defaultClient";
 import {
   createDirectResearchBundleApplication,
   type DirectResearchBundleApplication,
-} from "./researchBundleService";
+} from "./hostBridge/workflow/researchBundleService";
 import {
   getHostBridgeCapabilityContract,
   listHostBridgeCapabilityContractEntries,
   validateHostBridgeCapabilityInput,
   validateHostBridgeCapabilityOutput,
   type HostBridgeContractViolation,
-} from "./hostBridgeCapabilityContract";
-
+} from "./hostBridge/server/hostBridgeCapabilityContract";
 export type HostBridgeCapabilityContext = {
   getStatus: () => HostBridgeStatusSnapshot;
   connectionMode: HostBridgeConnectionMode;
+  operationId?: string;
+  control?: WorkflowCallControl;
+  approveMutation?: (
+    preview: MutationPreviewResult<JsonObject>,
+  ) => Promise<void> | void;
+  canonicalMutationControl?: ZoteroHostCanonicalMutationControl;
   resolveZoteroHostCapabilityBroker?: () => ZoteroHostCapabilityBroker;
   resolveSynthesisClient?: () => SynthesisClient | Promise<SynthesisClient>;
   resolveDirectResearchBundleApplication?: () =>
@@ -440,8 +462,16 @@ function libraryListArgsFromInput(input: unknown): ZoteroHostLibraryListArgs {
   return args;
 }
 
+type BridgeAttachmentProjectionInput = Pick<
+  ZoteroHostAttachmentDto,
+  "key" | "libraryId" | "title" | "contentType" | "path" | "filename"
+> & {
+  errors?: ZoteroHostAttachmentDto["errors"];
+  parent?: Pick<NonNullable<ZoteroHostAttachmentDto["parent"]>, "key">;
+};
+
 function toBridgeAttachmentDescriptor(
-  attachment: ZoteroHostAttachmentDto,
+  attachment: BridgeAttachmentProjectionInput,
   file?: HostBridgeFileDescriptor,
 ) {
   const path = String(attachment.path || "").trim();
@@ -474,63 +504,146 @@ function toBridgeAttachmentDescriptor(
 }
 
 function resolveCapabilityBroker(context: HostBridgeCapabilityContext) {
-  return (
-    context.resolveZoteroHostCapabilityBroker?.() ||
-    resolveZoteroHostCapabilityBroker()
-  );
-}
-
-type LegacyHostBridgeReadProjection = {
-  context: {
-    getCurrentView: typeof getLegacyZoteroCurrentView;
-    getSelectedItems: typeof getLegacyZoteroSelectedItems;
-  };
-  library: {
-    listItems: typeof listLegacyZoteroLibraryItems;
-    getItemDetail: typeof getLegacyZoteroItemDetail;
-    getItemNotes: typeof getLegacyZoteroItemNotes;
-    getNoteDetail: typeof getLegacyZoteroNoteDetail;
-    listNotePayloads: typeof listLegacyZoteroNotePayloads;
-    getNotePayload: typeof getLegacyZoteroNotePayload;
-    getItemAttachments: typeof getLegacyZoteroItemAttachments;
-  };
-};
-
-function injectedLegacyReadProjection(
-  context: HostBridgeCapabilityContext,
-): LegacyHostBridgeReadProjection | null {
-  return context.resolveZoteroHostCapabilityBroker
-    ? (context.resolveZoteroHostCapabilityBroker() as unknown as LegacyHostBridgeReadProjection)
-    : null;
+  const broker = context.resolveZoteroHostCapabilityBroker
+    ? context.resolveZoteroHostCapabilityBroker()
+    : resolveZoteroHostCapabilityBroker();
+  if (!broker) {
+    throw new ZoteroHostCapabilityError("unavailable", "Broker unavailable", {
+      reason: "capability",
+    });
+  }
+  return broker;
 }
 
 function bridgeCurrentView(context: HostBridgeCapabilityContext) {
-  return (
-    injectedLegacyReadProjection(context)?.context.getCurrentView() ||
-    getLegacyZoteroCurrentView()
+  const broker = resolveCapabilityBroker(context);
+  if (typeof broker.context?.getCurrentView !== "function") {
+    throw new ZoteroHostCapabilityError(
+      "unavailable",
+      "Broker current-view capability is unavailable",
+      { reason: "capability" },
+    );
+  }
+  return broker.context.getCurrentView();
+}
+
+function bridgeSelectedItems(
+  input: unknown,
+  context: HostBridgeCapabilityContext,
+) {
+  const broker = resolveCapabilityBroker(context);
+  if (typeof broker.context?.getSelectedItems !== "function") {
+    throw new ZoteroHostCapabilityError(
+      "unavailable",
+      "Broker selected-items capability is unavailable",
+      { reason: "capability" },
+    );
+  }
+  return broker.context.getSelectedItems(
+    readPageRequest(input),
+    context.control,
   );
 }
 
-function bridgeSelectedItems(context: HostBridgeCapabilityContext) {
-  return (
-    injectedLegacyReadProjection(context)?.context.getSelectedItems() ||
-    getLegacyZoteroSelectedItems()
-  );
+function bridgeNavigation(
+  capabilityName: string,
+  input: unknown,
+  context: HostBridgeCapabilityContext,
+) {
+  const navigation = resolveCapabilityBroker(context).navigation;
+  switch (capabilityName) {
+    case "navigation.focus_zotero":
+      return navigation.focusZotero(context.control);
+    case "navigation.select_library_view":
+      return navigation.selectLibraryView(
+        asObject(input) as any,
+        context.control,
+      );
+    case "navigation.select_collection":
+      return navigation.selectCollection(
+        asObject(input) as any,
+        context.control,
+      );
+    case "navigation.select_saved_search":
+      return navigation.selectSavedSearch(
+        asObject(input) as any,
+        context.control,
+      );
+    case "navigation.reveal_items":
+      return navigation.revealItems(asObject(input) as any, context.control);
+    case "navigation.open_item":
+      return navigation.openItem(asObject(input) as any, context.control);
+    case "navigation.open_reader_location":
+      return navigation.openReaderLocation(
+        asObject(input) as any,
+        context.control,
+      );
+    default:
+      throw new ZoteroHostCapabilityError(
+        "unsupported_operation",
+        "Unknown navigation capability",
+        { memberOrOperation: capabilityName },
+      );
+  }
 }
 
 function bridgeLibraryItems(
   context: HostBridgeCapabilityContext,
   args: ZoteroHostLibraryListArgs,
 ) {
-  return (
-    injectedLegacyReadProjection(context)?.library.listItems(args) ||
-    listLegacyZoteroLibraryItems(args)
-  );
+  const input: LibraryListItemsRequestDto = {
+    ...readPageRequest(args),
+    ...(args.libraryId === undefined
+      ? {}
+      : { libraryId: Number(args.libraryId) }),
+    ...(args.tag === undefined ? {} : { tag: args.tag }),
+    ...(args.itemType === undefined ? {} : { itemType: args.itemType }),
+    ...(args.query === undefined ? {} : { query: args.query }),
+  };
+  if (args.collection !== undefined) {
+    input.collectionRef = normalizeHostBridgeCollectionRef(args.collection);
+  } else if (
+    args.collectionKey !== undefined ||
+    args.collectionId !== undefined
+  ) {
+    input.collectionRef = normalizeHostBridgeCollectionRef({
+      key: args.collectionKey,
+      id: args.collectionId,
+      libraryId: args.collectionLibraryId ?? args.libraryId,
+    });
+  }
+  return resolveCapabilityBroker(context)
+    .library.listItems(input, context.control)
+    .catch((error) => {
+      throw mapBrokerLibraryCursorError(error);
+    });
+}
+
+function mapBrokerLibraryCursorError(error: unknown): Error {
+  if (
+    error instanceof ZoteroHostCapabilityError &&
+    error.code === "invalid_request" &&
+    (error.details as { field?: unknown }).field === "cursor"
+  ) {
+    const reason = (error.details as { reason?: unknown }).reason;
+    throw new ZoteroLibraryCursorError(error.message, {
+      reason: typeof reason === "string" ? reason : "invalid_value",
+    });
+  }
+  throw error;
+}
+
+function readPageRequest(input: unknown): SelectedItemsPageRequestDto {
+  const object = asObject(input);
+  return {
+    ...(object.limit === undefined ? {} : { limit: Number(object.limit) }),
+    ...(object.cursor === undefined ? {} : { cursor: String(object.cursor) }),
+  };
 }
 
 async function toBridgeAttachmentDescriptors(
-  attachments: ZoteroHostAttachmentDto[],
-  capability: "library.get_item_attachments" | "mutation.execute",
+  attachments: BridgeAttachmentProjectionInput[],
+  capability: "library.get_item_attachments" | MutationOperation,
 ) {
   const registerable = attachments.filter(
     (attachment) =>
@@ -565,69 +678,609 @@ async function toBridgeAttachmentDescriptorsWithContext(
   context: HostBridgeCapabilityContext,
 ) {
   const ref = itemRefFromInput(input);
-  const attachments = await (injectedLegacyReadProjection(
+  const page = await resolveCapabilityBroker(
     context,
-  )?.library.getItemAttachments(ref) || getLegacyZoteroItemAttachments(ref));
-  return toBridgeAttachmentDescriptors(
-    attachments,
+  ).library.getItemAttachments(ref, readPageRequest(input), context.control);
+  return {
+    ...page,
+    attachments: await toBridgeCanonicalAttachmentDescriptors(page.attachments),
+  };
+}
+
+async function toBridgeCanonicalAttachmentDescriptors(
+  attachments: AttachmentDetailDto[],
+) {
+  const projected = await toBridgeAttachmentDescriptors(
+    attachments.map((attachment) => ({
+      key: attachment.ref.key,
+      libraryId: attachment.ref.libraryId,
+      title: attachment.title,
+      ...(attachment.parentRef
+        ? { parent: { key: attachment.parentRef.key } }
+        : {}),
+      filename: attachment.filename || "",
+      contentType: attachment.contentType || "",
+      path: attachment.file.state === "available" ? attachment.file.path : "",
+    })),
     "library.get_item_attachments",
+  );
+  return attachments.map((attachment, index) => {
+    const { file, ...metadata } = attachment;
+    return {
+      ...metadata,
+      file:
+        file.state === "available"
+          ? {
+              state: file.state,
+              sizeBytes: file.sizeBytes,
+              modifiedAt: file.modifiedAt,
+            }
+          : file,
+      access: projected[index].access,
+    };
+  });
+}
+
+function isCanonicalAttachmentDetail(
+  value: unknown,
+): value is AttachmentDetailDto {
+  const attachment = asObject(value);
+  const ref = asObject(attachment.ref);
+  const file = asObject(attachment.file);
+  return (
+    typeof ref.libraryId === "number" &&
+    typeof ref.key === "string" &&
+    typeof attachment.revision === "string" &&
+    typeof attachment.title === "string" &&
+    (file.state === "missing" ||
+      file.state === "not_applicable" ||
+      (file.state === "available" &&
+        typeof file.path === "string" &&
+        typeof file.sizeBytes === "number"))
   );
 }
 
-async function executeMutationWithBridgeProjection(
-  input: unknown,
-  context: HostBridgeCapabilityContext,
-) {
-  const response = await resolveCapabilityBroker(
-    context,
-  ).legacyMutations.execute(normalizeHostBridgeMutationRequest(input));
-  if (!response.ok || !response.result.attachments?.length) {
-    return response;
+async function projectCanonicalMutationObservation(observation: unknown) {
+  const observationObject = asObject(observation);
+  if (observationObject.state !== "settled") return observation;
+  const execution = asObject(observationObject.result);
+  if (execution.outcome !== "committed" && execution.outcome !== "unchanged") {
+    return observation;
   }
+  const result = asObject(execution.result);
+  if (!isCanonicalAttachmentDetail(result.attachment)) return observation;
+  const [attachment] = await toBridgeCanonicalAttachmentDescriptors([
+    result.attachment,
+  ]);
   return {
-    ...response,
+    ...observationObject,
     result: {
-      ...response.result,
-      attachments: await toBridgeAttachmentDescriptors(
-        response.result.attachments,
-        "mutation.execute",
-      ),
+      ...execution,
+      result: { ...result, attachment },
     },
   };
 }
 
-export function normalizeHostBridgeMutationRequest(
+async function executeMutationWithBridgeProjection(
+  operation: MutationOperation,
   input: unknown,
-): ZoteroHostMutationRequest {
+  context: HostBridgeCapabilityContext,
+) {
   const request = asObject(input);
-  const itemRefFields = ["target", "item", "parent", "note"] as const;
-  const itemRefArrayFields = ["targets", "items"] as const;
-  const normalized: Record<string, unknown> = { ...request };
-  for (const field of itemRefFields) {
-    if (request[field] !== undefined) {
-      normalized[field] = normalizeHostBridgeItemRef(
-        request[field],
-        field === "note" ? "note" : "item",
-      );
-    }
-  }
-  for (const field of itemRefArrayFields) {
-    const entries = request[field];
-    if (entries !== undefined) {
-      if (!Array.isArray(entries)) {
-        invalidProjectionRef("item", "invalid_shape");
-      }
-      normalized[field] = entries.map((entry) =>
-        normalizeHostBridgeItemRef(entry),
-      );
-    }
-  }
-  if (request.collection !== undefined) {
-    normalized.collection = normalizeHostBridgeCollectionRef(
-      request.collection,
+  const {
+    dryRun = false,
+    operationId: requestedOperationId,
+    ...payload
+  } = request;
+  const operationId =
+    typeof requestedOperationId === "string" && requestedOperationId
+      ? requestedOperationId
+      : context.operationId ||
+        (dryRun ? undefined : generatedMutationOperationId());
+  const canonicalInput = {
+    ...payload,
+    operation,
+    ...(!dryRun && operationId ? { operationId } : {}),
+  };
+  const storedAttachmentIngress =
+    parseBridgeStoredAttachmentIngress(canonicalInput);
+  if (isBridgeStoredAttachmentExecuteIngress(storedAttachmentIngress)) {
+    return executeBridgeStoredAttachmentMutation(
+      storedAttachmentIngress,
+      context,
     );
   }
-  return normalized as ZoteroHostMutationRequest;
+  if (storedAttachmentIngress && dryRun) {
+    return previewBridgeStoredAttachmentMutation(
+      storedAttachmentIngress,
+      context,
+    );
+  }
+  if (dryRun) {
+    return resolveCapabilityBroker(context).mutations.preview(
+      canonicalInput as MutationPreviewRequestByOperation[MutationPreviewOperation],
+      HOST_BRIDGE_MUTATION_CALLER_SCOPE,
+    );
+  }
+  const response = await executeHostBridgeCanonicalMutation({
+    broker: resolveCapabilityBroker(context),
+    request: canonicalInput as MutationExecuteRequest,
+    control: context.control,
+    ...(context.approveMutation ? { approve: context.approveMutation } : {}),
+    ...(context.canonicalMutationControl
+      ? { mutationControl: context.canonicalMutationControl }
+      : {}),
+  });
+  return projectCanonicalMutationExecution(response);
+}
+
+function generatedMutationOperationId() {
+  const crypto = (globalThis as { crypto?: { randomUUID?: () => string } })
+    .crypto;
+  return (
+    crypto?.randomUUID?.() ||
+    `mutation-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  );
+}
+
+type BridgeStoredAttachmentOperation =
+  | "attachments.create"
+  | "attachments.replaceFile";
+
+type BridgeStoredAttachmentIngress = Readonly<{
+  operation: BridgeStoredAttachmentOperation;
+  operationId?: string;
+  fileId: string;
+  targetFilename?: string;
+  inputWithoutSource: Record<string, unknown>;
+}>;
+
+type BridgeStoredAttachmentExecuteIngress = BridgeStoredAttachmentIngress &
+  Readonly<{ operationId: string }>;
+
+function isBridgeStoredAttachmentExecuteIngress(
+  ingress: BridgeStoredAttachmentIngress | undefined,
+): ingress is BridgeStoredAttachmentExecuteIngress {
+  return typeof ingress?.operationId === "string" && ingress.operationId !== "";
+}
+
+type BridgeStoredAttachmentCanonicalExecuteInput =
+  | MutationRequestByOperation["attachments.create"]
+  | MutationRequestByOperation["attachments.replaceFile"];
+
+type BridgeStoredAttachmentCanonicalPreviewInput =
+  | MutationPreviewRequestByOperation["attachments.create"]
+  | MutationPreviewRequestByOperation["attachments.replaceFile"];
+
+type BridgeStoredAttachmentCanonicalInput =
+  | BridgeStoredAttachmentCanonicalExecuteInput
+  | BridgeStoredAttachmentCanonicalPreviewInput;
+
+function parseBridgeStoredAttachmentIngress(
+  input: unknown,
+): BridgeStoredAttachmentIngress | undefined {
+  const request = asObject(input);
+  const operation = request.operation;
+  if (
+    operation !== "attachments.create" &&
+    operation !== "attachments.replaceFile"
+  ) {
+    return undefined;
+  }
+  const source = asObject(request.source);
+  if (
+    source.kind !== "stored_file" ||
+    typeof source.fileId !== "string" ||
+    !source.fileId
+  ) {
+    return undefined;
+  }
+  const { source: _source, ...inputWithoutSource } = request;
+  return {
+    operation,
+    ...(typeof request.operationId === "string" && request.operationId
+      ? { operationId: request.operationId }
+      : {}),
+    fileId: source.fileId,
+    ...(typeof source.targetFilename === "string"
+      ? { targetFilename: source.targetFilename }
+      : {}),
+    inputWithoutSource,
+  };
+}
+
+function bridgeStoredAttachmentPreparation(
+  ingress: BridgeStoredAttachmentIngress,
+  path: string,
+): WorkflowStoredAttachmentPreparationRequest {
+  return {
+    main: {
+      source: { kind: "local_path", path },
+      ...(ingress.targetFilename
+        ? { targetFilename: ingress.targetFilename }
+        : {}),
+    },
+  };
+}
+
+function bridgeStoredAttachmentNonResourceSemanticInput(
+  ingress: BridgeStoredAttachmentIngress,
+  source: WorkflowStoredAttachmentPreparationRequest,
+) {
+  if (ingress.operation === "attachments.create") {
+    return createStoredAttachmentNonResourceSemanticInput<"attachments.create">(
+      ingress.inputWithoutSource as Omit<
+        MutationRequestByOperation["attachments.create"],
+        "source"
+      >,
+      source,
+    );
+  }
+  return createStoredAttachmentNonResourceSemanticInput<"attachments.replaceFile">(
+    ingress.inputWithoutSource as Omit<
+      MutationRequestByOperation["attachments.replaceFile"],
+      "source"
+    >,
+    source,
+  );
+}
+
+function bridgeStoredAttachmentCanonicalInput(
+  ingress: BridgeStoredAttachmentIngress,
+  source: WorkflowStoredAttachmentPreparationRequest,
+  prepared: Awaited<
+    ReturnType<
+      ReturnType<
+        typeof createWorkflowPreparedStoredFiles
+      >["prepareStoredAttachment"]
+    >
+  >,
+): BridgeStoredAttachmentCanonicalInput {
+  const sourceWithContent = createCanonicalStoredAttachmentSource(
+    source,
+    prepared.snapshot,
+  );
+  const canonicalSource = {
+    ...sourceWithContent,
+    content: {
+      ...sourceWithContent.content,
+      main: {
+        ...sourceWithContent.content.main,
+        sha256: bridgeCanonicalSha256(sourceWithContent.content.main.sha256),
+      },
+      companions: sourceWithContent.content.companions.map((companion) => ({
+        ...companion,
+        sha256: bridgeCanonicalSha256(companion.sha256),
+      })),
+    },
+  };
+  if (ingress.operation === "attachments.create") {
+    return {
+      ...(ingress.inputWithoutSource as Omit<
+        MutationRequestByOperation["attachments.create"],
+        "source"
+      >),
+      source: canonicalSource,
+    };
+  }
+  return {
+    ...(ingress.inputWithoutSource as Omit<
+      MutationRequestByOperation["attachments.replaceFile"],
+      "source"
+    >),
+    source: canonicalSource,
+  };
+}
+
+function bridgeStoredAttachmentPreviewInput(
+  input: BridgeStoredAttachmentCanonicalInput,
+): BridgeStoredAttachmentCanonicalPreviewInput {
+  const {
+    copyFile: _copyFile,
+    removePath: _removePath,
+    ...source
+  } = input.source as typeof input.source & {
+    copyFile?: unknown;
+    removePath?: unknown;
+  };
+  return {
+    ...input,
+    source,
+  } as BridgeStoredAttachmentCanonicalPreviewInput;
+}
+
+type PreparedBridgeStoredAttachment = Readonly<{
+  canonicalInput: BridgeStoredAttachmentCanonicalInput;
+  preparedFile: Awaited<
+    ReturnType<
+      ReturnType<
+        typeof createWorkflowPreparedStoredFiles
+      >["prepareStoredAttachment"]
+    >
+  >;
+  preparedFiles: ReturnType<
+    typeof createWorkflowPreparedStoredFiles
+  >["preparedFiles"];
+  leaseId: string;
+}>;
+
+async function stageBridgeStoredAttachmentIngress(
+  ingress: BridgeStoredAttachmentIngress,
+): Promise<PreparedBridgeStoredAttachment> {
+  const lease = await acquireHostBridgeUploadedFileLease([ingress.fileId]);
+  const source = bridgeStoredAttachmentPreparation(
+    ingress,
+    lease.resolved[0].source.path,
+  );
+  const files = createWorkflowPreparedStoredFiles();
+  try {
+    const preparedFile = await files.prepareStoredAttachment(source);
+    return {
+      canonicalInput: bridgeStoredAttachmentCanonicalInput(
+        ingress,
+        source,
+        preparedFile,
+      ),
+      preparedFile,
+      preparedFiles: files.preparedFiles,
+      leaseId: lease.leaseId,
+    };
+  } catch (error) {
+    try {
+      await files.preparedFiles.dispose();
+    } catch {
+      // Preserve the staging failure: no canonical execution was admitted.
+    }
+    releaseHostBridgeUploadedFileLease(lease.leaseId, false);
+    throw error;
+  }
+}
+
+async function disposeBridgeStoredAttachmentIngress(
+  prepared: PreparedBridgeStoredAttachment,
+  consumeLease: boolean,
+) {
+  try {
+    await prepared.preparedFiles.dispose();
+  } finally {
+    releaseHostBridgeUploadedFileLease(prepared.leaseId, consumeLease);
+  }
+}
+
+async function previewBridgeStoredAttachmentMutation(
+  ingress: BridgeStoredAttachmentIngress,
+  context: HostBridgeCapabilityContext,
+) {
+  const prepared = await stageBridgeStoredAttachmentIngress(ingress);
+  let result;
+  let hasPrimaryError = false;
+  let primaryError: unknown;
+  let cleanupError: unknown;
+  try {
+    result = await resolveCapabilityBroker(context).mutations.preview(
+      bridgeStoredAttachmentPreviewInput(prepared.canonicalInput),
+      HOST_BRIDGE_MUTATION_CALLER_SCOPE,
+    );
+  } catch (error) {
+    hasPrimaryError = true;
+    primaryError = error;
+  } finally {
+    try {
+      await disposeBridgeStoredAttachmentIngress(prepared, false);
+    } catch (error) {
+      cleanupError = error;
+    }
+  }
+  if (hasPrimaryError) throw primaryError;
+  if (cleanupError !== undefined) throw cleanupError;
+  return result!;
+}
+
+function bridgeCanonicalSha256(value: string) {
+  return value.startsWith("sha256:") ? value : `sha256:${value}`;
+}
+
+function bridgeStoredAttachmentCompleteSemanticInput(
+  ingress: BridgeStoredAttachmentIngress,
+  input: BridgeStoredAttachmentCanonicalInput,
+) {
+  if (ingress.operation === "attachments.create") {
+    return createStoredAttachmentCompleteSemanticInput<"attachments.create">(
+      ingress.inputWithoutSource as Omit<
+        MutationRequestByOperation["attachments.create"],
+        "source"
+      >,
+      input.source as Extract<
+        MutationRequestByOperation["attachments.create"]["source"],
+        { kind: "stored_file" }
+      >,
+    );
+  }
+  return createStoredAttachmentCompleteSemanticInput<"attachments.replaceFile">(
+    ingress.inputWithoutSource as Omit<
+      MutationRequestByOperation["attachments.replaceFile"],
+      "source"
+    >,
+    input.source as Extract<
+      MutationRequestByOperation["attachments.replaceFile"]["source"],
+      { kind: "stored_file" }
+    >,
+  );
+}
+
+function consumesBridgeUpload(result: MutationExecutionResult<JsonObject>) {
+  return result.outcome === "committed" || result.outcome === "unchanged";
+}
+
+async function executeBridgeStoredAttachmentMutation(
+  ingress: BridgeStoredAttachmentExecuteIngress,
+  context: HostBridgeCapabilityContext,
+) {
+  // A settled or tombstoned operation is authoritative before the ephemeral
+  // upload lease is acquired. The opaque file handle is transport-only.
+  const initialSource = bridgeStoredAttachmentPreparation(ingress, "");
+  const existing = await lookupTrustedStoredAttachmentMutation<JsonObject>({
+    scope: HOST_BRIDGE_MUTATION_CALLER_SCOPE,
+    operationId: ingress.operationId,
+    operation: ingress.operation,
+    nonResourceSemanticInput: bridgeStoredAttachmentNonResourceSemanticInput(
+      ingress,
+      initialSource,
+    ),
+  });
+  if (existing.state !== "missing") {
+    return projectCanonicalMutationExecution(existing.result);
+  }
+
+  const lease = await acquireHostBridgeUploadedFileLease([ingress.fileId]);
+  const source = bridgeStoredAttachmentPreparation(
+    ingress,
+    lease.resolved[0].source.path,
+  );
+  const files = createWorkflowPreparedStoredFiles();
+  let adapterOwnsPreparedFiles = false;
+  let consumeLease = false;
+  let hasPrimaryError = false;
+  let cleanupError: unknown;
+  let primaryError: unknown;
+  let result;
+  try {
+    result = await (async () => {
+      const preparedFile = await files.prepareStoredAttachment(source);
+      const canonicalInput = bridgeStoredAttachmentCanonicalInput(
+        ingress,
+        source,
+        preparedFile,
+      ) as BridgeStoredAttachmentCanonicalExecuteInput;
+      const replay = await lookupTrustedStoredAttachmentMutation<JsonObject>({
+        scope: HOST_BRIDGE_MUTATION_CALLER_SCOPE,
+        operationId: ingress.operationId,
+        operation: ingress.operation,
+        nonResourceSemanticInput:
+          bridgeStoredAttachmentNonResourceSemanticInput(ingress, source),
+        completeSemanticInput: bridgeStoredAttachmentCompleteSemanticInput(
+          ingress,
+          canonicalInput,
+        ),
+      });
+      if (replay.state !== "missing") {
+        consumeLease = consumesBridgeUpload(replay.result);
+        return projectCanonicalMutationExecution(replay.result);
+      }
+
+      adapterOwnsPreparedFiles = true;
+      const response = await executeHostBridgeCanonicalMutation({
+        broker: resolveCapabilityBroker(context),
+        request: canonicalInput,
+        control: context.control,
+        resources: {
+          deferredStoredAttachment: {
+            async prepare() {
+              await files.preparedFiles.resolveStoredAttachment(preparedFile);
+              return preparedFile;
+            },
+          },
+          preparedFiles: files.preparedFiles,
+        },
+        ...(context.approveMutation
+          ? { approve: context.approveMutation }
+          : {}),
+        ...(context.canonicalMutationControl
+          ? { mutationControl: context.canonicalMutationControl }
+          : {}),
+      });
+      consumeLease = consumesBridgeUpload(response);
+      return projectCanonicalMutationExecution(response);
+    })();
+  } catch (error) {
+    hasPrimaryError = true;
+    primaryError = error;
+  } finally {
+    if (!adapterOwnsPreparedFiles) {
+      try {
+        await files.preparedFiles.dispose();
+      } catch (error) {
+        cleanupError = error;
+      }
+    }
+    releaseHostBridgeUploadedFileLease(lease.leaseId, consumeLease);
+  }
+  if (hasPrimaryError) throw primaryError;
+  if (cleanupError !== undefined) throw cleanupError;
+  return result!;
+}
+
+async function projectCanonicalMutationExecution(
+  execution: MutationExecutionResult<Record<string, unknown>>,
+) {
+  if (execution.outcome !== "committed" && execution.outcome !== "unchanged") {
+    return execution;
+  }
+  const result = asObject(execution.result);
+  if (!isCanonicalAttachmentDetail(result.attachment)) return execution;
+  const [attachment] = await toBridgeCanonicalAttachmentDescriptors([
+    result.attachment,
+  ]);
+  return {
+    ...execution,
+    result: {
+      ...result,
+      attachment,
+    },
+  };
+}
+
+async function getCanonicalMutationOperation(
+  input: unknown,
+  context: HostBridgeCapabilityContext,
+) {
+  const observation = await resolveCapabilityBroker(
+    context,
+  ).mutations.getOperation(
+    { operationId: asObject(input).operationId as string },
+    HOST_BRIDGE_MUTATION_CALLER_SCOPE,
+  );
+  return projectCanonicalMutationObservation(observation);
+}
+
+export const CANONICAL_MUTATION_PROJECTION_NAMES = [
+  "item.create",
+  "item.updateMetadata",
+  "item.changeType",
+  "item.remove",
+  "item.updateTags",
+  "item.addRelated",
+  "item.removeRelated",
+  "collection.create",
+  "collection.update",
+  "collection.updateMembership",
+  "collection.remove",
+  "notes.create",
+  "notes.updateContent",
+  "notes.remove",
+  "notes.upsertPayload",
+  "attachments.create",
+  "attachments.updateMetadata",
+  "attachments.replaceFile",
+  "attachments.move",
+  "attachments.remove",
+  "statusTags.transition",
+  "trash.setItemsState",
+  "literature.ingest",
+  "managed_note.write_custom",
+  "managed_note.write_conversation",
+  "literature_artifact.upsert_digest",
+  "literature_artifact.upsert_references",
+  "literature_artifact.upsert_citation_analysis",
+  "literature_artifact.upsert_score",
+] as const satisfies readonly MutationOperation[];
+
+export function isCanonicalMutationProjectionCapability(
+  name: string,
+): name is MutationOperation {
+  return (CANONICAL_MUTATION_PROJECTION_NAMES as readonly string[]).includes(
+    name,
+  );
 }
 
 function capability(
@@ -1494,7 +2147,7 @@ async function debugStatus(
   const object = asObject(input);
   const [taskRuntime, acpSkillRunStore] = await Promise.all([
     import("./taskRuntime"),
-    import("./acpSkillRunStore"),
+    import("./acp/skillRun/acpSkillRunStore"),
   ]);
   const { listActiveWorkflowTaskSummaries, listWorkflowTasks } = taskRuntime;
   const { listAcpSkillRunSummaries } = acpSkillRunStore;
@@ -1535,10 +2188,7 @@ async function debugStatus(
 
 async function debugPersistenceSnapshot(input: unknown) {
   const object = asObject(input);
-  const [usage, integrity] = await Promise.all([
-    scanRuntimePersistenceUsage(),
-    scanPersistenceIntegrity(),
-  ]);
+  const { usage, integrity } = await scanRuntimePersistenceGovernance();
   return debugEnvelope("host_bridge.debug.persistence.snapshot.v1", object, {
     usage: redactLocalPaths(usage, object.includeLocalPaths === true),
     integrity: redactLocalPaths(integrity, object.includeLocalPaths === true),
@@ -1551,7 +2201,7 @@ async function debugTasksSnapshot(input: unknown) {
   const limit = debugLimit(object);
   const [taskRuntime, acpSkillRunStore] = await Promise.all([
     import("./taskRuntime"),
-    import("./acpSkillRunStore"),
+    import("./acp/skillRun/acpSkillRunStore"),
   ]);
   const { listActiveWorkflowTaskSummaries, listWorkflowTasks } = taskRuntime;
   const { listAcpSkillRunSummaries } = acpSkillRunStore;
@@ -1579,7 +2229,7 @@ async function debugSkillRunnerConnectionsSnapshot(input: unknown) {
   ) {
     const object = asObject(input);
     const { getSkillRunnerConnectionGovernorSnapshot } =
-      await import("./skillRunnerConnectionAudit");
+      await import("./skillRunner/connection/skillRunnerConnectionAudit");
     return debugEnvelope(
       "host_bridge.debug.skillrunner.connections.snapshot.v1",
       object,
@@ -1769,27 +2419,49 @@ async function resolveDirectResearchBundleApplication(
       async resolveItems(selectors) {
         const papers = [];
         for (const selector of selectors) {
-          const detail = await getLegacyZoteroItemDetail(
+          const detail = await broker.library.getItemDetail(
             normalizeHostBridgeItemRef(selector),
+            context.control,
           );
-          if (!detail) continue;
-          const attachments = await getLegacyZoteroItemAttachments({
-            key: detail.key,
-            libraryId: detail.libraryId,
-          });
+          if (detail.kind !== "regular") {
+            throw new ZoteroHostCapabilityError(
+              "invalid_ref",
+              "Expected a regular item",
+              {
+                kind: "item",
+                reason: "wrong_kind",
+              },
+            );
+          }
+          const item = detail.item;
+          const attachments: AttachmentDetailDto[] = [];
+          let cursor: string | undefined;
+          do {
+            const page = await broker.library.getItemAttachments(
+              item.ref,
+              { limit: 100, ...(cursor ? { cursor } : {}) },
+              context.control,
+            );
+            attachments.push(...page.attachments);
+            cursor = page.hasMore ? (page.nextCursor ?? undefined) : undefined;
+          } while (cursor);
           papers.push({
-            paperRef: `${detail.libraryId}:${detail.key}`,
-            libraryId: detail.libraryId,
-            itemKey: detail.key,
-            title: detail.title,
-            metadata: detail,
-            attachments: attachments
-              .filter((attachment) => String(attachment.path || "").trim())
-              .map((attachment) => ({
-                path: attachment.path,
-                filename: attachment.filename,
-                contentType: attachment.contentType,
-              })),
+            paperRef: `${item.ref.libraryId}:${item.ref.key}`,
+            libraryId: item.ref.libraryId,
+            itemKey: item.ref.key,
+            title: item.title,
+            metadata: item,
+            attachments: attachments.flatMap((attachment) =>
+              attachment.file.state === "available"
+                ? [
+                    {
+                      path: attachment.file.path,
+                      filename: attachment.filename || "",
+                      contentType: attachment.contentType || "",
+                    },
+                  ]
+                : [],
+            ),
           });
         }
         return papers;
@@ -1913,17 +2585,9 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
   capability("context.get_current_view", (_input, context) =>
     bridgeCurrentView(context),
   ),
-  capability("context.get_selected_items", (_input, context) => {
-    const items = bridgeSelectedItems(context);
-    return {
-      items,
-      nextCursor: null,
-      hasMore: false,
-      returned: items.length,
-      total: items.length,
-      limit: items.length,
-    };
-  }),
+  capability("context.get_selected_items", (input, context) =>
+    bridgeSelectedItems(input, context),
+  ),
   capability("library.search_items", async (input, context) => {
     const page = await bridgeLibraryItems(
       context,
@@ -1945,99 +2609,82 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     resolveCapabilityBroker(context).library.syncSnapshot(
       librarySnapshotArgsFromInput(input),
       { ownerId: `host-bridge:${context.connectionMode}` },
+      context.control,
     ),
   ),
   capability("library.readiness_audit", (input, context) =>
     resolveCapabilityBroker(context).library.readinessAudit(
       libraryListArgsFromInput(input),
+      context.control,
     ),
   ),
-  capability(
-    "library.get_item_detail",
-    (input, context) =>
-      injectedLegacyReadProjection(context)?.library.getItemDetail(
-        itemRefFromInput(input),
-      ) || getLegacyZoteroItemDetail(itemRefFromInput(input)),
-  ),
-  capability("library.get_item_notes", async (input, context) => {
+  capability("library.list_saved_searches", (input, context) => {
     const object = asObject(input);
-    const notes = [];
-    const sourceLimit = 100;
-    for (let cursor = 0; ; cursor += sourceLimit) {
-      const batch = await (injectedLegacyReadProjection(
-        context,
-      )?.library.getItemNotes(itemRefFromInput(input), {
-        ...object,
-        cursor,
-        limit: sourceLimit,
-      }) ||
-        getLegacyZoteroItemNotes(itemRefFromInput(input), {
-          ...object,
-          cursor,
-          limit: sourceLimit,
-        }));
-      notes.push(...batch);
-      if (batch.length < sourceLimit) break;
-    }
-    return paginateCapabilityRows({
-      scope: "library item notes",
-      section: "items",
-      input: object,
-      rows: notes,
-    });
+    return resolveCapabilityBroker(context).library.listSavedSearches(
+      {
+        ...readPageRequest(input),
+        ...(object.libraryId === undefined
+          ? {}
+          : { libraryId: Number(object.libraryId) }),
+      },
+      context.control,
+    );
   }),
-  capability(
-    "library.get_note_detail",
-    (input, context) =>
-      injectedLegacyReadProjection(context)?.library.getNoteDetail(
-        itemRefFromInput(input),
-        asObject(input) as ZoteroHostNoteDetailArgs,
-      ) ||
-      getLegacyZoteroNoteDetail(
-        itemRefFromInput(input),
-        asObject(input) as ZoteroHostNoteDetailArgs,
-      ),
+  capability("library.get_item_detail", async (input, context) => {
+    const detail = await resolveCapabilityBroker(context).library.getItemDetail(
+      itemRefFromInput(input),
+      context.control,
+    );
+    return detail.kind === "attachment"
+      ? {
+          kind: detail.kind,
+          item: (
+            await toBridgeCanonicalAttachmentDescriptors([detail.item])
+          )[0],
+        }
+      : detail;
+  }),
+  capability("library.get_item_notes", (input, context) =>
+    resolveCapabilityBroker(context).library.getItemNotes(
+      itemRefFromInput(input),
+      readPageRequest(input),
+      context.control,
+    ),
   ),
-  capability("library.list_note_payloads", async (input, context) =>
-    paginateCapabilityRows({
-      scope: "library note payloads",
-      section: "payloads",
-      input: asObject(input),
-      rows: await (injectedLegacyReadProjection(
-        context,
-      )?.library.listNotePayloads(itemRefFromInput(input)) ||
-        listLegacyZoteroNotePayloads(itemRefFromInput(input))),
-    }),
+  capability("library.get_note_detail", async (input, context) => {
+    const object = asObject(input);
+    const detail = await resolveCapabilityBroker(context).library.getNoteDetail(
+      itemRefFromInput(input),
+      { format: object.format === "html" ? "html" : "text" },
+      context.control,
+    );
+    if (detail.kind === "managed") return detail;
+    const { text, ...window } = chunkHostBridgeText(detail.content, object);
+    return { ...detail, content: text, ...window };
+  }),
+  capability("library.list_note_payloads", (input, context) =>
+    resolveCapabilityBroker(context).library.listNotePayloads(
+      itemRefFromInput(input),
+      readPageRequest(input),
+      context.control,
+    ),
   ),
-  capability(
-    "library.get_note_payload",
-    (input, context) =>
-      injectedLegacyReadProjection(context)?.library.getNotePayload(
-        itemRefFromInput(input),
-        asObject(input) as ZoteroHostNotePayloadDetailArgs,
-      ) ||
-      getLegacyZoteroNotePayload(
-        itemRefFromInput(input),
-        asObject(input) as ZoteroHostNotePayloadDetailArgs,
-      ),
+  capability("library.get_note_payload", (input, context) =>
+    resolveCapabilityBroker(context).library.getNotePayload(
+      itemRefFromInput(input),
+      { payloadType: String(asObject(input).payloadType || "") },
+      context.control,
+    ),
   ),
-  capability("library.get_item_attachments", async (input, context) =>
-    paginateCapabilityRows({
-      scope: "library item attachments",
-      section: "attachments",
-      input: asObject(input),
-      rows: await toBridgeAttachmentDescriptorsWithContext(input, context),
-    }),
+  capability("library.get_item_attachments", (input, context) =>
+    toBridgeAttachmentDescriptorsWithContext(input, context),
   ),
-  capability("library.list_annotations", async (input, context) =>
-    paginateCapabilityRows({
-      scope: "library annotation list",
-      section: "annotations",
-      input: asObject(input),
-      rows: await resolveCapabilityBroker(context).library.listAnnotations(
-        itemRefFromInput(input),
-      ),
-    }),
+  capability("library.list_annotations", (input, context) =>
+    resolveCapabilityBroker(context).library.listAnnotations(
+      itemRefFromInput(input),
+      readPageRequest(input),
+      context.control,
+    ),
   ),
   capability("library.export_annotations", async (input, context) => {
     const object = asObject(input);
@@ -2046,6 +2693,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     ).library.exportAnnotations(
       itemRefFromInput(input),
       object as { format?: string },
+      context.control,
     );
     const format = String(exported.format || "markdown");
     const content =
@@ -2127,12 +2775,12 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     }
     return { productId: product.productId, removed: true };
   }),
-  capability("mutation.preview", (input, context) =>
-    resolveCapabilityBroker(context).legacyMutations.preview(
-      normalizeHostBridgeMutationRequest(input),
+  ...CANONICAL_MUTATION_PROJECTION_NAMES.map((operation) =>
+    capability(operation, (input, context) =>
+      executeMutationWithBridgeProjection(operation, input, context),
     ),
   ),
-  capability("mutation.execute", executeMutationWithBridgeProjection),
+  capability("mutation.get_operation", getCanonicalMutationOperation),
   capability("diagnostic.get_status", (_input, context) => context.getStatus()),
   debugCapability("debug.status", debugStatus),
   debugCapability("debug.persistence.snapshot", debugPersistenceSnapshot),
@@ -2144,7 +2792,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
   debugCapability("debug.acpSkillRun.reapplyResult", async (input) => {
     const object = asObject(input);
     const { reapplyAcpSkillRunResult } =
-      await import("./acpSkillRunnerOrchestrator");
+      await import("./acp/skillRun/acpSkillRunnerOrchestrator");
     return reapplyAcpSkillRunResult({
       requestId: object.requestId as string | undefined,
       runId: object.runId as string | undefined,
@@ -2251,6 +2899,27 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
   ),
   synthesisCapability("topics.get_review_input", "getReviewInput"),
   synthesisCapability("insights.get_attention_queue", "getAttentionQueue"),
+  capability("navigation.focus_zotero", (input, context) =>
+    bridgeNavigation("navigation.focus_zotero", input, context),
+  ),
+  capability("navigation.select_library_view", (input, context) =>
+    bridgeNavigation("navigation.select_library_view", input, context),
+  ),
+  capability("navigation.select_collection", (input, context) =>
+    bridgeNavigation("navigation.select_collection", input, context),
+  ),
+  capability("navigation.select_saved_search", (input, context) =>
+    bridgeNavigation("navigation.select_saved_search", input, context),
+  ),
+  capability("navigation.reveal_items", (input, context) =>
+    bridgeNavigation("navigation.reveal_items", input, context),
+  ),
+  capability("navigation.open_item", (input, context) =>
+    bridgeNavigation("navigation.open_item", input, context),
+  ),
+  capability("navigation.open_reader_location", (input, context) =>
+    bridgeNavigation("navigation.open_reader_location", input, context),
+  ),
 ];
 
 const CAPABILITY_BY_NAME = new Map<string, HostBridgeCapabilityDefinition>(

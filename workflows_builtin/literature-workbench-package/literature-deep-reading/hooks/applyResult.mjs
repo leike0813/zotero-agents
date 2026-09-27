@@ -3,19 +3,20 @@ import {
   basenamePath,
   normalizePathForCompare,
   resolveDeepReadingHtmlPathFromSourcePath,
-  resolveSourcePathFromRequest,
 } from "../../lib/deepReadingResultTarget.mjs";
 import {
   appendSkillDiagnosticsToResult,
   collectSkillOutputDiagnostics,
 } from "../../lib/resultOutput.mjs";
-import { requireHostApi, withPackageRuntimeScope } from "../../lib/runtime.mjs";
-import { collectStatusTransitionDiagnostics } from "../../lib/statusTransition.mjs";
-import { findLinkedAttachmentForPath } from "../../lib/translatorArtifacts.mjs";
 import {
   portableItemRef,
-  requireCommittedMutation,
+  requireHostApi,
+  resolveAttachmentPath,
+  withPackageRuntimeScope,
 } from "../../lib/runtime.mjs";
+import { collectStatusTransitionDiagnostics } from "../../lib/statusTransition.mjs";
+import { findOutputAttachmentForPath } from "../../lib/translatorArtifacts.mjs";
+import { requireCommittedMutation } from "../../lib/runtime.mjs";
 
 function normalizeString(value) {
   return String(value || "").trim();
@@ -129,7 +130,8 @@ async function applyResultImpl({
   const hostApi = requireHostApi(runtime);
   const parentRef = portableItemRef(parent);
   const parentDetail = await hostApi.library.getItemDetail(parentRef);
-  if (!parentDetail || parentDetail.kind !== "regular") throw new Error("deep-reading parent is unavailable");
+  if (!parentDetail || parentDetail.kind !== "regular")
+    throw new Error("deep-reading parent is unavailable");
   const parentItem = parentDetail.item;
   const diagnostics = [];
   const result = await readResultJson({ bundleReader, resultContext });
@@ -162,7 +164,13 @@ async function applyResultImpl({
     });
   }
 
-  const sourcePath = resolveSourcePathFromRequest(request);
+  const sourceAttachmentRef = request?.sourceAttachmentRefs?.[0];
+  if (!sourceAttachmentRef) {
+    throw new Error(
+      "literature-deep-reading applyResult requires one source attachment ref",
+    );
+  }
+  const sourcePath = await resolveAttachmentPath(sourceAttachmentRef, runtime);
   const htmlPath = resolveDeepReadingHtmlPathFromSourcePath(sourcePath);
   if (!htmlPath) {
     throw new Error(
@@ -172,18 +180,30 @@ async function applyResultImpl({
   await hostApi.file.writeText(htmlPath, htmlResolved.text);
 
   const attachmentTitle = sanitizeFileNameSegment(basenamePath(htmlPath));
-  let attachment = await findLinkedAttachmentForPath(
+  let attachment = await findOutputAttachmentForPath(
     parentItem,
     htmlPath,
     runtime,
   );
-  if (!attachment) {
-    attachment = requireCommittedMutation(await hostApi.attachments.create({
-      operationId: `deep-reading:attachment:${Date.now().toString(36)}`,
-      placement: { kind: "child", parentRef },
-      source: { kind: "linked_file", path: htmlPath },
-      metadata: { title: attachmentTitle, contentType: "text/html" },
+  const source = {
+    kind: "stored_file",
+    main: { source: { kind: "local_path", path: htmlPath } },
+  };
+  if (attachment?.linkMode === "stored_file") {
+    attachment = requireCommittedMutation(await hostApi.attachments.replaceFile({
+      operationId: `deep-reading:replace:${Date.now().toString(36)}:${Math.random().toString(36).slice(2)}`,
+      attachmentRef: attachment.ref,
+      source,
     })).attachment;
+  } else if (!attachment) {
+    attachment = requireCommittedMutation(
+      await hostApi.attachments.create({
+        operationId: `deep-reading:attachment:${Date.now().toString(36)}`,
+        placement: { kind: "child", parentRef },
+        source,
+        metadata: { title: attachmentTitle, contentType: "text/html" },
+      }),
+    ).attachment;
   }
 
   const statusWarnings = [];

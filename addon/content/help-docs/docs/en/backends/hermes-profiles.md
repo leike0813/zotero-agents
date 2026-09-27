@@ -52,7 +52,7 @@ Refer to the [Hermes documentation](https://github.com/anomalyco/hermes) for ful
 The profile ships with a Host Bridge connection template at `assets/host-bridge/profile.example.json`. You need to provide the actual endpoint and token:
 
 1. Open Zotero → Settings → Zotero Agents → Host Bridge
-2. Click **Start / Show Endpoint** to ensure the bridge is running and note the endpoint URL (e.g., `http://127.0.0.1:26570/bridge/v1`)
+2. Click **Start / Show Endpoint** to ensure the bridge is running and note the endpoint URL (e.g., `http://127.0.0.1:26570/bridge/v2`)
 3. Click **Copy Master Token** (or use the session token shown in the panel)
 4. Set the token as an environment variable:
 
@@ -67,7 +67,7 @@ $env:ZOTERO_BRIDGE_TOKEN = "<your-token>"
 5. For remote/LAN access, include the endpoint directly:
 
 ```bash
-export ZOTERO_BRIDGE_ENDPOINT="http://127.0.0.1:26570/bridge/v1"
+export ZOTERO_BRIDGE_ENDPOINT="http://127.0.0.1:26570/bridge/v2"
 ```
 
 The profile template uses `auth.tokenEnv: "ZOTERO_BRIDGE_TOKEN"`, so the CLI picks up the token from the environment automatically. See [Host Bridge Configuration](#doc/backends%2Fhost-bridge) for detailed endpoint, token, and profile file documentation.

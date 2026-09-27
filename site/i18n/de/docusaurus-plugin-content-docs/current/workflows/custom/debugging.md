@@ -98,7 +98,7 @@ Wenn `applyResult` `hostApi.mutations.execute()` verwendet, dies aber nicht wirk
 
 ```js
 hostApi.notifications.toast({
-  text: `buildRequest hat ${selectionContext.items.parents.length} übergeordnete Einträge erhalten`,
+  text: `buildRequest hat ${selectionContext.items.filter((item) => item.kind === "parent").length} übergeordnete Einträge erhalten`,
   type: "default",
 });
 ```

@@ -107,7 +107,7 @@ when the MCP server preference is enabled.
 
 - **WHEN** the embedded MCP route is enabled
 - **THEN** `POST /mcp` SHALL be served by the same listener and port as
-  `/bridge/v1/*`
+  `/bridge/v2/*`
 - **AND** JSON-RPC behavior SHALL remain unchanged.
 
 #### Scenario: Preference-disabled route
@@ -115,7 +115,7 @@ when the MCP server preference is enabled.
 - **GIVEN** `mcpServer.enabled` is false
 - **WHEN** plugin startup or ACP compatibility asks for MCP
 - **THEN** the MCP descriptor SHALL be unavailable
-- **AND** the unified Host Access listener MAY continue serving `/bridge/v1/*`.
+- **AND** the unified Host Access listener MAY continue serving `/bridge/v2/*`.
 
 #### Scenario: Preference-enabled startup
 

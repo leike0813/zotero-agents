@@ -35,7 +35,7 @@ const FILES: {
   requiredIds: string[];
 }[] = [
   {
-    path: "doc/components/skillrunner-provider-state-machine-ssot.invariants.yaml",
+    path: "docs/components/skillrunner-provider-state-machine-ssot.invariants.yaml",
     requiredIds: [
       "INV-PROV-STATE-SETS",
       "INV-PROV-WRITE-NONTERMINAL-EVENTS",
@@ -54,7 +54,7 @@ const FILES: {
     ],
   },
   {
-    path: "doc/components/skillrunner-provider-global-run-workspace-tabs-ssot.invariants.yaml",
+    path: "docs/components/skillrunner-provider-global-run-workspace-tabs-ssot.invariants.yaml",
     requiredIds: [
       "INV-WS-RUN-DIALOG-SINGLETON",
       "INV-WS-CHAT-SSE-SINGLE-OWNER",
@@ -65,7 +65,7 @@ const FILES: {
     ],
   },
   {
-    path: "doc/components/skillrunner-run-lifecycle-ssot.invariants.yaml",
+    path: "docs/components/skillrunner-run-lifecycle-ssot.invariants.yaml",
     requiredIds: [
       "INV-SR-RUNKEY-LOCAL-SSOT",
       "INV-SR-REQUESTID-ATTACH-NO-REKEY",

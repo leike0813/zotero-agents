@@ -5,7 +5,7 @@ import type {
 import { executeApplyResult } from "../../workflows/runtime";
 import type { ProviderExecutionResult } from "../../providers/contracts";
 import { appendRuntimeLog } from "../runtimeLogManager";
-import { collectSkillRunFeedbackSidecar } from "../skillRunFeedback";
+import { collectSkillRunFeedbackSidecar } from "../skillRunner/run/skillRunFeedback";
 import { openRunResultBundleReader } from "./bundleIO";
 import { createWorkflowResultContext } from "./resultContext";
 
@@ -15,7 +15,12 @@ function normalizeString(value: unknown) {
 
 export async function executeSequenceStepApply(args: {
   workflow: LoadedWorkflow;
-  parent: Zotero.Item | number | string | null;
+  parent:
+    | import("../../workflows/types").PortableItemRef
+    | Zotero.Item
+    | number
+    | string
+    | null;
   request: unknown;
   runResult: Extract<ProviderExecutionResult, { status: "succeeded" }> &
     Record<string, unknown>;

@@ -64,6 +64,7 @@
           "properties": {
             "capability": { "type": "string" },
             "operation": { "type": "string" },
+            "reason": { "type": "string" },
             "trigger": { "type": "string" }
           }
         },

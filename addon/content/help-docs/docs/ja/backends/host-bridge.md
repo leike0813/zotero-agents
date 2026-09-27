@@ -20,7 +20,7 @@ Zoteroプラグインプロセス
       └── Stdin/pipeモード（ACPエージェント統合用）
 ```
 
-プロトコルバージョン：`host-bridge.v2`。`GET /bridge/v1/health`以外のすべてのエンドポイントにはBearer Token認証が必要である。ケイパビリティコントラクトは`host-bridge.capabilities.v2`を使用する。
+プロトコルバージョン：`host-bridge.v2`。`GET /bridge/v2/health`以外のすべてのエンドポイントにはBearer Token認証が必要である。ケイパビリティコントラクトは`host-bridge.capabilities.v2`を使用する。
 
 ## 設定
 
@@ -294,7 +294,7 @@ stdoutは常に正確に1つのJSONオブジェクトを出力する。
 {
   "schema": "zotero-bridge.profile.v1",
   "protocol": "host-bridge.v2",
-  "endpoint": "http://127.0.0.1:26570/bridge/v1",
+  "endpoint": "http://127.0.0.1:26570/bridge/v2",
   "connectionMode": "local",
   "auth": { "type": "bearer", "tokenEnv": "ZOTERO_BRIDGE_TOKEN" }
 }
@@ -470,8 +470,8 @@ ACPエージェントがスキルを実行する際、プラグインは自動�
 2. ポートを固定するか、現在のポートを確認
 3. **マスタートークン**を作成 / コピー
 4. **リモートCLIプロファイルをコピー**をクリックして完全な接続設定を取得
-5. リモートマシンで`endpoint`（`http://<LAN_IP>:<port>/bridge/v1`）とトークンを設定
-6. テスト：`zotero-bridge status --endpoint http://<LAN_IP>:<port>/bridge/v1`
+5. リモートマシンで`endpoint`（`http://<LAN_IP>:<port>/bridge/v2`）とトークンを設定
+6. テスト：`zotero-bridge status --endpoint http://<LAN_IP>:<port>/bridge/v2`
 
 **重要：** LANモードはループバック保護をバイパスする。信頼されたローカルネットワークでのみ使用されたい。
 

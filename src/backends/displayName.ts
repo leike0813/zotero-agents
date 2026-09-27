@@ -1,7 +1,7 @@
 import {
   MANAGED_LOCAL_BACKEND_ID,
   normalizeManagedLocalBackendId,
-} from "../modules/skillRunnerLocalRuntimeConstants";
+} from "./identity";
 import { resolveManagedLocalBackendDisplayNameText } from "../utils/localizationGovernance";
 
 export function resolveBackendDisplayName(

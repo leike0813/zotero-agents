@@ -3,12 +3,13 @@ import { fileURLToPath } from "url";
 import {
   literatureDigestBundlePath,
   startMockSkillRunnerServer,
-} from "../test/mock-skillrunner/server";
+} from "../tests/mock-skillrunner/server";
 
 type CliOptions = {
   host: string;
   port: number;
   pollDelayMs: number;
+  handshakeDelayMs: number;
   bundlePath: string;
 };
 
@@ -30,6 +31,7 @@ function parseArgs(rootDir: string): CliOptions {
     host: "127.0.0.1",
     port: 18030,
     pollDelayMs: 50,
+    handshakeDelayMs: 0,
     bundlePath: literatureDigestBundlePath(rootDir),
   };
 
@@ -52,6 +54,11 @@ function parseArgs(rootDir: string): CliOptions {
       i += 1;
       continue;
     }
+    if (arg === "--handshake-delay" && next) {
+      defaults.handshakeDelayMs = parseNumber(next, defaults.handshakeDelayMs);
+      i += 1;
+      continue;
+    }
     if (arg === "--bundle" && next) {
       defaults.bundlePath = path.resolve(next);
       i += 1;
@@ -71,6 +78,7 @@ async function main() {
     host: options.host,
     port: options.port,
     pollDelayMs: options.pollDelayMs,
+    handshakeDelayMs: options.handshakeDelayMs,
   });
 
   console.log("mock skillrunner started");

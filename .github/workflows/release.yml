@@ -14,7 +14,7 @@ env:
   HOST_BRIDGE_CLI_PREBUILD_BRANCH: host-bridge-cli-prebuilds
 
 jobs:
-  create-release:
+  prepare-release:
     runs-on: ubuntu-latest
     env:
       GITHUB_TOKEN: ${{ secrets.RELEASE_PAT || github.token }}
@@ -22,13 +22,15 @@ jobs:
     steps:
       - name: Setup JS
         uses: zotero-plugin-dev/workflows/setup-js@main
+        with:
+          node-version: 24
 
       - name: Initialize content submodules
-        run: git submodule update --init
+        run: git submodule update --init skills_builtin
 
       - name: Restore exact Host Bridge CLI prebuild set
         run: |
-          aggregate="$(jq -r .binaryAggregateSha256 cli/zotero-bridge/release.json)"
+          aggregate="$(jq -r .binaryAggregateSha256 releases/host-bridge/cli-release.json)"
           npm run sync:host-bridge-cli-prebuilds -- \
             --aggregate="$aggregate" \
             --branch="${HOST_BRIDGE_CLI_PREBUILD_BRANCH}"
@@ -78,9 +80,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          release_id="$(jq -r .releaseSetId host-bridge/release-set.json)"
-          test "$(jq -r .status host-bridge/latest-complete-release-receipt.json)" = "complete"
-          test "$(jq -r .releaseSetId host-bridge/latest-complete-release-receipt.json)" = "$release_id"
+          release_id="$(jq -r .releaseSetId releases/host-bridge/release-set.json)"
+          test "$(jq -r .status releases/host-bridge/latest-complete-release-receipt.json)" = "complete"
+          test "$(jq -r .releaseSetId releases/host-bridge/latest-complete-release-receipt.json)" = "$release_id"
 
       - name: Run release gate
         run: npm run test:gate:release
@@ -98,7 +100,258 @@ jobs:
         run: npm run check:synthesis-sidecar-runtime-xpi
 
       - name: Verify packaged Host Bridge assets
-        run: npx tsx scripts/check-plugin-host-bridge-assets.ts .scaffold/build/zotero-skills.xpi
+        run: npx tsx scripts/host-bridge/check-plugin-host-bridge-assets.ts .scaffold/build/zotero-agents.xpi
 
+      - name: Upload immutable release candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-candidate
+          path: .scaffold/build
+
+  release-compatibility-plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      blocking: ${{ steps.plan.outputs.blocking }}
+      e2eBlocking: ${{ steps.plan.outputs.e2eBlocking }}
+      nonblocking: ${{ steps.plan.outputs.nonblocking }}
+    steps:
+      - name: Setup JS
+        uses: zotero-plugin-dev/workflows/setup-js@main
+        with:
+          node-version: 24
+      - name: Resolve release compatibility matrix
+        id: plan
+        shell: bash
+        run: |
+          npx tsx scripts/run-zotero-compatibility-matrix.ts plan --gate release --json > "$RUNNER_TEMP/zotero-compatibility-plan.json"
+          echo "blocking=$(jq -c '{include: [.include[] | select(.blocking and .domain != "e2e")]}' "$RUNNER_TEMP/zotero-compatibility-plan.json")" >> "$GITHUB_OUTPUT"
+          echo "e2eBlocking=$(jq -c '{include: [.include[] | select(.blocking and .domain == "e2e")]}' "$RUNNER_TEMP/zotero-compatibility-plan.json")" >> "$GITHUB_OUTPUT"
+          echo "nonblocking=$(jq -c '{include: [.include[] | select(.blocking | not)]}' "$RUNNER_TEMP/zotero-compatibility-plan.json")" >> "$GITHUB_OUTPUT"
+
+  release-e2e-candidate:
+    needs: prepare-release
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x64
+            runner: ubuntu-24.04
+          - platform: windows-x64
+            runner: windows-2025
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Setup JS
+        uses: zotero-plugin-dev/workflows/setup-js@main
+        with:
+          node-version: 24
+      - name: Setup Synthesis sidecar toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: nightly-2026-07-25
+      - name: Download immutable release candidate
+        uses: actions/download-artifact@v5
+        with:
+          name: release-candidate
+          path: .scaffold/build
+      - name: Prepare current-source sidecar once
+        env:
+          ZOTERO_COMPAT_LANE: release
+        run: >-
+          npm run test:zotero:compatibility:prepare --
+          --build-root "$GITHUB_WORKSPACE/.scaffold/build"
+      - name: Upload platform E2E candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-e2e-${{ matrix.platform }}
+          path: .scaffold/build
+
+  release-compatibility-blocking:
+    needs:
+      - prepare-release
+      - release-compatibility-plan
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.release-compatibility-plan.outputs.blocking) }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Setup JS
+        uses: zotero-plugin-dev/workflows/setup-js@main
+        with:
+          node-version: 24
+      - name: Download immutable release candidate
+        uses: actions/download-artifact@v5
+        with:
+          name: release-candidate
+          path: .scaffold/build
+      - name: Restore authenticated Zotero archive
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/zotero-host-cache/archives
+          key: zotero-host-${{ matrix.platform }}-${{ matrix.version }}-${{ hashFiles('tests/zotero/compatibility-matrix.json') }}
+      - name: Run blocking release compatibility cell
+        env:
+          ZOTERO_COMPAT_LANE: release
+          ZOTERO_COMPAT_BLOCKING: ${{ matrix.blocking }}
+        shell: bash
+        run: >-
+          npx tsx scripts/run-zotero-compatibility-matrix.ts run
+          --target "${{ matrix.targetId }}"
+          --mode "${{ matrix.mode }}"
+          --suite "${{ matrix.suite || 'lite' }}"
+          --domain "${{ matrix.domain || 'all' }}"
+          --cache-root "${{ runner.temp }}/zotero-host-cache"
+          --runs-root "${{ runner.temp }}/zotero-compat-runs"
+          --build-root "$GITHUB_WORKSPACE/.scaffold/build"
+      - name: Upload blocking compatibility evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-compatibility-${{ matrix.id }}
+          path: ${{ runner.temp }}/zotero-compat-runs
+          if-no-files-found: warn
+          retention-days: 90
+
+  release-compatibility-e2e-blocking:
+    needs:
+      - prepare-release
+      - release-compatibility-plan
+      - release-e2e-candidate
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.release-compatibility-plan.outputs.e2eBlocking) }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Setup JS
+        uses: zotero-plugin-dev/workflows/setup-js@main
+        with:
+          node-version: 24
+      # A promoted E2E cell needs the sidecar staged by the platform candidate.
+      # That job tolerates its own preparation failures, so `needs` still reports
+      # success and this download is what fails the gate instead of silently
+      # skipping it.
+      - name: Download platform E2E candidate
+        uses: actions/download-artifact@v5
+        with:
+          name: release-e2e-${{ matrix.platform }}
+          path: .scaffold/build
+      - name: Restore authenticated Zotero archive
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/zotero-host-cache/archives
+          key: zotero-host-${{ matrix.platform }}-${{ matrix.version }}-${{ hashFiles('tests/zotero/compatibility-matrix.json') }}
+      - name: Run promoted release E2E cell
+        env:
+          ZOTERO_COMPAT_FAMILIES: ${{ join(matrix.families, ',') }}
+          ZOTERO_COMPAT_LANE: ${{ matrix.lane }}
+          ZOTERO_COMPAT_FIXTURE_SCALE: ${{ matrix.fixtureScale }}
+          ZOTERO_COMPAT_BLOCKING: ${{ matrix.blocking }}
+        shell: bash
+        run: >-
+          npx tsx scripts/run-zotero-compatibility-matrix.ts run
+          --target "${{ matrix.targetId }}"
+          --mode "${{ matrix.mode }}"
+          --suite "${{ matrix.suite }}"
+          --domain "${{ matrix.domain }}"
+          --cache-root "${{ runner.temp }}/zotero-host-cache"
+          --runs-root "${{ runner.temp }}/zotero-compat-runs"
+          --build-root "$GITHUB_WORKSPACE/.scaffold/build"
+      - name: Upload promoted E2E evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-compatibility-${{ matrix.id }}
+          path: ${{ runner.temp }}/zotero-compat-runs
+          if-no-files-found: warn
+          retention-days: 90
+
+  release-compatibility-evidence:
+    needs:
+      - prepare-release
+      - release-compatibility-plan
+      - release-e2e-candidate
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.release-compatibility-plan.outputs.nonblocking) }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Setup JS
+        uses: zotero-plugin-dev/workflows/setup-js@main
+        with:
+          node-version: 24
+      - name: Download release candidate
+        if: matrix.domain != 'e2e'
+        uses: actions/download-artifact@v5
+        with:
+          name: release-candidate
+          path: .scaffold/build
+      - name: Download platform E2E candidate
+        if: matrix.domain == 'e2e'
+        uses: actions/download-artifact@v5
+        with:
+          name: release-e2e-${{ matrix.platform }}
+          path: .scaffold/build
+      - name: Restore authenticated Zotero archive
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/zotero-host-cache/archives
+          key: zotero-host-${{ matrix.platform }}-${{ matrix.version }}-${{ hashFiles('tests/zotero/compatibility-matrix.json') }}
+      - name: Run release compatibility evidence cell
+        env:
+          ZOTERO_COMPAT_FAMILIES: ${{ join(matrix.families, ',') }}
+          ZOTERO_COMPAT_LANE: release
+          ZOTERO_COMPAT_FIXTURE_SCALE: ${{ matrix.fixtureScale || 'committed-seed' }}
+          ZOTERO_COMPAT_BLOCKING: ${{ matrix.blocking }}
+        shell: bash
+        run: >-
+          npx tsx scripts/run-zotero-compatibility-matrix.ts run
+          --target "${{ matrix.targetId }}"
+          --mode "${{ matrix.mode }}"
+          --suite "${{ matrix.suite || 'lite' }}"
+          --domain "${{ matrix.domain || 'all' }}"
+          --cache-root "${{ runner.temp }}/zotero-host-cache"
+          --runs-root "${{ runner.temp }}/zotero-compat-runs"
+          --build-root "$GITHUB_WORKSPACE/.scaffold/build"
+      - name: Upload release compatibility evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-compatibility-${{ matrix.id }}
+          path: ${{ runner.temp }}/zotero-compat-runs
+          if-no-files-found: warn
+          retention-days: 90
+
+  create-release:
+    needs:
+      - prepare-release
+      - release-compatibility-blocking
+      - release-compatibility-e2e-blocking
+      - release-compatibility-evidence
+    # `always()` keeps publication reachable while no E2E cell is promoted: an
+    # empty promoted-cell matrix reports `skipped`, which would otherwise skip
+    # the release. Every other prerequisite must still succeed, and a failed
+    # promoted-cell lane never publishes.
+    if: >-
+      always() &&
+      needs.prepare-release.result == 'success' &&
+      needs.release-compatibility-blocking.result == 'success' &&
+      needs.release-compatibility-evidence.result == 'success' &&
+      (needs.release-compatibility-e2e-blocking.result == 'success' ||
+      needs.release-compatibility-e2e-blocking.result == 'skipped')
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.RELEASE_PAT || github.token }}
+      GH_TOKEN: ${{ secrets.RELEASE_PAT || github.token }}
+    steps:
+      - name: Setup JS
+        uses: zotero-plugin-dev/workflows/setup-js@main
+        with:
+          node-version: 24
+      - name: Download verified release candidate
+        uses: actions/download-artifact@v5
+        with:
+          name: release-candidate
+          path: .scaffold/build
       - name: Release plugin
         run: npm run release

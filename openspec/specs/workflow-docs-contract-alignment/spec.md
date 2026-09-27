@@ -6,7 +6,7 @@ Define and maintain implementation-aligned workflow documentation contracts, cov
 
 ### Requirement: Workflow protocol docs SHALL match implemented hook/runtime contract
 
-`doc/components/workflows.md` MUST reflect the currently implemented workflow contract, including supported hook set, request/build strategy behavior, and canonical rendering semantics.
+`docs/components/workflows.md` MUST reflect the currently implemented workflow contract, including supported hook set, request/build strategy behavior, and canonical rendering semantics.
 
 #### Scenario: Hook set alignment
 
@@ -20,7 +20,7 @@ Define and maintain implementation-aligned workflow documentation contracts, cov
 
 ### Requirement: Hook runtime documentation SHALL describe the closed v12 boundary
 
-`doc/components/workflow-hook-helpers.md` MUST describe the current
+`docs/components/workflow-hook-helpers.md` MUST describe the current
 `WorkflowRuntimeContext`, the exact v12 Host projection, and package-local pure
 helper ownership without documenting removed runtime injections.
 

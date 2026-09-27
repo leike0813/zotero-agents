@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/leike0813/zotero-agents/releases"><img src="https://img.shields.io/badge/version-v0.5.0-blue?style=flat-square" alt="v0.5.0" /></a>
-  <img src="https://img.shields.io/badge/Zotero-7|9-CC2936?style=flat-square&logo=zotero&logoColor=white" alt="Zotero 7/9" />
+  <img src="https://img.shields.io/badge/Zotero-7|9|10-CC2936?style=flat-square&logo=zotero&logoColor=white" alt="Zotero 7/9/10" />
   <a href="https://github.com/leike0813/zotero-agents/blob/main/LICENSE"><img src="https://img.shields.io/github/license/leike0813/zotero-agents?style=flat-square" alt="AGPL-3.0" /></a>
   <img src="https://img.shields.io/badge/TypeScript-4.0+-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
 </p>
@@ -88,11 +88,11 @@ Zotero Agents는 Zotero 문헌 컬렉션을 위한 **올인원 에이전트 워�
 
 ### 시스템 요구 사항
 
-- [Zotero 9](https://www.zotero.org/download/) 또는 [Zotero 7](https://www.zotero.org/download/) (버전 ≥ 6.999)
+- [Zotero 10](https://www.zotero.org/download/), [Zotero 9](https://www.zotero.org/download/) 또는 [Zotero 7](https://www.zotero.org/download/) (버전 ≥ 7.0)
 - ACP 백엔드 사용 시: 해당 Agent CLI 도구가 로컬에 설치되어 있어야 함 (`npx` 자동 설치도 가능)
 - Skill-Runner 백엔드 사용 시: [Skill-Runner](https://github.com/leike0813/Skill-Runner) 인스턴스가 배포되어 있어야 함
 
-> **Zotero 버전에 대하여**: 본 플러그인은 Zotero 9에서 개발 및 테스트됩니다. Zotero 8은 이론상 완전 지원 가능합니다 (Zotero 8/9의 플러그인 프레임워크에 큰 변화가 없음). Zotero 7도 이론상 지원 가능하나, 인력 관계로 심층 테스트를 진행하지 않았으며 향후 유지보수 중점은 Zotero 9에 있을 예정입니다. Zotero 7에서 문제 발생 시 [Issues](https://github.com/leike0813/zotero-agents/issues)에 보고해 주십시오.
+> **Zotero 버전 안내**: 이 플러그인은 Zotero 7, 9, 10을 지원합니다. Windows와 Linux에서는 대표 버전인 7.0.32, 9.0.6, 10.0.1을 테스트합니다. macOS의 Zotero 10은 현재 비차단 정식 XPI 스모크 테스트만 증거로 사용하며, 모든 이전 패치 버전을 포괄한다는 뜻은 아닙니다.
 
 ### 백엔드 유형
 
@@ -595,12 +595,12 @@ npm run build        # 프로덕션 빌드
 
 | 문서 | 설명 |
 |------|------|
-| [아키텍처 흐름](doc/architecture-flow.md) | 실행 파이프라인 개요 (Mermaid 흐름도 포함) |
-| [개발 가이드](doc/dev_guide.md) | 핵심 컴포넌트, 설정 모델, 실행 체인 |
-| [워크플로 컴포넌트](doc/components/workflows.md) | 매니페스트 스키마, hook, 입력 필터링, 실행 시맨틱 |
-| [Provider 컴포넌트](doc/components/providers.md) | Provider 계약 시스템, 요청 유형 |
-| [테스트 전략](doc/testing-framework.md) | 이중 실행 환경, lite/full 모드, CI 게이트 |
-| [Synthesis 레이어](doc/synthesis-layer/README.md) | 지식 그래프, 인용 그래프, 개념 지식 베이스의 내부 설계 |
+| [아키텍처 흐름](docs/architecture-flow.md) | 실행 파이프라인 개요 (Mermaid 흐름도 포함) |
+| [개발 가이드](docs/dev_guide.md) | 핵심 컴포넌트, 설정 모델, 실행 체인 |
+| [워크플로 컴포넌트](docs/components/workflows.md) | 매니페스트 스키마, hook, 입력 필터링, 실행 시맨틱 |
+| [Provider 컴포넌트](docs/components/providers.md) | Provider 계약 시스템, 요청 유형 |
+| [테스트 전략](docs/testing-framework.md) | 이중 실행 환경, lite/full 모드, CI 게이트 |
+| [Synthesis 레이어](docs/synthesis-layer/README.md) | 지식 그래프, 인용 그래프, 개념 지식 베이스의 내부 설계 |
 
 </details>
 

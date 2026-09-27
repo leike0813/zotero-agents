@@ -8,6 +8,7 @@ import {
 import { sanitizeFileNameSegment } from "./path.mjs";
 import {
   portableItemRef,
+  readHostPages,
   requireCommittedMutation,
   requireHostApi,
 } from "./runtime.mjs";
@@ -125,7 +126,7 @@ export async function findExistingTranslatorAlignment({
   };
 }
 
-export async function findLinkedAttachmentForPath(
+export async function findOutputAttachmentForPath(
   parentItem,
   targetPath,
   runtime,
@@ -135,11 +136,19 @@ export async function findLinkedAttachmentForPath(
     return null;
   }
   const host = requireHostApi(runtime);
-  for (const attachment of await host.library.getItemAttachments(portableItemRef(parentItem))) {
+  const attachments = await readHostPages({
+    readPage: (page) =>
+      host.library.getItemAttachments(portableItemRef(parentItem), page),
+    getItems: (page) => page.attachments,
+    operation: "translator attachment read",
+  });
+  for (const attachment of attachments) {
     const attachmentPath = attachment.file?.state === "available"
       ? attachment.file.path
       : "";
-    if (normalizePathForCompare(attachmentPath) === normalizedTargetPath) {
+    if (normalizePathForCompare(attachmentPath) === normalizedTargetPath ||
+        (attachment.linkMode === "stored_file" &&
+         attachment.filename === basenamePath(targetPath))) {
       return attachment;
     }
   }
@@ -206,16 +215,30 @@ export async function materializeTranslatorArtifactTexts({
     String(alignmentText || ""),
   );
 
-  let attachment = await findLinkedAttachmentForPath(
+  let attachment = await findOutputAttachmentForPath(
     parentItem,
     paths.markdownPath,
     runtime,
   );
-  if (!attachment) {
+  const source = {
+    kind: "stored_file",
+    main: { source: { kind: "local_path", path: paths.markdownPath } },
+    companions: [{
+      source: { kind: "local_path", path: paths.alignmentPath },
+      targetRelativePath: basenamePath(paths.alignmentPath),
+    }],
+  };
+  if (attachment?.linkMode === "stored_file") {
+    attachment = requireCommittedMutation(await hostApi.attachments.replaceFile({
+      operationId: `translator:replace:${Date.now().toString(36)}:${Math.random().toString(36).slice(2)}`,
+      attachmentRef: attachment.ref,
+      source,
+    })).attachment;
+  } else if (!attachment) {
     attachment = requireCommittedMutation(await hostApi.attachments.create({
       operationId: `translator:attachment:${Date.now().toString(36)}`,
       placement: { kind: "child", parentRef: portableItemRef(parentItem) },
-      source: { kind: "linked_file", path: paths.markdownPath },
+      source,
       metadata: {
         title: sanitizeFileNameSegment(basenamePath(paths.markdownPath)),
         contentType: "text/markdown",

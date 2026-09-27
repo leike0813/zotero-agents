@@ -16,7 +16,7 @@ const profilerModuleBasename = path.basename(
   ".ts",
 );
 const chatDiagnosticAuditModuleBasename = path.basename(
-  "src/modules/acpChatDiagnosticAuditTrail.ts",
+  "src/modules/acp/diagnostics/acpChatDiagnosticAuditTrail.ts",
   ".ts",
 );
 const synthesisSidecarDiagnosticsModuleBasename = path.basename(
@@ -25,6 +25,14 @@ const synthesisSidecarDiagnosticsModuleBasename = path.basename(
 );
 const synthesisSidecarObservabilityModuleBasename = path.basename(
   runtimeDiagnosticsFeatureGroups.synthesisSidecar.exclusiveModules[1],
+  ".ts",
+);
+const citationGraphCrashJournalModuleBasename = path.basename(
+  runtimeDiagnosticsFeatureGroups.citationGraphCrashJournal.exclusiveModules[0],
+  ".ts",
+);
+const citationGraphCrashReporterModuleBasename = path.basename(
+  runtimeDiagnosticsFeatureGroups.citationGraphCrashJournal.exclusiveModules[1],
   ".ts",
 );
 
@@ -70,11 +78,66 @@ export function resetSynthesisSidecarTraceForTests() {}
 const disabledSynthesisSidecarObservabilityModule = `
 export function rebuildSynthesisSidecarTraceContext() { return undefined; }
 export function rebuildSynthesisSidecarObservationEvent() { return undefined; }
+export function safeSynthesisSidecarObservationReason() { return undefined; }
+`;
+
+const disabledCitationGraphCrashJournalModule = `
+export function initializeCitationGraphCrashJournal() { return Promise.resolve(); }
+export function recordCitationGraphCrashJournalPhase() { return Promise.resolve(); }
+export function finishCitationGraphCrashJournal() { return Promise.resolve(); }
+export function readCitationGraphCrashJournal() { return Promise.resolve({ current: null, recent: [] }); }
+`;
+
+const disabledCitationGraphCrashReporterModule = `
+export function reportCitationGraphCrashJournalPhase() {}
 `;
 
 function moduleBasename(modulePath: string) {
   return path.basename(modulePath).replace(/\.(?:js|ts)$/, "");
 }
+
+// The synthesis sidecar dashboard region is a debug-only surface guarded by
+// compile-time gates in dashboardPanelModel/dashboardChromeRenderer. esbuild
+// scans import usage before folding those gated branches away, so the region
+// module must be substituted at resolve time — mirroring the disabled-module
+// pattern of runtimeDiagnosticsSideEffectsPlugin above. Used by both the
+// production dashboard entry and the release-elision check so the check
+// measures the real release artifact.
+const disabledSynthesisSidecarRegionModule = `
+export function findSynthesisSidecarRawTrace() { return null; }
+export function narrowSynthesisSidecarTraceSnapshot() { return null; }
+export function rankSynthesisSidecarTraces() { return []; }
+export function resolveSynthesisSidecarVisibleTraces() { return { visible: [], selected: null }; }
+export function synthesisSidecarEventDepths() { return []; }
+export function synthesisSidecarTraceDetailSignature() { return ""; }
+export function synthesisSidecarTraceOutcome() { return ""; }
+export function synthesisSidecarTraceRootOperation() { return ""; }
+export function synthesisSidecarTraceRowSignature() { return ""; }
+export function SynthesisSidecarRegion() { return null; }
+`;
+
+export const dashboardSynthesisSidecarRegionElisionPlugin: Plugin = {
+  name: "dashboard-synthesis-sidecar-region-elision",
+  setup(build) {
+    const disabled =
+      build.initialOptions.define?.__debug_mode__ === "false" ||
+      build.initialOptions.define?.__synthesis_sidecar_diagnostics_enabled__ ===
+        "false";
+    if (!disabled) return;
+    build.onResolve({ filter: /SynthesisSidecarRegion(?:\.tsx?)?$/ }, () => ({
+      path: "SynthesisSidecarRegion",
+      namespace: "dashboard-synthesis-sidecar-disabled",
+      sideEffects: false,
+    }));
+    build.onLoad(
+      {
+        filter: /^SynthesisSidecarRegion$/,
+        namespace: "dashboard-synthesis-sidecar-disabled",
+      },
+      () => ({ contents: disabledSynthesisSidecarRegionModule, loader: "js" }),
+    );
+  },
+};
 
 export const runtimeDiagnosticsSideEffectsPlugin: Plugin = {
   name: "runtime-diagnostics-side-effects",
@@ -112,6 +175,26 @@ export const runtimeDiagnosticsSideEffectsPlugin: Plugin = {
         ) {
           return {
             path: chatDiagnosticAuditModuleBasename,
+            namespace: "runtime-diagnostics-disabled",
+            sideEffects: false,
+          };
+        }
+        if (
+          debugDisabled &&
+          moduleBasename(args.path) === citationGraphCrashJournalModuleBasename
+        ) {
+          return {
+            path: citationGraphCrashJournalModuleBasename,
+            namespace: "runtime-diagnostics-disabled",
+            sideEffects: false,
+          };
+        }
+        if (
+          debugDisabled &&
+          moduleBasename(args.path) === citationGraphCrashReporterModuleBasename
+        ) {
+          return {
+            path: citationGraphCrashReporterModuleBasename,
             namespace: "runtime-diagnostics-disabled",
             sideEffects: false,
           };
@@ -168,6 +251,26 @@ export const runtimeDiagnosticsSideEffectsPlugin: Plugin = {
       },
       () => ({
         contents: disabledChatDiagnosticAuditModule,
+        loader: "js",
+      }),
+    );
+    build.onLoad(
+      {
+        filter: new RegExp(`^${citationGraphCrashJournalModuleBasename}$`),
+        namespace: "runtime-diagnostics-disabled",
+      },
+      () => ({
+        contents: disabledCitationGraphCrashJournalModule,
+        loader: "js",
+      }),
+    );
+    build.onLoad(
+      {
+        filter: new RegExp(`^${citationGraphCrashReporterModuleBasename}$`),
+        namespace: "runtime-diagnostics-disabled",
+      },
+      () => ({
+        contents: disabledCitationGraphCrashReporterModule,
         loader: "js",
       }),
     );

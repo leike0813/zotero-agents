@@ -30,6 +30,12 @@ export type SynthesisSidecarLaunchConfig = {
   profileId: string;
   libraryId: number;
   profileRuntimeRoot: string;
+  /**
+   * Directory the System E2E test seam shares with the sidecar. It is optional
+   * and set only for such a run, and it lives outside the session root because a
+   * session path is already close to the Windows path limit.
+   */
+  testCheckpointRoot?: string;
   runtimeRootId: string;
   dataRootId: string;
   bundleId: string;
@@ -166,7 +172,12 @@ export function rebuildSynthesisSidecarLaunchConfig(
   value: unknown,
 ): SynthesisSidecarLaunchConfig {
   const record = toSynthesisJsonObject(value, "sidecarLaunchConfig");
-  const { diagnosticsEnabled, startupTrace, ...requiredRecord } = record;
+  const {
+    diagnosticsEnabled,
+    startupTrace,
+    testCheckpointRoot,
+    ...requiredRecord
+  } = record;
   exactKeys(
     requiredRecord,
     [
@@ -266,6 +277,14 @@ export function rebuildSynthesisSidecarLaunchConfig(
       "sidecarLaunchConfig.profileRuntimeRoot",
       { max: 4096 },
     ),
+    ...(typeof testCheckpointRoot === "undefined"
+      ? {}
+      : {
+          testCheckpointRoot: strictAbsolutePath(
+            testCheckpointRoot,
+            "sidecarLaunchConfig.testCheckpointRoot",
+          ),
+        }),
     runtimeRootId: strictHash(
       record.runtimeRootId,
       "sidecarLaunchConfig.runtimeRootId",

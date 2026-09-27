@@ -322,9 +322,21 @@ const mockPanels = {
             kind: "toolGroup",
             expanded: true,
             items: [
-              { name: "pdf.parse", summary: "Zhou 2025.pdf — 14 pages", status: "completed" },
-              { name: "sections.extract", summary: "6 sections detected", status: "completed" },
-              { name: "refs.resolve", summary: "38 references — 12 matched in library", status: "running" },
+              {
+                name: "pdf.parse",
+                summary: "Zhou 2025.pdf — 14 pages",
+                status: "completed",
+              },
+              {
+                name: "sections.extract",
+                summary: "6 sections detected",
+                status: "completed",
+              },
+              {
+                name: "refs.resolve",
+                summary: "38 references — 12 matched in library",
+                status: "running",
+              },
             ],
           },
           {
@@ -1335,7 +1347,9 @@ function newConversationItems() {
 
 function handleNewConversationPick(item) {
   if (!item || item.kind === "mock-new") {
-    toast("Zotero Agent is a preview — conversation creation is not wired yet.");
+    toast(
+      "Zotero Agent is a preview — conversation creation is not wired yet.",
+    );
     return;
   }
   if (item.kind === "backend-new" && item.groupId) {
@@ -1368,7 +1382,10 @@ function renderLaneSwitcher() {
     );
     if (laneAttention(lane) && state.activeLane !== lane) {
       button.appendChild(dot("attention"));
-      button.setAttribute("aria-label", laneLabels[lane] + " — needs attention");
+      button.setAttribute(
+        "aria-label",
+        laneLabels[lane] + " — needs attention",
+      );
     }
     button.addEventListener("click", function () {
       setActiveLane(lane);
@@ -1377,7 +1394,9 @@ function renderLaneSwitcher() {
   });
   nav.onkeydown = function (ev) {
     if (ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
-    const buttons = Array.prototype.slice.call(nav.querySelectorAll(".proto-lane"));
+    const buttons = Array.prototype.slice.call(
+      nav.querySelectorAll(".proto-lane"),
+    );
     const index = buttons.indexOf(document.activeElement);
     if (index < 0) return;
     ev.preventDefault();
@@ -1404,7 +1423,9 @@ function renderSubTabs() {
     tab.setAttribute("role", "tab");
     tab.setAttribute("aria-selected", current === source ? "true" : "false");
     tab.appendChild(el("span", "proto-subtab-label", sourceLabels[source]));
-    tab.appendChild(el("span", "proto-subtab-count", String(sourceCount(source))));
+    tab.appendChild(
+      el("span", "proto-subtab-count", String(sourceCount(source))),
+    );
     if (sourceAttention(source)) {
       tab.appendChild(dot("attention"));
       tab.setAttribute(
@@ -1494,7 +1515,10 @@ function resolveMockPermission(source, ui, outcome) {
   });
   delete owner.permission;
   if (outcome === "approved") {
-    owner.hint = { tone: "success", text: "Permission approved. The run continues." };
+    owner.hint = {
+      tone: "success",
+      text: "Permission approved. The run continues.",
+    };
     owner.statusToken = "active";
     owner.statusLabel = "Running";
     owner.statusTone = "success";
@@ -1642,11 +1666,7 @@ function mockTranscriptRow(item) {
     const icon = el(
       "span",
       "assistant-transcript-permission-icon",
-      item.status === "approved"
-        ? "✓"
-        : item.status === "denied"
-          ? "×"
-          : "!",
+      item.status === "approved" ? "✓" : item.status === "denied" ? "×" : "!",
     );
     icon.setAttribute("aria-hidden", "true");
     body.appendChild(icon);
@@ -1873,17 +1893,13 @@ function mockDetailsDrawer(source, ui) {
   const list = el("div", "assistant-panel-details-list");
   const isChat = mockPanels[source].panelKind === "acp-chat";
   list.appendChild(
-    mockDetailsSection(
-      isChat ? "Conversation" : "Run",
-      owner.statusLabel,
-      [
-        [isChat ? "Session" : "Run", owner.title],
-        ["Runtime", "Zotero Agent (Pi preview)"],
-        ["Model", "Anthropic · Claude Sonnet 4.5"],
-        ["Status", owner.statusLabel],
-        ["Updated", owner.updatedAt],
-      ],
-    ),
+    mockDetailsSection(isChat ? "Conversation" : "Run", owner.statusLabel, [
+      [isChat ? "Session" : "Run", owner.title],
+      ["Runtime", "Zotero Agent (Pi preview)"],
+      ["Model", "Anthropic · Claude Sonnet 4.5"],
+      ["Status", owner.statusLabel],
+      ["Updated", owner.updatedAt],
+    ]),
   );
   list.appendChild(
     mockDetailsSection("Usage", "this " + (isChat ? "conversation" : "run"), [
@@ -2303,11 +2319,7 @@ function mockReplySurface(source, ui) {
   view.appendChild(textarea);
   const footer = el("div", "assistant-panel-reply-footer");
   const primary = el("div", "assistant-panel-reply-primary");
-  const send = el(
-    "button",
-    "asst-button assistant-panel-reply-submit",
-    "Send",
-  );
+  const send = el("button", "asst-button assistant-panel-reply-submit", "Send");
   send.type = "button";
   send.setAttribute("data-assistant-button-tone", "primary");
   if (!owner.replyEnabled) send.disabled = true;
@@ -2396,10 +2408,7 @@ function renderMockPane(source) {
     "assistant-workspace-acp-shell asst-panel-shell assistant-panel-root",
   );
   root.setAttribute("data-role", "root");
-  root.setAttribute(
-    "data-assistant-panel-kind",
-    mockPanels[source].panelKind,
-  );
+  root.setAttribute("data-assistant-panel-kind", mockPanels[source].panelKind);
   const owner = mockOwner(source, ui.selectedOwnerId);
   root.setAttribute("data-assistant-context-id", owner.id);
   root.setAttribute("data-assistant-execution-state", owner.statusToken);

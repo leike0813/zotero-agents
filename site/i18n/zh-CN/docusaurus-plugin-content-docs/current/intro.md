@@ -18,7 +18,7 @@ Zotero Agents 让 Zotero 成为智能体时代的个人研究工作台。它把�
 
 Zotero Agents 的核心价值，是让 Zotero 文献库成为 Agent 可以真正工作的研究环境。每一次阅读、分析、审校和写作准备，都可以沉淀为下一步研究继续使用的知识。
 
-> **支持的 Zotero 版本**：本插件支持 Zotero 7 和 Zotero 9。主要开发与测试在 Zotero 9 上进行。Zotero 8 理论上可完整支持（8/9 插件框架无变化）。Zotero 7 理论上也能运行，但未做深入测试，未来维护重点在 Zotero 9。Zotero 7 用户如遇问题请在 [Issues](https://github.com/leike0813/zotero-agents/issues) 反馈。
+> **支持的 Zotero 版本**：本插件支持 Zotero 7、9 和 10。Windows 与 Linux 固定验证代表版本 7.0.32、9.0.6 和 10.0.1。macOS 上的 Zotero 10 当前只有非阻塞的正式 XPI smoke 证据，不代表覆盖所有历史 patch 版本。
 
 :::tip 提示
 插件安装后**不含任何业务逻辑**。所有 Workflow 均通过独立的**官方 Workflow 包**提供，需要用户在安装插件后手动下载安装。详见[安装指南](/installation)。

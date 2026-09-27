@@ -169,7 +169,7 @@ function resolveTaskLedTone(row: ToolbarTaskRow) {
       className: "zs-workspace-running-popover-led-slate",
       color: "#64748b",
       shadow: "rgba(100, 116, 139, 0.18)",
-      tooltip: localize("task-manager-status-queued", "Queued"),
+      tooltip: localize("task-dashboard-status-queued", "Queued"),
     };
   }
   if (state === "failed") {
@@ -192,7 +192,7 @@ function resolveTaskLedTone(row: ToolbarTaskRow) {
     className: "zs-workspace-running-popover-led-blue",
     color: "#2563eb",
     shadow: "rgba(37, 99, 235, 0.16)",
-    tooltip: localize("task-manager-status-running", "Running"),
+    tooltip: localize("task-dashboard-status-running", "Running"),
   };
 }
 

@@ -2,7 +2,7 @@
 
 ## 适用边界
 
-审阅镜像是三层 agent-facing surface 的中文人工评审视图，不是发布 payload，也不是新的语义事实源。正式英文生成面仍由各自 source renderer 产生；`host-bridge/surfaces.json` 决定层级和组件所有权；`artifact/host-bridge-review/` 只保存译文、索引与来源证明。
+审阅镜像是三层 agent-facing surface 的中文人工评审视图，不是发布 payload，也不是新的语义事实源。正式英文生成面仍由各自 source renderer 产生；`contracts/host-bridge/surfaces.json` 决定层级和组件所有权；`artifacts/host-bridge-review/` 只保存译文、索引与来源证明。
 
 所有权布局如下：
 
@@ -81,4 +81,4 @@ Host Bridge、CLI、Agent、Skill、workflow、surface、release set、approval�
 | `Protected Markdown structure changed` | 恢复对应机器结构，只修改自然语言 |
 | provenance、hash 或 index link mismatch | 不手改机器文件；从空暂存区完整刷新镜像 |
 
-任何失败都不能通过直接改写 `artifact/host-bridge-review/PROVENANCE.json`、降低校验或删除旧正式目录来规避。
+任何失败都不能通过直接改写 `artifacts/host-bridge-review/PROVENANCE.json`、降低校验或删除旧正式目录来规避。

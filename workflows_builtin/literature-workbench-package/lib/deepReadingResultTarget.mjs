@@ -65,40 +65,6 @@ export function resolveDeepReadingHtmlPathFromSourcePath(sourcePath) {
   return joinPath(sourceDir, htmlName);
 }
 
-export async function resolveAttachmentSourcePath(entry, runtime) {
-  void runtime;
-  const candidates = [];
-  candidates.push(
-    entry?.filePath,
-    entry?.path,
-    entry?.item?.filePath,
-    entry?.item?.data?.path,
-  );
-  return normalizeString(
-    candidates.find((candidate) => normalizeString(candidate)),
-  );
-}
-
-export function resolveSourcePathFromRequest(request) {
-  const root = request && typeof request === "object" ? request : {};
-  const context =
-    root.context && typeof root.context === "object" ? root.context : {};
-  const manifest =
-    context.source_manifest && typeof context.source_manifest === "object"
-      ? context.source_manifest
-      : {};
-  const source =
-    manifest.source && typeof manifest.source === "object" ? manifest.source : {};
-  const fromList = Array.isArray(root.sourceAttachmentPaths)
-    ? normalizeString(root.sourceAttachmentPaths[0])
-    : "";
-  return (
-    normalizeString(source.path) ||
-    normalizeString(context.source_attachment_path) ||
-    fromList
-  );
-}
-
 export function normalizePathForCompare(targetPath) {
   return normalizeString(targetPath)
     .replace(/^file:\/\/+/, "")

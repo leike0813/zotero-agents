@@ -20,8 +20,8 @@ import {
   assertSkillRunnerBackendSupportsProtocol,
   resolveRequiredSkillRunnerProtocolForExecution,
   resolveSkillRunnerBackendCapabilities,
-} from "../../modules/skillRunnerHandshake";
-import { listSupportedSkillRunnerProtocols } from "../../modules/skillRunnerHandshakeProtocol";
+} from "../../modules/skillRunner/connection/skillRunnerHandshake";
+import { listSupportedSkillRunnerProtocols } from "../../modules/skillRunner/connection/skillRunnerHandshakeProtocol";
 import {
   getDefaultSkillRunnerEngine,
   getSkillRunnerCanonicalProviderId,
@@ -37,10 +37,10 @@ import {
   resolveSkillRunnerModelNameForProvider,
   splitSkillRunnerModelSpec,
 } from "./modelCatalog";
-import { isSkillRunnerInteractiveAutoReplyEnabled } from "../../modules/skillRunnerInteractiveAutoReply";
+import { isSkillRunnerInteractiveAutoReplyEnabled } from "../../modules/skillRunner/run/skillRunnerInteractiveAutoReply";
 import { SkillRunnerClient } from "./client";
 import { SkillRunnerManagementClient } from "./managementClient";
-import { ensureManagedLocalRuntimeForBackend } from "../../modules/skillRunnerLocalRuntimeManager";
+import { ensureManagedLocalRuntimeForBackend } from "../../modules/skillRunner/runtime/skillRunnerLocalRuntimeManager";
 
 function toBackendCatalogScope(backend?: BackendInstance) {
   return backend &&

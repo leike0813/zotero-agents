@@ -4,18 +4,18 @@ import {
   normalizeStatusWithGuard,
   validateTransition,
   type SkillRunnerStateMachineViolation,
-} from "../modules/skillRunnerProviderStateMachine";
+} from "../modules/skillRunner/run/skillRunnerProviderStateMachine";
 import {
   coerceRecoverableSkillRunnerState,
   getSkillRunnerRequestIdFromJob,
   hasRecoverableSkillRunnerRequest,
   isNonRecoverableSkillRunnerFailure,
-} from "../modules/skillRunnerRecoverableState";
-import { settleSkillRunnerRunAsFailed } from "../modules/skillRunnerRunSettlement";
+} from "../modules/skillRunner/run/skillRunnerRecoverableState";
+import { settleSkillRunnerRunAsFailed } from "../modules/skillRunner/run/skillRunnerRunSettlement";
 import {
   applySkillRunnerRunEvent,
   getSkillRunnerRunRecordByRequest,
-} from "../modules/skillRunnerRunStore";
+} from "../modules/skillRunner/run/skillRunnerRunStore";
 
 export type JobState =
   | "queued"

@@ -1,6 +1,6 @@
 import type { BackendInstance } from "../backends/types";
 import type { ProviderExecutionResult } from "./contracts";
-import type { AcpRuntimeSemanticTraceContext } from "../modules/acpRuntimeSemanticTraceRecorder";
+import type { AcpRuntimeSemanticTraceContext } from "../modules/acp/diagnostics/acpRuntimeSemanticTraceRecorder";
 
 export type ProviderProgressEventRequestCreated = {
   type: "request-created";

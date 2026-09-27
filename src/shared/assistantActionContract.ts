@@ -3,11 +3,11 @@
  * action payloads that travel between the shell/child pages and the host.
  *
  * The runtime action vocabulary stays single-sourced in
- * ASSISTANT_WORKSPACE_ACTION_REGISTRY (src/modules/assistantWorkspacePublication.ts,
+ * ASSISTANT_WORKSPACE_ACTION_REGISTRY (src/modules/assistant/publication/assistantWorkspacePublication.ts,
  * delivered to child pages via the surface configuration) and in the
  * out-of-band action constants of assistantWireContract.ts. This file is the
  * type-level mirror describing the payload each action carries;
- * src/modules/assistantWorkspacePublication.ts holds drift guards that fail
+ * src/modules/assistant/publication/assistantWorkspacePublication.ts holds drift guards that fail
  * tsc when the registry and this contract fall out of sync.
  *
  * Field types follow what the current senders emit; host handlers keep their
@@ -38,7 +38,7 @@ export type AssistantWorkspaceEmptyActionPayload = Record<never, never>;
  * Payload shapes per ASSISTANT_WORKSPACE_ACTION_REGISTRY action. Keys must
  * match the registry one-for-one and each entry's keys must match the
  * registry payloadKeys exactly (guarded by type assertions in
- * src/modules/assistantWorkspacePublication.ts).
+ * src/modules/assistant/publication/assistantWorkspacePublication.ts).
  */
 export type AssistantWorkspaceActionPayloadMap = {
   "open-context-drawer": AssistantWorkspaceEmptyActionPayload;
@@ -113,7 +113,7 @@ export type AssistantWorkspaceActionPayloadMap = {
 // SkillRunner run-action payloads
 //
 // These types describe the payload shapes the SkillRunner run-action handler
-// (dispatchRunWorkspaceAction in src/modules/skillRunnerRunDialog.ts)
+// (dispatchRunWorkspaceAction in src/modules/skillRunner/surface/skillRunnerRunDialog.ts)
 // consumes. Payload interfaces keep the legacy open-wire shape (optional keys
 // plus an index signature); host handlers keep their defensive runtime
 // validation. The strict registry payload mirror above stays the SSOT for

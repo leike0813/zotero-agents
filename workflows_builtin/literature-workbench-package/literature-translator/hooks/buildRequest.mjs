@@ -1,65 +1,55 @@
-import { withPackageRuntimeScope } from "../../lib/runtime.mjs";
+import {
+  portableItemRef,
+  resolveAttachmentPath,
+  resolveSelectionParentRef,
+  selectionItems,
+  withPackageRuntimeScope,
+} from "../../lib/runtime.mjs";
 
 function normalizeString(value) {
   return String(value || "").trim();
 }
 
-function collectAttachments(selectionContext) {
-  const attachments = selectionContext?.items?.attachments;
-  return Array.isArray(attachments) ? attachments : [];
-}
-
-function resolveAttachmentPath(entry, runtime) {
-  void runtime;
-  const direct = entry?.filePath || entry?.path || entry?.item?.filePath;
-  const path = normalizeString(direct);
-  if (!path) {
-    throw new Error(
-      "literature-translator buildRequest cannot resolve source attachment path",
-    );
-  }
-  return path;
-}
-
-function resolveSourceAttachmentPath(selectionContext, runtime) {
-  const attachments = collectAttachments(selectionContext);
-  if (attachments.length === 0) {
+function resolveSourceAttachment(selectionContext) {
+  const attachment = selectionItems(selectionContext).find(
+    (item) => item?.kind === "attachment",
+  );
+  if (!attachment?.ref) {
     throw new Error(
       "literature-translator buildRequest requires one source attachment",
     );
   }
-  return resolveAttachmentPath(attachments[0], runtime);
-}
-
-function resolveParentItemFromSelection(selectionContext, runtime) {
-  void runtime;
-  const parent = selectionContext?.items?.parents?.[0]?.item ||
-    selectionContext?.items?.attachments?.[0]?.parent;
-  if (Number(parent?.id) > 0) return parent;
-  throw new Error(
-    "literature-translator buildRequest cannot resolve parent item",
-  );
+  return portableItemRef(attachment.ref);
 }
 
 function resolveWorkflowParams(executionOptions) {
   const workflowParams = executionOptions?.workflowParams || {};
   return {
-    targetLanguage:
-      normalizeString(workflowParams.target_language) || "zh-CN",
+    targetLanguage: normalizeString(workflowParams.target_language) || "zh-CN",
     mode: normalizeString(workflowParams.mode) || "fast",
   };
 }
 
-function buildRequestImpl({ selectionContext, executionOptions, runtime }) {
-  const sourcePath = resolveSourceAttachmentPath(selectionContext, runtime);
-  const parentItem = resolveParentItemFromSelection(selectionContext, runtime);
+async function buildRequestImpl({
+  selectionContext,
+  executionOptions,
+  runtime,
+}) {
+  const sourceAttachmentRef = resolveSourceAttachment(selectionContext);
+  const sourcePath = await resolveAttachmentPath(sourceAttachmentRef, runtime);
+  const targetParentRef = portableItemRef(
+    resolveSelectionParentRef(selectionContext) ||
+      selectionItems(selectionContext).find(
+        (item) => item?.kind === "attachment",
+      )?.parentRef,
+  );
   const params = resolveWorkflowParams(executionOptions);
   return {
     kind: "skillrunner.job.v1",
     skill_id: "literature-translator",
     mode: "auto",
-    sourceAttachmentPaths: [sourcePath],
-    targetParentID: parentItem.id,
+    sourceAttachmentRefs: [sourceAttachmentRef],
+    targetParentRef,
     input: {
       source_path: sourcePath,
     },

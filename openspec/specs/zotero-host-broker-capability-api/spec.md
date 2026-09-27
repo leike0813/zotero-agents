@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change add-zotero-host-broker-capability-api. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: JSON-safe broker read API
 
 The system SHALL expose context, library, and metadata capabilities through the canonical Zotero Host Capability Broker. Public broker inputs, successful DTOs, and structured error details SHALL contain only null, booleans, strings, finite numbers, arrays, and plain objects recursively. They SHALL NOT contain undefined properties, non-finite numbers, bigint, symbols, functions, dates, maps, sets, cyclic structures, or Zotero runtime objects.
@@ -26,40 +28,6 @@ The system SHALL expose context, library, and metadata capabilities through the 
 - **THEN** successful and diagnostic results SHALL contain strict JSON values
 - **AND** all numeric values SHALL be finite
 - **AND** translator runtime objects SHALL NOT be returned.
-
-### Requirement: Controlled mutation command API
-
-The canonical broker SHALL expose limited Zotero write operations through mutation preview and execute operations. The broker SHALL validate and perform these operations without owning caller authorization; each exposed adapter SHALL enforce its declared permission policy before execution.
-
-#### Scenario: Preview validates without writing
-
-- **WHEN** a supported mutation request is previewed
-- **THEN** the broker SHALL validate references and inputs, return a strict JSON summary, and mark confirmation as required
-- **AND** Zotero data SHALL NOT be changed.
-
-#### Scenario: Execute delegates to handlers
-
-- **WHEN** an adapter has authorized a supported mutation and invokes execute
-- **THEN** the broker SHALL reuse the canonical mutation implementation
-- **AND** the result SHALL contain strict JSON changed-object summaries.
-
-#### Scenario: Literature ingest uses canonical operation
-
-- **WHEN** a literature ingest mutation is passed to preview or execute
-- **THEN** the canonical operation SHALL be `literature.ingest`
-- **AND** successful preview and execute responses SHALL report `operation: "literature.ingest"`.
-
-#### Scenario: Legacy and batch literature ingest inputs are rejected
-
-- **WHEN** a mutation request uses `operation: "paper.ingest"` or passes a `papers` batch payload to `operation: "literature.ingest"`
-- **THEN** the broker SHALL reject the mutation with a structured JSON-safe error
-- **AND** Zotero data SHALL NOT be changed.
-
-#### Scenario: Unsupported or invalid mutation
-
-- **WHEN** a mutation has an unsupported operation, invalid reference, invalid field, empty payload, or oversized input
-- **THEN** the broker SHALL reject it with a structured JSON-safe error
-- **AND** Zotero data SHALL NOT be changed.
 
 ### Requirement: Workflow projection is explicit and closed
 
@@ -152,34 +120,6 @@ Host Bridge capability calls SHALL parse HTTP JSON request bodies from raw bytes
 - **WHEN** a Host Bridge request body is not valid UTF-8
 - **THEN** the request SHALL fail with a structured bad-request error
 - **AND** the bridge SHALL NOT pass mojibake text to a capability handler.
-
-### Requirement: Literature ingest may attach landing URL when PDF is missing
-
-`literature.ingest` SHALL support an optional `paper.attachLandingUrlOnMissingPdf`
-boolean. The default SHALL be false.
-
-#### Scenario: Missing PDF creates landing URL attachment when requested
-
-- **WHEN** `literature.ingest` successfully creates or reuses a literature item
-- **AND** `paper.attachLandingUrlOnMissingPdf` is true
-- **AND** the resulting item has no PDF attachment after PDF import handling
-- **AND** `paper.landingUrl` is a non-empty HTTP(S) URL
-- **THEN** the mutation SHALL create or reuse one linked URL child attachment
-  for that landing URL
-- **AND** the ingest result SHALL include `landingAttachmentStatus`.
-
-#### Scenario: Existing PDF suppresses landing URL attachment
-
-- **WHEN** `literature.ingest` successfully creates or reuses a literature item
-- **AND** the resulting item has a PDF attachment
-- **THEN** the mutation SHALL NOT create a landing URL attachment for missing-PDF recovery.
-
-#### Scenario: Landing URL attachment failure is non-fatal
-
-- **WHEN** landing URL attachment creation fails
-- **THEN** the literature item ingest SHALL remain successful
-- **AND** the result SHALL include `landingAttachmentStatus: "failed"` and a
-  structured `landingAttachmentError`.
 
 ### Requirement: Literature ingest SHALL accept a typed bibliographic item payload
 The canonical `literature.ingest` mutation SHALL accept an explicit Zotero item type, item-type-compatible fields, structured creators, normalized identifiers, and source URLs, and SHALL reject the legacy flat paper shape. It SHALL store a normalized DOI in the native Zotero DOI field whenever that field is valid for the selected item type, using `Extra` only when no native DOI field exists.
@@ -332,11 +272,15 @@ Strict-JSON validation SHALL reject non-finite numbers, excessive nesting, exces
 - **THEN** traversal returns completed with canonical empty coverage evidence
 
 ### Requirement: Collection and annotation reads SHALL be complete within their bounds
-Collection pages SHALL use stable identity ordering and expose portable parent identity, revision, active state, and display path. Annotation listing SHALL return all matching annotations within its declared hard bound or fail without returning a truncated complete result.
+Collection and annotation reads SHALL return source-bounded pages in stable order, with a default limit of 25 and a maximum of 100. Collection rows SHALL expose portable parent identity, revision, active state, and display path. Annotation pages SHALL preserve native annotation order with a stable identity tie-breaker. Hydration or serialization failure of any target SHALL fail the entire page rather than return an incomplete successful list.
 
 #### Scenario: Caller builds a collection tree
-- **WHEN** the caller reads all collection pages
-- **THEN** parent references provide enough information to build a tree without a separate tree or child-listing member
+- **WHEN** the caller follows all collection page cursors
+- **THEN** parent references provide enough information to build a tree without a separate tree member or full-library hydration.
+
+#### Scenario: Annotation page continues
+- **WHEN** more annotations remain than fit the requested page
+- **THEN** the result contains a bounded page and opaque continuation, with no full annotation-array fallback.
 
 ### Requirement: Navigation SHALL return normalized target evidence
 Navigation calls SHALL accept portable refs, reject kind mismatches and duplicate selection refs, preserve selection order, and return only the normalized opened target and timestamp. Non-interactive projection behavior remains governed by the shared error contract.
@@ -344,6 +288,7 @@ Navigation calls SHALL accept portable refs, reject kind mismatches and duplicat
 #### Scenario: Selection is opened
 - **WHEN** an interactive caller supplies a bounded ordered set of unique item references
 - **THEN** the Host opens that selection and returns the same normalized reference order
+
 ### Requirement: Broker snapshot sessions SHALL bind immutable read basis
 The Broker SHALL bind each snapshot identity and cursor to the resolved library, scope, schema, stable ordering, captured item set, and process identity. A changed basis, foreign cursor, expired session, or hard-cap violation SHALL fail without returning completed evidence.
 
@@ -357,52 +302,6 @@ The Broker SHALL issue completion evidence only after every item in the captured
 #### Scenario: Callback cancels after receiving a batch
 - **WHEN** a trusted Workflow callback cancels before full delivery
 - **THEN** the terminal result is incomplete and includes no promotion-capable completion evidence
-
-### Requirement: Canonical execute SHALL use a closed eleven-operation union
-
-`mutations.execute` SHALL accept exactly `item.create`, `item.updateMetadata`, `item.changeType`, `item.remove`, `item.updateTags`, `item.addRelated`, `item.removeRelated`, `collection.create`, `collection.update`, `collection.updateMembership`, and `collection.remove`. Each operation SHALL use its own closed request and result mapping; unknown or removed names SHALL fail as `unsupported_operation`.
-
-#### Scenario: Tag state is updated
-
-- **WHEN** a caller submits `item.updateTags` with disjoint bounded add and remove sets
-- **THEN** the Host commits or confirms the complete target tag state in one mutation boundary and returns a unified result envelope
-
-#### Scenario: Collection membership has no delta
-
-- **WHEN** `collection.updateMembership` requests membership already satisfied by current state
-- **THEN** the Host returns a confirmed `unchanged` receipt rather than an empty or unverified success
-
-### Requirement: Canonical preview SHALL cover only three destructive operations
-
-`mutations.preview` SHALL accept exactly `item.changeType`, permanent `item.remove`, and `collection.remove`. It SHALL be read-only, return one complete operation-specific plan and observations, and issue an opaque caller-scoped token required by the corresponding execute request.
-
-#### Scenario: Destructive plan exceeds a hard limit
-
-- **WHEN** a permanent removal plan cannot list every affected child, collection, membership, or managed resource within its fixed limit
-- **THEN** preview fails before mutation and does not return a sampled or truncated plan
-
-#### Scenario: Previewed state changes before execute
-
-- **WHEN** a bound revision, descendant set, membership set, or schema plan differs at execute time
-- **THEN** execute fails with a conflict before any write
-
-### Requirement: Preview tokens SHALL be short-lived plan evidence
-
-Preview tokens SHALL expire fifteen minutes after issuance, bind caller scope, operation, normalized semantic input, plan digest, and observed revisions, and become invalid after Host restart. They SHALL not be authorization, durable identity, single-use reservation, or mutation receipt.
-
-#### Scenario: Equivalent plan receives a new token
-
-- **WHEN** a caller re-previews unchanged state after token expiry
-- **THEN** the new token proves the equivalent plan without causing a false idempotency conflict solely because token bytes changed
-
-### Requirement: Mutation success SHALL use confirmed receipts
-
-Successful accepted operations SHALL return `committed` or `unchanged`, the operation result, and a process-local receipt that binds operation identity, canonical input, actual normalized changes, and effect digest. A receipt SHALL never include local paths, raw Host objects, or unverified intended changes.
-
-#### Scenario: Host confirms existing target state
-
-- **WHEN** the requested state already holds and fresh validation succeeds
-- **THEN** the result is `unchanged` and the receipt records only verified unchanged targets
 
 ### Requirement: Specialized writes SHALL share the mutation authority
 
@@ -441,17 +340,6 @@ Any Host operation whose result commits, verifies, or evidences item tag state S
 #### Scenario: Tag read fails during snapshot serialization
 - **WHEN** an item's tags cannot be read completely while a library sync snapshot item is serialized
 - **THEN** the snapshot fails and no completion evidence covering that item is issued
-
-### Requirement: Mutation admission SHALL reject unsupported operations and retry SHALL form successor attempts
-`mutations.execute` SHALL reject any operation name outside the closed canonical operation set at admission with a stable `unsupported_operation` error before any reservation or write. When a previously recorded terminal failure carries the `retry_same_operation` recovery contract, a retried call with the same operation identity and semantic input SHALL NOT replay the stale failure snapshot; the authority SHALL discard the failed record and execute a fresh successor attempt under the same operation identity. Idempotency conflicts for diverging semantic input and in-flight deduplication for identical running operations SHALL remain unchanged.
-
-#### Scenario: Unknown operation is submitted
-- **WHEN** a caller submits an operation name not in the canonical eleven-operation union
-- **THEN** admission fails with `unsupported_operation` naming the submitted operation and no mutation record or Host write is created
-
-#### Scenario: Retriable failure is retried
-- **WHEN** an operation whose recorded terminal failure has recovery `retry_same_operation` is submitted again with identical semantic input
-- **THEN** the stale failure is discarded and a new attempt executes, producing a fresh terminal result rather than the cached failure
 
 ### Requirement: Attachment mutations SHALL require ordinary-role targets
 `attachments.updateMetadata`, `attachments.replaceFile`, `attachments.move`, and `attachments.remove` SHALL resolve the target attachment's role before writing and SHALL reject targets whose role is `note_image` or `note_payload` with a stable `invalid_ref` error carrying reason `wrong_kind`. Attachment creation role assignment and note-payload write paths SHALL remain governed by their own named interfaces.
@@ -524,17 +412,192 @@ The broker SHALL own payload storage policy for note payload upsert: logical val
 - **WHEN** note update fails and the new payload attachment cannot be deleted
 - **THEN** the attempt report preserves the original failure as primary and records the orphaned attachment in residual references
 
-### Requirement: Broker attachment file replacement SHALL preserve original content on failure
-The broker SHALL own file replacement semantics for file-backed attachments: source-kind versus link-mode matching with no implicit conversion, pre-commit validation of the complete stored file set, managed staging, atomic switch of managed content, post-commit cleanup with an explicit repair-required or unknown outcome when cleanup is unconfirmed, and linked-file relocation that validates and canonicalizes the new path while never copying, modifying, or deleting external files. All filesystem access SHALL go through the shared runtime persistence adapter resolved per call. Content-identical replacement (same hash and complete companion set, or same canonical linked path) SHALL be confirmed as unchanged, and filename and MIME identity SHALL be re-derived from the actual replacement source. Any replacement failure SHALL leave the target attachment's original file intact and SHALL preserve the original failure as the primary error, with replay of the same operation identity returning the original receipt rather than repeating staging, swap, or cleanup.
+### Requirement: Ordinary read pages SHALL be sourced and owned by the Broker
+Items, collections, notes, note payloads, attachments, annotations and Saved Searches SHALL be read through bounded source pages. Ordinary list defaults and maxima SHALL be 25 and 100. Each domain SHALL return its named array and explicit continuation, returned count and effective limit, retaining existing domain fields. Cursors SHALL bind domain, normalized criteria, source and ordering position, with content basis where required. Ordinary live lists SHALL NOT imply snapshot consistency or acquire a time-to-live. Numeric/offset cursors, malformed or unsupported cursors, query mismatch and changed content basis SHALL produce structured failures without silently restarting.
 
-#### Scenario: Failed switch keeps the original file
-- **WHEN** the atomic switch fails after managed staging completed
-- **THEN** the attachment still resolves to its original file content and the attempt report carries the original failure as primary
+#### Scenario: Only a current page is hydrated
+- **WHEN** a client requests one page from a large source
+- **THEN** only that page's targets are hydrated and serialized; count queries do not hydrate non-page targets.
 
-#### Scenario: Linked relocation validates the new path
-- **WHEN** the new linked path does not exist or is not a regular readable file
-- **THEN** the broker fails before updating the Zotero link and the attachment still points at the old path
+#### Scenario: Page target fails
+- **WHEN** any target cannot be hydrated or read
+- **THEN** the entire page fails with stable code, retryability and safe details, without skipped target success.
 
-#### Scenario: Replay returns the original receipt
-- **WHEN** the same caller scope replays a committed replacement with the same operation identity
-- **THEN** the broker returns the original receipt and result snapshot without repeating staging, swap, or cleanup
+### Requirement: Payload discovery SHALL use bounded candidate pages
+Payload discovery SHALL preserve all HTML and attachment candidates without deduplication. It SHALL expose total:null, returned, scanned, hasMore and nextCursor, with an empty nonterminal page permitted. Source HTML SHALL be bounded to 1 MiB UTF-8; encoded payload inputs and decoded payload values SHALL each be bounded to 1 MiB before unbounded allocation or decode. Single payload lookup SHALL preserve complete candidate ambiguity validation.
+
+#### Scenario: Candidate slice contains no payload
+- **WHEN** more source candidates remain after a slice containing no payload
+- **THEN** the page is empty with hasMore:true and a continuation that advances the source.
+
+#### Scenario: Payload source exceeds a bound
+- **WHEN** source or decoded content exceeds its hard bound
+- **THEN** the operation fails as resource_limited without returning partial payload summaries.
+
+### Requirement: Saved Search discovery SHALL use portable identity
+The Broker SHALL expose library.listSavedSearches with optional libraryId, limit and opaque cursor. The omitted library SHALL resolve to the user library. Rows SHALL contain portable {libraryId,key} refs and display names, with source-bounded identity ordering and 25/100 page limits. Names SHALL NOT serve as control identity.
+
+#### Scenario: Identically named searches exist
+- **WHEN** two Saved Searches have the same name
+- **THEN** discovery preserves both distinct portable refs.
+
+### Requirement: Broker Host entry SHALL be serial and slice-bounded across instances
+All Broker instances and projections SHALL share FIFO admission for native Host critical slices, with maximum native reentry one. Long read/export/capture loops SHALL release admission and yield after at most 100 items or 50 ms, whichever comes first. Network, file preparation, callbacks, detached-data processing, approval and receipt persistence SHALL NOT monopolize Host admission.
+
+#### Scenario: Callback waits while another caller reads
+- **WHEN** a traversal callback or translator network request remains pending
+- **THEN** another Broker caller can enter a native slice without waiting for that external work.
+
+#### Scenario: Queued read is canceled
+- **WHEN** a caller cancels before admission
+- **THEN** no native work starts and the call returns stable canceled data.
+
+#### Scenario: Native work outlives cancellation
+- **WHEN** an active slice times out or is canceled but native work has not settled
+- **THEN** the slice retains admission until settle and no late success is published.
+
+### Requirement: Nontrivial reads SHALL honor trusted call control
+Readiness audit, annotation export, traversal, snapshot, metadata translation and ordinary asynchronous reads SHALL check trusted cancellation before Host entry, between bounded items, and after awaited work. Controls SHALL remain outside semantic JSON. Translation SHALL suppress late results without assuming unsupported native abort methods.
+
+#### Scenario: Translation returns after cancellation
+- **WHEN** a canceled identifier lookup later produces a result
+- **THEN** the result is suppressed and the caller receives stable canceled data.
+
+### Requirement: Selection adapters SHALL use canonical context results
+Broker, direct REST, registry and MCP selection reads SHALL use the same exact page contract and current-view facts. No adapter SHALL promote children, fabricate continuation, repaginate a complete selection, or fall back to a legacy or partial Broker.
+
+#### Scenario: Incomplete Broker is injected
+- **WHEN** an adapter lacks a configured context member
+- **THEN** it fails closed without reading the real native selection
+
+### Requirement: Attachment ordering SHALL use canonical creation facts
+Canonical attachment details SHALL expose creation time for task-specific earliest-source selection. The value SHALL be detached from native item data, and paths SHALL remain confined to the existing file descriptor and locality adapter.
+
+#### Scenario: Two attachments have different creation times
+- **WHEN** a task reads their canonical details
+- **THEN** it can apply earliest-source ordering without raw dateAdded data
+
+### Requirement: Canonical mutations SHALL use a closed twenty-three-operation union
+
+The Broker SHALL expose exactly item.create, item.updateMetadata, item.changeType, item.remove, item.updateTags, item.addRelated, item.removeRelated, collection.create, collection.update, collection.updateMembership, collection.remove, notes.create, notes.updateContent, notes.remove, notes.upsertPayload, attachments.create, attachments.updateMetadata, attachments.replaceFile, attachments.move, attachments.remove, statusTags.transition, trash.setItemsState, and literature.ingest. Each operation SHALL have a closed strict-JSON request/result mapping. Legacy names, handler-shaped aliases, batch ingest, and unknown operations SHALL fail as unsupported_operation before admission or Host effects. Existing Managed Note semantics remain unchanged in this change.
+
+#### Scenario: Removed operation is submitted
+- **WHEN** a caller submits a legacy, handler-shaped, batch, or unknown operation
+- **THEN** the Broker SHALL reject it as unsupported_operation
+- **AND** it SHALL create neither identity evidence nor a Host effect.
+
+### Requirement: Every canonical mutation SHALL support effect-free preview and private preflight
+
+Each of the twenty-three operations SHALL support effect-free public preview and private execution preflight. Preview SHALL not require operationId and SHALL return operation, domainPlanDigest, bounded safe plan observations, and would_change or unchanged. Private preflight SHALL capture normalized semantic input, caller scope, effect scope, current revision/state/basis, and prepared-file identity, size, and SHA-256 facts where needed. Public DTOs SHALL reject expectedRevision, prepared tokens, leases, local paths, storage paths, and raw Host authority. Execute SHALL revalidate private prepared facts within the admitted native slice and SHALL not silently refresh after drift.
+
+#### Scenario: Non-destructive write is previewed
+- **WHEN** a caller previews notes.upsertPayload, attachments.create, trash.setItemsState, literature.ingest, or another canonical write
+- **THEN** the Broker SHALL return that operation's complete bounded safe plan facts
+- **AND** it SHALL not change Zotero data.
+
+#### Scenario: Prepared facts drift before effect
+- **WHEN** current revisions, state, basis, or prepared-file facts differ during execution revalidation
+- **THEN** the Broker SHALL fail before the Host effect with a typed reevaluation outcome
+- **AND** it SHALL not silently prepare a replacement plan and continue.
+
+### Requirement: Private prepared evidence SHALL bind trusted execution
+
+Prepared tokens and file leases SHALL be private short-lived trusted execution evidence. They SHALL not appear in public schemas, approval UI, transcripts, audit output, receipts, attempts, errors, configuration, or durable identity. After approval wait or restart, trusted execution SHALL run fresh preflight; existing approval may continue only when domainPlanDigest is unchanged.
+
+#### Scenario: Approval wait changes the plan
+- **WHEN** fresh preflight after approval produces a different domainPlanDigest
+- **THEN** the earlier approval SHALL not authorize the effect
+- **AND** the adapter SHALL present the changed plan for approval.
+
+### Requirement: Canonical mutation admission and evidence SHALL be durable
+
+Before the first Host effect, the Broker SHALL durably bind caller scope, operationId, operation kind, and normalized semantic digest. Admission failure SHALL prevent all Host effects. An identical binding returns live observation or stored terminal evidence without dispatch; a different binding fails with conflict. Required effects complete only with committed or unchanged durable receipt evidence. Failed, canceled, unknown, and repair_required outcomes are attempts and never partial receipts. Failure to persist terminal success evidence after a Host effect yields unknown evidence. Known committed, unchanged, failed, and canceled evidence SHALL be retained for 30 days; unknown and repair_required evidence SHALL not age-expire. On ordinary evidence expiry, minimum binding remains permanently: identical input returns outcome_unavailable, different input conflict, and the identity cannot execute again.
+
+#### Scenario: Durable admission fails
+- **WHEN** identity admission cannot be durably recorded
+- **THEN** the mutation SHALL fail before every Host effect.
+
+#### Scenario: Terminal evidence persistence fails
+- **WHEN** required Host effects finish but durable terminal evidence cannot be recorded
+- **THEN** the Broker SHALL return unknown attempt evidence
+- **AND** it SHALL not report committed success.
+
+#### Scenario: Terminal failure is resubmitted
+- **WHEN** a caller resubmits failed, canceled, unknown, or repair_required evidence with the same identity and semantic input
+- **THEN** the Broker SHALL return stored terminal evidence
+- **AND** it SHALL not dispatch a successor under that identity.
+
+### Requirement: Canonical mutation observation SHALL return only state and result
+
+mutations.getOperation SHALL be read-only and return exactly running, settled with result, or unavailable. Running means a current-process live execution. Settled contains a durable receipt or attempt result. Unavailable does not prove no effect. Storage failure SHALL fail the call with a typed error rather than add a returned state. Observation SHALL not execute, replay, infer historical outcome from current items, or return request data, timestamps, semantic input, caller scope, or identity-binding details.
+
+#### Scenario: Started record is observed after restart
+- **WHEN** durable admission exists after restart without terminal evidence
+- **THEN** observation SHALL return settled with an unknown attempt result
+- **AND** it SHALL not report running or replay the operation.
+
+#### Scenario: Ordinary evidence has expired
+- **WHEN** 30-day evidence is no longer retained
+- **THEN** observation SHALL return unavailable
+- **AND** it SHALL not disclose retained binding details.
+
+### Requirement: List mutations and native Trash SHALL be bounded and atomic
+
+Canonical portable target lists SHALL allow at most 100 normalized explicit targets and at most 100 expanded actual targets. Related operations SHALL accept one source plus relatedRefs, normalize and deduplicate related targets, reject self-reference, cross-library, and inactive targets, and return one operation's relation facts. Add/remove conflicts SHALL fail as invalid_request before deduplication. Explicit Trash targets SHALL be unique; duplicates SHALL fail as invalid_request. trash.setItemsState SHALL accept one library's 1–100 regular item, note, or attachment refs and state trashed or active, rejecting collections and annotations. It SHALL validate targets and expansion before one native transaction, record actual changes, and use native semantics: trash marks explicit targets; parent-only restore restores parent plus trashed direct notes/attachments; parent plus explicit children restores only those; child-only restores only that child.
+
+#### Scenario: Trash has explicit duplicate refs
+- **WHEN** trash.setItemsState includes a repeated item ref
+- **THEN** the Broker SHALL fail as invalid_request before reservation or transaction.
+
+#### Scenario: Restore expansion exceeds the limit
+- **WHEN** native restore expansion would change more than 100 targets
+- **THEN** the Broker SHALL fail as resource_limited without truncation or automatic batching.
+
+#### Scenario: Parent-only restore succeeds
+- **WHEN** a trashed parent is restored without explicit child refs
+- **THEN** one native transaction SHALL restore the parent and its trashed direct notes and attachments
+- **AND** the receipt SHALL list the actual changed refs.
+
+### Requirement: Prepared-file replacement SHALL preserve original stored content
+
+Attachment replacement SHALL accept trusted prepared-file input only for stored-file and stored-URL targets. It SHALL validate complete source and companions before touching Zotero state, stage managed content, atomically switch stored content, and clean up only after commit. Linked-file, linked-URL, embedded-image, note-payload, and linked-path source forms SHALL fail as unsupported_operation. Any failure preserves original content and primary error; unconfirmed cleanup is repair_required or unknown attempt evidence. Terminal replay SHALL not repeat staging, swap, or cleanup.
+
+#### Scenario: Linked relocation is requested
+- **WHEN** a caller targets a linked-file attachment or provides a linked-path source
+- **THEN** the Broker SHALL fail as unsupported_operation before filesystem or Zotero mutation.
+
+### Requirement: Interrupted stored replacement SHALL recover before Host admission
+
+Stored-attachment replacement SHALL durably record each filesystem promotion phase before exposing the corresponding effect. Before Host Bridge or Workflow Host capabilities become available after startup, the runtime SHALL reconcile every incomplete replacement against validated managed paths and current attachment metadata. It SHALL restore the old content or complete the committed new content when one outcome is provable, and SHALL fail startup as `repair_required` while preserving all evidence when the state is ambiguous.
+
+#### Scenario: Process stops after old content is backed up
+
+- **WHEN** startup finds an incomplete replacement whose attachment metadata still identifies the old content
+- **THEN** recovery SHALL restore and verify the old managed content
+- **AND** it SHALL remove the journal only after verification.
+
+#### Scenario: Process stops after metadata commit
+
+- **WHEN** startup finds an incomplete replacement whose attachment metadata identifies the new content
+- **THEN** recovery SHALL finish promotion or cleanup without reverting committed metadata
+- **AND** it SHALL remove the journal only after verification.
+
+#### Scenario: Interrupted state is ambiguous
+
+- **WHEN** paths, journal identity, and attachment metadata cannot prove either old or new state
+- **THEN** startup SHALL fail with `repair_required`
+- **AND** it SHALL preserve the journal, staging, and backup evidence.
+
+### Requirement: Literature ingest SHALL commit required core effects and classify optional enrichment
+
+Literature ingest SHALL require creation or verified reuse of the typed bibliographic item and membership in one explicit valid collection. If a required effect fails, the Broker SHALL restore preexisting state and remove only objects created by that invocation; it SHALL never remove a reused item or preexisting collection membership. PDF and landing attachment work are optional enrichment. A clean optional failure with no residual or uncertainty SHALL preserve core committed or unchanged evidence and report its failed or canceled enrichment attempt. Any residual or uncertain optional effect SHALL be repair_required or unknown and include bounded affected/residual refs.
+
+#### Scenario: Required collection membership fails
+- **WHEN** ingest creates an item but cannot establish requested collection membership
+- **THEN** it SHALL remove only the invocation-created item and restore prior state
+- **AND** it SHALL return attempt evidence rather than a core receipt.
+
+#### Scenario: Optional enrichment leaves residual work
+- **WHEN** optional PDF or landing work cannot be fully compensated or verified
+- **THEN** output SHALL classify it as repair_required or unknown with residual evidence
+- **AND** it SHALL not suppress the enrichment outcome.

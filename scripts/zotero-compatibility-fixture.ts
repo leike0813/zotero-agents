@@ -1,10 +1,14 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { createReadStream, createWriteStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { finished, pipeline } from "node:stream/promises";
+import {
+  PHASE1_FAMILY_DECLARATIONS,
+  type Phase1FamilyId,
+} from "./system-e2e/familyLifecycle";
 
 export type CompatibilityPlatformId =
   | "linux-x64"
@@ -15,6 +19,19 @@ export type CompatibilityPlatformId =
 export type CompatibilityGate = "pull-request" | "main" | "release";
 export type CompatibilityMode = "behavior" | "xpi-smoke";
 export type CompatibilitySuite = "lite" | "full";
+export type CompatibilityDomain = "all" | "core" | "ui" | "workflow" | "e2e";
+export type CompatibilityE2ELane =
+  | CompatibilityGate
+  | "acceptance"
+  | "weekly"
+  | "stress"
+  | "manual-gold"
+  | "cg-02-windows";
+export type CompatibilityScenarioFamily = Phase1FamilyId;
+export type CompatibilityFixtureScale =
+  | "committed-seed"
+  | "stress"
+  | "large-gold";
 
 export type CompatibilityPlatform = {
   os: "linux" | "windows" | "macos";
@@ -43,6 +60,62 @@ export type CompatibilityTarget = {
   policy: CompatibilityTargetPolicy;
 };
 
+export type CompatibilityExecutionCell = {
+  id: string;
+  lane: CompatibilityE2ELane;
+  targetId: string;
+  version: string;
+  platform: CompatibilityPlatformId;
+  families: CompatibilityScenarioFamily[];
+  runnerEnvironment: {
+    os: CompatibilityPlatform["os"];
+    image: string;
+  };
+  fixtureScale: CompatibilityFixtureScale;
+  sidecarStartupModel: "pre-staged-current-source" | "pinned-universal-xpi";
+  invocationProfileModel: "one-fresh-copied-profile-per-invocation";
+  blocking: boolean;
+  pluginDigest: string;
+  sidecarFingerprint: string;
+  runManifestReference: string;
+};
+
+export type CompatibilityArtifactIdentity = {
+  lane?: CompatibilityE2ELane;
+  sourceCommit?: string;
+  sourceRef?: string;
+  pluginDigest: string;
+  sidecarFingerprint: string;
+  sidecarTarget?: string;
+};
+
+/**
+ * Explicit per-cell promotion. A cell turns blocking only here, after three
+ * independent clean workflow rounds on one calibration identity have been
+ * reviewed. Windows release cells additionally need passing, trustworthy
+ * `CG-02` evidence and a recorded Zotero 9 classification.
+ *
+ * Promoted 2026-09-19 from calibration rounds r9/r10/r11: every promoted cell
+ * produced three `complete` run manifests with all families, cleanup and health
+ * passed, on one identity per cell (same target, family group, `ubuntu-24.04`,
+ * `committed-seed`, `pre-staged-current-source`,
+ * `one-fresh-copied-profile-per-invocation`), with a maximum clean round of
+ * 2.47 min (PR), 3.82 min (main) and 3.57 min (release), far below the
+ * 15/30/45 min thresholds. Run ids are recorded in the change's `tasks.md`.
+ */
+export const E2E_PROMOTION_STATE: Readonly<Record<string, boolean>> = {
+  "pull-request-zotero-10-linux-x64-e2e-sl-pm": true,
+  "main-zotero-7-linux-x64-e2e-sl-rh-pa-pm-cg-hb": true,
+  "main-zotero-9-linux-x64-e2e-sl-rh-pa-pm-cg-hb": true,
+  "main-zotero-10-linux-x64-e2e-sl-rh-pa-pm-cg-hb": true,
+  "release-zotero-7-linux-x64-e2e-sl-rh-pa-pm-cg-hb": true,
+  "release-zotero-9-linux-x64-e2e-sl-rh-pa-pm-cg-hb": true,
+  "release-zotero-10-linux-x64-e2e-sl-rh-pa-pm-cg-hb": true,
+  "release-zotero-7-windows-x64-e2e-sl-rh-pa-pm-cg-hb": true,
+  "release-zotero-9-windows-x64-e2e-sl-rh-pa-pm-cg-hb": true,
+  "release-zotero-10-windows-x64-e2e-sl-rh-pa-pm-cg-hb": true,
+};
+
 export type CompatibilityManifest = {
   schemaId: "zotero-agents.zotero-compatibility-matrix.v1";
   extractRecipeVersion: number;
@@ -58,6 +131,12 @@ export type CompatibilityPlanCell = {
   runner: string;
   mode: CompatibilityMode;
   suite?: CompatibilitySuite;
+  domain?: CompatibilityDomain;
+  lane?: CompatibilityE2ELane;
+  families?: CompatibilityScenarioFamily[];
+  fixtureScale?: CompatibilityFixtureScale;
+  sidecarStartupModel?: CompatibilityExecutionCell["sidecarStartupModel"];
+  invocationProfileModel?: CompatibilityExecutionCell["invocationProfileModel"];
   blocking: boolean;
 };
 
@@ -132,6 +211,8 @@ export type CompatibilityReceipt = {
   execution: {
     mode: CompatibilityMode;
     suite?: CompatibilitySuite;
+    domain?: CompatibilityDomain;
+    cell?: CompatibilityExecutionCell;
   };
   status: "running" | "passed" | "failed";
   phases: Array<{
@@ -172,6 +253,94 @@ function assertSafeRelativePath(value: unknown, field: string): string {
     throw new Error(`Unsafe ${field}: ${String(value)}`);
   }
   return normalized;
+}
+
+export function createE2EExecutionCell(args: {
+  id: string;
+  lane: CompatibilityE2ELane;
+  target: CompatibilityTarget;
+  families: CompatibilityScenarioFamily[];
+  runnerEnvironment: CompatibilityExecutionCell["runnerEnvironment"];
+  fixtureScale: CompatibilityFixtureScale;
+  blocking: boolean;
+  pluginDigest: string;
+  sidecarFingerprint: string;
+  runManifestReference: string;
+}): CompatibilityExecutionCell {
+  const families = [...new Set(args.families)];
+  const allowedFamilies = new Set<CompatibilityScenarioFamily>(
+    Object.keys(PHASE1_FAMILY_DECLARATIONS) as CompatibilityScenarioFamily[],
+  );
+  if (
+    (families.length === 0 && args.fixtureScale !== "stress") ||
+    families.some((family) => !allowedFamilies.has(family))
+  ) {
+    throw new Error("Invalid compatibility execution-cell families");
+  }
+  for (const [field, value] of [
+    ["plugin digest", args.pluginDigest],
+    ["sidecar fingerprint", args.sidecarFingerprint],
+  ] as const) {
+    if (!/^[a-f0-9]{64}$/.test(value)) {
+      throw new Error(`Invalid compatibility execution-cell ${field}`);
+    }
+  }
+  return {
+    id: requireNonEmptyString(args.id, "executionCell.id"),
+    lane: args.lane,
+    targetId: args.target.id,
+    version: args.target.version,
+    platform: args.target.platform,
+    families,
+    runnerEnvironment: {
+      os: args.runnerEnvironment.os,
+      image: requireNonEmptyString(
+        args.runnerEnvironment.image,
+        "executionCell.runnerEnvironment.image",
+      ),
+    },
+    fixtureScale: args.fixtureScale,
+    sidecarStartupModel:
+      args.lane === "acceptance"
+        ? "pinned-universal-xpi"
+        : "pre-staged-current-source",
+    invocationProfileModel: "one-fresh-copied-profile-per-invocation",
+    blocking: args.blocking,
+    pluginDigest: args.pluginDigest,
+    sidecarFingerprint: args.sidecarFingerprint,
+    runManifestReference: assertSafeRelativePath(
+      args.runManifestReference,
+      "executionCell.runManifestReference",
+    ),
+  };
+}
+
+export function assertCompatibilityArtifactIdentity(
+  expected: CompatibilityArtifactIdentity,
+  actual: CompatibilityArtifactIdentity,
+): void {
+  if (
+    expected.lane === "release" &&
+    !expected.sourceRef?.startsWith("refs/tags/")
+  ) {
+    throw new Error("Compatibility release artifact is not tag-bound");
+  }
+  for (const field of [
+    "lane",
+    "sourceCommit",
+    "sourceRef",
+    "sidecarTarget",
+  ] as const) {
+    if (expected[field] !== undefined && actual[field] !== expected[field]) {
+      throw new Error(`Compatibility artifact ${field} changed`);
+    }
+  }
+  if (actual.pluginDigest !== expected.pluginDigest) {
+    throw new Error("Compatibility plugin artifact identity changed");
+  }
+  if (actual.sidecarFingerprint !== expected.sidecarFingerprint) {
+    throw new Error("Compatibility sidecar artifact identity changed");
+  }
 }
 
 function expectedOfficialArchiveUrl(target: CompatibilityTarget): string {
@@ -271,10 +440,89 @@ export function resolveCompatibilityTarget(
 
 export function buildCompatibilityPlan(
   manifest: CompatibilityManifest,
-  gate: CompatibilityGate,
+  gate: CompatibilityE2ELane,
 ): CompatibilityPlanCell[] {
   validateCompatibilityManifest(manifest);
   const cells: CompatibilityPlanCell[] = [];
+  const addE2ECell = (
+    lane: CompatibilityE2ELane,
+    targetId: string,
+    families: CompatibilityScenarioFamily[],
+    fixtureScale: CompatibilityFixtureScale = "committed-seed",
+  ) => {
+    const target = resolveCompatibilityTarget(manifest, targetId);
+    const platform = manifest.platforms[target.platform];
+    const id = `${lane}-${target.id}-e2e${families.length ? `-${families.join("-").toLowerCase()}` : ""}`;
+    cells.push({
+      id,
+      targetId: target.id,
+      version: target.version,
+      platform: target.platform,
+      runner: platform.runner,
+      mode: "behavior",
+      suite: "full",
+      domain: "e2e",
+      lane,
+      families: [...families],
+      fixtureScale,
+      sidecarStartupModel:
+        lane === "acceptance"
+          ? "pinned-universal-xpi"
+          : "pre-staged-current-source",
+      invocationProfileModel: "one-fresh-copied-profile-per-invocation",
+      blocking:
+        lane === "acceptance"
+          ? target.policy.blocking
+          : (E2E_PROMOTION_STATE[id] ?? false),
+    });
+  };
+  const releaseE2ETargets = [
+    "zotero-7-linux-x64",
+    "zotero-9-linux-x64",
+    "zotero-10-linux-x64",
+    "zotero-7-windows-x64",
+    "zotero-9-windows-x64",
+    "zotero-10-windows-x64",
+  ];
+  if (gate === "weekly") {
+    for (const targetId of releaseE2ETargets) {
+      addE2ECell("weekly", targetId, ["SL", "RH", "PA", "PM", "CG", "HB"]);
+    }
+    return cells;
+  }
+  if (gate === "acceptance") {
+    for (const targetId of releaseE2ETargets) {
+      addE2ECell("acceptance", targetId, ["SL", "RH", "PA", "PM", "CG", "HB"]);
+    }
+    return cells;
+  }
+  if (gate === "stress") {
+    addE2ECell("stress", "zotero-10-linux-x64", [], "stress");
+    return cells;
+  }
+  if (gate === "cg-02-windows") {
+    // The Windows promotion precondition needs a trustworthy CG-02 run per
+    // Windows target. The cell keeps the e2e domain so it still verifies the
+    // prepared plugin and sidecar identity, while the close test itself is
+    // selected by the catalog entry override.
+    for (const targetId of [
+      "zotero-7-windows-x64",
+      "zotero-9-windows-x64",
+      "zotero-10-windows-x64",
+    ]) {
+      addE2ECell("cg-02-windows", targetId, [], "stress");
+    }
+    return cells;
+  }
+  if (gate === "manual-gold") {
+    addE2ECell(
+      "manual-gold",
+      "zotero-10-linux-x64",
+      ["RH", "PA", "PM", "CG"],
+      "large-gold",
+    );
+    return cells;
+  }
   for (const target of manifest.targets) {
     const platform = manifest.platforms[target.platform];
     const addCell = (mode: CompatibilityMode, suite?: CompatibilitySuite) => {
@@ -286,6 +534,7 @@ export function buildCompatibilityPlan(
         runner: platform.runner,
         mode,
         ...(suite ? { suite } : {}),
+        ...(mode === "behavior" ? { domain: "all" as const } : {}),
         blocking: target.policy.blocking,
       });
     };
@@ -299,6 +548,21 @@ export function buildCompatibilityPlan(
     }
     if (gate !== "pull-request" && target.policy.xpiSmoke) {
       addCell("xpi-smoke");
+    }
+  }
+  if (gate === "pull-request") {
+    addE2ECell("pull-request", "zotero-10-linux-x64", ["SL", "PM"]);
+  } else if (gate === "main") {
+    for (const targetId of [
+      "zotero-7-linux-x64",
+      "zotero-9-linux-x64",
+      "zotero-10-linux-x64",
+    ]) {
+      addE2ECell("main", targetId, ["SL", "RH", "PA", "PM", "CG", "HB"]);
+    }
+  } else if (gate === "release") {
+    for (const targetId of releaseE2ETargets) {
+      addE2ECell("release", targetId, ["SL", "RH", "PA", "PM", "CG", "HB"]);
     }
   }
   return cells;
@@ -452,10 +716,46 @@ function splitCommandLines(value: string) {
     .filter(Boolean);
 }
 
+export function resolveLocalArchiveCommandLocation(archivePath: string): {
+  cwd: string;
+  archiveName: string;
+} {
+  const pathApi = path.win32.isAbsolute(archivePath) ? path.win32 : path;
+  return {
+    cwd: pathApi.dirname(archivePath),
+    archiveName: pathApi.basename(archivePath),
+  };
+}
+
+export function resolveZipExtractionCommand(args: {
+  archivePath: string;
+  stagingRoot: string;
+  platform?: NodeJS.Platform;
+}): { file: string; args: string[]; cwd?: string } {
+  if ((args.platform || process.platform) === "win32") {
+    return {
+      file: "powershell",
+      args: [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        `Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::ExtractToDirectory('${args.archivePath.replace(/'/g, "''")}', '${args.stagingRoot.replace(/'/g, "''")}')`,
+      ],
+    };
+  }
+  const archive = resolveLocalArchiveCommandLocation(args.archivePath);
+  return {
+    file: "tar",
+    args: ["-xf", archive.archiveName, "-C", args.stagingRoot],
+    cwd: archive.cwd,
+  };
+}
+
 async function listTarEntries(archivePath: string): Promise<ArchiveEntry[]> {
+  const archive = resolveLocalArchiveCommandLocation(archivePath);
   const [namesResult, detailsResult] = await Promise.all([
-    execFileText("tar", ["-tf", archivePath]),
-    execFileText("tar", ["-tvf", archivePath]),
+    execFileText("tar", ["-tf", archive.archiveName], { cwd: archive.cwd }),
+    execFileText("tar", ["-tvf", archive.archiveName], { cwd: archive.cwd }),
   ]);
   const names = splitCommandLines(namesResult.stdout);
   const details = splitCommandLines(detailsResult.stdout);
@@ -584,26 +884,27 @@ async function extractHostArchive(args: {
   format: CompatibilityTarget["archiveFormat"];
   stagingRoot: string;
 }): Promise<void> {
+  const archive = resolveLocalArchiveCommandLocation(args.archivePath);
   if (args.format === "tar.bz2" || args.format === "tar.xz") {
     validateArchiveEntries(await listTarEntries(args.archivePath));
-    await execFileText("tar", [
-      "-xf",
-      args.archivePath,
-      "-C",
-      args.stagingRoot,
-      "--no-same-owner",
-      "--no-same-permissions",
-    ]);
+    await execFileText(
+      "tar",
+      [
+        "-xf",
+        archive.archiveName,
+        "-C",
+        args.stagingRoot,
+        "--no-same-owner",
+        "--no-same-permissions",
+      ],
+      { cwd: archive.cwd },
+    );
     return;
   }
   if (args.format === "zip") {
     validateArchiveEntries(await listZipEntries(args.archivePath));
-    await execFileText("tar", [
-      "-xf",
-      args.archivePath,
-      "-C",
-      args.stagingRoot,
-    ]);
+    const command = resolveZipExtractionCommand(args);
+    await execFileText(command.file, command.args, { cwd: command.cwd });
     return;
   }
   if (process.platform !== "darwin") {
@@ -928,11 +1229,41 @@ function safeRunLabel(label: string): string {
   return normalized || "run";
 }
 
+export async function persistCompatibilityHostFactsEvent(
+  runRoot: string,
+  event: unknown,
+): Promise<boolean> {
+  const envelope = event as { type?: unknown; data?: unknown } | null;
+  const data = envelope?.data as { kind?: unknown } | null;
+  if (
+    envelope?.type !== "debug" ||
+    data?.kind !== "zotero-compatibility-host-facts"
+  ) {
+    return false;
+  }
+  const hostFactsPath = path.join(
+    path.resolve(runRoot),
+    "diagnostics",
+    "host-facts.json",
+  );
+  await fs.mkdir(path.dirname(hostFactsPath), { recursive: true });
+  await fs.writeFile(
+    hostFactsPath,
+    `${JSON.stringify(data, null, 2)}\n`,
+    "utf8",
+  );
+  return true;
+}
+
 export async function createRunLayout(
   parentRoot: string,
   label: string,
 ): Promise<CompatibilityRunLayout> {
-  const runId = `${safeRunLabel(label)}-${randomUUID()}`;
+  // The run id contributes to every path the plugin builds underneath it, and
+  // Windows refuses those past 260 characters, so the random part is a short
+  // token rather than a UUID. Four random bytes keep concurrent runs in one
+  // parent root distinct.
+  const runId = `${safeRunLabel(label)}-${randomBytes(4).toString("hex")}`;
   const root = path.resolve(parentRoot, runId);
   const resolvedParent = path.resolve(parentRoot);
   if (path.dirname(root) !== resolvedParent) {
@@ -973,7 +1304,7 @@ export async function cleanupRunLayoutState(
     path.join(root, "compatibility-entries"),
     path.join(root, "host"),
     path.join(root, "node_modules"),
-    path.join(root, "test"),
+    path.join(root, "tests"),
     path.join(root, "workflows_builtin"),
   ];
   for (const statePath of statePaths) {

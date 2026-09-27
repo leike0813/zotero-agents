@@ -98,7 +98,7 @@ export function applyResult({ parent, bundleReader, runtime }) {
 
 ```js
 hostApi.notifications.toast({
-  text: `buildRequest получил ${selectionContext.items.parents.length} родительских элементов`,
+  text: `buildRequest получил ${selectionContext.items.filter((item) => item.kind === "parent").length} родительских элементов`,
   type: "default",
 });
 ```

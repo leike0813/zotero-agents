@@ -661,7 +661,7 @@ SkillRunner session sync start requests MUST be idempotent for a request whose r
 
 ### Requirement: SkillRunner UI projection MUST derive from SkillRunner run store
 
-Dashboard, Task Manager, and SkillRunner workspace UI MUST treat the
+Dashboard, Task Dashboard, and SkillRunner workspace UI MUST treat the
 SkillRunner run store as the source for SkillRunner task projections.
 
 #### Scenario: terminal run remains visible

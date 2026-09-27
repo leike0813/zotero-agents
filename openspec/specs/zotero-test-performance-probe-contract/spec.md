@@ -17,7 +17,7 @@ Real Zotero performance diagnosis MUST write one structured digest so tail degra
 #### Scenario: Diagnostic outputs default to artifact directory
 
 - **WHEN** no explicit output override is provided
-- **THEN** performance and leak probe digests MUST default to `artifact/test-diagnostics/`
+- **THEN** performance and leak probe digests MUST default to `artifacts/test-diagnostics/`
 
 ### Requirement: Test performance diagnostics exercise the debug runtime profiler automatically
 
@@ -43,4 +43,3 @@ The required performance-probe gate SHALL be satisfied by deterministic mechanis
 - **WHEN** all deterministic profiler and release-elision tests pass without a real-host artifact
 - **THEN** the performance-probe contract SHALL be considered satisfied
 - **AND** documentation SHALL distinguish mechanism validation from real-host latency evidence.
-

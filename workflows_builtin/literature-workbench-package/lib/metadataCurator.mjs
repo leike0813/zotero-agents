@@ -198,9 +198,9 @@ function readField(item, field) {
   try {
     return normalizeString(
       item?.getField?.(field) ??
-      item?.fields?.[field] ??
-      item?.data?.[field] ??
-      item?.[field],
+        item?.fields?.[field] ??
+        item?.data?.[field] ??
+        item?.[field],
     );
   } catch {
     return "";
@@ -209,7 +209,8 @@ function readField(item, field) {
 
 function getCreators(item) {
   try {
-    const creators = item?.getCreators?.() || item?.creators || item?.data?.creators || [];
+    const creators =
+      item?.getCreators?.() || item?.creators || item?.data?.creators || [];
     return Array.isArray(creators)
       ? creators.map((creator) => ({ ...(creator || {}) }))
       : [];
@@ -219,24 +220,24 @@ function getCreators(item) {
 }
 
 export function resolveParentEntry(selectionContext) {
-  const items = selectionContext?.items || {};
-  const parent = Array.isArray(items.parents) ? items.parents[0] : null;
-  if (parent) return parent;
-  for (const group of [items.attachments, items.children, items.notes]) {
-    const nested = Array.isArray(group) ? group[0]?.parent : null;
-    if (nested) return { item: nested };
-  }
-  return null;
+  const items = Array.isArray(selectionContext?.items)
+    ? selectionContext.items
+    : [];
+  const parent = items.find((item) => item?.kind === "parent");
+  if (parent?.ref) return { ref: parent.ref };
+  const related = items.find((item) => item?.parentRef);
+  return related?.parentRef ? { ref: related.parentRef } : null;
 }
 
 export function resolveParentItem(selectionContext, runtime) {
   void runtime;
   const entry = resolveParentEntry(selectionContext);
-  const item = entry?.item || null;
-  if (item?.ref?.libraryId && item?.ref?.key) {
-    return item;
+  if (entry?.ref?.libraryId && entry?.ref?.key) {
+    return entry.ref;
   }
-  throw new Error("literature-metadata-curator requires one selected parent item");
+  throw new Error(
+    "literature-metadata-curator requires one selected parent ref",
+  );
 }
 
 export function buildParentSnapshot(parent) {
@@ -248,9 +249,6 @@ export function buildParentSnapshot(parent) {
     }
   }
   return {
-    id: parent?.id || null,
-    key: normalizeString(parent?.ref?.key || parent?.key),
-    libraryID: parent?.ref?.libraryId || parent?.libraryID || null,
     itemType: normalizeString(parent?.itemType),
     title: fields.title || "",
     DOI: fields.DOI || "",
@@ -467,7 +465,9 @@ export function protectOriginalScriptMetadata(args) {
     });
   }
 
-  const parentCreatorScript = detectOriginalScript(creatorText(parent?.creators));
+  const parentCreatorScript = detectOriginalScript(
+    creatorText(parent?.creators),
+  );
   const candidateCreators = normalizeCreators(metadata.creators);
   if (
     parentCreatorScript &&
@@ -496,9 +496,8 @@ function normalizeSemanticMetadata(source) {
           : {}),
       }
     : null;
-  const alternateTitles = (Array.isArray(source?.alternateTitles)
-    ? source.alternateTitles
-    : []
+  const alternateTitles = (
+    Array.isArray(source?.alternateTitles) ? source.alternateTitles : []
   )
     .filter(isObject)
     .map((entry) => ({
@@ -512,9 +511,8 @@ function normalizeSemanticMetadata(source) {
         : {}),
     }))
     .filter((entry) => entry.value);
-  const containers = (Array.isArray(source?.containers)
-    ? source.containers
-    : []
+  const containers = (
+    Array.isArray(source?.containers) ? source.containers : []
   )
     .filter(isObject)
     .map((entry) => ({
@@ -539,9 +537,7 @@ function normalizeSemanticMetadata(source) {
     ...(normalizeString(source?.script)
       ? { script: normalizeString(source.script) }
       : {}),
-    ...(creatorCompleteness
-      ? { creatorCompleteness }
-      : {}),
+    ...(creatorCompleteness ? { creatorCompleteness } : {}),
   };
 }
 
@@ -587,6 +583,7 @@ export function resolveCanonicalResult(args) {
 export function buildFallbackContext(args) {
   return {
     parent: args?.parent || null,
+    ...(args?.parentRef ? { parentRef: args.parentRef } : {}),
     identifier: args?.identifier || null,
     diagnostics: Array.isArray(args?.diagnostics) ? args.diagnostics : [],
   };

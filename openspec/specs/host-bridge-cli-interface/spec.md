@@ -151,7 +151,7 @@ Broker-issued file upload and download operations SHALL use `/bridge/v2` and ret
 - **THEN** Host Bridge SHALL return the authorized bytes under the existing integrity and redaction rules.
 
 #### Scenario: Client uses the removed v1 route
-- **WHEN** a client requests the corresponding `/bridge/v1/files` route
+- **WHEN** a client requests the corresponding `/bridge/v2/files` route
 - **THEN** Host Bridge SHALL NOT serve it as a supported v2 file operation.
 
 ### Requirement: CLI workflow commands expose resource bindings
@@ -192,3 +192,78 @@ The CLI SHALL expose `library items export-research-bundle` with canonical item-
 #### Scenario: Connection mode and output directory disagree
 - **WHEN** local mode omits `--output-dir` or remote mode supplies it
 - **THEN** the CLI fails before capability execution with a structured usage error.
+
+### Requirement: CLI SHALL expose Saved Search discovery through canonical read contracts
+The CLI SHALL expose library saved-searches list with library-id, limit and cursor controls mapped to library.list_saved_searches. Its command descriptor and result schema SHALL declare read-only effects, stable portable refs, display names and bounded continuation. Existing ordinary read leaves SHALL consume the Broker page envelope without client-side repagination or numeric cursor aliases.
+
+#### Scenario: Offline Saved Search command is inspected
+- **WHEN** an agent requests command help or surface description
+- **THEN** the canonical argv, capability mapping, inputs, page result and read-only effects are available without network access.
+
+#### Scenario: Payload page has unknown total
+- **WHEN** a remote payload scan returns total:null and a progressing cursor
+- **THEN** CLI schema validation accepts the canonical result without inventing a numeric total.
+
+### Requirement: CLI selection SHALL use canonical pages and portable refs
+Context selection get SHALL accept limit/cursor and describe the exact Broker page with its default 25, maximum 100 and basis_mismatch failure. Context current SHALL describe the small canonical view without selected items. Workflow selection parsing and executable schemas SHALL accept only items/none with complete libraryId/key item refs, rejecting strings, integers, id-only, key-only and unknown fields.
+
+#### Scenario: CLI supplies a page continuation
+- **WHEN** a caller invokes context selection get with an opaque cursor
+- **THEN** the CLI forwards it unchanged to the canonical selection endpoint
+
+#### Scenario: Legacy selection input is supplied
+- **WHEN** workflow selection contains an id-only object or bare key
+- **THEN** validation fails before submitting a request
+
+### Requirement: CLI SHALL execute and observe canonical mutations through their dedicated namespace
+
+The CLI SHALL expose semantic mutation commands with independent operation-specific contracts. `--dry-run` SHALL select effect-free Broker preview; execution SHALL generate one valid operation id for each new intent and reuse that exact id only to retry or observe the same intent. It SHALL expose mutation get-operation as a read-only command mapped to mutation.get_operation. Observation output SHALL contain only running, settled(result), or unavailable and SHALL omit request payloads, timestamps, scope, and identity-binding details. Canonical mutation identity is shared with Bridge and inbound MCP but is independent of generic HTTP operation commands, request IDs, connections, and scope headers.
+
+#### Scenario: CLI observes a mutation
+- **WHEN** a caller invokes zotero-bridge mutation get-operation with a canonical operation id
+- **THEN** the CLI SHALL call mutation.get_operation
+- **AND** it SHALL not invoke generic operation get, execute, or replay.
+
+#### Scenario: CLI receives expired canonical evidence
+- **WHEN** mutation observation or replay reports outcome_unavailable
+- **THEN** the CLI SHALL preserve that typed result
+- **AND** it SHALL not generate a replacement operation id or retry automatically.
+
+### Requirement: CLI command contracts SHALL validate canonical mutation boundaries
+
+Every canonical mutation CLI leaf SHALL derive its target, closed input/result schema, effect, approval status, and output boundary from the executable command contract. Builders SHALL reject legacy operation aliases, public prepared-plan tokens, expectedRevision, linked-path write input, and undeclared fields before network I/O. Results SHALL be validated as canonical receipt or attempt evidence.
+
+#### Scenario: Removed mutation input is supplied
+- **WHEN** a caller provides a legacy operation name, public token, expectedRevision, or linked-path write input
+- **THEN** the CLI SHALL fail with a structured usage error before contacting Host Bridge.
+
+### Requirement: CLI SHALL expose canonical navigation commands
+
+The CLI SHALL expose one leaf command for each canonical navigation capability:
+`navigation focus-zotero`, `navigation select-library-view`,
+`navigation select-collection`, `navigation select-saved-search`,
+`navigation reveal-items`, `navigation open-item`, and
+`navigation open-reader-location`. Each leaf SHALL derive its input, result,
+effect, approval, target, and recovery metadata from the executable command
+contract and SHALL use the existing one-JSON-envelope boundary.
+
+#### Scenario: Agent requests a navigation schema
+- **WHEN** an agent invokes a canonical navigation leaf with `--schema`
+- **THEN** the CLI returns its strict structured input and result contract without network access.
+
+#### Scenario: Agent invokes a canonical navigation leaf
+- **WHEN** a caller supplies valid portable input and an authenticated profile
+- **THEN** the CLI invokes the matching `navigation.*` capability and preserves the structured result and stable error code.
+
+#### Scenario: Removed context-open command is supplied
+- **WHEN** a caller invokes `context item|note|collection|selection open`
+- **THEN** argument parsing returns a structured usage failure
+- **AND** no direct-route alias or fallback is attempted.
+
+### Requirement: CLI uses semantic mutation leaves
+The CLI SHALL map semantic mutation commands directly to typed canonical capabilities, expose `--dry-run` on those commands, and retain `mutation get-operation` for observation. It SHALL reject the removed generic `mutation preview` and `mutation apply` commands.
+
+#### Scenario: Semantic command dry run
+- **WHEN** a caller invokes a mutation leaf with `--dry-run`
+- **THEN** the CLI submits the operation-specific payload with `dryRun: true`
+- **AND** it validates the operation-specific result schema.

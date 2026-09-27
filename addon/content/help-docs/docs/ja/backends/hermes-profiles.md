@@ -52,7 +52,7 @@ provider:
 プロファイルには `assets/host-bridge/profile.example.json` に Host Bridge 接続テンプレートが同梱されています。実際のエンドポイントとトークンを指定する必要があります：
 
 1. Zotero → 設定 → Zotero Agents → Host Bridge を開く
-2. **開始/エンドポイント表示** をクリックして Bridge が実行中であることを確認し、エンドポイント URL（例：`http://127.0.0.1:26570/bridge/v1`）をメモ
+2. **開始/エンドポイント表示** をクリックして Bridge が実行中であることを確認し、エンドポイント URL（例：`http://127.0.0.1:26570/bridge/v2`）をメモ
 3. **マスタートークンをコピー** をクリック（またはパネルに表示されているセッショントークンを使用）
 4. トークンを環境変数として設定：
 
@@ -67,7 +67,7 @@ $env:ZOTERO_BRIDGE_TOKEN = "<your-token>"
 5. リモート/LAN アクセスの場合、エンドポイントも指定：
 
 ```bash
-export ZOTERO_BRIDGE_ENDPOINT="http://127.0.0.1:26570/bridge/v1"
+export ZOTERO_BRIDGE_ENDPOINT="http://127.0.0.1:26570/bridge/v2"
 ```
 
 プロファイルテンプレートは `auth.tokenEnv: "ZOTERO_BRIDGE_TOKEN"` を使用しているため、CLI は環境変数からトークンを自動的に読み取ります。エンドポイント、トークン、プロファイルファイルの詳細については [Host Bridge 設定](#doc/backends%2Fhost-bridge) を参照してください。

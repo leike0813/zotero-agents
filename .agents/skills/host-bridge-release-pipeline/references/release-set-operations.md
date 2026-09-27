@@ -6,11 +6,11 @@ Run the semantic review when its collector returns `reviewRequired: true`. Then 
 
 ```sh
 npm run check:host-bridge-doc-sync
-npx tsx scripts/check-host-bridge-skill-packages.ts <minimum-core-root> <generic-root> <generic-task-root> <hermes-root>
+npx tsx scripts/host-bridge/check-host-bridge-skill-packages.ts <minimum-core-root> <generic-root> <generic-task-root> <hermes-root>
 npm run check:host-bridge-review-mirror
 ```
 
-Derive these roots from `host-bridge/surfaces.json`; include `skills/zotero-library-agent` and all five task Skills beneath the Generic source root. The manifest resolver determines inherited components and materialization mounts.
+Derive these roots from `contracts/host-bridge/surfaces.json`; include `skills/zotero-library-agent` and all five task Skills beneath the Generic source root. The manifest resolver determines inherited components and materialization mounts.
 
 After any governed Markdown semantic change, run `$host-bridge-review-mirror` before the final check. The mirror translates each owned source once and records effective inheritance in its index and v2 provenance. This is a local Agent gate; it does not add an automatic CI or push-triggered publication path.
 

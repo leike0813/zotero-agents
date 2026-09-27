@@ -1,0 +1,245 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zotero-agents.local/canonical-literature-artifacts/v1/citation-analysis-artifact.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "meta", "summary", "timeline", "items", "unresolved"],
+  "properties": {
+    "schema": { "const": "citation_analysis_artifact.v1" },
+    "meta": { "$ref": "#/$defs/CitationMeta" },
+    "summary": { "$ref": "#/$defs/String" },
+    "timeline": { "$ref": "#/$defs/CitationTimeline" },
+    "items": {
+      "type": "array",
+      "maxItems": 25000,
+      "items": { "$ref": "#/$defs/CitationItem" }
+    },
+    "unresolved": {
+      "type": "array",
+      "maxItems": 25000,
+      "items": { "$ref": "#/$defs/CitationUnresolvedMention" }
+    }
+  },
+  "$defs": {
+    "String": {
+      "type": "string",
+      "maxLength": 65536
+    },
+    "NullableString": {
+      "type": ["string", "null"],
+      "maxLength": 65536
+    },
+    "OpaqueId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "CitationFunction": {
+      "enum": [
+        "background",
+        "baseline",
+        "contrast",
+        "component",
+        "dataset",
+        "tooling",
+        "historical",
+        "uncategorized"
+      ]
+    },
+    "CitationScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["section_title", "line_start", "line_end"],
+      "properties": {
+        "section_title": { "$ref": "#/$defs/NullableString" },
+        "line_start": { "type": ["integer", "null"], "minimum": 0 },
+        "line_end": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+    "CitationScopeDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "selection_reason",
+        "covered_sections",
+        "fallback_from",
+        "fallback_reason"
+      ],
+      "properties": {
+        "selection_reason": { "$ref": "#/$defs/NullableString" },
+        "covered_sections": {
+          "type": "array",
+          "maxItems": 512,
+          "items": { "$ref": "#/$defs/String" }
+        },
+        "fallback_from": {
+          "anyOf": [{ "$ref": "#/$defs/CitationScope" }, { "type": "null" }]
+        },
+        "fallback_reason": { "$ref": "#/$defs/NullableString" }
+      }
+    },
+    "ReferenceExtractionStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["completed", "abandoned"] },
+        "reason": { "$ref": "#/$defs/String" },
+        "file_quality_low": { "type": "boolean" },
+        "triggered_signals": {
+          "type": "array",
+          "maxItems": 128,
+          "items": { "$ref": "#/$defs/String" }
+        }
+      }
+    },
+    "CitationMeta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "language",
+        "scope",
+        "scope_source",
+        "scope_decision",
+        "mapping_reliability",
+        "reference_extraction"
+      ],
+      "properties": {
+        "language": { "$ref": "#/$defs/String" },
+        "scope": { "$ref": "#/$defs/CitationScope" },
+        "scope_source": { "$ref": "#/$defs/NullableString" },
+        "scope_decision": { "$ref": "#/$defs/CitationScopeDecision" },
+        "mapping_reliability": { "enum": ["normal", "reduced"] },
+        "reference_extraction": { "$ref": "#/$defs/ReferenceExtractionStatus" }
+      }
+    },
+    "CitationTimelineBucket": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "sourceReferenceIds"],
+      "properties": {
+        "summary": { "$ref": "#/$defs/String" },
+        "sourceReferenceIds": {
+          "type": "array",
+          "maxItems": 25000,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/OpaqueId" }
+        }
+      }
+    },
+    "CitationTimeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["early", "mid", "recent"],
+      "properties": {
+        "early": { "$ref": "#/$defs/CitationTimelineBucket" },
+        "mid": { "$ref": "#/$defs/CitationTimelineBucket" },
+        "recent": { "$ref": "#/$defs/CitationTimelineBucket" }
+      }
+    },
+    "CitationMention": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mention_id",
+        "marker",
+        "style",
+        "line_start",
+        "line_end",
+        "snippet",
+        "ref_number_hint",
+        "year_hint",
+        "surname_hint",
+        "citation_label_hint",
+        "citekey_hint"
+      ],
+      "properties": {
+        "mention_id": { "$ref": "#/$defs/OpaqueId" },
+        "marker": { "$ref": "#/$defs/NullableString" },
+        "style": { "$ref": "#/$defs/NullableString" },
+        "line_start": { "type": ["integer", "null"], "minimum": 0 },
+        "line_end": { "type": ["integer", "null"], "minimum": 0 },
+        "snippet": { "$ref": "#/$defs/NullableString" },
+        "ref_number_hint": { "type": ["integer", "null"], "minimum": 0 },
+        "year_hint": { "type": ["integer", "null"] },
+        "surname_hint": { "$ref": "#/$defs/NullableString" },
+        "citation_label_hint": { "$ref": "#/$defs/NullableString" },
+        "citekey_hint": { "$ref": "#/$defs/NullableString" }
+      }
+    },
+    "CitationUnresolvedMention": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mention_id",
+        "marker",
+        "style",
+        "line_start",
+        "line_end",
+        "snippet",
+        "ref_number_hint",
+        "year_hint",
+        "surname_hint",
+        "citation_label_hint",
+        "citekey_hint",
+        "reason"
+      ],
+      "properties": {
+        "mention_id": { "$ref": "#/$defs/OpaqueId" },
+        "marker": { "$ref": "#/$defs/NullableString" },
+        "style": { "$ref": "#/$defs/NullableString" },
+        "line_start": { "type": ["integer", "null"], "minimum": 0 },
+        "line_end": { "type": ["integer", "null"], "minimum": 0 },
+        "snippet": { "$ref": "#/$defs/NullableString" },
+        "ref_number_hint": { "type": ["integer", "null"], "minimum": 0 },
+        "year_hint": { "type": ["integer", "null"] },
+        "surname_hint": { "$ref": "#/$defs/NullableString" },
+        "citation_label_hint": { "$ref": "#/$defs/NullableString" },
+        "citekey_hint": { "$ref": "#/$defs/NullableString" },
+        "reason": { "$ref": "#/$defs/NullableString" }
+      }
+    },
+    "CitationItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceReferenceId",
+        "function",
+        "role_in_context",
+        "topic",
+        "usage",
+        "keywords",
+        "summary",
+        "key_reference_reason",
+        "confidence",
+        "mentions"
+      ],
+      "properties": {
+        "sourceReferenceId": { "$ref": "#/$defs/OpaqueId" },
+        "function": {
+          "anyOf": [{ "$ref": "#/$defs/CitationFunction" }, { "type": "null" }]
+        },
+        "role_in_context": { "$ref": "#/$defs/NullableString" },
+        "topic": { "$ref": "#/$defs/NullableString" },
+        "usage": { "$ref": "#/$defs/NullableString" },
+        "keywords": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/String" }
+        },
+        "summary": { "$ref": "#/$defs/NullableString" },
+        "key_reference_reason": { "$ref": "#/$defs/NullableString" },
+        "confidence": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "mentions": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/$defs/CitationMention" }
+        }
+      }
+    }
+  }
+}

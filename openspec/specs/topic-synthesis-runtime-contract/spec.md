@@ -67,7 +67,7 @@ without requiring an agent-authored cross-paper evidence map.
 
 - **WHEN** runtime computes full-context slot counts
 - **THEN** it SHALL use the calibrated constants from
-  `artifact/synthesis-agent-payload-simplification-notes.md`
+  `artifacts/archive/synthesis-agent-payload-simplification-notes.md`
 - **AND** those constants SHALL include `core_analysis_full_context_tokens_per_paper: 1500`,
   `external_literature_full_context_tokens_per_paper: 7750`, and
   `safety_margin_ratio: 0.10`.

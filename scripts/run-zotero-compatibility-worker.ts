@@ -1,5 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { persistCompatibilityHostFactsEvent } from "./zotero-compatibility-fixture";
 
 function requiredEnvironment(name: string) {
   const value = String(process.env[name] || "").trim();
@@ -21,23 +23,75 @@ async function createDirectoryLink(source: string, target: string) {
   }
 }
 
-async function createEntryProxy(
-  runRoot: string,
-  name: string,
-  sourceFiles: string[],
+export function resolveCompatibilityWorkerEntries(
+  mode: string,
+  configuredEntries: readonly unknown[],
+  domain = "all",
+  installCandidateXpi = false,
+  lane = "",
 ) {
-  const relativeRoot = path.join(
-    "compatibility-entries",
-    path.basename(runRoot),
-    name,
+  return mode === "xpi-smoke"
+    ? ["tests/zotero/compatibility/xpi"]
+    : domain === "e2e"
+      ? [
+          ...(installCandidateXpi ? ["tests/zotero/compatibility/xpi"] : []),
+          ...configuredEntries.map((entry) =>
+            lane === "acceptance" && entry === "tests/zotero/e2e/full"
+              ? "tests/zotero/e2e/acceptance"
+              : String(entry),
+          ),
+        ]
+      : [...configuredEntries.map(String), "tests/zotero/compatibility/probe"];
+}
+
+export async function materializeCompatibilityTestWorkspace(
+  projectRoot: string,
+  runRoot: string,
+  lane = "",
+) {
+  await fs.mkdir(path.join(runRoot, "tests"), { recursive: true });
+  await fs.cp(
+    path.join(projectRoot, "tests/zotero"),
+    path.join(runRoot, "tests/zotero"),
+    { recursive: true },
   );
-  const content = `${sourceFiles
-    .map((sourceFile) => `import ${JSON.stringify(sourceFile)};`)
-    .join("\n")}\n`;
-  const entryRoot = path.join(runRoot, relativeRoot);
-  await fs.mkdir(entryRoot, { recursive: true });
-  await fs.writeFile(path.join(entryRoot, "suite.test.ts"), content, "utf8");
-  return relativeRoot.replaceAll("\\", "/");
+  if (lane === "acceptance") {
+    const full = path.join(runRoot, "tests/zotero/e2e/full");
+    const selected = (await fs.readdir(full)).filter((name) =>
+      /^30[0-2]-.*\.zotero\.test\.ts$/.test(name),
+    );
+    if (
+      selected.length !== 3 ||
+      ["300-", "301-", "302-"].some(
+        (prefix) => !selected.some((name) => name.startsWith(prefix)),
+      )
+    ) {
+      throw new Error("acceptance_phase1_test_membership_invalid");
+    }
+    const acceptance = path.join(runRoot, "tests/zotero/e2e/acceptance");
+    await fs.mkdir(acceptance, { recursive: true });
+    await Promise.all(
+      selected.map((name) =>
+        fs.copyFile(path.join(full, name), path.join(acceptance, name)),
+      ),
+    );
+  }
+  for (const relative of [
+    "tests/fixtures",
+    "tests/helpers",
+    "src",
+    "scripts",
+    "packages",
+  ]) {
+    await createDirectoryLink(
+      path.join(projectRoot, relative),
+      path.join(runRoot, relative),
+    );
+  }
+  await fs.copyFile(
+    path.join(projectRoot, "package.json"),
+    path.join(runRoot, "package.json"),
+  );
 }
 
 async function main() {
@@ -49,8 +103,7 @@ async function main() {
     requiredEnvironment("ZOTERO_COMPAT_BUILD_ROOT"),
   );
   const mode = requiredEnvironment("ZOTERO_COMPAT_MODE");
-  const hostFactsPath = path.join(runRoot, "diagnostics", "host-facts.json");
-  await fs.mkdir(path.dirname(hostFactsPath), { recursive: true });
+  const domain = requiredEnvironment("ZOTERO_TEST_DOMAIN");
   await createDirectoryLink(
     path.join(projectRoot, "node_modules"),
     path.join(runRoot, "node_modules"),
@@ -59,10 +112,8 @@ async function main() {
     path.join(projectRoot, "workflows_builtin"),
     path.join(runRoot, "workflows_builtin"),
   );
-  await createDirectoryLink(
-    path.join(projectRoot, "test"),
-    path.join(runRoot, "test"),
-  );
+  const lane = String(process.env.ZOTERO_E2E_TRIGGER_LANE || "").trim();
+  await materializeCompatibilityTestWorkspace(projectRoot, runRoot, lane);
   try {
     await fs.access(path.join(projectRoot, ".scaffold", "cache"));
     await createDirectoryLink(
@@ -75,36 +126,36 @@ async function main() {
 
   process.chdir(runRoot);
   const { Config, Test } = await import("zotero-plugin-scaffold");
+  const { resolveZoteroTestDisplayMode } =
+    await import("../zotero-plugin.config");
   process.chdir(projectRoot);
   const context = await Config.loadConfig({ dist: buildRoot });
   const configuredEntries = Array.isArray(context.test.entries)
     ? context.test.entries
     : [context.test.entries];
-  const sourceFiles =
-    mode === "xpi-smoke"
-      ? [path.join(projectRoot, "test/zotero/compatibility/xpi/suite.test.ts")]
-      : [
-          ...configuredEntries.map((entry) =>
-            path.resolve(projectRoot, String(entry), "suite.test.ts"),
-          ),
-          path.join(
-            projectRoot,
-            "test/zotero/compatibility/probe/suite.test.ts",
-          ),
-        ];
-  context.test.entries = [await createEntryProxy(runRoot, mode, sourceFiles)];
+  context.test.entries = resolveCompatibilityWorkerEntries(
+    mode,
+    configuredEntries,
+    domain,
+    process.env.ZOTERO_COMPAT_INSTALL_CANDIDATE_XPI === "1",
+    lane,
+  );
   context.test.watch = false;
-  context.test.headless = process.platform === "linux";
+  context.test.headless = resolveZoteroTestDisplayMode().needsXvfb;
   context.test.prefs = {
     ...context.test.prefs,
     "extensions.zotero.zotero-skills.compatibilityTestXpiPath": String(
       process.env.ZOTERO_COMPAT_XPI_PATH || "",
     ).trim(),
+    "extensions.zotero.zotero-skills.compatibilityKeepXpiInstalled":
+      process.env.ZOTERO_COMPAT_INSTALL_CANDIDATE_XPI === "1",
+    "extensions.zotero.zotero-skills.compatibilityPreviousXpiPath": String(
+      process.env.ZOTERO_COMPAT_PREVIOUS_XPI_PATH || "",
+    ).trim(),
   };
-
   process.chdir(runRoot);
   const test = new Test(context);
-  context.test.headless = process.platform === "linux";
+  context.test.headless = resolveZoteroTestDisplayMode().needsXvfb;
   const internals = test as unknown as {
     builder: { run: () => Promise<void> };
     reporter: {
@@ -114,22 +165,18 @@ async function main() {
   internals.builder.run = async () => undefined;
   const originalOnData = internals.reporter.onData.bind(internals.reporter);
   internals.reporter.onData = async (body) => {
-    if (
-      body?.type === "debug" &&
-      body?.data?.kind === "zotero-compatibility-host-facts"
-    ) {
-      await fs.writeFile(
-        hostFactsPath,
-        `${JSON.stringify(body.data, null, 2)}\n`,
-        "utf8",
-      );
-    }
+    await persistCompatibilityHostFactsEvent(runRoot, body);
     await originalOnData(body);
   };
   await test.run();
 }
 
-void main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  void main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}

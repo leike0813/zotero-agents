@@ -1,4 +1,8 @@
-import { portableItemRef, requireHostApi } from "./runtime.mjs";
+import {
+  portableItemRef,
+  requireHostApi,
+  resolveSelectionParentRef,
+} from "./runtime.mjs";
 import { resolveDigestMarkdownForParent } from "./digestPayload.mjs";
 
 export const DEFAULT_TAG_NOTE_LANGUAGE = "zh-CN";
@@ -119,11 +123,7 @@ function resolveWorkflowInputMaterializer(runtime) {
   return materialize;
 }
 
-export async function materializeValidTagsYaml(
-  tags,
-  parentId,
-  runtime,
-) {
+export async function materializeValidTagsYaml(tags, parentId, runtime) {
   const result = await resolveWorkflowInputMaterializer(runtime)({
     key: "valid_tags",
     fileName: `valid_tags-parent-${String(parentId || "unknown")}.yaml`,
@@ -142,11 +142,7 @@ export function buildValidTagsUploadRelativePath() {
   return "inputs/valid_tags/valid_tags.yaml";
 }
 
-export async function materializeDigestMarkdown(
-  markdown,
-  parentId,
-  runtime,
-) {
+export async function materializeDigestMarkdown(markdown, parentId, runtime) {
   const content = String(markdown || "");
   if (!content.trim()) {
     return null;
@@ -171,11 +167,9 @@ export function buildDigestMarkdownUploadRelativePath() {
 
 export function resolveParentItemFromSelection(selectionContext, runtime) {
   void runtime;
-  const parent = selectionContext?.items?.parents?.[0]?.item ||
-    selectionContext?.items?.attachments?.[0]?.parent ||
-    selectionContext?.items?.notes?.[0]?.parent;
-  if (parent) return parent;
-  throw new Error("tag-regulator buildRequest cannot resolve parent item");
+  const parentRef = resolveSelectionParentRef(selectionContext);
+  if (parentRef) return parentRef;
+  throw new Error("tag-regulator buildRequest cannot resolve parent ref");
 }
 
 function normalizeCreatorName(entry) {
@@ -199,16 +193,28 @@ export function collectMetadataFromParent(item) {
     .map((entry) => normalizeCreatorName(entry))
     .filter(Boolean);
   return {
-    id: item.id,
-    key: item.key,
     itemType: String(item.itemType || "").trim(),
-    libraryID: item.libraryID,
-    title: String(item.getField?.("title") || item.fields?.title || item.title || "").trim(),
-    abstract: String(item.getField?.("abstractNote") || item.fields?.abstractNote || "").trim(),
-    publication_title: String(item.getField?.("publicationTitle") || item.fields?.publicationTitle || item.publicationTitle || "").trim(),
-    conference_name: String(item.getField?.("conferenceName") || item.fields?.conferenceName || "").trim(),
-    university: String(item.getField?.("university") || item.fields?.university || "").trim(),
-    date: String(item.getField?.("date") || item.fields?.date || item.date || "").trim(),
+    title: String(
+      item.getField?.("title") || item.fields?.title || item.title || "",
+    ).trim(),
+    abstract: String(
+      item.getField?.("abstractNote") || item.fields?.abstractNote || "",
+    ).trim(),
+    publication_title: String(
+      item.getField?.("publicationTitle") ||
+        item.fields?.publicationTitle ||
+        item.publicationTitle ||
+        "",
+    ).trim(),
+    conference_name: String(
+      item.getField?.("conferenceName") || item.fields?.conferenceName || "",
+    ).trim(),
+    university: String(
+      item.getField?.("university") || item.fields?.university || "",
+    ).trim(),
+    date: String(
+      item.getField?.("date") || item.fields?.date || item.date || "",
+    ).trim(),
     creators: creatorNames,
   };
 }
@@ -222,7 +228,9 @@ export function collectInputTagsFromParent(item) {
   const seen = new Set();
   const normalized = [];
   for (const entry of tags) {
-    const text = String(typeof entry === "string" ? entry : entry?.tag || "").trim();
+    const text = String(
+      typeof entry === "string" ? entry : entry?.tag || "",
+    ).trim();
     if (!text || seen.has(text)) {
       continue;
     }
@@ -270,21 +278,17 @@ export function resolveRequestParameters(executionOptions, options = {}) {
 }
 
 export async function buildTagRegulatorInputFromParent(args) {
-  const selectedParent = args.parentItem || resolveParentItemFromSelection(
-    args.selectionContext,
-    args.runtime,
-  );
+  const selectedParentRef =
+    args.parentRef ||
+    (args.parentItem ? portableItemRef(args.parentItem) : null) ||
+    resolveParentItemFromSelection(args.selectionContext, args.runtime);
   const detail = await requireHostApi(args.runtime).library.getItemDetail(
-    portableItemRef(selectedParent),
+    portableItemRef(selectedParentRef),
   );
   if (detail?.kind !== "regular") {
     throw new Error("tag-regulator requires one regular parent item");
   }
-  const parentItem = {
-    ...detail.item,
-    key: detail.item.ref.key,
-    libraryID: detail.item.ref.libraryId,
-  };
+  const parentItem = detail.item;
   const metadata = collectMetadataFromParent(parentItem);
   const inputTags = collectInputTagsFromParent(parentItem);
   const controlledTags = await loadSynthesisVocabularyTagsOrThrow(args.runtime);
@@ -350,7 +354,7 @@ export async function buildTagRegulatorStandaloneRequest(args) {
     kind: "skillrunner.job.v1",
     skill_id: "tag-regulator",
     mode: "auto",
-    targetParentID: parentItem.id,
+    targetParentRef: portableItemRef(parentItem),
     input,
     parameter: resolveRequestParameters(args.executionOptions),
     ...(uploadFiles.length > 0 ? { upload_files: uploadFiles } : {}),

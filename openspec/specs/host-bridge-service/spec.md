@@ -2,10 +2,12 @@
 
 ## Purpose
 TBD - created by archiving change introduce-host-bridge-cli-interface. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Host Bridge service requires bearer authentication
 The system SHALL require bearer-token authentication for all Host Bridge
-requests except `GET /bridge/v1/health`.
+requests except `GET /bridge/v2/health`.
 
 #### Scenario: Missing token is rejected
 - **WHEN** a client sends a non-health bridge request without
@@ -40,12 +42,12 @@ users.
 
 The system SHALL expose a plugin-owned Host Access HTTP listener for local and
 explicitly enabled LAN clients. The Host Bridge REST API SHALL remain available
-under `/bridge/v1`.
+under `/bridge/v2`.
 
 #### Scenario: Unified listener serves both protocol routes
 
 - **WHEN** the Host Access listener is running
-- **THEN** `GET /bridge/v1/health` SHALL return Host Bridge health metadata
+- **THEN** `GET /bridge/v2/health` SHALL return Host Bridge health metadata
 - **AND** `POST /mcp` SHALL be routable by the same listener when MCP is enabled
 - **AND** both routes SHALL use the same bound port.
 
@@ -54,19 +56,19 @@ under `/bridge/v1`.
 - **GIVEN** Host Bridge LAN binding is enabled
 - **WHEN** Host Access starts
 - **THEN** the listener SHALL bind according to the Host Bridge LAN setting
-- **AND** both `/bridge/v1/*` and `/mcp` SHALL be available on that listener
+- **AND** both `/bridge/v2/*` and `/mcp` SHALL be available on that listener
 - **AND** LAN mode SHALL require the configured fixed Host Bridge port.
 
 ### Requirement: Host Bridge shared bearer authentication with MCP
 
 The system SHALL require bearer-token authentication for all Host Bridge
-requests except `GET /bridge/v1/health`, and SHALL share that bearer token with
+requests except `GET /bridge/v2/health`, and SHALL share that bearer token with
 the MCP route.
 
 #### Scenario: Shared token authorizes both protocol routes
 
 - **GIVEN** a client has the current Host Bridge bearer token
-- **WHEN** it calls authenticated `/bridge/v1/*` routes or `/mcp`
+- **WHEN** it calls authenticated `/bridge/v2/*` routes or `/mcp`
 - **THEN** the same token SHALL authorize both protocol surfaces.
 
 ### Requirement: Unified Host Access settings control both protocol surfaces
@@ -82,16 +84,18 @@ a separate MCP port or LAN control.
 - **AND** Host Bridge and MCP endpoint metadata SHALL report the same port.
 
 ### Requirement: Host Bridge service calls broker capabilities
-The system SHALL route `POST /bridge/v1/call` through JSON-safe host capability
-broker APIs.
+
+The system SHALL route Bridge calls through JSON-safe Host Capability Broker APIs. Each public mutation SHALL have an operation-specific capability with independent input/result schemas: `dryRun: true` invokes effect-free Broker preview, while false or omission invokes canonical execute. The transport SHALL retain read-only `mutation.get_operation`. MCP SHALL mirror the same Bridge definition and handler. Mutation execution and observation SHALL use the Broker durable caller namespace, independent of generic HTTP request IDs, transient connections, and X-Zotero-Bridge-Scope. mutation.get_operation SHALL expose only running, settled(result), or unavailable; it SHALL not expose request payloads, timestamps, scope, or identity-binding details. No Bridge route SHALL fall back to legacy mutations, direct Zotero APIs, public prepared tokens, or generic HTTP operation history.
+
+#### Scenario: Canonical mutation is observed
+- **WHEN** an authenticated Bridge or MCP client calls mutation.get_operation
+- **THEN** the Bridge SHALL invoke the Broker read-only observation
+- **AND** it SHALL not execute, retry, or query generic HTTP operation history.
 
 #### Scenario: Broker capability succeeds
-- **WHEN** an authenticated client calls a known capability with valid JSON
-  input
-- **THEN** the bridge SHALL return a structured success response with the
-  broker result
-- **AND** the result MUST NOT include Zotero native objects, windows, `nsIFile`,
-  or other host runtime objects.
+- **WHEN** an authenticated client calls a known capability with valid JSON input
+- **THEN** the bridge SHALL return a structured success response with the Broker result
+- **AND** it SHALL not expose native Host objects, local paths, public tokens, or caller revisions.
 
 #### Scenario: Unknown capability fails structurally
 - **WHEN** an authenticated client calls an unknown capability
@@ -99,29 +103,27 @@ broker APIs.
 - **AND** no fallback to direct Zotero native APIs SHALL occur.
 
 ### Requirement: Host Bridge enforces approval policy
-The Host Bridge SHALL decide approval requirements from bridge command or
-capability metadata rather than trusting the CLI to decide.
+
+The Host Bridge SHALL derive approval requirements from capability metadata. mutation.preview and mutation.get_operation bypass approval. mutation.execute SHALL perform canonical validation and private preflight before approval, and SHALL reevaluate after approval. A changed prepared-plan digest SHALL require a new approval.
+
+#### Scenario: Plan changes while approval waits
+- **WHEN** post-approval reevaluation produces a different domain plan digest
+- **THEN** the original approval SHALL not authorize execution
+- **AND** the Bridge SHALL request approval for the newly prepared scope.
 
 #### Scenario: Read command bypasses approval
-- **WHEN** an authenticated client performs a read-only action such as status,
-  manifest, item search, item get, note payload retrieval, task listing, or
-  workflow run status reading
-- **THEN** the bridge SHALL execute the action without creating an approval
-  request.
+- **WHEN** an authenticated client performs a read-only action including mutation preview or mutation observation
+- **THEN** the bridge SHALL execute it without creating an approval request.
 
 #### Scenario: Preview and download bypass approval
-- **WHEN** an authenticated client performs mutation preview or downloads a
-  registered file handle
-- **THEN** the bridge SHALL execute the action without creating an approval
-  request
-- **AND** file download SHALL still require the file handle to be broker-issued
-  and authorized.
+- **WHEN** an authenticated client performs mutation preview or downloads a registered file handle
+- **THEN** the bridge SHALL execute it without approval
+- **AND** file download SHALL still require a valid authorized handle.
 
 #### Scenario: Workflow submit or mutation execute requires approval
 - **WHEN** an authenticated client submits a workflow or executes a mutation
-- **THEN** the bridge SHALL require Zotero-side approval before performing the
-  operation
-- **AND** the CLI MUST NOT be able to approve the operation itself.
+- **THEN** the bridge SHALL require Zotero-side approval before the effect
+- **AND** the CLI SHALL not approve the operation itself.
 
 ### Requirement: Host Bridge diagnostics expose redacted operational state
 
@@ -139,7 +141,7 @@ paginated Zotero library readiness inspection.
 
 #### Scenario: Capability returns lightweight readiness DTOs
 
-- **WHEN** `/bridge/v1/call` invokes `library.readiness_audit`
+- **WHEN** `/bridge/v2/call` invokes `library.readiness_audit`
 - **THEN** Host Bridge SHALL return `zotero.library.readiness_audit.v1`
 - **AND** each item SHALL include a compact Zotero item summary, readiness
   states for `pdf`, `markdown`, and `analysis`, a `missing` array, and
@@ -200,7 +202,7 @@ Host Bridge SHALL route `library.list_items`, `library.sync_snapshot`, `library.
 
 #### Scenario: Host Bridge receives an invalid cursor
 
-- **WHEN** a library capability receives a malformed, unsupported, criteria-mismatched, or non-zero numeric cursor
+- **WHEN** a library capability receives a malformed, unsupported, criteria-mismatched, or numeric cursor
 - **THEN** Host Bridge SHALL return structured code `invalid_library_cursor`
 - **AND** the error SHALL be non-retryable without corrected input.
 
@@ -255,3 +257,84 @@ The registered handler IDs and canonical capability IDs SHALL be identical, and 
 #### Scenario: Registry and contract differ
 - **WHEN** a capability or handler is missing, duplicated, or orphaned
 - **THEN** Host Bridge startup and contract validation SHALL fail before serving requests.
+
+### Requirement: Ordinary library capabilities SHALL consume canonical Broker pages
+Ordinary library/item/note/payload/attachment/annotation handlers SHALL use the canonical Broker directly with trusted request control. They SHALL NOT resolve partial ordinary-read projections, invoke legacy read fallbacks, or materialize complete collections to repaginate. Missing or incomplete injected capabilities SHALL fail closed.
+
+#### Scenario: Injected read capability is absent
+- **WHEN** an ordinary library capability is not configured
+- **THEN** the call fails without entering a default native fallback.
+
+### Requirement: Host Bridge SHALL expose Saved Search discovery
+Host Bridge SHALL expose library.list_saved_searches as read-only portable-ref discovery with the Broker-owned input and page semantics.
+
+#### Scenario: Discovery is called remotely
+- **WHEN** an authenticated client requests a Saved Search page
+- **THEN** it receives stable refs and display names without navigation effects.
+
+### Requirement: Host Bridge SHALL expose canonical navigation capabilities
+
+The authenticated `/bridge/v2/call` dispatcher SHALL expose exactly the seven
+navigation capability IDs `navigation.focus_zotero`,
+`navigation.select_library_view`, `navigation.select_collection`,
+`navigation.select_saved_search`, `navigation.reveal_items`,
+`navigation.open_item`, and `navigation.open_reader_location`. It SHALL invoke
+the canonical Broker with one captured main window and SHALL reject the removed
+`/context/items/open`, `/context/notes/open`, `/context/collections/open`, and
+`/context/selection/open` routes without fallback.
+
+#### Scenario: Authenticated navigation call succeeds
+- **WHEN** an authenticated caller submits valid canonical navigation input
+- **THEN** the service validates the input, applies the caller scope, invokes the Broker, and returns the operation-specific result
+- **AND** the response contains no native object, window ID, path, or full UI snapshot.
+
+#### Scenario: Legacy navigation route is called
+- **WHEN** a caller requests a removed context-open route
+- **THEN** the service returns a structured unsupported or not-found error
+- **AND** no legacy helper or direct Zotero API is invoked.
+
+#### Scenario: Target window closes after admission
+- **WHEN** the captured main window becomes invalid before the first UI effect
+- **THEN** the call fails closed with a stable unavailable result
+- **AND** it does not redirect to another window.
+
+### Requirement: Host Bridge exposes typed canonical mutation capabilities
+The service SHALL expose one capability for each public `MutationOperation` value, with an independent operation-specific input and result schema. It SHALL retain read-only `mutation.get_operation` and SHALL NOT expose `mutation.preview` or `mutation.execute`.
+
+#### Scenario: Agent invokes a typed mutation
+- **WHEN** an authenticated client calls a capability named by a public mutation operation
+- **THEN** the Bridge validates that operation's schema and delegates to the canonical Broker mutation path
+- **AND** it does not create or consult generic HTTP operation history.
+
+### Requirement: Dry-run projections are effect-free
+Typed mutation capabilities SHALL accept optional `dryRun`; true SHALL invoke Broker preview without durable admission or Zotero mutation, and false or omission SHALL execute through the existing canonical authority.
+
+#### Scenario: Client requests a dry run
+- **WHEN** a typed mutation request contains `dryRun: true`
+- **THEN** the Bridge returns that operation's preview result without requiring an operation id or approval.
+
+### Requirement: Host Access authentication SHALL precede request-body consumption
+
+Except for `GET /bridge/v2/health`, the unified listener SHALL validate the shared bearer token from the bounded request head before accepting request-body bytes. Rejected authentication MUST NOT invoke route handlers or perform repeated master-token key derivation for an unchanged encrypted token and key material.
+
+#### Scenario: Repeated invalid bearer requests use an unchanged master token
+
+- **WHEN** callers repeatedly present invalid bearer values while the encrypted master-token envelope and key material remain unchanged
+- **THEN** every request SHALL be rejected
+- **AND** the stored master token SHALL be decrypted through one shared in-flight or cached derivation.
+
+#### Scenario: Master token rotates
+
+- **WHEN** the encrypted master-token envelope or key material changes
+- **THEN** subsequent authentication SHALL derive the new token
+- **AND** the previous bearer value SHALL no longer authorize requests.
+
+### Requirement: MCP SHALL preserve canonical Broker failures
+
+MCP tool failures originating from the Zotero Host Capability Broker SHALL preserve the Broker's stable code, retryability, and strict-JSON details. Established not-found aliases and invalid-cursor mappings SHALL remain unchanged.
+
+#### Scenario: Broker rejects a capability with structured details
+
+- **WHEN** a Broker capability throws a structured capability error other than an established alias case
+- **THEN** MCP SHALL return a tool error carrying the same stable code, retryable value, and details
+- **AND** it SHALL not collapse the error into generic invalid parameters.

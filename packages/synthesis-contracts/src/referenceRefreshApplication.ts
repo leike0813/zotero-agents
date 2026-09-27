@@ -543,7 +543,14 @@ function rebuildReadResult(
   const input = toSynthesisJsonObject(value, location);
   exactFields(
     input,
-    ["status", "payloadHash", "currentHash", "content", "diagnostics"],
+    [
+      "status",
+      "payloadHash",
+      "currentHash",
+      "content",
+      "referencesBasis",
+      "diagnostics",
+    ],
     location,
   );
   if (
@@ -562,6 +569,10 @@ function rebuildReadResult(
     input.currentHash === undefined
       ? undefined
       : requiredHash(input.currentHash, `${location}.currentHash`);
+  const referencesBasis =
+    input.referencesBasis === undefined
+      ? undefined
+      : requiredHash(input.referencesBasis, `${location}.referencesBasis`);
   let content: SynthesisHostArtifactReadResult["content"];
   if (input.content !== undefined) {
     const contentInput = toSynthesisJsonObject(
@@ -603,6 +614,7 @@ function rebuildReadResult(
     status: input.status,
     ...(payloadHash ? { payloadHash } : {}),
     ...(currentHash ? { currentHash } : {}),
+    ...(referencesBasis ? { referencesBasis } : {}),
     ...(content ? { content } : {}),
     diagnostics: stringList(input.diagnostics, `${location}.diagnostics`, 256),
   };

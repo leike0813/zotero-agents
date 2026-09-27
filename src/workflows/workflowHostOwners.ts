@@ -1,27 +1,35 @@
-import { config as packageConfig, version as packageVersion } from "../../package.json";
-import { createWorkflowEditorOwner } from "../modules/workflowEditorHost";
 import {
-  createWorkflowLoggingOwner,
-  type WorkflowRuntimeLogBinding,
-} from "../modules/runtimeLogManager";
+  config as packageConfig,
+  version as packageVersion,
+} from "../../package.json";
+import { createWorkflowEditorOwner } from "../modules/workflow/ui/workflowEditorHost";
 import {
   createZoteroHostCapabilityBroker,
+  getZoteroHostCanonicalMutationControl,
   ZoteroHostCapabilityError,
   type ZoteroHostLibrarySyncSnapshotRequest,
 } from "../modules/zoteroHostCapabilityBroker";
+import {
+  getZoteroManagedNoteLocalControl,
+  classifyManagedNoteTransfer,
+  type ManagedParentSetSemanticInput,
+} from "../modules/zoteroHost/zoteroManagedNotes";
+import { parseEmbeddedNotePayloadBlock } from "../modules/zoteroHost/notePayloadCodec";
 import { createWorkflowNotificationOwner } from "../modules/workflowExecution/feedbackSeam";
 import {
   copyRuntimeFile,
   ensureRuntimeDirectory,
   getRuntimePersistencePaths,
-  moveRuntimePath,
   readRuntimeBytes,
   removeRuntimePath,
-  scanRuntimeTree,
   statRuntimePathStrict,
 } from "../modules/runtimePersistence";
 import { createWorkflowSynthesisHostApi } from "../modules/synthesisClient/workflowHostClient";
-import { handlers } from "../handlers";
+import {
+  createZoteroHostPreparedFiles,
+  type PreparedStoredAttachment,
+  type ZoteroHostPreparedFiles,
+} from "../modules/zoteroHost/zoteroHostPreparedFiles";
 import {
   resolveRuntimeAddon,
   resolveRuntimeZotero,
@@ -30,18 +38,22 @@ import {
   canonicalizeLocale,
   resolveRuntimeLocale,
 } from "../utils/localizationGovernance";
-import { detectRuntimePlatform } from "../platform/runtimePlatform";
 import { joinPath } from "../utils/path";
-import {
-  getBaseName,
-  getParentPath,
-  normalizeNativeLocalPath,
-} from "../platform/path";
+import { detectRuntimePlatform } from "../platform/runtimePlatform";
 import type {
   WorkflowHostApiV12,
   WorkflowHostLiveReadAdapters,
   WorkflowResearchBundleApi,
   WorkflowCallControl,
+  AttachmentContentManifestDto,
+  AttachmentMetadataDto,
+  AttachmentCreateRequestDto,
+  AttachmentDetailDto,
+  CanonicalStoredAttachmentSourceDto,
+  JsonObject,
+  MutationExecutionResult,
+  MutationRequestByOperation,
+  MutationResultByOperation,
   ImportPapersRequestDto,
   ImportPapersResultDto,
   MaterializePapersRequestDto,
@@ -62,7 +74,6 @@ import {
 import { createWorkflowBibliographyOwner } from "./bibliography";
 import { createWorkflowClipboardOwner } from "./clipboard";
 import {
-  createWorkflowStoredAttachmentImport,
   createWorkflowStoredAttachmentStager,
   WorkflowStoredAttachmentInputError,
 } from "./workflowStoredAttachmentImport";
@@ -70,14 +81,22 @@ import {
   createResearchBundleImportEffects,
   createResearchBundleImporter,
   createCanonicalResearchBundleMaterializer,
-} from "../modules/researchBundleService";
-import { MutationAuthorityExecutionError } from "../modules/zoteroHostMutationAuthority";
+} from "../modules/hostBridge/workflow/researchBundleService";
+import {
+  lookupTrustedStoredAttachmentMutation,
+  MutationAuthorityExecutionError,
+  type ZoteroHostMutationCallerScope,
+} from "../modules/zoteroHostMutationAuthority";
 import { sha256Hex } from "../utils/sha256";
 import { WORKFLOW_HOST_API_VERSION } from "./workflowHostContract";
 import {
   createWorkflowHostError,
   type WorkflowInteractionMember,
 } from "./workflowHostErrorContract";
+import {
+  createWorkflowLoggingOwner,
+  type WorkflowRuntimeLogBinding,
+} from "./workflowLoggingOwner";
 
 export { WORKFLOW_HOST_API_VERSION } from "./workflowHostContract";
 
@@ -96,16 +115,208 @@ export type WorkflowHostLeafScope = Readonly<{
   dispose(): void;
 }>;
 
-export function createWorkflowHostCapabilityBroker(
-  resources?: Pick<WorkflowResourceApi, "get">,
+export type WorkflowStoredAttachmentSource =
+  | Readonly<{ kind: "local_path"; path: string }>
+  | Readonly<{ kind: "resource"; resourceRef: ResourceRef }>;
+
+export type WorkflowStoredAttachmentPreparationRequest = Readonly<{
+  main: Readonly<{
+    source: WorkflowStoredAttachmentSource;
+    targetFilename?: string;
+  }>;
+  companions?: readonly Readonly<{
+    source: WorkflowStoredAttachmentSource;
+    targetRelativePath: string;
+  }>[];
+}>;
+
+export type WorkflowPreparedStoredFiles = Readonly<{
+  prepareStoredAttachment(
+    request: WorkflowStoredAttachmentPreparationRequest,
+  ): Promise<PreparedStoredAttachment>;
+  preparedFiles: ZoteroHostPreparedFiles;
+}>;
+
+function canonicalAttachmentSha256(value: string) {
+  return value.startsWith("sha256:") ? value : `sha256:${value}`;
+}
+
+type NullableAttachmentMetadataDto = {
+  [K in keyof AttachmentMetadataDto]?: AttachmentMetadataDto[K] | null;
+};
+
+function canonicalAttachmentMetadata(
+  metadata: NullableAttachmentMetadataDto | undefined,
+): AttachmentMetadataDto | undefined {
+  if (!metadata) return undefined;
+  const result: AttachmentMetadataDto = {};
+  for (const key of [
+    "title",
+    "contentType",
+    "charset",
+    "originalUrl",
+  ] as const) {
+    const value = metadata[key];
+    if (value !== undefined && value !== null) result[key] = value;
+  }
+  return Object.keys(result).length ? result : undefined;
+}
+
+export function createCanonicalStoredAttachmentSource(
+  source: WorkflowStoredAttachmentPreparationRequest,
+  snapshot: PreparedStoredAttachment["snapshot"],
+): CanonicalStoredAttachmentSourceDto {
+  const content: AttachmentContentManifestDto = {
+    schema: "zotero-agents.attachment-content.v1",
+    identity: snapshot.identity,
+    main: {
+      ...snapshot.main,
+      sha256: canonicalAttachmentSha256(snapshot.main.sha256),
+    },
+    companions: snapshot.companions.map((companion) => ({
+      ...companion,
+      sha256: canonicalAttachmentSha256(companion.sha256),
+    })),
+  };
+  return {
+    kind: "stored_file",
+    content,
+    ...(source.main.targetFilename
+      ? { targetFilename: source.main.targetFilename }
+      : {}),
+    ...(source.companions?.length
+      ? {
+          companions: source.companions.map(({ targetRelativePath }) => ({
+            targetRelativePath,
+          })),
+        }
+      : {}),
+  };
+}
+
+export function createStoredAttachmentNonResourceSemanticInput<
+  K extends "attachments.create" | "attachments.replaceFile",
+>(
+  input: Omit<MutationRequestByOperation[K], "source">,
+  source: WorkflowStoredAttachmentPreparationRequest,
+): JsonObject {
+  return {
+    ...input,
+    source: {
+      kind: "stored_file",
+      ...(source.main.targetFilename
+        ? { targetFilename: source.main.targetFilename }
+        : {}),
+      ...(source.companions?.length
+        ? {
+            companions: source.companions.map(({ targetRelativePath }) => ({
+              targetRelativePath,
+            })),
+          }
+        : {}),
+    },
+  };
+}
+
+export function createStoredAttachmentCompleteSemanticInput<
+  K extends "attachments.create" | "attachments.replaceFile",
+>(
+  input: Omit<MutationRequestByOperation[K], "source">,
+  source: CanonicalStoredAttachmentSourceDto,
+): JsonObject {
+  return {
+    ...input,
+    source: {
+      kind: "stored_file",
+      content: {
+        schema: source.content.schema,
+        identity: source.content.identity,
+        main: { ...source.content.main },
+        companions: source.content.companions.map((companion) => ({
+          ...companion,
+        })),
+      },
+      ...(source.targetFilename
+        ? { targetFilename: source.targetFilename }
+        : {}),
+      ...(source.companions?.length
+        ? {
+            companions: source.companions.map(({ targetRelativePath }) => ({
+              targetRelativePath,
+            })),
+          }
+        : {}),
+    },
+  };
+}
+
+export function lookupWorkflowStoredAttachmentMutation<
+  K extends "attachments.create" | "attachments.replaceFile",
+>(
+  args: Readonly<{
+    scope: ZoteroHostMutationCallerScope;
+    input: Omit<MutationRequestByOperation[K], "source">;
+    source: WorkflowStoredAttachmentPreparationRequest;
+    completeSemanticInput?: JsonObject;
+  }>,
 ) {
+  return lookupTrustedStoredAttachmentMutation<MutationResultByOperation[K]>({
+    scope: args.scope,
+    operationId: args.input.operationId,
+    operation: args.input.operation,
+    nonResourceSemanticInput: createStoredAttachmentNonResourceSemanticInput(
+      args.input,
+      args.source,
+    ),
+    ...(args.completeSemanticInput
+      ? { completeSemanticInput: args.completeSemanticInput }
+      : {}),
+  });
+}
+
+function isAttachmentDetail(
+  value: JsonObject["attachment"],
+): value is AttachmentDetailDto {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  return (
+    !!value.ref &&
+    typeof value.ref === "object" &&
+    !Array.isArray(value.ref) &&
+    typeof value.title === "string"
+  );
+}
+
+export function isAttachmentCreateMutationResult(
+  value: JsonObject,
+): value is JsonObject & { attachment: AttachmentDetailDto } {
+  return isAttachmentDetail(value.attachment);
+}
+
+export function isAttachmentReplaceMutationResult(
+  value: JsonObject,
+): value is JsonObject & {
+  attachment: AttachmentDetailDto;
+  outcome: "replaced" | "unchanged";
+} {
+  return (
+    isAttachmentDetail(value.attachment) &&
+    (value.outcome === "replaced" || value.outcome === "unchanged")
+  );
+}
+
+export function createWorkflowHostCapabilityBroker(
+  _resources?: Pick<WorkflowResourceApi, "get">,
+) {
+  return createZoteroHostCapabilityBroker();
+}
+
+export function createWorkflowPreparedStoredFiles(
+  resources?: Pick<WorkflowResourceApi, "get">,
+): WorkflowPreparedStoredFiles {
   const validateStoredSource = async (path: string) => {
-    let stat;
-    try {
-      stat = await statRuntimePathStrict(path);
-    } catch {
-      stat = null;
-    }
+    const stat = await statRuntimePathStrict(path).catch(() => null);
     if (!stat?.exists || stat.isDir) {
       throw new WorkflowStoredAttachmentInputError(
         "Stored attachment source must be a regular file",
@@ -113,354 +324,43 @@ export function createWorkflowHostCapabilityBroker(
     }
     return { sizeBytes: stat.size };
   };
-  const importStoredFile = createWorkflowStoredAttachmentImport({
+  const stager = createWorkflowStoredAttachmentStager({
     getStagingRoot: () =>
       joinPath(
         getRuntimePersistencePaths().tmpDir,
         "workflow-attachment-import",
       ),
+    validateSource: validateStoredSource,
     ensureDirectory: ensureRuntimeDirectory,
     copyFile: (sourcePath, targetPath) =>
       copyRuntimeFile({ sourcePath, targetPath }).then(() => undefined),
     removePath: removeRuntimePath,
-    validateSource: validateStoredSource,
-    importStoredFromPath: (request) =>
-      handlers.attachment.importStoredFromPath(request),
-    removeAttachment: (attachment) => handlers.attachment.remove(attachment),
   });
-  const resolveSourcePath = async (
-    source:
-      | { kind: "local_path"; path: string }
-      | { kind: "resource"; resourceRef: object },
-  ) => {
+  const preparedFiles = createZoteroHostPreparedFiles({
+    stageStoredAttachmentSources: stager,
+    readBytes: readRuntimeBytes,
+  });
+  const resolveSource = async (source: WorkflowStoredAttachmentSource) => {
     if (source.kind === "local_path") return source.path;
-    if (!resources) throw new Error("workflow resource resolver is unavailable");
-    return (await resources.get(source.resourceRef as ResourceRef)).path;
-  };
-  const fileSetDigest = async (root: string) => {
-    const manifest = await scanRuntimeTree(root);
-    if (manifest.issues.length) {
-      throw new Error("Managed attachment content could not be inspected");
+    if (!resources) {
+      throw new Error("workflow resource resolver is unavailable");
     }
-    const entries = [];
-    for (const entry of manifest.entries) {
-      if (entry.kind !== "file") continue;
-      entries.push([
-        entry.relativePath.replace(/\\/g, "/"),
-        await sha256Hex(await readRuntimeBytes(entry.absolutePath)),
-      ]);
-    }
-    return sha256Hex(
-      new TextEncoder().encode(JSON.stringify(entries)),
-    );
+    return (await resources.get(source.resourceRef)).path;
   };
-  const derivedMimeType = (filename: string) => {
-    const extension = filename.split(".").at(-1)?.toLowerCase();
-    return (
-      {
-        pdf: "application/pdf",
-        html: "text/html",
-        htm: "text/html",
-        json: "application/json",
-        md: "text/markdown",
-        txt: "text/plain",
-      }[extension || ""] || "application/octet-stream"
-    );
-  };
-  const replaceFailure = (
-    message: string,
-    recovery:
-      | "retry_same_operation"
-      | "refresh_and_retry_new_operation"
-      | "reconcile"
-      | "manual_repair",
-    outcome: "failed" | "unknown" | "repair_required" = "failed",
-    ref?: PortableItemRef,
-  ) =>
-    new MutationAuthorityExecutionError(
-      outcome,
-      "execution_failed",
-      outcome === "repair_required" ? "compensation" : "commit",
-      recovery,
-      {
-        phase: outcome === "repair_required" ? "cleanup" : "commit",
-        recovery,
-        ...(ref ? { affectedCount: 1 } : {}),
-        ...(outcome === "repair_required" && ref ? { residualCount: 1 } : {}),
-      },
-      message,
-      ref ? [{ kind: "item", ref }] : [],
-      outcome === "repair_required" && ref ? [{ kind: "item", ref }] : [],
-    );
-  return createZoteroHostCapabilityBroker({
-    async createStoredFile(request, parent) {
-      if (request.source.kind !== "stored_file") {
-        throw new Error("stored attachment source is required");
-      }
-      return importStoredFile({
-        parent,
-        path: await resolveSourcePath(request.source.main.source),
-        targetFilename: request.source.main.targetFilename,
-        title: request.metadata?.title,
-        mimeType: request.metadata?.contentType,
-        charset: request.metadata?.charset,
-        url: request.metadata?.originalUrl,
+  return Object.freeze({
+    async prepareStoredAttachment(request) {
+      return preparedFiles.prepareStoredAttachment({
+        path: await resolveSource(request.main.source),
+        targetFilename: request.main.targetFilename,
         companionFiles: await Promise.all(
-          (request.source.companions || []).map(async (companion) => ({
-            sourcePath: await resolveSourcePath(companion.source),
+          (request.companions || []).map(async (companion) => ({
+            sourcePath: await resolveSource(companion.source),
             relativePath: companion.targetRelativePath,
           })),
         ),
       });
     },
-    async replaceFile(request, attachment) {
-      const ref = {
-        libraryId: Number(attachment.libraryID),
-        key: String(attachment.key),
-      };
-      const linkMode = Number(
-        (attachment as any).attachmentLinkMode ??
-          (attachment as any).getAttachmentLinkMode?.(),
-      );
-      const storedTarget = linkMode === 0 || linkMode === 1;
-      const linkedTarget = linkMode === 2;
-      if (
-        (!storedTarget && !linkedTarget) ||
-        (storedTarget && request.source.kind !== "stored_file") ||
-        (linkedTarget && request.source.kind !== "linked_file")
-      ) {
-        throw new MutationAuthorityExecutionError(
-          "failed",
-          "invalid_request",
-          "validation",
-          "refresh_and_retry_new_operation",
-          {
-            reason: "invalid_combination",
-            operation: "attachments.replaceFile",
-          },
-          "attachment source does not match its link mode",
-          [{ kind: "item", ref }],
-        );
-      }
-
-      const oldPath = String(
-        (await attachment.getFilePathAsync?.()) || "",
-      ).trim();
-      if (!oldPath) {
-        throw replaceFailure(
-          "attachment file path is unavailable",
-          "refresh_and_retry_new_operation",
-          "failed",
-          ref,
-        );
-      }
-      if (request.source.kind === "linked_file") {
-        const path = normalizeNativeLocalPath(request.source.path);
-        if (!path) {
-          throw new MutationAuthorityExecutionError(
-            "failed",
-            "invalid_request",
-            "validation",
-            "refresh_and_retry_new_operation",
-            {
-              reason: "invalid_value",
-              field: "source.path",
-              operation: "attachments.replaceFile",
-            },
-            "linked attachment path is invalid",
-            [{ kind: "item", ref }],
-          );
-        }
-        let stat;
-        try {
-          stat = await statRuntimePathStrict(path);
-        } catch {
-          stat = null;
-        }
-        if (!stat?.exists || stat.isDir) {
-          throw new MutationAuthorityExecutionError(
-            "failed",
-            "invalid_request",
-            "validation",
-            "refresh_and_retry_new_operation",
-            {
-              reason: "invalid_value",
-              field: "source.path",
-              operation: "attachments.replaceFile",
-            },
-            "linked attachment path must be a readable regular file",
-            [{ kind: "item", ref }],
-          );
-        }
-        if (normalizeNativeLocalPath(oldPath) === path) return attachment;
-        const oldFilename = String((attachment as any).attachmentFilename || "");
-        const oldContentType = String(
-          (attachment as any).attachmentContentType || "",
-        );
-        try {
-          (attachment as any).setFilePath(path);
-          (attachment as any).attachmentFilename = getBaseName(path);
-          (attachment as any).attachmentContentType = derivedMimeType(path);
-          await attachment.saveTx();
-          return attachment;
-        } catch {
-          (attachment as any).setFilePath(oldPath);
-          (attachment as any).attachmentFilename = oldFilename;
-          (attachment as any).attachmentContentType = oldContentType;
-          throw replaceFailure(
-            "linked attachment relocation could not be confirmed",
-            "reconcile",
-            "unknown",
-            ref,
-          );
-        }
-      }
-
-      const sourceMain = await resolveSourcePath(request.source.main.source);
-      const storageRoot = getParentPath(oldPath);
-      if (!storageRoot) {
-        throw replaceFailure(
-          "managed attachment storage is unavailable",
-          "reconcile",
-          "unknown",
-          ref,
-        );
-      }
-      const stager = createWorkflowStoredAttachmentStager({
-        getStagingRoot: () => getParentPath(storageRoot),
-        validateSource: validateStoredSource,
-        ensureDirectory: ensureRuntimeDirectory,
-        copyFile: (sourcePath, targetPath) =>
-          copyRuntimeFile({ sourcePath, targetPath }).then(() => undefined),
-        removePath: removeRuntimePath,
-      });
-      let staged;
-      try {
-        staged = await stager({
-          path: sourceMain,
-          targetFilename: request.source.main.targetFilename,
-          companionFiles: await Promise.all(
-            (request.source.companions || []).map(async (companion) => ({
-              sourcePath: await resolveSourcePath(companion.source),
-              relativePath: companion.targetRelativePath,
-            })),
-          ),
-        });
-      } catch (error) {
-        if (error instanceof WorkflowStoredAttachmentInputError) {
-          throw new MutationAuthorityExecutionError(
-            "failed",
-            error.resource ? "resource_limited" : "invalid_request",
-            "validation",
-            "refresh_and_retry_new_operation",
-            error.resource || {
-              reason: "invalid_value",
-              field: "source",
-              operation: "attachments.replaceFile",
-            },
-            error.message,
-            [{ kind: "item", ref }],
-          );
-        }
-        throw replaceFailure(
-          error instanceof Error ? error.message : "attachment staging failed",
-          "retry_same_operation",
-          "failed",
-          ref,
-        );
-      }
-      if ((await fileSetDigest(staged.stagingDirectory)) === (await fileSetDigest(storageRoot))) {
-        await staged.cleanup();
-        return attachment;
-      }
-      const backupRoot = `${storageRoot}.replace-backup-${Date.now().toString(36)}`;
-      let oldMoved = false;
-      let newMoved = false;
-      try {
-        await moveRuntimePath({ sourcePath: storageRoot, targetPath: backupRoot });
-        oldMoved = true;
-        await moveRuntimePath({
-          sourcePath: staged.stagingDirectory,
-          targetPath: storageRoot,
-        });
-        newMoved = true;
-      } catch (primary) {
-        if (!oldMoved) {
-          try {
-            await staged.cleanup();
-          } catch {
-            // The original managed content is still authoritative.
-          }
-        }
-        if (oldMoved && !newMoved) {
-          try {
-            await moveRuntimePath({ sourcePath: backupRoot, targetPath: storageRoot });
-            await staged.cleanup();
-          } catch {
-            throw replaceFailure(
-              "managed attachment switch could not be reconciled",
-              "reconcile",
-              "unknown",
-              ref,
-            );
-          }
-        }
-        throw replaceFailure(
-          primary instanceof Error ? primary.message : "attachment switch failed",
-          "retry_same_operation",
-          "failed",
-          ref,
-        );
-      }
-
-      const nextPath = joinPath(storageRoot, staged.mainFilename);
-      const oldFilename = String((attachment as any).attachmentFilename || "");
-      const oldContentType = String(
-        (attachment as any).attachmentContentType || "",
-      );
-      try {
-        (attachment as any).setFilePath(nextPath);
-        (attachment as any).attachmentFilename = staged.mainFilename;
-        (attachment as any).attachmentContentType = derivedMimeType(
-          staged.mainFilename,
-        );
-        await attachment.saveTx();
-      } catch {
-        try {
-          await moveRuntimePath({ sourcePath: storageRoot, targetPath: staged.stagingDirectory });
-          await moveRuntimePath({ sourcePath: backupRoot, targetPath: storageRoot });
-          await staged.cleanup();
-          (attachment as any).setFilePath(oldPath);
-          (attachment as any).attachmentFilename = oldFilename;
-          (attachment as any).attachmentContentType = oldContentType;
-        } catch {
-          throw replaceFailure(
-            "managed attachment commit could not be reconciled",
-            "reconcile",
-            "unknown",
-            ref,
-          );
-        }
-        throw replaceFailure(
-          "managed attachment commit failed",
-          "retry_same_operation",
-          "failed",
-          ref,
-        );
-      }
-      try {
-        const removed = await removeRuntimePath(backupRoot);
-        if (removed === false) throw new Error("backup cleanup was not confirmed");
-      } catch {
-        throw replaceFailure(
-          "old managed attachment content remains",
-          "manual_repair",
-          "repair_required",
-          ref,
-        );
-      }
-      return attachment;
-    },
+    preparedFiles,
   });
 }
 
@@ -469,7 +369,9 @@ export function createWorkflowHostLeafScope(args: {
   runScopeId: string;
   logBinding: WorkflowRuntimeLogBinding;
   resources?: Pick<WorkflowResourceApi, "get">;
-  imageAdapter?: Parameters<typeof createWorkflowPreparedImageScope>[0]["adapter"];
+  imageAdapter?: Parameters<
+    typeof createWorkflowPreparedImageScope
+  >[0]["adapter"];
 }): WorkflowHostLeafScope {
   const prepared = createWorkflowPreparedImageScope({
     runScopeId: args.runScopeId,
@@ -540,39 +442,21 @@ export function createWorkflowHostLiveReadAdapters(args: {
           : (() => {
               throw interactionRequiredError("context.getCurrentView");
             })(),
-      getSelectedItems: (control?: Parameters<typeof broker.context.getSelectedItems>[0]) =>
-        interactive
-          ? broker.context.getSelectedItems(control)
-          : Promise.reject(interactionRequiredError("context.getSelectedItems")),
-    },
-    navigation: {
-      openItem: (...parameters: Parameters<typeof broker.navigation.openItem>) =>
-        interactive
-          ? broker.navigation.openItem(...parameters)
-          : Promise.reject(interactionRequiredError("navigation.openItem")),
-      openNote: (...parameters: Parameters<typeof broker.navigation.openNote>) =>
-        interactive
-          ? broker.navigation.openNote(...parameters)
-          : Promise.reject(interactionRequiredError("navigation.openNote")),
-      openCollection: (
-        ...parameters: Parameters<typeof broker.navigation.openCollection>
+      getSelectedItems: (
+        request?: Parameters<typeof broker.context.getSelectedItems>[0],
+        control?: Parameters<typeof broker.context.getSelectedItems>[1],
       ) =>
         interactive
-          ? broker.navigation.openCollection(...parameters)
+          ? broker.context.getSelectedItems(request, control)
           : Promise.reject(
-              interactionRequiredError("navigation.openCollection"),
+              interactionRequiredError("context.getSelectedItems"),
             ),
-      openSelection: (
-        ...parameters: Parameters<typeof broker.navigation.openSelection>
-      ) =>
-        interactive
-          ? broker.navigation.openSelection(...parameters)
-          : Promise.reject(interactionRequiredError("navigation.openSelection")),
     },
     library: {
       listItems: broker.library.listItems,
       traverseItems: broker.library.traverseItems,
       listCollections: broker.library.listCollections,
+      listSavedSearches: broker.library.listSavedSearches,
       getItemDetail: broker.library.getItemDetail,
       getItemNotes: broker.library.getItemNotes,
       getNoteDetail: broker.library.getNoteDetail,
@@ -601,18 +485,22 @@ function workflowSnapshotOwnerId() {
 
 function requireConfirmedMutationResult<
   TResult extends Record<string, unknown>,
->(
-  result: import("./types").MutationExecutionResult<TResult>,
-): TResult {
+>(result: import("./types").MutationExecutionResult<TResult>): TResult {
   if ("result" in result) {
     return result.result;
   }
-  const error = new Error(
-    result.attempt.error.message ||
-      `Workflow Host mutation ${result.outcome}: ${result.attempt.error.code}`,
+  const { attempt } = result;
+  throw new MutationAuthorityExecutionError(
+    attempt.status,
+    attempt.error.code,
+    attempt.error.phase,
+    attempt.error.recovery,
+    attempt.error.details,
+    attempt.error.message ||
+      `Workflow Host mutation ${result.outcome}: ${attempt.error.code}`,
+    attempt.affectedRefs,
+    attempt.residualRefs,
   );
-  Object.assign(error, { attempt: result.attempt });
-  throw error;
 }
 
 async function researchImportEffectOperationId(
@@ -665,9 +553,72 @@ export function createWorkflowResearchBundleImportApi(args: {
   };
 }): WorkflowResearchBundleApi["importPapers"] {
   const broker = createWorkflowHostCapabilityBroker(args.resources);
+  const trusted = getZoteroHostCanonicalMutationControl(broker);
   const callerScope = {
     ownerId: args.ownerId,
     preparedImages: args.preparedImages,
+  };
+  const executePreparedAttachmentCreate = async (
+    input: Omit<MutationRequestByOperation["attachments.create"], "source">,
+    source: Parameters<
+      ReturnType<
+        typeof createWorkflowPreparedStoredFiles
+      >["prepareStoredAttachment"]
+    >[0],
+    control?: WorkflowCallControl,
+  ): Promise<
+    MutationExecutionResult<MutationResultByOperation["attachments.create"]>
+  > => {
+    const existing =
+      await lookupWorkflowStoredAttachmentMutation<"attachments.create">({
+        scope: callerScope,
+        input,
+        source,
+      });
+    if (existing.state !== "missing") return existing.result;
+    const files = createWorkflowPreparedStoredFiles(args.resources);
+    try {
+      const preparedFile = await files.prepareStoredAttachment(source);
+      const canonicalSource = createCanonicalStoredAttachmentSource(
+        source,
+        preparedFile.snapshot,
+      );
+      const canonicalInput: MutationRequestByOperation["attachments.create"] = {
+        ...input,
+        source: canonicalSource,
+      };
+      const replay =
+        await lookupWorkflowStoredAttachmentMutation<"attachments.create">({
+          scope: callerScope,
+          input,
+          source,
+          completeSemanticInput: createStoredAttachmentCompleteSemanticInput(
+            input,
+            canonicalSource,
+          ),
+        });
+      if (replay.state !== "missing") return replay.result;
+      const prepared = await trusted.prepare<"attachments.create">({
+        input: canonicalInput,
+        scope: callerScope,
+        control,
+        resources: {
+          deferredStoredAttachment: {
+            prepare: async () => preparedFile,
+          },
+          preparedFiles: files.preparedFiles,
+        },
+      });
+      if (prepared.state === "settled") return prepared.result;
+      return await trusted.execute<"attachments.create">({
+        input: canonicalInput,
+        scope: callerScope,
+        prepared: prepared.prepared,
+        control,
+      });
+    } finally {
+      await files.preparedFiles.dispose();
+    }
   };
   const mutationResult = async (
     request: Parameters<typeof broker.mutations.execute>[0],
@@ -695,11 +646,11 @@ export function createWorkflowResearchBundleImportApi(args: {
       },
       async readCollectionTarget({ collectionRef, control }) {
         let cursor: string | undefined;
-        do {
+        while (true) {
           const page = await broker.library.listCollections(
             {
               libraryId: collectionRef.libraryId,
-              limit: 500,
+              limit: 100,
               ...(cursor ? { cursor } : {}),
             },
             control,
@@ -713,9 +664,13 @@ export function createWorkflowResearchBundleImportApi(args: {
               revision: collection.revision,
             };
           }
-          cursor = page.nextCursor || undefined;
-        } while (cursor);
-        return null;
+          if (!page.hasMore) return null;
+          const nextCursor = page.nextCursor?.trim();
+          if (!nextCursor || nextCursor === cursor) {
+            throw new Error("Research import collection pagination is invalid");
+          }
+          cursor = nextCursor;
+        }
       },
       async resolveResource({ resourceRef }) {
         const resource = await args.resources.get(resourceRef);
@@ -784,120 +739,216 @@ export function createWorkflowResearchBundleImportApi(args: {
           control,
         );
       },
-      async createNote({
+      async createNotes({
         operationId,
         consistencyGroupId,
         graphId,
         parentRef,
-        note,
-        embeddedImages,
+        notes,
         control,
       }) {
-        const content =
-          note.content.format === "html"
-            ? note.content.value
-            : `<p>${escapeResearchImportHtml(note.content.value)}</p>`;
-        let noteResult: ReturnType<typeof requireMutationItemRef> | undefined;
-        try {
-          const imageBindings = await Promise.all(
-            embeddedImages.map(async (image) => ({
-              slot: image.slot,
-              preparedImage: (
-                await args.images.prepareForNoteEmbedding(
-                  {
-                    source: { kind: "file", path: image.resource.path },
-                    ...(image.preserveSourceBytes
-                      ? { options: { preserveSourceBytes: true } }
-                      : {}),
-                  },
-                  control,
-                )
-              ).ref,
-              ...(image.altText ? { altText: image.altText } : {}),
-            })),
-          );
-          noteResult = requireMutationItemRef(
-            (
-              requireConfirmedMutationResult(
-                await broker.notes.create(
-              {
-                operationId: await researchImportEffectOperationId(
-                  operationId,
-                  consistencyGroupId,
-                  "notes.create",
-                  `${graphId}:${note.noteId}`,
+        const prepared = await Promise.all(
+          notes.map(async ({ note, embeddedImages }) => {
+            const content =
+              note.content.format === "html"
+                ? note.content.value
+                : `<p>${escapeResearchImportHtml(note.content.value)}</p>`;
+            const transferImages = await Promise.all(
+              embeddedImages.map(async (image) => ({
+                image,
+                payload: parseEmbeddedNotePayloadBlock(
+                  await readRuntimeBytes(image.resource.path),
                 ),
-                placement: { kind: "child", parentRef },
-                content: {
-                  format: "html",
-                  value: content,
-                  ...(imageBindings.length
-                    ? { embeddedImages: imageBindings }
-                    : {}),
-                },
-                ...(note.tags.length ? { initialTags: note.tags } : {}),
-              },
-              callerScope,
-              control,
+              })),
+            );
+            const inspection = classifyManagedNoteTransfer({
+              html: content,
+              title: "",
+              payloads: note.payloads,
+              embeddedPayloads: transferImages.flatMap((entry) =>
+                entry.payload ? [entry.payload] : [],
               ),
-              )
-            ).note,
-          );
-
-          for (const payload of note.payloads) {
-            requireConfirmedMutationResult(
-              await broker.notes.upsertPayload(
+            });
+            const imageBindings = await Promise.all(
+              transferImages
+                .filter(
+                  (entry) => inspection.kind === "ordinary" || !entry.payload,
+                )
+                .map(async ({ image }) => ({
+                  slot: image.slot,
+                  preparedImage: (
+                    await args.images.prepareForNoteEmbedding(
+                      {
+                        source: { kind: "file", path: image.resource.path },
+                        ...(image.preserveSourceBytes
+                          ? { options: { preserveSourceBytes: true } }
+                          : {}),
+                      },
+                      control,
+                    )
+                  ).ref,
+                  ...(image.altText ? { altText: image.altText } : {}),
+                })),
+            );
+            const payloadImageSlots = transferImages.flatMap((entry) =>
+              entry.payload
+                ? [
+                    {
+                      slot: entry.image.slot,
+                      payloadType: entry.payload.payloadType,
+                    },
+                  ]
+                : [],
+            );
+            return {
+              note,
+              content,
+              inspection,
+              imageBindings,
+              payloadImageSlots,
+            };
+          }),
+        );
+        const managedEntries: NonNullable<
+          ManagedParentSetSemanticInput["entries"]
+        > = [];
+        const managedIds: string[] = [];
+        for (const entry of prepared) {
+          if (entry.inspection.kind !== "managed") continue;
+          managedIds.push(entry.note.noteId);
+          managedEntries.push({
+            sourceNoteId: entry.note.noteId,
+            noteKind: entry.inspection.noteKind,
+            title: entry.inspection.title,
+            payload: entry.inspection.payload,
+            visibleHtml: entry.content,
+            tags: entry.note.tags,
+            embeddedImages: entry.imageBindings,
+            auxiliaryPayloads: entry.inspection.payloads,
+            payloadImageSlots: entry.payloadImageSlots,
+          });
+        }
+        const created: Array<{
+          noteId: string;
+          value: ReturnType<typeof requireMutationItemRef>;
+        }> = [];
+        try {
+          if (managedEntries.length) {
+            const result = requireConfirmedMutationResult(
+              await getZoteroManagedNoteLocalControl(broker).applyParentSet(
                 {
                   operationId: await researchImportEffectOperationId(
                     operationId,
                     consistencyGroupId,
-                    "notes.upsertPayload",
-                    `${graphId}:${note.noteId}:${payload.summary.payloadType}`,
+                    "managed.parentSet",
+                    graphId,
                   ),
-                  noteRef: noteResult.ref,
-                  payload: {
-                    payloadType: payload.summary.payloadType,
-                    noteKind: payload.summary.noteKind,
-                    schemaVersion: payload.summary.version,
-                    format: payload.summary.format,
-                    value: payload.value,
-                  },
+                  parentRef,
+                  entries: managedEntries,
                 },
                 callerScope,
                 control,
               ),
             );
-          }
-          return noteResult;
-        } catch (error) {
-          const affectedRefs = noteResult ? [noteResult.ref] : [];
-          const residualRefs: Array<{ libraryId: number; key: string }> = [];
-          for (const itemRef of [...affectedRefs].reverse()) {
-            try {
-              const detail = await broker.library.getItemDetail(
-                itemRef,
-                control,
+            result.notes.forEach((note, index) =>
+              created.push({
+                noteId: managedIds[index],
+                value: { ref: note.ref, revision: note.revision },
+              }),
+            );
+            if (result.notes.length !== managedIds.length)
+              throw new Error(
+                "Managed parent set returned incomplete note identities",
               );
-              if (!detail) continue;
+          }
+          for (const entry of prepared) {
+            if (entry.inspection.kind === "managed") continue;
+            const result = requireMutationItemRef(
+              requireConfirmedMutationResult(
+                await broker.notes.create(
+                  {
+                    operationId: await researchImportEffectOperationId(
+                      operationId,
+                      consistencyGroupId,
+                      "notes.create",
+                      `${graphId}:${entry.note.noteId}`,
+                    ),
+                    placement: { kind: "child", parentRef },
+                    content: {
+                      format: "html",
+                      value: entry.content,
+                      ...(entry.imageBindings.length
+                        ? { embeddedImages: entry.imageBindings }
+                        : {}),
+                    },
+                    initialTags: entry.note.tags,
+                  },
+                  callerScope,
+                  control,
+                ),
+              ).note,
+            );
+            created.push({ noteId: entry.note.noteId, value: result });
+            for (const payload of entry.note.payloads) {
+              requireConfirmedMutationResult(
+                await broker.notes.upsertPayload(
+                  {
+                    operationId: await researchImportEffectOperationId(
+                      operationId,
+                      consistencyGroupId,
+                      "notes.upsertPayload",
+                      `${graphId}:${entry.note.noteId}:${payload.summary.payloadType}`,
+                    ),
+                    noteRef: result.ref,
+                    payload: {
+                      payloadType: payload.summary.payloadType,
+                      noteKind: payload.summary.noteKind,
+                      schemaVersion: payload.summary.version,
+                      format: payload.summary.format,
+                      value: payload.value,
+                    },
+                  },
+                  callerScope,
+                  control,
+                ),
+              );
+            }
+          }
+          return created;
+        } catch (error) {
+          const residualRefs =
+            error instanceof MutationAuthorityExecutionError
+              ? [...error.residualRefs]
+              : [];
+          for (const entry of [...created].reverse()) {
+            try {
               await mutationResult(
                 {
-                  operation: "item.remove",
+                  operation: "trash.setItemsState",
                   operationId: await researchImportEffectOperationId(
                     operationId,
                     consistencyGroupId,
-                    "item.remove",
-                    `${itemRef.libraryId}:${itemRef.key}`,
+                    "trash.setItemsState",
+                    `${entry.value.ref.libraryId}:${entry.value.ref.key}`,
                   ),
-                  itemRef,
-                  disposition: "trash",
-                  expectedRevision: detail.item.revision,
+                  itemRefs: [entry.value.ref],
+                  state: "trashed",
                 },
                 control,
               );
             } catch {
-              residualRefs.push(itemRef);
+              residualRefs.push({ kind: "item", ref: entry.value.ref });
             }
           }
+          const affectedRefs = [
+            ...created.map((entry) => ({
+              kind: "item" as const,
+              ref: entry.value.ref,
+            })),
+            ...(error instanceof MutationAuthorityExecutionError
+              ? error.affectedRefs
+              : []),
+          ];
           throw new MutationAuthorityExecutionError(
             residualRefs.length ? "repair_required" : "failed",
             "execution_failed",
@@ -914,8 +965,8 @@ export function createWorkflowResearchBundleImportApi(args: {
             error instanceof Error
               ? error.message
               : "Research note import failed",
-            affectedRefs.map((ref) => ({ kind: "item" as const, ref })),
-            residualRefs.map((ref) => ({ kind: "item" as const, ref })),
+            affectedRefs,
+            residualRefs,
           );
         }
       },
@@ -928,51 +979,57 @@ export function createWorkflowResearchBundleImportApi(args: {
         materializedSource,
         control,
       }) {
-        const result = requireConfirmedMutationResult(
-          await broker.attachments.create(
-            {
-              operationId: await researchImportEffectOperationId(
-                operationId,
-                consistencyGroupId,
-                "attachments.create",
-                `${graphId}:${attachment.attachmentId}`,
-              ),
-              placement: { kind: "child", parentRef },
-              source:
-                materializedSource.kind === "stored_file"
-                  ? {
-                      kind: "stored_file",
-                      main: {
-                        source: {
-                          kind: "local_path",
-                          path: materializedSource.main.path,
-                        },
-                        ...(materializedSource.main.targetFilename
-                          ? {
-                              targetFilename:
-                                materializedSource.main.targetFilename,
-                            }
-                          : {}),
-                      },
-                      companions: materializedSource.companions.map(
-                        (companion) => ({
-                          source: {
-                            kind: "local_path" as const,
-                            path: companion.path,
-                          },
-                          targetRelativePath: companion.targetRelativePath,
-                        }),
-                      ),
-                    }
-                  : {
-                      kind: materializedSource.kind,
-                      url: materializedSource.url,
-                    },
-              metadata: attachment.metadata,
-            },
-            callerScope,
-            control,
+        const metadata = canonicalAttachmentMetadata(attachment.metadata);
+        const input = {
+          operationId: await researchImportEffectOperationId(
+            operationId,
+            consistencyGroupId,
+            "attachments.create",
+            `${graphId}:${attachment.attachmentId}`,
           ),
+          placement: { kind: "child" as const, parentRef },
+          ...(metadata ? { metadata } : {}),
+        };
+        const result = requireConfirmedMutationResult(
+          materializedSource.kind === "stored_file"
+            ? await executePreparedAttachmentCreate(
+                { ...input, operation: "attachments.create" },
+                {
+                  main: {
+                    source: {
+                      kind: "local_path",
+                      path: materializedSource.main.path,
+                    },
+                    ...(materializedSource.main.targetFilename
+                      ? {
+                          targetFilename:
+                            materializedSource.main.targetFilename,
+                        }
+                      : {}),
+                  },
+                  companions: materializedSource.companions.map(
+                    (companion) => ({
+                      source: {
+                        kind: "local_path" as const,
+                        path: companion.path,
+                      },
+                      targetRelativePath: companion.targetRelativePath,
+                    }),
+                  ),
+                },
+                control,
+              )
+            : await broker.attachments.create(
+                {
+                  ...input,
+                  source: {
+                    kind: materializedSource.kind,
+                    url: materializedSource.url,
+                  },
+                },
+                callerScope,
+                control,
+              ),
         );
         return requireMutationItemRef(result.attachment);
       },
@@ -994,7 +1051,7 @@ export function createWorkflowResearchBundleImportApi(args: {
               `${sourceGraphId}:${targetRef.libraryId}:${targetRef.key}`,
             ),
             sourceRef,
-            relatedRef: targetRef,
+            relatedRefs: [targetRef],
           },
           control,
         );
@@ -1006,28 +1063,18 @@ export function createWorkflowResearchBundleImportApi(args: {
         }
         return detail.item.revision;
       },
-      async removeItem({
-        operationId,
-        consistencyGroupId,
-        itemRef,
-        control,
-      }) {
-        const detail = await broker.library.getItemDetail(itemRef, control);
-        if (!detail) {
-          throw new Error("Research import compensation target is missing");
-        }
+      async removeItem({ operationId, consistencyGroupId, itemRef, control }) {
         await mutationResult(
           {
-            operation: "item.remove",
+            operation: "trash.setItemsState",
             operationId: await researchImportEffectOperationId(
               operationId,
               consistencyGroupId,
-              "item.remove",
+              "trash.setItemsState",
               `${itemRef.libraryId}:${itemRef.key}`,
             ),
-            itemRef,
-            disposition: "trash",
-            expectedRevision: detail.item.revision,
+            itemRefs: [itemRef],
+            state: "trashed",
           },
           control,
         );
@@ -1053,6 +1100,32 @@ export function createWorkflowResearchBundleMaterializeApi(args: {
   };
 }) {
   const broker = createZoteroHostCapabilityBroker();
+  async function readAllLibraryPages<
+    TPage extends {
+      hasMore: boolean;
+      nextCursor: string | null;
+    },
+    TItem,
+  >(
+    readPage: (page: { limit: number; cursor?: string }) => Promise<TPage>,
+    getItems: (page: TPage) => readonly TItem[],
+  ): Promise<TItem[]> {
+    const items: TItem[] = [];
+    let cursor: string | undefined;
+    while (true) {
+      const page = await readPage({
+        limit: 100,
+        ...(cursor ? { cursor } : {}),
+      });
+      items.push(...getItems(page));
+      if (!page.hasMore) return items;
+      const nextCursor = page.nextCursor?.trim();
+      if (!nextCursor || nextCursor === cursor) {
+        throw new Error("Workflow Host page continuation is invalid");
+      }
+      cursor = nextCursor;
+    }
+  }
   const readPaper = async (
     ref: PortableItemRef,
     control: WorkflowCallControl | undefined,
@@ -1070,107 +1143,119 @@ export function createWorkflowResearchBundleMaterializeApi(args: {
       sha256: string;
     }>,
   ) => {
-      const detail = await broker.library.getItemDetail(ref, control);
-      if (!detail || detail.kind !== "regular") return null;
-      const [item] = await broker.library.exportPortableItems([ref], control);
-      if (!item) return null;
-      const noteSummaries = await broker.library.getItemNotes(ref, control);
-      const notes = await Promise.all(
-        noteSummaries.map(async (summary) => {
-          const note = await broker.library.getNoteDetail(
-            summary.ref,
-            { format: "html" },
-            control,
-          );
-          const payloadSummaries = await broker.library.listNotePayloads(
-            summary.ref,
-            control,
-          );
-          const payloads = await Promise.all(
-            payloadSummaries
-              .filter((payload) => payload.state === "available")
-              .map((payload) =>
-                broker.library.getNotePayload(
-                  summary.ref,
-                  { payloadType: payload.payloadType },
-                  control,
-                ),
-              ),
-          );
-          let content = note.content;
-          const embeddedImages: MaterializedNoteDto["content"]["embeddedImages"] = [];
-          const imageAttachments = (
-            await broker.library.getItemAttachments(summary.ref, control)
-          ).filter(
-            (attachment) =>
-              (attachment.role === "note_image" ||
-                attachment.role === "note_payload") &&
-              attachment.file.state === "available" &&
-              (attachment.contentType === "image/jpeg" ||
-                attachment.contentType === "image/png") &&
-              new RegExp(
-                `\\bdata-attachment-key\\s*=\\s*(?:["']${attachment.ref.key}["']|${attachment.ref.key}(?=\\s|>))`,
-                "i",
-              ).test(note.content),
-          );
-          for (const attachment of imageAttachments) {
-            if (
-              attachment.file.state !== "available" ||
-              (attachment.contentType !== "image/jpeg" &&
-                attachment.contentType !== "image/png")
-            ) {
-              continue;
-            }
-            const slot = `${attachment.ref.libraryId}:${attachment.ref.key}`;
-            const staged = await stageFile({
-              slotId: `paper:${ref.libraryId}:${ref.key}:note:${summary.ref.key}:image:${attachment.ref.key}`,
-              sourcePath: attachment.file.path,
-              displayName: attachment.filename || `${attachment.ref.key}.png`,
-              contentType: attachment.contentType || undefined,
-            });
-            content = content
-              .replaceAll(
-                `data-attachment-key="${attachment.ref.key}"`,
-                `data-zotero-agents-image-slot="${slot}"`,
-              )
-              .replaceAll(
-                `data-attachment-key='${attachment.ref.key}'`,
-                `data-zotero-agents-image-slot='${slot}'`,
-              );
-            embeddedImages.push({
-              slot,
-              resourceRef: staged.ref,
-              altText: attachment.title || null,
-              mimeType: attachment.contentType,
-              sizeBytes: staged.sizeBytes,
-              sha256: staged.sha256.replace(/^sha256:/, ""),
-            });
+    const detail = await broker.library.getItemDetail(ref, control);
+    if (!detail || detail.kind !== "regular") return null;
+    const [item] = await broker.library.exportPortableItems([ref], control);
+    if (!item) return null;
+    const noteSummaries = await readAllLibraryPages(
+      (page) => broker.library.getItemNotes(ref, page, control),
+      (page) => page.notes,
+    );
+    const notes = await Promise.all(
+      noteSummaries.map(async (summary) => {
+        const {
+          detail: note,
+          html,
+          payloads,
+          tags,
+        } = await getZoteroManagedNoteLocalControl(broker).readForTransfer(
+          summary.ref,
+          control,
+        );
+        let content = html;
+        const embeddedImages: MaterializedNoteDto["content"]["embeddedImages"] =
+          [];
+        const imageAttachments = (
+          await readAllLibraryPages(
+            (page) =>
+              broker.library.getItemAttachments(summary.ref, page, control),
+            (page) => page.attachments,
+          )
+        ).filter(
+          (attachment) =>
+            (attachment.role === "note_image" ||
+              attachment.role === "note_payload") &&
+            attachment.file.state === "available" &&
+            (attachment.contentType === "image/jpeg" ||
+              attachment.contentType === "image/png") &&
+            new RegExp(
+              `\\bdata-attachment-key\\s*=\\s*(?:["']${attachment.ref.key}["']|${attachment.ref.key}(?=\\s|>))`,
+              "i",
+            ).test(html),
+        );
+        for (const attachment of imageAttachments) {
+          if (
+            attachment.file.state !== "available" ||
+            (attachment.contentType !== "image/jpeg" &&
+              attachment.contentType !== "image/png")
+          ) {
+            continue;
           }
-          return {
-            source: { ref: summary.ref, revision: summary.revision },
-            content: {
-              format: "html" as const,
-              value: content,
-              embeddedImages,
-            },
-            tags: [],
-            payloads,
-          };
-        }),
-      );
-      const attachments = (
-        await broker.library.getItemAttachments(ref, control)
-      ).filter((attachment) => attachment.role === "ordinary");
-      const annotations = await broker.library.listAnnotations(ref, control);
-      return {
-        source: { ref: detail.item.ref, revision: detail.item.revision },
-        item,
-        collectionRefs: detail.item.collectionRefs,
-        relatedRefs: detail.item.relatedRefs,
-        notes,
-        attachments,
-        annotations,
-      };
+          const slot = `${attachment.ref.libraryId}:${attachment.ref.key}`;
+          const staged = await stageFile({
+            slotId: `paper:${ref.libraryId}:${ref.key}:note:${summary.ref.key}:image:${attachment.ref.key}`,
+            sourcePath: attachment.file.path,
+            displayName: attachment.filename || `${attachment.ref.key}.png`,
+            contentType: attachment.contentType || undefined,
+          });
+          content = content
+            .replaceAll(
+              `data-attachment-key="${attachment.ref.key}"`,
+              `data-zotero-agents-image-slot="${slot}"`,
+            )
+            .replaceAll(
+              `data-attachment-key='${attachment.ref.key}'`,
+              `data-zotero-agents-image-slot='${slot}'`,
+            );
+          embeddedImages.push({
+            slot,
+            resourceRef: staged.ref,
+            altText: attachment.title || null,
+            mimeType: attachment.contentType,
+            sizeBytes: staged.sizeBytes,
+            sha256: staged.sha256.replace(/^sha256:/, ""),
+          });
+        }
+        return {
+          source: { ref: note.ref, revision: note.revision },
+          content: {
+            format: "html" as const,
+            value: content,
+            embeddedImages,
+          },
+          tags,
+          payloads,
+          ...(note.kind === "managed"
+            ? {
+                managedArtifact: {
+                  noteKind: note.noteKind,
+                  payload: note.payload,
+                  ...(note.provenance ? { provenance: note.provenance } : {}),
+                },
+              }
+            : {}),
+        };
+      }),
+    );
+    const attachments = (
+      await readAllLibraryPages(
+        (page) => broker.library.getItemAttachments(ref, page, control),
+        (page) => page.attachments,
+      )
+    ).filter((attachment) => attachment.role === "ordinary");
+    const annotations = await readAllLibraryPages(
+      (page) => broker.library.listAnnotations(ref, page, control),
+      (page) => page.annotations,
+    );
+    return {
+      source: { ref: detail.item.ref, revision: detail.item.revision },
+      item,
+      collectionRefs: detail.item.collectionRefs,
+      relatedRefs: detail.item.relatedRefs,
+      notes,
+      attachments,
+      annotations,
+    };
   };
   return async (
     request: MaterializePapersRequestDto,
@@ -1206,8 +1291,7 @@ export function createWorkflowResearchBundleMaterializeApi(args: {
       };
     };
     const materialize = createCanonicalResearchBundleMaterializer({
-      readPaper: (ref, readControl) =>
-        readPaper(ref, readControl, stageFile),
+      readPaper: (ref, readControl) => readPaper(ref, readControl, stageFile),
       resources: {
         async stageFile(stageArgs) {
           const staged = await stageFile(stageArgs);
@@ -1231,7 +1315,9 @@ export function createBoundWorkflowResearchBundleApi(args: {
   ownerId: string;
   images: WorkflowHostApiV12["images"];
   preparedImages: WorkflowHostLeafScope["preparedImages"];
-  resources: Parameters<typeof createWorkflowResearchBundleMaterializeApi>[0]["resources"] & {
+  resources: Parameters<
+    typeof createWorkflowResearchBundleMaterializeApi
+  >[0]["resources"] & {
     get(ref: ResourceRef): Promise<WorkflowResourceFile>;
   };
 }): WorkflowResearchBundleApi {
@@ -1257,7 +1343,7 @@ export function createWorkflowLibraryItemSnapshotApi(
 ) {
   return async function withItemSnapshot(
     request: ZoteroHostLibrarySyncSnapshotRequest,
-    control: Readonly<{ signal?: AbortSignal }>,
+    control: WorkflowCallControl,
     onBatch: (batch: ZoteroLibrarySnapshotBatchDto) => void | Promise<void>,
   ): Promise<ZoteroLibrarySnapshotWorkflowResultDto> {
     if (control.signal?.aborted) {
@@ -1268,7 +1354,7 @@ export function createWorkflowLibraryItemSnapshotApi(
       );
     }
     const scope = { ownerId: workflowSnapshotOwnerId() };
-    let page = await broker.library.syncSnapshot(request, scope);
+    let page = await broker.library.syncSnapshot(request, scope, control);
     for (;;) {
       try {
         await onBatch({
@@ -1308,6 +1394,7 @@ export function createWorkflowLibraryItemSnapshotApi(
           cursor: page.nextCursor,
         },
         scope,
+        control,
       );
     }
   };
@@ -1315,7 +1402,7 @@ export function createWorkflowLibraryItemSnapshotApi(
 
 export async function withWorkflowLibraryItemSnapshot(
   request: ZoteroHostLibrarySyncSnapshotRequest,
-  control: Readonly<{ signal?: AbortSignal }>,
+  control: WorkflowCallControl,
   onBatch: (batch: ZoteroLibrarySnapshotBatchDto) => void | Promise<void>,
 ): Promise<ZoteroLibrarySnapshotWorkflowResultDto> {
   return createWorkflowLibraryItemSnapshotApi()(request, control, onBatch);

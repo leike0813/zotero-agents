@@ -1,7 +1,7 @@
 # task-dashboard-history Specification
 
 ## Purpose
-TBD - created by archiving change reset-task-manager-to-dashboard. Update Purpose after archive.
+Define the Task Dashboard history ledger, bounded foreground reads, and the Workspace active-task projection that shares its visibility rules.
 ## Requirements
 ### Requirement: Dashboard MUST persist local task history for 30 days
 系统 MUST 为 Dashboard 维护本地任务历史账本，支持历史回看与 backend 分组统计。
@@ -69,4 +69,3 @@ surfaces with an explicit backend, request, or selected tab scope.
 - **WHEN** the user opens a backend tab
 - **THEN** the dashboard MAY read terminal and active rows scoped to that backend
 - **AND** unrelated backend history SHALL remain unread.
-

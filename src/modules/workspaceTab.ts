@@ -6,22 +6,22 @@ import { openHelpCenterTab } from "./helpCenterTab";
 import {
   mountSynthesisWorkbenchRuntime,
   type MountedSynthesisWorkbenchRuntime,
-} from "./synthesisWorkbenchTab";
+} from "./synthesis/workbench/synthesisWorkbenchTab";
 import {
   type DashboardManagementHost,
   mountTaskDashboardRuntime,
   type MountedTaskDashboardRuntime,
-} from "./taskManagerDialog";
+} from "./dashboardHost";
 import {
   closeAssistantWorkspaceSidebar,
   isAssistantWorkspaceSidebarOpen,
   openAssistantWorkspaceSidebar,
   toggleAssistantWorkspaceSidebar,
-} from "./assistantWorkspaceSidebar";
+} from "./assistant/workspace/assistantWorkspaceSidebar";
 import {
   listAcpSkillRunSummaries,
   subscribeAcpSkillRunWorkspaceChanges,
-} from "./acpSkillRunStore";
+} from "./acp/skillRun/acpSkillRunStore";
 import { countDashboardHumanAttentionTasks } from "./dashboardActiveTasks";
 import {
   listActiveWorkflowTaskSummaries,

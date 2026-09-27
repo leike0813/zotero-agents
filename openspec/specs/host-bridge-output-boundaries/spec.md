@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change harden-host-bridge-cli-output-boundaries. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Host Bridge workflow outputs redact host-local paths
 The system SHALL sanitize workflow submit, workflow run, and task listing
 responses before returning them through Host Bridge endpoints.
@@ -69,7 +71,7 @@ The command-contract registry SHALL classify every canonical leaf command as `fi
 source consumed by Agent Surface generation and command-card rendering.
 
 #### Scenario: Full command inventory is audited
-- **WHEN** the 125-command inventory and command-contract registry are validated
+- **WHEN** the canonical command inventory and command-contract registry are validated
 - **THEN** every command has exactly one valid output boundary
 - **AND** no high-cardinality read remains fixed or unclassified
 - **AND** no cursor command lacks a cursor input or continuation output.
@@ -80,14 +82,14 @@ command scope, normalized filters, stable ordering, and last returned row key.
 
 #### Scenario: Caller continues with matching criteria
 - **WHEN** a caller supplies `nextCursor` with the same command and filters
-- **THEN** the next page contains no repeated or skipped row from the stable snapshot
+- **THEN** the next page contains no repeated or skipped row from an unchanged source
 - **AND** the response reports the domain array, `nextCursor`, `hasMore`, `returned`,
-  `total`, and the effective `limit`.
+  `total`, and the effective `limit`; payload scans SHALL use total:null and a scanned count when an exact total would require reading all source files.
 
 #### Scenario: Caller changes criteria or supplies an invalid cursor
-- **WHEN** a cursor is malformed, expired, scoped to another command, or paired with
+- **WHEN** a cursor is malformed, expired when its domain has a lifecycle, scoped to another command, or paired with
   different filters
-- **THEN** the command returns structured `invalid_host_bridge_cursor`
+- **THEN** the command preserves its structured domain cursor failure
 - **AND** it does not silently restart at page one.
 
 ### Requirement: Ordinary rich-object pages SHALL use bounded defaults
@@ -100,12 +102,15 @@ SHALL default to at most 25 entries and accept at most 100 entries.
 - **AND** the caller can traverse the remaining library through opaque cursors.
 
 ### Requirement: Long text and complete artifacts SHALL have bounded delivery
-Readable long text SHALL use `offset` and `maxChars` with continuation metadata.
-Complete exports and heavy diagnostic/artifact payloads SHALL use Host Bridge file
-descriptors without local paths.
+Readable long text SHALL use its declared domain boundary. Canonical note detail
+and note payload reads SHALL return the complete value within their hard content
+bounds, failing rather than truncating an oversized value. Other text-window
+commands SHALL preserve `offset` and `maxChars` continuation. Complete exports and
+heavy diagnostic/artifact payloads SHALL use Host Bridge file descriptors without
+local paths.
 
 #### Scenario: Caller reconstructs text
-- **WHEN** a caller follows `nextOffset` until `hasMore` is false
+- **WHEN** a caller follows `nextOffset` from a text-window command until `hasMore` is false
 - **THEN** concatenating the chunks reproduces the original text exactly
 - **AND** an offset beyond the end returns a stable empty terminal chunk.
 
@@ -169,20 +174,22 @@ A bridge-download descriptor SHALL prove only that the requested archive was pre
 
 ### Requirement: Host Bridge attachment outputs omit host-local paths
 
-Host Bridge capability and MCP results SHALL NOT expose host-local attachment paths. Attachment reads and mutation results SHALL use the same remote projection and SHALL return an opaque broker-issued file descriptor when download access is available.
+Host Bridge capability and MCP results SHALL not expose host-local attachment paths. Attachment reads and canonical mutation receipts or attempts SHALL use the same remote projection and return an opaque broker-issued file descriptor when available. They SHALL not expose prepared-file paths, upload handles, leases, public tokens, caller revisions, or raw Host objects.
+
+#### Scenario: Canonical mutation creates or changes an attachment
+- **WHEN** an operation-specific mutation returns attachment facts in a receipt or attempt
+- **THEN** every attachment summary SHALL omit host-local and prepared-file paths
+- **AND** available content SHALL be represented only through remote-safe descriptors.
 
 #### Scenario: Caller reads item attachments
-
 - **WHEN** a Host Bridge or MCP caller reads item attachment metadata
 - **THEN** each attachment result SHALL omit its host-local path
-- **AND** available content SHALL be represented by an opaque file descriptor
-- **AND** unavailable content SHALL use a structured unavailable state.
+- **AND** available content SHALL be represented by an opaque file descriptor or structured unavailable state.
 
 #### Scenario: Mutation creates an attachment
-
-- **WHEN** `mutation.execute` successfully performs `item.attachFile`
-- **THEN** every attachment summary in the result SHALL omit its host-local path
-- **AND** the uploaded file and created Zotero attachment SHALL be represented only through remote-safe descriptors.
+- **WHEN** an operation-specific mutation successfully creates an attachment
+- **THEN** every attachment summary in the canonical evidence SHALL omit host-local paths
+- **AND** it SHALL use the same remote-safe descriptor projection.
 
 ### Requirement: Host Bridge snapshot output SHALL expose only opaque remote state
 The Host Bridge snapshot projection SHALL expose bounded portable item pages, opaque snapshot and cursor identities, normalized terminal status, and completion evidence suitable for the remote contract. It MUST NOT expose local paths, native handles, process objects, repository records, or internal session storage.
@@ -197,3 +204,26 @@ Any governed agent-facing guidance changed for snapshot behavior SHALL preserve 
 #### Scenario: Semantic review completes
 - **WHEN** the snapshot source guidance and materialized packages are reviewed against baseline `4dbddc24e884921262c559428bf851db5eadf2d7`
 - **THEN** unmapped, downgraded, unauthorized-dropped, and intra-package-duplicate counts are all zero and every instruction-depth warning has an explicit disposition
+
+### Requirement: Payload scan continuation SHALL not depend on nonempty output
+A payload page SHALL distinguish source scan progress from returned matches. Empty output with hasMore:true SHALL include a progressing nextCursor. Consumers SHALL use continuation, not array length or an unavailable total, to determine completion.
+
+#### Scenario: Empty candidate page is followed by a matching page
+- **WHEN** the first bounded candidate page has no payload and a later page has one
+- **THEN** the consumer continues and includes the later payload without claiming premature absence.
+
+### Requirement: Canonical mutation evidence SHALL have its own output boundary
+
+Bridge, MCP, and CLI projections of canonical mutation execute and observation SHALL expose operation identity, operation kind, receipt or attempt state, bounded affected and residual portable refs, and typed recovery data. They SHALL not use the generic HTTP operation envelope or claim partial success. committed and unchanged are receipts; failed, canceled, unknown, and repair_required are attempts.
+
+#### Scenario: Evidence is incomplete
+- **WHEN** a canonical mutation cannot establish complete success evidence or leaves residual work
+- **THEN** the output contains the corresponding typed attempt
+- **AND** it SHALL not present a partial mutation result as a success receipt.
+
+### Requirement: Typed mutation evidence has an operation-specific boundary
+Bridge, MCP, and CLI projections SHALL expose operation-specific preview or execution results with the existing path-free attachment projection. They SHALL not expose the generic mutation union or generic HTTP operation envelope.
+
+#### Scenario: Typed mutation returns attachment facts
+- **WHEN** a typed attachment mutation returns attachment facts
+- **THEN** every attachment summary uses the existing remote-safe descriptor projection and omits host-local paths.

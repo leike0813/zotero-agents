@@ -1,0 +1,3586 @@
+{
+  "capturedAt": "2026-09-07",
+  "deletionInventory": [
+    "DEL-12",
+    "DEL-13",
+    "DEL-15"
+  ],
+  "records": [
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/SKILL.md",
+      "substantiveInstructionLines": 172,
+      "normalizedProseCharacters": 29559
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/command-catalog.md",
+      "substantiveInstructionLines": 135,
+      "normalizedProseCharacters": 12611
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/bridge/backend/list.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2241
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/bridge/backend/status.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2172
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/bridge/manifest.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2285
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/bridge/profile/diagnose.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2202
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/bridge/profile/inspect.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2200
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/bridge/status.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2180
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/call/index.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2125
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/context/collection/open.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2211
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/context/current.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2289
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/context/item/open.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2152
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/context/note/open.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2152
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/context/selection/get.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2301
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/context/selection/open.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2400
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/acp-skill-run/reapply-result.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2216
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/persistence.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2157
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/status.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2232
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/synthesis/cache.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2241
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/synthesis/clean-install-reset.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2222
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/synthesis/diff.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2237
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/synthesis/inspect-paper.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2297
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/synthesis/inspect-topic.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2285
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/synthesis/operations.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2253
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/synthesis/profiler.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2271
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/synthesis/snapshot.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2271
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/tasks.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2208
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/file/download.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2161
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/file/upload.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2238
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/annotation/export.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2200
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/annotation/list.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2314
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/item/attachments.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2345
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/item/get.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2163
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/item/notes.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2360
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/item/search.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2216
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/items/export-research-bundle.md",
+      "substantiveInstructionLines": 27,
+      "normalizedProseCharacters": 2389
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/items/list.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2288
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/note/get.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2346
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/note/payload.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2398
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/note/payloads.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2340
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/readiness/audit.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2326
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/readiness/missing-analysis.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2335
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/readiness/missing-markdown.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2321
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/readiness/missing-pdf.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2298
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/snapshot.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2333
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/apply.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2136
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/collection/add-items.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2177
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/collection/create.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2152
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/collection/remove-items.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2191
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/item/attach-file.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2257
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/item/update.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2136
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/literature-ingest.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2163
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/note/create.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2153
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/note/update.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2134
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/note/upsert-payload.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2164
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/preview.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2141
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/tag/add.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2132
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/tag/remove.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2146
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/operation/index.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2156
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/product/download.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2191
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/product/get.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2365
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/product/list.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2347
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/product/remove.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2161
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/active.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2257
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/cancel.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2163
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/get.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2340
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/list.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2389
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/notification/ack.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2204
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/notification/list.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2454
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/notification/wait.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2517
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/permission/get.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2182
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/permission/pending.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2294
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/recent.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2297
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/skill/connect.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2162
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/skill/events.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2338
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/skill/get.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2138
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/skill/recent.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2272
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/skill/reply.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2166
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/workflow/recent.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2269
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/surface/describe.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2156
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/surface/identity.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2158
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/surface/search.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2261
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/artifact/export-filtered.md",
+      "substantiveInstructionLines": 29,
+      "normalizedProseCharacters": 3135
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/artifact/manifest.md",
+      "substantiveInstructionLines": 29,
+      "normalizedProseCharacters": 3143
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/artifact/read.md",
+      "substantiveInstructionLines": 29,
+      "normalizedProseCharacters": 3003
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/artifact/resolve-topic-digest.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2344
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/cache/invalidate.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2200
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/cache/refresh-reference-sidecar.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2221
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/cache/status.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2190
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/concept/query.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2235
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/graph/get-layout.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2265
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/graph/get-metrics.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2318
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/graph/get-slice.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2251
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/graph/overview.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2384
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/graph/query-cluster.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2268
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/graph/rank-external-references.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2358
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/graph/rank-library-papers.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2338
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/graph/refresh-metrics.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2208
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/graph/update.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2166
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/index/library/get.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2371
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/index/reference/get.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2298
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/index/status.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2188
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/insight/attention-queue.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2281
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/resolver/resolve.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2314
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/schema/get.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2160
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/topic/export-research-bundle.md",
+      "substantiveInstructionLines": 27,
+      "normalizedProseCharacters": 2404
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/topic/find-by-paper-ref.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2198
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/topic/get-context.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2174
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/topic/get-planning-context.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2192
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/topic/get-report.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2323
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/topic/get-review-input.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2217
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/topic/list.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2290
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/agent-abandon.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2174
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/agent-apply-status.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2328
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/agent-apply.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2227
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/agent-bundle/inspect.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2319
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/agent-renew.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2171
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/agent-result/validate.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2226
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/agent-run.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2246
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/defaults.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2164
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/describe.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2204
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/list.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2148
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/profile/describe.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2194
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/profile/list.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2187
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/profile/refresh.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2181
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/profile/validate.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2219
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/queue/cancel.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2189
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/queue/list.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2329
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/requirements.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2184
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/submission/get.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2320
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/submit.md",
+      "substantiveInstructionLines": 38,
+      "normalizedProseCharacters": 2938
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/validate.md",
+      "substantiveInstructionLines": 34,
+      "normalizedProseCharacters": 2696
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-library-agent/SKILL.md",
+      "substantiveInstructionLines": 93,
+      "normalizedProseCharacters": 11232
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-library-agent/references/research-task-model.md",
+      "substantiveInstructionLines": 214,
+      "normalizedProseCharacters": 17195
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-library-agent/references/workflow-catalog.md",
+      "substantiveInstructionLines": 339,
+      "normalizedProseCharacters": 31189
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-library-curation/SKILL.md",
+      "substantiveInstructionLines": 114,
+      "normalizedProseCharacters": 8454
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-library-curation/references/playbook.md",
+      "substantiveInstructionLines": 180,
+      "normalizedProseCharacters": 9679
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-library-query/SKILL.md",
+      "substantiveInstructionLines": 102,
+      "normalizedProseCharacters": 9511
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-library-query/references/playbook.md",
+      "substantiveInstructionLines": 138,
+      "normalizedProseCharacters": 10732
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-literature-acquisition/SKILL.md",
+      "substantiveInstructionLines": 105,
+      "normalizedProseCharacters": 8770
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-literature-acquisition/references/playbook.md",
+      "substantiveInstructionLines": 149,
+      "normalizedProseCharacters": 10243
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-literature-analysis/SKILL.md",
+      "substantiveInstructionLines": 113,
+      "normalizedProseCharacters": 8676
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-literature-analysis/references/playbook.md",
+      "substantiveInstructionLines": 136,
+      "normalizedProseCharacters": 9206
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-research-synthesis/SKILL.md",
+      "substantiveInstructionLines": 121,
+      "normalizedProseCharacters": 14792
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "addon/content/host-bridge-skills/zotero-research-synthesis/references/playbook.md",
+      "substantiveInstructionLines": 166,
+      "normalizedProseCharacters": 11895
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/README.md",
+      "substantiveInstructionLines": 16,
+      "normalizedProseCharacters": 4248
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/SOUL.md",
+      "substantiveInstructionLines": 8,
+      "normalizedProseCharacters": 1830
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/SKILL.md",
+      "substantiveInstructionLines": 172,
+      "normalizedProseCharacters": 29559
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/command-catalog.md",
+      "substantiveInstructionLines": 135,
+      "normalizedProseCharacters": 12611
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/bridge/backend/list.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2241
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/bridge/backend/status.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2172
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/bridge/manifest.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2285
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/bridge/profile/diagnose.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2202
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/bridge/profile/inspect.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2200
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/bridge/status.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2180
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/call/index.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2125
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/context/collection/open.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2211
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/context/current.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2289
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/context/item/open.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2152
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/context/note/open.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2152
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/context/selection/get.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2301
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/context/selection/open.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2400
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/debug/acp-skill-run/reapply-result.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2216
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/debug/persistence.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2157
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/debug/status.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2232
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/debug/synthesis/cache.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2241
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/debug/synthesis/clean-install-reset.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2222
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/debug/synthesis/diff.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2237
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/debug/synthesis/inspect-paper.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2297
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/debug/synthesis/inspect-topic.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2285
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/debug/synthesis/operations.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2253
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/debug/synthesis/profiler.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2271
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/debug/synthesis/snapshot.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2271
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/debug/tasks.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2208
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/file/download.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2161
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/file/upload.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2238
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/library/annotation/export.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2200
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/library/annotation/list.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2314
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/library/item/attachments.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2345
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/library/item/get.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2163
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/library/item/notes.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2360
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/library/item/search.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2216
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/library/items/export-research-bundle.md",
+      "substantiveInstructionLines": 27,
+      "normalizedProseCharacters": 2389
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/library/items/list.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2288
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/library/note/get.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2346
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/library/note/payload.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2398
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/library/note/payloads.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2340
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/library/readiness/audit.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2326
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/library/readiness/missing-analysis.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2335
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/library/readiness/missing-markdown.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2321
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/library/readiness/missing-pdf.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2298
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/library/snapshot.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2333
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/mutation/apply.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2136
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/mutation/collection/add-items.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2177
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/mutation/collection/create.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2152
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/mutation/collection/remove-items.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2191
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/mutation/item/attach-file.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2257
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/mutation/item/update.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2136
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/mutation/literature-ingest.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2163
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/mutation/note/create.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2153
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/mutation/note/update.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2134
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/mutation/note/upsert-payload.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2164
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/mutation/preview.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2141
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/mutation/tag/add.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2132
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/mutation/tag/remove.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2146
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/operation/index.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2156
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/product/download.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2191
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/product/get.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2365
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/product/list.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2347
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/product/remove.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2161
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/run/active.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2257
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/run/cancel.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2163
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/run/get.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2340
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/run/list.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2389
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/run/notification/ack.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2204
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/run/notification/list.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2454
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/run/notification/wait.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2517
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/run/permission/get.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2182
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/run/permission/pending.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2294
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/run/recent.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2297
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/run/skill/connect.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2162
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/run/skill/events.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2338
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/run/skill/get.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2138
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/run/skill/recent.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2272
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/run/skill/reply.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2166
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/run/workflow/recent.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2269
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/surface/describe.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2156
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/surface/identity.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2158
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/surface/search.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2261
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/artifact/export-filtered.md",
+      "substantiveInstructionLines": 29,
+      "normalizedProseCharacters": 3135
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/artifact/manifest.md",
+      "substantiveInstructionLines": 29,
+      "normalizedProseCharacters": 3143
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/artifact/read.md",
+      "substantiveInstructionLines": 29,
+      "normalizedProseCharacters": 3003
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/artifact/resolve-topic-digest.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2344
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/cache/invalidate.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2200
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/cache/refresh-reference-sidecar.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2221
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/cache/status.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2190
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/concept/query.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2235
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/graph/get-layout.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2265
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/graph/get-metrics.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2318
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/graph/get-slice.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2251
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/graph/overview.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2384
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/graph/query-cluster.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2268
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/graph/rank-external-references.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2358
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/graph/rank-library-papers.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2338
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/graph/refresh-metrics.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2208
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/graph/update.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2166
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/index/library/get.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2371
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/index/reference/get.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2298
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/index/status.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2188
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/insight/attention-queue.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2281
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/resolver/resolve.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2314
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/schema/get.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2160
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/topic/export-research-bundle.md",
+      "substantiveInstructionLines": 27,
+      "normalizedProseCharacters": 2404
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/topic/find-by-paper-ref.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2198
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/topic/get-context.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2174
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/topic/get-planning-context.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2192
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/topic/get-report.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2323
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/topic/get-review-input.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2217
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/topic/list.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2290
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/agent-abandon.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2174
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/agent-apply-status.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2328
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/agent-apply.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2227
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/agent-bundle/inspect.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2319
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/agent-renew.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2171
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/agent-result/validate.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2226
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/agent-run.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2246
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/defaults.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2164
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/describe.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2204
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/list.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2148
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/profile/describe.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2194
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/profile/list.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2187
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/profile/refresh.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2181
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/profile/validate.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2219
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/queue/cancel.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2189
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/queue/list.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2329
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/requirements.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2184
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/submission/get.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2320
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/submit.md",
+      "substantiveInstructionLines": 38,
+      "normalizedProseCharacters": 2938
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/validate.md",
+      "substantiveInstructionLines": 34,
+      "normalizedProseCharacters": 2696
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-librarian/SKILL.md",
+      "substantiveInstructionLines": 113,
+      "normalizedProseCharacters": 13808
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/automation-policy.md",
+      "substantiveInstructionLines": 232,
+      "normalizedProseCharacters": 14196
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/resident-operations.md",
+      "substantiveInstructionLines": 234,
+      "normalizedProseCharacters": 13972
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/state-and-recovery.md",
+      "substantiveInstructionLines": 237,
+      "normalizedProseCharacters": 15940
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-library-agent/SKILL.md",
+      "substantiveInstructionLines": 93,
+      "normalizedProseCharacters": 11232
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-library-agent/references/research-task-model.md",
+      "substantiveInstructionLines": 214,
+      "normalizedProseCharacters": 17195
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-library-agent/references/workflow-catalog.md",
+      "substantiveInstructionLines": 339,
+      "normalizedProseCharacters": 31189
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-library-curation/SKILL.md",
+      "substantiveInstructionLines": 114,
+      "normalizedProseCharacters": 8454
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-library-curation/references/playbook.md",
+      "substantiveInstructionLines": 180,
+      "normalizedProseCharacters": 9679
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-library-query/SKILL.md",
+      "substantiveInstructionLines": 102,
+      "normalizedProseCharacters": 9511
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-library-query/references/playbook.md",
+      "substantiveInstructionLines": 138,
+      "normalizedProseCharacters": 10732
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-literature-acquisition/SKILL.md",
+      "substantiveInstructionLines": 105,
+      "normalizedProseCharacters": 8770
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-literature-acquisition/references/playbook.md",
+      "substantiveInstructionLines": 149,
+      "normalizedProseCharacters": 10243
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-literature-analysis/SKILL.md",
+      "substantiveInstructionLines": 113,
+      "normalizedProseCharacters": 8676
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-literature-analysis/references/playbook.md",
+      "substantiveInstructionLines": 136,
+      "normalizedProseCharacters": 9206
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-research-synthesis/SKILL.md",
+      "substantiveInstructionLines": 121,
+      "normalizedProseCharacters": 14792
+    },
+    {
+      "ref": "4fb76b73f3ec9744e905c39e45d0b86ac03b34ed",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-research-synthesis/references/playbook.md",
+      "substantiveInstructionLines": 166,
+      "normalizedProseCharacters": 11895
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/SKILL.md",
+      "substantiveInstructionLines": 179,
+      "normalizedProseCharacters": 32822
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/command-catalog.md",
+      "substantiveInstructionLines": 135,
+      "normalizedProseCharacters": 12611
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/bridge/backend/list.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2241
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/bridge/backend/status.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2172
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/bridge/manifest.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2285
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/bridge/profile/diagnose.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2202
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/bridge/profile/inspect.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2200
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/bridge/status.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2180
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/call/index.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2125
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/context/collection/open.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2211
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/context/current.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2172
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/context/item/open.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2152
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/context/note/open.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2152
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/context/selection/get.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2298
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/context/selection/open.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2400
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/acp-skill-run/reapply-result.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2216
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/persistence.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2157
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/status.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2232
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/synthesis/cache.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2241
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/synthesis/clean-install-reset.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2222
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/synthesis/diff.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2237
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/synthesis/inspect-paper.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2297
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/synthesis/inspect-topic.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2285
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/synthesis/operations.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2253
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/synthesis/profiler.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2271
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/synthesis/snapshot.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2271
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/tasks.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2208
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/file/download.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2161
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/file/upload.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2238
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/annotation/export.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2200
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/annotation/list.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2314
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/item/attachments.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2345
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/item/get.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2163
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/item/notes.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2315
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/item/search.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2216
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/items/export-research-bundle.md",
+      "substantiveInstructionLines": 27,
+      "normalizedProseCharacters": 2389
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/items/list.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2288
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/note/get.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2346
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/note/payload.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2218
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/note/payloads.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2351
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/readiness/audit.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2326
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/readiness/missing-analysis.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2335
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/readiness/missing-markdown.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2321
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/readiness/missing-pdf.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2298
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/saved-searches/list.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2311
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/library/snapshot.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2333
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/apply.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2135
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/collection/add-items.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2177
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/collection/create.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2152
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/collection/remove-items.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2191
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/get-operation.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2098
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/item/attach-file.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2257
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/item/update.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2136
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/literature-ingest.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2163
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/note/create.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2153
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/note/update.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2134
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/note/upsert-payload.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2164
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/preview.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2140
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/tag/add.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2132
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/tag/remove.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2146
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/operation/index.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2156
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/product/download.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2191
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/product/get.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2365
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/product/list.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2347
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/product/remove.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2161
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/active.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2257
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/cancel.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2163
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/get.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2340
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/list.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2389
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/notification/ack.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2204
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/notification/list.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2454
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/notification/wait.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2517
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/permission/get.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2182
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/permission/pending.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2294
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/recent.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2297
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/skill/connect.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2162
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/skill/events.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2338
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/skill/get.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2138
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/skill/recent.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2272
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/skill/reply.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2166
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/workflow/recent.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2269
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/surface/describe.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2156
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/surface/identity.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2158
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/surface/search.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2261
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/artifact/export-filtered.md",
+      "substantiveInstructionLines": 29,
+      "normalizedProseCharacters": 3135
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/artifact/manifest.md",
+      "substantiveInstructionLines": 29,
+      "normalizedProseCharacters": 3143
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/artifact/read.md",
+      "substantiveInstructionLines": 29,
+      "normalizedProseCharacters": 3003
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/artifact/resolve-topic-digest.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2344
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/cache/invalidate.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2200
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/cache/refresh-reference-sidecar.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2221
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/cache/status.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2190
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/concept/query.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2235
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/graph/get-layout.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2265
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/graph/get-metrics.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2318
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/graph/get-slice.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2251
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/graph/overview.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2384
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/graph/query-cluster.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2268
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/graph/rank-external-references.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2358
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/graph/rank-library-papers.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2338
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/graph/refresh-metrics.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2208
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/graph/update.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2166
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/index/library/get.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2371
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/index/reference/get.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2298
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/index/status.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2188
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/insight/attention-queue.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2281
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/resolver/resolve.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2314
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/schema/get.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2160
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/topic/export-research-bundle.md",
+      "substantiveInstructionLines": 27,
+      "normalizedProseCharacters": 2404
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/topic/find-by-paper-ref.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2198
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/topic/get-context.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2174
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/topic/get-planning-context.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2192
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/topic/get-report.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2323
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/topic/get-review-input.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2217
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/topic/list.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2290
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/agent-abandon.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2174
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/agent-apply-status.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2328
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/agent-apply.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2227
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/agent-bundle/inspect.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2319
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/agent-renew.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2171
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/agent-result/validate.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2226
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/agent-run.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2246
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/defaults.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2164
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/describe.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2204
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/list.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2148
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/profile/describe.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2194
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/profile/list.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2187
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/profile/refresh.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2181
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/profile/validate.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2219
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/queue/cancel.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2189
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/queue/list.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2329
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/requirements.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2184
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/submission/get.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2320
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/submit.md",
+      "substantiveInstructionLines": 38,
+      "normalizedProseCharacters": 2938
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/validate.md",
+      "substantiveInstructionLines": 34,
+      "normalizedProseCharacters": 2696
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-library-agent/SKILL.md",
+      "substantiveInstructionLines": 93,
+      "normalizedProseCharacters": 11232
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-library-agent/references/research-task-model.md",
+      "substantiveInstructionLines": 214,
+      "normalizedProseCharacters": 17195
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-library-agent/references/workflow-catalog.md",
+      "substantiveInstructionLines": 339,
+      "normalizedProseCharacters": 31189
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-library-curation/SKILL.md",
+      "substantiveInstructionLines": 114,
+      "normalizedProseCharacters": 8454
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-library-curation/references/playbook.md",
+      "substantiveInstructionLines": 180,
+      "normalizedProseCharacters": 9679
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-library-query/SKILL.md",
+      "substantiveInstructionLines": 102,
+      "normalizedProseCharacters": 9511
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-library-query/references/playbook.md",
+      "substantiveInstructionLines": 138,
+      "normalizedProseCharacters": 10732
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-literature-acquisition/SKILL.md",
+      "substantiveInstructionLines": 106,
+      "normalizedProseCharacters": 9557
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-literature-acquisition/references/playbook.md",
+      "substantiveInstructionLines": 149,
+      "normalizedProseCharacters": 10243
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-literature-analysis/SKILL.md",
+      "substantiveInstructionLines": 113,
+      "normalizedProseCharacters": 8676
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-literature-analysis/references/playbook.md",
+      "substantiveInstructionLines": 136,
+      "normalizedProseCharacters": 9206
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-research-synthesis/SKILL.md",
+      "substantiveInstructionLines": 121,
+      "normalizedProseCharacters": 14792
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "addon/content/host-bridge-skills/zotero-research-synthesis/references/playbook.md",
+      "substantiveInstructionLines": 166,
+      "normalizedProseCharacters": 11895
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/README.md",
+      "substantiveInstructionLines": 16,
+      "normalizedProseCharacters": 4248
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/SOUL.md",
+      "substantiveInstructionLines": 8,
+      "normalizedProseCharacters": 1830
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/SKILL.md",
+      "substantiveInstructionLines": 179,
+      "normalizedProseCharacters": 32822
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/command-catalog.md",
+      "substantiveInstructionLines": 135,
+      "normalizedProseCharacters": 12611
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/bridge/backend/list.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2241
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/bridge/backend/status.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2172
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/bridge/manifest.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2285
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/bridge/profile/diagnose.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2202
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/bridge/profile/inspect.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2200
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/bridge/status.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2180
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/call/index.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2125
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/context/collection/open.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2211
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/context/current.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2172
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/context/item/open.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2152
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/context/note/open.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2152
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/context/selection/get.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2298
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/context/selection/open.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2400
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/debug/acp-skill-run/reapply-result.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2216
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/debug/persistence.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2157
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/debug/status.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2232
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/debug/synthesis/cache.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2241
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/debug/synthesis/clean-install-reset.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2222
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/debug/synthesis/diff.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2237
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/debug/synthesis/inspect-paper.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2297
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/debug/synthesis/inspect-topic.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2285
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/debug/synthesis/operations.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2253
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/debug/synthesis/profiler.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2271
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/debug/synthesis/snapshot.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2271
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/debug/tasks.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2208
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/file/download.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2161
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/file/upload.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2238
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/library/annotation/export.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2200
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/library/annotation/list.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2314
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/library/item/attachments.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2345
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/library/item/get.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2163
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/library/item/notes.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2315
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/library/item/search.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2216
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/library/items/export-research-bundle.md",
+      "substantiveInstructionLines": 27,
+      "normalizedProseCharacters": 2389
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/library/items/list.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2288
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/library/note/get.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2346
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/library/note/payload.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2218
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/library/note/payloads.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2351
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/library/readiness/audit.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2326
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/library/readiness/missing-analysis.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2335
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/library/readiness/missing-markdown.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2321
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/library/readiness/missing-pdf.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2298
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/library/saved-searches/list.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2311
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/library/snapshot.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2333
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/mutation/apply.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2135
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/mutation/collection/add-items.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2177
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/mutation/collection/create.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2152
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/mutation/collection/remove-items.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2191
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/mutation/get-operation.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2098
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/mutation/item/attach-file.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2257
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/mutation/item/update.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2136
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/mutation/literature-ingest.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2163
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/mutation/note/create.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2153
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/mutation/note/update.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2134
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/mutation/note/upsert-payload.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2164
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/mutation/preview.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2140
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/mutation/tag/add.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2132
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/mutation/tag/remove.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2146
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/operation/index.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2156
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/product/download.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2191
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/product/get.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2365
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/product/list.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2347
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/product/remove.md",
+      "substantiveInstructionLines": 21,
+      "normalizedProseCharacters": 2161
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/run/active.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2257
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/run/cancel.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2163
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/run/get.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2340
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/run/list.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2389
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/run/notification/ack.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2204
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/run/notification/list.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2454
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/run/notification/wait.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2517
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/run/permission/get.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2182
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/run/permission/pending.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2294
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/run/recent.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2297
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/run/skill/connect.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2162
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/run/skill/events.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2338
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/run/skill/get.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2138
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/run/skill/recent.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2272
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/run/skill/reply.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2166
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/run/workflow/recent.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2269
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/surface/describe.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2156
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/surface/identity.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2158
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/surface/search.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2261
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/artifact/export-filtered.md",
+      "substantiveInstructionLines": 29,
+      "normalizedProseCharacters": 3135
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/artifact/manifest.md",
+      "substantiveInstructionLines": 29,
+      "normalizedProseCharacters": 3143
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/artifact/read.md",
+      "substantiveInstructionLines": 29,
+      "normalizedProseCharacters": 3003
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/artifact/resolve-topic-digest.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2344
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/cache/invalidate.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2200
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/cache/refresh-reference-sidecar.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2221
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/cache/status.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2190
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/concept/query.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2235
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/graph/get-layout.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2265
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/graph/get-metrics.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2318
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/graph/get-slice.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2251
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/graph/overview.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2384
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/graph/query-cluster.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2268
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/graph/rank-external-references.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2358
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/graph/rank-library-papers.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2338
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/graph/refresh-metrics.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2208
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/graph/update.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2166
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/index/library/get.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2371
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/index/reference/get.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2298
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/index/status.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2188
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/insight/attention-queue.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2281
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/resolver/resolve.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2314
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/schema/get.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2160
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/topic/export-research-bundle.md",
+      "substantiveInstructionLines": 27,
+      "normalizedProseCharacters": 2404
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/topic/find-by-paper-ref.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2198
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/topic/get-context.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2174
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/topic/get-planning-context.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2192
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/topic/get-report.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2323
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/topic/get-review-input.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2217
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/synthesis/topic/list.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2290
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/agent-abandon.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2174
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/agent-apply-status.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2328
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/agent-apply.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2227
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/agent-bundle/inspect.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2319
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/agent-renew.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2171
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/agent-result/validate.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2226
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/agent-run.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2246
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/defaults.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2164
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/describe.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2204
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/list.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2148
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/profile/describe.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2194
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/profile/list.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2187
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/profile/refresh.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2181
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/profile/validate.md",
+      "substantiveInstructionLines": 24,
+      "normalizedProseCharacters": 2219
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/queue/cancel.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2189
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/queue/list.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2329
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/requirements.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2184
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/submission/get.md",
+      "substantiveInstructionLines": 22,
+      "normalizedProseCharacters": 2320
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/submit.md",
+      "substantiveInstructionLines": 38,
+      "normalizedProseCharacters": 2938
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/commands/workflow/validate.md",
+      "substantiveInstructionLines": 34,
+      "normalizedProseCharacters": 2696
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-librarian/SKILL.md",
+      "substantiveInstructionLines": 113,
+      "normalizedProseCharacters": 13989
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/automation-policy.md",
+      "substantiveInstructionLines": 232,
+      "normalizedProseCharacters": 14280
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/resident-operations.md",
+      "substantiveInstructionLines": 234,
+      "normalizedProseCharacters": 13972
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/state-and-recovery.md",
+      "substantiveInstructionLines": 237,
+      "normalizedProseCharacters": 15940
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-library-agent/SKILL.md",
+      "substantiveInstructionLines": 93,
+      "normalizedProseCharacters": 11232
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-library-agent/references/research-task-model.md",
+      "substantiveInstructionLines": 214,
+      "normalizedProseCharacters": 17195
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-library-agent/references/workflow-catalog.md",
+      "substantiveInstructionLines": 339,
+      "normalizedProseCharacters": 31189
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-library-curation/SKILL.md",
+      "substantiveInstructionLines": 114,
+      "normalizedProseCharacters": 8454
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-library-curation/references/playbook.md",
+      "substantiveInstructionLines": 180,
+      "normalizedProseCharacters": 9679
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-library-query/SKILL.md",
+      "substantiveInstructionLines": 102,
+      "normalizedProseCharacters": 9511
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-library-query/references/playbook.md",
+      "substantiveInstructionLines": 138,
+      "normalizedProseCharacters": 10732
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-literature-acquisition/SKILL.md",
+      "substantiveInstructionLines": 106,
+      "normalizedProseCharacters": 9557
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-literature-acquisition/references/playbook.md",
+      "substantiveInstructionLines": 149,
+      "normalizedProseCharacters": 10243
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-literature-analysis/SKILL.md",
+      "substantiveInstructionLines": 113,
+      "normalizedProseCharacters": 8676
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-literature-analysis/references/playbook.md",
+      "substantiveInstructionLines": 136,
+      "normalizedProseCharacters": 9206
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-research-synthesis/SKILL.md",
+      "substantiveInstructionLines": 121,
+      "normalizedProseCharacters": 14792
+    },
+    {
+      "ref": "52624e6133e053cf307536248682ba3187801c7d",
+      "path": "profiles/hermes/zotero-librarian/skills/zotero-research-synthesis/references/playbook.md",
+      "substantiveInstructionLines": 166,
+      "normalizedProseCharacters": 11895
+    }
+  ]
+}

@@ -1,217 +1,65 @@
 # Auswahlkontext
 
-Wenn ein Benutzer Elemente in Zotero auswählt, erstellt das Plugin einen strukturierten **Auswahlkontext (SelectionContext)**, der beschreibt, was der Benutzer ausgewählt hat und welchem Typ jedes ausgewählte Element angehört. Dieser Kontext dient als Eingabegrundlage für den `buildRequest`-Hook.
+Die genaue, geordnete Auswahl wird beim Start des Workflows erfasst und nach allen Broker-Seiten festgeschrieben. Eine Änderung zwischen Seiten lässt die Erfassung fehlschlagen. Vorschau und Ausführung verwenden dieselbe Eingabe; explizite und gespeicherte Eingaben enthalten vollständige `{libraryId, key}`-Referenzen.
 
-## Auswahltypen
+## Struktur
 
-Basierend auf der Kombination der ausgewählten Elementtypen gibt `selectionContext.selectionType` einen der folgenden Werte zurück:
-
-| Typ | Beschreibung |
-|-----|-------------|
-| `"parent"` | Alle ausgewählten Elemente sind übergeordnete Elemente (Elemente der obersten Ebene) |
-| `"child"` | Alle ausgewählten Elemente sind Kindelemente (nicht der obersten Ebene) |
-| `"attachment"` | Alle ausgewählten Elemente sind Anhänge |
-| `"note"` | Alle ausgewählten Elemente sind Notizen |
-| `"mixed"` | Ausgewählte Elemente sind eine Mischung mehrerer Typen |
-| `"none"` | Keine Elemente sind ausgewählt |
-
-## Kontextstruktur
+`items` ist ein geordnetes Array mit `kind`, `ref` und `itemType`, optional `title` und `parentRef`. Anhänge können `filename`, `contentType`, `createdAt` und `fileState` enthalten. Native Objekte, numerische Eintrags-IDs und lokale Pfade gehören nicht hinein. Leer: `items: []`.
 
 ```ts
-selectionContext = {
-  selectionType: "parent",       // Auswahltyp
-  items: {
-    parents: [ /* Liste der übergeordneten Elemente */ ],
-    children: [ /* Liste der Kindelemente */ ],
-    attachments: [ /* Liste der Anhänge */ ],
-    notes: [ /* Liste der Notizen */ ],
-  },
-  summary: {
-    parentCount: 2,
-    childCount: 0,
-    attachmentCount: 0,
-    noteCount: 0,
-  },
-  warnings: [],                  // Warnmeldungen
-  sampledAt: "2026-01-15T...",   // Kontexterstellungszeit
-}
-```
-
-Jede Art von Element enthält reichhaltige Kontextinformationen.
-
-### Übergeordnetes Element (ParentContext)
-
-Ein übergeordnetes Element ist ein Element der obersten Ebene in der Zotero-Bibliothek (z. B. Zeitschriftenartikel, Buch, Webseite usw.). Jeder übergeordnete Elementkontext enthält:
-
-```ts
-{
-  item: Zotero.Item,         // Elementobjekt
-  id: number,                // Element-ID
-  title: string,             // Titel
-  attachments: [             // Kind-Anhänge unter diesem Element
-    { type, filePath, mimeType, dateAdded, ... }
+const selectionContext = {
+  items: [
+    {
+      kind: "attachment",
+      ref: { libraryId: 1, key: "ATTACH01" },
+      itemType: "attachment",
+      title: "Paper.pdf",
+      parentRef: { libraryId: 1, key: "PARENT01" },
+    },
   ],
-  notes: [                   // Kind-Notizen unter diesem Element
-    { id, content, ... }
-  ],
-  tags: string[],            // Tag-Liste
-  collections: string[],     // Enthaltende Sammlungen
-  children: [                // Andere Kindelemente
-    { id, type, ... }
-  ],
-}
+  sampledAt: "2026-09-06T00:00:00.000Z",
+};
 ```
 
-### Anhang (AttachmentContext)
+## Fakten in Hooks lesen
 
-Ein Anhang ist ein Datei-Anhang eines Elements (PDF, Markdown usw.). Jeder Anhangskontext enthält:
-
-```ts
-{
-  item: Zotero.Item,         // Anhangs-Elementobjekt
-  id: number,                // Element-ID
-  filePath: string,          // Lokaler Dateipfad
-  fileName: string,          // Dateiname
-  mimeType: string,          // MIME-Typ (z. B. "application/pdf")
-  dateAdded: Date,           // Hinzufügedatum
-  parentItem: {              // Besitzendes übergeordnetes Element
-    id: number,
-    key: string,
-    libraryID: number,
-  },
-  tags: string[],
-  collections: string[],
-}
-```
-
-### Notiz (NoteContext)
-
-```ts
-{
-  item: Zotero.Item,
-  id: number,
-  content: string,           // Notizinhalt (HTML)
-  parentItem: { id, key, libraryID },
-  tags: string[],
-}
-```
-
-## Auswahlkontext in Hooks verwenden
-
-### Ausgewählte Anhänge abrufen
+Der Hook verarbeitet seine vorbereitete Einheit. Weitere Fakten liest er mit der festgeschriebenen Referenz über `runtime.hostApi.library`. Bei `hasMore` dem `nextCursor` folgen; die aktuelle Auswahl nicht erneut erfassen.
 
 ```js
-export function buildRequest({ selectionContext, runtime }) {
-  const attachments = selectionContext.items.attachments;
-
+export async function buildRequest({ selectionContext, runtime }) {
+  const refs = selectionContext.items.map((item) => item.ref);
+  const details = [];
+  for (const ref of refs) {
+    details.push(await runtime.hostApi.library.getItemDetail(ref));
+  }
   return {
-    kind: "skillrunner.job.v1",
-    create: { skill_id: "my-skill" },
-    input: {
-      files: attachments.map((attachment) => ({
-        path: runtime.helpers.getAttachmentFilePath(attachment),
-        name: runtime.helpers.getAttachmentFileName(attachment),
-      })),
-    },
+    kind: "pass-through.run.v1",
+    selectionContext,
+    parameter: { titles: details.map((detail) => detail.item.title || "") },
   };
 }
 ```
 
-### Ausgewählte übergeordnete Elemente und ihre Kindinhalte abrufen
+## Dateien und Aufgabenregeln
 
-```js
-export function buildRequest({ selectionContext, runtime }) {
-  const parents = selectionContext.items.parents;
+Die lokale Vorbereitung löst `library.getItemDetail(ref)` auf und verwendet `file.path` nur bei `file.state === "available"`. Auswahl-, Aufgaben- und persistierte Daten behalten Referenzen. Fehlende Dateien lassen die Vorbereitung fehlschlagen.
 
-  for (const parent of parents) {
-    const title = parent.item.getField("title");
-    const attachments = parent.attachments;  // Anhänge unter diesem übergeordneten Element
-    const notes = parent.notes;              // Notizen unter diesem übergeordneten Element
-  }
-
-  // ...
-}
-```
-
-### Auswahltyp prüfen, um das Verhalten zu bestimmen
-
-```js
-export function preflight({ selectionContext }) {
-  const { selectionType } = selectionContext;
-
-  if (selectionType === "none") {
-    // Keine Elemente ausgewählt, überspringen
-    return { kind: "skip", reason: "no selected items" };
-  }
-
-  if (selectionType === "attachment") {
-    // Benutzer hat nur Anhänge ausgewählt, Anhangsverarbeitungslogik verwenden
-  } else if (selectionType === "parent") {
-    // Benutzer hat nur übergeordnete Elemente ausgewählt, ersten passenden Anhang erweitern
-  }
-
-  return { kind: "continue", context: { selectionType } };
-}
-```
-
-### Attachment Candidate Planning
+Übergeordnete Einträge, Deduplizierung und Markdown/PDF-Priorität bestimmt der benannte Selektor in `validateSelection`. MinerU verarbeitet direkt ausgewählte PDFs genau; nur ausgewählte übergeordnete Einträge erweitern alle passenden PDFs. `inputs.member` und `inputs.grouping` definieren die Einheiten.
 
 ```json
 {
   "inputs": {
-    "member": {
-      "kind": "attachment",
-      "accepts": { "mime": ["application/pdf"] }
-    },
+    "member": { "kind": "attachment", "accepts": { "mime": ["application/pdf"] } },
     "grouping": { "mode": "each" }
   },
   "validateSelection": {
-    "require": {
-      "selection": {
-        "counts": { "attachments": { "min": 1 } },
-        "allowMixed": false
-      }
-    },
     "select": { "policy": "input-member", "source": "selected" },
-    "filters": [
-      { "kind": "source-file-exists", "phase": "availability" }
-    ]
+    "filters": [{ "kind": "source-file-exists", "phase": "availability" }]
   }
 }
 ```
 
-`require.selection` reads the original SelectionContext once. The selector
-produces ordered candidates, attachment MIME compatibility runs before filters,
-and `inputs.grouping` creates immutable top-level units.
+Leere Eingabe: `member.kind: "selection"`, `grouping.mode: "all"`, Selektor `selection` und `trigger.requiresSelection: false`. Die Anforderungen müssen eine leere Auswahl zulassen.
 
-### Workflows Without Selected Items
-
-Use `member.kind: "selection"`, `grouping.mode: "all"`, the `selection`
-selector, and `trigger.requiresSelection: false`. The selector then produces
-the complete empty SelectionContext as the single member. Selection
-requirements remain active and must not make the empty selection impossible.
-
-## Declarative Candidate Filters
-
-```json
-{
-  "validateSelection": {
-    "select": { "policy": "generated-note-candidates" },
-    "filters": [
-      {
-        "kind": "generated-note-kinds-absent",
-        "phase": "availability",
-        "noteKinds": ["digest"]
-      }
-    ]
-  }
-}
-```
-
-`validateSelection` owns candidate production and filtering. `inputs` owns
-the execution member and grouping. Hooks consume the prepared unit and must not
-reconstruct selection planning.
-## Nächste Schritte
-
-- [Host-API-Referenz](#doc/workflows%2Fcustom%2Fhost-api) — Vollständige API zur manipulation von Zotero-Daten in Hooks
-- [Manifest schreiben](#doc/workflows%2Fcustom%2Fmanifest) — Eingabeeinheitstypen des Workflows definieren
+- [Host API](#doc/workflows%2Fcustom%2Fhost-api)
+- [Manifest](#doc/workflows%2Fcustom%2Fmanifest#selection-validation)

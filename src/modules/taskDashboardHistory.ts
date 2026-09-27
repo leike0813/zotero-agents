@@ -10,12 +10,12 @@ import {
   isProjectableWorkflowTaskRecord,
   type WorkflowTaskRecord,
 } from "./taskRuntime";
-import { normalizeStatus } from "./skillRunnerProviderStateMachine";
+import { normalizeStatus } from "./skillRunner/run/skillRunnerProviderStateMachine";
 import { getTaskHistoryRetentionConfig } from "./taskRetentionPolicy";
 import {
   countSkillRunnerRunProjectionStates,
   listSkillRunnerRunProjections,
-} from "./skillRunnerRunStore";
+} from "./skillRunner/run/skillRunnerRunStore";
 
 export type TaskDashboardHistoryRecord = WorkflowTaskRecord & {
   archivedAt: string;

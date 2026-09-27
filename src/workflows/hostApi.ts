@@ -1,5 +1,5 @@
-import { createWorkflowEditorOwner } from "../modules/workflowEditorHost";
-import { createWorkflowLoggingOwner } from "../modules/runtimeLogManager";
+import { createWorkflowEditorOwner } from "../modules/workflow/ui/workflowEditorHost";
+import { createWorkflowLoggingOwner } from "./workflowLoggingOwner";
 import { createWorkflowNotificationOwner } from "../modules/workflowExecution/feedbackSeam";
 import { createWorkflowSynthesisHostApi } from "../modules/synthesisClient/workflowHostClient";
 import { createWorkflowArchiveApi } from "./archive";
@@ -7,23 +7,44 @@ import { createWorkflowBibliographyOwner } from "./bibliography";
 import { createWorkflowClipboardOwner } from "./clipboard";
 import { createWorkflowFileApi } from "./file";
 import { createWorkflowInputMaterializer } from "./workflowInputMaterialization";
+import { getZoteroHostCanonicalMutationControl } from "../modules/zoteroHostCapabilityBroker";
+import {
+  assertLiteratureArtifactApplyAnalysisRequest,
+  getZoteroManagedNoteLocalControl,
+  ManagedNoteOwnerError,
+  type ManagedParentSetSemanticInput,
+} from "../modules/zoteroHost/zoteroManagedNotes";
 import {
   createWorkflowAddonOwner,
   createWorkflowHostCapabilityBroker,
+  createWorkflowPreparedStoredFiles,
+  createCanonicalStoredAttachmentSource,
+  createStoredAttachmentCompleteSemanticInput,
+  isAttachmentCreateMutationResult,
+  lookupWorkflowStoredAttachmentMutation,
   createWorkflowEnvironmentOwner,
   createWorkflowHostLiveReadAdapters,
   createWorkflowLibraryItemSnapshotApi,
+  type WorkflowStoredAttachmentPreparationRequest,
   type WorkflowHostLeafScope,
 } from "./workflowHostOwners";
 import {
   assertWorkflowCallNotCanceled,
   createWorkflowHostError,
   type WorkflowInteractionMember,
+  type WorkflowHostErrorDetailsByCode,
 } from "./workflowHostErrorContract";
 import { WORKFLOW_HOST_API_VERSION } from "./workflowHostContract";
 import type {
   WorkflowCallControl,
   WorkflowHostApiV12,
+  AttachmentCreateRequestDto,
+  MutationExecutionResult,
+  MutationRequestByOperation,
+  MutationResultByOperation,
+  JsonObject,
+  WorkflowFileRef,
+  WorkflowAttachmentCreateRequestDto,
 } from "./types";
 
 export * from "./workflowHostOwners";
@@ -43,6 +64,22 @@ function interactionRequired(member: WorkflowInteractionMember) {
     `${member} requires an interactive Workflow Host`,
     { member },
   );
+}
+
+function requireAttachmentCreateResult(
+  result: MutationExecutionResult<JsonObject>,
+): MutationExecutionResult<MutationResultByOperation["attachments.create"]> {
+  if (!("result" in result)) {
+    return { outcome: result.outcome, attempt: result.attempt };
+  }
+  if (!isAttachmentCreateMutationResult(result.result)) {
+    throw new Error("Attachment create returned an unexpected result");
+  }
+  return {
+    outcome: result.outcome,
+    receipt: result.receipt,
+    result: result.result,
+  };
 }
 
 function createUnavailableResources(): WorkflowHostApiV12["resources"] {
@@ -85,6 +122,159 @@ export function createWorkflowHostApi(
     control || defaultControl;
   const resources = args.resources || createUnavailableResources();
   const broker = createWorkflowHostCapabilityBroker(resources);
+  const toPreparedSource = (source: WorkflowFileRef) =>
+    source.kind === "local_path"
+      ? { kind: "local_path" as const, path: source.path }
+      : { kind: "resource" as const, resourceRef: source.resourceRef };
+  const toPreparedRequest = (
+    source: Extract<
+      WorkflowAttachmentCreateRequestDto["source"],
+      {
+        kind: "stored_file";
+      }
+    >,
+  ): WorkflowStoredAttachmentPreparationRequest => ({
+    main: {
+      source: toPreparedSource(source.main.source),
+      ...(source.main.targetFilename
+        ? { targetFilename: source.main.targetFilename }
+        : {}),
+    },
+    companions: (source.companions || []).map((companion) => ({
+      source: toPreparedSource(companion.source),
+      targetRelativePath: companion.targetRelativePath,
+    })),
+  });
+  const executePreparedAttachmentCreate = async (
+    input: Omit<AttachmentCreateRequestDto, "source"> & {
+      operation: "attachments.create";
+    },
+    source: WorkflowStoredAttachmentPreparationRequest,
+    control?: WorkflowCallControl,
+  ): Promise<
+    MutationExecutionResult<MutationResultByOperation["attachments.create"]>
+  > => {
+    const existing =
+      await lookupWorkflowStoredAttachmentMutation<"attachments.create">({
+        scope: callerScope,
+        input,
+        source,
+      });
+    if (existing.state !== "missing") return existing.result;
+    const files = createWorkflowPreparedStoredFiles(resources);
+    const trusted = getZoteroHostCanonicalMutationControl(broker);
+    const effectiveControl = withDefaultControl(control);
+    try {
+      const preparedFile = await files.prepareStoredAttachment(source);
+      const canonicalSource = createCanonicalStoredAttachmentSource(
+        source,
+        preparedFile.snapshot,
+      );
+      const canonicalInput: MutationRequestByOperation["attachments.create"] = {
+        ...input,
+        source: canonicalSource,
+      };
+      const replay =
+        await lookupWorkflowStoredAttachmentMutation<"attachments.create">({
+          scope: callerScope,
+          input,
+          source,
+          completeSemanticInput: createStoredAttachmentCompleteSemanticInput(
+            input,
+            canonicalSource,
+          ),
+        });
+      if (replay.state !== "missing") return replay.result;
+      const prepared = await trusted.prepare<"attachments.create">({
+        input: canonicalInput,
+        scope: callerScope,
+        control: effectiveControl,
+        resources: {
+          deferredStoredAttachment: {
+            prepare: async () => preparedFile,
+          },
+          preparedFiles: files.preparedFiles,
+        },
+      });
+      if (prepared.state === "settled") return prepared.result;
+      return await trusted.execute<"attachments.create">({
+        input: canonicalInput,
+        scope: callerScope,
+        prepared: prepared.prepared,
+        control: effectiveControl,
+      });
+    } finally {
+      await files.preparedFiles.dispose();
+    }
+  };
+  const executePreparedAttachmentReplace = async (
+    input: Omit<
+      MutationRequestByOperation["attachments.replaceFile"],
+      "source"
+    >,
+    source: WorkflowStoredAttachmentPreparationRequest,
+    control?: WorkflowCallControl,
+  ): Promise<
+    MutationExecutionResult<
+      MutationResultByOperation["attachments.replaceFile"]
+    >
+  > => {
+    const existing =
+      await lookupWorkflowStoredAttachmentMutation<"attachments.replaceFile">({
+        scope: callerScope,
+        input,
+        source,
+      });
+    if (existing.state !== "missing") return existing.result;
+    const files = createWorkflowPreparedStoredFiles(resources);
+    const trusted = getZoteroHostCanonicalMutationControl(broker);
+    const effectiveControl = withDefaultControl(control);
+    try {
+      const preparedFile = await files.prepareStoredAttachment(source);
+      const canonicalSource = createCanonicalStoredAttachmentSource(
+        source,
+        preparedFile.snapshot,
+      );
+      const canonicalInput: MutationRequestByOperation["attachments.replaceFile"] =
+        {
+          ...input,
+          source: canonicalSource,
+        };
+      const replay =
+        await lookupWorkflowStoredAttachmentMutation<"attachments.replaceFile">(
+          {
+            scope: callerScope,
+            input,
+            source,
+            completeSemanticInput: createStoredAttachmentCompleteSemanticInput(
+              input,
+              canonicalSource,
+            ),
+          },
+        );
+      if (replay.state !== "missing") return replay.result;
+      const prepared = await trusted.prepare<"attachments.replaceFile">({
+        input: canonicalInput,
+        scope: callerScope,
+        control: effectiveControl,
+        resources: {
+          deferredStoredAttachment: {
+            prepare: async () => preparedFile,
+          },
+          preparedFiles: files.preparedFiles,
+        },
+      });
+      if (prepared.state === "settled") return prepared.result;
+      return await trusted.execute<"attachments.replaceFile">({
+        input: canonicalInput,
+        scope: callerScope,
+        prepared: prepared.prepared,
+        control: effectiveControl,
+      });
+    } finally {
+      await files.preparedFiles.dispose();
+    }
+  };
   const liveReads = createWorkflowHostLiveReadAdapters({
     interactionMode,
     broker,
@@ -128,27 +318,65 @@ export function createWorkflowHostApi(
     environment: { getInfo: environment.getInfo },
     context: {
       getCurrentView: liveReads.context.getCurrentView,
-      getSelectedItems: liveReads.context.getSelectedItems,
-    },
-    navigation: {
-      openItem: liveReads.navigation.openItem,
-      openNote: liveReads.navigation.openNote,
-      openCollection: liveReads.navigation.openCollection,
-      openSelection: liveReads.navigation.openSelection,
+      getSelectedItems: (request, control) =>
+        liveReads.context.getSelectedItems(
+          request,
+          withDefaultControl(control),
+        ),
     },
     library: {
-      listItems: liveReads.library.listItems,
-      traverseItems: liveReads.library.traverseItems,
+      listItems: (input, control) =>
+        liveReads.library.listItems(input, withDefaultControl(control)),
+      traverseItems: (input, control, onBatch) =>
+        liveReads.library.traverseItems(
+          input,
+          withDefaultControl(control) || {},
+          onBatch,
+        ),
       withItemSnapshot: createWorkflowLibraryItemSnapshotApi(broker),
-      listCollections: liveReads.library.listCollections,
-      getItemDetail: liveReads.library.getItemDetail,
-      getItemNotes: liveReads.library.getItemNotes,
-      getNoteDetail: liveReads.library.getNoteDetail,
-      listNotePayloads: liveReads.library.listNotePayloads,
-      getNotePayload: liveReads.library.getNotePayload,
-      getItemAttachments: liveReads.library.getItemAttachments,
-      listAnnotations: liveReads.library.listAnnotations,
-      exportPortableItems: liveReads.library.exportPortableItems,
+      listCollections: (input, control) =>
+        liveReads.library.listCollections(input, withDefaultControl(control)),
+      listSavedSearches: (input, control) =>
+        liveReads.library.listSavedSearches(input, withDefaultControl(control)),
+      getItemDetail: (ref, control) =>
+        liveReads.library.getItemDetail(ref, withDefaultControl(control)),
+      getItemNotes: (ref, page, control) =>
+        liveReads.library.getItemNotes(ref, page, withDefaultControl(control)),
+      getNoteDetail: (ref, options, control) =>
+        liveReads.library.getNoteDetail(
+          ref,
+          options,
+          withDefaultControl(control),
+        ),
+      listNotePayloads: (ref, page, control) =>
+        liveReads.library.listNotePayloads(
+          ref,
+          page,
+          withDefaultControl(control),
+        ),
+      getNotePayload: (ref, options, control) =>
+        liveReads.library.getNotePayload(
+          ref,
+          options,
+          withDefaultControl(control),
+        ),
+      getItemAttachments: (ref, page, control) =>
+        liveReads.library.getItemAttachments(
+          ref,
+          page,
+          withDefaultControl(control),
+        ),
+      listAnnotations: (ref, page, control) =>
+        liveReads.library.listAnnotations(
+          ref,
+          page,
+          withDefaultControl(control),
+        ),
+      exportPortableItems: (refs, control) =>
+        liveReads.library.exportPortableItems(
+          refs,
+          withDefaultControl(control),
+        ),
     },
     metadata: {
       translateIdentifier: async (input, control) => {
@@ -160,35 +388,193 @@ export function createWorkflowHostApi(
       },
     },
     mutations: {
+      getOperation: (input) =>
+        broker.mutations.getOperation(input, callerScope),
       preview: ((input) =>
-        broker.mutations.preview(input, callerScope)) as WorkflowHostApiV12["mutations"]["preview"],
+        broker.mutations.preview(
+          input,
+          callerScope,
+        )) as WorkflowHostApiV12["mutations"]["preview"],
       execute: ((input, control?: WorkflowCallControl) =>
-        broker.mutations.execute(input, callerScope, control)) as WorkflowHostApiV12["mutations"]["execute"],
+        broker.mutations.execute(
+          input,
+          callerScope,
+          control,
+        )) as WorkflowHostApiV12["mutations"]["execute"],
+    },
+    managedNotes: {
+      writeCustom: (request, control) =>
+        broker.managedNotes.writeCustom(
+          request,
+          callerScope,
+          withDefaultControl(control),
+        ),
+      writeConversation: (request, control) =>
+        broker.managedNotes.writeConversation(
+          request,
+          callerScope,
+          withDefaultControl(control),
+        ),
+    },
+    literatureArtifacts: {
+      applyAnalysis: (request, control) => {
+        try {
+          // Validate the complete caller DTO before projecting it into the
+          // private parent-set shape.  Projection must not silently discard
+          // unknown top-level or nested fields.
+          assertLiteratureArtifactApplyAnalysisRequest(request);
+        } catch (error) {
+          if (error instanceof ManagedNoteOwnerError) {
+            throw createWorkflowHostError(
+              "invalid_request",
+              error.message,
+              (error.details || {
+                reason: "invalid_schema",
+                field: "literatureArtifacts.applyAnalysis",
+              }) as WorkflowHostErrorDetailsByCode["invalid_request"],
+              { retryable: error.retryable },
+            );
+          }
+          throw error;
+        }
+        const entries: NonNullable<ManagedParentSetSemanticInput["entries"]> =
+          [];
+        if (request.digest)
+          entries.push({
+            noteKind: "digest",
+            title: "Digest",
+            payload: { markdown: request.digest.markdown },
+          });
+        if (request.score)
+          entries.push({
+            noteKind: "literature-score",
+            title: "Literature Score",
+            payload: request.score,
+          });
+        return getZoteroManagedNoteLocalControl(broker).applyParentSet(
+          {
+            operationId: request.operationId,
+            parentRef: request.parentRef,
+            entries,
+            ...(request.digest?.sourceRef
+              ? { sourceRef: request.digest.sourceRef }
+              : {}),
+            ...(request.digest?.representativeImage
+              ? {
+                  preparedImage:
+                    request.digest.representativeImage.preparedImage,
+                  imageAltText:
+                    request.digest.representativeImage.altText ||
+                    "Representative image",
+                }
+              : {}),
+            ...(request.references ? { references: request.references } : {}),
+            ...(request.citationAnalysis
+              ? { citationAnalysis: request.citationAnalysis }
+              : {}),
+            ...(request.compactCitationSnippets
+              ? { compactCitationSnippets: true }
+              : {}),
+            ...(request.matchingMetadata
+              ? { matchingMetadata: request.matchingMetadata }
+              : {}),
+          },
+          callerScope,
+          withDefaultControl(control),
+        );
+      },
+      upsertDigest: (request, control) =>
+        broker.literatureArtifacts.upsertDigest(
+          request,
+          callerScope,
+          withDefaultControl(control),
+        ),
+      upsertReferences: (request, control) =>
+        broker.literatureArtifacts.upsertReferences(
+          request,
+          callerScope,
+          withDefaultControl(control),
+        ),
+      upsertCitationAnalysis: (request, control) =>
+        broker.literatureArtifacts.upsertCitationAnalysis(
+          request,
+          callerScope,
+          withDefaultControl(control),
+        ),
+      upsertScore: (request, control) =>
+        broker.literatureArtifacts.upsertScore(
+          request,
+          callerScope,
+          withDefaultControl(control),
+        ),
     },
     notes: {
       create: (input, control) =>
-        broker.notes.create(input, callerScope, control) as ReturnType<WorkflowHostApiV12["notes"]["create"]>,
+        broker.notes.create(input, callerScope, control) as ReturnType<
+          WorkflowHostApiV12["notes"]["create"]
+        >,
       updateContent: (input, control) =>
-        broker.notes.updateContent(input, callerScope, control) as ReturnType<WorkflowHostApiV12["notes"]["updateContent"]>,
+        broker.notes.updateContent(input, callerScope, control) as ReturnType<
+          WorkflowHostApiV12["notes"]["updateContent"]
+        >,
       remove: (input, control) =>
-        broker.notes.remove(input, callerScope, control) as ReturnType<WorkflowHostApiV12["notes"]["remove"]>,
+        broker.notes.remove(input, callerScope, control) as ReturnType<
+          WorkflowHostApiV12["notes"]["remove"]
+        >,
       upsertPayload: (input, control) =>
-        broker.notes.upsertPayload(input, callerScope, control) as ReturnType<WorkflowHostApiV12["notes"]["upsertPayload"]>,
+        broker.notes.upsertPayload(input, callerScope, control) as ReturnType<
+          WorkflowHostApiV12["notes"]["upsertPayload"]
+        >,
     },
     images: {
       prepareForNoteEmbedding: images.prepareForNoteEmbedding,
     },
     attachments: {
-      create: (input, control) =>
-        broker.attachments.create(input, callerScope, control) as ReturnType<WorkflowHostApiV12["attachments"]["create"]>,
+      create: async (input, control) => {
+        if (input.source.kind === "stored_file") {
+          const { source, ...inputWithoutSource } = input;
+          return executePreparedAttachmentCreate(
+            { ...inputWithoutSource, operation: "attachments.create" },
+            toPreparedRequest(source),
+            control,
+          );
+        }
+        return requireAttachmentCreateResult(
+          await broker.attachments.create(
+            {
+              ...input,
+              source:
+                input.source.kind === "linked_url"
+                  ? { kind: "linked_url", url: input.source.url }
+                  : { kind: "stored_url", url: input.source.url },
+            },
+            callerScope,
+            withDefaultControl(control),
+          ),
+        );
+      },
       updateMetadata: (input, control) =>
-        broker.attachments.updateMetadata(input, callerScope, control) as ReturnType<WorkflowHostApiV12["attachments"]["updateMetadata"]>,
-      replaceFile: (input, control) =>
-        broker.attachments.replaceFile(input, callerScope, control) as ReturnType<WorkflowHostApiV12["attachments"]["replaceFile"]>,
+        broker.attachments.updateMetadata(
+          input,
+          callerScope,
+          control,
+        ) as ReturnType<WorkflowHostApiV12["attachments"]["updateMetadata"]>,
+      replaceFile: (input, control) => {
+        const { source, ...inputWithoutSource } = input;
+        return executePreparedAttachmentReplace(
+          { ...inputWithoutSource, operation: "attachments.replaceFile" },
+          toPreparedRequest(source),
+          control,
+        );
+      },
       move: (input, control) =>
-        broker.attachments.move(input, callerScope, control) as ReturnType<WorkflowHostApiV12["attachments"]["move"]>,
+        broker.attachments.move(input, callerScope, control) as ReturnType<
+          WorkflowHostApiV12["attachments"]["move"]
+        >,
       remove: (input, control) =>
-        broker.attachments.remove(input, callerScope, control) as ReturnType<WorkflowHostApiV12["attachments"]["remove"]>,
+        broker.attachments.remove(input, callerScope, control) as ReturnType<
+          WorkflowHostApiV12["attachments"]["remove"]
+        >,
     },
     bibliography: {
       listFormats: bibliography.listFormats,
@@ -268,7 +654,8 @@ export function createWorkflowHostApi(
       clear: clipboard.clear,
     },
     editor: {
-      openSession: editor.openSession as WorkflowHostApiV12["editor"]["openSession"],
+      openSession:
+        editor.openSession as WorkflowHostApiV12["editor"]["openSession"],
     },
     notifications: { toast: notifications.toast },
     logging: { appendRuntimeLog: logging.appendRuntimeLog },

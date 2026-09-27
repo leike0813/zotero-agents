@@ -7,7 +7,7 @@ import {
   type AcpSkillSchemaKey,
   validateRunnerManifestShape,
   validateSkillSchemaAnnotations,
-} from "../../../src/modules/acpSkillSchemaAssets";
+} from "../../../src/modules/acp/skillRun/acpSkillSchemaAssets";
 
 const THIS_FILE = fileURLToPath(import.meta.url);
 const SUITE_ROOT = path.resolve(path.dirname(THIS_FILE), "..");
@@ -146,11 +146,14 @@ export async function renderLiteratureDeepReadingSkill(options?: {
   outRoot?: string;
 }) {
   await validateSourceAssetsBeforeRender();
-  execSync("npx tsx scripts/build-literature-deep-reading-graph-renderer.ts", {
-    cwd: REPO_ROOT,
-    env: { ...process.env, LDR_GRAPH_BUILD_QUIET: "1" },
-    stdio: "inherit",
-  });
+  execSync(
+    "npx tsx scripts/content-package/build-literature-deep-reading-graph-renderer.ts",
+    {
+      cwd: REPO_ROOT,
+      env: { ...process.env, LDR_GRAPH_BUILD_QUIET: "1" },
+      stdio: "inherit",
+    },
+  );
   const outRoot = options?.outRoot || path.join(REPO_ROOT, "skills_builtin");
   const targetRoot = path.join(outRoot, SKILL_ID);
   await fs.rm(targetRoot, { recursive: true, force: true });

@@ -15,7 +15,7 @@ import {
   type PluginRunStoreKind,
   type WorkflowSequenceRunStoreListOptions,
 } from "../pluginStateStore";
-import type { SkillRunnerSkillDisplayById } from "../skillRunnerSubmissionContext";
+import type { SkillRunnerSkillDisplayById } from "../skillRunner/run/skillRunnerSubmissionContext";
 import { getDotPath, primitiveEquals } from "./valuePath";
 
 export type SequenceRunStateStatus =

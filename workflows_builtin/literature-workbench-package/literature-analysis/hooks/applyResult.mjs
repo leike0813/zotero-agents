@@ -1,9 +1,6 @@
 import { upsertLiteratureDigestGeneratedNotes } from "../../lib/literatureDigestNotes.mjs";
 import { applyLiteratureDigestSidecar } from "../../lib/literatureDigestSidecar.mjs";
 import { extractRepresentativeImageLocator } from "../../lib/representativeImage.mjs";
-import { parseGeneratedNoteKind } from "../../lib/referencesNote.mjs";
-import { filterReferencesForDigestApply } from "../../lib/referenceQualityGate.mjs";
-import { buildLiteratureScorePayload } from "../../lib/literatureScoreNote.mjs";
 import {
   appendSkillDiagnosticsToResult,
   collectSkillOutputDiagnostics,
@@ -12,10 +9,16 @@ import {
   measureWorkflowTestSpan,
   portableItemRef,
   requireHostApi,
+  resolveAttachmentPath,
   withPackageRuntimeScope,
 } from "../../lib/runtime.mjs";
 import { collectStatusTransitionDiagnostics } from "../../lib/statusTransition.mjs";
-import { normalizeReferencesPayload } from "../../lib/referenceModel.mjs";
+import { filterReferencesForDigestApply } from "../../lib/referenceQualityGate.mjs";
+import {
+  parseImportedReferencesArtifact,
+  parseImportedCitationArtifact,
+  parseImportedScoreArtifact,
+} from "../../lib/importSchemas.mjs";
 
 function normalizePathForCompare(targetPath) {
   const text = String(targetPath || "").trim();
@@ -123,16 +126,9 @@ function resolveWorkflowParameter(args) {
 }
 
 function findGeneratedNote(notes, targetKind) {
-  for (const note of Array.isArray(notes) ? notes : []) {
-    try {
-      if (parseGeneratedNoteKind(note?.getNote?.() || "") === targetKind) {
-        return note;
-      }
-    } catch {
-      // ignore malformed note objects and continue
-    }
-  }
-  return null;
+  return (Array.isArray(notes) ? notes : []).find(
+    (note) => note.kind === "managed" && note.noteKind === targetKind,
+  ) || null;
 }
 
 function findReferencesNote(notes) {
@@ -297,7 +293,7 @@ function appendRepresentativeImageApplyLog(args) {
         reason,
         warning,
         locator: args.locator || null,
-        sourceAttachmentPaths: args.sourceAttachmentPaths || [],
+        sourceAttachmentRefs: args.sourceAttachmentRefs || [],
         digestNoteId: args.digestNote?.id || null,
         digestNoteKey: String(args.digestNote?.key || "").trim(),
         attachmentKey: String(args.result?.attachmentKey || "").trim(),
@@ -341,92 +337,31 @@ async function readArtifactText(args) {
   });
 }
 
-function collectSourceAttachmentPathsFromRequest(request) {
+function collectSourceAttachmentRefsFromRequest(request) {
   if (!request || typeof request !== "object") {
     return [];
   }
-
-  const typed = request;
-  const fromSource = Array.isArray(typed.sourceAttachmentPaths)
-    ? typed.sourceAttachmentPaths
+  const refs = Array.isArray(request.sourceAttachmentRefs)
+    ? request.sourceAttachmentRefs
     : [];
-  const fromUploadFiles = Array.isArray(typed.upload_files)
-    ? typed.upload_files.map((entry) => entry?.path)
-    : [];
-  const fromNestedUploadFiles = Array.isArray(
-    typed?.request?.json?.upload_files,
-  )
-    ? typed.request.json.upload_files.map((entry) => entry?.path)
-    : [];
-
-  return Array.from(
-    new Set(
-      [...fromSource, ...fromUploadFiles, ...fromNestedUploadFiles]
-        .map((entry) => String(entry || "").trim())
-        .filter(Boolean),
-    ),
-  );
+  const seen = new Set();
+  return refs.reduce((result, value) => {
+    try {
+      const ref = portableItemRef(value);
+      const identity = `${ref.libraryId}:${ref.key}`;
+      if (!seen.has(identity)) {
+        seen.add(identity);
+        result.push(ref);
+      }
+    } catch {
+      // Ignore malformed refs; the final source adapter reports no source.
+    }
+    return result;
+  }, []);
 }
 
-async function resolveSourceAttachmentItemKey({
-  parentItem,
-  request,
-  runtime,
-}) {
-  if (!parentItem) {
-    return "";
-  }
-
-  const sourcePaths = collectSourceAttachmentPathsFromRequest(request);
-  if (sourcePaths.length === 0) {
-    return "";
-  }
-
-  const sourcePathSet = new Set(
-    sourcePaths.map(normalizePathForCompare).filter(Boolean),
-  );
-  const sourcePathInsensitiveSet = new Set(
-    Array.from(sourcePathSet).map((entry) => entry.toLowerCase()),
-  );
-  const sourceBasenames = new Set(
-    sourcePaths.map(getBaseNameFromPath).filter(Boolean),
-  );
-
-  const basenameMatchKeys = new Set();
-  const host = requireHostApi(runtime);
-  for (const attachment of await host.library.getItemAttachments(
-    portableItemRef(parentItem),
-  )) {
-    const attachmentKey = String(attachment.ref.key || "").trim();
-    if (!attachmentKey) {
-      continue;
-    }
-
-    const attachmentPath = attachment.file.state === "available"
-      ? attachment.file.path
-      : "";
-
-    const normalizedAttachmentPath = normalizePathForCompare(attachmentPath);
-    if (
-      normalizedAttachmentPath &&
-      (sourcePathSet.has(normalizedAttachmentPath) ||
-        sourcePathInsensitiveSet.has(normalizedAttachmentPath.toLowerCase()))
-    ) {
-      return attachmentKey;
-    }
-
-    const attachmentBasename =
-      getBaseNameFromPath(attachmentPath) ||
-      getBaseNameFromPath(attachment.title);
-    if (attachmentBasename && sourceBasenames.has(attachmentBasename)) {
-      basenameMatchKeys.add(attachmentKey);
-    }
-  }
-
-  if (basenameMatchKeys.size === 1) {
-    return Array.from(basenameMatchKeys)[0];
-  }
-  return "";
+function resolveSourceAttachmentItemKey(request) {
+  return collectSourceAttachmentRefsFromRequest(request)[0]?.key || "";
 }
 
 async function applyResultImpl({
@@ -448,8 +383,15 @@ async function applyResultImpl({
   );
   const skillOutputDiagnostics = collectSkillOutputDiagnostics(result);
   const scoreOnly = workflowParameter.score_only === true;
-  const sourceAttachmentPaths =
-    collectSourceAttachmentPathsFromRequest(request);
+  const sourceAttachmentRefs = collectSourceAttachmentRefsFromRequest(request);
+  if (sourceAttachmentRefs.length === 0) {
+    throw new Error(
+      "literature-analysis applyResult requires one source attachment ref",
+    );
+  }
+  const sourceAttachmentPaths = await Promise.all(
+    sourceAttachmentRefs.map((ref) => resolveAttachmentPath(ref, runtime)),
+  );
   const representativeImageLocator = extractRepresentativeImageLocator(result);
 
   const literatureScoreResolved = await measureWorkflowTestSpan(
@@ -464,9 +406,8 @@ async function applyResultImpl({
         fallbackPath: "artifacts/literature_score.json",
       }),
   );
-  const literatureScorePayload = buildLiteratureScorePayload(
+  const literatureScorePayload = parseImportedScoreArtifact(
     JSON.parse(literatureScoreResolved.text),
-    literatureScoreResolved.entryPath,
   );
 
   if (scoreOnly) {
@@ -558,44 +499,31 @@ async function applyResultImpl({
   );
 
   const referencesPayload = await measureWorkflowTestSpan(
-    "executeApplyResult:literatureDigest:normalizeReferencesPayload",
+    "executeApplyResult:literatureDigest:validateReferencesArtifact",
     {},
     async () => {
-      const normalizedReferences = normalizeReferencesPayload(
+      const parsed = parseImportedReferencesArtifact(
         JSON.parse(referencesResolved.text),
       );
-      const referenceQuality =
-        filterReferencesForDigestApply(normalizedReferences);
+      const quality = filterReferencesForDigestApply(parsed.references);
       return {
         payload: {
-          version: 1,
-          entry: referencesResolved.entryPath,
-          format: "json",
-          references: referenceQuality.accepted,
+          ...parsed,
+          references: quality.accepted,
         },
-        quality: referenceQuality.summary,
+        quality: quality.summary,
       };
     },
   );
   const citationPayload = await measureWorkflowTestSpan(
-    "executeApplyResult:literatureDigest:normalizeCitationPayload",
+    "executeApplyResult:literatureDigest:validateCitationArtifact",
     {},
-    async () => ({
-      version: 1,
-      entry: citationAnalysisResolved.entryPath,
-      format: "json",
-      citation_analysis: JSON.parse(citationAnalysisResolved.text) || {},
-    }),
+    async () => parseImportedCitationArtifact(JSON.parse(citationAnalysisResolved.text)),
   );
   const sourceAttachmentItemKey = await measureWorkflowTestSpan(
     "executeApplyResult:literatureDigest:resolveSourceAttachment",
     {},
-    () =>
-      resolveSourceAttachmentItemKey({
-        parentItem,
-        request,
-        runtime,
-      }),
+    () => resolveSourceAttachmentItemKey(request),
   );
 
   const applied = await measureWorkflowTestSpan(
@@ -607,9 +535,6 @@ async function applyResultImpl({
         parentItem,
         digest: {
           payload: {
-            version: 1,
-            entry: digestResolved.entryPath,
-            format: "markdown",
             content: digestResolved.text,
           },
           literatureMatchingMetadata:
@@ -655,7 +580,7 @@ async function applyResultImpl({
         referencesEntryPath: referencesResolved.entryPath,
         citationAnalysisEntryPath: citationAnalysisResolved.entryPath,
         referencesPayload: referencesPayload.payload,
-        citationAnalysisPayload: citationPayload,
+        citationAnalysisPayload: citationAnalysisNote?.payload,
         literatureScorePayload,
         literatureMatchingMetadata: literatureMatchingMetadataResolved.payload,
       }),
@@ -667,7 +592,7 @@ async function applyResultImpl({
     runtime,
     locator: representativeImageLocator,
     result: representativeImage,
-    sourceAttachmentPaths,
+    sourceAttachmentRefs,
     digestNote,
   });
   const appliedWithRepresentativeImage = {

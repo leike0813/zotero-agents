@@ -19,6 +19,7 @@ import type {
   SynthesisGraphQueryRequest,
 } from "./graph.js";
 import type { SynthesisReferenceIndexRow } from "./references.js";
+import type { SynthesisTopicDiscoveryCandidate } from "./topics.js";
 import type {
   SynthesisTagStagedSuggestion,
   SynthesisTagVocabularySnapshot,
@@ -792,6 +793,11 @@ export type SynthesisWorkbenchTopicDetailResult = {
   artifact_hash?: string;
   paper_count?: number;
   source_papers: SynthesisResolvedPaper[];
+  discovery?: {
+    candidate_count: number;
+    candidates: SynthesisTopicDiscoveryCandidate[];
+    rejected_candidates: SynthesisTopicDiscoveryCandidate[];
+  };
   topic?: NonNullable<SynthesisTopicArtifact["topic"]>;
   summary?: NonNullable<SynthesisTopicArtifact["summary"]>;
   taxonomy?: NonNullable<SynthesisTopicArtifact["taxonomy"]>;

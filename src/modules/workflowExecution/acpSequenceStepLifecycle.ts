@@ -2,7 +2,7 @@ import type { SequenceStepLifecycleAdapter } from "./sequenceRuntime";
 import {
   detachAcpSkillRunControllerAfterApplyResult,
   markAcpSkillRunApplyResult,
-} from "../acpSkillRunActions";
+} from "../acp/skillRun/acpSkillRunActions";
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();

@@ -1,12 +1,11 @@
 import {
-  resolveDigestMarkdownPayloadForNote,
   updateDigestNoteRepresentativeImage,
 } from "../../lib/literatureDigestNotes.mjs";
-import { getBaseName } from "../../lib/path.mjs";
-import { parseGeneratedNoteKind } from "../../lib/referencesNote.mjs";
 import {
   portableItemRef,
+  readHostPages,
   requireHostApi,
+  resolveAttachmentDescriptor,
   withPackageRuntimeScope,
 } from "../../lib/runtime.mjs";
 
@@ -19,25 +18,44 @@ function isMarkdownPath(value) {
 }
 
 function isDigestNote(noteItem) {
-  return parseGeneratedNoteKind(noteItem?.content) === "digest";
+  return noteItem?.kind === "managed" && noteItem.noteKind === "digest";
 }
 
 async function resolveSourceAttachmentByKey(host, noteItem, payload) {
-  const key =
-    normalizeText(payload?.source_markdown_item_key) ||
-    normalizeText(payload?.source_attachment_item_key);
+  const key = normalizeText(noteItem.provenance?.sourceRef?.key);
   if (!key) {
     return null;
   }
-  return (await host.library.getItemAttachments(noteItem.parentRef))
-    .find((attachment) => attachment.ref.key === key) || null;
+  const attachments = await readHostPages({
+    readPage: (page) =>
+      host.library.getItemAttachments(noteItem.parentRef, page),
+    getItems: (page) => page.attachments,
+    operation: "representative image source attachment read",
+  });
+  const summary = attachments.find((attachment) => attachment.ref.key === key);
+  return summary
+    ? await resolveAttachmentDescriptor(summary.ref, {
+        hostApi: host,
+        hostApiVersion: 12,
+      })
+    : null;
 }
 
 async function collectParentMarkdownAttachments(host, parentItem) {
   const candidates = [];
-  for (const attachment of await host.library.getItemAttachments(parentItem.ref)) {
-    const path = attachment.file.state === "available" ? attachment.file.path : "";
-    const title = normalizeText(attachment.title);
+  const attachments = await readHostPages({
+    readPage: (page) => host.library.getItemAttachments(parentItem.ref, page),
+    getItems: (page) => page.attachments,
+    operation: "representative image parent attachment read",
+  });
+  for (const summary of attachments) {
+    const attachment = await resolveAttachmentDescriptor(summary.ref, {
+      hostApi: host,
+      hostApiVersion: 12,
+    });
+    const path =
+      attachment.file.state === "available" ? attachment.file.path : "";
+    const title = normalizeText(attachment.filename || attachment.title);
     const contentType = normalizeText(attachment.contentType);
     if (
       isMarkdownPath(path) ||
@@ -61,9 +79,10 @@ async function resolveSourcePath(args) {
     payload,
   );
   if (keyedAttachment) {
-    const keyedPath = keyedAttachment.file.state === "available"
-      ? keyedAttachment.file.path
-      : "";
+    const keyedPath =
+      keyedAttachment.file.state === "available"
+        ? keyedAttachment.file.path
+        : "";
     if (keyedPath) {
       return {
         sourcePath: keyedPath,
@@ -77,25 +96,12 @@ async function resolveSourcePath(args) {
     host,
     parentItem,
   );
-  const entryBase = getBaseName(normalizeText(payload.entry));
-  if (entryBase) {
-    const matches = markdownAttachments.filter(
-      (entry) =>
-        getBaseName(entry.path) === entryBase ||
-        getBaseName(entry.title) === entryBase,
-    );
-    if (matches.length === 1) {
-      return {
-        sourcePath: matches[0].path,
-        sourceAttachmentItemKey: normalizeText(matches[0].attachment.ref.key),
-        strategy: "payload-entry-basename",
-      };
-    }
-  }
   if (markdownAttachments.length === 1) {
     return {
       sourcePath: markdownAttachments[0].path,
-      sourceAttachmentItemKey: normalizeText(markdownAttachments[0].attachment.ref.key),
+      sourceAttachmentItemKey: normalizeText(
+        markdownAttachments[0].attachment.ref.key,
+      ),
       strategy: "single-parent-markdown-attachment",
     };
   }
@@ -123,9 +129,11 @@ async function assertExistingFile(host, path, reason) {
 async function resolveTarget(args) {
   const host = args.host;
   const target = args.request?.digestRepresentativeImageTarget || {};
-  const noteRef = portableItemRef(target.noteRef);
+  const noteRef = portableItemRef(target.ref);
   const parentRef = portableItemRef(target.parentRef);
-  const noteItem = await host.library.getNoteDetail(noteRef, { format: "html" });
+  const noteItem = await host.library.getNoteDetail(noteRef, {
+    format: "html",
+  });
   const parentDetail = await host.library.getItemDetail(parentRef);
   if (!noteItem || !isDigestNote(noteItem)) {
     throw new Error("add-digest-representative-image requires one digest note");
@@ -152,10 +160,7 @@ async function applyResultImpl({ request, runtime }) {
   }
 
   const { noteItem, parentItem } = await resolveTarget({ host, request });
-  const payload = await resolveDigestMarkdownPayloadForNote({
-    runtime,
-    noteItem,
-  });
+  const payload = noteItem.payload;
   const source = await resolveSourcePath({
     host,
     noteItem,

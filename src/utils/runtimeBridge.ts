@@ -412,10 +412,10 @@ export function resolveRuntimeHostCapabilities(): RuntimeHostCapabilities {
   const fetchImpl =
     typeof override?.fetch === "function"
       ? override.fetch
-      : typeof runtimeGlobal.fetch === "function"
-        ? runtimeGlobal.fetch
-        : typeof runtimeWindow?.fetch === "function"
-          ? runtimeWindow.fetch
+      : typeof runtimeWindow?.fetch === "function"
+        ? runtimeWindow.fetch
+        : typeof runtimeGlobal.fetch === "function"
+          ? runtimeGlobal.fetch
           : null;
   const boundFetch =
     typeof fetchImpl === "function"

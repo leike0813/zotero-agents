@@ -107,7 +107,7 @@ This command has no separate field-mapping program. Its binding mode is executab
 Minimal JSON shape for --input.
 
 ```console
-zotero-bridge debug acp-skill-run reapply-result --input '{}'
+zotero-bridge debug acp-skill-run reapply-result --input '{"add":["topic:example"],"itemRef":{"key":"ABC123","libraryId":1},"operation":"item.updateTags","operationId":"caller-operation-id","remove":[]}'
 ```
 
 Prerequisites:
@@ -184,7 +184,18 @@ This closed descriptor is the machine-readable command contract returned by `sur
           "prerequisites": [
             "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
           ],
-          "value": {}
+          "value": {
+            "add": [
+              "topic:example"
+            ],
+            "itemRef": {
+              "key": "ABC123",
+              "libraryId": 1
+            },
+            "operation": "item.updateTags",
+            "operationId": "caller-operation-id",
+            "remove": []
+          }
         }
       ],
       "required": false,

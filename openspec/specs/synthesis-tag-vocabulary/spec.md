@@ -269,14 +269,26 @@ Synthesis Tag Vocabulary SHALL store and manage staged `tag-regulator` suggestio
 
 ### Requirement: Synthesis tag vocabulary promotes staged suggestions
 
-
-Synthesis Tag Vocabulary SHALL promote selected staged suggestions into the canonical controlled vocabulary through the normal canonical write boundary and SHALL dispatch stable bound-parent Tag effects after commit.
+Synthesis Tag Vocabulary SHALL promote selected staged suggestions into the canonical controlled vocabulary through the normal canonical write boundary, SHALL preserve case-insensitive canonical uniqueness, and SHALL dispatch stable bound-parent Tag effects after commit.
 
 #### Scenario: Staged suggestion is promoted
 - **WHEN** a user or workflow promotes a staged tag
 - **THEN** the tag SHALL be added to canonical vocabulary if not already active
 - **AND** the staged entry SHALL be removed after a successful commit
 - **AND** bound-parent effects SHALL run only after that commit
+
+#### Scenario: Selected suggestions differ only by case
+- **WHEN** one promotion selects multiple staged spellings of the same case-insensitive tag
+- **THEN** the first selected spelling SHALL supply the canonical entry and its descriptive metadata
+- **AND** bindings from all selected variants SHALL be merged, deduplicated, and deterministically ordered
+- **AND** every selected variant SHALL be consumed by the successful promotion
+- **AND** non-winning variants SHALL be reported as skipped
+- **AND** each unique bound parent SHALL receive exactly one effect for the winning spelling
+
+#### Scenario: Canonical spelling already exists
+- **WHEN** a selected staged suggestion matches an active canonical tag ignoring case
+- **THEN** every selected variant in that case-insensitive group SHALL be reported as skipped
+- **AND** the staged variants SHALL remain available for user action
 
 #### Scenario: Invalid staged suggestion is promoted
 - **WHEN** a staged tag violates the active tag protocol
@@ -453,6 +465,38 @@ Each audit append row SHALL use the canonical Synthesis item ref and SHALL carry
 #### Scenario: A newer audit snapshot wins during acknowledgement
 - **WHEN** native prepare binds one snapshot and a newer full audit publishes before commit
 - **THEN** acknowledgement returns `stale` with reason `audit_snapshot_changed` and does not delete the newer row
+
+### Requirement: Canonical tag vocabulary SHALL be unique ignoring case
+
+Every canonical vocabulary write SHALL reject a candidate containing tag spellings that differ only by case before persistence commits.
+
+#### Scenario: Canonical write contains case variants
+- **WHEN** a candidate contains two canonical tags with the same case-insensitive value
+- **THEN** the write SHALL fail as invalid
+- **AND** the previously readable aggregate SHALL remain unchanged
+
+### Requirement: Startup SHALL repair historical canonical case collisions
+
+Sidecar startup SHALL make one best-effort attempt to repair historical case-insensitive canonical collisions atomically before readiness. Repair failure SHALL be recorded and SHALL NOT block readiness.
+
+#### Scenario: Historical canonical group has case variants
+- **WHEN** startup finds multiple canonical entries with the same case-insensitive tag
+- **THEN** a builtin entry SHALL win over a non-builtin entry, then a non-deprecated entry SHALL win, followed by earliest creation time, earliest update time, and exact tag lexical order
+- **AND** the winner SHALL retain its descriptive fields while aliases, abbreviations, usage, and parent references are merged without referring to removed spellings
+- **AND** only affected pending Host effects SHALL be replaced with one effect per winning tag and unique parent
+- **AND** terminal Host effect receipts SHALL remain unchanged
+- **AND** the repaired aggregate SHALL remain readable after restart
+
+#### Scenario: Repair commits
+- **WHEN** historical collisions are repaired successfully
+- **THEN** candidate state, redirected references, affected pending effects, vocabulary identity, projection staleness, and the completed fixed repair operation SHALL commit atomically
+- **AND** a later startup SHALL make no repair write when no collisions remain
+
+#### Scenario: Repair transaction fails
+- **WHEN** any repair mutation fails before commit
+- **THEN** candidate state and Host effects SHALL remain unchanged
+- **AND** startup SHALL continue to readiness after recording a failed repair operation when possible
+- **AND** a later startup SHALL be able to retry the repair
 
 ### Requirement: Candidate tag workflow members SHALL use grouped current names
 The candidate v12 projection SHALL expose `loadVocabulary`, `saveVocabulary`, `exportVocabularyForRegulator`, `listStagedSuggestions`, `stageSuggestions`, `promoteStagedSuggestions`, `discardStagedSuggestions`, `withAuditRun`, and `acknowledgeRegulation` under `synthesis.tags`. Flat replacement and clear operations SHALL remain outside the candidate. The active v11 adapter SHALL delegate equivalent methods to the grouped implementation; legacy replacement and clear SHALL remain narrow invocation-late passthroughs until atomic activation supplies their evidence-bearing replacements and removes flat names.

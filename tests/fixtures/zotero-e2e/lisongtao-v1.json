@@ -1,0 +1,31 @@
+{
+  "schema": "zotero-agents.e2e-gold.v1",
+  "id": "lisongtao-v1",
+  "library": {
+    "topLevelItems": 214,
+    "itemTypes": {
+      "journalArticle": 170,
+      "thesis": 27,
+      "conferencePaper": 16,
+      "bookSection": 1
+    },
+    "attachments": 1863,
+    "collections": 2,
+    "tags": 604
+  },
+  "managedArtifacts": {
+    "paperSets": 203,
+    "notes": 812,
+    "kinds": {
+      "digest": 203,
+      "references": 203,
+      "citation-analysis": 203,
+      "literature-score": 203
+    }
+  },
+  "numericPrecisionSamples": [
+    0.9090909090909091,
+    0.9333333333333333,
+    0.9230769230769231
+  ]
+}

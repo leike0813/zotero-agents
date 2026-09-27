@@ -73,6 +73,7 @@ This command has no structured JSON input parameter.
       ]
     },
     "key": {
+      "minLength": 1,
       "type": "string"
     },
     "libraryId": {
@@ -82,10 +83,18 @@ This command has no structured JSON input parameter.
       ]
     },
     "limit": {
+      "maximum": 100,
       "minimum": 1,
       "type": [
         "number",
         "string"
+      ]
+    },
+    "ref": {
+      "type": [
+        "object",
+        "string",
+        "number"
       ]
     }
   },
@@ -138,7 +147,7 @@ The executable command contract owns the base source, fixed values, field mappin
     },
     "data": {
       "additionalProperties": true,
-      "description": "Result data owned by library.list_annotations.",
+      "description": "Canonical source page of annotations.",
       "properties": {
         "annotations": {
           "type": "array"
@@ -147,7 +156,8 @@ The executable command contract owns the base source, fixed values, field mappin
           "type": "boolean"
         },
         "limit": {
-          "minimum": 0,
+          "maximum": 100,
+          "minimum": 1,
           "type": "integer"
         },
         "nextCursor": {
@@ -165,8 +175,16 @@ The executable command contract owns the base source, fixed values, field mappin
           "type": "integer"
         }
       },
+      "required": [
+        "annotations",
+        "nextCursor",
+        "hasMore",
+        "returned",
+        "total",
+        "limit"
+      ],
       "type": "object",
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      "x-openPropertiesReason": "Broker owns the domain row and source evidence fields."
     }
   },
   "required": [
@@ -381,6 +399,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
         ]
       },
       "key": {
+        "minLength": 1,
         "type": "string"
       },
       "libraryId": {
@@ -390,10 +409,18 @@ This closed descriptor is the machine-readable command contract returned by `sur
         ]
       },
       "limit": {
+        "maximum": 100,
         "minimum": 1,
         "type": [
           "number",
           "string"
+        ]
+      },
+      "ref": {
+        "type": [
+          "object",
+          "string",
+          "number"
         ]
       }
     },
@@ -420,7 +447,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
       },
       "data": {
         "additionalProperties": true,
-        "description": "Result data owned by library.list_annotations.",
+        "description": "Canonical source page of annotations.",
         "properties": {
           "annotations": {
             "type": "array"
@@ -429,7 +456,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
             "type": "boolean"
           },
           "limit": {
-            "minimum": 0,
+            "maximum": 100,
+            "minimum": 1,
             "type": "integer"
           },
           "nextCursor": {
@@ -447,8 +475,16 @@ This closed descriptor is the machine-readable command contract returned by `sur
             "type": "integer"
           }
         },
+        "required": [
+          "annotations",
+          "nextCursor",
+          "hasMore",
+          "returned",
+          "total",
+          "limit"
+        ],
         "type": "object",
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+        "x-openPropertiesReason": "Broker owns the domain row and source evidence fields."
       }
     },
     "required": [

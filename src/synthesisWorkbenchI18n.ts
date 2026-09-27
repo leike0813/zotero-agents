@@ -1,4 +1,51 @@
 export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
+  "synthesis-graph-kind-unresolved": "Unresolved",
+  "synthesis-graph-field-signal": "Signal",
+  "synthesis-graph-signal-normal": "Normal",
+  "synthesis-graph-field-role": "Role",
+  "synthesis-graph-field-mentions": "Mentions",
+  "synthesis-graph-outgoing-count": "%count% outgoing",
+  "synthesis-graph-mentions-count": "%count% mentions",
+  "synthesis-graph-kind-shared": "Shared external",
+  "synthesis-graph-kind-single": "Single external",
+  "synthesis-graph-no-outgoing": "No outgoing citations",
+  "synthesis-graph-no-outgoing-library":
+    "This library paper has no citation targets in the graph.",
+  "synthesis-graph-no-outgoing-reference":
+    "This reference has no outgoing citation targets in the graph.",
+  "synthesis-graph-failure-code": "Code",
+  "synthesis-graph-failure-mutation-status": "Mutation status",
+  "synthesis-graph-failure-algorithm": "Algorithm",
+  "synthesis-graph-failure-hash": "Graph hash",
+  "synthesis-graph-failure-time": "Occurred at",
+  "synthesis-index-references-subtitle": "Matched / total references",
+  "synthesis-index-reference-count": "%count% references",
+  "synthesis-index-available": "Available",
+  "synthesis-index-unavailable": "Unavailable",
+  "synthesis-index-empty": "No library papers",
+  "synthesis-index-empty-message":
+    "Add papers to the library to inspect their artifacts and references.",
+  "synthesis-index-no-matches": "No matching library papers",
+  "synthesis-index-adjust-filters":
+    "Adjust the Index filters to show more records.",
+  "synthesis-index-review-title": "Index review",
+  "synthesis-index-review-zero": "0 open",
+  "synthesis-index-review-empty-message":
+    "%count% review items remain outside the current filters.",
+  "synthesis-index-blocked-by": "Blocked by",
+  "synthesis-index-proposal-id": "Proposal ID",
+  "synthesis-index-cleanup-kind": "Cleanup",
+  "synthesis-index-deletion-review": "Zotero deletion review",
+  "synthesis-index-dedupe-review": "Zotero duplicate review",
+  "synthesis-index-cleanup-review": "Open cleanup review",
+  "synthesis-index-cleanup-body":
+    "Review this cleanup proposal before applying it.",
+  "synthesis-index-unknown-target": "Unknown target",
+  "synthesis-index-unknown-parent": "Unknown parent item",
+  "synthesis-index-unknown-reference": "Unknown reference",
+  "synthesis-index-merge-sources": "%count% merge sources",
+  "synthesis-index-pending-merges": "%count% pending merges",
+  "synthesis-index-applying-merges": "Applying %count% pending merges",
   "synthesis-page-title": "Synthesis Workbench",
   "synthesis-loading-title": "Loading Synthesis Workbench",
   "synthesis-loading-subtitle": "Preparing Zotero bridge and library state...",
@@ -31,6 +78,8 @@ export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
   "synthesis-sidecar-degraded": "Sidecar degraded",
   "synthesis-sidecar-error": "Sidecar unavailable",
   "synthesis-sidecar-offline": "Sidecar offline",
+  "synthesis-sidecar-manual-recovery":
+    "Automatic startup stopped before replacing existing Synthesis data. Review diagnostics, correct the compatibility issue, then retry.",
   "synthesis-sidecar-state": "State",
   "synthesis-sidecar-version": "Version",
   "synthesis-sidecar-instance": "Instance",
@@ -38,14 +87,9 @@ export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
   "synthesis-sidecar-reason": "Reason",
   "synthesis-sidecar-next-recovery": "Next recovery",
   "synthesis-operation-in-progress": "%operation% is in progress",
-  "synthesis-confirm-refresh-reference-sidecar":
-    "Refresh the reference sidecar now? This will rebuild local reference indexes and may make Zotero respond more slowly while it runs. Canonical Synthesis data will not be deleted.",
-  "synthesis-confirm-advanced-reference-matching":
-    "Run advanced reference matching now? This heavier pass will scan unbound references and may make Zotero respond more slowly while it runs. Existing accepted facts will not be deleted.",
-  "synthesis-confirm-rebuild-local-indexes":
-    "Rebuild local Synthesis indexes now? Zotero may respond more slowly while this runs. Canonical Synthesis data will not be deleted.",
   "synthesis-confirm-delete-topic-artifact":
     "Delete this synthesis artifact? It will be hidden and kept for later purge.",
+  "synthesis-confirm-delete-concepts": "Delete %count% concept(s)?",
   "synthesis-confirm-purge-deleted-topic-artifacts":
     "Permanently purge deleted synthesis artifacts? This cannot be undone.",
   "synthesis-jobs-title": "Synthesis jobs",
@@ -75,6 +119,7 @@ export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
   "synthesis-action-clear": "Clear",
   "synthesis-action-accept": "Accept",
   "synthesis-action-reject": "Reject",
+  "synthesis-action-restore": "Restore",
   "synthesis-action-approve": "Approve",
   "synthesis-action-retry": "Retry",
   "synthesis-action-continue-graph-loading": "Continue loading graph",
@@ -226,7 +271,7 @@ export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
   "synthesis-topic-paper-count": "%count% papers",
   "synthesis-relation-count": "%count% relations",
   "synthesis-topic-untitled": "Untitled topic",
-  "synthesis-topic-no-summary": "No topic summary is available yet.",
+  "synthesis-topic-no-definition": "No topic definition is available yet.",
   "synthesis-topic-open-from-topics":
     "Open a topic from the Topics tab to inspect its synthesis.",
   "synthesis-topic-not-updated": "Not updated",
@@ -418,6 +463,7 @@ export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
   "synthesis-action-remove-alias": "Remove Alias",
   "synthesis-concepts-selected": "%count% concept(s) selected",
   "synthesis-concepts-select-bulk": "Select concepts for bulk actions",
+  "synthesis-concepts-select-row": "Select %label%",
   "synthesis-concepts-empty-filtered": "No concepts match the current filters",
   "synthesis-concepts-empty-filtered-message":
     "Adjust the search, concept type, or status filters to show more concepts.",
@@ -846,6 +892,24 @@ export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
   "synthesis-operation-deleteTopicArtifact": "Deleting topic artifact",
   "synthesis-operation-purgeDeletedTopicArtifacts": "Purging deleted artifacts",
 } as const;
+
+export function projectSynthesisSidecarFailureCard(status: {
+  lifecycle: string;
+  recoveryState: string;
+  reasonCode?: string;
+}) {
+  return {
+    messageKey:
+      status.recoveryState === "manual-recovery-required"
+        ? ("synthesis-sidecar-manual-recovery" as const)
+        : undefined,
+    reasonCode: status.reasonCode,
+    actions: [
+      "retrySynthesisSidecar",
+      "openSynthesisSidecarDiagnostics",
+    ] as const,
+  };
+}
 
 export type SynthesisWorkbenchMessageKey =
   keyof typeof SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES;

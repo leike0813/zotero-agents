@@ -88,12 +88,17 @@ export function buildRequest({ selectionContext, executionOptions, runtime }) {
 **Пример: запрос с использованием контекста preflight unit**
 
 ```js
-export function buildRequest({ selectionContext, preflight, runtime }) {
-  const attachment = selectionContext.items.attachments[0];
+export async function buildRequest({ selectionContext, preflight, runtime }) {
+  const selected = selectionContext.items.find((item) => item.kind === "attachment");
+  if (!selected) throw new Error("Source attachment is required");
+  const detail = await runtime.hostApi.library.getItemDetail(selected.ref);
+  if (detail.kind !== "attachment" || detail.item.file.state !== "available") {
+    throw new Error("Source attachment file is unavailable");
+  }
   return {
     kind: "generic-http.steps.v1",
     file: {
-      path: runtime.helpers.getAttachmentFilePath(attachment),
+      path: detail.item.file.path,
       page_ranges: preflight?.unit?.context?.page_ranges,
     },
   };
@@ -104,7 +109,13 @@ export function buildRequest({ selectionContext, preflight, runtime }) {
 
 ```js
 export async function buildRequest({ selectionContext, executionOptions, runtime }) {
-  const sourcePath = resolveAttachmentPath(selectionContext, runtime);
+  const selected = selectionContext.items.find((item) => item.kind === "attachment");
+  if (!selected) throw new Error("Source attachment is required");
+  const detail = await runtime.hostApi.library.getItemDetail(selected.ref);
+  if (detail.kind !== "attachment" || detail.item.file.state !== "available") {
+    throw new Error("Source attachment file is unavailable");
+  }
+  const sourcePath = detail.item.file.path;
   const language = executionOptions?.workflowParams?.language || "en-US";
 
   return {
@@ -401,17 +412,7 @@ export async function applyResult({ parent, bundleReader, runtime }) {
 
 | Функция | Описание |
 |---------|----------|
-| `getAttachmentParentId(entry)` | Получить ID родительского элемента вложения |
-| `getAttachmentFilePath(entry)` | Получить локальный путь к файлу вложения |
-| `getAttachmentFileName(entry)` | Получить имя файла вложения |
-| `getAttachmentFileStem(entry)` | Получить имя файла вложения (без расширения) |
-| `getAttachmentDateAdded(entry)` | Получить временную метку `dateAdded` вложения |
 | `basenameOrFallback(path, fallback)` | Извлечь базовое имя или вернуть резервную строку |
-| `isMarkdownAttachment(entry)` | Проверить, является ли вложение Markdown |
-| `isPdfAttachment(entry)` | Проверить, является ли вложение PDF |
-| `pickEarliestPdfAttachment(entries)` | Выбрать самый ранний PDF из списка вложений |
-| `cloneSelectionContext(ctx)` | Глубоко скопировать контекст выделения |
-| `withFilteredAttachments(ctx, items)` | Оставить в контексте только указанные вложения |
 | `resolveItemRef(ref)` | Разрешить ссылку на элемент в Zotero.Item |
 | `toHtmlNote(title, body)` | Преобразовать Markdown в содержимое HTML-заметки |
 | `normalizeReferenceAuthors(value)` | Нормализовать список авторов ссылки |

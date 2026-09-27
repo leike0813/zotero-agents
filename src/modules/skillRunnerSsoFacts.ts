@@ -1,18 +1,18 @@
 import {
   SKILLRUNNER_PROVIDER_STATES,
   SKILLRUNNER_TERMINAL_STATES,
-} from "./skillRunnerProviderStateMachine";
+} from "./skillRunner/run/skillRunnerProviderStateMachine";
 import {
   SKILLRUNNER_BACKEND_AUTO_DISABLE_AFTER_MS,
   SKILLRUNNER_BACKEND_PROBE_TICK_MS,
   SKILLRUNNER_BACKEND_PROBE_BACKOFF_STEPS_MS,
   SKILLRUNNER_BACKEND_RECENT_SUCCESS_SKIP_MS,
-} from "./skillRunnerBackendHealthRegistry";
+} from "./skillRunner/connection/skillRunnerBackendHealthRegistry";
 import {
   SKILLRUNNER_EVENT_STREAM_CONNECT_SNAPSHOT,
   SKILLRUNNER_EVENT_STREAM_DISCONNECT_STATES,
-} from "./skillRunnerSessionSyncManager";
-import { MANAGED_LOCAL_BACKEND_ID } from "./skillRunnerLocalRuntimeConstants";
+} from "./skillRunner/run/skillRunnerSessionSyncManager";
+import { MANAGED_LOCAL_BACKEND_ID } from "../backends/identity";
 
 export const SKILLRUNNER_SSOT_FACTS = {
   states: [...SKILLRUNNER_PROVIDER_STATES],

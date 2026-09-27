@@ -3,9 +3,10 @@
 ## Purpose
 TBD - created by archiving change harden-zotero-mcp-watchdog-circuit-breakers. Update Purpose after archive.
 ## Requirements
+
 ### Requirement: Running tool calls are bounded
 
-The embedded Zotero MCP server SHALL bound accepted `tools/call` execution time independently from pending queue wait time.
+The embedded Zotero MCP server SHALL bound accepted `tools/call` execution time with a 45-second watchdog independently from Broker native-slice admission. Timeout SHALL signal trusted logical cancellation; the inflight admission remains occupied until the underlying handler settles.
 
 #### Scenario: Running tool call times out
 
@@ -47,29 +48,24 @@ The embedded Zotero MCP server SHALL expose watchdog restart state.
 
 ### Requirement: MCP status tool is available
 
-The embedded Zotero MCP server SHALL expose a non-queued diagnostic tool named `zotero.get_mcp_status`.
+The embedded Zotero MCP server SHALL expose an admission-bypassing diagnostic tool named `zotero.get_mcp_status`.
 
 #### Scenario: Agent queries MCP status
 
 - **WHEN** an MCP client calls `zotero.get_mcp_status`
-- **THEN** the tool SHALL return server status, queue state, guard state, circuit breaker state, and recent request summaries
+- **THEN** the tool SHALL return server status, inflight admission state, guard state, circuit breaker state, and recent request summaries
 - **AND** the result SHALL NOT expose bearer tokens.
 
 ### Requirement: Read tool failures are structured
-
-Broker-backed Zotero read tools SHALL avoid raw transport failures for common item, note, and attachment failures.
+Broker-backed Zotero read tools SHALL preserve stable Broker error semantics. Failure to hydrate or read any target in a page SHALL fail the whole page; no available-children success or warning substitute SHALL mask the missing target.
 
 #### Scenario: Item reference not found
-
 - **WHEN** a read tool receives a missing item reference
-- **THEN** the response SHALL be a structured JSON-RPC error
-- **AND** `error.data.code` SHALL equal `zotero_item_not_found`.
+- **THEN** the response is structured and preserves the Broker not-found semantics.
 
 #### Scenario: Child note or attachment fails
-
-- **WHEN** one child note or attachment cannot be serialized
-- **THEN** the tool SHALL return available child DTOs
-- **AND** include warnings or errors for the failed child.
+- **WHEN** one target note, attachment or annotation cannot be read
+- **THEN** the page fails with a structured error and exposes no partial successful page.
 
 ### Requirement: Timed-out active tools are diagnosable
 
@@ -94,4 +90,3 @@ generation.
 - **WHEN** no crypto-grade random source is available
 - **THEN** MCP startup SHALL fail closed
 - **AND** diagnostics SHALL record a safe startup failure.
-

@@ -36,7 +36,7 @@ zotero-bridge workflow validate \
   --workflow-options '<reviewed-options>'
 ```
 
-Inspect the exact selection refs, separate `inputs` and `validateSelection` contracts, workflow ID, required options, provider requirements, candidate-production rules, immutable unit grouping, expected outputs, and approval boundary. If the selection is empty, stale, or contains unintended objects, correct the live Zotero selection and validate again. Do not reconstruct prepared units locally or represent cached catalog data as live validation.
+Inspect the exact selection refs, separate `inputs` and `validateSelection` contracts, workflow ID, required options, provider requirements, candidate-production rules, immutable unit grouping, expected outputs, and approval boundary. An empty, stale, or unintended selection is an unresolved invocation scope: the operator's corrected refs form a new reviewed invocation, while the original validation failure remains associated with its original refs. Do not reconstruct prepared units locally or represent cached catalog data as live validation.
 
 After the operator authorizes that exact reviewed scope and bounded concurrency, submit once:
 

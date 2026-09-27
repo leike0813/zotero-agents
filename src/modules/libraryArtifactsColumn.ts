@@ -3,9 +3,9 @@ import { getStringOrFallback } from "../utils/locale";
 import {
   isTopLevelRegularArtifactItem,
   parseLibraryArtifactState,
-  resolveLibraryArtifactReadiness,
   type LibraryArtifactItem,
-} from "./libraryArtifactReadiness";
+} from "./zoteroHost/libraryArtifactReadiness";
+import { resolveZoteroHostCapabilityBroker } from "./zoteroHostCapabilityBroker";
 import { literatureScoreToStars } from "../shared/literatureScore";
 
 type LibraryColumnState = {
@@ -123,12 +123,17 @@ export function notifyLibraryArtifactsColumnItemsChanged(
       continue;
     }
     resolvedAny = true;
-    const parentID = Number(item.parentID || 0);
-    if (parentID > 0) {
-      clearCachedItem(parentID);
-      refreshItemIDs.add(parentID);
-    } else if (isTopLevelRegularArtifactItem(item)) {
-      refreshItemIDs.add(numericID);
+    let topLevelItem = item;
+    while (Number(topLevelItem.parentID || 0) > 0) {
+      const parent = Zotero.Items.get(Number(topLevelItem.parentID)) as
+        | LibraryArtifactItem
+        | undefined;
+      if (!parent) break;
+      topLevelItem = parent;
+    }
+    if (isTopLevelRegularArtifactItem(topLevelItem)) {
+      clearCachedItem(topLevelItem.id);
+      refreshItemIDs.add(topLevelItem.id);
     }
     clearCachedItem(numericID);
   }
@@ -199,7 +204,10 @@ async function scanItemArtifacts(item: LibraryArtifactItem) {
   }
   pendingScans.add(item.id);
   try {
-    const readiness = await resolveLibraryArtifactReadiness(item);
+    const [readiness] =
+      await resolveZoteroHostCapabilityBroker().library.getArtifactReadiness([
+        { libraryId: Number((item as any).libraryID), key: String(item.key) },
+      ]);
     const state: LibraryColumnState = {
       artifacts: readiness.state,
       score: readiness.literatureScore.summary?.overallScore ?? null,
@@ -227,7 +235,12 @@ async function scanItemArtifacts(item: LibraryArtifactItem) {
 async function resolveArtifactState(
   item: LibraryArtifactItem,
 ): Promise<string> {
-  return (await resolveLibraryArtifactReadiness(item)).state;
+  if (!isTopLevelRegularArtifactItem(item)) return "";
+  const [readiness] =
+    await resolveZoteroHostCapabilityBroker().library.getArtifactReadiness([
+      { libraryId: Number((item as any).libraryID), key: String(item.key) },
+    ]);
+  return readiness.state;
 }
 
 function renderArtifactsCell(
@@ -263,6 +276,7 @@ function renderArtifactsCell(
 
 function renderRatingCell(data: string, doc: Document, columnClassName = "") {
   const value = String(data || "").trim();
+  const notApplicable = !value;
   const numericScore = value && value !== "missing" ? Number(value) : NaN;
   const missing = !Number.isFinite(numericScore);
   const cell = doc.createElement("span");
@@ -270,10 +284,14 @@ function renderRatingCell(data: string, doc: Document, columnClassName = "") {
     "cell",
     columnClassName,
     "zs-library-rating-cell",
-    missing ? "is-missing" : "",
+    missing && !notApplicable ? "is-missing" : "",
   ]
     .filter(Boolean)
     .join(" ");
+  if (notApplicable) {
+    cell.setAttribute("aria-label", "");
+    return cell;
+  }
   const fallbackLabel = missing
     ? "Rating unavailable"
     : `${numericScore}/100, ${literatureScoreToStars(numericScore).rating}/5 stars`;

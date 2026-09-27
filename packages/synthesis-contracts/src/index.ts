@@ -18,6 +18,7 @@ export * from "./knowledgeCheckpoint";
 export * from "./libraryIndex";
 export * from "./librarySnapshot";
 export * from "./literatureArtifacts";
+export * from "./sourceReferenceArtifact";
 export * from "./lifecycle";
 export * from "./references";
 export * from "./referenceRefreshApplication";

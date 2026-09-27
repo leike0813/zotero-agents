@@ -105,6 +105,7 @@ This command has no structured JSON input parameter.
       ]
     },
     "key": {
+      "minLength": 1,
       "type": "string"
     },
     "libraryId": {
@@ -114,6 +115,7 @@ This command has no structured JSON input parameter.
       ]
     },
     "limit": {
+      "maximum": 100,
       "minimum": 1,
       "type": [
         "number",
@@ -182,7 +184,7 @@ The executable command contract owns the base source, fixed values, field mappin
     },
     "data": {
       "additionalProperties": true,
-      "description": "Result data owned by library.get_item_attachments.",
+      "description": "Canonical source page of attachments.",
       "properties": {
         "attachments": {
           "items": {
@@ -192,8 +194,20 @@ The executable command contract owns the base source, fixed values, field mappin
                 "path"
               ]
             },
+            "properties": {
+              "file": {
+                "additionalProperties": true,
+                "not": {
+                  "required": [
+                    "path"
+                  ]
+                },
+                "type": "object",
+                "x-openPropertiesReason": "File state and bounded metadata are Broker-owned; local paths are forbidden."
+              }
+            },
             "type": "object",
-            "x-openPropertiesReason": "Attachment metadata is capability-specific, while a private filesystem path from the Zotero computer is forbidden in remote results."
+            "x-openPropertiesReason": "Canonical attachment metadata and remote access descriptors."
           },
           "type": "array"
         },
@@ -201,7 +215,8 @@ The executable command contract owns the base source, fixed values, field mappin
           "type": "boolean"
         },
         "limit": {
-          "minimum": 0,
+          "maximum": 100,
+          "minimum": 1,
           "type": "integer"
         },
         "nextCursor": {
@@ -219,8 +234,16 @@ The executable command contract owns the base source, fixed values, field mappin
           "type": "integer"
         }
       },
+      "required": [
+        "attachments",
+        "nextCursor",
+        "hasMore",
+        "returned",
+        "total",
+        "limit"
+      ],
       "type": "object",
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      "x-openPropertiesReason": "Broker owns the domain row and source evidence fields."
     }
   },
   "required": [
@@ -540,6 +563,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
         ]
       },
       "key": {
+        "minLength": 1,
         "type": "string"
       },
       "libraryId": {
@@ -549,6 +573,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
         ]
       },
       "limit": {
+        "maximum": 100,
         "minimum": 1,
         "type": [
           "number",
@@ -579,7 +604,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
       },
       "data": {
         "additionalProperties": true,
-        "description": "Result data owned by library.get_item_attachments.",
+        "description": "Canonical source page of attachments.",
         "properties": {
           "attachments": {
             "items": {
@@ -589,8 +614,20 @@ This closed descriptor is the machine-readable command contract returned by `sur
                   "path"
                 ]
               },
+              "properties": {
+                "file": {
+                  "additionalProperties": true,
+                  "not": {
+                    "required": [
+                      "path"
+                    ]
+                  },
+                  "type": "object",
+                  "x-openPropertiesReason": "File state and bounded metadata are Broker-owned; local paths are forbidden."
+                }
+              },
               "type": "object",
-              "x-openPropertiesReason": "Attachment metadata is capability-specific, while a private filesystem path from the Zotero computer is forbidden in remote results."
+              "x-openPropertiesReason": "Canonical attachment metadata and remote access descriptors."
             },
             "type": "array"
           },
@@ -598,7 +635,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
             "type": "boolean"
           },
           "limit": {
-            "minimum": 0,
+            "maximum": 100,
+            "minimum": 1,
             "type": "integer"
           },
           "nextCursor": {
@@ -616,8 +654,16 @@ This closed descriptor is the machine-readable command contract returned by `sur
             "type": "integer"
           }
         },
+        "required": [
+          "attachments",
+          "nextCursor",
+          "hasMore",
+          "returned",
+          "total",
+          "limit"
+        ],
         "type": "object",
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+        "x-openPropertiesReason": "Broker owns the domain row and source evidence fields."
       }
     },
     "required": [

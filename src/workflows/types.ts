@@ -1,3 +1,12 @@
+import type { CancellationSignal } from "../utils/wait";
+import type {
+  CitationAnalysisArtifact,
+  SourceReferenceArtifact,
+} from "../../packages/synthesis-contracts/src/sourceReferenceArtifact";
+import type { LiteratureScoreArtifact } from "../../packages/synthesis-contracts/src/literatureArtifacts";
+
+export type { CancellationSignal } from "../utils/wait";
+
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
 export type JsonObject = { [key: string]: JsonValue };
@@ -39,6 +48,44 @@ export type PortableCollectionRef = Readonly<{
   libraryId: number;
   key: string;
 }>;
+
+export type PortableSavedSearchRef = Readonly<{
+  libraryId: number;
+  key: string;
+}>;
+
+export type NavigationLibraryViewRef = Readonly<{
+  view:
+    | "library"
+    | "trash"
+    | "duplicates"
+    | "unfiled"
+    | "retracted"
+    | "publications";
+  libraryId: number;
+}>;
+
+export type ReaderLocation =
+  | Readonly<{ kind: "page"; attachment: PortableItemRef; pageIndex: number }>
+  | Readonly<{ kind: "annotation"; annotation: PortableItemRef }>
+  | Readonly<{ kind: "epub"; attachment: PortableItemRef; cfi: string }>;
+
+export type NavigationResult =
+  | Readonly<{ outcome: "focus_dispatched" }>
+  | Readonly<{
+      outcome: "selected";
+      target:
+        | NavigationLibraryViewRef
+        | PortableCollectionRef
+        | PortableSavedSearchRef;
+    }>
+  | Readonly<{ outcome: "revealed"; targets: PortableItemRef[] }>
+  | Readonly<{ outcome: "dispatched"; target: PortableItemRef }>
+  | Readonly<{
+      outcome: "reader_location_dispatched";
+      target: PortableItemRef;
+      location: ReaderLocation;
+    }>;
 
 export type AddonIdentityDto = {
   readonly addonName: string;
@@ -154,13 +201,13 @@ export type WorkflowClipboardOwner = Readonly<{
 export type WorkflowEditorOwner = Readonly<{
   openSession(
     input: Omit<
-      import("../modules/workflowEditorHost").WorkflowEditorOpenArgs,
+      import("../modules/workflow/ui/workflowEditorHost").WorkflowEditorOpenArgs,
       "rendererId" | "renderer"
     > & {
-      renderer: import("../modules/workflowEditorHost").WorkflowEditorRenderer;
+      renderer: import("../modules/workflow/ui/workflowEditorHost").WorkflowEditorRenderer;
     },
   ): ReturnType<
-    typeof import("../modules/workflowEditorHost").openWorkflowEditorSession
+    typeof import("../modules/workflow/ui/workflowEditorHost").openWorkflowEditorSession
   >;
 }>;
 
@@ -264,6 +311,7 @@ export type NoteSummaryDto = {
 };
 
 export type NoteDetailDto = {
+  kind: "ordinary";
   ref: PortableItemRef;
   parentRef: PortableItemRef | null;
   title: string;
@@ -271,6 +319,43 @@ export type NoteDetailDto = {
   content: string;
   revision: string;
 };
+
+export type ManagedNoteKind =
+  | "custom"
+  | "conversation-note"
+  | "digest"
+  | "references"
+  | "citation-analysis"
+  | "literature-score";
+
+export type ManagedNoteDetailDto = {
+  kind: "managed";
+  noteKind: ManagedNoteKind;
+  ref: PortableItemRef;
+  parentRef: PortableItemRef | null;
+  title: string;
+  payload: JsonValue;
+  payloadBytes: number;
+  detailBytes: number;
+  revision: string;
+  provenance?: {
+    sourceRef?: PortableItemRef;
+    referencesBasis?: string;
+  };
+  health?: {
+    state: "current" | "stale";
+    currentReferencesBasis?: string;
+  };
+  derived?: {
+    markdown?: string;
+    representativeImage?: {
+      attachmentRef: PortableItemRef;
+      alt: string;
+    };
+  };
+};
+
+export type NoteDetailResultDto = NoteDetailDto | ManagedNoteDetailDto;
 
 export type NoteDetailOptionsDto = {
   format: "html" | "text";
@@ -308,6 +393,30 @@ export type NotePayloadValueDto = {
   value: JsonValue;
 };
 
+export type LibraryPageRequestDto = Readonly<{
+  limit?: number;
+  cursor?: string;
+}>;
+
+export type LibraryListItemNotesPageDto = Readonly<{
+  notes: NoteSummaryDto[];
+  limit: number;
+  nextCursor: string | null;
+  hasMore: boolean;
+  returned: number;
+  total: number;
+}>;
+
+export type LibraryListNotePayloadsPageDto = Readonly<{
+  payloads: NotePayloadSummaryDto[];
+  limit: number;
+  scanned: number;
+  nextCursor: string | null;
+  hasMore: boolean;
+  returned: number;
+  total: null;
+}>;
+
 export type AttachmentDetailDto = {
   ref: PortableItemRef;
   parentRef: PortableItemRef | null;
@@ -319,6 +428,7 @@ export type AttachmentDetailDto = {
   url: string | null;
   linkMode: AttachmentLinkMode;
   role: "ordinary" | "note_image" | "note_payload";
+  createdAt: string;
   file:
     | {
         state: "available";
@@ -329,6 +439,15 @@ export type AttachmentDetailDto = {
     | { state: "missing" }
     | { state: "not_applicable" };
 };
+
+export type LibraryListItemAttachmentsPageDto = Readonly<{
+  attachments: AttachmentDetailDto[];
+  limit: number;
+  nextCursor: string | null;
+  hasMore: boolean;
+  returned: number;
+  total: number;
+}>;
 
 export type AnnotationDetailDto = {
   ref: PortableItemRef;
@@ -349,6 +468,15 @@ export type AnnotationDetailDto = {
   createdAt: string;
   modifiedAt: string;
 };
+
+export type LibraryListAnnotationsPageDto = Readonly<{
+  annotations: AnnotationDetailDto[];
+  limit: number;
+  nextCursor: string | null;
+  hasMore: boolean;
+  returned: number;
+  total: number;
+}>;
 
 export type ItemDetailDto =
   | { kind: "regular"; item: RegularItemDetailDto }
@@ -412,6 +540,10 @@ export type MaterializedAttachmentDto = {
 };
 
 export type MaterializedNoteDto = {
+  managedArtifact?: Pick<
+    ManagedNoteDetailDto,
+    "noteKind" | "payload" | "provenance"
+  >;
   source: { ref: PortableItemRef; revision: string };
   content: {
     format: "html" | "text";
@@ -584,6 +716,7 @@ export type LibraryListItemsRequestDto = {
 
 export type LibraryListItemsPageDto = {
   items: ItemSummaryDto[];
+  limit: number;
   nextCursor: string | null;
   hasMore: boolean;
   returned: number;
@@ -607,11 +740,35 @@ export type LibraryListCollectionsRequestDto = {
 export type LibraryListCollectionsPageDto = {
   collections: CollectionDto[];
   libraryId: number;
+  limit: number;
   nextCursor: string | null;
   hasMore: boolean;
   returned: number;
+  total: number;
   order: "stable_identity";
 };
+
+export type SavedSearchDto = Readonly<{
+  ref: PortableSavedSearchRef;
+  name: string;
+}>;
+
+export type LibraryListSavedSearchesRequestDto = Readonly<{
+  libraryId?: number;
+  limit?: number;
+  cursor?: string;
+}>;
+
+export type LibraryListSavedSearchesPageDto = Readonly<{
+  savedSearches: SavedSearchDto[];
+  libraryId: number;
+  limit: number;
+  nextCursor: string | null;
+  hasMore: boolean;
+  returned: number;
+  total: number;
+  order: "stable_identity";
+}>;
 
 export type LibraryTraversalRequestDto = {
   libraryId?: number;
@@ -669,18 +826,54 @@ export type LibraryTraversalResultDto =
       resumeCursor: string;
     };
 
-export type SelectedItemsSnapshotDto = {
-  capturedAt: string;
-  items: Array<{
-    ref: PortableItemRef;
-    itemType: string;
-    title?: string;
-    parentRef?: PortableItemRef;
-  }>;
-};
+export type SelectedItemsPageRequestDto = Readonly<{
+  limit?: number;
+  cursor?: string;
+}>;
+
+export type SelectedItemSummaryDto = Readonly<{
+  ref: PortableItemRef;
+  itemType: string;
+  title?: string;
+  parentRef?: PortableItemRef;
+}>;
+
+export type SelectedItemsPageDto = Readonly<{
+  items: SelectedItemSummaryDto[];
+  returned: number;
+  total: number;
+  hasMore: boolean;
+  nextCursor: string | null;
+}>;
+
+export type CurrentViewSourceDto =
+  | Readonly<{
+      kind: "collection";
+      ref: PortableCollectionRef;
+      name: string;
+      libraryId: number;
+    }>
+  | Readonly<{
+      kind: "saved-search";
+      ref: PortableSavedSearchRef;
+      name: string;
+    }>
+  | Readonly<{
+      kind: "library";
+      libraryId: number;
+      name?: string;
+    }>
+  | Readonly<{
+      kind: "special";
+      type: string;
+      libraryId?: number;
+      label?: string;
+    }>;
 
 export type CurrentViewDto = {
   target: "library" | "reader";
+  libraryIds: number[];
+  selectedSources: CurrentViewSourceDto[];
   libraryId?: number;
   selectionEmpty: boolean;
   currentItem?: {
@@ -694,20 +887,14 @@ export type CurrentViewDto = {
 };
 
 export type NavigationSelectionInputDto = {
-  itemRefs: PortableItemRef[];
-};
-
-export type NavigationResultDto = {
-  openedAt: string;
-  target:
-    | { kind: "item"; ref: PortableItemRef }
-    | { kind: "note"; ref: PortableItemRef }
-    | { kind: "collection"; ref: PortableCollectionRef }
-    | { kind: "selection"; refs: PortableItemRef[] };
+  items: PortableItemRef[];
 };
 
 export type WorkflowCallControl = Readonly<{
-  signal?: AbortSignal;
+  signal?: CancellationSignal;
+  target?: Readonly<{
+    resolveAndValidate(): _ZoteroTypes.MainWindow | null | undefined;
+  }>;
 }>;
 
 export type WorkflowHostCreatorDto = {
@@ -739,6 +926,16 @@ export type WorkflowHostMutationReceiptOperation =
   | "attachments.move"
   | "attachments.remove"
   | "statusTags.transition"
+  | "trash.setItemsState"
+  | "literature.ingest"
+  | "managed_note.write_custom"
+  | "managed_note.write_conversation"
+  | "literature_artifact.upsert_digest"
+  | "literature_artifact.upsert_references"
+  | "literature_artifact.upsert_citation_analysis"
+  | "literature_artifact.upsert_score"
+  /** Internal authority identity for a trusted multi-note parent-set commit. */
+  | "managed_note.apply_parent_set"
   | "researchBundles.importPapers";
 
 export type MutationOperation =
@@ -752,14 +949,29 @@ export type MutationOperation =
   | "collection.create"
   | "collection.update"
   | "collection.updateMembership"
-  | "collection.remove";
+  | "collection.remove"
+  | "notes.create"
+  | "notes.updateContent"
+  | "notes.remove"
+  | "notes.upsertPayload"
+  | "attachments.create"
+  | "attachments.updateMetadata"
+  | "attachments.replaceFile"
+  | "attachments.move"
+  | "attachments.remove"
+  | "statusTags.transition"
+  | "trash.setItemsState"
+  | "literature.ingest"
+  | "managed_note.write_custom"
+  | "managed_note.write_conversation"
+  | "literature_artifact.upsert_digest"
+  | "literature_artifact.upsert_references"
+  | "literature_artifact.upsert_citation_analysis"
+  | "literature_artifact.upsert_score";
 
-export type MutationPreviewOperation =
-  | "item.changeType"
-  | "item.remove"
-  | "collection.remove";
+export type MutationPreviewOperation = MutationOperation;
 
-export type RemovalDisposition = "trash" | "permanent";
+export type RemovalDisposition = "permanent";
 export type RemovalOutcome =
   | "trashed"
   | "permanently_deleted"
@@ -891,8 +1103,11 @@ export type RelatedItemMutationOutcome =
 
 export type RelatedItemMutationResultDto = JsonObject & {
   sourceRef: PortableItemRef;
-  relatedRef: PortableItemRef;
-  outcome: RelatedItemMutationOutcome;
+  relatedRefs: PortableItemRef[];
+  relations: Array<{
+    relatedRef: PortableItemRef;
+    outcome: RelatedItemMutationOutcome;
+  }>;
   sourceRevision: string;
 };
 
@@ -922,7 +1137,6 @@ export type ItemUpdateMetadataRequest = {
   operation: "item.updateMetadata";
   operationId: string;
   itemRef: PortableItemRef;
-  expectedRevision?: string;
   patch: {
     fields?: Record<string, string | null>;
     creators?: WorkflowHostCreatorDto[];
@@ -933,31 +1147,22 @@ export type ItemChangeTypeRequest = {
   operation: "item.changeType";
   operationId: string;
   itemRef: PortableItemRef;
-  expectedRevision: string;
   targetItemType: string;
   incompatibleData: "reject" | "move_to_extra" | "drop";
-  previewToken: string;
 };
 
 export type ItemRemoveRequest = {
   operation: "item.remove";
   operationId: string;
   itemRef: PortableItemRef;
-} & (
-  | { disposition: "trash"; expectedRevision?: string }
-  | {
-      disposition: "permanent";
-      expectedRevision: string;
-      childPolicy: "reject_if_present" | "cascade";
-      previewToken: string;
-    }
-);
+  disposition: "permanent";
+  childPolicy: "reject_if_present" | "cascade";
+};
 
 export type ItemUpdateTagsRequest = {
   operation: "item.updateTags";
   operationId: string;
   itemRef: PortableItemRef;
-  expectedRevision?: string;
   add: string[];
   remove: string[];
 };
@@ -966,8 +1171,7 @@ export type ItemRelatedRequest = {
   operation: "item.addRelated" | "item.removeRelated";
   operationId: string;
   sourceRef: PortableItemRef;
-  relatedRef: PortableItemRef;
-  expectedRevision?: string;
+  relatedRefs: PortableItemRef[];
 };
 
 export type ItemAddRelatedRequest = ItemRelatedRequest & {
@@ -991,7 +1195,6 @@ export type CollectionUpdateRequest = {
   operation: "collection.update";
   operationId: string;
   collectionRef: PortableCollectionRef;
-  expectedRevision?: string;
   patch: { name?: string; parentRef?: PortableCollectionRef | null };
 };
 
@@ -999,7 +1202,6 @@ export type CollectionUpdateMembershipRequest = {
   operation: "collection.updateMembership";
   operationId: string;
   collectionRef: PortableCollectionRef;
-  expectedRevision?: string;
   add: PortableItemRef[];
   remove: PortableItemRef[];
 };
@@ -1008,9 +1210,7 @@ export type CollectionRemoveRequest = {
   operation: "collection.remove";
   operationId: string;
   collectionRef: PortableCollectionRef;
-  expectedRevision: string;
   childPolicy: "reject_if_present" | "cascade";
-  previewToken: string;
 };
 
 export type MutationExecuteRequest =
@@ -1024,7 +1224,39 @@ export type MutationExecuteRequest =
   | CollectionCreateRequest
   | CollectionUpdateRequest
   | CollectionUpdateMembershipRequest
-  | CollectionRemoveRequest;
+  | CollectionRemoveRequest
+  | (NoteCreateRequestDto & { operation: "notes.create" })
+  | (NoteUpdateContentRequestDto & { operation: "notes.updateContent" })
+  | (NoteRemoveRequestDto & { operation: "notes.remove" })
+  | (NotePayloadUpsertRequestDto & { operation: "notes.upsertPayload" })
+  | (AttachmentCreateRequestDto & { operation: "attachments.create" })
+  | (AttachmentUpdateMetadataRequestDto & {
+      operation: "attachments.updateMetadata";
+    })
+  | (AttachmentReplaceFileRequestDto & {
+      operation: "attachments.replaceFile";
+    })
+  | (AttachmentMoveRequestDto & { operation: "attachments.move" })
+  | (AttachmentRemoveRequestDto & { operation: "attachments.remove" })
+  | (StatusTagTransitionRequestDto & { operation: "statusTags.transition" })
+  | TrashSetItemsStateRequest
+  | LiteratureIngestRequestDto
+  | (ManagedNoteWriteRequestDto & { operation: "managed_note.write_custom" })
+  | (ManagedNoteWriteRequestDto & {
+      operation: "managed_note.write_conversation";
+    })
+  | (LiteratureDigestUpsertRequestDto & {
+      operation: "literature_artifact.upsert_digest";
+    })
+  | (LiteratureReferencesUpsertRequestDto & {
+      operation: "literature_artifact.upsert_references";
+    })
+  | (LiteratureCitationAnalysisUpsertRequestDto & {
+      operation: "literature_artifact.upsert_citation_analysis";
+    })
+  | (LiteratureScoreUpsertRequestDto & {
+      operation: "literature_artifact.upsert_score";
+    });
 
 export type MutationRequestByOperation = {
   "item.create": ItemCreateRequest;
@@ -1038,6 +1270,52 @@ export type MutationRequestByOperation = {
   "collection.update": CollectionUpdateRequest;
   "collection.updateMembership": CollectionUpdateMembershipRequest;
   "collection.remove": CollectionRemoveRequest;
+  "notes.create": NoteCreateRequestDto & { operation: "notes.create" };
+  "notes.updateContent": NoteUpdateContentRequestDto & {
+    operation: "notes.updateContent";
+  };
+  "notes.remove": NoteRemoveRequestDto & { operation: "notes.remove" };
+  "notes.upsertPayload": NotePayloadUpsertRequestDto & {
+    operation: "notes.upsertPayload";
+  };
+  "attachments.create": AttachmentCreateRequestDto & {
+    operation: "attachments.create";
+  };
+  "attachments.updateMetadata": AttachmentUpdateMetadataRequestDto & {
+    operation: "attachments.updateMetadata";
+  };
+  "attachments.replaceFile": AttachmentReplaceFileRequestDto & {
+    operation: "attachments.replaceFile";
+  };
+  "attachments.move": AttachmentMoveRequestDto & {
+    operation: "attachments.move";
+  };
+  "attachments.remove": AttachmentRemoveRequestDto & {
+    operation: "attachments.remove";
+  };
+  "statusTags.transition": StatusTagTransitionRequestDto & {
+    operation: "statusTags.transition";
+  };
+  "trash.setItemsState": TrashSetItemsStateRequest;
+  "literature.ingest": LiteratureIngestRequestDto;
+  "managed_note.write_custom": ManagedNoteWriteRequestDto & {
+    operation: "managed_note.write_custom";
+  };
+  "managed_note.write_conversation": ManagedNoteWriteRequestDto & {
+    operation: "managed_note.write_conversation";
+  };
+  "literature_artifact.upsert_digest": LiteratureDigestUpsertRequestDto & {
+    operation: "literature_artifact.upsert_digest";
+  };
+  "literature_artifact.upsert_references": LiteratureReferencesUpsertRequestDto & {
+    operation: "literature_artifact.upsert_references";
+  };
+  "literature_artifact.upsert_citation_analysis": LiteratureCitationAnalysisUpsertRequestDto & {
+    operation: "literature_artifact.upsert_citation_analysis";
+  };
+  "literature_artifact.upsert_score": LiteratureScoreUpsertRequestDto & {
+    operation: "literature_artifact.upsert_score";
+  };
 };
 
 export type MutationResultByOperation = {
@@ -1052,6 +1330,24 @@ export type MutationResultByOperation = {
   "collection.update": { collection: MutationCollectionResultDto };
   "collection.updateMembership": CollectionMembershipResultDto;
   "collection.remove": CollectionRemovalResultDto;
+  "notes.create": { note: NoteSummaryDto };
+  "notes.updateContent": { note: NoteSummaryDto };
+  "notes.remove": NoteRemovalResultDto;
+  "notes.upsertPayload": NotePayloadUpsertResultDto;
+  "attachments.create": { attachment: AttachmentDetailDto };
+  "attachments.updateMetadata": { attachment: AttachmentDetailDto };
+  "attachments.replaceFile": AttachmentReplaceFileResultDto;
+  "attachments.move": AttachmentMoveResultDto;
+  "attachments.remove": AttachmentRemovalResultDto;
+  "statusTags.transition": StatusTagTransitionResultDto;
+  "trash.setItemsState": TrashSetItemsStateResultDto;
+  "literature.ingest": LiteratureIngestResultDto;
+  "managed_note.write_custom": ManagedNoteWriteResultDto;
+  "managed_note.write_conversation": ManagedNoteWriteResultDto;
+  "literature_artifact.upsert_digest": LiteratureArtifactUpsertResultDto;
+  "literature_artifact.upsert_references": LiteratureArtifactUpsertResultDto;
+  "literature_artifact.upsert_citation_analysis": LiteratureArtifactUpsertResultDto;
+  "literature_artifact.upsert_score": LiteratureArtifactUpsertResultDto;
 };
 
 export type ItemChangeTypeDataEntryDto =
@@ -1116,19 +1412,9 @@ export type CollectionRemovePlan = {
 };
 
 export type MutationPreviewRequestByOperation = {
-  "item.changeType": Omit<
-    ItemChangeTypeRequest,
-    "operationId" | "expectedRevision" | "previewToken"
-  >;
-  "item.remove": {
-    operation: "item.remove";
-    itemRef: PortableItemRef;
-    disposition: "permanent";
-    childPolicy: "reject_if_present" | "cascade";
-  };
-  "collection.remove": Omit<
-    CollectionRemoveRequest,
-    "operationId" | "expectedRevision" | "previewToken"
+  [Operation in MutationOperation]: Omit<
+    MutationRequestByOperation[Operation],
+    "operationId"
   >;
 };
 
@@ -1139,6 +1425,11 @@ export type MutationPlanByOperation = {
   "item.changeType": ItemChangeTypePlan;
   "item.remove": ItemPermanentRemovePlan;
   "collection.remove": CollectionRemovePlan;
+} & {
+  [Operation in Exclude<
+    MutationOperation,
+    "item.changeType" | "item.remove" | "collection.remove"
+  >]: JsonObject;
 };
 
 export type MutationEntityObservationDto =
@@ -1151,20 +1442,22 @@ export type MutationEntityObservationDto =
       version: CollectionMutationVersionDto;
     };
 
-export type MutationPreviewTokenDto = {
-  value: string;
-  expiresAt: string;
-};
-
 export type MutationPreviewResult<TPlan extends object> = {
   schema: "zotero-agents.mutation-preview.v1";
   operation: MutationPreviewOperation;
   outcome: "would_change" | "unchanged";
   observedAt: string;
-  observations: MutationEntityObservationDto[];
+  domainPlanDigest: string;
   plan: TPlan;
-  token: MutationPreviewTokenDto;
 };
+
+export type MutationOperationObservation =
+  | { state: "running" }
+  | {
+      state: "settled";
+      result: MutationExecutionResult<JsonObject>;
+    }
+  | { state: "unavailable" };
 
 export type NoteContentInput = {
   format: "html" | "text";
@@ -1191,14 +1484,12 @@ export type NoteCreateRequestDto = {
 export type NoteUpdateContentRequestDto = {
   operationId: string;
   noteRef: PortableItemRef;
-  expectedRevision?: string;
   content: NoteContentInput;
 };
 export type NoteRemoveRequestDto = {
   operationId: string;
   noteRef: PortableItemRef;
   disposition: RemovalDisposition;
-  expectedRevision?: string;
 };
 export type LogicalNotePayloadDto = {
   payloadType: string;
@@ -1210,9 +1501,83 @@ export type LogicalNotePayloadDto = {
 export type NotePayloadUpsertRequestDto = {
   operationId: string;
   noteRef: PortableItemRef;
-  expectedRevision?: string;
   payload: LogicalNotePayloadDto;
 };
+
+export type ManagedNoteWriteTargetDto =
+  | { kind: "create"; parentRef: PortableItemRef }
+  | { kind: "update"; noteRef: PortableItemRef };
+
+export type ManagedNoteWriteRequestDto = {
+  operationId: string;
+  target: ManagedNoteWriteTargetDto;
+  content: { title: string; markdown: string };
+};
+
+export type LiteratureDigestUpsertRequestDto = {
+  operationId: string;
+  parentRef: PortableItemRef;
+  markdown: string;
+};
+
+export type LiteratureReferencesUpsertRequestDto = {
+  operationId: string;
+  parentRef: PortableItemRef;
+  references: SourceReferenceArtifact;
+};
+
+export type LiteratureCitationAnalysisUpsertRequestDto = {
+  operationId: string;
+  parentRef: PortableItemRef;
+  citationAnalysis: CitationAnalysisArtifact;
+};
+
+export type LiteratureScoreUpsertRequestDto = {
+  operationId: string;
+  parentRef: PortableItemRef;
+  score: LiteratureScoreArtifact;
+};
+
+export type LiteratureArtifactApplyAnalysisRequestDto = {
+  operationId: string;
+  parentRef: PortableItemRef;
+  compactCitationSnippets?: true;
+  digest?: {
+    markdown: string;
+    sourceRef?: PortableItemRef;
+    representativeImage?: {
+      preparedImage: PreparedNoteImageRef;
+      altText?: string;
+    };
+  };
+  references?: SourceReferenceArtifact;
+  citationAnalysis?: CitationAnalysisArtifact;
+  score?: LiteratureScoreArtifact;
+  matchingMetadata?: JsonObject;
+};
+
+export type ManagedNoteWriteResultDto = {
+  note: ManagedNoteDetailDto;
+};
+
+export type LiteratureArtifactUpsertResultDto = {
+  note: ManagedNoteDetailDto;
+  dependentStale?: boolean;
+  referencesBasis?: string;
+};
+
+export type LiteratureArtifactApplyAnalysisResultDto = {
+  notes: ManagedNoteDetailDto[];
+  dependentStale?: boolean;
+  referencesBasis?: string;
+  citationSnippetCompaction?: {
+    truncatedSnippetCount: number;
+    finalMaxCharacters: number;
+    originalPayloadBytes: number;
+    finalPayloadBytes: number;
+  };
+};
+
 export type NoteRemovalResultDto = JsonObject & {
   noteRef: PortableItemRef;
   outcome: RemovalOutcome;
@@ -1225,7 +1590,10 @@ export type NotePayloadUpsertResultDto = JsonObject & {
 
 export type WorkflowFileRef =
   | { kind: "local_path"; path: string }
-  | { kind: "resource"; resourceRef: JsonObject };
+  | {
+      kind: "resource";
+      resourceRef: { kind: "workflow_resource"; id: string };
+    };
 export type StoredFileInput = {
   source: WorkflowFileRef;
   targetFilename?: string;
@@ -1241,7 +1609,7 @@ export type AttachmentPlacementDto =
       collectionRefs?: PortableCollectionRef[];
     }
   | { kind: "child"; parentRef: PortableItemRef };
-export type AttachmentSourceDto =
+export type WorkflowAttachmentSourceDto =
   | {
       kind: "stored_file";
       main: StoredFileInput;
@@ -1250,21 +1618,59 @@ export type AttachmentSourceDto =
   | { kind: "linked_file"; path: string }
   | { kind: "linked_url"; url: string }
   | { kind: "stored_url"; url: string };
+
+export type AttachmentContentManifestDto = Readonly<{
+  schema: "zotero-agents.attachment-content.v1";
+  identity: string;
+  main: Readonly<{
+    relativePath: string;
+    sizeBytes: number;
+    sha256: string;
+  }>;
+  companions: ReadonlyArray<
+    Readonly<{
+      relativePath: string;
+      sizeBytes: number;
+      sha256: string;
+    }>
+  >;
+}>;
+
+export type CanonicalStoredAttachmentSourceDto = {
+  kind: "stored_file";
+  content: AttachmentContentManifestDto;
+  targetFilename?: string;
+  companions?: Array<{ targetRelativePath: string }>;
+};
+
+export type CanonicalAttachmentSourceDto =
+  | CanonicalStoredAttachmentSourceDto
+  | { kind: "linked_url"; url: string }
+  | { kind: "stored_url"; url: string };
+
+export type AttachmentMetadataDto = {
+  title?: string;
+  contentType?: string;
+  charset?: string;
+  originalUrl?: string;
+};
+
 export type AttachmentCreateRequestDto = {
   operationId: string;
   placement: AttachmentPlacementDto;
-  source: AttachmentSourceDto;
-  metadata?: {
-    title?: string;
-    contentType?: string;
-    charset?: string;
-    originalUrl?: string;
-  };
+  source: CanonicalAttachmentSourceDto;
+  metadata?: AttachmentMetadataDto;
+};
+
+export type WorkflowAttachmentCreateRequestDto = Omit<
+  AttachmentCreateRequestDto,
+  "source"
+> & {
+  source: Exclude<WorkflowAttachmentSourceDto, { kind: "linked_file" }>;
 };
 export type AttachmentUpdateMetadataRequestDto = {
   operationId: string;
   attachmentRef: PortableItemRef;
-  expectedRevision?: string;
   patch: {
     title?: string | null;
     url?: string | null;
@@ -1275,22 +1681,23 @@ export type AttachmentUpdateMetadataRequestDto = {
 export type AttachmentReplaceFileRequestDto = {
   operationId: string;
   attachmentRef: PortableItemRef;
-  expectedRevision?: string;
-  source:
-    | Extract<AttachmentSourceDto, { kind: "stored_file" }>
-    | Extract<AttachmentSourceDto, { kind: "linked_file" }>;
+  source: CanonicalStoredAttachmentSourceDto;
+};
+export type WorkflowAttachmentReplaceFileRequestDto = Omit<
+  AttachmentReplaceFileRequestDto,
+  "source"
+> & {
+  source: Extract<WorkflowAttachmentSourceDto, { kind: "stored_file" }>;
 };
 export type AttachmentMoveRequestDto = {
   operationId: string;
   attachmentRef: PortableItemRef;
-  expectedRevision?: string;
   placement: AttachmentPlacementDto;
 };
 export type AttachmentRemoveRequestDto = {
   operationId: string;
   attachmentRef: PortableItemRef;
   disposition: RemovalDisposition;
-  expectedRevision?: string;
 };
 export type AttachmentReplaceFileResultDto = JsonObject & {
   attachment: AttachmentDetailDto;
@@ -1320,7 +1727,6 @@ export type StatusTagValue =
 export type StatusTagTransitionRequestDto = {
   operationId: string;
   itemRef: PortableItemRef;
-  expectedRevision?: string;
   add?: StatusTagKey[];
   remove?: StatusTagKey[];
 };
@@ -1332,29 +1738,75 @@ export type StatusTagTransitionResultDto = JsonObject & {
   revision: string;
 };
 
+export type TrashSetItemsStateRequest = {
+  operation: "trash.setItemsState";
+  operationId: string;
+  itemRefs: PortableItemRef[];
+  state: "trashed" | "active";
+};
+
+export type TrashSetItemsStateResultDto = JsonObject & {
+  state: "trashed" | "active";
+  explicitRefs: PortableItemRef[];
+  expandedRefs: PortableItemRef[];
+};
+
+export type LiteratureIngestPaperDto = {
+  itemType: string;
+  fields: Record<string, string | number | boolean | null>;
+  creators: WorkflowHostCreatorDto[];
+  identifiers: {
+    doi?: string;
+    arxiv?: string;
+    pmid?: string;
+    isbn?: string;
+  };
+  landingUrl?: string;
+  pdfUrl?: string;
+  attachLandingUrlOnMissingPdf?: boolean;
+};
+
+export type LiteratureIngestRequestDto = {
+  operation: "literature.ingest";
+  operationId: string;
+  collectionRef: PortableCollectionRef;
+  paper: LiteratureIngestPaperDto;
+};
+
+export type LiteratureIngestEnrichmentOutcomeDto =
+  | { kind: "pdf" | "landing"; outcome: "attached" | "skipped" }
+  | {
+      kind: "pdf" | "landing";
+      outcome: "failed";
+      code: string;
+    };
+
+export type LiteratureIngestResultDto = JsonObject & {
+  item: MutationItemResultDto;
+  collectionRef: PortableCollectionRef;
+  itemOutcome: "created" | "existing";
+  collectionOutcome: "added" | "already_present";
+  enrichment: LiteratureIngestEnrichmentOutcomeDto[];
+};
+
 export type {
   WorkflowHostErrorCode,
   WorkflowHostErrorData,
   WorkflowHostErrorDetailsByCode,
 } from "./workflowHostErrorContract";
 
-import type {
-  ZoteroHostCapabilityBroker,
-} from "../modules/zoteroHostCapabilityBroker";
+import type { ZoteroHostCapabilityBroker } from "../modules/zoteroHostCapabilityBroker";
 export type WorkflowHostLiveReadAdapters = {
   context: Pick<
     ZoteroHostCapabilityBroker["context"],
     "getCurrentView" | "getSelectedItems"
-  >;
-  navigation: Pick<
-    ZoteroHostCapabilityBroker["navigation"],
-    "openItem" | "openNote" | "openCollection" | "openSelection"
   >;
   library: Pick<
     ZoteroHostCapabilityBroker["library"],
     | "listItems"
     | "traverseItems"
     | "listCollections"
+    | "listSavedSearches"
     | "getItemDetail"
     | "getItemNotes"
     | "getNoteDetail"
@@ -1367,7 +1819,7 @@ export type WorkflowHostLiveReadAdapters = {
 };
 
 import type { WorkflowResultContext } from "../modules/workflowExecution/resultContext";
-import type { ProductStorageApi } from "../modules/workflowProductStore";
+import type { ProductStorageApi } from "../modules/workflow/catalog/workflowProductStore";
 import type {
   SynthesisJsonObject,
   SynthesisJsonValue,
@@ -1405,11 +1857,7 @@ import type {
 } from "../modules/synthesis/builtinTagPolicy";
 export type { WorkflowResultContext } from "../modules/workflowExecution/resultContext";
 
-export type WorkflowParameterType =
-  | "string"
-  | "number"
-  | "boolean"
-  | "array";
+export type WorkflowParameterType = "string" | "number" | "boolean" | "array";
 
 export type WorkflowParameterOptionsSource = {
   kind: "zotero.collections" | "synthesis.topics" | string;
@@ -1559,10 +2007,7 @@ export type WorkflowSelectionFilter =
   | {
       kind: "artifact-absent";
       phase: "availability" | "execute";
-      target:
-        | "deep-reading-html"
-        | "mineru-markdown"
-        | "translator-markdown";
+      target: "deep-reading-html" | "mineru-markdown" | "translator-markdown";
       parameter?: string;
     };
 
@@ -1770,9 +2215,12 @@ export type WorkflowFileListResultDto = {
 
 export type WorkflowFileRemoveResultDto = { removed: boolean };
 
-export type LibrarySnapshotRequestDto = import("../../packages/synthesis-contracts/src/index").ZoteroLibrarySnapshotRequestDto;
-export type LibrarySnapshotBatchDto = import("../../packages/synthesis-contracts/src/index").ZoteroLibrarySnapshotBatchDto;
-export type LibrarySnapshotResultDto = import("../../packages/synthesis-contracts/src/index").ZoteroLibrarySnapshotWorkflowResultDto;
+export type LibrarySnapshotRequestDto =
+  import("../../packages/synthesis-contracts/src/index").ZoteroLibrarySnapshotRequestDto;
+export type LibrarySnapshotBatchDto =
+  import("../../packages/synthesis-contracts/src/index").ZoteroLibrarySnapshotBatchDto;
+export type LibrarySnapshotResultDto =
+  import("../../packages/synthesis-contracts/src/index").ZoteroLibrarySnapshotWorkflowResultDto;
 export type StatusTagPolicyDto = Readonly<Record<StatusTagKey, StatusTagValue>>;
 export type WorkflowFileCopyRequestDto = {
   sourcePath: string;
@@ -1789,7 +2237,8 @@ export type WorkflowMakeDirectoryRequestDto = {
   path: string;
   recursive?: boolean;
 };
-export type WorkflowInputFileMaterializationRequestDto = import("./workflowInputMaterialization").ScopedWorkflowInputMaterializationRequest;
+export type WorkflowInputFileMaterializationRequestDto =
+  import("./workflowInputMaterialization").ScopedWorkflowInputMaterializationRequest;
 export type WorkflowMaterializedFileDto = {
   path: string;
   sizeBytes: number;
@@ -1807,11 +2256,13 @@ export type FilePickerRequestDto = {
 export type SaveFilePickerRequestDto = FilePickerRequestDto & {
   suggestedName?: string;
 };
-export type WorkflowArchiveEntryDto = import("./archive").WorkflowArchiveEntryDto;
+export type WorkflowArchiveEntryDto =
+  import("./archive").WorkflowArchiveEntryDto;
 export type WorkflowArchiveMeasureRequestDto = {
   entries: import("./archive").WorkflowArchiveEntryDto[];
 };
-export type WorkflowArchiveMeasureResultDto = import("./archive").WorkflowArchiveMeasureResultDto;
+export type WorkflowArchiveMeasureResultDto =
+  import("./archive").WorkflowArchiveMeasureResultDto;
 export type WorkflowArchiveWriteRequestDto = {
   targetPath: string;
   entries: import("./archive").WorkflowArchiveEntryDto[];
@@ -1819,7 +2270,8 @@ export type WorkflowArchiveWriteRequestDto = {
 export type WorkflowArchiveWriteResultDto =
   import("./archive").WorkflowArchiveMeasureResultDto & { targetPath: string };
 export type WorkflowArchiveExtractRequestDto = { sourcePath: string };
-export type WorkflowExtractedArchive = import("./archive").WorkflowExtractedArchive;
+export type WorkflowExtractedArchive =
+  import("./archive").WorkflowExtractedArchive;
 export type WorkflowResourceFileDto = WorkflowResourceFile;
 export type WorkflowResourceAllocationRequestDto = {
   slotId: string;
@@ -1838,26 +2290,27 @@ export type WorkflowResourcePublishRequestDto = {
   displayName?: string;
   contentType?: string;
 };
-export type WorkflowResourceOutputDescriptorDto = WorkflowResourceOutputDescriptor;
+export type WorkflowResourceOutputDescriptorDto =
+  WorkflowResourceOutputDescriptor;
 
 export type WorkflowEditorSessionRequest<
   TState extends JsonValue,
   TContext extends JsonValue,
   _TResult extends JsonValue,
 > = Omit<
-  import("../modules/workflowEditorHost").WorkflowEditorOpenArgs<
+  import("../modules/workflow/ui/workflowEditorHost").WorkflowEditorOpenArgs<
     TState,
     TContext
   >,
   "rendererId" | "renderer"
 > & {
-  renderer: import("../modules/workflowEditorHost").WorkflowEditorRenderer<
+  renderer: import("../modules/workflow/ui/workflowEditorHost").WorkflowEditorRenderer<
     TState,
     TContext
   >;
 };
 export type WorkflowEditorSessionResult<TResult extends JsonValue> = Omit<
-  import("../modules/workflowEditorHost").WorkflowEditorOpenResult,
+  import("../modules/workflow/ui/workflowEditorHost").WorkflowEditorOpenResult,
   "result"
 > & { result?: TResult };
 
@@ -1868,94 +2321,282 @@ export type WorkflowHostApiV12 = Readonly<{
   environment: WorkflowEnvironmentOwner;
   context: Readonly<{
     getCurrentView(): CurrentViewDto;
-    getSelectedItems(control?: WorkflowCallControl): Promise<SelectedItemsSnapshotDto>;
-  }>;
-  navigation: Readonly<{
-    openItem(ref: PortableItemRef, control?: WorkflowCallControl): Promise<NavigationResultDto>;
-    openNote(ref: PortableItemRef, control?: WorkflowCallControl): Promise<NavigationResultDto>;
-    openCollection(ref: PortableCollectionRef, control?: WorkflowCallControl): Promise<NavigationResultDto>;
-    openSelection(input: NavigationSelectionInputDto, control?: WorkflowCallControl): Promise<NavigationResultDto>;
+    getSelectedItems(
+      request?: SelectedItemsPageRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<SelectedItemsPageDto>;
   }>;
   library: Readonly<{
-    listItems(input: LibraryListItemsRequestDto, control?: WorkflowCallControl): Promise<LibraryListItemsPageDto>;
-    traverseItems(input: LibraryTraversalRequestDto, control: WorkflowCallControl, onBatch: (batch: LibraryTraversalBatchDto) => Promise<void> | void): Promise<LibraryTraversalResultDto>;
-    withItemSnapshot(input: LibrarySnapshotRequestDto, control: WorkflowCallControl, onBatch: (batch: LibrarySnapshotBatchDto) => Promise<void> | void): Promise<LibrarySnapshotResultDto>;
-    listCollections(input: LibraryListCollectionsRequestDto, control?: WorkflowCallControl): Promise<LibraryListCollectionsPageDto>;
-    getItemDetail(ref: PortableItemRef, control?: WorkflowCallControl): Promise<ItemDetailDto>;
-    getItemNotes(parentRef: PortableItemRef, control?: WorkflowCallControl): Promise<NoteSummaryDto[]>;
-    getNoteDetail(noteRef: PortableItemRef, options: NoteDetailOptionsDto, control?: WorkflowCallControl): Promise<NoteDetailDto>;
-    listNotePayloads(noteRef: PortableItemRef, control?: WorkflowCallControl): Promise<NotePayloadSummaryDto[]>;
-    getNotePayload(noteRef: PortableItemRef, options: NotePayloadOptionsDto, control?: WorkflowCallControl): Promise<NotePayloadValueDto>;
-    getItemAttachments(parentRef: PortableItemRef, control?: WorkflowCallControl): Promise<AttachmentDetailDto[]>;
-    listAnnotations(ref: PortableItemRef, control?: WorkflowCallControl): Promise<AnnotationDetailDto[]>;
-    exportPortableItems(itemRefs: PortableItemRef[], control?: WorkflowCallControl): Promise<PortableRegularItemDto[]>;
+    listItems(
+      input: LibraryListItemsRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<LibraryListItemsPageDto>;
+    traverseItems(
+      input: LibraryTraversalRequestDto,
+      control: WorkflowCallControl,
+      onBatch: (batch: LibraryTraversalBatchDto) => Promise<void> | void,
+    ): Promise<LibraryTraversalResultDto>;
+    withItemSnapshot(
+      input: LibrarySnapshotRequestDto,
+      control: WorkflowCallControl,
+      onBatch: (batch: LibrarySnapshotBatchDto) => Promise<void> | void,
+    ): Promise<LibrarySnapshotResultDto>;
+    listCollections(
+      input: LibraryListCollectionsRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<LibraryListCollectionsPageDto>;
+    listSavedSearches(
+      input: LibraryListSavedSearchesRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<LibraryListSavedSearchesPageDto>;
+    getItemDetail(
+      ref: PortableItemRef,
+      control?: WorkflowCallControl,
+    ): Promise<ItemDetailDto>;
+    getItemNotes(
+      parentRef: PortableItemRef,
+      page?: LibraryPageRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<LibraryListItemNotesPageDto>;
+    getNoteDetail(
+      noteRef: PortableItemRef,
+      options: NoteDetailOptionsDto,
+      control?: WorkflowCallControl,
+    ): Promise<NoteDetailResultDto>;
+    listNotePayloads(
+      noteRef: PortableItemRef,
+      page?: LibraryPageRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<LibraryListNotePayloadsPageDto>;
+    getNotePayload(
+      noteRef: PortableItemRef,
+      options: NotePayloadOptionsDto,
+      control?: WorkflowCallControl,
+    ): Promise<NotePayloadValueDto>;
+    getItemAttachments(
+      parentRef: PortableItemRef,
+      page?: LibraryPageRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<LibraryListItemAttachmentsPageDto>;
+    listAnnotations(
+      ref: PortableItemRef,
+      page?: LibraryPageRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<LibraryListAnnotationsPageDto>;
+    exportPortableItems(
+      itemRefs: PortableItemRef[],
+      control?: WorkflowCallControl,
+    ): Promise<PortableRegularItemDto[]>;
   }>;
   metadata: Readonly<{
-    translateIdentifier(input: MetadataLookupRequestDto, control?: WorkflowCallControl): Promise<MetadataLookupResultDto>;
+    translateIdentifier(
+      input: MetadataLookupRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<MetadataLookupResultDto>;
   }>;
   mutations: Readonly<{
-    preview<K extends MutationPreviewOperation>(input: MutationPreviewRequestByOperation[K], control?: WorkflowCallControl): Promise<MutationPreviewResult<MutationPlanByOperation[K]>>;
-    execute<K extends MutationOperation>(input: MutationRequestByOperation[K], control?: WorkflowCallControl): Promise<MutationExecutionResult<MutationResultByOperation[K]>>;
+    getOperation(
+      input: { operationId: string },
+      control?: WorkflowCallControl,
+    ): Promise<MutationOperationObservation>;
+    preview<K extends MutationPreviewOperation>(
+      input: MutationPreviewRequestByOperation[K],
+      control?: WorkflowCallControl,
+    ): Promise<MutationPreviewResult<MutationPlanByOperation[K]>>;
+    execute<K extends MutationOperation>(
+      input: MutationRequestByOperation[K],
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<MutationResultByOperation[K]>>;
+  }>;
+  managedNotes: Readonly<{
+    writeCustom(
+      input: ManagedNoteWriteRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<ManagedNoteWriteResultDto>>;
+    writeConversation(
+      input: ManagedNoteWriteRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<ManagedNoteWriteResultDto>>;
+  }>;
+  literatureArtifacts: Readonly<{
+    upsertDigest(
+      input: LiteratureDigestUpsertRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<LiteratureArtifactUpsertResultDto>>;
+    upsertReferences(
+      input: LiteratureReferencesUpsertRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<LiteratureArtifactUpsertResultDto>>;
+    upsertCitationAnalysis(
+      input: LiteratureCitationAnalysisUpsertRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<LiteratureArtifactUpsertResultDto>>;
+    upsertScore(
+      input: LiteratureScoreUpsertRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<LiteratureArtifactUpsertResultDto>>;
+    /** Workflow-local atomic composition; it is not a public mutation wire operation. */
+    applyAnalysis(
+      input: LiteratureArtifactApplyAnalysisRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<
+      MutationExecutionResult<LiteratureArtifactApplyAnalysisResultDto>
+    >;
   }>;
   notes: Readonly<{
-    create(input: NoteCreateRequestDto, control?: WorkflowCallControl): Promise<MutationExecutionResult<{ note: NoteSummaryDto }>>;
-    updateContent(input: NoteUpdateContentRequestDto, control?: WorkflowCallControl): Promise<MutationExecutionResult<{ note: NoteSummaryDto }>>;
-    remove(input: NoteRemoveRequestDto, control?: WorkflowCallControl): Promise<MutationExecutionResult<NoteRemovalResultDto>>;
-    upsertPayload(input: NotePayloadUpsertRequestDto, control?: WorkflowCallControl): Promise<MutationExecutionResult<NotePayloadUpsertResultDto>>;
+    create(
+      input: NoteCreateRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<{ note: NoteSummaryDto }>>;
+    updateContent(
+      input: NoteUpdateContentRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<{ note: NoteSummaryDto }>>;
+    remove(
+      input: NoteRemoveRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<NoteRemovalResultDto>>;
+    upsertPayload(
+      input: NotePayloadUpsertRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<NotePayloadUpsertResultDto>>;
   }>;
   images: WorkflowPreparedImageOwner;
   attachments: Readonly<{
-    create(input: AttachmentCreateRequestDto, control?: WorkflowCallControl): Promise<MutationExecutionResult<{ attachment: AttachmentDetailDto }>>;
-    updateMetadata(input: AttachmentUpdateMetadataRequestDto, control?: WorkflowCallControl): Promise<MutationExecutionResult<{ attachment: AttachmentDetailDto }>>;
-    replaceFile(input: AttachmentReplaceFileRequestDto, control?: WorkflowCallControl): Promise<MutationExecutionResult<AttachmentReplaceFileResultDto>>;
-    move(input: AttachmentMoveRequestDto, control?: WorkflowCallControl): Promise<MutationExecutionResult<AttachmentMoveResultDto>>;
-    remove(input: AttachmentRemoveRequestDto, control?: WorkflowCallControl): Promise<MutationExecutionResult<AttachmentRemovalResultDto>>;
+    create(
+      input: WorkflowAttachmentCreateRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<{ attachment: AttachmentDetailDto }>>;
+    updateMetadata(
+      input: AttachmentUpdateMetadataRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<{ attachment: AttachmentDetailDto }>>;
+    replaceFile(
+      input: WorkflowAttachmentReplaceFileRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<AttachmentReplaceFileResultDto>>;
+    move(
+      input: AttachmentMoveRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<AttachmentMoveResultDto>>;
+    remove(
+      input: AttachmentRemoveRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<AttachmentRemovalResultDto>>;
   }>;
   bibliography: WorkflowBibliographyOwner;
   researchBundles: Readonly<{
-    materializePapers(input: MaterializePapersRequestDto, control?: WorkflowCallControl): Promise<MaterializePapersResultDto>;
-    importPapers(input: ImportPapersRequestDto, control?: WorkflowCallControl): Promise<ImportPapersResultDto>;
+    materializePapers(
+      input: MaterializePapersRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<MaterializePapersResultDto>;
+    importPapers(
+      input: ImportPapersRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<ImportPapersResultDto>;
   }>;
   statusTags: Readonly<{
     getPolicy(): StatusTagPolicyDto;
-    transition(input: StatusTagTransitionRequestDto, control?: WorkflowCallControl): Promise<MutationExecutionResult<StatusTagTransitionResultDto>>;
+    transition(
+      input: StatusTagTransitionRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<MutationExecutionResult<StatusTagTransitionResultDto>>;
   }>;
   file: Readonly<{
     readText(path: string, control?: WorkflowCallControl): Promise<string>;
-    writeText(path: string, content: string, control?: WorkflowCallControl): Promise<void>;
+    writeText(
+      path: string,
+      content: string,
+      control?: WorkflowCallControl,
+    ): Promise<void>;
     readBytes(path: string, control?: WorkflowCallControl): Promise<Uint8Array>;
-    writeBytes(path: string, bytes: Uint8Array | ArrayBuffer, control?: WorkflowCallControl): Promise<void>;
-    copy(input: WorkflowFileCopyRequestDto, control?: WorkflowCallControl): Promise<void>;
+    writeBytes(
+      path: string,
+      bytes: Uint8Array | ArrayBuffer,
+      control?: WorkflowCallControl,
+    ): Promise<void>;
+    copy(
+      input: WorkflowFileCopyRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<void>;
     exists(path: string, control?: WorkflowCallControl): Promise<boolean>;
-    makeDirectory(input: WorkflowMakeDirectoryRequestDto, control?: WorkflowCallControl): Promise<void>;
-    materializeWorkflowInputFile(input: WorkflowInputFileMaterializationRequestDto, control?: WorkflowCallControl): Promise<WorkflowMaterializedFileDto>;
+    makeDirectory(
+      input: WorkflowMakeDirectoryRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<void>;
+    materializeWorkflowInputFile(
+      input: WorkflowInputFileMaterializationRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<WorkflowMaterializedFileDto>;
     getTempDirectoryPath(): string;
     pickDirectory(input?: FilePickerRequestDto): Promise<string | null>;
     pickFile(input?: FilePickerRequestDto): Promise<string | null>;
     pickSaveFile(input?: SaveFilePickerRequestDto): Promise<string | null>;
     pickFiles(input?: FilePickerRequestDto): Promise<string[] | null>;
-    stat(path: string, control?: WorkflowCallControl): Promise<WorkflowFileStatDto>;
-    list(input: WorkflowFileListRequestDto, control?: WorkflowCallControl): Promise<WorkflowFileListResultDto>;
-    move(input: WorkflowFileMoveRequestDto, control?: WorkflowCallControl): Promise<void>;
-    remove(input: WorkflowFileRemoveRequestDto, control?: WorkflowCallControl): Promise<WorkflowFileRemoveResultDto>;
+    stat(
+      path: string,
+      control?: WorkflowCallControl,
+    ): Promise<WorkflowFileStatDto>;
+    list(
+      input: WorkflowFileListRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<WorkflowFileListResultDto>;
+    move(
+      input: WorkflowFileMoveRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<void>;
+    remove(
+      input: WorkflowFileRemoveRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<WorkflowFileRemoveResultDto>;
   }>;
   archive: Readonly<{
-    measureEntries(input: WorkflowArchiveMeasureRequestDto, control?: WorkflowCallControl): Promise<WorkflowArchiveMeasureResultDto>;
-    writeZipAtomic(input: WorkflowArchiveWriteRequestDto, control?: WorkflowCallControl): Promise<WorkflowArchiveWriteResultDto>;
-    withExtractedZip<TResult>(input: WorkflowArchiveExtractRequestDto, control: WorkflowCallControl, callback: (archive: WorkflowExtractedArchive) => Promise<TResult> | TResult): Promise<TResult>;
+    measureEntries(
+      input: WorkflowArchiveMeasureRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<WorkflowArchiveMeasureResultDto>;
+    writeZipAtomic(
+      input: WorkflowArchiveWriteRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<WorkflowArchiveWriteResultDto>;
+    withExtractedZip<TResult>(
+      input: WorkflowArchiveExtractRequestDto,
+      control: WorkflowCallControl,
+      callback: (
+        archive: WorkflowExtractedArchive,
+      ) => Promise<TResult> | TResult,
+    ): Promise<TResult>;
   }>;
   resources: Readonly<{
     getInput(slotId: string): WorkflowResourceFileDto | null;
     getInputs(slotId: string): WorkflowResourceFileDto[];
-    get(ref: ResourceRef, control?: WorkflowCallControl): Promise<WorkflowResourceFileDto>;
-    materializeFile(input: WorkflowResourceMaterializeFileRequestDto, control?: WorkflowCallControl): Promise<WorkflowResourceFileDto>;
-    allocateOutput(input: WorkflowResourceAllocationRequestDto, control?: WorkflowCallControl): Promise<WorkflowResourceAllocationDto>;
-    publishOutput(input: WorkflowResourcePublishRequestDto, control?: WorkflowCallControl): Promise<WorkflowResourceOutputDescriptorDto>;
+    get(
+      ref: ResourceRef,
+      control?: WorkflowCallControl,
+    ): Promise<WorkflowResourceFileDto>;
+    materializeFile(
+      input: WorkflowResourceMaterializeFileRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<WorkflowResourceFileDto>;
+    allocateOutput(
+      input: WorkflowResourceAllocationRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<WorkflowResourceAllocationDto>;
+    publishOutput(
+      input: WorkflowResourcePublishRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<WorkflowResourceOutputDescriptorDto>;
     listOutputs(): WorkflowResourceOutputDescriptorDto[];
   }>;
   clipboard: WorkflowClipboardOwner;
   editor: Readonly<{
-    openSession<TState extends JsonValue, TContext extends JsonValue, TResult extends JsonValue>(input: WorkflowEditorSessionRequest<TState, TContext, TResult>): Promise<WorkflowEditorSessionResult<TResult>>;
+    openSession<
+      TState extends JsonValue,
+      TContext extends JsonValue,
+      TResult extends JsonValue,
+    >(
+      input: WorkflowEditorSessionRequest<TState, TContext, TResult>,
+    ): Promise<WorkflowEditorSessionResult<TResult>>;
   }>;
   notifications: WorkflowNotificationOwner;
   logging: WorkflowLoggingOwner;
@@ -2070,39 +2711,12 @@ export type WorkflowPackageManifest = {
 };
 
 export type HookHelpers = {
-  getAttachmentParentId: (entry: unknown) => number | null;
-  getAttachmentFilePath: (entry: unknown) => string;
-  getAttachmentFileName: (entry: unknown) => string;
-  getAttachmentFileStem: (entry: unknown) => string;
-  getAttachmentDateAdded: (entry: unknown) => number;
-  isMarkdownAttachment: (entry: unknown) => boolean;
-  isPdfAttachment: (entry: unknown) => boolean;
-  pickEarliestPdfAttachment: (entries: unknown[]) => unknown | null;
-  cloneSelectionContext: <T>(selectionContext: T) => T;
-  withFilteredAttachments: <T>(
-    selectionContext: T,
-    attachments: unknown[],
-  ) => T;
   resolveItemRef: (ref: Zotero.Item | number | string) => Zotero.Item;
   basenameOrFallback: (
     targetPath: string | undefined,
     fallback: string,
   ) => string;
   toHtmlNote: (title: string, body: string) => string;
-  normalizeReferenceAuthors: (value: unknown) => string[];
-  normalizeReferenceEntry: (
-    entry: unknown,
-    index: number,
-  ) => Record<string, unknown>;
-  normalizeReferencesArray: (value: unknown) => Record<string, unknown>[];
-  normalizeReferencesPayload: (payload: unknown) => Record<string, unknown>[];
-  replacePayloadReferences: (
-    payload: unknown,
-    references: Record<string, unknown>[],
-  ) => unknown;
-  resolveReferenceSource: (entry: unknown) => string;
-  renderReferenceLocator: (entry: unknown) => string;
-  renderReferencesTable: (references: unknown) => string;
   inspectGeneratedNoteReadiness: (
     parentRef: Zotero.Item | number | string,
     spec: WorkflowGeneratedNoteReadinessFilter,
@@ -2116,18 +2730,17 @@ export type WorkflowSynthesisApplyContext = {
   bundleReader?: Pick<WorkflowResultContext["bundleReader"], "readText">;
 };
 
-export type WorkflowLiteratureDigestApplyInput = Partial<
-  SynthesisWorkflowItemSnapshot
-> & {
-  parentItem?: Zotero.Item | number | string | null;
-  item?: Zotero.Item | number | string | null;
-  digest?: unknown;
-  references?: unknown;
-  citationAnalysis?: unknown;
-  literatureMatchingMetadata?: unknown;
-  matchedReferences?: unknown;
-  source?: unknown;
-};
+export type WorkflowLiteratureDigestApplyInput =
+  Partial<SynthesisWorkflowItemSnapshot> & {
+    parentItem?: Zotero.Item | number | string | null;
+    item?: Zotero.Item | number | string | null;
+    digest?: unknown;
+    references?: unknown;
+    citationAnalysis?: unknown;
+    literatureMatchingMetadata?: unknown;
+    matchedReferences?: unknown;
+    source?: unknown;
+  };
 
 export type TagAuditRunWriter = Readonly<{
   append(entries: TagAuditStagingEntry[]): Promise<void>;
@@ -2245,7 +2858,7 @@ export type WorkflowRuntimeContext = {
    * run. Callers must not create parallel run-cancellation state; pass it to
    * Workflow Host members through `WorkflowCallControl`.
    */
-  signal?: AbortSignal;
+  signal?: CancellationSignal;
   fetch?: typeof globalThis.fetch | null;
   Buffer?: typeof globalThis.Buffer | null;
   btoa?: typeof globalThis.btoa | null;
@@ -2256,7 +2869,6 @@ export type WorkflowRuntimeContext = {
 };
 
 export type WorkflowRuntimeInfrastructureContext = WorkflowRuntimeContext & {
-  handlers: typeof import("../handlers").handlers;
   zotero: typeof Zotero;
   helpers: HookHelpers;
   workflowHostOverride?: WorkflowHostApi;
@@ -2360,7 +2972,7 @@ export type WorkflowApplyResult = Record<string, unknown> & {
 };
 
 export type ApplyResultHook = (args: {
-  parent: Zotero.Item | number | string | null;
+  parent: PortableItemRef | Zotero.Item | number | string | null;
   bundleReader: {
     readText: (entryPath: string) => Promise<string>;
     getExtractedDir?: () => Promise<string>;

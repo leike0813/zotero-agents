@@ -1,47 +1,75 @@
 const MAX_PAGES_PER_PART = 200;
 
-function isObject(value) {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
 function normalizeString(value) {
   return String(value || "").trim();
+}
+
+export function portableItemRef(value) {
+  const source = value?.ref || value || {};
+  const libraryId = source.libraryId;
+  const key = String(source.key || "").trim();
+  if (
+    !Number.isSafeInteger(libraryId) ||
+    libraryId <= 0 ||
+    !key ||
+    Object.keys(source).some(
+      (entry) => entry !== "libraryId" && entry !== "key",
+    )
+  ) {
+    throw new Error("portable Zotero item ref is required");
+  }
+  return { libraryId, key };
+}
+
+export async function resolveAttachmentPath(attachmentRef, runtime) {
+  const ref = portableItemRef(attachmentRef);
+  const detail = await runtime?.hostApi?.library?.getItemDetail(ref);
+  if (detail?.kind !== "attachment" || !detail.item) {
+    throw new Error("workflow source attachment is unavailable");
+  }
+  if (detail.item.file?.state !== "available" || !detail.item.file.path) {
+    throw new Error("workflow source attachment file is unavailable");
+  }
+  return detail.item.file.path;
+}
+
+export async function readHostPages({
+  readPage,
+  getItems,
+  limit = 100,
+  operation = "host read",
+}) {
+  if (typeof readPage !== "function" || typeof getItems !== "function") {
+    throw new TypeError(`${operation} page reader is required`);
+  }
+  const items = [];
+  let cursor;
+  while (true) {
+    const page = await readPage({ limit, ...(cursor ? { cursor } : {}) });
+    items.push(...getItems(page));
+    if (page.hasMore !== true) return items;
+    const nextCursor = String(page.nextCursor || "").trim();
+    if (!nextCursor || nextCursor === cursor) {
+      throw new Error(`${operation} received hasMore without a new cursor`);
+    }
+    cursor = nextCursor;
+  }
 }
 
 function normalizePath(value) {
   return normalizeString(value).replace(/[\\/]+/g, "/");
 }
 
-function basenamePath(filePath) {
-  const parts = normalizePath(filePath).split("/").filter(Boolean);
-  return parts.length > 0 ? parts[parts.length - 1] : "";
-}
-
-function getAttachment(selectionContext) {
-  const selection = isObject(selectionContext) ? selectionContext : {};
-  const attachments = Array.isArray(selection.items?.attachments)
-    ? selection.items.attachments
-    : [];
-  return attachments[0] || null;
-}
-
 export function resolveSourceAttachment(selectionContext) {
-  const attachment = getAttachment(selectionContext);
-  const filePath = normalizeString(attachment?.filePath);
-  if (!filePath) {
-    return null;
-  }
+  const attachments = Array.isArray(selectionContext?.items)
+    ? selectionContext.items.filter((item) => item?.kind === "attachment")
+    : [];
+  const attachment = attachments[0];
+  if (!attachment?.ref) return null;
   return {
-    filePath,
-    fileName: basenamePath(filePath),
-    itemId: Number(attachment?.item?.id || 0) || null,
-    itemKey: normalizeString(attachment?.item?.key),
-    itemRef: attachment?.item?.key && attachment?.item?.libraryID
-      ? { libraryId: Number(attachment.item.libraryID), key: normalizeString(attachment.item.key) }
-      : null,
-    parentId:
-      Number(attachment?.parent?.id || attachment?.item?.parentItemID || 0) ||
-      null,
+    ref: attachment.ref,
+    parentRef: attachment.parentRef || null,
+    fileName: normalizeString(attachment.filename || attachment.title),
   };
 }
 
@@ -369,7 +397,8 @@ export function buildPageRangePlan(args) {
 }
 
 export function buildAggregateId(source) {
-  const key = normalizeString(source?.itemKey) || normalizeString(source?.itemId);
+  const key =
+    normalizeString(source?.itemKey) || normalizeString(source?.itemId);
   const name = normalizeString(source?.fileName) || "pdf";
   return `mineru-${key || name}`.replace(/[^A-Za-z0-9._:-]+/g, "-");
 }

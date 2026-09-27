@@ -106,6 +106,16 @@ export type SynthesisHostArtifactScanPageResult = SynthesisHostPageResult & {
   artifacts: SynthesisHostArtifactDescriptor[];
 };
 
+export type SynthesisHostArtifactReadinessRequest = {
+  libraryId: number;
+  paperRefs: string[];
+  artifactTypes?: SynthesisHostArtifactType[];
+};
+
+export type SynthesisHostArtifactReadinessResult = {
+  artifacts: SynthesisHostArtifactDescriptor[];
+};
+
 export type SynthesisHostArtifactReadRequest = {
   locator: string;
   expectedHash: string;
@@ -120,6 +130,8 @@ export type SynthesisHostArtifactReadResult = {
   payloadHash?: string;
   currentHash?: string;
   content?: SynthesisHostArtifactContent;
+  /** Runtime Citation provenance; excluded from canonical Citation JSON. */
+  referencesBasis?: string;
   diagnostics: string[];
 };
 
@@ -139,6 +151,9 @@ export interface SynthesisHostArtifactReadPort {
   scanPage(
     request: SynthesisHostArtifactScanPageRequest,
   ): Promise<SynthesisHostArtifactScanPageResult>;
+  readiness(
+    request: SynthesisHostArtifactReadinessRequest,
+  ): Promise<SynthesisHostArtifactReadinessResult>;
   read(
     request: SynthesisHostArtifactReadRequest,
   ): Promise<SynthesisHostArtifactReadResult>;
@@ -444,6 +459,27 @@ export function rebuildSynthesisHostArtifactScanPageRequest(
   };
 }
 
+export function rebuildSynthesisHostArtifactReadinessRequest(
+  value: unknown,
+): SynthesisHostArtifactReadinessRequest {
+  const record = toSynthesisJsonObject(value, "hostArtifactReadinessRequest");
+  assertSynthesisExactFields(
+    record,
+    ["libraryId", "paperRefs"],
+    ["artifactTypes"],
+    "hostArtifactReadinessRequest",
+  );
+  const rebuilt = rebuildSynthesisHostArtifactScanPageRequest(record);
+  if (!rebuilt.paperRefs?.length) {
+    invalid("hostArtifactReadinessRequest.paperRefs");
+  }
+  return {
+    libraryId: rebuilt.libraryId,
+    paperRefs: rebuilt.paperRefs,
+    ...(rebuilt.artifactTypes ? { artifactTypes: rebuilt.artifactTypes } : {}),
+  };
+}
+
 function rebuildLiteratureQuality(
   value: unknown,
   location: string,
@@ -645,6 +681,29 @@ export function rebuildSynthesisHostArtifactScanPageResult(
   };
 }
 
+export function rebuildSynthesisHostArtifactReadinessResult(
+  value: unknown,
+): SynthesisHostArtifactReadinessResult {
+  const record = toSynthesisJsonObject(value, "hostArtifactReadinessResult");
+  assertSynthesisExactFields(
+    record,
+    ["artifacts"],
+    [],
+    "hostArtifactReadinessResult",
+  );
+  if (!Array.isArray(record.artifacts) || record.artifacts.length > 400) {
+    invalid("hostArtifactReadinessResult.artifacts");
+  }
+  return {
+    artifacts: record.artifacts.map((entry, index) =>
+      rebuildArtifactDescriptor(
+        entry,
+        `hostArtifactReadinessResult.artifacts[${index}]`,
+      ),
+    ),
+  };
+}
+
 export function rebuildSynthesisHostArtifactReadRequest(
   value: unknown,
 ): SynthesisHostArtifactReadRequest {
@@ -676,7 +735,7 @@ export function rebuildSynthesisHostArtifactReadResult(
   assertSynthesisExactFields(
     record,
     ["status", "diagnostics"],
-    ["payloadHash", "currentHash", "content"],
+    ["payloadHash", "currentHash", "content", "referencesBasis"],
     "hostArtifactReadResult",
   );
   if (
@@ -757,6 +816,15 @@ export function rebuildSynthesisHostArtifactReadResult(
           ),
         }),
     ...(content === undefined ? {} : { content }),
+    ...(record.referencesBasis === undefined
+      ? {}
+      : {
+          referencesBasis: stringValue(
+            record.referencesBasis,
+            "hostArtifactReadResult.referencesBasis",
+            false,
+          ),
+        }),
     diagnostics: diagnostics(
       record.diagnostics,
       "hostArtifactReadResult.diagnostics",

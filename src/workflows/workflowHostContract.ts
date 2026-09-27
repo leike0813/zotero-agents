@@ -60,17 +60,12 @@ export const WORKFLOW_HOST_API_MANIFEST = defineWorkflowHostCandidateManifest({
     getCurrentView: "function",
     getSelectedItems: "function",
   },
-  navigation: {
-    openItem: "function",
-    openNote: "function",
-    openCollection: "function",
-    openSelection: "function",
-  },
   library: {
     listItems: "function",
     traverseItems: "function",
     withItemSnapshot: "function",
     listCollections: "function",
+    listSavedSearches: "function",
     getItemDetail: "function",
     getItemNotes: "function",
     getNoteDetail: "function",
@@ -81,7 +76,18 @@ export const WORKFLOW_HOST_API_MANIFEST = defineWorkflowHostCandidateManifest({
     exportPortableItems: "function",
   },
   metadata: { translateIdentifier: "function" },
-  mutations: { preview: "function", execute: "function" },
+  mutations: { preview: "function", execute: "function", getOperation: "function" },
+  managedNotes: {
+    writeCustom: "function",
+    writeConversation: "function",
+  },
+  literatureArtifacts: {
+    applyAnalysis: "function",
+    upsertDigest: "function",
+    upsertReferences: "function",
+    upsertCitationAnalysis: "function",
+    upsertScore: "function",
+  },
   notes: {
     create: "function",
     updateContent: "function",

@@ -4,7 +4,7 @@ import {
   buildWorkflowStartToastMessage,
   buildWorkflowWaitingToastMessage,
   type WorkflowMessageFormatter,
-} from "../workflowExecuteMessage";
+} from "./workflowExecuteMessage";
 import { config } from "../../../package.json";
 import {
   resolveAddonName,

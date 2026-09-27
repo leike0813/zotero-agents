@@ -71,9 +71,9 @@ export class PassThroughProvider implements Provider {
       selectionContext: request.selectionContext,
       parameter: request.parameter || {},
       requestMeta: {
-        targetParentID: request.targetParentID,
+        targetParentRef: request.targetParentRef,
         taskName: request.taskName,
-        sourceAttachmentPaths: request.sourceAttachmentPaths || [],
+        sourceAttachmentRefs: request.sourceAttachmentRefs || [],
       },
     };
     const requestId = generateRequestId();

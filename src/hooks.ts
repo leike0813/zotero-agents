@@ -6,17 +6,17 @@ import {
 import { registerPrefsScripts } from "./modules/preferenceScript";
 import { getPref, setPref } from "./utils/prefs";
 import { createZToolkit } from "./utils/ztoolkit";
-import { registerSelectionSampleMenu } from "./modules/selectionSample";
-import { registerAcpBackendRefreshCacheDiagnosticMenu } from "./modules/acpBackendRefreshCacheDiagnostic";
+import { registerSelectionSampleMenu } from "./modules/workflow/ui/selectionSample";
+import { registerAcpBackendRefreshCacheDiagnosticMenu } from "./modules/acp/diagnostics/acpBackendRefreshCacheDiagnostic";
 import {
   ensureWorkflowMenuForWindow,
   refreshWorkflowMenus,
-} from "./modules/workflowMenu";
+} from "./modules/workflow/ui/workflowMenu";
 import {
   ensureDefaultWorkflowDirExistsOnStartup,
   rescanWorkflowRegistry,
-} from "./modules/workflowRuntime";
-import { materializeHostBridgePluginSkillBundle } from "./modules/hostBridgePluginSkillBundle";
+} from "./modules/workflow/catalog/workflowRuntime";
+import { materializeHostBridgePluginSkillBundle } from "./modules/hostBridge/cli/hostBridgePluginSkillBundle";
 import {
   checkContentPackageUpdate,
   clearContentPackageInstallProgress,
@@ -28,20 +28,20 @@ import {
   installContentPackageFromFeed,
   type ContentPackageInstallResult,
   setContentPackageInstallProgress,
-} from "./modules/contentPackageSubscription";
-import { openBackendManagerDialog } from "./modules/backendManager";
-import { openTaskManagerDialog } from "./modules/taskManagerDialog";
+} from "./modules/workflow/catalog/contentPackageSubscription";
+import { openBackendManagerDialog } from "./modules/workflow/settings/backendManager";
+import { openTaskDashboard } from "./modules/dashboardHost";
 import {
   notifySynthesisWorkbenchLibraryItemsChanged,
   prewarmSynthesisWorkbenchSurfaces,
-} from "./modules/synthesisWorkbenchTab";
+} from "./modules/synthesis/workbench/synthesisWorkbenchTab";
 import { openZoteroSkillsWorkspaceTab } from "./modules/workspaceTab";
 import { openHelpCenterTab } from "./modules/helpCenterTab";
 import { getDocsUrl } from "./utils/docsUrl";
-import { installWorkflowEditorHostBridge } from "./modules/workflowEditorHost";
-import { installWorkflowRuntimeBridge } from "./modules/workflowRuntimeBridge";
-import { enableWorkflowPackageDiagnosticsForDebugMode } from "./modules/workflowPackageDiagnostics";
-import { installWorkflowDebugProbeBridge } from "./modules/workflowDebugProbe";
+import { installWorkflowEditorHostBridge } from "./modules/workflow/ui/workflowEditorHost";
+import { installWorkflowRuntimeBridge } from "./modules/workflow/catalog/workflowRuntimeBridge";
+import { enableWorkflowPackageDiagnosticsForDebugMode } from "./modules/workflow/catalog/workflowPackageDiagnostics";
+import { installWorkflowDebugProbeBridge } from "./modules/workflow/ui/workflowDebugProbe";
 import {
   ensureDashboardToolbarButton,
   removeDashboardToolbarButton,
@@ -64,7 +64,7 @@ import { startSkillRunnerModelCacheAutoRefresh } from "./providers/skillrunner/m
 import {
   purgeSkillRunnerBackendReconcileState,
   startSkillRunnerTaskReconciler,
-} from "./modules/skillRunnerTaskReconciler";
+} from "./modules/skillRunner/run/skillRunnerTaskReconciler";
 import {
   deployAndConfigureLocalSkillRunner,
   getManagedLocalRuntimeStateSnapshot,
@@ -77,20 +77,20 @@ import {
   startManagedLocalRuntimeAutoEnsureLoop,
   stopLocalRuntime,
   uninstallLocalRuntime,
-} from "./modules/skillRunnerLocalRuntimeManager";
-import { openSkillRunnerLocalDeployDebugDialog } from "./modules/skillRunnerLocalDeployDebugDialog";
+} from "./modules/skillRunner/runtime/skillRunnerLocalRuntimeManager";
+import { openSkillRunnerLocalDeployDebugDialog } from "./modules/skillRunner/surface/skillRunnerLocalDeployDebugDialog";
 import { loadBackendsRegistry } from "./backends/registry";
 import { refreshSkillRunnerModelCacheForBackend } from "./providers/skillrunner/modelCache";
-import { MANAGED_LOCAL_BACKEND_ID } from "./modules/skillRunnerLocalRuntimeConstants";
+import { MANAGED_LOCAL_BACKEND_ID } from "./backends/identity";
 import { isDebugModeEnabled } from "./modules/debugMode";
 import { emitVerboseConsole } from "./modules/diagnosticVerbosity";
-import { untrackSkillRunnerBackendHealth } from "./modules/skillRunnerBackendHealthRegistry";
+import { untrackSkillRunnerBackendHealth } from "./modules/skillRunner/connection/skillRunnerBackendHealthRegistry";
 import { workflowSubmissionQueue } from "./jobQueue/workflowSubmissionQueue";
 import {
   startSkillRunnerBackendReachabilityCoordinator,
   stopSkillRunnerBackendReachabilityCoordinator,
-} from "./modules/skillRunnerBackendReachabilityCoordinator";
-import { shutdownSkillRunnerAsyncLifecycle } from "./modules/skillRunnerAsyncLifecycle";
+} from "./modules/skillRunner/connection/skillRunnerBackendReachabilityCoordinator";
+import { shutdownSkillRunnerAsyncLifecycle } from "./modules/skillRunner/runtime/skillRunnerAsyncLifecycle";
 import {
   appendRuntimeLog,
   flushRuntimeLogsPersistence,
@@ -103,29 +103,27 @@ import {
   openAssistantWorkspaceSidebar,
   removeAssistantWorkspaceSidebarShell,
   toggleAssistantWorkspaceSidebar,
-} from "./modules/assistantWorkspaceSidebar";
+} from "./modules/assistant/workspace/assistantWorkspaceSidebar";
 import {
   getAssistantExecutionDisplayMode,
   isAssistantExecutionDisplayMode,
   setAssistantExecutionDisplayMode,
-} from "./modules/assistantExecutionDisplayPolicy";
-import { shutdownAcpSessionManager } from "./modules/acpSessionManager";
-import { releaseAcpSkillRunAuditTrailWrites } from "./modules/acpSkillRunAuditTrail";
-import { initializeWorkflowProductStorage } from "./modules/workflowProductStore";
-import { shutdownAcpWebSocketBridgeService } from "./modules/acpWebSocketBridgeService";
-import { reconcileAcpSkillRunWorkflowTasksOnStartup } from "./modules/acpSkillRunStore";
-import {
-  cleanupRuntimePersistenceRetention,
-  cleanupRuntimePersistenceCategory,
-  getRuntimePersistencePaths,
-  scanRuntimePersistenceUsage,
-  type RuntimePersistenceCategory,
-} from "./modules/runtimePersistence";
+} from "./modules/assistant/publication/assistantExecutionDisplayPolicy";
+import { shutdownAcpSessionManager } from "./modules/acp/chat/acpSessionManager";
+import { releaseAcpSkillRunAuditTrailWrites } from "./modules/acp/skillRun/acpSkillRunAuditTrail";
+import { initializeWorkflowProductStorage } from "./modules/workflow/catalog/workflowProductStore";
+import { shutdownAcpWebSocketBridgeService } from "./modules/acp/transport/acpWebSocketBridgeService";
+import { reconcileAcpSkillRunWorkflowTasksOnStartup } from "./modules/acp/skillRun/acpSkillRunStore";
+import { getRuntimePersistencePaths } from "./modules/runtimePersistence";
+import { recoverStoredAttachmentReplacements } from "./modules/zoteroHost/zoteroHostNativeMutations";
 import { shutdownRuntimeFileRangeReader } from "./modules/runtimeFileRangeReader";
 import {
-  cleanupPersistenceIssues,
-  scanPersistenceIntegrity,
-} from "./modules/persistenceIntegrity";
+  cleanupRuntimePersistenceCategory,
+  cleanupRuntimePersistenceIssues,
+  cleanupRuntimePersistenceRetention,
+  scanRuntimePersistenceGovernance,
+  type RuntimePersistenceCategory,
+} from "./modules/runtimePersistenceGovernance";
 import {
   ensureHostBridgeServer,
   buildHostBridgeRemoteCliProfileForCopy,
@@ -136,19 +134,19 @@ import {
   rotateHostBridgeToken,
   startHostBridgeSupervisor,
   stopHostBridgeSupervisor,
-} from "./modules/hostBridgeServer";
+} from "./modules/hostBridge/server/hostBridgeServer";
 import {
   ensureZoteroMcpServer,
   getZoteroMcpServerStatus,
   shutdownZoteroMcpServer,
-} from "./modules/zoteroMcpServer";
-import { installHostBridgeCli } from "./modules/hostBridgeCliInstaller";
+} from "./modules/hostBridge/mcp/zoteroMcpServer";
+import { installHostBridgeCli } from "./modules/hostBridge/cli/hostBridgeCliInstaller";
 import {
   promptHostBridgeCliInstallOnStartup,
   shouldRunHostBridgeCliStartupPrompt,
   type HostBridgeCliInstallPromptState,
-} from "./modules/hostBridgeCliInstallPrompt";
-import { writeHostBridgeWellKnownProfile } from "./modules/hostBridgeProfileStore";
+} from "./modules/hostBridge/cli/hostBridgeCliInstallPrompt";
+import { writeHostBridgeWellKnownProfile } from "./modules/hostBridge/cli/hostBridgeProfileStore";
 import { delay } from "./utils/runtimeCompatibility";
 import {
   getDefaultSynthesisClient,
@@ -187,8 +185,13 @@ import {
 import {
   startDefaultSynthesisProductionOwner,
   stopDefaultSynthesisProductionOwner,
-} from "./modules/synthesisProductionOwner";
-import { shutdownAcpSkillRunConversations } from "./modules/acpSkillRunActions";
+} from "./modules/synthesis/production/synthesisProductionOwner";
+import { advanceSynthesisReverseHostLibraryRevision } from "./modules/synthesis/reverseHost/synthesisReverseHostHandlers";
+import { shutdownAcpSkillRunConversations } from "./modules/acp/skillRun/acpSkillRunActions";
+import {
+  finishCitationGraphCrashJournal,
+  initializeCitationGraphCrashJournal,
+} from "./modules/synthesis/debug/citationGraphCrashJournal";
 
 const WORKFLOW_MENU_RETRY_INTERVAL_MS = 100;
 const WORKFLOW_MENU_RETRY_MAX_ATTEMPTS = 20;
@@ -815,6 +818,10 @@ async function onStartup() {
     Zotero.uiReadyPromise,
   ]);
   await initializeRuntimeLogsPersistence();
+  if (typeof __debug_mode__ !== "undefined" && __debug_mode__) {
+    await initializeCitationGraphCrashJournal();
+  }
+  await recoverStoredAttachmentReplacements();
 
   initLocale();
   installWorkflowEditorHostBridge();
@@ -827,6 +834,15 @@ async function onStartup() {
   await ensureStartupRuntimePreflight();
   const synthesisProductionReady = startDefaultSynthesisProductionOwner();
   void synthesisProductionReady.catch((error) => {
+    appendRuntimeLog({
+      level: "error",
+      scope: "system",
+      component: "synthesis-production",
+      operation: "startup",
+      stage: "failed",
+      message: "Synthesis production owner startup failed",
+      error,
+    });
     emitVerboseConsole(
       "warn",
       "[synthesis-production] owner startup failed",
@@ -875,7 +891,9 @@ async function onStartup() {
   purgeSkillRunnerBackendReconcileState(LEGACY_REMOVED_SKILLRUNNER_BACKEND_ID);
   untrackSkillRunnerBackendHealth(LEGACY_REMOVED_SKILLRUNNER_BACKEND_ID);
   startSkillRunnerModelCacheAutoRefresh();
-  startSkillRunnerBackendReachabilityCoordinator();
+  startSkillRunnerBackendReachabilityCoordinator({
+    onBackendsChanged: refreshWorkflowMenus,
+  });
   startSkillRunnerTaskReconciler();
   void cleanupRuntimePersistenceRetention().catch((error) => {
     if (typeof console !== "undefined") {
@@ -889,9 +907,11 @@ async function onStartup() {
   startManagedLocalRuntimeAutoEnsureLoop();
   startHostBridgeSupervisor();
   if (getPref("mcpServer.enabled") !== false) {
-    void ensureZoteroMcpServer().catch((error) => {
-      emitVerboseConsole("warn", "[zotero-mcp] startup failed", error);
-    });
+    void ensureHostBridgeServer()
+      .then((hostBridgeStatus) => ensureZoteroMcpServer({ hostBridgeStatus }))
+      .catch((error) => {
+        emitVerboseConsole("warn", "[zotero-mcp] startup failed", error);
+      });
   }
 
   registerPrefsPane();
@@ -1034,9 +1054,11 @@ function registerLibraryArtifactsNotifierObserver() {
           event: string,
           type: string,
           ids: Array<string | number>,
-          _extraData?: Record<string, unknown>,
+          extraData?: Record<string, unknown>,
         ) => {
-          handleLibraryArtifactsItemNotification(event, type, ids);
+          void onNotify(event, type, ids, extraData || {}).catch(
+            () => undefined,
+          );
         },
       },
       ["item"],
@@ -1199,7 +1221,7 @@ async function onShutdown(): Promise<void> {
       "acp-runtime-semantic-trace-recorder-shutdown",
       async () => {
         const { shutdownAcpRuntimeSemanticTraceRecorder } =
-          await import("./modules/acpRuntimeSemanticTraceRecorder");
+          await import("./modules/acp/diagnostics/acpRuntimeSemanticTraceRecorder");
         await shutdownAcpRuntimeSemanticTraceRecorder();
       },
     );
@@ -1214,7 +1236,7 @@ async function onShutdown(): Promise<void> {
       "acp-runtime-replay-controller-shutdown",
       async () => {
         const { shutdownAcpRuntimeReplayController } =
-          await import("./modules/acpRuntimeReplayController");
+          await import("./modules/acp/diagnostics/acpRuntimeReplayController");
         await shutdownAcpRuntimeReplayController();
       },
     );
@@ -1223,6 +1245,12 @@ async function onShutdown(): Promise<void> {
     "runtime-log-flush",
     flushRuntimeLogsPersistence,
   );
+  if (typeof __debug_mode__ !== "undefined" && __debug_mode__) {
+    await runShutdownStepWithTimeout(
+      "citation-graph-crash-journal-finish",
+      finishCitationGraphCrashJournal,
+    );
+  }
   await runShutdownStepWithTimeout("runtime-file-range-reader-shutdown", () => {
     shutdownRuntimeFileRangeReader();
   });
@@ -1264,6 +1292,7 @@ async function onNotify(
       extraData,
     })
   ) {
+    advanceSynthesisReverseHostLibraryRevision();
     notifySynthesisWorkbenchLibraryItemsChanged({
       event,
       type,
@@ -1356,7 +1385,7 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       });
       break;
     case "openWorkflowSettings":
-      await openTaskManagerDialog({
+      await openTaskDashboard({
         initialTabKey: "workflow-options",
         initialWorkflowId:
           typeof data.workflowId === "string" ? data.workflowId : undefined,
@@ -1370,9 +1399,6 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       }
       break;
     }
-    case "openTaskManager":
-      await openTaskManagerDialog();
-      break;
     case "openDashboard":
       await openZoteroSkillsWorkspaceTab({
         window: data.window,
@@ -1397,7 +1423,7 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       const [activeTasks, acpSkillRunStore, filter, displayName] =
         await Promise.all([
           import("./modules/taskRuntime"),
-          import("./modules/acpSkillRunStore"),
+          import("./modules/acp/skillRun/acpSkillRunStore"),
           import("./modules/dashboardActiveTasks"),
           import("./backends/displayName"),
         ]);
@@ -1491,12 +1517,10 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       });
       break;
     case "openLogViewer":
-      await openTaskManagerDialog({
+      await openTaskDashboard({
         initialTabKey: "runtime-logs",
       });
       break;
-    case "scanRuntimePersistenceUsage":
-      return scanRuntimePersistenceUsage();
     case "cleanupRuntimePersistenceCategory":
       return cleanupRuntimePersistenceCategory(
         String(data.category || "") as RuntimePersistenceCategory,
@@ -1517,51 +1541,16 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
           console.warn("[runtime-persistence] progress callback failed", error);
         }
       };
-      let usageStepCount = 0;
-      let integrityStepCount = 0;
-      const usage = await scanRuntimePersistenceUsage({
-        onProgress: (progress) => {
-          usageStepCount = Math.max(usageStepCount, progress.total);
-          emitProgress({
-            ...progress,
-            percent: Math.floor((progress.percent || 0) / 2),
-          });
-        },
-      });
-      const integrity = await scanPersistenceIntegrity({
-        onProgress: (progress) => {
-          integrityStepCount = Math.max(integrityStepCount, progress.total);
-          const total = usageStepCount + progress.total;
-          emitProgress({
-            ...progress,
-            current: usageStepCount + progress.current,
-            total,
-            percent: 50 + Math.floor((progress.percent || 0) / 2),
-          });
-        },
-      });
-      emitProgress({
-        stage: "complete",
-        label: "Persistence scan complete",
-        current: Math.max(usageStepCount + integrityStepCount, 0),
-        total: Math.max(usageStepCount + integrityStepCount, 0),
-        percent: 100,
-      });
-      return { usage, integrity };
+      return scanRuntimePersistenceGovernance({ onProgress: emitProgress });
     }
     case "cleanupPersistenceGovernanceIssues": {
       const issueIds = Array.isArray(data.issueIds)
         ? data.issueIds.map((entry: unknown) => String(entry || "").trim())
         : [];
-      const cleanup = await cleanupPersistenceIssues({
+      return cleanupRuntimePersistenceIssues({
         issueIds: issueIds.filter(Boolean),
         dryRun: data.dryRun !== false,
       });
-      const [usage, integrity] = await Promise.all([
-        scanRuntimePersistenceUsage(),
-        scanPersistenceIntegrity(),
-      ]);
-      return { cleanup, usage, integrity };
     }
     case "resetSynthesisDatabase":
       return (await getDefaultSynthesisClient()).maintenance.resetDatabase({
@@ -1634,7 +1623,8 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       setPref("mcpServer.enabled", enabled);
       if (enabled) {
         try {
-          await ensureZoteroMcpServer();
+          const hostBridgeStatus = await ensureHostBridgeServer();
+          await ensureZoteroMcpServer({ hostBridgeStatus });
         } catch {
           // The returned status carries the startup failure for the preferences UI.
         }

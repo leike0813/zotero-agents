@@ -8,10 +8,10 @@ import type { LoadedWorkflow } from "../workflows/types";
 import {
   parseSettingsRecord,
   serializeSettingsRecord,
-} from "../modules/workflowSettingsDomain";
+} from "../modules/workflow/settings/workflowSettingsDomain";
 import { normalizeBackendDisplayName } from "./identity";
 import type { BackendInstance, LoadedBackends } from "./types";
-import { markAcpBackendConnectionState } from "../modules/acpBackendProbe";
+import { markAcpBackendConnectionState } from "./identity";
 import { compatibleBackendTypesForManifest } from "../workflows/manifestContract";
 
 type BackendsDocument = {

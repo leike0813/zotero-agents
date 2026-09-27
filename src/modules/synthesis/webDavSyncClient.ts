@@ -1,4 +1,5 @@
 import { readSynthesisWebDavSyncCredential } from "./webDavSyncCredentialPrefs";
+import { resolveNativeAbortControllerConstructor } from "../../utils/wait";
 export { sanitizeWebDavUrl, webDavRemoteUrl } from "./webDavSyncRemote";
 
 export type SynthesisWebDavHttpResult = {
@@ -71,10 +72,8 @@ export function createDefaultSynthesisWebDavHttpClient(): SynthesisWebDavHttpCli
       if (!fetchLike) {
         throw new Error("fetch() is unavailable for WebDAV Sync");
       }
-      const abort =
-        typeof AbortController === "function"
-          ? new AbortController()
-          : undefined;
+      const AbortControllerCtor = resolveNativeAbortControllerConstructor();
+      const abort = AbortControllerCtor ? new AbortControllerCtor() : undefined;
       const timeout = globalThis.setTimeout(() => {
         abort?.abort();
       }, DEFAULT_WEBDAV_REQUEST_TIMEOUT_MS);

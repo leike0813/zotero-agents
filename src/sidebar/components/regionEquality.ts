@@ -6,22 +6,17 @@
 // migration is in flight. A selection contains only the region's user-visible
 // content and open/collapsed state (transcript revision, streaming chunks,
 // and counts of other regions must never enter a selection).
+//
+// The page-agnostic primitives live in src/shared/regionEquality.ts and are
+// re-exported here so existing sidebar imports keep working unchanged.
 
-export function safeText(value: unknown): string {
-  return String(value == null ? "" : value).trim();
-}
+import { safeText } from "../../shared/regionEquality";
 
-export function stableRegionSignature(value: unknown): string {
-  try {
-    return JSON.stringify(value ?? null);
-  } catch {
-    return safeText(value);
-  }
-}
-
-export function equalBySignature(previous: unknown, next: unknown): boolean {
-  return stableRegionSignature(previous) === stableRegionSignature(next);
-}
+export {
+  equalBySignature,
+  safeText,
+  stableRegionSignature,
+} from "../../shared/regionEquality";
 
 type PanelLike =
   | {

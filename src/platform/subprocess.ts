@@ -12,6 +12,7 @@ export type MozillaSubprocessModule = {
     arguments?: string[];
     environment?: Record<string, string>;
     environmentAppend?: boolean;
+    stderr?: "ignore" | "stdout" | "pipe";
     workdir?: string;
   }) => Promise<{
     stdin?: {
@@ -153,6 +154,14 @@ function toFiniteExitCode(value: unknown) {
   return null;
 }
 
+/**
+ * Normalizes the exit code reported by any subprocess adapter, so callers that
+ * only need the numeric code do not re-implement the shape probing.
+ */
+export function normalizeSubprocessExitCode(value: unknown) {
+  return extractExitCode(value);
+}
+
 function extractExitCode(value: unknown) {
   const direct = toFiniteExitCode(value);
   if (direct !== null) {
@@ -234,6 +243,7 @@ function createMozillaAdapter(
         arguments: request.args,
         environment: request.environment,
         environmentAppend: true,
+        stderr: "pipe",
         workdir: request.cwd,
       });
       return {

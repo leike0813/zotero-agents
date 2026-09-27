@@ -23,7 +23,10 @@ let currentGeneration: DefaultClientGeneration | undefined;
 let shuttingDown = false;
 let shutdownTask: Promise<void> | undefined;
 const cleanupTasks = new Set<Promise<void>>();
-let compositionFactory = createReadyNativeSynthesisClientComposition;
+let recoverReadyConnection: (() => Promise<void>) | undefined;
+const createDefaultComposition = () =>
+  createReadyNativeSynthesisClientComposition({ recoverReadyConnection });
+let compositionFactory = createDefaultComposition;
 
 function unavailable(): never {
   throw new SynthesisClientError(
@@ -131,7 +134,13 @@ export function setDefaultSynthesisClientCompositionFactoryForTests(
   factory: (() => DefaultClientComposition) | null,
 ) {
   invalidateDefaultSynthesisClient();
-  compositionFactory = factory || createReadyNativeSynthesisClientComposition;
+  compositionFactory = factory || createDefaultComposition;
+}
+
+export function setDefaultSynthesisClientRecovery(
+  recovery: (() => Promise<void>) | null,
+) {
+  recoverReadyConnection = recovery || undefined;
 }
 
 export function invalidateDefaultSynthesisClient() {

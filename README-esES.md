@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/leike0813/zotero-agents/releases"><img src="https://img.shields.io/badge/version-v0.5.0-blue?style=flat-square" alt="v0.5.0" /></a>
-  <img src="https://img.shields.io/badge/Zotero-7|9-CC2936?style=flat-square&logo=zotero&logoColor=white" alt="Zotero 7/9" />
+  <img src="https://img.shields.io/badge/Zotero-7|9|10-CC2936?style=flat-square&logo=zotero&logoColor=white" alt="Zotero 7/9/10" />
   <a href="https://github.com/leike0813/zotero-agents/blob/main/LICENSE"><img src="https://img.shields.io/github/license/leike0813/zotero-agents?style=flat-square" alt="AGPL-3.0" /></a>
   <img src="https://img.shields.io/badge/TypeScript-4.0+-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
 </p>
@@ -88,11 +88,11 @@ Detrás de todo esto hay tres subsistemas que trabajan en conjunto: un **motor d
 
 ### Requisitos del sistema
 
-- [Zotero 9](https://www.zotero.org/download/) o [Zotero 7](https://www.zotero.org/download/) (versión ≥ 6.999)
+- [Zotero 10](https://www.zotero.org/download/), [Zotero 9](https://www.zotero.org/download/) o [Zotero 7](https://www.zotero.org/download/) (versión ≥ 7.0)
 - Si utiliza el backend ACP: debe tener instalada localmente la herramienta CLI del agente correspondiente (también vale la uso de `npx` para instalación automática)
 - Si utiliza el backend Skill-Runner: debe tener desplegada una instancia de [Skill-Runner](https://github.com/leike0813/Skill-Runner)
 
-> **Sobre la versión de Zotero**: Este complemento se desarrolla y prueba en Zotero 9. Zotero 8 debería ser totalmente compatible (el marco de complementos de Zotero 8/9 no ha cambiado significativamente); Zotero 7 también debería funcionar en teoría, pero no se ha probado a fondo por limitaciones de capacidad, y el mantenimiento futuro se centrará en Zotero 9. Si encuentra problemas en Zotero 7, infórmelos en [Issues](https://github.com/leike0813/zotero-agents/issues).
+> **Sobre las versiones de Zotero**: Este complemento es compatible con Zotero 7, 9 y 10. En Windows y Linux se prueban las versiones representativas 7.0.32, 9.0.6 y 10.0.1. Para Zotero 10 en macOS, la evidencia actual es una prueba de humo formal del XPI no bloqueante; no implica cobertura de todas las versiones de parche anteriores.
 
 ### Tipos de backend
 
@@ -595,12 +595,12 @@ npm run build        # Compilación para producción
 
 | Documento | Descripción |
 |-----------|-------------|
-| [Flujo de arquitectura](doc/architecture-flow.md) | Resumen de la canalización de ejecución (con diagrama de flujo Mermaid) |
-| [Guía de desarrollo](doc/dev_guide.md) | Componentes principales, modelo de configuración, cadena de ejecución |
-| [Componentes de flujos de trabajo](doc/components/workflows.md) | Esquema del manifiesto, hooks, filtrado de entrada, semántica de ejecución |
-| [Componentes de Provider](doc/components/providers.md) | Sistema de contrato de Provider, tipos de solicitud |
-| [Estrategia de pruebas](doc/testing-framework.md) | Entornos de ejecución duales, modos lite/full, barreras de CI |
-| [Capa Synthesis](doc/synthesis-layer/README.md) | Diseño interno del grafo de conocimiento, grafo de citas y base de conocimiento conceptual |
+| [Flujo de arquitectura](docs/architecture-flow.md) | Resumen de la canalización de ejecución (con diagrama de flujo Mermaid) |
+| [Guía de desarrollo](docs/dev_guide.md) | Componentes principales, modelo de configuración, cadena de ejecución |
+| [Componentes de flujos de trabajo](docs/components/workflows.md) | Esquema del manifiesto, hooks, filtrado de entrada, semántica de ejecución |
+| [Componentes de Provider](docs/components/providers.md) | Sistema de contrato de Provider, tipos de solicitud |
+| [Estrategia de pruebas](docs/testing-framework.md) | Entornos de ejecución duales, modos lite/full, barreras de CI |
+| [Capa Synthesis](docs/synthesis-layer/README.md) | Diseño interno del grafo de conocimiento, grafo de citas y base de conocimiento conceptual |
 
 </details>
 

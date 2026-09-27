@@ -1,7 +1,7 @@
 # task-runtime-ui Specification
 
 ## Purpose
-TBD - created by archiving change m2-baseline. Update Purpose after archive.
+Task runtime UI presents workflow execution state, history, logs and diagnostics through Dashboard and related management windows. It preserves provider-owned task semantics, stable interaction state and bounded, region-scoped rendering while routing user actions through the host contracts.
 ## Requirements
 ### Requirement: 系统必须维护任务运行态模型
 系统 MUST 维护任务在运行期的状态（排队、执行、完成、失败），并提供稳定标识用于查询与展示。
@@ -130,7 +130,9 @@ TBD - created by archiving change m2-baseline. Update Purpose after archive.
 
 The Task Dashboard SHALL use the shared Zotero Skills visual theme foundation
 for shell, sidebar, cards, tables, forms, workflow settings, and custom select
-controls.
+controls. Control, text-scale, spacing and status-badge tokens SHALL come from
+the shared page-chrome layer loaded by both page documents, and the Dashboard
+SHALL NOT keep a page-private duplicate of those tokens.
 
 #### Scenario: Dashboard renders in dark mode
 
@@ -139,6 +141,15 @@ controls.
   settings dialogs SHALL remain readable
 - **AND** Dashboard CSS SHALL NOT depend on a separate independent palette for
   core surfaces.
+
+#### Scenario: A shared token changes
+
+- **WHEN** a control, text-scale, spacing or badge token changes in the shared
+  page-chrome layer
+- **THEN** Dashboard controls and status chips SHALL pick up the change without
+  editing a Dashboard-private palette
+- **AND** status chips SHALL keep their semantic variant colors in both light
+  and dark themes.
 
 ### Requirement: Startup SHALL reconcile provider task UI projections
 
@@ -348,7 +359,7 @@ SkillRunner local run state.
 #### Scenario: SkillRunner UI projection ignores legacy rows
 
 - **WHEN** legacy SkillRunner task/request/context rows remain in local state
-- **THEN** Dashboard, Task Manager, and assistant workspace SHALL list SkillRunner tasks from the SkillRunner run store
+- **THEN** Dashboard, Task Dashboard, and assistant workspace SHALL list SkillRunner tasks from the SkillRunner run store
 - **AND** they SHALL NOT restore or display tasks from legacy SkillRunner rows.
 
 ### Requirement: SkillRunner run workspace MUST preserve warm stream session state
@@ -587,7 +598,7 @@ Task runtime UI MUST use `runKey` as the stable key for SkillRunner rows across 
 
 ### Requirement: SkillRunner UI projection MUST derive display facts dynamically
 
-SkillRunner task UI MUST derive display facts from the run projection and MUST NOT persist or own lifecycle facts.
+SkillRunner task UI MUST derive display facts from the current SkillRunner run projection. Generic task storage and active indexes MUST NOT hydrate, copy, persist, or own SkillRunner lifecycle projections.
 
 #### Scenario: Backend connection data comes from backend registry
 
@@ -616,6 +627,20 @@ SkillRunner task UI MUST derive display facts from the run projection and MUST N
   fallback to `workflowId`
 - **AND** it MUST resolve `sequenceStepIndex` and `sequenceFinalStepId` from
   `SequenceRunState` when sequence state is available.
+
+#### Scenario: Run Store terminal state is visible without explicit synchronization
+
+- **GIVEN** a SkillRunner run is visible in an active task summary
+- **WHEN** its Run Store projection becomes terminal
+- **THEN** the next task summary read MUST use that terminal projection
+- **AND** the run MUST disappear from active summaries without an explicit copy or synchronization step.
+
+#### Scenario: Dashboard refresh cache does not own lifecycle truth
+
+- **WHEN** Dashboard reuses a revision-scoped or dirty-gated task-row projection
+- **THEN** that cache MAY avoid redundant UI projection work
+- **AND** a cache miss MUST still derive SkillRunner rows from the Run Store
+- **AND** the cache MUST NOT become the correctness source for lifecycle state.
 
 ### Requirement: Observer detached state MUST preserve visible SkillRunner rows
 
@@ -780,3 +805,212 @@ backend tab to rebuild.
 - **WHEN** a queued unit changes for a backend other than the currently visible tab
 - **THEN** Dashboard SHALL update the stored backend snapshot or dirty marker
 - **AND** it SHALL NOT rebuild the visible unrelated tab
+
+### Requirement: Dashboard refresh preserves region interaction state
+Dashboard SHALL preserve unchanged log/trace row identity, input focus, product expansion and applicable scroll positions across snapshot refreshes. Closing a page SHALL stop its timers, observers and event listeners.
+
+#### Scenario: Snapshot repeats during user interaction
+- **WHEN** Dashboard receives an equivalent snapshot while the user inspects logs or a product tree
+- **THEN** unchanged rows and controls retain identity and the current scroll/expansion state remains intact.
+
+#### Scenario: Dashboard window closes
+- **WHEN** Dashboard or a management child window closes
+- **THEN** no page-owned delayed callback mutates its disposed DOM.
+
+### Requirement: Dashboard and management windows use typed Preact page entries
+
+Dashboard, Backend Manager and Workflow Settings SHALL build from TypeScript/TSX page sources under `src/dashboard` using Preact. Their packaged script names and host loading behavior SHALL remain stable. The handwritten addon scripts SHALL be retired when the replacement entries are enabled.
+
+#### Scenario: Plugin build packages the migrated pages
+
+- **WHEN** the plugin builds Dashboard and its management windows
+- **THEN** each page SHALL load its generated bundle through the existing HTML/script resource path
+- **AND** no second handwritten production renderer SHALL be required.
+
+### Requirement: Dashboard renders independently memoized regions
+
+Dashboard SHALL use stable region containers, page projection and independent Preact roots for its tab bar and active business surfaces. Region equality SHALL use shared signature primitives and only the region's visible content and relevant interaction state.
+
+#### Scenario: Runtime logs change while chrome is unchanged
+
+- **WHEN** a snapshot changes only the visible runtime-log data
+- **THEN** the log region SHALL update while unchanged navigation and controls retain their DOM identity.
+
+#### Scenario: User navigates between Dashboard surfaces
+
+- **WHEN** the user opens Home, workflow options, Products, a backend, logs, Sidecar traces, audit or replay
+- **THEN** the corresponding region SHALL preserve its existing available actions and loading/empty/error behavior.
+
+### Requirement: Dashboard wire contracts preserve host semantics
+
+Dashboard snapshots, action payload maps and message envelopes SHALL be defined by portable shared contracts consumed by page and host. Extraction SHALL preserve existing action names, payload meaning and host refresh governance. Privileged host implementation SHALL NOT enter page runtime imports.
+
+#### Scenario: A page sends a workflow or backend action
+
+- **WHEN** a Dashboard control or child window dispatches an existing action
+- **THEN** its payload SHALL follow the shared contract and existing host route
+- **AND** host-side validation and action behavior SHALL remain authoritative.
+
+### Requirement: Dashboard forms and backend presentation reuse shared components
+
+Dashboard and Workflow Settings SHALL share field rendering, conditional visibility, numeric validation and draft behavior. Backend task presentation SHALL reuse common rendering across supported backend kinds while preserving their available actions.
+
+#### Scenario: A workflow field appears in either settings surface
+
+- **WHEN** the same descriptor is edited in Dashboard or the settings window
+- **THEN** visibility, valid values and emitted workflow/provider/run/host options SHALL follow the same form rules.
+
+### Requirement: Dashboard high-frequency rows have bounded owned rendering
+
+Runtime logs SHALL render a bounded row window and preserve unchanged row/control identity. Sidecar traces SHALL reconcile by trace identity and preserve the current selection and detail. Page/component owners SHALL clean up replay, draft and feedback timers and listeners.
+
+#### Scenario: Logs or traces append while being inspected
+
+- **WHEN** new rows arrive during selection or scrolling
+- **THEN** unchanged visible rows and controls SHALL retain identity
+- **AND** the renderer SHALL respect its row bound and preserve applicable user scroll/selection state.
+
+### Requirement: Dashboard resolves visible labels during rendering
+
+Dashboard and child-window components SHALL consume injected labels through props/projection and retain the existing shared theme/assets. Localization governance SHALL inspect their TypeScript/TSX source directories.
+
+#### Scenario: Host supplies translated labels
+
+- **WHEN** a page renders a snapshot with host labels
+- **THEN** controls and headings SHALL consume those labels without a whole-page reverse-text translation pass.
+
+### Requirement: Dashboard SHALL provide a permanent bounded Migrations region
+
+The Dashboard system navigation SHALL include a permanent Migrations tab after Runtime Logs. Its first entry SHALL be a statically registered Literature Artifact library migration. The region SHALL render only typed metadata, library scope, availability, bounded preview/progress/attention/history, and command state; it SHALL not interpret or edit artifact payloads.
+
+#### Scenario: Migrations is rendered after PR40 page migration
+- **WHEN** the Dashboard renders its system navigation
+- **THEN** Migrations SHALL appear after Runtime Logs
+- **AND** the entry SHALL render through the page-region architecture without replacing or rebuilding unrelated Dashboard regions.
+
+#### Scenario: A migration has no candidates
+- **WHEN** the registered migration reports an empty scan
+- **THEN** the Migrations tab and entry SHALL remain visible
+- **AND** the UI SHALL show an empty typed state for that entry.
+
+#### Scenario: A migration is unavailable
+- **WHEN** a read-only library, stale definition, missing permission, or runtime capability makes apply unavailable
+- **THEN** the entry SHALL show its availability and bounded reason
+- **AND** the region SHALL not hide the migration surface or offer an unsafe apply control.
+
+### Requirement: Migration UI commands SHALL be local, typed, and effect-separated
+
+The Migrations region SHALL route scan, apply, stop, continue, preview, receipt, and history commands through the Dashboard-local typed projection. Opening or observing the region, selecting a library, deep-linking, and receiving notifications SHALL not scan or write. Apply SHALL submit only runtime-issued scan and candidate references; it SHALL not submit converted artifacts, mappings, plans, or basis authority.
+
+#### Scenario: User opens a migration entry
+- **WHEN** the user navigates to, selects, or deep-links the migration entry
+- **THEN** the UI SHALL request or display an observation snapshot only
+- **AND** no scan or write command SHALL be issued.
+
+#### Scenario: User confirms selected candidate sets
+- **WHEN** the user confirms ready or review-required sets
+- **THEN** the UI SHALL send the scan operation identity and selected runtime candidate IDs
+- **AND** it SHALL not construct a Source Reference, Citation, mapping, or conversion plan in the browser.
+
+#### Scenario: A migration operation is active in another Dashboard window
+- **WHEN** a second window opens or starts the same library migration
+- **THEN** both windows SHALL observe one shared active snapshot
+- **AND** a second start SHALL show typed `busy` rather than queueing work.
+
+### Requirement: Migration history and progress SHALL remain bounded and auditable
+
+The region SHALL render per-run and per-set state from durable typed receipts, including classification, verified/unresolved/recovered counts, reason codes, processed and remaining counts, bounded diagnostics, and terminal outcome. It SHALL not expose raw note HTML, storage paths, native IDs, full payload copies, or a second long-term backup representation.
+
+#### Scenario: A set requires review or attention
+- **WHEN** a scan or apply produces unresolved linkage, snapshot recovery, skipped review sets, or cleanup repair
+- **THEN** the region SHALL show the typed classification and bounded reason/count
+- **AND** it SHALL require explicit set-level review or continue action where the contract requires it.
+
+#### Scenario: A run finishes with cleanup attention
+- **WHEN** canonical data is committed but old payload cleanup fails
+- **THEN** the region SHALL show `completed_with_attention` and the affected set's `repair_required` result
+- **AND** it SHALL retain the canonical result while exposing the available repair action.
+
+#### Scenario: The process restarts with an incomplete run
+- **WHEN** history contains a nonterminal run after restart
+- **THEN** the region SHALL display it as interrupted/failed according to the durable receipt
+- **AND** it SHALL not present the old preview as directly actionable without a fresh scan.
+
+### Requirement: Dashboard panels SHALL own one primary content scroll region
+
+The Dashboard page root and its main container SHALL NOT scroll. Every panel
+SHALL fix its header, toolbars, filter rows, summary blocks and pagination
+zones outside scrolling and SHALL expose one primary content scroll region for
+its primary content, named with the shared `.zs-scroll-region` utility. A
+table that is itself a panel's content scroll container MAY keep its own
+bounded height (the shared `.table-wrap` 320 px cap applies only to those
+wrappers); a table inside a panel content scroll region SHALL be flattened
+(`max-height: none`) so its sticky header sticks to that region instead of
+creating a second scroll container.
+
+#### Scenario: Home summary and running tasks are rendered
+
+- **WHEN** the Home panel renders its workflow digest, summary counts and
+  running-task table
+- **THEN** the page and main container SHALL NOT scroll
+- **AND** the running-task table SHALL scroll with the Home content region
+  rather than inside a second, fixed-height scroll box
+- **AND** only one scrollbar SHALL be present in that panel.
+
+#### Scenario: A panel content is taller than the viewport
+
+- **WHEN** a workflow options form, backend task list, Sidecar trace list, ACP
+  trace replay or migrations candidate list has more content than the available
+  height
+- **THEN** the panel's own content region SHALL scroll
+- **AND** the panel header, toolbar, filter and pagination zones SHALL remain
+  fixed and visible.
+
+#### Scenario: A table has a sticky header
+
+- **WHEN** the user scrolls a Dashboard table whose header is sticky and that
+  table sits inside a panel content region
+- **THEN** the sticky header SHALL stay pinned within that region
+- **AND** the table SHALL NOT scroll in a nested container.
+
+### Requirement: Dashboard secondary views SHALL expose the back entry first
+
+The Dashboard workflow documentation subview SHALL render its back entry as the
+first element of the shared panel header and SHALL NOT duplicate it as a footer
+action.
+
+#### Scenario: User opens a workflow document
+
+- **WHEN** the user opens a workflow README from the Home panel
+- **THEN** the documentation view SHALL render a back entry as the first
+  element of its panel header
+- **AND** no separate back or return control SHALL be rendered in the view
+  footer.
+
+#### Scenario: User returns from a workflow document
+
+- **WHEN** the user activates the back entry
+- **THEN** the Dashboard SHALL return to the originating Home panel state.
+
+### Requirement: Migrations region SHALL present unified panel chrome
+
+The Migrations region SHALL render through the shared panel header, button,
+text-input, badge and progress patterns. Its candidate list SHALL be the
+region's single scroll region with the pagination zone fixed at the bottom, and
+progress, summary counts and classification SHALL use semantic badge variants.
+
+#### Scenario: A migration run is active
+
+- **WHEN** a migration scan or apply reports progress and summary counts
+- **THEN** the region SHALL show a determinate progress bar, or an indeterminate
+  one when the total is unknown
+- **AND** verified, unresolved, skipped and attention counts SHALL render as
+  semantic badges rather than ad-hoc colored text.
+
+#### Scenario: The migration region has candidates
+
+- **WHEN** the candidate list exceeds the available height
+- **THEN** the candidate list SHALL scroll within the region's single scroll
+  region
+- **AND** the panel header, toolbar and pagination zone SHALL remain fixed
+- **AND** the region content SHALL NOT be clipped by the panel root.

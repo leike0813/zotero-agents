@@ -1,6 +1,7 @@
 import { escapeAttribute } from "./htmlCodec.mjs";
 import {
   portableItemRef,
+  readHostPages,
   requireHostApi,
 } from "./runtime.mjs";
 
@@ -50,15 +51,20 @@ export function renderMarkedEmbeddedImage(args) {
 export async function cleanupOwnedEmbeddedImages(args) {
   const hostApi = requireHostApi(args.runtime);
   const noteRef = portableItemRef(args.note);
-  const attachments = await hostApi.library.getItemAttachments(noteRef);
+  const attachments = await readHostPages({
+    readPage: (page) => hostApi.library.getItemAttachments(noteRef, page),
+    getItems: (page) => page.attachments,
+    operation: "embedded image attachment read",
+  });
   for (const key of Array.from(new Set(args.keys || []))) {
     try {
       const attachment = attachments.find((entry) => entry.ref.key === key);
       if (!attachment) continue;
-      await hostApi.attachments.remove({
+      await hostApi.mutations.execute({
+        operation: "trash.setItemsState",
         operationId: `note-image:remove:${noteRef.libraryId}:${noteRef.key}:${key}`,
-        attachmentRef: attachment.ref,
-        disposition: "trash",
+        itemRefs: [attachment.ref],
+        state: "trashed",
       });
     } catch {
       // Derived-image cleanup is best effort.

@@ -52,7 +52,7 @@ provider:
 프로필에는 `assets/host-bridge/profile.example.json`에 Host Bridge 연결 템플릿이 포함되어 있습니다. 실제 엔드포인트와 토큰을 제공해야 합니다:
 
 1. Zotero → 설정 → Zotero Agents → Host Bridge 열기
-2. **시작 / 엔드포인트 표시**를 클릭하여 브리지가 실행 중인지 확인하고 엔드포인트 URL(예: `http://127.0.0.1:26570/bridge/v1`)을 기록
+2. **시작 / 엔드포인트 표시**를 클릭하여 브리지가 실행 중인지 확인하고 엔드포인트 URL(예: `http://127.0.0.1:26570/bridge/v2`)을 기록
 3. **마스터 토큰 복사**를 클릭(또는 패널에 표시된 세션 토큰 사용)
 4. 토큰을 환경 변수로 설정:
 
@@ -67,7 +67,7 @@ $env:ZOTERO_BRIDGE_TOKEN = "<사용자-토큰>"
 5. 원격/LAN 액세스의 경우 엔드포인트도 직접 포함:
 
 ```bash
-export ZOTERO_BRIDGE_ENDPOINT="http://127.0.0.1:26570/bridge/v1"
+export ZOTERO_BRIDGE_ENDPOINT="http://127.0.0.1:26570/bridge/v2"
 ```
 
 프로필 템플릿은 `auth.tokenEnv: "ZOTERO_BRIDGE_TOKEN"`을 사용하므로 CLI가 환경에서 자동으로 토큰을 가져옵니다. 엔드포인트, 토큰 및 프로필 파일에 대한 자세한 내용은 [Host Bridge 구성](#doc/backends%2Fhost-bridge)을 참조하세요.

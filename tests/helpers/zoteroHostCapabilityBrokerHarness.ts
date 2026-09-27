@@ -1,0 +1,113 @@
+import {
+  ZoteroHostCapabilityError,
+  type ZoteroHostCapabilityBroker,
+} from "../../src/modules/zoteroHostCapabilityBroker";
+import { assertWorkflowHostStrictJsonValue } from "../../src/workflows/workflowHostErrorContract";
+
+type ZoteroHostCapabilityBrokerConfiguration = {
+  [Domain in keyof ZoteroHostCapabilityBroker]?: {
+    [Member in keyof ZoteroHostCapabilityBroker[Domain]]?: ZoteroHostCapabilityBroker[Domain][Member];
+  };
+};
+
+export function assertStrictJsonValue(value: unknown): void {
+  assertWorkflowHostStrictJsonValue(value);
+}
+
+export function createFailClosedZoteroHostCapabilityBroker(
+  configuration: ZoteroHostCapabilityBrokerConfiguration = {},
+): ZoteroHostCapabilityBroker {
+  const unexpected = (capability: string) => () => {
+    throw new ZoteroHostCapabilityError(
+      "unavailable",
+      `unexpected broker capability: ${capability}`,
+      { reason: "capability" },
+    );
+  };
+  const broker: ZoteroHostCapabilityBroker = {
+    context: {
+      getCurrentView: unexpected("context.getCurrentView"),
+      getSelectedItems: unexpected("context.getSelectedItems"),
+    },
+    navigation: {
+      focusZotero: unexpected("navigation.focusZotero"),
+      selectLibraryView: unexpected("navigation.selectLibraryView"),
+      selectCollection: unexpected("navigation.selectCollection"),
+      selectSavedSearch: unexpected("navigation.selectSavedSearch"),
+      revealItems: unexpected("navigation.revealItems"),
+      openItem: unexpected("navigation.openItem"),
+      openReaderLocation: unexpected("navigation.openReaderLocation"),
+    },
+    library: {
+      listItems: unexpected("library.listItems"),
+      traverseItems: unexpected("library.traverseItems"),
+      listCollections: unexpected("library.listCollections"),
+      listSavedSearches: unexpected("library.listSavedSearches"),
+      syncSnapshot: unexpected("library.syncSnapshot"),
+      cancelSnapshot: unexpected("library.cancelSnapshot"),
+      readinessAudit: unexpected("library.readinessAudit"),
+      getItemDetail: unexpected("library.getItemDetail"),
+      getItemNotes: unexpected("library.getItemNotes"),
+      getNoteDetail: unexpected("library.getNoteDetail"),
+      listNotePayloads: unexpected("library.listNotePayloads"),
+      getNotePayload: unexpected("library.getNotePayload"),
+      listAnnotations: unexpected("library.listAnnotations"),
+      exportPortableItems: unexpected("library.exportPortableItems"),
+      exportAnnotations: unexpected("library.exportAnnotations"),
+      getItemAttachments: unexpected("library.getItemAttachments"),
+    },
+    metadata: {
+      translateIdentifier: unexpected("metadata.translateIdentifier"),
+    },
+    mutations: {
+      getOperation: unexpected("mutations.getOperation"),
+      preview: unexpected("mutations.preview"),
+      execute: unexpected("mutations.execute"),
+    },
+    statusTags: {
+      getPolicy: unexpected("statusTags.getPolicy"),
+      transition: unexpected("statusTags.transition"),
+    },
+    notes: {
+      create: unexpected("notes.create"),
+      updateContent: unexpected("notes.updateContent"),
+      remove: unexpected("notes.remove"),
+      upsertPayload: unexpected("notes.upsertPayload"),
+    },
+    managedNotes: {
+      writeCustom: unexpected("managedNotes.writeCustom"),
+      writeConversation: unexpected("managedNotes.writeConversation"),
+    },
+    literatureArtifacts: {
+      upsertDigest: unexpected("literatureArtifacts.upsertDigest"),
+      upsertReferences: unexpected("literatureArtifacts.upsertReferences"),
+      upsertCitationAnalysis: unexpected(
+        "literatureArtifacts.upsertCitationAnalysis",
+      ),
+      upsertScore: unexpected("literatureArtifacts.upsertScore"),
+    },
+    attachments: {
+      create: unexpected("attachments.create"),
+      updateMetadata: unexpected("attachments.updateMetadata"),
+      replaceFile: unexpected("attachments.replaceFile"),
+      move: unexpected("attachments.move"),
+      remove: unexpected("attachments.remove"),
+    },
+  };
+  return {
+    ...broker,
+    context: { ...broker.context, ...configuration.context },
+    navigation: { ...broker.navigation, ...configuration.navigation },
+    library: { ...broker.library, ...configuration.library },
+    metadata: { ...broker.metadata, ...configuration.metadata },
+    mutations: { ...broker.mutations, ...configuration.mutations },
+    statusTags: { ...broker.statusTags, ...configuration.statusTags },
+    notes: { ...broker.notes, ...configuration.notes },
+    managedNotes: { ...broker.managedNotes, ...configuration.managedNotes },
+    literatureArtifacts: {
+      ...broker.literatureArtifacts,
+      ...configuration.literatureArtifacts,
+    },
+    attachments: { ...broker.attachments, ...configuration.attachments },
+  };
+}

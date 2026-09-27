@@ -33,6 +33,8 @@ import {
 import {
   rebuildSynthesisHostArtifactReadRequest,
   rebuildSynthesisHostArtifactReadResult,
+  rebuildSynthesisHostArtifactReadinessRequest,
+  rebuildSynthesisHostArtifactReadinessResult,
   rebuildSynthesisHostArtifactScanPageRequest,
   rebuildSynthesisHostArtifactScanPageResult,
   rebuildSynthesisHostLibraryItemsByRefRequest,
@@ -41,6 +43,8 @@ import {
   rebuildSynthesisHostPageRequest,
   type SynthesisHostArtifactReadRequest,
   type SynthesisHostArtifactReadResult,
+  type SynthesisHostArtifactReadinessRequest,
+  type SynthesisHostArtifactReadinessResult,
   type SynthesisHostArtifactScanPageRequest,
   type SynthesisHostArtifactScanPageResult,
   type SynthesisHostLibraryItemsByRefRequest,
@@ -111,6 +115,7 @@ export const SYNTHESIS_REVERSE_HOST_LIMITS = Object.freeze({
   responseHeaderBytes: 16 * 1024,
   responseBodyBytes: 1024 * 1024,
   callTimeoutMs: 2_000,
+  maxCallTimeoutMs: 30 * 60_000,
   idleTimeoutMs: 1_000,
   deadlineMs: 60_000,
 });
@@ -123,6 +128,7 @@ export const SYNTHESIS_REVERSE_HOST_CAPABILITIES = [
   "library.items.get_by_ref",
   "library.items.get_audit_state",
   "library.artifacts.scan_page",
+  "library.artifacts.readiness",
   "library.artifacts.read",
   "library.representative_image.read",
   "delivery.export.publish_archive",
@@ -171,6 +177,10 @@ export interface SynthesisReverseHostContractMap {
   "library.artifacts.scan_page": {
     request: Omit<SynthesisHostArtifactScanPageRequest, "libraryId">;
     result: SynthesisHostArtifactScanPageResult;
+  };
+  "library.artifacts.readiness": {
+    request: Omit<SynthesisHostArtifactReadinessRequest, "libraryId">;
+    result: SynthesisHostArtifactReadinessResult;
   };
   "library.artifacts.read": {
     request: SynthesisHostArtifactReadRequest;
@@ -229,19 +239,35 @@ export type SynthesisReverseHostResult<
 export const SYNTHESIS_REVERSE_HOST_CAPABILITY_POLICIES = Object.freeze({
   "library.items.sync_snapshot": Object.freeze({
     responseBodyBytes: 8 * 1024 * 1024,
-    callTimeoutMs: 30_000,
+    callTimeoutMs: SYNTHESIS_REVERSE_HOST_LIMITS.maxCallTimeoutMs,
+  }),
+  "library.items.list_page": Object.freeze({
+    responseBodyBytes: SYNTHESIS_REVERSE_HOST_LIMITS.responseBodyBytes,
+    callTimeoutMs: SYNTHESIS_REVERSE_HOST_LIMITS.maxCallTimeoutMs,
+  }),
+  "library.items.get_by_ref": Object.freeze({
+    responseBodyBytes: SYNTHESIS_REVERSE_HOST_LIMITS.responseBodyBytes,
+    callTimeoutMs: SYNTHESIS_REVERSE_HOST_LIMITS.maxCallTimeoutMs,
+  }),
+  "library.items.get_audit_state": Object.freeze({
+    responseBodyBytes: SYNTHESIS_REVERSE_HOST_LIMITS.responseBodyBytes,
+    callTimeoutMs: SYNTHESIS_REVERSE_HOST_LIMITS.maxCallTimeoutMs,
   }),
   "library.artifacts.scan_page": Object.freeze({
     responseBodyBytes: SYNTHESIS_REVERSE_HOST_LIMITS.responseBodyBytes,
-    callTimeoutMs: 10_000,
+    callTimeoutMs: SYNTHESIS_REVERSE_HOST_LIMITS.maxCallTimeoutMs,
+  }),
+  "library.artifacts.readiness": Object.freeze({
+    responseBodyBytes: SYNTHESIS_REVERSE_HOST_LIMITS.responseBodyBytes,
+    callTimeoutMs: SYNTHESIS_REVERSE_HOST_LIMITS.maxCallTimeoutMs,
   }),
   "library.artifacts.read": Object.freeze({
     responseBodyBytes: 8 * 1024 * 1024,
-    callTimeoutMs: 10_000,
+    callTimeoutMs: SYNTHESIS_REVERSE_HOST_LIMITS.maxCallTimeoutMs,
   }),
   "library.representative_image.read": Object.freeze({
     responseBodyBytes: 8 * 1024 * 1024,
-    callTimeoutMs: 10_000,
+    callTimeoutMs: SYNTHESIS_REVERSE_HOST_LIMITS.maxCallTimeoutMs,
   }),
   "delivery.export.publish_archive": Object.freeze({
     responseBodyBytes: SYNTHESIS_REVERSE_HOST_LIMITS.responseBodyBytes,
@@ -827,6 +853,27 @@ export function rebuildSynthesisReverseHostPayload<
         rebuilt = request;
       }
       break;
+    case "library.artifacts.readiness": {
+      const payload = toSynthesisJsonObject(
+        value,
+        "hostArtifactReadinessRequest",
+      );
+      exactFields(
+        payload,
+        [
+          "paperRefs",
+          ...(payload.artifactTypes === undefined ? [] : ["artifactTypes"]),
+        ],
+        "hostArtifactReadinessRequest",
+      );
+      const { libraryId: _libraryId, ...request } =
+        rebuildSynthesisHostArtifactReadinessRequest({
+          ...payload,
+          libraryId: 1,
+        });
+      rebuilt = request;
+      break;
+    }
     case "library.artifacts.read":
       rebuilt = rebuildSynthesisHostArtifactReadRequest(value);
       break;
@@ -943,6 +990,9 @@ export function rebuildSynthesisReverseHostResult<
     }
     case "library.artifacts.scan_page":
       rebuilt = rebuildSynthesisHostArtifactScanPageResult(value);
+      break;
+    case "library.artifacts.readiness":
+      rebuilt = rebuildSynthesisHostArtifactReadinessResult(value);
       break;
     case "library.artifacts.read":
       rebuilt = rebuildSynthesisHostArtifactReadResult(value);

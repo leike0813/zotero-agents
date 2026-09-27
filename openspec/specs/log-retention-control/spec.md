@@ -3,7 +3,7 @@
 ## Purpose
 TBD - created by archiving change add-plugin-log-system. Update Purpose after archive.
 ## Requirements
-### Requirement: Runtime Logs SHALL Be Ephemeral and Session-Scoped
+### Requirement: Runtime Logs SHALL Be Persisted Within Retention Bounds
 
 Logs SHALL be persisted in plugin preferences and restored on next plugin
 startup within retention constraints. Persistence SHALL use short batched writes
@@ -91,26 +91,23 @@ before those entries expire.
 - **AND** hydration SHALL route entries by level into the two in-memory
   queues without changing the global order exposed by read APIs.
 
-### Requirement: High-Frequency Control-Plane Actions SHALL Emit at Debug Level
+### Requirement: High-Frequency Control-Plane Success SHALL Bypass Persistence
 
-The Assistant Workspace host audit trail SHALL emit shell/child control-plane
-actions at level `debug` instead of `info`. The set of downgraded actions is
-explicit and limited to high-frequency control-plane traffic. Lifecycle and
-user-initiated input actions SHALL remain at `info` (or `warn` on error).
+The Assistant Workspace host audit trail SHALL omit successful shell/child
+control-plane actions from persistent runtime logs. Lifecycle `ready` events
+SHALL remain at `info`, and failed actions SHALL remain at `warn` or `error`.
 
-#### Scenario: Child control-plane actions are downgraded
+#### Scenario: Child control-plane success is omitted
 
 - **WHEN** the host records a child-action for `publication-ack`,
   `publication-render-observation`, `load-transcript-page`, or
   `request-owner-details`
-- **THEN** the runtime log entry SHALL have level `debug`
-- **AND** the entry SHALL NOT appear in normal-mode default filtering.
+- **THEN** no persistent runtime log entry SHALL be appended.
 
-#### Scenario: Shell user actions are downgraded
+#### Scenario: Shell control-plane success is omitted
 
 - **WHEN** the host records a shell-action for `set-tab` or `close-sidebar`
-- **THEN** the runtime log entry SHALL have level `debug`
-- **AND** the entry SHALL NOT appear in normal-mode default filtering.
+- **THEN** no persistent runtime log entry SHALL be appended.
 
 #### Scenario: Lifecycle events remain at info
 
@@ -118,12 +115,11 @@ user-initiated input actions SHALL remain at `info` (or `warn` on error).
 - **THEN** the runtime log entry SHALL have level `info`
 - **AND** the entry SHALL appear in normal-mode default filtering.
 
-#### Scenario: Audit trail remains complete in diagnostic mode
+#### Scenario: Diagnostic mode does not restore success chatter
 
 - **GIVEN** diagnostic mode is enabled
-- **WHEN** any of the downgraded control-plane actions is recorded
-- **THEN** the entry SHALL be retained and SHALL appear under the Debug
-  filter.
+- **WHEN** successful high-frequency control-plane actions are processed
+- **THEN** they SHALL remain absent from persistent runtime logs.
 
 ### Requirement: Retention System SHALL Track and Expose Truncation State
 The system MUST maintain truncation metadata for user-visible diagnostics.
@@ -137,3 +133,14 @@ The system MUST maintain truncation metadata for user-visible diagnostics.
 - **WHEN** overflow eviction occurs
 - **THEN** system SHALL record budget-hit reason (`entry_limit` or `byte_budget`) for viewer/export diagnostics
 
+### Requirement: Log retention preferences SHALL describe their actual persistence boundary
+
+Runtime-log retention settings SHALL be documented and projected according to
+the existing preference-backed persistence implementation. Workspace UI success
+traffic SHALL be excluded before retention accounting, and this change SHALL
+NOT delete previously retained entries automatically.
+
+#### Scenario: The plugin upgrades with existing logs
+
+- **WHEN** the new logging policy becomes active
+- **THEN** existing retained logs remain available until the user or normal retention policy removes them

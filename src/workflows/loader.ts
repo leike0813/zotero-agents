@@ -26,7 +26,7 @@ import {
 import {
   emitWorkflowPackageDiagnostic,
   summarizeWorkflowRuntimeCapabilities,
-} from "../modules/workflowPackageDiagnostics";
+} from "../modules/workflow/catalog/workflowPackageDiagnostics";
 import { isDebugModeEnabled } from "../modules/debugMode";
 import { bundlePackageHookScript } from "./packageHookBundler";
 import {

@@ -90,3 +90,160 @@ The supervisor SHALL be the single owner of startup deadline, retry, fuse, termi
 - **WHEN** the startup deadline expires during an attempt
 - **THEN** the supervisor terminates the generation once
 - **AND** no production-owner timer or pending retry starts another child
+
+### Requirement: The production-lock winner SHALL reconcile stale discovery
+
+Startup SHALL remove a pre-existing discovery document only after winning the
+production lock. Missing discovery SHALL succeed. Other cleanup failures SHALL
+return `stale_discovery_cleanup_failed` and release the acquired lock.
+
+#### Scenario: A prior owner died after readiness
+
+- **WHEN** no live process holds the lock but discovery remains
+- **THEN** the next owner removes it before publishing its own ready document
+
+#### Scenario: A competing owner is live
+
+- **WHEN** lock acquisition returns `production_lock_conflict`
+- **THEN** the losing process leaves the live owner's discovery unchanged
+
+#### Scenario: Parent input closes after readiness
+
+- **WHEN** the real sidecar process observes parent EOF
+- **THEN** it exits successfully within the lifecycle bound and removes discovery
+
+### Requirement: Unexpected post-ready loss SHALL recover once before dispatch
+
+The production owner SHALL offer one shared recovery attempt when a client
+operation discovers that an unexpectedly terminated post-ready generation has
+no ready connection and the operation has not sent an RPC. Concurrent callers
+SHALL share the same recovery attempt. A successful recovery SHALL allow those
+callers to acquire the replacement connection and dispatch once. The production
+owner SHALL additionally scope the Reverse Host instance binding to the current
+generation: a generation whose instance ID was bound SHALL have that binding
+revoked as soon as the supervisor leaves a ready generation, and a replacement
+generation SHALL bind its own instance ID only after it reaches ready. A
+departed generation's instance ID SHALL therefore never authorize a call from
+its successor.
+
+#### Scenario: Ready sidecar exits before a later client call
+
+- **WHEN** a ready sidecar terminates unexpectedly
+- **AND** concurrent client operations have not sent an RPC
+- **THEN** the production owner starts at most one replacement generation
+- **AND** each waiting operation uses the resulting ready connection at most once
+
+#### Scenario: Replacement generation publishes ready discovery
+
+- **WHEN** the supervisor leaves a ready generation and starts a replacement
+- **THEN** the departed generation's Reverse Host instance binding is revoked before the replacement is reached
+- **AND** the replacement binds its own instance ID after it reaches ready
+- **AND** the replacement's Reverse Host probe is authorized rather than rejected as a stale instance
+- **AND** the launch publishes a new ready discovery generation instead of reaching the fused state
+
+#### Scenario: A call still carries the departed instance identity
+
+- **WHEN** a Reverse Host call presents the instance ID of a generation the supervisor has already left
+- **THEN** the broker rejects that call as stale
+- **AND** the rejection does not terminate or fuse the current generation
+
+#### Scenario: Automatic recovery is not eligible
+
+- **WHEN** production is normally stopped, disabled, incompatible, stopping, or terminal from a deterministic startup failure
+- **THEN** a client operation reports the existing unavailable result
+- **AND** it does not start a replacement generation automatically
+
+#### Scenario: Automatic recovery fails
+
+- **WHEN** the single automatic recovery attempt does not publish a ready connection
+- **THEN** waiting client operations fail with a stable unavailable reason
+- **AND** later automatic calls do not create a restart loop for the same failed generation
+- **AND** explicit user recovery remains available
+
+### Requirement: Dispatched operations SHALL NOT be replayed by availability recovery
+
+Availability recovery SHALL apply only before an RPC is sent. A transport or
+service failure after dispatch SHALL return to the caller without automatically
+replaying the operation, regardless of whether the operation is a read or a
+mutation.
+
+#### Scenario: Connection is lost after dispatch
+
+- **WHEN** a client operation has sent its RPC and then receives a transport or service failure
+- **THEN** the operation returns that failure without automatic replay
+- **AND** no duplicate mutation or external effect is created by recovery
+
+### Requirement: Fault control SHALL be bounded and test-private
+
+The production sidecar SHALL expose at most two fault-control checkpoints: one
+after the first Reference page has been served and before the next page is
+requested, and one after public maintenance durable admission and before worker
+dispatch. Each checkpoint SHALL be one-shot, scoped to the single operation
+that reaches it, and private to the module that owns the operation. When no
+checkpoint is armed, production behavior, ordering, and latency SHALL be
+unchanged, and no public protocol, DTO, capability catalog, or catalog route
+SHALL admit fault-control input.
+
+#### Scenario: No checkpoint is armed
+
+- **WHEN** the sidecar runs a Reference refresh or a public maintenance operation without an armed checkpoint
+- **THEN** paging, admission, dispatch, and terminal publication follow their normal ordering
+- **AND** no fault-control state is published on any public surface
+
+#### Scenario: Checkpoint fires once for its own operation
+
+- **WHEN** an armed checkpoint is reached by its owning operation
+- **THEN** it holds that operation only until released
+- **AND** a later operation, or a later page of another refresh, is not held by the same checkpoint
+
+#### Scenario: A refused checkpoint cannot change the operation outcome
+
+- **WHEN** an armed checkpoint is released and the operation then observes a real basis change, process loss, or restart
+- **THEN** the operation reports its own production outcome
+- **AND** the checkpoint itself neither promotes state nor rewrites a terminal receipt
+
+### Requirement: Final acceptance SHALL exercise real process lifecycle failures
+
+The final candidate SHALL be exercised as a real process for authenticated
+shutdown, parent-input EOF, crash before and after readiness, bounded restart,
+fuse opening, forced termination after a missed graceful deadline, orphan
+cleanup, and production-lock conflict. Results MUST be observed through
+process, discovery, RPC, and filesystem boundaries rather than source-shape
+assertions.
+
+#### Scenario: Parent input closes after readiness
+- **WHEN** the sidecar observes parent EOF
+- **THEN** it removes discovery, drains within the bounded lifecycle deadline,
+  and exits without leaving an owner or child process
+
+#### Scenario: A forced host-owner death leaves an older session's discovery
+- **WHEN** a new sidecar wins the production lock after the old owner exits
+- **THEN** it removes stale session discovery under the same profile before
+  publishing its own ready discovery
+- **AND** a process that loses the lock does not alter the live owner's session
+
+#### Scenario: Another process owns the production lock
+- **WHEN** the candidate starts against a basis held by another live owner
+- **THEN** it fails with `production_lock_conflict` before opening storage
+- **AND** the existing owner remains healthy
+
+#### Scenario: Repeated unknown crashes exhaust the restart budget
+- **WHEN** the supervisor observes failures through the configured attempt
+  budget
+- **THEN** it opens the fuse, publishes one terminal state, and launches no
+  further child until explicit recovery
+
+### Requirement: Real-machine acceptance SHALL cover supported Zotero generations
+
+Final acceptance SHALL cover the current blocking Zotero 7, 9, and 10
+Linux x64 and Windows x64 compatibility cells using the pinned candidate XPI.
+Each cell SHALL run its promoted Phase 1 System E2E catalog and verify Run
+Manifest completion, family outcomes, cleanup, health, installed XPI digest,
+and selected sidecar bundle identity. Any macOS Zotero 10 XPI-smoke results
+SHALL be recorded separately under the compatibility matrix's nonblocking
+policy.
+
+#### Scenario: One required Zotero generation or platform is missing
+- **WHEN** the acceptance matrix is reviewed
+- **THEN** R9 and Stage 1 remain incomplete
+- **AND** the missing environment is reported explicitly

@@ -1,15 +1,14 @@
 import { appendRuntimeLog } from "../runtimeLogManager";
-import { buildSelectionContext } from "../selectionContext";
 import { emitVerboseConsole } from "../diagnosticVerbosity";
 import {
   buildWorkflowFinishMessage,
   normalizeErrorMessage,
   type WorkflowMessageFormatter,
-} from "../workflowExecuteMessage";
+} from "./workflowExecuteMessage";
 import {
   resolveWorkflowExecutionContext,
   resolveWorkflowExecutionOptionsPreview,
-} from "../workflowSettings";
+} from "../workflow/settings/workflowSettings";
 import {
   executeBuildRequests,
   planWorkflowExecutionUnits,
@@ -17,7 +16,7 @@ import {
 import { summarizeWorkflowExecutionError } from "../../workflows/errorMeta";
 import type { LoadedWorkflow } from "../../workflows/types";
 import type { WorkflowRuntimeContext } from "../../workflows/types";
-import type { WorkflowExecutionOptions } from "../workflowSettingsDomain";
+import type { WorkflowExecutionOptions } from "../workflow/settings/workflowSettingsDomain";
 import type {
   BuildPreparedWorkflowUnitResult,
   PreparationSeamResult,
@@ -37,7 +36,7 @@ import {
   SKILLRUNNER_SEQUENCE_REQUEST_KIND,
 } from "../../config/defaults";
 import type { SkillRunnerJobRequestV1 } from "../../providers/contracts";
-import { adaptSkillRunnerJobToAcpSkillRun } from "../acpSkillRunRequestAdapter";
+import { adaptSkillRunnerJobToAcpSkillRun } from "../acp/skillRun/acpSkillRunRequestAdapter";
 import {
   SKILLRUNNER_ZOTERO_HOST_ACCESS_ENV_INJECTION_CODE,
   SKILLRUNNER_SUPPORTS_ZOTERO_HOST_ACCESS_RUNTIME_OPTIONS,
@@ -50,15 +49,10 @@ import {
   localizeWorkflowSkillName,
 } from "../../workflows/localization";
 import {
-  buildSkillRunnerHostBridgeRuntimeEnv,
-  buildSkillRunnerHostBridgeScopeEnv,
-  type SkillRunnerHostBridgeEnvResult,
-} from "../hostBridgeSkillRunnerEnv";
-import {
   scanPluginSkillRegistry,
   type PluginSkillRegistrySnapshot,
-} from "../pluginSkillRegistry";
-import type { WorkflowExecutionUnitPreviewState } from "../workflowSettingsDialogModel";
+} from "../workflow/catalog/pluginSkillRegistry";
+import type { WorkflowExecutionUnitPreviewState } from "../workflow/settings/workflowSettingsDialogModel";
 
 function isNoValidInputUnitsError(error: unknown) {
   if (
@@ -79,11 +73,28 @@ function generateSkillRunnerHostBridgeFrontendScopeId() {
     .slice(2, 8)}`;
 }
 
+type SkillRunnerHostBridgeEnvResult =
+  | { ok: true; env: Record<string, string> }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+      details?: Record<string, unknown>;
+    };
+
+type BuildSkillRunnerHostBridgeEnv = (args: {
+  backendUrl: string;
+}) => Promise<SkillRunnerHostBridgeEnvResult>;
+
+function buildSkillRunnerHostBridgeScopeEnv(frontendScopeId: string) {
+  return JSON.stringify({ kind: "skillrunner-run", frontendScopeId });
+}
+
 async function adaptRequestsForExecutionContext(args: {
   requests: unknown[];
   workflow: LoadedWorkflow;
   executionContext: WorkflowExecutionContext;
-  buildSkillRunnerHostBridgeEnv?: typeof buildSkillRunnerHostBridgeRuntimeEnv;
+  buildSkillRunnerHostBridgeEnv: BuildSkillRunnerHostBridgeEnv;
 }) {
   if (args.executionContext.requestKind === ACP_SKILL_RUN_REQUEST_KIND) {
     return args.requests.map((request) =>
@@ -107,9 +118,7 @@ async function adaptRequestsForExecutionContext(args: {
         stripZoteroHostAccessRuntimeOptionFromRequest(request),
       );
     }
-    const envResult = await (
-      args.buildSkillRunnerHostBridgeEnv || buildSkillRunnerHostBridgeRuntimeEnv
-    )({
+    const envResult = await args.buildSkillRunnerHostBridgeEnv({
       backendUrl: String(args.executionContext.backend?.baseUrl || ""),
     });
     if (!envResult.ok) {
@@ -330,26 +339,26 @@ function resolveSkippedUnitsFromNoValidInputError(error: unknown) {
   return isNoValidInputUnitsError(error) ? 1 : 0;
 }
 
-type PreparationDeps = {
+export type PreparationDeps = {
   appendRuntimeLog: typeof appendRuntimeLog;
   resolveWorkflowExecutionContext: typeof resolveWorkflowExecutionContext;
   resolveWorkflowExecutionOptionsPreview: typeof resolveWorkflowExecutionOptionsPreview;
-  buildSelectionContext: typeof buildSelectionContext;
   executeBuildRequests: typeof executeBuildRequests;
   planWorkflowExecutionUnits: typeof planWorkflowExecutionUnits;
-  buildSkillRunnerHostBridgeEnv: typeof buildSkillRunnerHostBridgeRuntimeEnv;
+  buildSkillRunnerHostBridgeEnv: BuildSkillRunnerHostBridgeEnv;
   scanPluginSkillRegistry: typeof scanPluginSkillRegistry;
   alertWindow: typeof alertWindow;
 };
 
-const defaultPreparationDeps: PreparationDeps = {
+const defaultPreparationDeps: Omit<
+  PreparationDeps,
+  "buildSkillRunnerHostBridgeEnv"
+> = {
   appendRuntimeLog,
   resolveWorkflowExecutionContext,
   resolveWorkflowExecutionOptionsPreview,
-  buildSelectionContext,
   executeBuildRequests,
   planWorkflowExecutionUnits,
-  buildSkillRunnerHostBridgeEnv: buildSkillRunnerHostBridgeRuntimeEnv,
   scanPluginSkillRegistry,
   alertWindow,
 };
@@ -361,25 +370,34 @@ export async function runWorkflowPreparationSeam(
     messageFormatter: WorkflowMessageFormatter;
     executionOptionsOverride?: WorkflowExecutionOptions;
     ignoreSavedWorkflowSettings?: boolean;
-    selectedItemsOverride?: Zotero.Item[];
     selectionContextOverride?: WorkflowScopedSelectionContext;
     suppressUiFeedback?: boolean;
     runtime?: Partial<WorkflowRuntimeContext>;
   },
-  deps: Partial<PreparationDeps> = {},
+  deps: Partial<Omit<PreparationDeps, "buildSkillRunnerHostBridgeEnv">> &
+    Pick<PreparationDeps, "buildSkillRunnerHostBridgeEnv">,
 ): Promise<PreparationSeamResult> {
   const resolved = {
     ...defaultPreparationDeps,
     ...deps,
   };
-  const selectedItems = Array.isArray(args.selectedItemsOverride)
-    ? args.selectedItemsOverride
-    : args.selectionContextOverride !== undefined
-      ? []
-      : args.win.ZoteroPane?.getSelectedItems?.() || [];
   const workflowLabel = localizeWorkflowLabel(args.workflow);
+  const selectionContextSnapshot = args.selectionContextOverride;
+  if (!selectionContextSnapshot) {
+    resolved.appendRuntimeLog({
+      level: "error",
+      scope: "workflow-trigger",
+      workflowId: args.workflow.manifest.id,
+      stage: "selection-context-missing",
+      message: "workflow preparation requires locked selection context",
+    });
+    return {
+      status: "halted",
+    };
+  }
+  const selectedItemCount = selectionContextSnapshot.items.length;
   if (
-    selectedItems.length === 0 &&
+    selectedItemCount === 0 &&
     !canWorkflowRunWithoutSelection(args.workflow.manifest)
   ) {
     resolved.appendRuntimeLog({
@@ -413,7 +431,7 @@ export async function runWorkflowPreparationSeam(
     message: "workflow trigger started",
     details: {
       workflowLabel,
-      selectedItems: selectedItems.length,
+      selectedItems: selectedItemCount,
     },
   });
 
@@ -465,12 +483,7 @@ export async function runWorkflowPreparationSeam(
         error: previewError,
       });
     }
-    selectionContext =
-      args.selectionContextOverride !== undefined
-        ? args.selectionContextOverride
-        : ((await resolved.buildSelectionContext(
-            selectedItems,
-          )) as PreparedWorkflowExecution["selectionContext"]);
+    selectionContext = selectionContextSnapshot;
     plan = await resolved.planWorkflowExecutionUnits({
       workflow: args.workflow,
       selectionContext,
@@ -731,24 +744,23 @@ export async function buildWorkflowExecutionUnitPreview(
     win: _ZoteroTypes.MainWindow;
     workflow: LoadedWorkflow;
     executionOptionsOverride?: WorkflowExecutionOptions;
-    selectedItemsOverride?: Zotero.Item[];
     selectionContextOverride?: WorkflowScopedSelectionContext;
   },
-  deps: Partial<PreparationDeps> = {},
+  deps: Partial<Omit<PreparationDeps, "buildSkillRunnerHostBridgeEnv">> &
+    Pick<PreparationDeps, "buildSkillRunnerHostBridgeEnv">,
 ): Promise<WorkflowExecutionUnitPreviewState> {
   const resolved = {
     ...defaultPreparationDeps,
     ...deps,
   };
   try {
-    const selectionContext =
-      args.selectionContextOverride !== undefined
-        ? args.selectionContextOverride
-        : await resolved.buildSelectionContext(
-            Array.isArray(args.selectedItemsOverride)
-              ? args.selectedItemsOverride
-              : args.win.ZoteroPane?.getSelectedItems?.() || [],
-          );
+    const selectionContext = args.selectionContextOverride;
+    if (!selectionContext) {
+      return Object.freeze({
+        status: "failure",
+        reasonCode: "selection-context-missing",
+      });
+    }
     const preview = resolved.resolveWorkflowExecutionOptionsPreview({
       workflow: args.workflow,
       executionOptionsOverride: args.executionOptionsOverride,
@@ -803,7 +815,8 @@ export async function buildPreparedWorkflowUnitExecution(
     prepared: PreparedWorkflowExecution;
     unit: PreparedWorkflowUnit;
   },
-  deps: Partial<PreparationDeps> = {},
+  deps: Partial<Omit<PreparationDeps, "buildSkillRunnerHostBridgeEnv">> &
+    Pick<PreparationDeps, "buildSkillRunnerHostBridgeEnv">,
 ): Promise<BuildPreparedWorkflowUnitResult> {
   const resolved = {
     ...defaultPreparationDeps,
@@ -877,7 +890,8 @@ export async function buildPreparedWorkflowBatchExecution(
     prepared: PreparedWorkflowExecution;
     units?: ReadonlyArray<PreparedWorkflowUnit>;
   },
-  deps: Partial<PreparationDeps> = {},
+  deps: Partial<Omit<PreparationDeps, "buildSkillRunnerHostBridgeEnv">> &
+    Pick<PreparationDeps, "buildSkillRunnerHostBridgeEnv">,
 ) {
   const units = args.units || args.prepared.plan.units;
   if (units.length === 0) {

@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change introduce-host-bridge-cli-interface. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Host Bridge registers downloadable files by handle
 The system SHALL expose remote downloads only through broker-issued opaque file
 handles.
@@ -25,7 +27,7 @@ handles.
 The system SHALL validate file handles before returning file bytes.
 
 #### Scenario: Known file handle downloads
-- **WHEN** an authenticated client requests `GET /bridge/v1/files/{fileId}` for
+- **WHEN** an authenticated client requests `GET /bridge/v2/files/{fileId}` for
   a known, unexpired, available file handle
 - **THEN** the bridge SHALL return the file bytes without text encoding
   conversion
@@ -107,7 +109,7 @@ Broker-issued file upload and download operations SHALL use `/bridge/v2` and ret
 - **THEN** Host Bridge SHALL return the authorized bytes under the existing integrity and redaction rules.
 
 #### Scenario: Client uses the removed v1 route
-- **WHEN** a client requests the corresponding `/bridge/v1/files` route
+- **WHEN** a client requests the corresponding `/bridge/v2/files` route
 - **THEN** Host Bridge SHALL NOT serve it as a supported v2 file operation.
 
 ### Requirement: Workflow output resources reuse broker downloads
@@ -123,3 +125,30 @@ Workflow output resources SHALL be registered through the existing broker-issued
 - **THEN** Host Bridge SHALL return the existing structured expired/unknown handle error
 - **AND** it SHALL return no bytes
 
+### Requirement: Attachment locality SHALL project only the current Broker page
+
+Attachment reads and canonical mutation attachment outputs SHALL apply the locality projection only to the current Broker page or bounded result. Each attachment SHALL omit host-local paths and expose only an opaque file descriptor when available or a structured unavailable state otherwise. File registration and transfer SHALL run outside native Host admission.
+
+#### Scenario: Mutation returns an attachment
+- **WHEN** a canonical mutation returns attachment facts
+- **THEN** the same locality projection SHALL apply
+- **AND** the result SHALL not contain a local path, prepared source, or upload lease.
+
+#### Scenario: Attachment page has continuation
+- **WHEN** a remote caller reads one attachment page
+- **THEN** only that page receives opaque file descriptors or unavailable access
+- **AND** no host-local path escapes.
+
+### Requirement: Mutation uploads SHALL become private prepared files
+
+Host Bridge SHALL accept mutation upload input only through opaque registered handles and SHALL acquire the existing lease before trusted execution. The adapter SHALL validate and stage the input into a private prepared-file snapshot before Broker mutation effects. File handles, leases, prepared paths, and staging details SHALL not enter public mutation DTOs, approvals, receipts, attempts, errors, logs, or durable operation identity.
+
+#### Scenario: Valid upload is prepared
+- **WHEN** an authorized canonical mutation references a valid unexpired upload handle
+- **THEN** Host Bridge SHALL acquire and validate the lease and pass only private prepared-file facts to trusted Broker execution
+- **AND** the public result SHALL expose no source path or lease value.
+
+#### Scenario: Prepared source changes
+- **WHEN** the source no longer matches prepared identity, size, or SHA-256 facts at execution revalidation
+- **THEN** the mutation SHALL fail before its Host effect
+- **AND** it SHALL not silently substitute changed content.

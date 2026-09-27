@@ -1,7 +1,14 @@
-import { listNotePayloadBlocks } from "../notePayloadCodec";
+import { listNotePayloadBlocks } from "../zoteroHost/notePayloadCodec";
+import {
+  classifyManagedNoteContent,
+  ManagedNoteOwnerError,
+} from "../zoteroHost/zoteroManagedNotes";
 import { readArtifactsFromRegistryInputs } from "../synthesis/libraryAdapter";
 import { buildReferenceSidecarMetadataFingerprintPayload } from "../synthesis/registry";
-import type { ReferenceSidecarInput } from "../synthesis/registry";
+import type {
+  ReferenceSidecarInput,
+  ReferenceSidecarInputNote,
+} from "../synthesis/registry";
 import { hashCanonicalJson } from "../synthesis/foundation";
 import { buildLiteratureQualitySnapshot } from "../../shared/literatureScore";
 import {
@@ -226,16 +233,37 @@ async function loadRegistryInputs(
       url: fields.get("url") || "",
       citekey: fields.get("citationKey") || citekeyFromExtra(extra),
       dateAdded: cleanString(row.dateAdded),
-      notes: (notes.get(itemKey) || []).map((note) => {
-        const html = cleanString(note.html);
-        return {
-          key: cleanString(note.noteKey),
-          title: cleanString(note.title),
-          html,
-          updatedAt: cleanString(note.updatedAt),
-          payloadBlocks: listNotePayloadBlocks(html),
-        };
-      }),
+      notes: (notes.get(itemKey) || []).map(
+        (note): ReferenceSidecarInputNote => {
+          const html = cleanString(note.html);
+          const facts = {
+            key: cleanString(note.noteKey),
+            title: cleanString(note.title),
+            updatedAt: cleanString(note.updatedAt),
+          };
+          try {
+            const detail = classifyManagedNoteContent(
+              html,
+              listNotePayloadBlocks(html),
+              facts.title,
+            );
+            return {
+              ...facts,
+              noteKind: detail.kind === "managed" ? detail.noteKind : null,
+              payload: detail.kind === "managed" ? detail.payload : null,
+              issue: null,
+            };
+          } catch (error) {
+            if (!(error instanceof ManagedNoteOwnerError)) throw error;
+            return {
+              ...facts,
+              noteKind: null,
+              payload: null,
+              issue: error.code,
+            };
+          }
+        },
+      ),
     };
   });
 }
@@ -326,7 +354,7 @@ export async function createZoteroReadonlyHostReadPort(
     locatorEntries.set(locator, args);
     return locator;
   }
-  return {
+  const port: SynthesisHostReadPort & { close: () => void } = {
     library: {
       async syncSnapshot() {
         throw new SynthesisClientError(
@@ -388,6 +416,13 @@ export async function createZoteroReadonlyHostReadPort(
       },
     },
     artifacts: {
+      async readiness(request) {
+        const result = await port.artifacts.scanPage({
+          ...request,
+          limit: request.paperRefs.length,
+        });
+        return { artifacts: result.artifacts };
+      },
       async scanPage(request) {
         const limit = limitValue(request.limit);
         const allInputs = await inputs();
@@ -513,4 +548,5 @@ export async function createZoteroReadonlyHostReadPort(
       db.close();
     },
   };
+  return port;
 }

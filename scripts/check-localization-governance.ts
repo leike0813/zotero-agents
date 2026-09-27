@@ -1,4 +1,4 @@
-import { readFileSync } from "fs";
+import { readFileSync, readdirSync } from "fs";
 import path from "path";
 
 const ROOT = process.cwd();
@@ -74,6 +74,23 @@ const ALLOWED_CROSS_FILE_DUPLICATES = new Set([
 function readText(relPath: string) {
   const absPath = path.join(ROOT, relPath);
   return readFileSync(absPath, "utf8");
+}
+
+function listPageSources(directory: string) {
+  const baseDir = path.join(ROOT, directory);
+  const files: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const absPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(absPath);
+      } else if (/\.(ts|tsx)$/.test(entry.name)) {
+        files.push(path.relative(ROOT, absPath));
+      }
+    }
+  };
+  walk(baseDir);
+  return files.sort();
 }
 
 function parseFluentKeys(content: string) {
@@ -312,13 +329,19 @@ function main() {
 
   const displayNameModule = readText("src/backends/displayName.ts");
   const runtimeToastModule = readText(
-    "src/modules/skillRunnerLocalRuntimeManager.ts",
+    "src/modules/skillRunner/runtime/skillRunnerLocalRuntimeManager.ts",
   );
   const governanceHelper = readText("src/utils/localizationGovernance.ts");
   const synthesisWorkbenchHost = readText(
-    "src/modules/synthesisWorkbenchTab.ts",
+    "src/modules/synthesis/workbench/synthesisWorkbenchTab.ts",
   );
-  const synthesisWorkbenchApp = readText("src/synthesisWorkbenchApp.ts");
+  const synthesisWorkbenchSources = listPageSources("src/synthesis");
+  const synthesisWorkbenchApp = readText(
+    "src/synthesis/synthesisWorkbenchApp.ts",
+  );
+  const synthesisWorkbenchProjection = readText(
+    "src/synthesis/synthesisWorkbenchPanelModel.ts",
+  );
   if (
     !displayNameModule.includes("resolveManagedLocalBackendDisplayNameText")
   ) {
@@ -363,23 +386,23 @@ function main() {
     );
   }
   if (
-    !synthesisWorkbenchApp.includes("function t(") ||
     !synthesisWorkbenchApp.includes("applyI18nEnvelope") ||
-    !synthesisWorkbenchApp.includes("localizeWorkbenchDom")
+    !synthesisWorkbenchProjection.includes("formatSynthesisWorkbenchMessage")
   ) {
     errors.push(
-      "[synthesis-i18n-wiring] Workbench app must apply injected messages and localize rendered DOM",
+      "[synthesis-i18n-wiring] Workbench must resolve injected messages during projection",
     );
   }
-  errors.push(
-    ...reportSynthesisWorkbenchUiHardcodes(
-      synthesisWorkbenchApp,
-      synthesisWorkbenchDefaultValues,
-    ),
-  );
+  for (const file of synthesisWorkbenchSources) {
+    errors.push(
+      ...reportSynthesisWorkbenchUiHardcodes(
+        readText(file),
+        synthesisWorkbenchDefaultValues,
+      ).map((error) => `${file}: ${error}`),
+    );
+  }
   for (const file of [
-    "addon/content/dashboard/app.js",
-    "addon/content/dashboard/workflow-settings-dialog.js",
+    ...listPageSources("src/dashboard"),
     "src/sidebar/assistantWorkspaceAcpChild.js",
     "src/sidebar/assistantTranscriptRenderer.js",
   ]) {

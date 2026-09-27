@@ -193,6 +193,15 @@ _Avoid_: Direct Native Network、公开互联网访问
 **Zotero 原生工具（Zotero Native Tools）**：
 内置 Pi Agent Runtime 通过 Zotero capability broker 直接调用的文献库能力；其边界是稳定 DTO 和受控操作，不暴露原始 Zotero 运行时对象。
 _Avoid_: Zotero Bridge 工具、直连 Zotero API 工具
+
+**System End-to-End Test**:
+A test that traverses a user-visible or public production path through a real Zotero process and the production plugin. When Synthesis is in scope, the current-source real Synthesis sidecar also participates; a controlled peer may replace only a system outside the boundary being tested.
+_Avoid_: E2E directory test, full-suite test
+
+**Contract Integration Test**:
+A test that exercises a protocol or multi-module seam through production participants without traversing the complete System End-to-End path. Replacing the seam that carries the risk makes the evidence Contract Integration even when the test lives under an E2E directory or command.
+_Avoid_: System E2E, unit test
+
 **Reference**:
 The literature-linking domain that covers extracted source citations, their canonical identities, matching decisions, review, and derived projections.
 _Avoid_: Reference canonical, reference subsystem
@@ -225,12 +234,24 @@ _Avoid_: Tool text helper, mirror-specific tool display
 The read-only interpretation of one workflow job's local queue and canonical lifecycle facts, yielding both a terminal conclusion (missing, pending, locally ready, canonically ready) and a normalized slot status for the run seam.
 _Avoid_: Terminal outcome, completion, job state
 
+**Dashboard Host**:
+The Zotero-process owner that composes Task Dashboard state, snapshots, actions, frame lifecycle, refresh scheduling, and cleanup behind the stable `dashboardHost.ts` lifecycle interface. The page renderer and wire contract remain separate owners.
+_Avoid_: Task manager dialog, Dashboard page, Dashboard wire contract
+
+**Runtime Persistence Governance**:
+The policy domain that observes plugin-managed runtime data, reports integrity issues, and controls category-, issue-, and age-based cleanup while excluding durable knowledge and user-authored content.
+_Avoid_: Runtime filesystem, persistence adapter, state store
+
 **Zotero Host Capability Broker**:
 The canonical process-local, JSON-safe capability interface for Zotero context, navigation, bounded library reads, metadata translation, and controlled mutations. It owns host capability semantics but not transport, authorization, approval, exposure, or remote file locality.
 _Avoid_: Workflow hostApi, Host Bridge API, MCP tool registry
 
+**Host Bridge Server**:
+The embedded HTTP lifecycle owner for listener binding, authorization, request admission, operation replay, socket ownership, and shutdown. Private route adapters own path matching and route-family handling; the server does not define Zotero capability semantics.
+_Avoid_: Host Bridge API, capability registry, generic HTTP router
+
 **Workflow Host API Projection**:
-The explicit member-level projection from the canonical broker into `WorkflowHostApi` v11, combined with trusted local workflow services and raw Zotero ref normalization. It is a separate compatibility surface and must not receive whole broker domains implicitly.
+The explicit member-level projection from the canonical broker into `WorkflowHostApi` v12, combined with trusted local workflow services and raw Zotero ref normalization. It is a separate compatibility surface and must not receive whole broker domains implicitly.
 _Avoid_: Broker alias, common host API, universal host facade
 
 **Workflow Host Contract Identity**:

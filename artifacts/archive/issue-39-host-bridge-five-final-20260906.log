@@ -1,0 +1,210 @@
+
+
+  embedded Zotero MCP server protocol
+    ✔ responds to initialize with tool capability
+    ✔ echoes requested MCP protocol version during initialize
+    ✔ records initialize response shape for diagnostics
+    ✔ derives host-side MCP health from server and client activity
+    ✔ keeps MCP health green after a structured tool request failure
+    ✔ keeps MCP health green while a tool call is running
+    ✔ lists context.get_current_view without duplicating the zotero MCP server name
+    ✔ lists the formal Zotero MCP tool suite from the registry
+    ✔ accepts MCP initialized notification without returning an error
+    ✔ rejects null JSON-RPC ids instead of treating them as notifications
+    ✔ rejects tool calls with unknown or invalid typed arguments before handlers run
+    ✔ returns 202 with no body for Streamable HTTP notifications
+    ✔ rejects GET /mcp because the server is Streamable HTTP POST-only
+    ✔ rejects query-token authentication for MCP POST requests
+    ✔ rejects untrusted Origin headers before JSON-RPC handling
+    ✔ rejects oversized MCP HTTP request bodies
+    ✔ returns a structured bad request for malformed query encoding
+    ✔ rejects the legacy SSE message endpoint
+    ✔ handles JSON-RPC batches and drops notification responses
+    ✔ calls get_current_view and returns structured host context
+    ✔ preserves plural library identity in current-view MCP output
+    ✔ routes read tools through the capability broker and returns structured content
+    ✔ forwards trusted call control to Broker-backed MCP read handlers
+    ✔ returns paged library item summaries without large child content
+    ✔ caps list_library_items page size for agent-safe MCP responses
+    ✔ returns actionable item detail summaries
+    ✔ returns note summaries by default and reads note details in chunks
+    ✔ returns a JSON-RPC error when a tool backend throws
+    ✔ returns remote-compatible attachment access metadata without file content
+    ✔ rejects the legacy aggregate paper reading context tool
+    ✔ returns structured item-not-found tool results for broker read tools
+    ✔ publishes string library cursors and returns non-retryable cursor errors
+    ✔ lists and reads Zotero note payloads for workflow notes
+    ✔ previews mutations without requesting permission or executing
+    ✔ executes write tools only after permission approval
+    ✔ ingests one paper with duplicate detection and best-effort PDF attachment (47ms)
+    ✔ ingests typed non-journal metadata without splitting Chinese creators
+    ✔ keeps identifiers in Extra when the conservative document type has no typed identifier field
+    ✔ maps an identifier-only DOI to the native journal article field
+    ✔ rejects conflicting typed DOI representations before permission
+    ✔ attaches a landing URL when requested and no PDF is available
+    1) keeps paper ingest successful when landing URL attachment fails
+    2) keeps paper ingest successful when PDF attachment import fails
+    ✔ does not execute paper ingest when permission is denied
+    ✔ rejects batch paper ingest MCP arguments before permission
+    ✔ creates markdown-backed notes through permission-gated mutation flow
+    ✔ updates markdown-backed notes through generic mutation.execute
+    ✔ does not execute write tools when permission is denied or unavailable
+    ✔ is compatible with the official MCP Streamable HTTP client (478ms)
+    ✔ is compatible with the official MCP client when an auth provider is present
+    ✔ admits concurrent Streamable HTTP tool calls and records admission diagnostics
+    ✔ admits nine concurrent tool calls under the fixed inflight policy
+    ✔ returns a structured JSON-RPC error when the inflight admission limit is reached
+    ✔ bypasses admission for tools/list while a tool call is running
+    ✔ returns a structured timeout error when a running tool exceeds its guard timeout
+    ✔ retains inflight admission until a timed-out tool really settles (71ms)
+    ✔ opens a per-tool circuit after repeated runtime failures
+    ✔ exposes safe MCP guard and admission status through a bypassed status tool
+    ✔ records host-side MCP runtime logs for a successful tool call
+    ✔ records host-side MCP runtime logs for tool failures
+    ✔ records response serialization failures and returns a structured fallback
+    ✔ keeps MCP health green while surfacing response write diagnostics
+    ✔ records transport diagnostics for tools/list discovery
+    ✔ records unsupported streamable HTTP GET diagnostics
+    ✔ builds a JSON-RPC fallback response for request-level listener failures
+    ✔ redacts bearer token from diagnostics-facing descriptor
+    ✔ exposes masked server status by default
+
+  host bridge server phase 1
+    ✔ attributes scoped Host Bridge requests to the ACP runtime profile
+    ✔ passes REST request cancellation into canonical capability reads
+    ✔ keeps mutation.execute out of generic HTTP operation history
+    ✔ rejects a canonical mutation when its header operation id differs from its input
+    ✔ profiles asynchronous Host Bridge input waits without a real Zotero socket
+    ✔ serves unauthenticated health without leaking token or paths
+    ✔ serves MCP JSON-RPC on the unified Host Access listener
+    ✔ requires bearer auth for manifest
+    ✔ serves authenticated manifest with redacted capability metadata
+    ✔ pages the authenticated capability manifest with opaque criteria-bound cursors
+    ✔ serves redacted Host Bridge profile diagnostics for agents
+    ✔ redacts diagnostic URLs, credentials, and private paths
+    ✔ uploads a binary file body as an opaque Host Bridge handle
+    ✔ serves context read and restricted navigation endpoints
+    ✔ rejects unsafe context navigation refs
+    ✔ invalidates the old bearer token after rotation
+    ✔ returns structured routing errors
+    ✔ rejects malformed UTF-8 request bodies before JSON parsing
+    ✔ reports loopback bind mode by default
+    ✔ uses the configured pinned port when pin port is enabled
+    ✔ uses the Host Access port for the MCP descriptor
+    ✔ forces a fixed port for LAN mode and exposes remote endpoint hints
+    ✔ classifies SkillRunner backend locality from loopback URLs
+    ✔ detects advertised host through SkillRunner client-address reflection
+    ✔ rejects unusable SkillRunner client-address reflection responses
+    ✔ builds local SkillRunner Host Bridge env from local endpoint
+    ✔ builds SkillRunner Host Bridge scope env from frontend scope id
+    ✔ builds remote SkillRunner Host Bridge env from advertised LAN endpoint
+    ✔ builds remote SkillRunner Host Bridge env from reflected client address
+    ✔ rejects invalid advertised hosts for SkillRunner Host Bridge env
+    ✔ does not fall back to a random port when the LAN fixed port is unavailable
+    ✔ allows local token and encrypted master token authentication independently (404ms)
+    ✔ disables pin port and falls back to the random range on pinned port conflict
+    ✔ supervisor restarts after an unexpected socket stop but not after shutdown (2064ms)
+    ✔ keeps LAN fixed-port profile after supervisor socket recovery (1044ms)
+    ✔ does not publish a well-known profile before the socket is listening
+    ✔ declares Host Bridge prefs and settings controls
+
+  canonical Host read projection
+    ✔ passes the request control into library snapshot reads
+    ✔ preserves an empty payload scan continuation and trusted control
+    ✔ advertises Saved Search discovery with a closed bounded request
+
+  host bridge capability calls
+    ✔ imports the capability registry with production diagnostic defines (3128ms)
+    ✔ requires bearer auth for capability calls
+    ✔ returns structured errors for unknown capabilities and invalid JSON
+    ✔ publishes string library cursors and maps invalid cursors as validation errors
+    ✔ routes read-only library capabilities through JSON-safe broker DTOs
+    ✔ prepares one capability response without a normalization serialization
+    ✔ routes library sync snapshots without write approval
+    ✔ routes library readiness audits with shared artifact evidence
+    ✔ derives connection mode from the socket peer and only permits conservative header downgrade (150ms)
+    ✔ routes direct paper and Topic research bundles through their Synthesis capabilities
+    ✔ rotates, binds, revokes, and redacts auto-approval grants
+    ✔ keeps sidecar refresh and graph update as separate approved operations (61ms)
+    ✔ decodes UTF-8 byte-counted capability bodies without mojibake
+    ✔ uses query as the shared Host and CLI search field
+    ✔ exposes Synthesis host capabilities through Host Bridge CLI-compatible calls
+    ✔ uses the same paged and file-delivery DTOs for Synthesis capability calls (101ms)
+    ✔ reports canonical resolve-resolver input contract errors
+    ✔ hides debug capabilities when debug mode is disabled
+    ✔ hides SkillRunner connection audit when its source switch is disabled
+    ✔ exposes debug capabilities and Synthesis diagnostics when debug mode is enabled
+    ✔ executes Zotero debug eval only after approval
+    ✔ returns JSON-safe truncated Zotero debug eval values
+    ✔ reports Zotero debug eval failures as capability failures
+    ✔ uses a bounded approval prompt for Zotero debug eval
+    ✔ keeps dangerous debug operations behind Host Bridge approval
+    ✔ allows mutation preview without executing a write
+    ✔ previews single-paper literature ingest mutation
+    ✔ rejects malformed canonical literature ingest inputs
+    ✔ requires approval before executing mutation capabilities
+    ✔ rejects invalid approved-capability input before requesting approval
+    ✔ can disable Host Bridge write approvals from the preference switch
+    ✔ auto-approves mutation execute only for registered ACP run write scopes
+    ✔ does not trust unregistered auto-approve scope headers
+    ✔ uses canonical mutation approval text without exposing request details
+    ✔ does not request approval for batch literature ingest execute input
+    ✔ keeps canonical tag mutation approval free of item and tag details
+    ✔ executes collection create, membership, note, and annotation writeback operations
+    ✔ previews canonical uploaded attachments without consuming their handles
+    ✔ executes canonical uploaded attachment mutations once and replays without reading the upload
+    ✔ mirrors Host Bridge capability names through MCP tools
+    ✔ exposes read-only workflow-product capabilities without MCP export or removal
+    ✔ reads and exports Product assets through logical relative paths
+    ✔ decodes Zotero MCP JSON-RPC bodies as UTF-8 bytes
+    ✔ rejects malformed UTF-8 Zotero MCP JSON-RPC bodies
+
+  MCP Host Bridge capability mirror
+    ✔ lists Host Bridge capability names instead of legacy MCP aliases
+    ✔ delivers the complete topic planning context through a registered file
+    ✔ dispatches MCP calls through Host Bridge capability handlers
+    ✔ observes canonical mutation evidence through the stable Bridge scope
+    ✔ projects observed canonical attachments through Bridge locality
+    ✔ reapproves a changed canonical mutation plan before execution
+    ✔ reuses and verifies staged files across approval revalidation
+    ✔ executes a canonical mutation once when no approval continuation is needed
+    ✔ transfers prepared-file cleanup to canonical execution
+    ✔ surfaces a typed cleanup error before canonical execution begins
+    ✔ preserves the primary error when prepared-file cleanup also fails
+    ✔ uses the Host Bridge bearer token for MCP HTTP requests
+    ✔ does not start MCP when the preference is disabled
+
+  host bridge file downloads
+    ✔ downloads only registered file handles without approval
+    ✔ serves binary file bytes with stable length and sha256 metadata
+    ✔ rejects a registered file that is truncated before download
+    ✔ rejects a same-size registered file mutation before download
+    ✔ encodes non-ASCII download filenames as RFC 5987 header values
+    ✔ downloads registered file handles with a master token for remote profiles (185ms)
+    ✔ rejects unknown, expired, and path-like file ids structurally
+    ✔ retains leased uploads through expiry and acquires each handle atomically (68ms)
+    ✔ stages preview uploads as canonical sources without consuming their handles
+    ✔ invalidates process-scoped resource handles and leases after a registry restart
+    ✔ publishes workflow resource outputs through the existing download registry
+    ✔ keeps allocations run-scoped and cleans unpublished output staging
+    ✔ materializes declared local files into immutable run-scoped resources
+    ✔ returns bridge-download attachment descriptors without local paths
+
+
+  176 passing (10s)
+  2 failing
+
+  1) embedded Zotero MCP server protocol
+       keeps paper ingest successful when landing URL attachment fails:
+     AssertionError: expected { jsonrpc: '2.0', …(2) } to have property 'result'
+      at canonicalIngestResult (/home/joshua/Workspace/Code/JavaScript/zotero-agents/test/core/101-zotero-mcp-server.test.ts:215:10)
+      at Context.<anonymous> (/home/joshua/Workspace/Code/JavaScript/zotero-agents/test/core/101-zotero-mcp-server.test.ts:2156:20)
+
+  2) embedded Zotero MCP server protocol
+       keeps paper ingest successful when PDF attachment import fails:
+     AssertionError: expected { jsonrpc: '2.0', …(2) } to have property 'result'
+      at canonicalIngestResult (/home/joshua/Workspace/Code/JavaScript/zotero-agents/test/core/101-zotero-mcp-server.test.ts:215:10)
+      at Context.<anonymous> (/home/joshua/Workspace/Code/JavaScript/zotero-agents/test/core/101-zotero-mcp-server.test.ts:2196:20)
+
+
+

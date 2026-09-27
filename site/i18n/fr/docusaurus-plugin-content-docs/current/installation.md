@@ -2,10 +2,10 @@
 
 ## Configuration requise
 
-- **Zotero** : 7.0 ou ultérieur (Zotero 9 recommandé)
+- **Zotero** : 7.0 ou ultérieur (Zotero 10 recommandé)
 - **Plateforme** : Windows 10+, macOS 12+, Linux (x86_64 / x86 / ARM64 / ARM)
 
-> **À propos des versions de Zotero** : Ce plugin est développé et testé sur Zotero 9. Zotero 8 est théoriquement entièrement pris en charge (le framework du plugin n'a pas de changements significatifs entre Zotero 8/9) ; Zotero 7 devrait également être pris en charge en théorie mais n'a pas été testé en profondeur en raison de ressources limitées. La maintenance future se concentrera sur Zotero 9. Si vous rencontrez des problèmes sur Zotero 7, veuillez les signaler sur [Issues](https://github.com/leike0813/zotero-agents/issues).
+> **À propos des versions de Zotero** : ce plugin prend en charge Zotero 7, 9 et 10. Sous Windows et Linux, les versions représentatives 7.0.32, 9.0.6 et 10.0.1 sont testées. Pour Zotero 10 sous macOS, les preuves actuelles se limitent à un test smoke formel non bloquant du XPI ; cela ne couvre pas toutes les anciennes versions correctives.
 
 ## Installation du plugin
 

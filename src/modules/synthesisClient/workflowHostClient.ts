@@ -24,7 +24,7 @@ import {
   WORKFLOW_HOST_ERROR_SCHEMA,
   type WorkflowHostErrorDetailsByCode,
 } from "../../workflows/workflowHostErrorContract";
-import { notifySynthesisWorkbenchSidecarChanged } from "../synthesisWorkbenchInvalidation";
+import { notifySynthesisWorkbenchSidecarChanged } from "../synthesis/workbench/synthesisWorkbenchInvalidation";
 import { getDefaultSynthesisClient } from "./defaultClient";
 import {
   consumeTagAuditTraversalCompletionEvidence,
@@ -693,125 +693,132 @@ export function createWorkflowSynthesisHostApi(
         }
         return guardWorkflowSynthesis(
           async (): Promise<TagAuditRunResultDto> => {
-          const client = await resolveClient();
-          const identity = await options.resolveAuditExecutionIdentity!();
-          const begun = await beginTagAuditRunSerialized(async () => {
-            const result = await client.tags.beginTagAuditRun({
-              ...input,
-              executionIdentity: identity,
-              activeRunIds: Array.from(activeTagAuditRunIds),
+            const client = await resolveClient();
+            const identity = await options.resolveAuditExecutionIdentity!();
+            const begun = await beginTagAuditRunSerialized(async () => {
+              const result = await client.tags.beginTagAuditRun({
+                ...input,
+                executionIdentity: identity,
+                activeRunIds: Array.from(activeTagAuditRunIds),
+              });
+              activeTagAuditRunIds.add(result.run.auditRunId);
+              return result;
             });
-            activeTagAuditRunIds.add(result.run.auditRunId);
-            return result;
-          });
-          const run = begun.run;
-          try {
-            let sequence = 0;
-            let stagedItems = 0;
-            const abort = async (
-              reason: TagAuditRunAbortRequestDto["reason"],
-            ) => {
-              try {
-                await (
-                  await resolveClient()
-                ).tags.abortTagAuditRun({ run, reason });
-              } catch {
-                // The original outcome/error remains primary; cleanup is best effort.
-              }
-            };
-            const writer = {
-              async append(
-                entries: Parameters<Parameters<typeof callback>[0]["append"]>[0],
-              ) {
-                if (control.signal?.aborted) {
-                  throw createWorkflowHostError(
-                    "canceled",
-                    "Tag-audit run was canceled",
-                    { reason: "caller_signal" },
-                  );
-                }
-                const normalized = rebuildTagAuditStagingEntries(entries);
-                if (
-                  normalized.some(
-                    (entry) => entry.target.libraryId !== input.libraryId,
-                  )
-                ) {
-                  throw createWorkflowHostError(
-                    "invalid_request",
-                    "Tag-audit entry targets a different library",
-                    { reason: "invalid_value" },
-                  );
-                }
-                const appended = await (
-                  await resolveClient()
-                ).tags.appendTagAuditRun({
-                  run,
-                  sequence,
-                  batchDigest: hashSynthesisContractCanonicalJson(normalized),
-                  entries: normalized,
-                });
-                sequence += 1;
-                stagedItems = appended.stagedItems;
-              },
-            };
+            const run = begun.run;
             try {
-              const traversal = await callback(writer);
-              if (traversal.outcome === "canceled" || control.signal?.aborted) {
-                await abort("canceled");
-                return { outcome: "canceled", auditedItems: stagedItems };
-              }
-              if (traversal.outcome === "resource_limited") {
-                await abort("resource_limited");
-                return {
-                  outcome: "resource_limited",
-                  auditedItems: stagedItems,
-                  limit:
-                    traversal.reason === "max_items"
-                      ? "items"
-                      : traversal.reason === "max_pages"
-                        ? "pages"
-                        : "duration",
-                };
-              }
-              const evidenceValid = consumeTagAuditTraversalCompletionEvidence({
-                evidence: traversal.completionEvidence,
-                libraryId: input.libraryId,
-                visitedItems: traversal.visitedItems,
-                visitedBatches: traversal.visitedBatches,
-              });
-              if (!evidenceValid || traversal.visitedItems !== stagedItems) {
-                await abort("conflicted");
-                return {
-                  outcome: "conflicted",
-                  auditedItems: stagedItems,
-                  conflictCount: 1,
-                  conflicts: [],
-                  retryable: true,
-                } as const;
-              }
-              const published = await (
-                await resolveClient()
-              ).tags.promoteTagAuditRun({
-                run,
-                visitedItems: traversal.visitedItems,
-                coverageDigest: traversal.completionEvidence.coverageDigest,
-                evidenceId: traversal.completionEvidence.evidenceId,
-              });
-              if (published.outcome === "published") {
-                notifyChanged({
-                  invalidatedSurfaces: ["tags"],
-                  reason: "tag_audit_publish",
+              let sequence = 0;
+              let stagedItems = 0;
+              const abort = async (
+                reason: TagAuditRunAbortRequestDto["reason"],
+              ) => {
+                try {
+                  await (
+                    await resolveClient()
+                  ).tags.abortTagAuditRun({ run, reason });
+                } catch {
+                  // The original outcome/error remains primary; cleanup is best effort.
+                }
+              };
+              const writer = {
+                async append(
+                  entries: Parameters<
+                    Parameters<typeof callback>[0]["append"]
+                  >[0],
+                ) {
+                  if (control.signal?.aborted) {
+                    throw createWorkflowHostError(
+                      "canceled",
+                      "Tag-audit run was canceled",
+                      { reason: "caller_signal" },
+                    );
+                  }
+                  const normalized = rebuildTagAuditStagingEntries(entries);
+                  if (
+                    normalized.some(
+                      (entry) => entry.target.libraryId !== input.libraryId,
+                    )
+                  ) {
+                    throw createWorkflowHostError(
+                      "invalid_request",
+                      "Tag-audit entry targets a different library",
+                      { reason: "invalid_value" },
+                    );
+                  }
+                  const appended = await (
+                    await resolveClient()
+                  ).tags.appendTagAuditRun({
+                    run,
+                    sequence,
+                    batchDigest: hashSynthesisContractCanonicalJson(normalized),
+                    entries: normalized,
+                  });
+                  sequence += 1;
+                  stagedItems = appended.stagedItems;
+                },
+              };
+              try {
+                const traversal = await callback(writer);
+                if (
+                  traversal.outcome === "canceled" ||
+                  control.signal?.aborted
+                ) {
+                  await abort("canceled");
+                  return { outcome: "canceled", auditedItems: stagedItems };
+                }
+                if (traversal.outcome === "resource_limited") {
+                  await abort("resource_limited");
+                  return {
+                    outcome: "resource_limited",
+                    auditedItems: stagedItems,
+                    limit:
+                      traversal.reason === "max_items"
+                        ? "items"
+                        : traversal.reason === "max_pages"
+                          ? "pages"
+                          : "duration",
+                  };
+                }
+                const evidenceValid =
+                  consumeTagAuditTraversalCompletionEvidence({
+                    evidence: traversal.completionEvidence,
+                    libraryId: input.libraryId,
+                    visitedItems: traversal.visitedItems,
+                    visitedBatches: traversal.visitedBatches,
+                  });
+                if (!evidenceValid || traversal.visitedItems !== stagedItems) {
+                  await abort("conflicted");
+                  return {
+                    outcome: "conflicted",
+                    auditedItems: stagedItems,
+                    conflictCount: 1,
+                    conflicts: [],
+                    retryable: true,
+                  } as const;
+                }
+                const published = await (
+                  await resolveClient()
+                ).tags.promoteTagAuditRun({
+                  run,
+                  visitedItems: traversal.visitedItems,
+                  coverageDigest: traversal.completionEvidence.coverageDigest,
+                  evidenceId: traversal.completionEvidence.evidenceId,
                 });
+                if (published.outcome === "published") {
+                  notifyChanged({
+                    invalidatedSurfaces: ["tags"],
+                    reason: "tag_audit_publish",
+                  });
+                }
+                return published;
+              } catch (error) {
+                await abort(control.signal?.aborted ? "canceled" : "failed");
+                throw error;
               }
-              return published;
-            } catch (error) {
-              await abort(control.signal?.aborted ? "canceled" : "failed");
-              throw error;
+            } finally {
+              activeTagAuditRunIds.delete(run.auditRunId);
             }
-          } finally {
-            activeTagAuditRunIds.delete(run.auditRunId);
-          }
-        });
+          },
+        );
       },
       async acknowledgeRegulation(input, control = {}) {
         if (control.signal?.aborted) {

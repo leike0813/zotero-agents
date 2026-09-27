@@ -175,3 +175,53 @@ response-bound behavior.
 - **WHEN** an authenticated caller inspects an existing or absent topic
 - **THEN** the result preserves the current raw descriptor fields and bounded response behavior
 - **AND** the runtime adapter does not need canonical storage ownership
+
+### Requirement: The Synthesis debug dashboard SHALL keep actionable traces findable
+
+The debug dashboard SHALL render a bounded visible trace window ordered by active and failed traces before recent terminal traces. Users SHALL be able to locate a trace by trace ID, operation, or capability, and the selected trace SHALL remain visible even when it falls outside the default window.
+
+#### Scenario: Repeated failures fill the trace store
+
+- **WHEN** many sidecar traces are retained and at least one is failed
+- **THEN** failed and active traces remain in the bounded visible list
+- **AND** the dashboard does not render the complete retained trace set as an unbounded table.
+
+#### Scenario: A user selects an older failed trace
+
+- **WHEN** the selected failed trace is outside the default visible window
+- **THEN** the dashboard includes it in the visible rows and displays its causal events
+- **AND** later diagnostic updates do not silently replace the selection.
+
+#### Scenario: Diagnostic updates arrive rapidly
+
+- **WHEN** multiple observation patches arrive in a short interval
+- **THEN** dashboard refreshes are coalesced through the existing noisy-refresh path
+- **AND** trace storage remains bounded.
+
+### Requirement: Availability failures SHALL retain a safe structured reason
+
+Failed host-RPC and pre-dispatch client-operation trace events SHALL retain an
+optional bounded stable reason independently of their public error code. The
+reason SHALL distinguish service readiness, transport availability, and safe
+sidecar-provided causes without including exception prose, paths, payloads, or
+credentials. This additive field SHALL remain compatible with
+`synthesis-sidecar-observation.v2`.
+
+#### Scenario: Client has no ready connection
+
+- **WHEN** a client operation fails before RPC dispatch because the service is not ready
+- **THEN** its terminal trace records public code `unavailable`
+- **AND** its structured reason identifies `service_not_ready`
+- **AND** no host-RPC span is emitted
+
+#### Scenario: Host transport cannot reach the sidecar
+
+- **WHEN** an RPC attempt fails at the transport boundary
+- **THEN** the host-RPC terminal trace retains a stable transport-unavailable reason
+- **AND** it does not expose the native exception message
+
+#### Scenario: Sidecar returns a safe application reason
+
+- **WHEN** the sidecar returns an error containing a bounded safe reason
+- **THEN** the host-RPC terminal trace retains that reason with the public sidecar code
+- **AND** diagnostic consumers can distinguish repository and reverse-Host causes from a generic unavailable result

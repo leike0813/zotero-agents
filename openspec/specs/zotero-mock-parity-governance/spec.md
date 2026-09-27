@@ -31,7 +31,7 @@ semantics it simulates.
 
 #### Scenario: 提交 mock 行为变更
 
-- **WHEN** 变更涉及 `test/setup/zotero-mock.ts` 或相关 mock helper
+- **WHEN** 变更涉及 `tests/setup/zotero-mock.ts` 或相关 mock helper
 - **THEN** 提交 MUST 同步包含对应 parity 测试更新
 - **AND** 测试必须覆盖高风险语义（如路径解析、deleted/只读字段、关键运行时调用）
 
@@ -47,4 +47,3 @@ semantics it simulates.
 - **WHEN** a Node test uses POSIX path fixtures
 - **THEN** the mock SHALL preserve POSIX path semantics independent of Windows
   fixture tests.
-

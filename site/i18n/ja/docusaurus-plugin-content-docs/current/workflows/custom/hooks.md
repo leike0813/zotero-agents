@@ -88,12 +88,17 @@ export function buildRequest({ selectionContext, executionOptions, runtime }) {
 **例：Preflight ユニットコンテキストを使用するリクエスト**
 
 ```js
-export function buildRequest({ selectionContext, preflight, runtime }) {
-  const attachment = selectionContext.items.attachments[0];
+export async function buildRequest({ selectionContext, preflight, runtime }) {
+  const selected = selectionContext.items.find((item) => item.kind === "attachment");
+  if (!selected) throw new Error("Source attachment is required");
+  const detail = await runtime.hostApi.library.getItemDetail(selected.ref);
+  if (detail.kind !== "attachment" || detail.item.file.state !== "available") {
+    throw new Error("Source attachment file is unavailable");
+  }
   return {
     kind: "generic-http.steps.v1",
     file: {
-      path: runtime.helpers.getAttachmentFilePath(attachment),
+      path: detail.item.file.path,
       page_ranges: preflight?.unit?.context?.page_ranges,
     },
   };
@@ -104,7 +109,13 @@ export function buildRequest({ selectionContext, preflight, runtime }) {
 
 ```js
 export async function buildRequest({ selectionContext, executionOptions, runtime }) {
-  const sourcePath = resolveAttachmentPath(selectionContext, runtime);
+  const selected = selectionContext.items.find((item) => item.kind === "attachment");
+  if (!selected) throw new Error("Source attachment is required");
+  const detail = await runtime.hostApi.library.getItemDetail(selected.ref);
+  if (detail.kind !== "attachment" || detail.item.file.state !== "available") {
+    throw new Error("Source attachment file is unavailable");
+  }
+  const sourcePath = detail.item.file.path;
   const language = executionOptions?.workflowParams?.language || "en-US";
 
   return {
@@ -401,17 +412,7 @@ export async function applyResult({ parent, bundleReader, runtime }) {
 
 | 関数 | 説明 |
 |------|------|
-| `getAttachmentParentId(entry)` | 添付ファイルの親アイテム ID を取得 |
-| `getAttachmentFilePath(entry)` | 添付ファイルのローカルファイルパスを取得 |
-| `getAttachmentFileName(entry)` | 添付ファイル名を取得 |
-| `getAttachmentFileStem(entry)` | 拡張子なしの添付ファイル名を取得 |
-| `getAttachmentDateAdded(entry)` | 添付ファイルの `dateAdded` タイムスタンプを取得 |
 | `basenameOrFallback(path, fallback)` | ベース名を抽出するかフォールバック文字列を返す |
-| `isMarkdownAttachment(entry)` | Markdown 添付かどうかを確認 |
-| `isPdfAttachment(entry)` | PDF 添付かどうかを確認 |
-| `pickEarliestPdfAttachment(entries)` | 添付ファイルリストから最も古い PDF を選択 |
-| `cloneSelectionContext(ctx)` | 選択コンテキストのディープコピー |
-| `withFilteredAttachments(ctx, items)` | 指定された添付ファイルのみをコンテキストに保持 |
 | `resolveItemRef(ref)` | アイテム参照を Zotero.Item に解決 |
 | `toHtmlNote(title, body)` | Markdown を HTML ノート内容に変換 |
 | `normalizeReferenceAuthors(value)` | 参照の著者リストを正規化 |

@@ -2,12 +2,14 @@ import {
   SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_ENCODING,
   SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_VERSION,
   SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES,
+  SYNTHESIS_WORKBENCH_SURFACES,
   SynthesisClientError,
   canonicalizeSynthesisContractJsonArtifact,
   hashSynthesisContractCanonicalJson,
   rebuildSynthesisProtocolCapabilityDto,
   rebuildSynthesisSidecarOutputTransferReference,
   rebuildSynthesisWorkbenchSurfaceResult,
+  safeSynthesisSidecarObservationReason,
   toSynthesisJsonObject,
   toSynthesisJsonValue,
   type SynthesisClient,
@@ -25,23 +27,23 @@ import {
   createSynthesisSidecarRpcClient,
   SynthesisSidecarRpcError,
   type SynthesisSidecarRpcConnection,
-} from "../synthesisSidecarRpcClient";
+} from "../synthesis/sidecar/synthesisSidecarRpcClient";
 import {
   SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
   synthesisProductionOperationPolicy,
   synthesisProductionTransportDeadlineMs,
-} from "../synthesisProductionRpcPolicy";
+} from "../synthesis/production/synthesisProductionRpcPolicy";
 import {
   consumeSynthesisSidecarOutputJson,
   createSynthesisSidecarContentTransferClient,
   SynthesisSidecarTransferClientError,
-} from "../synthesisSidecarTransferClient";
-import { beginSynthesisSidecarBusinessAudit } from "../synthesisSidecarBusinessAudit";
+} from "../synthesis/sidecar/synthesisSidecarTransferClient";
+import { beginSynthesisSidecarBusinessAudit } from "../synthesis/sidecar/synthesisSidecarBusinessAudit";
 import {
   createSynthesisSidecarTraceContext,
   recordSynthesisSidecarTraceEvent,
-} from "../synthesisSidecarTrace";
-import { getReadySynthesisProductionControlConnection } from "../synthesisSidecarRuntimeSupervisor";
+} from "../synthesis/sidecar/synthesisSidecarTrace";
+import { getReadySynthesisProductionControlConnection } from "../synthesis/sidecar/synthesisSidecarRuntimeSupervisor";
 import {
   createSynthesisClientFromPort,
   type SynthesisClientPort,
@@ -335,6 +337,28 @@ function normalizeRpcError(error: unknown) {
       !hasControlCharacter
         ? detailReason
         : error.code;
+    const location =
+      typeof error.details.location === "string" &&
+      error.details.location.length <= 4096
+        ? error.details.location
+        : "";
+    const violations = Array.isArray(error.details.violations)
+      ? error.details.violations.slice(0, 16).flatMap((violation) => {
+          if (!violation || typeof violation !== "object") return [];
+          const row = violation as Record<string, unknown>;
+          return typeof row.keyword === "string" &&
+            row.keyword.length <= 64 &&
+            typeof row.instancePath === "string" &&
+            row.instancePath.length <= 4096
+            ? [
+                {
+                  keyword: row.keyword,
+                  instancePath: row.instancePath,
+                },
+              ]
+            : [];
+        })
+      : [];
     return new SynthesisClientError(
       error.code === "invalid_request"
         ? "invalid_request"
@@ -344,7 +368,16 @@ function normalizeRpcError(error: unknown) {
           ? "conflict"
           : "unavailable",
       "The native Synthesis request failed",
-      { sidecarCode: error.code, sidecarReason: reason },
+      {
+        sidecarCode: error.code,
+        sidecarReason: reason,
+        ...(reason === "protocol_result_invalid" && location
+          ? { location }
+          : {}),
+        ...(reason === "protocol_result_invalid" && violations.length
+          ? { violations }
+          : {}),
+      },
     );
   }
   return unavailable(
@@ -355,6 +388,7 @@ function normalizeRpcError(error: unknown) {
 function createNativePort(args: {
   isActive: () => boolean;
   getReadyConnection: () => NativeControlConnection | null;
+  recoverReadyConnection?: () => Promise<void>;
   rpcClient: NativeRpcClient;
 }): SynthesisClientPort {
   const capabilities = new Set<string>(
@@ -372,7 +406,26 @@ function createNativePort(args: {
       return async (...methodArgs: unknown[]) => {
         const operation =
           capability as SynthesisSidecarProductionClientCapability;
-        const audit = beginSynthesisSidecarBusinessAudit({ operation });
+        const surfaceCandidate =
+          typeof methodArgs[0] === "string"
+            ? methodArgs[0]
+            : methodArgs[0] &&
+                typeof methodArgs[0] === "object" &&
+                !Array.isArray(methodArgs[0])
+              ? (methodArgs[0] as Record<string, unknown>).surface
+              : undefined;
+        const surface =
+          property === "getSynthesisWorkbenchSurfaceInput" &&
+          typeof surfaceCandidate === "string" &&
+          SYNTHESIS_WORKBENCH_SURFACES.includes(
+            surfaceCandidate as SynthesisWorkbenchSurfaceName,
+          )
+            ? (surfaceCandidate as SynthesisWorkbenchSurfaceName)
+            : undefined;
+        const audit = beginSynthesisSidecarBusinessAudit({
+          operation,
+          ...(surface ? { surface } : {}),
+        });
         const trace = createSynthesisSidecarTraceContext();
         recordSynthesisSidecarTraceEvent({
           context: trace,
@@ -386,7 +439,14 @@ function createNativePort(args: {
           if (!args.isActive()) {
             throw unavailable("composition_disposed");
           }
-          const connection = args.getReadyConnection();
+          let connection = args.getReadyConnection();
+          if (!connection && args.recoverReadyConnection) {
+            await args.recoverReadyConnection();
+            if (!args.isActive()) {
+              throw unavailable("composition_disposed");
+            }
+            connection = args.getReadyConnection();
+          }
           if (!connection) {
             throw unavailable("service_not_ready");
           }
@@ -542,6 +602,9 @@ function createNativePort(args: {
           return result;
         } catch (error) {
           const normalized = normalizeRpcError(error);
+          const reason = safeSynthesisSidecarObservationReason(
+            normalized.details?.reason ?? normalized.details?.sidecarReason,
+          );
           audit.failed(normalized);
           recordSynthesisSidecarTraceEvent({
             context: trace,
@@ -550,7 +613,7 @@ function createNativePort(args: {
             phase: "terminal",
             outcome: "failed",
             code: normalized.code,
-            identities: { operation },
+            identities: { operation, ...(reason ? { reason } : {}) },
           });
           throw normalized;
         }
@@ -561,6 +624,7 @@ function createNativePort(args: {
 
 export function createNativeSynthesisClientComposition(options?: {
   getReadyConnection?: () => NativeControlConnection | null;
+  recoverReadyConnection?: () => Promise<void>;
   rpcClient?: NativeRpcClient;
 }): {
   client: SynthesisClient;
@@ -579,6 +643,7 @@ export function createNativeSynthesisClientComposition(options?: {
     createNativePort({
       isActive: () => active,
       getReadyConnection,
+      recoverReadyConnection: options?.recoverReadyConnection,
       rpcClient,
     }),
   );
@@ -593,9 +658,14 @@ export function createNativeSynthesisClientComposition(options?: {
   };
 }
 
-export function createReadyNativeSynthesisClientComposition() {
-  if (!getReadySynthesisProductionControlConnection()) {
+export function createReadyNativeSynthesisClientComposition(options?: {
+  recoverReadyConnection?: () => Promise<void>;
+}) {
+  if (
+    !getReadySynthesisProductionControlConnection() &&
+    !options?.recoverReadyConnection
+  ) {
     throw unavailable("production_owner_not_ready");
   }
-  return createNativeSynthesisClientComposition();
+  return createNativeSynthesisClientComposition(options);
 }

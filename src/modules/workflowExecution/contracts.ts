@@ -7,8 +7,8 @@ import type {
   PreparedWorkflowInputUnit,
   WorkflowScopedSelectionContext,
 } from "../../workflows/workflowInputPlanning";
-import type { WorkflowMessageFormatter } from "../workflowExecuteMessage";
-import type { resolveWorkflowExecutionContext } from "../workflowSettings";
+import type { WorkflowMessageFormatter } from "./workflowExecuteMessage";
+import type { resolveWorkflowExecutionContext } from "../workflow/settings/workflowSettings";
 
 export type WorkflowExecutionContext = Awaited<
   ReturnType<typeof resolveWorkflowExecutionContext>
@@ -39,7 +39,7 @@ export type PreparedWorkflowExecution = {
     workflowParams?: Record<string, unknown>;
     providerOptions?: Record<string, unknown>;
     runOptions?: import("../../workflows/zoteroHostAccessOptions").WorkflowRunOptions;
-    hostOptions?: import("../workflowSettingsDomain").WorkflowHostOptions;
+    hostOptions?: import("../workflow/settings/workflowSettingsDomain").WorkflowHostOptions;
   }>;
   candidateSkipped: number;
   executionContext: WorkflowExecutionContext;
@@ -87,7 +87,12 @@ export type WorkflowPreflightUnitMeta = {
 export type WorkflowPreflightShortCircuitApply = {
   index: number;
   taskLabel: string;
-  parent: Zotero.Item | number | string | null;
+  parent:
+    | import("../../workflows/types").PortableItemRef
+    | Zotero.Item
+    | number
+    | string
+    | null;
   request: unknown;
   runResult: {
     status: "succeeded";

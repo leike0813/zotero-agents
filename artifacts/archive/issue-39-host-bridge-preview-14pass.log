@@ -1,0 +1,10 @@
+Host Bridge stored-file preview run record
+Date: 2026-09-06
+
+Command:
+./node_modules/.bin/tsx node_modules/mocha/bin/mocha test/core/138-host-bridge-file-downloads.test.ts --require test/setup/zotero-mock.ts --full-trace --exit
+
+Result:
+14 passing (604ms)
+
+This is a persisted run summary. The original terminal output was not redirected to a file.

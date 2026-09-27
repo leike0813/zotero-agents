@@ -1,8 +1,22 @@
 import type { SynthesisHostLibraryItemSummary } from "../../synthesis-contracts/src/hostRead.js";
 import {
+  parseCitationAnalysisArtifact,
+  parseSourceReferenceArtifact,
+  validateCitationAgainstReferences,
+} from "../../synthesis-contracts/src/sourceReferenceArtifact.js";
+import type {
+  CitationAnalysisArtifact,
+  CitationFunction,
+  CitationItem,
+  CitationMention,
+  SourceReference,
+  SourceReferenceArtifact,
+} from "../../synthesis-contracts/src/sourceReferenceArtifact.js";
+import {
   hashSynthesisEngineCanonicalJson,
   sha256SynthesisEngineText,
 } from "../../synthesis-engine/src/canonicalJson.js";
+import { hashSynthesisContractCanonicalJson } from "../../synthesis-contracts/src/canonicalJson.js";
 import { normalizeSynthesisLiteratureTitle } from "../../synthesis-engine/src/referenceMatcher.js";
 import type {
   SynthesisCanonicalReferenceRecord,
@@ -36,42 +50,25 @@ const clean = (value: unknown) =>
   String(value ?? "")
     .replace(/\s+/g, " ")
     .trim();
-const isObject = (value: unknown): value is Record<string, unknown> =>
-  !!value && typeof value === "object" && !Array.isArray(value);
-const stringArray = (value: unknown) =>
-  (Array.isArray(value) ? value : clean(value) ? [value] : [])
-    .map(clean)
-    .filter(Boolean);
-
-export function synthesisReferenceTitle(reference: Record<string, unknown>) {
-  return clean(
-    reference.title ??
-      reference.parsed_title ??
-      reference.parsedTitle ??
-      reference.paper_title,
-  );
+export function synthesisReferenceTitle(reference: SourceReference) {
+  return clean(reference.bibliography.title);
 }
 
-export function synthesisReferenceRaw(reference: Record<string, unknown>) {
-  return clean(reference.raw ?? reference.raw_reference ?? reference.reference);
+export function synthesisReferenceRaw(reference: SourceReference) {
+  return clean(reference.extraction?.raw);
 }
 
-export function synthesisReferenceYear(reference: Record<string, unknown>) {
-  return (
-    clean(reference.year) ||
-    synthesisReferenceRaw(reference).match(/\b(?:19|20)\d{2}\b/)?.[0] ||
-    ""
-  );
+export function synthesisReferenceYear(reference: SourceReference) {
+  const year = reference.bibliography.year;
+  return typeof year === "number" && Number.isInteger(year) ? String(year) : "";
 }
 
-export function synthesisReferenceAuthors(reference: Record<string, unknown>) {
-  return stringArray(reference.authors ?? reference.author);
+export function synthesisReferenceAuthors(reference: SourceReference) {
+  return reference.bibliography.authors.map(clean).filter(Boolean);
 }
 
-export function synthesisReferenceCitekey(reference: Record<string, unknown>) {
-  return clean(
-    reference.citekey ?? reference.citeKey ?? reference.citationKey,
-  ).toLowerCase();
+export function synthesisReferenceCitekey(reference: SourceReference) {
+  return clean(reference.matching.citekey).toLowerCase();
 }
 
 function contentTokens(value: unknown) {
@@ -140,7 +137,7 @@ function hasPossibleAuthorPrefixNoise(title: string) {
 }
 
 export function classifySynthesisReferenceQuality(
-  reference: Record<string, unknown>,
+  reference: SourceReference,
   options: { longTitleThreshold?: number } = {},
 ): SynthesisReferenceExtractionQuality {
   const title = synthesisReferenceTitle(reference);
@@ -196,6 +193,7 @@ const allowedRoles = new Set([
   "dataset",
   "tooling",
   "historical",
+  "uncategorized",
 ]);
 
 export function normalizeSynthesisReferenceRole(value: unknown) {
@@ -214,50 +212,336 @@ function roleEntries(values: unknown[]) {
     .sort((left, right) => left.role.localeCompare(right.role));
 }
 
-function referenceEntries(payload: unknown) {
-  if (Array.isArray(payload)) return payload.filter(isObject);
-  if (!isObject(payload)) return [];
-  const entries =
-    payload.references ?? payload.reference_entries ?? payload.items;
-  return Array.isArray(entries) ? entries.filter(isObject) : [];
-}
-
 function citationEntries(payload: unknown) {
-  if (!isObject(payload)) return [];
-  const nested = isObject(payload.citation_analysis)
-    ? payload.citation_analysis
-    : isObject(payload.citationAnalysis)
-      ? payload.citationAnalysis
-      : payload;
-  const entries = nested.items ?? nested.citations;
-  return Array.isArray(entries) ? entries.filter(isObject) : [];
+  return payload == null ? [] : parseCitationAnalysisArtifact(payload).items;
 }
 
 function rolesByReference(payload: unknown) {
-  const byIndex = new Map<number, unknown[]>();
+  const bySourceReferenceId = new Map<string, unknown[]>();
   for (const entry of citationEntries(payload)) {
-    const index = Number(
-      entry.ref_index ?? entry.reference_index ?? entry.index,
-    );
-    if (!Number.isInteger(index) || index < 0) continue;
-    const values = [
-      entry.function,
-      entry.role,
-      ...(Array.isArray(entry.roles) ? entry.roles : []),
-    ].filter((value) => clean(value));
-    byIndex.set(index, [...(byIndex.get(index) ?? []), ...values]);
+    const values = [entry.function].filter((value) => clean(value));
+    if (!values.length) continue;
+    bySourceReferenceId.set(entry.sourceReferenceId, [
+      ...(bySourceReferenceId.get(entry.sourceReferenceId) ?? []),
+      ...values,
+    ]);
   }
-  return byIndex;
+  return bySourceReferenceId;
+}
+
+const citationFunctionLabels: Record<CitationFunction, string> = {
+  background: "Background",
+  baseline: "Baseline",
+  contrast: "Contrast",
+  component: "Component",
+  dataset: "Dataset",
+  tooling: "Tooling",
+  historical: "Historical",
+  uncategorized: "Uncategorized",
+};
+
+type CitationReportItem = {
+  sourceReferenceId: string;
+  citationLabel: string;
+  authorYearLabel: string;
+  title: string;
+  keywords: string[];
+  summary: string;
+  function: CitationFunction;
+  functionLabel: string;
+};
+
+type CitationReportLocale = {
+  title: string;
+  summary: string;
+  keyReferences: string;
+  scope: string;
+  section: string;
+  lines: string;
+  byFunction: string;
+  itemTitle: string;
+  keywords: string;
+  itemSummary: string;
+  timeline: string;
+  noMappedCitations: string;
+  noRepresentativeReferences: string;
+  unmappedMentions: string;
+  early: string;
+  mid: string;
+  recent: string;
+};
+
+const englishCitationReportLocale: CitationReportLocale = {
+  title: "## Citation Signals In Review Scope",
+  summary: "### Summary",
+  keyReferences: "### Key References",
+  scope: "### Scope",
+  section: "Section",
+  lines: "Lines",
+  byFunction: "### By Function",
+  itemTitle: "Title",
+  keywords: "Keywords",
+  itemSummary: "Summary",
+  timeline: "### Timeline Analysis",
+  noMappedCitations: "- No stable mapped citations in this scope.",
+  noRepresentativeReferences: "- No representative references in this bucket.",
+  unmappedMentions: "### Unmapped Mentions",
+  early: "Early",
+  mid: "Mid",
+  recent: "Recent",
+};
+
+const chineseCitationReportLocale: CitationReportLocale = {
+  title: "## 文献综述章节引文线索",
+  summary: "### 总体总结",
+  keyReferences: "### 关键文献",
+  scope: "### 范围",
+  section: "章节",
+  lines: "行号",
+  byFunction: "### 按功能归类",
+  itemTitle: "标题",
+  keywords: "关键词",
+  itemSummary: "总结",
+  timeline: "### 时间线分析",
+  noMappedCitations: "- 本范围内未检测到稳定映射的引用。",
+  noRepresentativeReferences: "- 该时段没有可列举的代表文献。",
+  unmappedMentions: "### 未映射引用",
+  early: "早期",
+  mid: "中期",
+  recent: "近期",
+};
+
+function reportText(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function reportCitationLabel(value: unknown) {
+  const label = reportText(value);
+  if (
+    !label ||
+    label.toLowerCase() === "none" ||
+    label.toLowerCase() === "null"
+  ) {
+    return "";
+  }
+  return label.startsWith("[") ? label : `[${label}]`;
+}
+
+function firstMentionWithNumber(item: CitationItem) {
+  return item.mentions.find(
+    (mention) =>
+      Number.isInteger(mention.ref_number_hint) &&
+      mention.ref_number_hint != null,
+  );
+}
+
+function citationItemLabel(item: CitationItem, authorYearOrdinal: number) {
+  const explicit = item.mentions
+    .map((mention) => reportCitationLabel(mention.citation_label_hint))
+    .find(Boolean);
+  if (explicit) return explicit;
+  const numbered = firstMentionWithNumber(item)?.ref_number_hint;
+  if (numbered != null) return `[${numbered}]`;
+  return `[AY-${authorYearOrdinal}]`;
+}
+
+function sourceAuthorYearLabel(reference: SourceReference) {
+  const author = reportText(reference.bibliography.authors[0]);
+  const year = reference.bibliography.year;
+  if (author && year != null) return `${author}, ${year}`;
+  return reportText(reference.bibliography.title) || "[unlabeled]";
+}
+
+function reportItemFromCitation(
+  item: CitationItem,
+  reference: SourceReference,
+  citationLabel: string,
+): CitationReportItem {
+  const functionValue = item.function ?? "uncategorized";
+  return {
+    sourceReferenceId: item.sourceReferenceId,
+    citationLabel,
+    authorYearLabel: sourceAuthorYearLabel(reference),
+    title: reportText(reference.bibliography.title),
+    keywords: item.keywords.map(reportText).filter(Boolean),
+    summary: reportText(item.summary),
+    function: functionValue,
+    functionLabel: citationFunctionLabels[functionValue],
+  };
+}
+
+function reportItemLine(item: CitationReportItem, includeFunction = false) {
+  const title = item.title ? `: ${item.title}` : "";
+  const functionLabel = includeFunction ? ` (${item.functionLabel})` : "";
+  return `- ${item.citationLabel} ${item.authorYearLabel}${title}${functionLabel}`;
+}
+
+function reportMentionLine(
+  mention: CitationMention & { reason?: string | null },
+) {
+  const marker = reportText(mention.marker) || "[unmapped]";
+  const reason = reportText(mention.reason);
+  const snippet = reportText(mention.snippet);
+  return `- ${marker}${reason ? ` (${reason})` : ""}${snippet ? `: ${snippet}` : ""}`;
+}
+
+/**
+ * Render the derived Citation Markdown projection from the same canonical
+ * Source Reference/Citation artifacts used by Synthesis and bundle export.
+ * `report_md` is intentionally not accepted or read here.
+ */
+export function renderCitationAnalysisMarkdown(args: {
+  citation: CitationAnalysisArtifact | unknown;
+  references: SourceReferenceArtifact | unknown;
+}): string {
+  const references = parseSourceReferenceArtifact(args.references);
+  const citation = parseCitationAnalysisArtifact(args.citation);
+  const linkage = validateCitationAgainstReferences(citation, references);
+  if (!linkage.ok) throw new Error("citation_source_reference_linkage_invalid");
+
+  const referenceById = new Map(
+    references.references.map((reference) => [
+      reference.sourceReferenceId,
+      reference,
+    ]),
+  );
+  let authorYearOrdinal = 0;
+  const reportItems = citation.items.map((item) => {
+    const reference = referenceById.get(item.sourceReferenceId);
+    if (!reference)
+      throw new Error("citation_source_reference_linkage_invalid");
+    const explicit = item.mentions.some(
+      (mention) =>
+        Boolean(reportCitationLabel(mention.citation_label_hint)) ||
+        mention.ref_number_hint != null,
+    );
+    if (!explicit) authorYearOrdinal += 1;
+    return reportItemFromCitation(
+      item,
+      reference,
+      citationItemLabel(item, explicit ? 0 : authorYearOrdinal),
+    );
+  });
+  const reportById = new Map(
+    reportItems.map((item) => [item.sourceReferenceId, item]),
+  );
+  const locale = citation.meta.language.toLowerCase().startsWith("zh")
+    ? chineseCitationReportLocale
+    : englishCitationReportLocale;
+  const lines: string[] = [
+    locale.title,
+    "",
+    locale.summary,
+    reportText(citation.summary),
+    "",
+  ];
+  const keyReferences = citation.items
+    .map((item) => reportById.get(item.sourceReferenceId))
+    .filter((item): item is CitationReportItem => Boolean(item))
+    .filter((item, index) =>
+      Boolean(reportText(citation.items[index]?.key_reference_reason)),
+    );
+  if (keyReferences.length) {
+    lines.push(locale.keyReferences);
+    for (const item of keyReferences) lines.push(reportItemLine(item, true));
+    lines.push("");
+  }
+
+  const scope = citation.meta.scope;
+  lines.push(
+    locale.scope,
+    `- ${locale.section}: ${reportText(scope.section_title)}`,
+    `- ${locale.lines}: ${scope.line_start ?? ""}-${scope.line_end ?? ""}`,
+    "",
+    locale.byFunction,
+  );
+  const groups = new Map<CitationFunction, CitationReportItem[]>();
+  for (const item of reportItems) {
+    const group = groups.get(item.function) ?? [];
+    group.push(item);
+    groups.set(item.function, group);
+  }
+  if (!reportItems.length) {
+    lines.push(locale.noMappedCitations);
+  } else {
+    for (const [functionValue, items] of groups) {
+      lines.push(`#### ${citationFunctionLabels[functionValue]}`);
+      for (const item of items) {
+        lines.push(
+          reportItemLine(item),
+          `  - ${locale.itemTitle}: ${item.title || "[missing]"}`,
+          `  - ${locale.keywords}: ${item.keywords.length ? item.keywords.join(", ") : "[none]"}`,
+          `  - ${locale.itemSummary}: ${item.summary}`,
+        );
+      }
+      lines.push("");
+    }
+  }
+
+  lines.push(locale.timeline);
+  const timelineLabels = {
+    early: locale.early,
+    mid: locale.mid,
+    recent: locale.recent,
+  } as const;
+  for (const bucketName of ["early", "mid", "recent"] as const) {
+    const bucket = citation.timeline[bucketName];
+    lines.push(
+      `#### ${timelineLabels[bucketName]}`,
+      reportText(bucket.summary),
+    );
+    const timelineItems = bucket.sourceReferenceIds.map((id) => {
+      const existing = reportById.get(id);
+      if (existing) return existing;
+      const reference = referenceById.get(id);
+      if (!reference) return null;
+      return reportItemFromCitation(
+        {
+          sourceReferenceId: id,
+          function: null,
+          role_in_context: null,
+          topic: null,
+          usage: null,
+          keywords: [],
+          summary: null,
+          key_reference_reason: null,
+          confidence: null,
+          mentions: [],
+        },
+        reference,
+        `[${references.references.findIndex((entry) => entry.sourceReferenceId === id) + 1}]`,
+      );
+    });
+    if (timelineItems.filter(Boolean).length) {
+      for (const item of timelineItems)
+        if (item) lines.push(reportItemLine(item));
+    } else {
+      lines.push(locale.noRepresentativeReferences);
+    }
+    lines.push("");
+  }
+
+  if (citation.unresolved.length) {
+    lines.push(locale.unmappedMentions);
+    for (const mention of citation.unresolved)
+      lines.push(reportMentionLine(mention));
+    lines.push("");
+  }
+  return `${lines.join("\n").trim()}\n`;
 }
 
 function shortHash(value: unknown) {
   return hashSynthesisEngineCanonicalJson(value).slice(7, 31);
 }
 
-export function synthesisReferenceIdentity(reference: Record<string, unknown>) {
+export function synthesisReferenceIdentity(reference: SourceReference) {
   const title = synthesisReferenceTitle(reference);
   return {
     citekey: synthesisReferenceCitekey(reference),
+    doi: clean(reference.matching.DOI),
+    url: clean(reference.matching.url),
+    isbn: clean(reference.matching.ISBN),
+    issn: clean(reference.matching.ISSN),
     title,
     normalizedTitle: normalizeSynthesisLiteratureTitle(title),
     year: synthesisReferenceYear(reference),
@@ -267,7 +551,7 @@ export function synthesisReferenceIdentity(reference: Record<string, unknown>) {
 }
 
 export function buildSynthesisCanonicalReferenceRecord(
-  reference: Record<string, unknown>,
+  reference: SourceReference,
   timestamp: string,
 ): SynthesisCanonicalReferenceRecord {
   const identity = synthesisReferenceIdentity(reference);
@@ -285,6 +569,10 @@ export function buildSynthesisCanonicalReferenceRecord(
     authorsJson: JSON.stringify(identity.authors),
     identifiersJson: JSON.stringify({
       ...(identity.citekey ? { citekey: identity.citekey } : {}),
+      ...(identity.doi ? { DOI: identity.doi } : {}),
+      ...(identity.url ? { url: identity.url } : {}),
+      ...(identity.isbn ? { ISBN: identity.isbn } : {}),
+      ...(identity.issn ? { ISSN: identity.issn } : {}),
     }),
     metadataHash,
     status: "active",
@@ -311,6 +599,8 @@ export function projectSynthesisReferencePayloads(args: {
     referencesArtifactHash: string;
     referencesPayload?: unknown;
     citationAnalysisPayload?: unknown;
+    /** Runtime-only basis carried beside the public Citation payload. */
+    citationReferencesBasis?: string;
   }>;
   timestamp: string;
 }) {
@@ -319,12 +609,31 @@ export function projectSynthesisReferencePayloads(args: {
   const rawReferences: SynthesisRawReferenceRecord[] = [];
   const indexes = itemIndexes(args.items);
   for (const source of args.sources) {
-    const roles = rolesByReference(source.citationAnalysisPayload);
-    for (const [index, reference] of referenceEntries(
+    const referencesArtifact = parseSourceReferenceArtifact(
       source.referencesPayload,
-    ).entries()) {
+    );
+    if (source.citationAnalysisPayload != null) {
+      const citationArtifact = parseCitationAnalysisArtifact(
+        source.citationAnalysisPayload,
+      );
+      if (
+        source.citationReferencesBasis !== undefined &&
+        source.citationReferencesBasis !==
+          hashSynthesisContractCanonicalJson(referencesArtifact)
+      ) {
+        throw new Error("citation_references_basis_mismatch");
+      }
+      const linkage = validateCitationAgainstReferences(
+        citationArtifact,
+        referencesArtifact,
+      );
+      if (!linkage.ok) {
+        throw new Error("citation_source_reference_linkage_invalid");
+      }
+    }
+    const roles = rolesByReference(source.citationAnalysisPayload);
+    for (const [index, reference] of referencesArtifact.references.entries()) {
       const quality = classifySynthesisReferenceQuality(reference);
-      if (quality.disposition === "reject") continue;
       const identity = synthesisReferenceIdentity(reference);
       const { title, normalizedTitle, year, authors, citekey } = identity;
       const rawReference = identity.raw;
@@ -344,6 +653,7 @@ export function projectSynthesisReferencePayloads(args: {
             citekey,
           });
       rawReferences.push({
+        sourceReferenceId: reference.sourceReferenceId,
         rawReferenceId: `rawref:${shortHash({
           source: source.paperRef,
           artifact: source.referencesArtifactHash,
@@ -361,7 +671,9 @@ export function projectSynthesisReferencePayloads(args: {
         rawReference,
         canonicalReferenceId,
         status: "active",
-        rolesJson: JSON.stringify(roleEntries(roles.get(index) ?? [])),
+        rolesJson: JSON.stringify(
+          roleEntries(roles.get(reference.sourceReferenceId) ?? []),
+        ),
         diagnosticsJson: JSON.stringify(
           quality.warningReasons.map((code) => ({
             code,

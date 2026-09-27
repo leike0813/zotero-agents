@@ -2,10 +2,10 @@
 
 ## 系统要求
 
-- **Zotero**：7.0 或更高版本（推荐 Zotero 9）
+- **Zotero**：7.0 或更高版本（推荐 Zotero 10）
 - **平台**：Windows 10+、macOS 12+、Linux（x86_64 / x86 / ARM64 / ARM）
 
-> **关于 Zotero 版本**：本插件在 Zotero 9 上开发与测试。Zotero 8 理论上可完整支持（Zotero 8/9 的插件框架没有明显改变）；Zotero 7 理论上也能支持，但受精力所限未进行深入测试，未来的维护重点将放在 Zotero 9 上。如果在 Zotero 7 使用过程中遇到问题，请在 [Issues](https://github.com/leike0813/zotero-agents/issues) 反馈。
+> **关于 Zotero 版本**：本插件支持 Zotero 7、9 和 10。Windows 与 Linux 固定验证代表版本 7.0.32、9.0.6 和 10.0.1。macOS 上的 Zotero 10 当前只有非阻塞的正式 XPI smoke 证据，不代表覆盖所有历史 patch 版本。
 
 ## 安装插件
 

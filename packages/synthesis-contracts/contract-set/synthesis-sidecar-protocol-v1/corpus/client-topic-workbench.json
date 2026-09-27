@@ -970,6 +970,82 @@
       }
     },
     {
+      "id": "topic-detail-discovery-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ReadTopicDetailResult",
+      "valid": true,
+      "value": {
+        "ok": true,
+        "status": "ready",
+        "topicId": "topic:1",
+        "title": "Topic One",
+        "source_papers": [],
+        "discovery": {
+          "candidate_count": 1,
+          "candidates": [
+            {
+              "hint_id": "hint:1",
+              "topic_id": "topic:child",
+              "literature_item_id": "1:ITEM2",
+              "status": "open",
+              "updated_at": "2026-08-12T00:00:00Z",
+              "title": "Candidate",
+              "score": 0.9,
+              "method": "semantic",
+              "reasons": ["shared method"],
+              "fallback_metadata": false,
+              "basis_hash": "basis:1"
+            }
+          ],
+          "rejected_candidates": []
+        },
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "topic-detail-discovery-open-negative",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ReadTopicDetailResult",
+      "valid": false,
+      "value": {
+        "ok": true,
+        "status": "ready",
+        "topicId": "topic:1",
+        "title": "Topic One",
+        "source_papers": [],
+        "discovery": {
+          "candidate_count": 1,
+          "candidates": [
+            {
+              "hint_id": "hint:1",
+              "topic_id": "topic:1",
+              "literature_item_id": "1:ITEM2",
+              "status": "open",
+              "updated_at": "2026-08-12T00:00:00Z",
+              "private": true
+            }
+          ],
+          "rejected_candidates": []
+        },
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "discovery-command-candidate-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/RejectTopicDiscoveryHintResult",
+      "valid": true,
+      "value": {
+        "ok": true,
+        "status": "rejected",
+        "hint": {
+          "hint_id": "hint:1",
+          "topic_id": "topic:1",
+          "literature_item_id": "1:ITEM2",
+          "status": "rejected",
+          "updated_at": "2026-08-12T00:00:00Z"
+        },
+        "diagnostics": []
+      }
+    },
+    {
       "id": "topic-detail-claim-open-negative",
       "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ReadTopicDetailResult",
       "valid": false,

@@ -10,6 +10,10 @@
     "src/**/*-safeBackup-*",
     ".agents",
     "src/sidebar/components",
-    "src/sidebar/**/*.tsx"
+    "src/sidebar/**/*.tsx",
+    "src/shared/**/*.tsx",
+    "src/dashboard",
+    "src/synthesis",
+    "src/synthesisWorkbenchApp.ts"
   ]
 }

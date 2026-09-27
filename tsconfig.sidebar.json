@@ -10,6 +10,7 @@
     "src/sidebar/**/*.ts",
     "src/sidebar/**/*.tsx",
     "src/shared/**/*.ts",
+    "src/synthesisWorkbenchI18n.ts",
     "packages/synthesis-contracts/src/**/*.ts"
   ]
 }

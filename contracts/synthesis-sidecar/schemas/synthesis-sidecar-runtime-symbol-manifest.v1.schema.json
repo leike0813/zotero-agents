@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zotero-agents.local/schemas/synthesis-sidecar-runtime-symbol-manifest.v1.schema.json",
+  "title": "Synthesis Sidecar Runtime Symbol Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "sourceCommit",
+    "sourceFingerprint",
+    "buildFingerprint",
+    "target",
+    "targetTriple",
+    "executable",
+    "pdb",
+    "archive"
+  ],
+  "properties": {
+    "schema": { "const": "synthesis-sidecar-runtime-symbol-manifest.v1" },
+    "sourceCommit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "sourceFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "buildFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "target": { "const": "win32-x64" },
+    "targetTriple": { "const": "x86_64-pc-windows-msvc" },
+    "executable": { "$ref": "#/$defs/file" },
+    "pdb": { "$ref": "#/$defs/file" },
+    "archive": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "compression", "sha256", "bytes"],
+      "properties": {
+        "file": { "const": "synthesis-sidecar.pdb.gz" },
+        "compression": { "const": "gzip" },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "bytes": { "type": "integer", "minimum": 1 }
+      }
+    }
+  },
+  "$defs": {
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "bytes"],
+      "properties": {
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "bytes": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

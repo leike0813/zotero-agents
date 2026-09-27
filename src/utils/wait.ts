@@ -17,6 +17,22 @@ export type CancellationController = {
   abort: () => void;
 };
 
+type NativeAbortController = {
+  readonly signal: AbortSignal;
+  abort: (reason?: unknown) => void;
+};
+
+type NativeAbortControllerConstructor = new () => NativeAbortController;
+
+export function resolveNativeAbortControllerConstructor() {
+  const AbortControllerCtor = (globalThis as Record<string, unknown>)[
+    "AbortController"
+  ];
+  return typeof AbortControllerCtor === "function"
+    ? (AbortControllerCtor as NativeAbortControllerConstructor)
+    : undefined;
+}
+
 export function createCancellationController(): CancellationController {
   let aborted = false;
   const listeners = new Set<() => void>();

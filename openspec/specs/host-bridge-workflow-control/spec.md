@@ -14,7 +14,7 @@ The system SHALL expose loaded workflow summaries through the Host Bridge.
   the public workflow metadata needed for submission.
 
 ### Requirement: Host Bridge submits workflows with explicit input
-The system SHALL allow authenticated clients to submit workflow runs only when an explicit raw selection is provided and the provider profile is either explicitly supplied, resolved from `ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE` by the CLI, or intentionally absent after the profile contract has been evaluated. Host Bridge SHALL additionally validate any `resourceBindings` against the workflow's declared resource requirements and non-interactive support before requesting approval or dispatching execution. When no environment default exists, a Host-saved workflow default or discovered candidate SHALL remain unconfirmed until the Agent reports user confirmation; Host Bridge SHALL distinguish that Agent confirmation from Zotero workflow approval and ACP permission approval. Host Bridge SHALL perform confirmed Input Planning v2 locally and SHALL route ACP/SkillRunner prepared units through the native Host submission queue after Zotero-side approval. Queue state SHALL retain resource handle leases rather than resolved local paths.
+The system SHALL allow authenticated clients to submit workflow runs only when an explicit items/none selection containing only complete portable libraryId/key refs is provided and the provider profile is either explicitly supplied, resolved from `ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE` by the CLI, or intentionally absent after the profile contract has been evaluated. Host Bridge SHALL additionally validate any `resourceBindings` against the workflow's declared resource requirements and non-interactive support before requesting approval or dispatching execution. When no environment default exists, a Host-saved workflow default or discovered candidate SHALL remain unconfirmed until the Agent reports user confirmation; Host Bridge SHALL distinguish that Agent confirmation from Zotero workflow approval and ACP permission approval. Host Bridge SHALL perform confirmed Input Planning v2 locally and SHALL route ACP/SkillRunner prepared units through the native Host submission queue after Zotero-side approval. Queue state SHALL retain resource handle leases rather than resolved local paths.
 
 #### Scenario: Queue-managed workflow submission succeeds
 - **WHEN** an authenticated client submits a valid workflow, explicit selection, optional valid resource bindings, optional workflow/provider options, and optional Host queue options for an ACP or SkillRunner workflow, with a provider profile accepted by the profile contract
@@ -78,7 +78,7 @@ runtime control plane under the canonical `run` namespace.
 
 #### Scenario: Workflow run status includes skill runs
 - **WHEN** an authenticated client reads a known workflow run through
-  `GET /bridge/v1/workflows/runs/{workflowRunId}` or
+  `GET /bridge/v2/workflows/runs/{workflowRunId}` or
   `zotero-bridge run get <workflowRunId>`
 - **THEN** the response SHALL include `workflowRunId`, workflow state,
   liveness, task summary, and `skillRuns`
@@ -97,7 +97,7 @@ decisions, and the CLI SHALL expose it as `zotero-bridge run active`.
 
 #### Scenario: Client lists active tasks
 - **WHEN** an authenticated client requests active tasks through
-  `GET /bridge/v1/tasks/active` or `zotero-bridge run active`
+  `GET /bridge/v2/tasks/active` or `zotero-bridge run active`
 - **THEN** the bridge SHALL return only running, waiting, and failed-retriable task handles
 - **AND** each row SHALL include workflow run id, skill run id, workflow id, task name, state, liveness, update timestamp, sequence metadata when known, and action flags
 - **AND** the response MUST NOT expose transcripts, local paths, full error text, or provider-private payloads.
@@ -109,7 +109,7 @@ the CLI SHALL expose it as `zotero-bridge run cancel`.
 
 #### Scenario: Client requests workflow cancel
 - **WHEN** an authenticated client posts cancel intent for a workflow run
-  through `POST /bridge/v1/workflows/runs/{workflowRunId}/cancel` or
+  through `POST /bridge/v2/workflows/runs/{workflowRunId}/cancel` or
   `zotero-bridge run cancel <workflowRunId>`
 - **THEN** the bridge SHALL return whether the intent was accepted, the workflow
   run id, cancellation timestamp, affected skill runs, and permission outcome
@@ -127,7 +127,7 @@ skill run handles, and the CLI SHALL expose those operations under
 
 #### Scenario: Client replies to a waiting ACP skill run
 - **WHEN** an authenticated client posts a message to a skill run through
-  `POST /bridge/v1/skill-runs/{skillRunId}/reply` or
+  `POST /bridge/v2/skill-runs/{skillRunId}/reply` or
   `zotero-bridge run skill reply <skillRunId> --message <message>`
 - **THEN** the bridge SHALL submit the reply to that ACP skill run
 - **AND** it SHALL return the updated lightweight skill run view.
@@ -165,7 +165,7 @@ Host Bridge SHALL expose a lightweight bounded notification inbox for workflow a
 
 #### Scenario: Client lists notification events
 
-- **WHEN** an authenticated client requests `GET /bridge/v1/notifications`
+- **WHEN** an authenticated client requests `GET /bridge/v2/notifications`
 - **THEN** the bridge SHALL return lightweight notification events
 - **AND** each event SHALL include `eventId`, `createdAt`, `type`, `summary`,
   `relatedHandles`, and nullable `acknowledgedAt`
@@ -185,7 +185,7 @@ Host Bridge SHALL expose a lightweight bounded notification inbox for workflow a
 #### Scenario: Client acknowledges notification events
 
 - **WHEN** a client posts one or more event ids to
-  `POST /bridge/v1/notifications/ack`
+  `POST /bridge/v2/notifications/ack`
 - **THEN** the bridge SHALL mark known events acknowledged
 - **AND** it SHALL return acknowledged ids, missing ids, and the acknowledgement
   timestamp
@@ -203,37 +203,35 @@ Host Bridge SHALL expose a lightweight bounded notification inbox for workflow a
 - **THEN** Host Bridge SHALL retain lightweight notification events without transcript access
 - **AND** SHALL prune old or excess retained events so the in-memory inbox and deduplication index remain bounded.
 
-### Requirement: Host Bridge exposes context and navigation endpoints
+### Requirement: Host Bridge exposes context reads and canonical navigation capabilities
 
-Host Bridge SHALL expose authenticated REST endpoints for reading Zotero context
-and navigating to Zotero objects.
+Host Bridge SHALL expose authenticated REST context reads and route UI
+navigation through the canonical `/bridge/v2/call` capability dispatcher.
 
 #### Scenario: Client reads current context
 
-- **WHEN** an authenticated client requests `GET /bridge/v1/context/current`
+- **WHEN** an authenticated client requests `GET /bridge/v2/context/current`
 - **THEN** the bridge SHALL return the current Zotero context summary
 - **AND** the response SHALL be equivalent to the existing current-view host
   context capability.
 
 #### Scenario: Client reads current selection
 
-- **WHEN** an authenticated client requests `GET /bridge/v1/context/selection`
-- **THEN** the bridge SHALL return lightweight summaries for currently selected
-  Zotero items.
+- **WHEN** an authenticated client requests `GET /bridge/v2/context/selection`
+- **THEN** the bridge SHALL return the canonical exact selection page using the requested limit/cursor, with unchanged basis errors and no transport repagination.
 
-#### Scenario: Client opens Zotero objects
+#### Scenario: Client invokes canonical navigation
 
-- **WHEN** a client posts a Zotero item, note, collection, or selected item
-  handle to a context navigation endpoint
-- **THEN** the bridge SHALL navigate the Zotero UI to the requested object when
-  it exists
-- **AND** the response SHALL include `opened`, `found`, `target`, and
-  `currentView`.
+- **WHEN** a client calls one of the registered `navigation.*` capabilities with
+  a portable target
+- **THEN** the bridge SHALL navigate the captured Zotero window when the target
+  exists
+- **AND** the response SHALL contain only the operation-specific JSON result.
 
 #### Scenario: Client supplies an invalid navigation target
 
-- **WHEN** a navigation request contains a local path, URI, arbitrary script, or
-  an unknown object handle
+- **WHEN** a navigation capability request contains a local path, URI, arbitrary
+  script, or an unknown object handle
 - **THEN** the bridge SHALL reject the request with a stable error code
 - **AND** it SHALL NOT fall back to arbitrary opening or evaluation.
 
@@ -258,7 +256,7 @@ create/update/payload upsert, and uploaded-file attachment.
 
 ### Requirement: Host Bridge supports inbound file handles for writeback
 
-Host Bridge SHALL provide `POST /bridge/v1/files/upload` for single-file
+Host Bridge SHALL provide `POST /bridge/v2/files/upload` for single-file
 upload and SHALL return an opaque short-lived file descriptor suitable for
 later mutation-backed attachment.
 
@@ -286,13 +284,13 @@ Host Bridge SHALL provide authenticated diagnostics endpoints for profile inspec
 
 #### Scenario: Profile inspect is redacted
 
-- **WHEN** a client calls `GET /bridge/v1/diagnostics/profile`
+- **WHEN** a client calls `GET /bridge/v2/diagnostics/profile`
 - **THEN** the response includes protocol, endpoint mode, connection mode, capability/catalog summary, and safety rules
 - **AND** the response does not include bearer tokens, master tokens, backend private payloads, or local private paths.
 
 #### Scenario: Backend status is redacted
 
-- **WHEN** a client calls `GET /bridge/v1/diagnostics/backends/{backendId}`
+- **WHEN** a client calls `GET /bridge/v2/diagnostics/backends/{backendId}`
 - **THEN** the response includes backend id, type, display name, enabled state, readiness summary, and compact last error when available
 - **AND** the response does not include backend auth, credential-bearing URLs, or provider private payloads.
 
@@ -314,7 +312,7 @@ Host Bridge SHALL expose pending permission request summaries without allowing C
 #### Scenario: Permission pending lists summaries
 
 - **WHEN** a Host Bridge permission request is waiting
-- **THEN** `GET /bridge/v1/permissions/pending` returns its request id, action, summary, scope, related run handles, creation time, and state
+- **THEN** `GET /bridge/v2/permissions/pending` returns its request id, action, summary, scope, related run handles, creation time, and state
 - **AND** the response does not include the original private payload.
 
 ### Requirement: Runtime history SHALL be lightweight
@@ -323,7 +321,7 @@ Host Bridge SHALL expose recent task, workflow run, skill run, and skill-run eve
 
 #### Scenario: Skill-run events are not transcripts
 
-- **WHEN** a client calls `GET /bridge/v1/skill-runs/{skillRunId}/events`
+- **WHEN** a client calls `GET /bridge/v2/skill-runs/{skillRunId}/events`
 - **THEN** the response includes lifecycle/progress events derived from inbox/task/run projections
 - **AND** it excludes transcripts, workspace paths, full error text, and provider private payloads.
 
@@ -333,7 +331,7 @@ Host Bridge notification list and wait operations SHALL read the bounded Notific
 
 #### Scenario: Agent lists notifications
 
-- **WHEN** a Host Bridge client calls `GET /bridge/v1/notifications`
+- **WHEN** a Host Bridge client calls `GET /bridge/v2/notifications`
 - **THEN** the response SHALL be computed from retained Notification Hub events
 - **AND** the read SHALL NOT trigger task, workflow, skill-run, or history projection.
 
@@ -344,7 +342,7 @@ Host Bridge notification list and wait operations SHALL exclude Hub events marke
 #### Scenario: Default list hides suppressed event
 
 - **WHEN** a Hub event is marked `suppressed: true`
-- **AND** a Host Bridge client calls `GET /bridge/v1/notifications` without an explicit suppressed-event option
+- **AND** a Host Bridge client calls `GET /bridge/v2/notifications` without an explicit suppressed-event option
 - **THEN** the suppressed event SHALL NOT appear in the returned notifications.
 
 ### Requirement: Host Bridge notification clients use best-effort cursors
@@ -353,7 +351,7 @@ Host Bridge notification list and ack operations SHALL accept an optional `clien
 
 #### Scenario: Client list advances cursor
 
-- **WHEN** a Host Bridge client calls `GET /bridge/v1/notifications?clientId=client-a`
+- **WHEN** a Host Bridge client calls `GET /bridge/v2/notifications?clientId=client-a`
 - **THEN** returned events SHALL advance the delivered cursor for `client-a`
 - **AND** a later list call for `client-a` SHALL NOT return the same retained events again.
 
@@ -372,7 +370,7 @@ SkillRunner provider runs as skill-run handles.
 #### Scenario: Active tasks return step handles only
 
 - **GIVEN** a sequence workflow has an active concrete step run
-- **WHEN** an authenticated client requests `GET /bridge/v1/tasks/active`
+- **WHEN** an authenticated client requests `GET /bridge/v2/tasks/active`
 - **THEN** the bridge SHALL return a handle for the concrete step run
 - **AND** it SHALL NOT return the root workflow id as a skill-run handle.
 
@@ -380,7 +378,7 @@ SkillRunner provider runs as skill-run handles.
 
 - **GIVEN** a workflow run id exists in workflow sequence persistence
 - **WHEN** an authenticated client requests
-  `GET /bridge/v1/workflows/runs/{workflowRunId}`
+  `GET /bridge/v2/workflows/runs/{workflowRunId}`
 - **THEN** the bridge SHALL return `found = true`
 - **AND** workflow state SHALL be derived from sequence root state and concrete
   step runs
@@ -580,3 +578,13 @@ is connecting, connected, or prompting, regardless of presentation-layer state.
 - **THEN** the store SHALL reject the mutation
 - **AND** it SHALL instruct the caller to disconnect before archiving.
 
+### Requirement: Durable workflow selection SHALL retain portable identity
+Persisted complete portable selection refs SHALL remain the input identity for agent-run prepare and apply. Records missing complete libraryId/key refs SHALL remain stored but execution SHALL fail explicitly. The Host SHALL NOT repair them from current UI, infer a library, or accept legacy id/string aliases.
+
+#### Scenario: Incomplete old record is applied
+- **WHEN** a stored agent-run selection lacks a complete portable ref
+- **THEN** apply fails before execution and leaves the record intact
+
+#### Scenario: UI selection changes after remote preparation
+- **WHEN** an agent run with complete persisted refs is applied
+- **THEN** its input refs remain those persisted refs and no live selection is acquired

@@ -5,10 +5,10 @@ import {
   ACP_RUNTIME_BASELINE_SURFACE_STATES,
   runAcpSilentRuntimeBaselineMatrix,
   type AcpRuntimeBaselineSurfaceState,
-} from "../test/helpers/acpRuntimePerformanceHarness";
-import type { AcpRuntimeGovernanceBaselineRecord } from "../src/modules/acpRuntimePerformanceBaseline";
+} from "../tests/helpers/acpRuntimePerformanceHarness";
+import type { AcpRuntimeGovernanceBaselineRecord } from "../src/modules/acp/diagnostics/acpRuntimePerformanceBaseline";
 
-const OUTPUT_DIRECTORY = path.resolve("artifact", "performance-baselines");
+const OUTPUT_DIRECTORY = path.resolve("artifacts", "performance-baselines");
 const DEFAULT_OUTPUT_PREFIX = "acp-runtime-before-governance";
 
 function outputPaths(outputPrefix: string) {

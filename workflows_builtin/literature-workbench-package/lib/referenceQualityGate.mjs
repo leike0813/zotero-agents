@@ -19,7 +19,8 @@ function titleOf(reference) {
     return "";
   }
   return cleanText(
-    reference.title ||
+    reference.bibliography?.title ||
+      reference.title ||
       reference.parsed_title ||
       reference.parsedTitle ||
       reference.paper_title,
@@ -30,11 +31,17 @@ function rawOf(reference) {
   if (!reference || typeof reference !== "object" || Array.isArray(reference)) {
     return "";
   }
-  return cleanText(reference.raw || reference.raw_reference || reference.reference);
+  return cleanText(
+    reference.extraction?.raw ||
+      reference.raw ||
+      reference.raw_reference ||
+      reference.reference,
+  );
 }
 
 function authorsOf(reference) {
-  const value = reference?.authors || reference?.author;
+  const value =
+    reference?.bibliography?.authors || reference?.authors || reference?.author;
   if (Array.isArray(value)) {
     return value.map(cleanText).filter(Boolean);
   }
@@ -43,7 +50,7 @@ function authorsOf(reference) {
 }
 
 function yearOf(reference) {
-  const direct = cleanText(reference?.year);
+  const direct = cleanText(reference?.bibliography?.year ?? reference?.year);
   if (direct) {
     return direct;
   }

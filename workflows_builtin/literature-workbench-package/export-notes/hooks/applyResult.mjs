@@ -61,13 +61,34 @@ async function applyResultImpl({ request, runtime }) {
   let exportedFiles = 0;
   const archiveEntries = [];
   const touchedParents = new Set();
+  const parentTitles = new Map();
   for (const candidate of exportCandidates) {
-    const parentKey = candidate.parentRef.key;
-    const folderName = `${sanitizeFileNameSegment(candidate.parentTitle)} [${parentKey}]`;
+    const parentRef = candidate.parentRef || candidate.ref;
+    if (!parentRef?.key || !candidate.ref) {
+      throw new Error("export-notes candidate requires note and parent refs");
+    }
+    const parentKey = parentRef.key;
+    let parentTitle = String(candidate.parentTitle || "").trim();
+    const parentIdentity = `${parentRef.libraryId}:${parentKey}`;
+    if (!parentTitle && !parentTitles.has(parentIdentity)) {
+      try {
+        const detail = await host.library.getItemDetail(parentRef);
+        parentTitle = String(detail?.item?.title || "").trim();
+      } catch {
+        parentTitle = "";
+      }
+      parentTitles.set(parentIdentity, parentTitle);
+    } else if (!parentTitle) {
+      parentTitle = parentTitles.get(parentIdentity) || "";
+    }
+    const folderName = `${sanitizeFileNameSegment(parentTitle || parentKey)} [${parentKey}]`;
     touchedParents.add(parentKey);
-    const targetDir = remoteOutput ? exportRoot : joinPath(exportRoot, folderName);
+    const targetDir = remoteOutput
+      ? exportRoot
+      : joinPath(exportRoot, folderName);
     const exported = await exportGeneratedNoteCandidate({
       ...candidate,
+      noteRef: candidate.ref,
       runtime,
     });
     for (const file of exported.files) {
@@ -84,7 +105,11 @@ async function applyResultImpl({ request, runtime }) {
           });
         } else {
           await host.file.makeDirectory({ path: targetDir });
-          await writeExportedFile(host, joinPath(targetDir, file.fileName), file);
+          await writeExportedFile(
+            host,
+            joinPath(targetDir, file.fileName),
+            file,
+          );
         }
       } catch (error) {
         if (file.optional === true) {
@@ -95,7 +120,7 @@ async function applyResultImpl({ request, runtime }) {
             ? error.message
             : String(error || "unknown error");
         throw new Error(
-          `export-notes failed to write file kind=${String(candidate.kind || "").trim() || "unknown"} noteItemID=${String(candidate.noteItemID || "")} noteItemKey=${String(candidate.noteItemKey || "")} fileName=${String(file.fileName || "")} targetDir=${targetDir}: ${reason}`,
+          `export-notes failed to write file noteKind=${String(candidate.noteKind || "").trim() || "unknown"} noteRef=${String(candidate.ref?.key || "")} fileName=${String(file.fileName || "")} targetDir=${targetDir}: ${reason}`,
         );
       }
       exportedFiles += 1;

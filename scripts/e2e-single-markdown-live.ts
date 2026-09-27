@@ -1,8 +1,8 @@
-import "../test/setup/zotero-mock.ts";
+import "../tests/setup/zotero-mock.ts";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
-import { SkillRunnerProvider } from "../src/providers/skillrunnerProvider";
+import { SkillRunnerProvider } from "../src/providers/skillrunner/provider";
 import { loadWorkflowManifests } from "../src/workflows/loader";
 import { executeBuildRequests } from "../src/workflows/runtime";
 
@@ -72,7 +72,7 @@ function expandHome(inputPath: string) {
 async function readSelectionFixture(rootDir: string) {
   const fixturePath = path.join(
     rootDir,
-    "test",
+    "tests",
     "fixtures",
     "selection-context",
     "selection-context-single-markdown.json",
@@ -86,7 +86,7 @@ function normalizeAttachmentPaths(
   selection: SelectionContext,
 ) {
   const copied = JSON.parse(JSON.stringify(selection)) as SelectionContext;
-  const baseDir = path.join(rootDir, "test", "fixtures", "selection-context");
+  const baseDir = path.join(rootDir, "tests", "fixtures", "selection-context");
   for (const attachment of copied.items?.attachments || []) {
     const currentPath = attachment.filePath || "";
     if (!currentPath || path.isAbsolute(currentPath)) {

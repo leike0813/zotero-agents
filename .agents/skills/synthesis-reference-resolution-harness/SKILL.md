@@ -20,7 +20,7 @@ For realtime Synthesis Index inspection against current Zotero SQLite and plugin
 SQLite state, use the long-lived tools harness instead:
 
 ```powershell
-npx tsx tools/synthesis-index-harness/cli.ts serve --zotero-db "<zotero.sqlite>" --plugin-db "<zotero-agents.db>" --debug-db "artifact/synthesis-index-harness/debug.sqlite"
+npx tsx tools/synthesis-index-harness/cli.ts serve --zotero-db "<zotero.sqlite>" --plugin-db "<zotero-agents.db>" --debug-db "artifacts/synthesis-index-harness/debug.sqlite"
 ```
 
 The tools harness runs the cluster-first canonical dedupe experiment and writes
@@ -41,7 +41,7 @@ fixture extraction, gold-label review, and benchmark evaluation.
 Run from the repository root:
 
 ```powershell
-uv run --project="$HOME/.ar" --locked -- python .agents/skills/synthesis-reference-resolution-harness/scripts/extract_fixture.py --db "D:/Workspace/Artifact/Zotero-Skills/Zotero_data/zotero-agents/state/zotero-agents.db" --out "test/fixtures/synthesis-reference-resolution/current-library-vN"
+uv run --project="$HOME/.ar" --locked -- python .agents/skills/synthesis-reference-resolution-harness/scripts/extract_fixture.py --db "D:/Workspace/Artifact/Zotero-Skills/Zotero_data/zotero-agents/state/zotero-agents.db" --out "tests/fixtures/synthesis-reference-resolution/current-library-vN"
 ```
 
 This writes:
@@ -71,7 +71,7 @@ Dangerous near-neighbor pairs must stay explicit in `danger-pairs.json`.
 When the Zotero references notes contain old reference matching workflow citeKeys, use them as trusted positive evidence before semantic review:
 
 ```powershell
-uv run --project="$HOME/.ar" --locked -- python .agents/skills/synthesis-reference-resolution-harness/scripts/build_trusted_citekey_gold.py --db "D:/Workspace/Artifact/Zotero-Skills/Zotero_data/zotero-agents/state/zotero-agents.db" --fixture "test/fixtures/synthesis-reference-resolution/current-library-vN" --out-labels "gold-labels.trusted-citekey.review.json" --report "artifact/synthesis_reference_resolution_trusted_citekey_gold_review_YYYYMMDD.md" --summary "artifact/synthesis_reference_resolution_trusted_citekey_gold_review_YYYYMMDD.json"
+uv run --project="$HOME/.ar" --locked -- python .agents/skills/synthesis-reference-resolution-harness/scripts/build_trusted_citekey_gold.py --db "D:/Workspace/Artifact/Zotero-Skills/Zotero_data/zotero-agents/state/zotero-agents.db" --fixture "tests/fixtures/synthesis-reference-resolution/current-library-vN" --out-labels "gold-labels.trusted-citekey.review.json" --report "artifacts/synthesis_reference_resolution_trusted_citekey_gold_review_YYYYMMDD.md" --summary "artifacts/synthesis_reference_resolution_trusted_citekey_gold_review_YYYYMMDD.json"
 ```
 
 This script does not overwrite `gold-labels.json`. It writes a review seed where uniquely mapped trusted citeKeys become `match`, unmapped citeKeys become `suggested_match`, ambiguous citeKeys become `ambiguous`, and rows without trusted citeKeys remain pending semantic review as `external_or_missing`.
@@ -81,7 +81,7 @@ This script does not overwrite `gold-labels.json`. It writes a review seed where
 Generate `review-seed.json` before launching the review UI:
 
 ```powershell
-npx tsx .agents/skills/synthesis-reference-resolution-harness/scripts/build_review_seed.ts --fixture "test/fixtures/synthesis-reference-resolution/current-library-vN"
+npx tsx .agents/skills/synthesis-reference-resolution-harness/scripts/build_review_seed.ts --fixture "tests/fixtures/synthesis-reference-resolution/current-library-vN"
 ```
 
 The seed contains solid confirmed edges for high-precision evidence and dashed candidate edges for review. It never overwrites `gold-labels.json`.
@@ -89,7 +89,7 @@ The seed contains solid confirmed edges for high-precision evidence and dashed c
 ### 5. Launch Review UI
 
 ```powershell
-npx tsx .agents/skills/synthesis-reference-resolution-harness/scripts/serve_review.ts --fixture "test/fixtures/synthesis-reference-resolution/current-library-vN"
+npx tsx .agents/skills/synthesis-reference-resolution-harness/scripts/serve_review.ts --fixture "tests/fixtures/synthesis-reference-resolution/current-library-vN"
 ```
 
 Open the printed local URL. The UI reads `review-seed.json`, saves decisions to `review-state.json`, appends `review-log.jsonl`, and exports `gold-labels.reviewed.json`.
@@ -97,7 +97,7 @@ Open the printed local URL. The UI reads `review-seed.json`, saves decisions to 
 ### 6. Validate Fixture
 
 ```powershell
-npx tsx .agents/skills/synthesis-reference-resolution-harness/scripts/validate_fixture.ts --fixture "test/fixtures/synthesis-reference-resolution/current-library-vN"
+npx tsx .agents/skills/synthesis-reference-resolution-harness/scripts/validate_fixture.ts --fixture "tests/fixtures/synthesis-reference-resolution/current-library-vN"
 ```
 
 Validation must pass before evaluating policies.
@@ -105,7 +105,7 @@ Validation must pass before evaluating policies.
 ### 7. Run Experiment Matrix
 
 ```powershell
-npx tsx .agents/skills/synthesis-reference-resolution-harness/scripts/evaluate_fixture.ts --fixture "test/fixtures/synthesis-reference-resolution/current-library-vN" --report "artifact/synthesis_reference_resolution_experiment_report_YYYYMMDD.md"
+npx tsx .agents/skills/synthesis-reference-resolution-harness/scripts/evaluate_fixture.ts --fixture "tests/fixtures/synthesis-reference-resolution/current-library-vN" --report "artifacts/synthesis_reference_resolution_experiment_report_YYYYMMDD.md"
 ```
 
 The script prints a single JSON object and optionally writes a Markdown report.
@@ -117,7 +117,7 @@ Use `--labels gold-labels.reviewed.json` after a human review pass.
 After reviewing metrics and changing the matcher or its integration points, rerun:
 
 ```powershell
-npx mocha "test/core/151-synthesis-reference-resolution-matcher.test.ts" --require tsx --require test/setup/zotero-mock.ts --exit
+npx mocha "tests/core/151-synthesis-reference-resolution-matcher.test.ts" --require tsx --require tests/setup/zotero-mock.ts --exit
 npx tsc --noEmit
 ```
 

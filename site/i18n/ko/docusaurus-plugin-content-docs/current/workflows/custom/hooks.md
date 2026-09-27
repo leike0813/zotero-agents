@@ -88,12 +88,17 @@ export function buildRequest({ selectionContext, executionOptions, runtime }) {
 **예시: Preflight 유닛 컨텍스트를 사용한 요청**
 
 ```js
-export function buildRequest({ selectionContext, preflight, runtime }) {
-  const attachment = selectionContext.items.attachments[0];
+export async function buildRequest({ selectionContext, preflight, runtime }) {
+  const selected = selectionContext.items.find((item) => item.kind === "attachment");
+  if (!selected) throw new Error("Source attachment is required");
+  const detail = await runtime.hostApi.library.getItemDetail(selected.ref);
+  if (detail.kind !== "attachment" || detail.item.file.state !== "available") {
+    throw new Error("Source attachment file is unavailable");
+  }
   return {
     kind: "generic-http.steps.v1",
     file: {
-      path: runtime.helpers.getAttachmentFilePath(attachment),
+      path: detail.item.file.path,
       page_ranges: preflight?.unit?.context?.page_ranges,
     },
   };
@@ -104,7 +109,13 @@ export function buildRequest({ selectionContext, preflight, runtime }) {
 
 ```js
 export async function buildRequest({ selectionContext, executionOptions, runtime }) {
-  const sourcePath = resolveAttachmentPath(selectionContext, runtime);
+  const selected = selectionContext.items.find((item) => item.kind === "attachment");
+  if (!selected) throw new Error("Source attachment is required");
+  const detail = await runtime.hostApi.library.getItemDetail(selected.ref);
+  if (detail.kind !== "attachment" || detail.item.file.state !== "available") {
+    throw new Error("Source attachment file is unavailable");
+  }
+  const sourcePath = detail.item.file.path;
   const language = executionOptions?.workflowParams?.language || "en-US";
 
   return {
@@ -401,17 +412,7 @@ export async function applyResult({ parent, bundleReader, runtime }) {
 
 | 함수 | 설명 |
 |------|------|
-| `getAttachmentParentId(entry)` | 첨부파일의 부모 항목 ID 가져오기 |
-| `getAttachmentFilePath(entry)` | 첨부파일의 로컬 파일 경로 가져오기 |
-| `getAttachmentFileName(entry)` | 첨부파일 이름 가져오기 |
-| `getAttachmentFileStem(entry)` | 첨부파일 이름 가져오기 (확장자 제외) |
-| `getAttachmentDateAdded(entry)` | 첨부파일의 `dateAdded` 타임스탬프 가져오기 |
 | `basenameOrFallback(path, fallback)` | 기본 이름 추출 또는 대체 문자열 반환 |
-| `isMarkdownAttachment(entry)` | Markdown 첨부파일인지 확인 |
-| `isPdfAttachment(entry)` | PDF 첨부파일인지 확인 |
-| `pickEarliestPdfAttachment(entries)` | 첨부파일 목록에서 가장 오래된 PDF 선택 |
-| `cloneSelectionContext(ctx)` | 선택 컨텍스트의 깊은 복사 |
-| `withFilteredAttachments(ctx, items)` | 컨텍스트에서 지정된 첨부파일만 유지 |
 | `resolveItemRef(ref)` | 항목 참조를 Zotero.Item으로 해석 |
 | `toHtmlNote(title, body)` | Markdown을 HTML 노트 콘텐츠로 변환 |
 | `normalizeReferenceAuthors(value)` | 참조 저자 목록 정규화 |

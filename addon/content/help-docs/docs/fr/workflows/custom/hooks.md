@@ -88,12 +88,17 @@ export function buildRequest({ selectionContext, executionOptions, runtime }) {
 **Exemple : Requête utilisant le contexte d'unité Preflight**
 
 ```js
-export function buildRequest({ selectionContext, preflight, runtime }) {
-  const attachment = selectionContext.items.attachments[0];
+export async function buildRequest({ selectionContext, preflight, runtime }) {
+  const selected = selectionContext.items.find((item) => item.kind === "attachment");
+  if (!selected) throw new Error("Source attachment is required");
+  const detail = await runtime.hostApi.library.getItemDetail(selected.ref);
+  if (detail.kind !== "attachment" || detail.item.file.state !== "available") {
+    throw new Error("Source attachment file is unavailable");
+  }
   return {
     kind: "generic-http.steps.v1",
     file: {
-      path: runtime.helpers.getAttachmentFilePath(attachment),
+      path: detail.item.file.path,
       page_ranges: preflight?.unit?.context?.page_ranges,
     },
   };
@@ -104,7 +109,13 @@ export function buildRequest({ selectionContext, preflight, runtime }) {
 
 ```js
 export async function buildRequest({ selectionContext, executionOptions, runtime }) {
-  const sourcePath = resolveAttachmentPath(selectionContext, runtime);
+  const selected = selectionContext.items.find((item) => item.kind === "attachment");
+  if (!selected) throw new Error("Source attachment is required");
+  const detail = await runtime.hostApi.library.getItemDetail(selected.ref);
+  if (detail.kind !== "attachment" || detail.item.file.state !== "available") {
+    throw new Error("Source attachment file is unavailable");
+  }
+  const sourcePath = detail.item.file.path;
   const language = executionOptions?.workflowParams?.language || "en-US";
 
   return {
@@ -401,17 +412,7 @@ export async function applyResult({ parent, bundleReader, runtime }) {
 
 | Fonction | Description |
 |----------|-------------|
-| `getAttachmentParentId(entry)` | Obtenir l'ID parent d'une pièce jointe |
-| `getAttachmentFilePath(entry)` | Obtenir le chemin du fichier local d'une pièce jointe |
-| `getAttachmentFileName(entry)` | Obtenir le nom du fichier de la pièce jointe |
-| `getAttachmentFileStem(entry)` | Obtenir le nom du fichier de la pièce jointe (sans extension) |
-| `getAttachmentDateAdded(entry)` | Obtenir le timestamp `dateAdded` de la pièce jointe |
 | `basenameOrFallback(path, fallback)` | Extraire le nom de base ou retourner une chaîne de secours |
-| `isMarkdownAttachment(entry)` | Vérifier si c'est une pièce jointe Markdown |
-| `isPdfAttachment(entry)` | Vérifier si c'est une pièce jointe PDF |
-| `pickEarliestPdfAttachment(entries)` | Sélectionner le PDF le plus ancien d'une liste de pièces jointes |
-| `cloneSelectionContext(ctx)` | Copier profondément le contexte de sélection |
-| `withFilteredAttachments(ctx, items)` | Conserver uniquement les pièces jointes spécifiées dans le contexte |
 | `resolveItemRef(ref)` | Résoudre une référence d'élément en Zotero.Item |
 | `toHtmlNote(title, body)` | Convertir Markdown en contenu de note HTML |
 | `normalizeReferenceAuthors(value)` | Normaliser la liste d'auteurs des références |

@@ -1,7 +1,10 @@
 import { build } from "esbuild";
 import { promises as fs } from "node:fs";
 import { pathToFileURL } from "node:url";
-import { runtimeDiagnosticsSideEffectsPlugin } from "./runtime-diagnostics-esbuild";
+import {
+  dashboardSynthesisSidecarRegionElisionPlugin,
+  runtimeDiagnosticsSideEffectsPlugin,
+} from "./runtime-diagnostics-esbuild";
 import {
   forbiddenProductionRuntimeMarkers,
   forbiddenRuntimeMarkers,
@@ -56,19 +59,40 @@ async function bundleDashboard(
   switches: Pick<Switches, "debug" | "synthesisSidecar">,
 ) {
   return build({
-    entryPoints: ["addon/content/dashboard/app.js"],
+    entryPoints: ["src/dashboard/dashboardApp.ts"],
     bundle: true,
     minifySyntax: true,
     write: false,
     target: "firefox115",
     platform: "browser",
     format: "iife",
+    jsx: "automatic",
+    jsxImportSource: "preact",
+    plugins: [dashboardSynthesisSidecarRegionElisionPlugin],
     define: {
       __debug_mode__: String(switches.debug),
       __synthesis_sidecar_diagnostics_enabled__: String(
         switches.synthesisSidecar,
       ),
     },
+    logLevel: "silent",
+  });
+}
+
+async function bundleSynthesisWorkbench(debug: boolean) {
+  return build({
+    entryPoints: ["src/synthesisWorkbenchApp.ts"],
+    bundle: true,
+    minifySyntax: true,
+    write: false,
+    metafile: true,
+    target: "firefox115",
+    platform: "browser",
+    format: "iife",
+    jsx: "automatic",
+    jsxImportSource: "preact",
+    plugins: [runtimeDiagnosticsSideEffectsPlugin],
+    define: { __debug_mode__: String(debug) },
     logLevel: "silent",
   });
 }
@@ -143,6 +167,8 @@ export async function checkRuntimeDiagnosticsReleaseElision() {
     releaseDashboard,
     debugDashboard,
     sourceDisabledDashboard,
+    releaseSynthesisWorkbench,
+    debugSynthesisWorkbench,
   ] = await Promise.all([
     bundle({ ...enabled, debug: false }),
     bundle({ ...enabled, debug: false, replay: false }),
@@ -155,6 +181,8 @@ export async function checkRuntimeDiagnosticsReleaseElision() {
     bundleDashboard({ debug: false, synthesisSidecar: true }),
     bundleDashboard({ debug: true, synthesisSidecar: true }),
     bundleDashboard({ debug: true, synthesisSidecar: false }),
+    bundleSynthesisWorkbench(false),
+    bundleSynthesisWorkbench(true),
   ]);
   const releaseBytes = {
     profiler: assertAbsent("profiler", release),
@@ -162,6 +190,10 @@ export async function checkRuntimeDiagnosticsReleaseElision() {
     replay: assertAbsent("replay", release),
     skillRunnerAudit: assertAbsent("skillRunnerAudit", release),
     synthesisSidecar: assertAbsent("synthesisSidecar", release),
+    citationGraphCrashJournal: assertAbsent(
+      "citationGraphCrashJournal",
+      release,
+    ),
   };
   const releaseExclusiveBytes = groupBytes(
     release,
@@ -203,6 +235,10 @@ export async function checkRuntimeDiagnosticsReleaseElision() {
       "synthesisSidecar",
       synthesisSidecarDisabled,
     ),
+    citationGraphCrashJournal: assertAbsent(
+      "citationGraphCrashJournal",
+      release,
+    ),
   };
   const debugBytes = {
     profiler: groupBytes(
@@ -225,6 +261,11 @@ export async function checkRuntimeDiagnosticsReleaseElision() {
       debug,
       runtimeDiagnosticsFeatureGroups.synthesisSidecar.exclusiveModules,
     ),
+    citationGraphCrashJournal: groupBytes(
+      debug,
+      runtimeDiagnosticsFeatureGroups.citationGraphCrashJournal
+        .exclusiveModules,
+    ),
   };
   for (const [name, bytes] of Object.entries(debugBytes)) {
     if (bytes <= 0) throw new Error(`Debug bundle did not retain ${name}`);
@@ -244,7 +285,10 @@ export async function checkRuntimeDiagnosticsReleaseElision() {
   ) {
     throw new Error("allowlisted static diagnostic Dashboard markers missing");
   }
-  const dashboardMarkers = ["Synthesis Sidecar", "synthesis-sidecar:events"];
+  const dashboardMarkers = [
+    "Synthesis Sidecar",
+    "synthesis-sidecar-span-table",
+  ];
   const releaseDashboardText = outputText(releaseDashboard);
   const sourceDisabledDashboardText = outputText(sourceDisabledDashboard);
   const debugDashboardText = outputText(debugDashboard);
@@ -261,6 +305,19 @@ export async function checkRuntimeDiagnosticsReleaseElision() {
       throw new Error(`debug Dashboard did not retain marker: ${marker}`);
     }
   }
+  const crashJournalMarkers =
+    runtimeDiagnosticsFeatureGroups.citationGraphCrashJournal
+      .forbiddenRuntimeMarkers;
+  for (const marker of crashJournalMarkers) {
+    if (outputText(releaseSynthesisWorkbench).includes(marker)) {
+      throw new Error(
+        `release Synthesis Workbench retained crash journal marker: ${marker}`,
+      );
+    }
+  }
+  if (!outputText(debugSynthesisWorkbench).includes("sigma-destroy-start")) {
+    throw new Error("debug Synthesis Workbench did not retain crash reporter");
+  }
   return {
     releaseBytes,
     releaseExclusiveBytes,
@@ -269,6 +326,7 @@ export async function checkRuntimeDiagnosticsReleaseElision() {
     retainedStaticMarkers,
     retainedProductionContractMarkers,
     dashboardMarkers,
+    crashJournalMarkers,
     releaseReplayOutputEqual:
       outputText(release) === outputText(releaseReplayDisabled),
   };

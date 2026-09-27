@@ -2,35 +2,34 @@ import { appendRuntimeLog } from "../runtimeLogManager";
 import {
   normalizeErrorMessage,
   type WorkflowMessageFormatter,
-} from "../workflowExecuteMessage";
+} from "./workflowExecuteMessage";
 import { executeApplyResult } from "../../workflows/runtime";
 import {
   createUnavailableBundleReader,
   openRunResultBundleReader,
 } from "./bundleIO";
 import { createWorkflowResultContext } from "./resultContext";
-import {} from "../acpSkillRunStore";
-import { applySkillRunnerRunEvent } from "../skillRunnerRunStore";
+import { applySkillRunnerRunEvent } from "../skillRunner/run/skillRunnerRunStore";
 import type { WorkflowApplySummary, WorkflowRunState } from "./contracts";
 import {
-  resolveTargetParentIDFromRequest,
+  resolveTargetParentRefFromRequest,
   resolveTaskNameFromRequest,
 } from "./requestMeta";
-import { isActive } from "../skillRunnerProviderStateMachine";
+import { isActive } from "../skillRunner/run/skillRunnerProviderStateMachine";
 import {
   getSkillRunnerRequestIdFromJob,
   hasRecoverableSkillRunnerRequest,
-} from "../skillRunnerRecoverableState";
+} from "../skillRunner/run/skillRunnerRecoverableState";
 import { buildWorkflowTaskRecordFromJob } from "../taskRuntime";
 import { canWorkflowRunWithoutSelection } from "../../workflows/triggerPolicy";
-import { collectSkillRunFeedbackSidecar } from "../skillRunFeedback";
+import { collectSkillRunFeedbackSidecar } from "../skillRunner/run/skillRunFeedback";
 import { normalizeWorkflowApplyDiagnostics } from "./applyDiagnostics";
 import { sequenceTerminalStepOwnsApply } from "./sequenceRuntime";
 import { resolveWorkflowJobTerminalResolution } from "./terminalResolution";
 import {
   detachAcpSkillRunControllerAfterApplyResult,
   markAcpSkillRunApplyResult,
-} from "../acpSkillRunActions";
+} from "../acp/skillRun/acpSkillRunActions";
 
 type RunResultLike = {
   status?: string;
@@ -522,14 +521,9 @@ export async function runWorkflowApplySeam(
       continue;
     }
 
-    const targetParentID =
-      typeof job.meta.targetParentID === "number"
-        ? job.meta.targetParentID
-        : resolveTargetParentIDFromRequest(args.runState.requests[i]);
-    const applyParent =
-      typeof targetParentID === "number" && targetParentID > 0
-        ? targetParentID
-        : null;
+    const applyParent = resolveTargetParentRefFromRequest(
+      args.runState.requests[i],
+    );
     if (
       !applyParent &&
       !canWorkflowRunWithoutSelection(args.runState.workflow.manifest)
@@ -590,7 +584,7 @@ export async function runWorkflowApplySeam(
       details: {
         index: i,
         taskLabel,
-        targetParentID: applyParent || undefined,
+        targetParentRef: applyParent || undefined,
       },
     });
 
@@ -614,7 +608,7 @@ export async function runWorkflowApplySeam(
           taskLabel,
           status: result.status,
           responseStatus: String(getResponseJson(result).status || "").trim(),
-          targetParentID: applyParent || undefined,
+          targetParentRef: applyParent || undefined,
         },
       });
       continue;
@@ -632,7 +626,7 @@ export async function runWorkflowApplySeam(
         details: {
           index: i,
           taskLabel,
-          targetParentID: applyParent || undefined,
+          targetParentRef: applyParent || undefined,
         },
       });
       continue;
@@ -670,7 +664,7 @@ export async function runWorkflowApplySeam(
         details: {
           index: i,
           taskLabel,
-          targetParentID: applyParent || undefined,
+          targetParentRef: applyParent || undefined,
           sequenceStepApply: stepApplyResults,
         },
       });
@@ -699,7 +693,7 @@ export async function runWorkflowApplySeam(
         details: {
           index: i,
           taskLabel,
-          targetParentID: applyParent || undefined,
+          targetParentRef: applyParent || undefined,
         },
       });
       if (isForegroundSkillRunnerSingleJob) {
@@ -843,7 +837,7 @@ export async function runWorkflowApplySeam(
         details: {
           index: i,
           taskLabel,
-          targetParentID: applyParent || undefined,
+          targetParentRef: applyParent || undefined,
           ...(applyDiagnostics ? { applyDiagnostics } : {}),
         },
       });
@@ -883,7 +877,7 @@ export async function runWorkflowApplySeam(
           taskLabel,
           reason,
           structuredApplyResult,
-          targetParentID: applyParent || undefined,
+          targetParentRef: applyParent || undefined,
         },
         error,
       });
@@ -1095,15 +1089,12 @@ export async function runWorkflowApplySeam(
         },
       });
       const firstRequestIndex = aggregate.requestIndexes[0] ?? 0;
-      const targetParentID = resolveTargetParentIDFromRequest(
+      const targetParentRef = resolveTargetParentRefFromRequest(
         args.runState.requests[firstRequestIndex],
       );
       const hookResult = await resolved.executeApplyResult({
         workflow: args.runState.workflow,
-        parent:
-          typeof targetParentID === "number" && targetParentID > 0
-            ? targetParentID
-            : null,
+        parent: targetParentRef,
         bundleReader,
         resultContext,
         request: {

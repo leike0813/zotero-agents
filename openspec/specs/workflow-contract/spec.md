@@ -1,7 +1,8 @@
 # workflow-contract Specification
 
 ## Purpose
-TBD - created by archiving change workflow-mcp-contract-and-acp-smoke. Update Purpose after archive.
+Defines workflow manifests, hook execution, provider compatibility, and the
+closed Workflow Host contract exposed to workflow packages.
 ## Requirements
 ### Requirement: Workflows declare required MCP tools
 
@@ -202,7 +203,7 @@ Workflow manifests SHALL support `parameters.<key>.required` as an optional bool
 
 ### Requirement: Workflow Host public data SHALL use a closed portable value model
 
-Workflow Host and Broker public DTOs SHALL be composed from finite strict-JSON values and canonical portable references. The only non-JSON values permitted at the trusted in-process seam SHALL be `AbortSignal`, declared callbacks, editor DOM values, byte arrays, and trusted local path values explicitly named by the v12 contract.
+Workflow Host and Broker public DTOs SHALL be composed from finite strict-JSON values and canonical portable references. The only non-JSON values permitted at the trusted in-process seam SHALL be `CancellationSignal`, declared callbacks, editor DOM values, byte arrays, and trusted local path values explicitly named by the v12 contract. `CancellationSignal` SHALL expose only readonly `aborted` state and `addEventListener`/`removeEventListener` for the `"abort"` event. A native `AbortSignal` supplied as an upstream or control input remains structurally compatible, but the runtime-owned signal SHALL NOT promise `reason`, `onabort`, `throwIfAborted()`, or `dispatchEvent()`, and SHALL NOT be assumed to be a native `fetch` signal.
 
 #### Scenario: Portable item reference is accepted
 
@@ -230,7 +231,7 @@ Every Workflow Host owner SHALL expose failures through the eleven-code `zotero-
 
 ### Requirement: Cancelable calls SHALL use a separate trusted control parameter
 
-Potentially blocking Workflow Host calls with real cancellation points SHALL accept `WorkflowCallControl` separately from their JSON request DTO. Callback-scoped calls SHALL require the control parameter and SHALL execute callbacks serially.
+Potentially blocking Workflow Host calls with real cancellation points SHALL accept `WorkflowCallControl` separately from their JSON request DTO. `WorkflowCallControl.signal` and `WorkflowRuntimeContext.signal` SHALL use the host-independent `CancellationSignal` contract for Workflow Host cooperative cancellation. Callback-scoped calls SHALL require the control parameter and SHALL execute callbacks serially.
 
 #### Scenario: Caller aborts before publication
 

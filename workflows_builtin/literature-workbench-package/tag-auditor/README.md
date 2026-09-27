@@ -2,7 +2,7 @@
 
 ## 这个 Workflow 做什么？
 
-全库扫描所有顶层常规文献，将每个条目的标签与受控词表逐一比对，记录合规状态到 Synthesis Workbench 的 Tags 审查面板。它**不修改任何标签**，只做只读审查。
+扫描当前 Zotero library 中的所有顶层常规文献，将每个条目的标签与受控词表逐一比对，记录合规状态到 Synthesis Workbench 的 Tags 审查面板。它**不修改任何标签**，只做只读审查。
 
 ## 前置准备
 
@@ -16,9 +16,9 @@
 
 全自动执行，不包含中间确认：
 
-1. 遍历所有 library 中的顶层常规条目，跳过子条目和软删除条目。
+1. 由 Host 确定当前 library，遍历其中的顶层常规条目，跳过子条目和软删除条目。
 2. 逐条提取标签，与受控词表比对，判定合规状态。
-3. 按 `libraryId` 分组，写入 Synthesis Workbench 的 Tags 审查面板（`replaceTagAuditRecords`）。
+3. 在当前 library 的 audit run 中写入 Synthesis Workbench 的 Tags 审查面板（`replaceTagAuditRecords`）。
 
 可安全重复运行——每次执行会覆盖上次审查结果。
 
@@ -33,7 +33,7 @@
 - `compliant`：该条目标签是否全部在词表内
 - `nonCompliantTags`：不在词表中的标签列表
 
-运行结果汇总各 library 的 `audited`（审查总数）和 `needsTagRegulation`（不合规条目数）。
+运行结果汇总当前 library 的 `libraryId`、`audited`（审查总数）和 `needsTagRegulation`（不合规条目数）。
 
 ## 参数说明
 

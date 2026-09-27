@@ -1,6 +1,7 @@
 import type {
   JsonObject,
   JsonValue,
+  WorkflowCallControl,
   WorkflowHostMutationReceiptOperation,
 } from "./types";
 
@@ -27,6 +28,7 @@ export type WorkflowHostTargetKind =
   | "attachment"
   | "annotation"
   | "collection"
+  | "saved-search"
   | "resource"
   | "prepared_image"
   | "bibliography_format"
@@ -36,10 +38,6 @@ export type WorkflowHostTargetKind =
 export type WorkflowInteractionMember =
   | "context.getCurrentView"
   | "context.getSelectedItems"
-  | "navigation.openItem"
-  | "navigation.openNote"
-  | "navigation.openCollection"
-  | "navigation.openSelection"
   | "file.pickDirectory"
   | "file.pickFile"
   | "file.pickSaveFile"
@@ -84,6 +82,10 @@ export type WorkflowHostErrorDetailsByCode = {
   };
   unsupported_operation: {
     memberOrOperation: string;
+    reason?:
+      | "location_unsupported"
+      | "target_kind_unsupported"
+      | "view_unsupported";
   };
   interaction_required: {
     member: WorkflowInteractionMember;
@@ -115,11 +117,18 @@ export type WorkflowHostErrorDetailsByCode = {
       | "concurrent_modification"
       | "idempotency_conflict"
       | "operation_in_progress"
+      | "basis_mismatch"
       | "ambiguous_state";
     kind?: WorkflowHostTargetKind;
   };
   unavailable: {
-    reason: "runtime" | "capability" | "filesystem" | "navigation" | "adapter";
+    reason:
+      | "runtime"
+      | "capability"
+      | "filesystem"
+      | "navigation"
+      | "adapter"
+      | "outcome_unavailable";
     kind?: WorkflowHostTargetKind;
   };
   canceled: {
@@ -183,10 +192,6 @@ const TARGET_KINDS = new Set<WorkflowHostTargetKind>([
 const INTERACTION_MEMBERS = new Set<WorkflowInteractionMember>([
   "context.getCurrentView",
   "context.getSelectedItems",
-  "navigation.openItem",
-  "navigation.openNote",
-  "navigation.openCollection",
-  "navigation.openSelection",
   "file.pickDirectory",
   "file.pickFile",
   "file.pickSaveFile",
@@ -203,7 +208,7 @@ const DETAIL_KEYS = {
   invalid_request: new Set(["reason", "field", "operation"]),
   invalid_ref: new Set(["kind", "reason"]),
   not_found: new Set(["kind", "opaqueKey"]),
-  unsupported_operation: new Set(["memberOrOperation"]),
+  unsupported_operation: new Set(["memberOrOperation", "reason"]),
   interaction_required: new Set(["member"]),
   permission_denied: new Set(["reason", "kind"]),
   resource_limited: new Set(["resource", "limit", "observed"]),
@@ -264,6 +269,7 @@ const ENUMS = {
     "concurrent_modification",
     "idempotency_conflict",
     "operation_in_progress",
+    "basis_mismatch",
     "ambiguous_state",
   ]),
   unavailableReason: new Set([
@@ -272,6 +278,7 @@ const ENUMS = {
     "filesystem",
     "navigation",
     "adapter",
+    "outcome_unavailable",
   ]),
   canceledReason: new Set(["caller_signal", "host_shutdown"]),
   phase: new Set([
@@ -342,7 +349,9 @@ export function assertWorkflowHostStrictJsonValue(
       if (candidate.length > maxCollectionEntries) {
         throw new TypeError(`${path} exceeds the strict-JSON collection limit`);
       }
-      candidate.forEach((entry, index) => visit(entry, `${path}[${index}]`, depth + 1));
+      candidate.forEach((entry, index) =>
+        visit(entry, `${path}[${index}]`, depth + 1),
+      );
       seen.delete(candidate);
       return;
     }
@@ -431,7 +440,9 @@ function sanitizeDetails<Code extends WorkflowHostErrorCode>(
   return output as WorkflowHostErrorDetailsByCode[Code];
 }
 
-export function assertWorkflowHostErrorDetails<Code extends WorkflowHostErrorCode>(
+export function assertWorkflowHostErrorDetails<
+  Code extends WorkflowHostErrorCode,
+>(
   code: Code,
   details: unknown,
 ): asserts details is WorkflowHostErrorDetailsByCode[Code] {
@@ -441,10 +452,17 @@ export function assertWorkflowHostErrorDetails<Code extends WorkflowHostErrorCod
     case "invalid_request":
       assertEnum(details.reason, ENUMS.invalidRequestReason, "reason");
       if (details.field !== undefined && typeof details.field !== "string") {
-        throw new TypeError("Workflow Host invalid_request field must be a string");
+        throw new TypeError(
+          "Workflow Host invalid_request field must be a string",
+        );
       }
-      if (details.operation !== undefined && typeof details.operation !== "string") {
-        throw new TypeError("Workflow Host invalid_request operation must be a string");
+      if (
+        details.operation !== undefined &&
+        typeof details.operation !== "string"
+      ) {
+        throw new TypeError(
+          "Workflow Host invalid_request operation must be a string",
+        );
       }
       return;
     case "invalid_ref":
@@ -453,13 +471,29 @@ export function assertWorkflowHostErrorDetails<Code extends WorkflowHostErrorCod
       return;
     case "not_found":
       assertEnum(details.kind, TARGET_KINDS, "kind");
-      if (details.opaqueKey !== undefined && typeof details.opaqueKey !== "string") {
-        throw new TypeError("Workflow Host not_found opaqueKey must be a string");
+      if (
+        details.opaqueKey !== undefined &&
+        typeof details.opaqueKey !== "string"
+      ) {
+        throw new TypeError(
+          "Workflow Host not_found opaqueKey must be a string",
+        );
       }
       return;
     case "unsupported_operation":
       if (typeof details.memberOrOperation !== "string") {
         throw new TypeError("Workflow Host operation token must be a string");
+      }
+      if (details.reason !== undefined) {
+        assertEnum(
+          details.reason,
+          new Set([
+            "location_unsupported",
+            "target_kind_unsupported",
+            "view_unsupported",
+          ]),
+          "reason",
+        );
       }
       return;
     case "interaction_required":
@@ -472,7 +506,8 @@ export function assertWorkflowHostErrorDetails<Code extends WorkflowHostErrorCod
     case "resource_limited":
       assertEnum(details.resource, ENUMS.resource, "resource");
       assertFiniteNonNegative(details.limit, "limit");
-      if (details.observed !== undefined) assertFiniteNonNegative(details.observed, "observed");
+      if (details.observed !== undefined)
+        assertFiniteNonNegative(details.observed, "observed");
       return;
     case "conflict":
       assertEnum(details.reason, ENUMS.conflictReason, "reason");
@@ -519,7 +554,7 @@ export function createWorkflowHostErrorData<Code extends WorkflowHostErrorCode>(
 }
 
 export function assertWorkflowCallNotCanceled(
-  control?: Readonly<{ signal?: AbortSignal }>,
+  control?: WorkflowCallControl,
 ): void {
   if (control?.signal?.aborted) {
     throw createWorkflowHostError(

@@ -58,180 +58,94 @@ Required: `true`.
 ```json
 {
   "$defs": {
-    "collectionRef": {
-      "oneOf": [
-        {
+    "itemRef": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
           "minLength": 1,
           "type": "string"
         },
-        {
-          "type": "number"
-        },
-        {
-          "additionalProperties": true,
-          "minProperties": 1,
-          "type": "object",
-          "x-openPropertiesReason": "The Zotero collection-reference resolver owns the supported key, id, name, and library fields."
+        "libraryId": {
+          "minimum": 1,
+          "type": "integer"
         }
-      ]
-    },
-    "creator": {
-      "additionalProperties": false,
-      "anyOf": [
-        {
-          "required": [
-            "name"
-          ]
-        },
-        {
-          "required": [
-            "firstName"
-          ]
-        },
-        {
-          "required": [
-            "lastName"
-          ]
-        }
+      },
+      "required": [
+        "libraryId",
+        "key"
       ],
-      "properties": {
-        "creatorType": {
-          "type": "string"
-        },
-        "firstName": {
-          "type": "string"
-        },
-        "lastName": {
-          "type": "string"
-        },
-        "name": {
-          "type": "string"
-        }
-      },
       "type": "object"
     },
-    "fieldPatch": {
-      "additionalProperties": {
-        "type": [
-          "string",
-          "number",
-          "boolean",
-          "null"
-        ]
-      },
-      "minProperties": 1,
-      "type": "object"
-    },
-    "objectRef": {
-      "oneOf": [
-        {
-          "minLength": 1,
-          "type": "string"
-        },
-        {
-          "type": "number"
-        },
-        {
-          "additionalProperties": true,
-          "minProperties": 1,
-          "type": "object",
-          "x-openPropertiesReason": "The Zotero object-reference resolver owns the supported key, id, and library fields."
-        }
-      ]
-    },
-    "objectRefs": {
-      "items": {
-        "$ref": "#/$defs/objectRef"
-      },
-      "minItems": 1,
-      "type": "array"
-    },
-    "paper": {
+    "noteContent": {
       "additionalProperties": false,
       "properties": {
-        "attachLandingUrlOnMissingPdf": {
-          "type": "boolean"
-        },
-        "creators": {
+        "embeddedImages": {
           "items": {
-            "$ref": "#/$defs/creator"
+            "additionalProperties": false,
+            "properties": {
+              "altText": {
+                "type": "string"
+              },
+              "preparedImage": {
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "kind": {
+                    "const": "prepared_note_image"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id"
+                ],
+                "type": "object"
+              },
+              "slot": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "slot",
+              "preparedImage"
+            ],
+            "type": "object"
           },
-          "maxItems": 50,
           "type": "array"
         },
-        "fields": {
-          "additionalProperties": {
-            "type": [
-              "string",
-              "number",
-              "boolean",
-              "null"
-            ]
-          },
-          "properties": {
-            "title": {
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          "required": [
-            "title"
-          ],
-          "type": "object"
+        "format": {
+          "enum": [
+            "html",
+            "text"
+          ]
         },
-        "identifiers": {
-          "additionalProperties": false,
-          "properties": {
-            "arxiv": {
-              "type": "string"
-            },
-            "doi": {
-              "type": "string"
-            },
-            "isbn": {
-              "type": "string"
-            },
-            "pmid": {
-              "type": "string"
-            }
-          },
-          "type": "object"
-        },
-        "itemType": {
-          "minLength": 1,
-          "type": "string"
-        },
-        "landingUrl": {
-          "type": "string"
-        },
-        "pdfUrl": {
+        "value": {
           "type": "string"
         }
       },
       "required": [
-        "itemType",
-        "fields",
-        "creators",
-        "identifiers"
+        "format",
+        "value"
       ],
       "type": "object"
-    },
-    "tags": {
-      "items": {
-        "minLength": 1,
-        "type": "string"
-      },
-      "minItems": 1,
-      "type": "array"
     }
   },
   "additionalProperties": false,
   "properties": {
     "content": {
-      "type": "string"
+      "$ref": "#/$defs/noteContent"
     },
-    "target": {
-      "$ref": "#/$defs/objectRef"
+    "dryRun": {
+      "default": false,
+      "type": "boolean"
+    },
+    "operationId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
     }
   },
   "required": [
@@ -246,202 +160,101 @@ Required: `true`.
 ```json
 {
   "$defs": {
-    "collectionRef": {
-      "oneOf": [
-        {
+    "itemRef": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
           "minLength": 1,
           "type": "string"
         },
-        {
-          "type": "number"
-        },
-        {
-          "additionalProperties": true,
-          "minProperties": 1,
-          "type": "object",
-          "x-openPropertiesReason": "The Zotero collection-reference resolver owns the supported key, id, name, and library fields."
+        "libraryId": {
+          "minimum": 1,
+          "type": "integer"
         }
-      ]
-    },
-    "creator": {
-      "additionalProperties": false,
-      "anyOf": [
-        {
-          "required": [
-            "name"
-          ]
-        },
-        {
-          "required": [
-            "firstName"
-          ]
-        },
-        {
-          "required": [
-            "lastName"
-          ]
-        }
+      },
+      "required": [
+        "libraryId",
+        "key"
       ],
-      "properties": {
-        "creatorType": {
-          "type": "string"
-        },
-        "firstName": {
-          "type": "string"
-        },
-        "lastName": {
-          "type": "string"
-        },
-        "name": {
-          "type": "string"
-        }
-      },
       "type": "object"
     },
-    "fieldPatch": {
-      "additionalProperties": {
-        "type": [
-          "string",
-          "number",
-          "boolean",
-          "null"
-        ]
-      },
-      "minProperties": 1,
-      "type": "object"
-    },
-    "objectRef": {
-      "oneOf": [
-        {
-          "minLength": 1,
-          "type": "string"
-        },
-        {
-          "type": "number"
-        },
-        {
-          "additionalProperties": true,
-          "minProperties": 1,
-          "type": "object",
-          "x-openPropertiesReason": "The Zotero object-reference resolver owns the supported key, id, and library fields."
-        }
-      ]
-    },
-    "objectRefs": {
-      "items": {
-        "$ref": "#/$defs/objectRef"
-      },
-      "minItems": 1,
-      "type": "array"
-    },
-    "paper": {
+    "noteContent": {
       "additionalProperties": false,
       "properties": {
-        "attachLandingUrlOnMissingPdf": {
-          "type": "boolean"
-        },
-        "creators": {
+        "embeddedImages": {
           "items": {
-            "$ref": "#/$defs/creator"
+            "additionalProperties": false,
+            "properties": {
+              "altText": {
+                "type": "string"
+              },
+              "preparedImage": {
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "kind": {
+                    "const": "prepared_note_image"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id"
+                ],
+                "type": "object"
+              },
+              "slot": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "slot",
+              "preparedImage"
+            ],
+            "type": "object"
           },
-          "maxItems": 50,
           "type": "array"
         },
-        "fields": {
-          "additionalProperties": {
-            "type": [
-              "string",
-              "number",
-              "boolean",
-              "null"
-            ]
-          },
-          "properties": {
-            "title": {
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          "required": [
-            "title"
-          ],
-          "type": "object"
+        "format": {
+          "enum": [
+            "html",
+            "text"
+          ]
         },
-        "identifiers": {
-          "additionalProperties": false,
-          "properties": {
-            "arxiv": {
-              "type": "string"
-            },
-            "doi": {
-              "type": "string"
-            },
-            "isbn": {
-              "type": "string"
-            },
-            "pmid": {
-              "type": "string"
-            }
-          },
-          "type": "object"
-        },
-        "itemType": {
-          "minLength": 1,
-          "type": "string"
-        },
-        "landingUrl": {
-          "type": "string"
-        },
-        "pdfUrl": {
+        "value": {
           "type": "string"
         }
       },
       "required": [
-        "itemType",
-        "fields",
-        "creators",
-        "identifiers"
+        "format",
+        "value"
       ],
       "type": "object"
-    },
-    "tags": {
-      "items": {
-        "minLength": 1,
-        "type": "string"
-      },
-      "minItems": 1,
-      "type": "array"
     }
   },
   "additionalProperties": false,
-  "anyOf": [
-    {
-      "required": [
-        "note"
-      ]
-    },
-    {
-      "required": [
-        "target"
-      ]
-    }
-  ],
   "properties": {
     "content": {
+      "$ref": "#/$defs/noteContent"
+    },
+    "dryRun": {
+      "default": false,
+      "type": "boolean"
+    },
+    "noteRef": {
+      "$ref": "#/$defs/itemRef"
+    },
+    "operationId": {
+      "maxLength": 128,
+      "minLength": 1,
       "type": "string"
-    },
-    "note": {
-      "$ref": "#/$defs/objectRef"
-    },
-    "operation": {
-      "const": "note.update"
-    },
-    "target": {
-      "$ref": "#/$defs/objectRef"
     }
   },
   "required": [
-    "operation",
+    "noteRef",
     "content"
   ],
   "type": "object"
@@ -457,15 +270,13 @@ The executable command contract owns the base source, fixed values, field mappin
   "base": {
     "argument": "input"
   },
-  "constants": {
-    "operation": "note.update"
-  },
+  "constants": {},
   "mappings": [
     {
       "argument": "note",
-      "field": "note",
+      "field": "noteRef",
       "required": true,
-      "transform": "context-ref"
+      "transform": "identity"
     }
   ]
 }
@@ -482,35 +293,1878 @@ The executable command contract owns the base source, fixed values, field mappin
       "type": "string"
     },
     "capability": {
-      "const": "mutation.execute"
+      "const": "notes.updateContent"
     },
     "data": {
-      "additionalProperties": true,
-      "description": "Result data owned by mutation.execute.",
-      "properties": {
-        "result": {
-          "additionalProperties": true,
+      "$defs": {
+        "attachmentContentManifest": {
+          "additionalProperties": false,
           "properties": {
-            "attachments": {
+            "companions": {
               "items": {
-                "additionalProperties": true,
-                "not": {
-                  "required": [
-                    "path"
+                "additionalProperties": false,
+                "properties": {
+                  "relativePath": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "sha256": {
+                    "pattern": "^sha256:[0-9a-f]{64}$",
+                    "type": "string"
+                  },
+                  "sizeBytes": {
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "relativePath",
+                  "sizeBytes",
+                  "sha256"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "identity": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "main": {
+              "additionalProperties": false,
+              "properties": {
+                "relativePath": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "sha256": {
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                "sizeBytes": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "relativePath",
+                "sizeBytes",
+                "sha256"
+              ],
+              "type": "object"
+            },
+            "schema": {
+              "const": "zotero-agents.attachment-content.v1"
+            }
+          },
+          "required": [
+            "schema",
+            "identity",
+            "main",
+            "companions"
+          ],
+          "type": "object"
+        },
+        "attachmentSource": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/storedAttachmentSource"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "linked_url"
+                },
+                "url": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "url"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "stored_url"
+                },
+                "url": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "url"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "collectionRef": {
+          "additionalProperties": false,
+          "properties": {
+            "key": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "libraryId": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "libraryId",
+            "key"
+          ],
+          "type": "object"
+        },
+        "collectionRefArray": {
+          "items": {
+            "$ref": "#/$defs/collectionRef"
+          },
+          "type": "array"
+        },
+        "creator": {
+          "additionalProperties": false,
+          "properties": {
+            "creatorType": {
+              "type": "string"
+            },
+            "firstName": {
+              "type": "string"
+            },
+            "lastName": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "itemRef": {
+          "additionalProperties": false,
+          "properties": {
+            "key": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "libraryId": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "libraryId",
+            "key"
+          ],
+          "type": "object"
+        },
+        "itemRefArray": {
+          "items": {
+            "$ref": "#/$defs/itemRef"
+          },
+          "type": "array"
+        },
+        "jsonValue": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "$ref": "#/$defs/jsonValue"
+              },
+              "type": "array"
+            },
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/jsonValue"
+              },
+              "type": "object"
+            }
+          ]
+        },
+        "literatureScoreArtifact": {
+          "additionalProperties": false,
+          "properties": {
+            "confidence": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "confidence_adjusted_score": {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            "dimensions": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "applicable_max_score": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "confidence": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "configured_weight": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "criteria": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "criterion_key": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "evidence": {
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "line_end": {
+                                "minimum": 1,
+                                "type": "integer"
+                              },
+                              "line_start": {
+                                "minimum": 1,
+                                "type": "integer"
+                              },
+                              "quote": {
+                                "maxLength": 500,
+                                "minLength": 1,
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "line_start",
+                              "line_end",
+                              "quote"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "max_score": {
+                          "minimum": 1,
+                          "type": "integer"
+                        },
+                        "name": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "reason": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "score": {
+                          "minimum": 0,
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            "scored",
+                            "not_applicable"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "criterion_key",
+                        "name",
+                        "status",
+                        "score",
+                        "max_score",
+                        "reason",
+                        "evidence"
+                      ],
+                      "type": "object"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "dimension_key": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "effective_weight": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "name": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "raw_score": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "score": {
+                    "maximum": 100,
+                    "minimum": 0,
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "summary": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "dimension_key",
+                  "name",
+                  "configured_weight",
+                  "effective_weight",
+                  "raw_score",
+                  "applicable_max_score",
+                  "score",
+                  "confidence",
+                  "summary",
+                  "criteria"
+                ],
+                "type": "object"
+              },
+              "maxItems": 6,
+              "minItems": 6,
+              "type": "array"
+            },
+            "overall_score": {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            "paper_type": {
+              "enum": [
+                "empirical",
+                "review",
+                "theoretical",
+                "qualitative",
+                "mixed_methods",
+                "other"
+              ]
+            },
+            "paper_type_reason": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "rubric_id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "schema": {
+              "const": "literature_score.v1"
+            }
+          },
+          "required": [
+            "schema",
+            "rubric_id",
+            "paper_type",
+            "paper_type_reason",
+            "overall_score",
+            "confidence",
+            "confidence_adjusted_score",
+            "dimensions"
+          ],
+          "type": "object"
+        },
+        "managedNoteDetail": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "content": {
+                  "type": "string"
+                },
+                "format": {
+                  "enum": [
+                    "html",
+                    "text"
                   ]
                 },
-                "type": "object",
-                "x-openPropertiesReason": "Attachment metadata is capability-specific, while a private filesystem path from the Zotero computer is forbidden in remote results."
+                "kind": {
+                  "const": "ordinary"
+                },
+                "parentRef": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/itemRef"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "ref": {
+                  "$ref": "#/$defs/itemRef"
+                },
+                "revision": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "ref",
+                "parentRef",
+                "title",
+                "format",
+                "content",
+                "revision"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "derived": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "markdown": {
+                      "type": "string"
+                    },
+                    "representativeImage": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "alt": {
+                          "type": "string"
+                        },
+                        "attachmentRef": {
+                          "$ref": "#/$defs/itemRef"
+                        }
+                      },
+                      "required": [
+                        "attachmentRef",
+                        "alt"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                },
+                "detailBytes": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "health": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "currentReferencesBasis": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "state": {
+                      "enum": [
+                        "current",
+                        "stale"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "state"
+                  ],
+                  "type": "object"
+                },
+                "kind": {
+                  "const": "managed"
+                },
+                "noteKind": {
+                  "enum": [
+                    "custom",
+                    "conversation-note",
+                    "digest",
+                    "references",
+                    "citation-analysis",
+                    "literature-score"
+                  ]
+                },
+                "parentRef": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/itemRef"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "payload": {
+                  "$ref": "#/$defs/jsonValue"
+                },
+                "payloadBytes": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "provenance": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "referencesBasis": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "sourceRef": {
+                      "$ref": "#/$defs/itemRef"
+                    }
+                  },
+                  "type": "object"
+                },
+                "ref": {
+                  "$ref": "#/$defs/itemRef"
+                },
+                "revision": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "noteKind",
+                "ref",
+                "parentRef",
+                "title",
+                "payload",
+                "payloadBytes",
+                "detailBytes",
+                "revision"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "mutationAttempt": {
+          "additionalProperties": false,
+          "properties": {
+            "affectedRefs": {
+              "items": {
+                "additionalProperties": false,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "attemptId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "error": {
+              "additionalProperties": false,
+              "properties": {
+                "code": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "details": {
+                  "$ref": "#/$defs/jsonValue"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "phase": {
+                  "enum": [
+                    "validation",
+                    "reservation",
+                    "read",
+                    "staging",
+                    "commit",
+                    "verification",
+                    "compensation",
+                    "cleanup"
+                  ]
+                },
+                "recovery": {
+                  "enum": [
+                    "none",
+                    "retry_same_operation",
+                    "refresh_and_retry_new_operation",
+                    "reconcile",
+                    "manual_repair"
+                  ]
+                }
+              },
+              "required": [
+                "code",
+                "phase",
+                "recovery",
+                "details"
+              ],
+              "type": "object"
+            },
+            "operation": {
+              "enum": [
+                "item.create",
+                "item.updateMetadata",
+                "item.changeType",
+                "item.remove",
+                "item.updateTags",
+                "item.addRelated",
+                "item.removeRelated",
+                "collection.create",
+                "collection.update",
+                "collection.updateMembership",
+                "collection.remove",
+                "notes.create",
+                "notes.updateContent",
+                "notes.remove",
+                "notes.upsertPayload",
+                "attachments.create",
+                "attachments.updateMetadata",
+                "attachments.replaceFile",
+                "attachments.move",
+                "attachments.remove",
+                "statusTags.transition",
+                "trash.setItemsState",
+                "literature.ingest",
+                "managed_note.write_custom",
+                "managed_note.write_conversation",
+                "literature_artifact.upsert_digest",
+                "literature_artifact.upsert_references",
+                "literature_artifact.upsert_citation_analysis",
+                "literature_artifact.upsert_score"
+              ]
+            },
+            "operationId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "residualRefs": {
+              "items": {
+                "additionalProperties": false,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "schema": {
+              "const": "zotero-agents.mutation-attempt.v1"
+            },
+            "status": {
+              "enum": [
+                "failed",
+                "canceled",
+                "unknown",
+                "repair_required"
+              ]
+            }
+          },
+          "required": [
+            "schema",
+            "attemptId",
+            "operationId",
+            "operation",
+            "status",
+            "error",
+            "affectedRefs",
+            "residualRefs"
+          ],
+          "type": "object"
+        },
+        "noteContent": {
+          "additionalProperties": false,
+          "properties": {
+            "embeddedImages": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "altText": {
+                    "type": "string"
+                  },
+                  "preparedImage": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "id": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "kind": {
+                        "const": "prepared_note_image"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "id"
+                    ],
+                    "type": "object"
+                  },
+                  "slot": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "slot",
+                  "preparedImage"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "format": {
+              "enum": [
+                "html",
+                "text"
+              ]
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "format",
+            "value"
+          ],
+          "type": "object"
+        },
+        "receipt": {
+          "additionalProperties": false,
+          "properties": {
+            "changes": {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "committedAt": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "effectDigest": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "operation": {
+              "enum": [
+                "item.create",
+                "item.updateMetadata",
+                "item.changeType",
+                "item.remove",
+                "item.updateTags",
+                "item.addRelated",
+                "item.removeRelated",
+                "collection.create",
+                "collection.update",
+                "collection.updateMembership",
+                "collection.remove",
+                "notes.create",
+                "notes.updateContent",
+                "notes.remove",
+                "notes.upsertPayload",
+                "attachments.create",
+                "attachments.updateMetadata",
+                "attachments.replaceFile",
+                "attachments.move",
+                "attachments.remove",
+                "statusTags.transition",
+                "trash.setItemsState",
+                "literature.ingest",
+                "managed_note.write_custom",
+                "managed_note.write_conversation",
+                "literature_artifact.upsert_digest",
+                "literature_artifact.upsert_references",
+                "literature_artifact.upsert_citation_analysis",
+                "literature_artifact.upsert_score"
+              ]
+            },
+            "operationId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "outcome": {
+              "enum": [
+                "committed",
+                "unchanged"
+              ]
+            },
+            "receiptId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "schema": {
+              "const": "zotero-agents.mutation-receipt.v1"
+            }
+          },
+          "required": [
+            "schema",
+            "receiptId",
+            "operationId",
+            "operation",
+            "outcome",
+            "committedAt",
+            "effectDigest",
+            "changes"
+          ],
+          "type": "object"
+        },
+        "storedAttachmentSource": {
+          "additionalProperties": false,
+          "properties": {
+            "companions": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "targetRelativePath": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "targetRelativePath"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "content": {
+              "$ref": "#/$defs/attachmentContentManifest"
+            },
+            "kind": {
+              "const": "stored_file"
+            },
+            "targetFilename": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "content"
+          ],
+          "type": "object"
+        },
+        "stringArray": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "domainPlanDigest": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "observedAt": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "operation": {
+              "const": "notes.updateContent"
+            },
+            "outcome": {
+              "enum": [
+                "would_change",
+                "unchanged"
+              ]
+            },
+            "plan": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "schema": {
+              "const": "zotero-agents.mutation-preview.v1"
+            }
+          },
+          "required": [
+            "schema",
+            "operation",
+            "outcome",
+            "observedAt",
+            "domainPlanDigest",
+            "plan"
+          ],
+          "type": "object"
+        },
+        {
+          "$defs": {
+            "attachmentContentManifest": {
+              "additionalProperties": false,
+              "properties": {
+                "companions": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "relativePath": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "sha256": {
+                        "pattern": "^sha256:[0-9a-f]{64}$",
+                        "type": "string"
+                      },
+                      "sizeBytes": {
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "relativePath",
+                      "sizeBytes",
+                      "sha256"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "identity": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "main": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "relativePath": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "sha256": {
+                      "pattern": "^sha256:[0-9a-f]{64}$",
+                      "type": "string"
+                    },
+                    "sizeBytes": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "relativePath",
+                    "sizeBytes",
+                    "sha256"
+                  ],
+                  "type": "object"
+                },
+                "schema": {
+                  "const": "zotero-agents.attachment-content.v1"
+                }
+              },
+              "required": [
+                "schema",
+                "identity",
+                "main",
+                "companions"
+              ],
+              "type": "object"
+            },
+            "attachmentSource": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/storedAttachmentSource"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "const": "linked_url"
+                    },
+                    "url": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "url"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "const": "stored_url"
+                    },
+                    "url": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "url"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "collectionRef": {
+              "additionalProperties": false,
+              "properties": {
+                "key": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "libraryId": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "libraryId",
+                "key"
+              ],
+              "type": "object"
+            },
+            "collectionRefArray": {
+              "items": {
+                "$ref": "#/$defs/collectionRef"
+              },
+              "type": "array"
+            },
+            "creator": {
+              "additionalProperties": false,
+              "properties": {
+                "creatorType": {
+                  "type": "string"
+                },
+                "firstName": {
+                  "type": "string"
+                },
+                "lastName": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "itemRef": {
+              "additionalProperties": false,
+              "properties": {
+                "key": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "libraryId": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "libraryId",
+                "key"
+              ],
+              "type": "object"
+            },
+            "itemRefArray": {
+              "items": {
+                "$ref": "#/$defs/itemRef"
+              },
+              "type": "array"
+            },
+            "jsonValue": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "items": {
+                    "$ref": "#/$defs/jsonValue"
+                  },
+                  "type": "array"
+                },
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/jsonValue"
+                  },
+                  "type": "object"
+                }
+              ]
+            },
+            "literatureScoreArtifact": {
+              "additionalProperties": false,
+              "properties": {
+                "confidence": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "confidence_adjusted_score": {
+                  "maximum": 100,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "dimensions": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "applicable_max_score": {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "confidence": {
+                        "maximum": 1,
+                        "minimum": 0,
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      },
+                      "configured_weight": {
+                        "maximum": 1,
+                        "minimum": 0,
+                        "type": "number"
+                      },
+                      "criteria": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "criterion_key": {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "evidence": {
+                              "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "line_end": {
+                                    "minimum": 1,
+                                    "type": "integer"
+                                  },
+                                  "line_start": {
+                                    "minimum": 1,
+                                    "type": "integer"
+                                  },
+                                  "quote": {
+                                    "maxLength": 500,
+                                    "minLength": 1,
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "line_start",
+                                  "line_end",
+                                  "quote"
+                                ],
+                                "type": "object"
+                              },
+                              "type": "array"
+                            },
+                            "max_score": {
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "name": {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "reason": {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "score": {
+                              "minimum": 0,
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
+                            },
+                            "status": {
+                              "enum": [
+                                "scored",
+                                "not_applicable"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "criterion_key",
+                            "name",
+                            "status",
+                            "score",
+                            "max_score",
+                            "reason",
+                            "evidence"
+                          ],
+                          "type": "object"
+                        },
+                        "minItems": 1,
+                        "type": "array"
+                      },
+                      "dimension_key": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "effective_weight": {
+                        "maximum": 1,
+                        "minimum": 0,
+                        "type": "number"
+                      },
+                      "name": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "raw_score": {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "score": {
+                        "maximum": 100,
+                        "minimum": 0,
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      },
+                      "summary": {
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "dimension_key",
+                      "name",
+                      "configured_weight",
+                      "effective_weight",
+                      "raw_score",
+                      "applicable_max_score",
+                      "score",
+                      "confidence",
+                      "summary",
+                      "criteria"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 6,
+                  "minItems": 6,
+                  "type": "array"
+                },
+                "overall_score": {
+                  "maximum": 100,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "paper_type": {
+                  "enum": [
+                    "empirical",
+                    "review",
+                    "theoretical",
+                    "qualitative",
+                    "mixed_methods",
+                    "other"
+                  ]
+                },
+                "paper_type_reason": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "rubric_id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "schema": {
+                  "const": "literature_score.v1"
+                }
+              },
+              "required": [
+                "schema",
+                "rubric_id",
+                "paper_type",
+                "paper_type_reason",
+                "overall_score",
+                "confidence",
+                "confidence_adjusted_score",
+                "dimensions"
+              ],
+              "type": "object"
+            },
+            "managedNoteDetail": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "content": {
+                      "type": "string"
+                    },
+                    "format": {
+                      "enum": [
+                        "html",
+                        "text"
+                      ]
+                    },
+                    "kind": {
+                      "const": "ordinary"
+                    },
+                    "parentRef": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/itemRef"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "ref": {
+                      "$ref": "#/$defs/itemRef"
+                    },
+                    "revision": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "ref",
+                    "parentRef",
+                    "title",
+                    "format",
+                    "content",
+                    "revision"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "derived": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "markdown": {
+                          "type": "string"
+                        },
+                        "representativeImage": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "alt": {
+                              "type": "string"
+                            },
+                            "attachmentRef": {
+                              "$ref": "#/$defs/itemRef"
+                            }
+                          },
+                          "required": [
+                            "attachmentRef",
+                            "alt"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "detailBytes": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "health": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "currentReferencesBasis": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "state": {
+                          "enum": [
+                            "current",
+                            "stale"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "state"
+                      ],
+                      "type": "object"
+                    },
+                    "kind": {
+                      "const": "managed"
+                    },
+                    "noteKind": {
+                      "enum": [
+                        "custom",
+                        "conversation-note",
+                        "digest",
+                        "references",
+                        "citation-analysis",
+                        "literature-score"
+                      ]
+                    },
+                    "parentRef": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/itemRef"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "payload": {
+                      "$ref": "#/$defs/jsonValue"
+                    },
+                    "payloadBytes": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "provenance": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "referencesBasis": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "sourceRef": {
+                          "$ref": "#/$defs/itemRef"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "ref": {
+                      "$ref": "#/$defs/itemRef"
+                    },
+                    "revision": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "noteKind",
+                    "ref",
+                    "parentRef",
+                    "title",
+                    "payload",
+                    "payloadBytes",
+                    "detailBytes",
+                    "revision"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "mutationAttempt": {
+              "additionalProperties": false,
+              "properties": {
+                "affectedRefs": {
+                  "items": {
+                    "additionalProperties": false,
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "attemptId": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "error": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "code": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "details": {
+                      "$ref": "#/$defs/jsonValue"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "phase": {
+                      "enum": [
+                        "validation",
+                        "reservation",
+                        "read",
+                        "staging",
+                        "commit",
+                        "verification",
+                        "compensation",
+                        "cleanup"
+                      ]
+                    },
+                    "recovery": {
+                      "enum": [
+                        "none",
+                        "retry_same_operation",
+                        "refresh_and_retry_new_operation",
+                        "reconcile",
+                        "manual_repair"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "phase",
+                    "recovery",
+                    "details"
+                  ],
+                  "type": "object"
+                },
+                "operation": {
+                  "enum": [
+                    "item.create",
+                    "item.updateMetadata",
+                    "item.changeType",
+                    "item.remove",
+                    "item.updateTags",
+                    "item.addRelated",
+                    "item.removeRelated",
+                    "collection.create",
+                    "collection.update",
+                    "collection.updateMembership",
+                    "collection.remove",
+                    "notes.create",
+                    "notes.updateContent",
+                    "notes.remove",
+                    "notes.upsertPayload",
+                    "attachments.create",
+                    "attachments.updateMetadata",
+                    "attachments.replaceFile",
+                    "attachments.move",
+                    "attachments.remove",
+                    "statusTags.transition",
+                    "trash.setItemsState",
+                    "literature.ingest",
+                    "managed_note.write_custom",
+                    "managed_note.write_conversation",
+                    "literature_artifact.upsert_digest",
+                    "literature_artifact.upsert_references",
+                    "literature_artifact.upsert_citation_analysis",
+                    "literature_artifact.upsert_score"
+                  ]
+                },
+                "operationId": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "residualRefs": {
+                  "items": {
+                    "additionalProperties": false,
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "schema": {
+                  "const": "zotero-agents.mutation-attempt.v1"
+                },
+                "status": {
+                  "enum": [
+                    "failed",
+                    "canceled",
+                    "unknown",
+                    "repair_required"
+                  ]
+                }
+              },
+              "required": [
+                "schema",
+                "attemptId",
+                "operationId",
+                "operation",
+                "status",
+                "error",
+                "affectedRefs",
+                "residualRefs"
+              ],
+              "type": "object"
+            },
+            "noteContent": {
+              "additionalProperties": false,
+              "properties": {
+                "embeddedImages": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "altText": {
+                        "type": "string"
+                      },
+                      "preparedImage": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "id": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "kind": {
+                            "const": "prepared_note_image"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "id"
+                        ],
+                        "type": "object"
+                      },
+                      "slot": {
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "slot",
+                      "preparedImage"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "format": {
+                  "enum": [
+                    "html",
+                    "text"
+                  ]
+                },
+                "value": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "format",
+                "value"
+              ],
+              "type": "object"
+            },
+            "receipt": {
+              "additionalProperties": false,
+              "properties": {
+                "changes": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "committedAt": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "effectDigest": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "operation": {
+                  "enum": [
+                    "item.create",
+                    "item.updateMetadata",
+                    "item.changeType",
+                    "item.remove",
+                    "item.updateTags",
+                    "item.addRelated",
+                    "item.removeRelated",
+                    "collection.create",
+                    "collection.update",
+                    "collection.updateMembership",
+                    "collection.remove",
+                    "notes.create",
+                    "notes.updateContent",
+                    "notes.remove",
+                    "notes.upsertPayload",
+                    "attachments.create",
+                    "attachments.updateMetadata",
+                    "attachments.replaceFile",
+                    "attachments.move",
+                    "attachments.remove",
+                    "statusTags.transition",
+                    "trash.setItemsState",
+                    "literature.ingest",
+                    "managed_note.write_custom",
+                    "managed_note.write_conversation",
+                    "literature_artifact.upsert_digest",
+                    "literature_artifact.upsert_references",
+                    "literature_artifact.upsert_citation_analysis",
+                    "literature_artifact.upsert_score"
+                  ]
+                },
+                "operationId": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "outcome": {
+                  "enum": [
+                    "committed",
+                    "unchanged"
+                  ]
+                },
+                "receiptId": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "schema": {
+                  "const": "zotero-agents.mutation-receipt.v1"
+                }
+              },
+              "required": [
+                "schema",
+                "receiptId",
+                "operationId",
+                "operation",
+                "outcome",
+                "committedAt",
+                "effectDigest",
+                "changes"
+              ],
+              "type": "object"
+            },
+            "storedAttachmentSource": {
+              "additionalProperties": false,
+              "properties": {
+                "companions": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "targetRelativePath": {
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "targetRelativePath"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "content": {
+                  "$ref": "#/$defs/attachmentContentManifest"
+                },
+                "kind": {
+                  "const": "stored_file"
+                },
+                "targetFilename": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "content"
+              ],
+              "type": "object"
+            },
+            "stringArray": {
+              "items": {
+                "minLength": 1,
+                "type": "string"
               },
               "type": "array"
             }
           },
-          "type": "object",
-          "x-openPropertiesReason": "Mutation operations own result fields, while attachment file access is exposed through issued transfer descriptors."
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "outcome": {
+                  "enum": [
+                    "committed",
+                    "unchanged"
+                  ]
+                },
+                "receipt": {
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/receipt"
+                    },
+                    {
+                      "properties": {
+                        "operation": {
+                          "const": "notes.updateContent"
+                        }
+                      },
+                      "required": [
+                        "operation"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                },
+                "result": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "note": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "note"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "outcome",
+                "receipt",
+                "result"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "attempt": {
+                  "$ref": "#/$defs/mutationAttempt"
+                },
+                "outcome": {
+                  "enum": [
+                    "failed",
+                    "canceled",
+                    "unknown",
+                    "repair_required"
+                  ]
+                }
+              },
+              "required": [
+                "outcome",
+                "attempt"
+              ],
+              "type": "object"
+            }
+          ]
         }
-      },
-      "type": "object",
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      ]
     }
   },
   "required": [
@@ -529,7 +2183,7 @@ The executable command contract owns the base source, fixed values, field mappin
 Minimal JSON shape for --input.
 
 ```console
-zotero-bridge mutation note update --input '{"content":"Updated note"}'
+zotero-bridge mutation note update --input '{"content":{"format":"text","value":"Updated note"}}'
 ```
 
 Prerequisites:
@@ -617,15 +2271,13 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "base": {
       "argument": "input"
     },
-    "constants": {
-      "operation": "note.update"
-    },
+    "constants": {},
     "mappings": [
       {
         "argument": "note",
-        "field": "note",
+        "field": "noteRef",
         "required": true,
-        "transform": "context-ref"
+        "transform": "identity"
       }
     ]
   },
@@ -649,7 +2301,10 @@ This closed descriptor is the machine-readable command contract returned by `sur
             "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
           ],
           "value": {
-            "content": "Updated note"
+            "content": {
+              "format": "text",
+              "value": "Updated note"
+            }
           }
         }
       ],
@@ -657,180 +2312,94 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "requiredWhen": [],
       "schema": {
         "$defs": {
-          "collectionRef": {
-            "oneOf": [
-              {
+          "itemRef": {
+            "additionalProperties": false,
+            "properties": {
+              "key": {
                 "minLength": 1,
                 "type": "string"
               },
-              {
-                "type": "number"
-              },
-              {
-                "additionalProperties": true,
-                "minProperties": 1,
-                "type": "object",
-                "x-openPropertiesReason": "The Zotero collection-reference resolver owns the supported key, id, name, and library fields."
+              "libraryId": {
+                "minimum": 1,
+                "type": "integer"
               }
-            ]
-          },
-          "creator": {
-            "additionalProperties": false,
-            "anyOf": [
-              {
-                "required": [
-                  "name"
-                ]
-              },
-              {
-                "required": [
-                  "firstName"
-                ]
-              },
-              {
-                "required": [
-                  "lastName"
-                ]
-              }
+            },
+            "required": [
+              "libraryId",
+              "key"
             ],
-            "properties": {
-              "creatorType": {
-                "type": "string"
-              },
-              "firstName": {
-                "type": "string"
-              },
-              "lastName": {
-                "type": "string"
-              },
-              "name": {
-                "type": "string"
-              }
-            },
             "type": "object"
           },
-          "fieldPatch": {
-            "additionalProperties": {
-              "type": [
-                "string",
-                "number",
-                "boolean",
-                "null"
-              ]
-            },
-            "minProperties": 1,
-            "type": "object"
-          },
-          "objectRef": {
-            "oneOf": [
-              {
-                "minLength": 1,
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "additionalProperties": true,
-                "minProperties": 1,
-                "type": "object",
-                "x-openPropertiesReason": "The Zotero object-reference resolver owns the supported key, id, and library fields."
-              }
-            ]
-          },
-          "objectRefs": {
-            "items": {
-              "$ref": "#/$defs/objectRef"
-            },
-            "minItems": 1,
-            "type": "array"
-          },
-          "paper": {
+          "noteContent": {
             "additionalProperties": false,
             "properties": {
-              "attachLandingUrlOnMissingPdf": {
-                "type": "boolean"
-              },
-              "creators": {
+              "embeddedImages": {
                 "items": {
-                  "$ref": "#/$defs/creator"
+                  "additionalProperties": false,
+                  "properties": {
+                    "altText": {
+                      "type": "string"
+                    },
+                    "preparedImage": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "id": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "kind": {
+                          "const": "prepared_note_image"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "id"
+                      ],
+                      "type": "object"
+                    },
+                    "slot": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "slot",
+                    "preparedImage"
+                  ],
+                  "type": "object"
                 },
-                "maxItems": 50,
                 "type": "array"
               },
-              "fields": {
-                "additionalProperties": {
-                  "type": [
-                    "string",
-                    "number",
-                    "boolean",
-                    "null"
-                  ]
-                },
-                "properties": {
-                  "title": {
-                    "minLength": 1,
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "title"
-                ],
-                "type": "object"
+              "format": {
+                "enum": [
+                  "html",
+                  "text"
+                ]
               },
-              "identifiers": {
-                "additionalProperties": false,
-                "properties": {
-                  "arxiv": {
-                    "type": "string"
-                  },
-                  "doi": {
-                    "type": "string"
-                  },
-                  "isbn": {
-                    "type": "string"
-                  },
-                  "pmid": {
-                    "type": "string"
-                  }
-                },
-                "type": "object"
-              },
-              "itemType": {
-                "minLength": 1,
-                "type": "string"
-              },
-              "landingUrl": {
-                "type": "string"
-              },
-              "pdfUrl": {
+              "value": {
                 "type": "string"
               }
             },
             "required": [
-              "itemType",
-              "fields",
-              "creators",
-              "identifiers"
+              "format",
+              "value"
             ],
             "type": "object"
-          },
-          "tags": {
-            "items": {
-              "minLength": 1,
-              "type": "string"
-            },
-            "minItems": 1,
-            "type": "array"
           }
         },
         "additionalProperties": false,
         "properties": {
           "content": {
-            "type": "string"
+            "$ref": "#/$defs/noteContent"
           },
-          "target": {
-            "$ref": "#/$defs/objectRef"
+          "dryRun": {
+            "default": false,
+            "type": "boolean"
+          },
+          "operationId": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
           }
         },
         "required": [
@@ -875,202 +2444,101 @@ This closed descriptor is the machine-readable command contract returned by `sur
   "pagination": "none",
   "payloadSchema": {
     "$defs": {
-      "collectionRef": {
-        "oneOf": [
-          {
+      "itemRef": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
             "minLength": 1,
             "type": "string"
           },
-          {
-            "type": "number"
-          },
-          {
-            "additionalProperties": true,
-            "minProperties": 1,
-            "type": "object",
-            "x-openPropertiesReason": "The Zotero collection-reference resolver owns the supported key, id, name, and library fields."
+          "libraryId": {
+            "minimum": 1,
+            "type": "integer"
           }
-        ]
-      },
-      "creator": {
-        "additionalProperties": false,
-        "anyOf": [
-          {
-            "required": [
-              "name"
-            ]
-          },
-          {
-            "required": [
-              "firstName"
-            ]
-          },
-          {
-            "required": [
-              "lastName"
-            ]
-          }
+        },
+        "required": [
+          "libraryId",
+          "key"
         ],
-        "properties": {
-          "creatorType": {
-            "type": "string"
-          },
-          "firstName": {
-            "type": "string"
-          },
-          "lastName": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          }
-        },
         "type": "object"
       },
-      "fieldPatch": {
-        "additionalProperties": {
-          "type": [
-            "string",
-            "number",
-            "boolean",
-            "null"
-          ]
-        },
-        "minProperties": 1,
-        "type": "object"
-      },
-      "objectRef": {
-        "oneOf": [
-          {
-            "minLength": 1,
-            "type": "string"
-          },
-          {
-            "type": "number"
-          },
-          {
-            "additionalProperties": true,
-            "minProperties": 1,
-            "type": "object",
-            "x-openPropertiesReason": "The Zotero object-reference resolver owns the supported key, id, and library fields."
-          }
-        ]
-      },
-      "objectRefs": {
-        "items": {
-          "$ref": "#/$defs/objectRef"
-        },
-        "minItems": 1,
-        "type": "array"
-      },
-      "paper": {
+      "noteContent": {
         "additionalProperties": false,
         "properties": {
-          "attachLandingUrlOnMissingPdf": {
-            "type": "boolean"
-          },
-          "creators": {
+          "embeddedImages": {
             "items": {
-              "$ref": "#/$defs/creator"
+              "additionalProperties": false,
+              "properties": {
+                "altText": {
+                  "type": "string"
+                },
+                "preparedImage": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "kind": {
+                      "const": "prepared_note_image"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "id"
+                  ],
+                  "type": "object"
+                },
+                "slot": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "slot",
+                "preparedImage"
+              ],
+              "type": "object"
             },
-            "maxItems": 50,
             "type": "array"
           },
-          "fields": {
-            "additionalProperties": {
-              "type": [
-                "string",
-                "number",
-                "boolean",
-                "null"
-              ]
-            },
-            "properties": {
-              "title": {
-                "minLength": 1,
-                "type": "string"
-              }
-            },
-            "required": [
-              "title"
-            ],
-            "type": "object"
+          "format": {
+            "enum": [
+              "html",
+              "text"
+            ]
           },
-          "identifiers": {
-            "additionalProperties": false,
-            "properties": {
-              "arxiv": {
-                "type": "string"
-              },
-              "doi": {
-                "type": "string"
-              },
-              "isbn": {
-                "type": "string"
-              },
-              "pmid": {
-                "type": "string"
-              }
-            },
-            "type": "object"
-          },
-          "itemType": {
-            "minLength": 1,
-            "type": "string"
-          },
-          "landingUrl": {
-            "type": "string"
-          },
-          "pdfUrl": {
+          "value": {
             "type": "string"
           }
         },
         "required": [
-          "itemType",
-          "fields",
-          "creators",
-          "identifiers"
+          "format",
+          "value"
         ],
         "type": "object"
-      },
-      "tags": {
-        "items": {
-          "minLength": 1,
-          "type": "string"
-        },
-        "minItems": 1,
-        "type": "array"
       }
     },
     "additionalProperties": false,
-    "anyOf": [
-      {
-        "required": [
-          "note"
-        ]
-      },
-      {
-        "required": [
-          "target"
-        ]
-      }
-    ],
     "properties": {
       "content": {
+        "$ref": "#/$defs/noteContent"
+      },
+      "dryRun": {
+        "default": false,
+        "type": "boolean"
+      },
+      "noteRef": {
+        "$ref": "#/$defs/itemRef"
+      },
+      "operationId": {
+        "maxLength": 128,
+        "minLength": 1,
         "type": "string"
-      },
-      "note": {
-        "$ref": "#/$defs/objectRef"
-      },
-      "operation": {
-        "const": "note.update"
-      },
-      "target": {
-        "$ref": "#/$defs/objectRef"
       }
     },
     "required": [
-      "operation",
+      "noteRef",
       "content"
     ],
     "type": "object"
@@ -1092,35 +2560,1878 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "type": "string"
       },
       "capability": {
-        "const": "mutation.execute"
+        "const": "notes.updateContent"
       },
       "data": {
-        "additionalProperties": true,
-        "description": "Result data owned by mutation.execute.",
-        "properties": {
-          "result": {
-            "additionalProperties": true,
+        "$defs": {
+          "attachmentContentManifest": {
+            "additionalProperties": false,
             "properties": {
-              "attachments": {
+              "companions": {
                 "items": {
-                  "additionalProperties": true,
-                  "not": {
-                    "required": [
-                      "path"
+                  "additionalProperties": false,
+                  "properties": {
+                    "relativePath": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "sha256": {
+                      "pattern": "^sha256:[0-9a-f]{64}$",
+                      "type": "string"
+                    },
+                    "sizeBytes": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "relativePath",
+                    "sizeBytes",
+                    "sha256"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "identity": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "main": {
+                "additionalProperties": false,
+                "properties": {
+                  "relativePath": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "sha256": {
+                    "pattern": "^sha256:[0-9a-f]{64}$",
+                    "type": "string"
+                  },
+                  "sizeBytes": {
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "relativePath",
+                  "sizeBytes",
+                  "sha256"
+                ],
+                "type": "object"
+              },
+              "schema": {
+                "const": "zotero-agents.attachment-content.v1"
+              }
+            },
+            "required": [
+              "schema",
+              "identity",
+              "main",
+              "companions"
+            ],
+            "type": "object"
+          },
+          "attachmentSource": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/storedAttachmentSource"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "linked_url"
+                  },
+                  "url": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "url"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "stored_url"
+                  },
+                  "url": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "url"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "collectionRef": {
+            "additionalProperties": false,
+            "properties": {
+              "key": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "libraryId": {
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "libraryId",
+              "key"
+            ],
+            "type": "object"
+          },
+          "collectionRefArray": {
+            "items": {
+              "$ref": "#/$defs/collectionRef"
+            },
+            "type": "array"
+          },
+          "creator": {
+            "additionalProperties": false,
+            "properties": {
+              "creatorType": {
+                "type": "string"
+              },
+              "firstName": {
+                "type": "string"
+              },
+              "lastName": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "itemRef": {
+            "additionalProperties": false,
+            "properties": {
+              "key": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "libraryId": {
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "libraryId",
+              "key"
+            ],
+            "type": "object"
+          },
+          "itemRefArray": {
+            "items": {
+              "$ref": "#/$defs/itemRef"
+            },
+            "type": "array"
+          },
+          "jsonValue": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "$ref": "#/$defs/jsonValue"
+                },
+                "type": "array"
+              },
+              {
+                "additionalProperties": {
+                  "$ref": "#/$defs/jsonValue"
+                },
+                "type": "object"
+              }
+            ]
+          },
+          "literatureScoreArtifact": {
+            "additionalProperties": false,
+            "properties": {
+              "confidence": {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              },
+              "confidence_adjusted_score": {
+                "maximum": 100,
+                "minimum": 0,
+                "type": "number"
+              },
+              "dimensions": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "applicable_max_score": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "confidence": {
+                      "maximum": 1,
+                      "minimum": 0,
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "configured_weight": {
+                      "maximum": 1,
+                      "minimum": 0,
+                      "type": "number"
+                    },
+                    "criteria": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "criterion_key": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "evidence": {
+                            "items": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "line_end": {
+                                  "minimum": 1,
+                                  "type": "integer"
+                                },
+                                "line_start": {
+                                  "minimum": 1,
+                                  "type": "integer"
+                                },
+                                "quote": {
+                                  "maxLength": 500,
+                                  "minLength": 1,
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "line_start",
+                                "line_end",
+                                "quote"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "max_score": {
+                            "minimum": 1,
+                            "type": "integer"
+                          },
+                          "name": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "reason": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "score": {
+                            "minimum": 0,
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "status": {
+                            "enum": [
+                              "scored",
+                              "not_applicable"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "criterion_key",
+                          "name",
+                          "status",
+                          "score",
+                          "max_score",
+                          "reason",
+                          "evidence"
+                        ],
+                        "type": "object"
+                      },
+                      "minItems": 1,
+                      "type": "array"
+                    },
+                    "dimension_key": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "effective_weight": {
+                      "maximum": 1,
+                      "minimum": 0,
+                      "type": "number"
+                    },
+                    "name": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "raw_score": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "score": {
+                      "maximum": 100,
+                      "minimum": 0,
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "summary": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "dimension_key",
+                    "name",
+                    "configured_weight",
+                    "effective_weight",
+                    "raw_score",
+                    "applicable_max_score",
+                    "score",
+                    "confidence",
+                    "summary",
+                    "criteria"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 6,
+                "minItems": 6,
+                "type": "array"
+              },
+              "overall_score": {
+                "maximum": 100,
+                "minimum": 0,
+                "type": "number"
+              },
+              "paper_type": {
+                "enum": [
+                  "empirical",
+                  "review",
+                  "theoretical",
+                  "qualitative",
+                  "mixed_methods",
+                  "other"
+                ]
+              },
+              "paper_type_reason": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "rubric_id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "schema": {
+                "const": "literature_score.v1"
+              }
+            },
+            "required": [
+              "schema",
+              "rubric_id",
+              "paper_type",
+              "paper_type_reason",
+              "overall_score",
+              "confidence",
+              "confidence_adjusted_score",
+              "dimensions"
+            ],
+            "type": "object"
+          },
+          "managedNoteDetail": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "content": {
+                    "type": "string"
+                  },
+                  "format": {
+                    "enum": [
+                      "html",
+                      "text"
                     ]
                   },
-                  "type": "object",
-                  "x-openPropertiesReason": "Attachment metadata is capability-specific, while a private filesystem path from the Zotero computer is forbidden in remote results."
+                  "kind": {
+                    "const": "ordinary"
+                  },
+                  "parentRef": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/itemRef"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "ref": {
+                    "$ref": "#/$defs/itemRef"
+                  },
+                  "revision": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "ref",
+                  "parentRef",
+                  "title",
+                  "format",
+                  "content",
+                  "revision"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "derived": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "markdown": {
+                        "type": "string"
+                      },
+                      "representativeImage": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "alt": {
+                            "type": "string"
+                          },
+                          "attachmentRef": {
+                            "$ref": "#/$defs/itemRef"
+                          }
+                        },
+                        "required": [
+                          "attachmentRef",
+                          "alt"
+                        ],
+                        "type": "object"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "detailBytes": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "health": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "currentReferencesBasis": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "state": {
+                        "enum": [
+                          "current",
+                          "stale"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "state"
+                    ],
+                    "type": "object"
+                  },
+                  "kind": {
+                    "const": "managed"
+                  },
+                  "noteKind": {
+                    "enum": [
+                      "custom",
+                      "conversation-note",
+                      "digest",
+                      "references",
+                      "citation-analysis",
+                      "literature-score"
+                    ]
+                  },
+                  "parentRef": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/itemRef"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "payload": {
+                    "$ref": "#/$defs/jsonValue"
+                  },
+                  "payloadBytes": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "provenance": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "referencesBasis": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "sourceRef": {
+                        "$ref": "#/$defs/itemRef"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "ref": {
+                    "$ref": "#/$defs/itemRef"
+                  },
+                  "revision": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "noteKind",
+                  "ref",
+                  "parentRef",
+                  "title",
+                  "payload",
+                  "payloadBytes",
+                  "detailBytes",
+                  "revision"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "mutationAttempt": {
+            "additionalProperties": false,
+            "properties": {
+              "affectedRefs": {
+                "items": {
+                  "additionalProperties": false,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "attemptId": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "error": {
+                "additionalProperties": false,
+                "properties": {
+                  "code": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "details": {
+                    "$ref": "#/$defs/jsonValue"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "phase": {
+                    "enum": [
+                      "validation",
+                      "reservation",
+                      "read",
+                      "staging",
+                      "commit",
+                      "verification",
+                      "compensation",
+                      "cleanup"
+                    ]
+                  },
+                  "recovery": {
+                    "enum": [
+                      "none",
+                      "retry_same_operation",
+                      "refresh_and_retry_new_operation",
+                      "reconcile",
+                      "manual_repair"
+                    ]
+                  }
+                },
+                "required": [
+                  "code",
+                  "phase",
+                  "recovery",
+                  "details"
+                ],
+                "type": "object"
+              },
+              "operation": {
+                "enum": [
+                  "item.create",
+                  "item.updateMetadata",
+                  "item.changeType",
+                  "item.remove",
+                  "item.updateTags",
+                  "item.addRelated",
+                  "item.removeRelated",
+                  "collection.create",
+                  "collection.update",
+                  "collection.updateMembership",
+                  "collection.remove",
+                  "notes.create",
+                  "notes.updateContent",
+                  "notes.remove",
+                  "notes.upsertPayload",
+                  "attachments.create",
+                  "attachments.updateMetadata",
+                  "attachments.replaceFile",
+                  "attachments.move",
+                  "attachments.remove",
+                  "statusTags.transition",
+                  "trash.setItemsState",
+                  "literature.ingest",
+                  "managed_note.write_custom",
+                  "managed_note.write_conversation",
+                  "literature_artifact.upsert_digest",
+                  "literature_artifact.upsert_references",
+                  "literature_artifact.upsert_citation_analysis",
+                  "literature_artifact.upsert_score"
+                ]
+              },
+              "operationId": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "residualRefs": {
+                "items": {
+                  "additionalProperties": false,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "schema": {
+                "const": "zotero-agents.mutation-attempt.v1"
+              },
+              "status": {
+                "enum": [
+                  "failed",
+                  "canceled",
+                  "unknown",
+                  "repair_required"
+                ]
+              }
+            },
+            "required": [
+              "schema",
+              "attemptId",
+              "operationId",
+              "operation",
+              "status",
+              "error",
+              "affectedRefs",
+              "residualRefs"
+            ],
+            "type": "object"
+          },
+          "noteContent": {
+            "additionalProperties": false,
+            "properties": {
+              "embeddedImages": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "altText": {
+                      "type": "string"
+                    },
+                    "preparedImage": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "id": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "kind": {
+                          "const": "prepared_note_image"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "id"
+                      ],
+                      "type": "object"
+                    },
+                    "slot": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "slot",
+                    "preparedImage"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "format": {
+                "enum": [
+                  "html",
+                  "text"
+                ]
+              },
+              "value": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "format",
+              "value"
+            ],
+            "type": "object"
+          },
+          "receipt": {
+            "additionalProperties": false,
+            "properties": {
+              "changes": {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "committedAt": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "effectDigest": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "operation": {
+                "enum": [
+                  "item.create",
+                  "item.updateMetadata",
+                  "item.changeType",
+                  "item.remove",
+                  "item.updateTags",
+                  "item.addRelated",
+                  "item.removeRelated",
+                  "collection.create",
+                  "collection.update",
+                  "collection.updateMembership",
+                  "collection.remove",
+                  "notes.create",
+                  "notes.updateContent",
+                  "notes.remove",
+                  "notes.upsertPayload",
+                  "attachments.create",
+                  "attachments.updateMetadata",
+                  "attachments.replaceFile",
+                  "attachments.move",
+                  "attachments.remove",
+                  "statusTags.transition",
+                  "trash.setItemsState",
+                  "literature.ingest",
+                  "managed_note.write_custom",
+                  "managed_note.write_conversation",
+                  "literature_artifact.upsert_digest",
+                  "literature_artifact.upsert_references",
+                  "literature_artifact.upsert_citation_analysis",
+                  "literature_artifact.upsert_score"
+                ]
+              },
+              "operationId": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "outcome": {
+                "enum": [
+                  "committed",
+                  "unchanged"
+                ]
+              },
+              "receiptId": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "schema": {
+                "const": "zotero-agents.mutation-receipt.v1"
+              }
+            },
+            "required": [
+              "schema",
+              "receiptId",
+              "operationId",
+              "operation",
+              "outcome",
+              "committedAt",
+              "effectDigest",
+              "changes"
+            ],
+            "type": "object"
+          },
+          "storedAttachmentSource": {
+            "additionalProperties": false,
+            "properties": {
+              "companions": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "targetRelativePath": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "targetRelativePath"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "content": {
+                "$ref": "#/$defs/attachmentContentManifest"
+              },
+              "kind": {
+                "const": "stored_file"
+              },
+              "targetFilename": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "content"
+            ],
+            "type": "object"
+          },
+          "stringArray": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "domainPlanDigest": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "observedAt": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "operation": {
+                "const": "notes.updateContent"
+              },
+              "outcome": {
+                "enum": [
+                  "would_change",
+                  "unchanged"
+                ]
+              },
+              "plan": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "schema": {
+                "const": "zotero-agents.mutation-preview.v1"
+              }
+            },
+            "required": [
+              "schema",
+              "operation",
+              "outcome",
+              "observedAt",
+              "domainPlanDigest",
+              "plan"
+            ],
+            "type": "object"
+          },
+          {
+            "$defs": {
+              "attachmentContentManifest": {
+                "additionalProperties": false,
+                "properties": {
+                  "companions": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "relativePath": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "sha256": {
+                          "pattern": "^sha256:[0-9a-f]{64}$",
+                          "type": "string"
+                        },
+                        "sizeBytes": {
+                          "minimum": 0,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "relativePath",
+                        "sizeBytes",
+                        "sha256"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "identity": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "main": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "relativePath": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "sha256": {
+                        "pattern": "^sha256:[0-9a-f]{64}$",
+                        "type": "string"
+                      },
+                      "sizeBytes": {
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "relativePath",
+                      "sizeBytes",
+                      "sha256"
+                    ],
+                    "type": "object"
+                  },
+                  "schema": {
+                    "const": "zotero-agents.attachment-content.v1"
+                  }
+                },
+                "required": [
+                  "schema",
+                  "identity",
+                  "main",
+                  "companions"
+                ],
+                "type": "object"
+              },
+              "attachmentSource": {
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/storedAttachmentSource"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "const": "linked_url"
+                      },
+                      "url": {
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "url"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "const": "stored_url"
+                      },
+                      "url": {
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "url"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              },
+              "collectionRef": {
+                "additionalProperties": false,
+                "properties": {
+                  "key": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "libraryId": {
+                    "minimum": 1,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "libraryId",
+                  "key"
+                ],
+                "type": "object"
+              },
+              "collectionRefArray": {
+                "items": {
+                  "$ref": "#/$defs/collectionRef"
+                },
+                "type": "array"
+              },
+              "creator": {
+                "additionalProperties": false,
+                "properties": {
+                  "creatorType": {
+                    "type": "string"
+                  },
+                  "firstName": {
+                    "type": "string"
+                  },
+                  "lastName": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "itemRef": {
+                "additionalProperties": false,
+                "properties": {
+                  "key": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "libraryId": {
+                    "minimum": 1,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "libraryId",
+                  "key"
+                ],
+                "type": "object"
+              },
+              "itemRefArray": {
+                "items": {
+                  "$ref": "#/$defs/itemRef"
+                },
+                "type": "array"
+              },
+              "jsonValue": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "items": {
+                      "$ref": "#/$defs/jsonValue"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/jsonValue"
+                    },
+                    "type": "object"
+                  }
+                ]
+              },
+              "literatureScoreArtifact": {
+                "additionalProperties": false,
+                "properties": {
+                  "confidence": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "confidence_adjusted_score": {
+                    "maximum": 100,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "dimensions": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "applicable_max_score": {
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "confidence": {
+                          "maximum": 1,
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "configured_weight": {
+                          "maximum": 1,
+                          "minimum": 0,
+                          "type": "number"
+                        },
+                        "criteria": {
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "criterion_key": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "evidence": {
+                                "items": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "line_end": {
+                                      "minimum": 1,
+                                      "type": "integer"
+                                    },
+                                    "line_start": {
+                                      "minimum": 1,
+                                      "type": "integer"
+                                    },
+                                    "quote": {
+                                      "maxLength": 500,
+                                      "minLength": 1,
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "line_start",
+                                    "line_end",
+                                    "quote"
+                                  ],
+                                  "type": "object"
+                                },
+                                "type": "array"
+                              },
+                              "max_score": {
+                                "minimum": 1,
+                                "type": "integer"
+                              },
+                              "name": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "reason": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "score": {
+                                "minimum": 0,
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ]
+                              },
+                              "status": {
+                                "enum": [
+                                  "scored",
+                                  "not_applicable"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "criterion_key",
+                              "name",
+                              "status",
+                              "score",
+                              "max_score",
+                              "reason",
+                              "evidence"
+                            ],
+                            "type": "object"
+                          },
+                          "minItems": 1,
+                          "type": "array"
+                        },
+                        "dimension_key": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "effective_weight": {
+                          "maximum": 1,
+                          "minimum": 0,
+                          "type": "number"
+                        },
+                        "name": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "raw_score": {
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "score": {
+                          "maximum": 100,
+                          "minimum": 0,
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "summary": {
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "dimension_key",
+                        "name",
+                        "configured_weight",
+                        "effective_weight",
+                        "raw_score",
+                        "applicable_max_score",
+                        "score",
+                        "confidence",
+                        "summary",
+                        "criteria"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 6,
+                    "minItems": 6,
+                    "type": "array"
+                  },
+                  "overall_score": {
+                    "maximum": 100,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "paper_type": {
+                    "enum": [
+                      "empirical",
+                      "review",
+                      "theoretical",
+                      "qualitative",
+                      "mixed_methods",
+                      "other"
+                    ]
+                  },
+                  "paper_type_reason": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "rubric_id": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "schema": {
+                    "const": "literature_score.v1"
+                  }
+                },
+                "required": [
+                  "schema",
+                  "rubric_id",
+                  "paper_type",
+                  "paper_type_reason",
+                  "overall_score",
+                  "confidence",
+                  "confidence_adjusted_score",
+                  "dimensions"
+                ],
+                "type": "object"
+              },
+              "managedNoteDetail": {
+                "oneOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "content": {
+                        "type": "string"
+                      },
+                      "format": {
+                        "enum": [
+                          "html",
+                          "text"
+                        ]
+                      },
+                      "kind": {
+                        "const": "ordinary"
+                      },
+                      "parentRef": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/itemRef"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "ref": {
+                        "$ref": "#/$defs/itemRef"
+                      },
+                      "revision": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "title": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "ref",
+                      "parentRef",
+                      "title",
+                      "format",
+                      "content",
+                      "revision"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "derived": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "markdown": {
+                            "type": "string"
+                          },
+                          "representativeImage": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "alt": {
+                                "type": "string"
+                              },
+                              "attachmentRef": {
+                                "$ref": "#/$defs/itemRef"
+                              }
+                            },
+                            "required": [
+                              "attachmentRef",
+                              "alt"
+                            ],
+                            "type": "object"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "detailBytes": {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "health": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "currentReferencesBasis": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "state": {
+                            "enum": [
+                              "current",
+                              "stale"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "state"
+                        ],
+                        "type": "object"
+                      },
+                      "kind": {
+                        "const": "managed"
+                      },
+                      "noteKind": {
+                        "enum": [
+                          "custom",
+                          "conversation-note",
+                          "digest",
+                          "references",
+                          "citation-analysis",
+                          "literature-score"
+                        ]
+                      },
+                      "parentRef": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/itemRef"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "payload": {
+                        "$ref": "#/$defs/jsonValue"
+                      },
+                      "payloadBytes": {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "provenance": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "referencesBasis": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "sourceRef": {
+                            "$ref": "#/$defs/itemRef"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "ref": {
+                        "$ref": "#/$defs/itemRef"
+                      },
+                      "revision": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "title": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "noteKind",
+                      "ref",
+                      "parentRef",
+                      "title",
+                      "payload",
+                      "payloadBytes",
+                      "detailBytes",
+                      "revision"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              },
+              "mutationAttempt": {
+                "additionalProperties": false,
+                "properties": {
+                  "affectedRefs": {
+                    "items": {
+                      "additionalProperties": false,
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "attemptId": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "error": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "code": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "details": {
+                        "$ref": "#/$defs/jsonValue"
+                      },
+                      "message": {
+                        "type": "string"
+                      },
+                      "phase": {
+                        "enum": [
+                          "validation",
+                          "reservation",
+                          "read",
+                          "staging",
+                          "commit",
+                          "verification",
+                          "compensation",
+                          "cleanup"
+                        ]
+                      },
+                      "recovery": {
+                        "enum": [
+                          "none",
+                          "retry_same_operation",
+                          "refresh_and_retry_new_operation",
+                          "reconcile",
+                          "manual_repair"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "code",
+                      "phase",
+                      "recovery",
+                      "details"
+                    ],
+                    "type": "object"
+                  },
+                  "operation": {
+                    "enum": [
+                      "item.create",
+                      "item.updateMetadata",
+                      "item.changeType",
+                      "item.remove",
+                      "item.updateTags",
+                      "item.addRelated",
+                      "item.removeRelated",
+                      "collection.create",
+                      "collection.update",
+                      "collection.updateMembership",
+                      "collection.remove",
+                      "notes.create",
+                      "notes.updateContent",
+                      "notes.remove",
+                      "notes.upsertPayload",
+                      "attachments.create",
+                      "attachments.updateMetadata",
+                      "attachments.replaceFile",
+                      "attachments.move",
+                      "attachments.remove",
+                      "statusTags.transition",
+                      "trash.setItemsState",
+                      "literature.ingest",
+                      "managed_note.write_custom",
+                      "managed_note.write_conversation",
+                      "literature_artifact.upsert_digest",
+                      "literature_artifact.upsert_references",
+                      "literature_artifact.upsert_citation_analysis",
+                      "literature_artifact.upsert_score"
+                    ]
+                  },
+                  "operationId": {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "residualRefs": {
+                    "items": {
+                      "additionalProperties": false,
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "schema": {
+                    "const": "zotero-agents.mutation-attempt.v1"
+                  },
+                  "status": {
+                    "enum": [
+                      "failed",
+                      "canceled",
+                      "unknown",
+                      "repair_required"
+                    ]
+                  }
+                },
+                "required": [
+                  "schema",
+                  "attemptId",
+                  "operationId",
+                  "operation",
+                  "status",
+                  "error",
+                  "affectedRefs",
+                  "residualRefs"
+                ],
+                "type": "object"
+              },
+              "noteContent": {
+                "additionalProperties": false,
+                "properties": {
+                  "embeddedImages": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "altText": {
+                          "type": "string"
+                        },
+                        "preparedImage": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "id": {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "kind": {
+                              "const": "prepared_note_image"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "id"
+                          ],
+                          "type": "object"
+                        },
+                        "slot": {
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "slot",
+                        "preparedImage"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "format": {
+                    "enum": [
+                      "html",
+                      "text"
+                    ]
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "format",
+                  "value"
+                ],
+                "type": "object"
+              },
+              "receipt": {
+                "additionalProperties": false,
+                "properties": {
+                  "changes": {
+                    "items": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "committedAt": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "effectDigest": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "operation": {
+                    "enum": [
+                      "item.create",
+                      "item.updateMetadata",
+                      "item.changeType",
+                      "item.remove",
+                      "item.updateTags",
+                      "item.addRelated",
+                      "item.removeRelated",
+                      "collection.create",
+                      "collection.update",
+                      "collection.updateMembership",
+                      "collection.remove",
+                      "notes.create",
+                      "notes.updateContent",
+                      "notes.remove",
+                      "notes.upsertPayload",
+                      "attachments.create",
+                      "attachments.updateMetadata",
+                      "attachments.replaceFile",
+                      "attachments.move",
+                      "attachments.remove",
+                      "statusTags.transition",
+                      "trash.setItemsState",
+                      "literature.ingest",
+                      "managed_note.write_custom",
+                      "managed_note.write_conversation",
+                      "literature_artifact.upsert_digest",
+                      "literature_artifact.upsert_references",
+                      "literature_artifact.upsert_citation_analysis",
+                      "literature_artifact.upsert_score"
+                    ]
+                  },
+                  "operationId": {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "outcome": {
+                    "enum": [
+                      "committed",
+                      "unchanged"
+                    ]
+                  },
+                  "receiptId": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "schema": {
+                    "const": "zotero-agents.mutation-receipt.v1"
+                  }
+                },
+                "required": [
+                  "schema",
+                  "receiptId",
+                  "operationId",
+                  "operation",
+                  "outcome",
+                  "committedAt",
+                  "effectDigest",
+                  "changes"
+                ],
+                "type": "object"
+              },
+              "storedAttachmentSource": {
+                "additionalProperties": false,
+                "properties": {
+                  "companions": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "targetRelativePath": {
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "targetRelativePath"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "content": {
+                    "$ref": "#/$defs/attachmentContentManifest"
+                  },
+                  "kind": {
+                    "const": "stored_file"
+                  },
+                  "targetFilename": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "content"
+                ],
+                "type": "object"
+              },
+              "stringArray": {
+                "items": {
+                  "minLength": 1,
+                  "type": "string"
                 },
                 "type": "array"
               }
             },
-            "type": "object",
-            "x-openPropertiesReason": "Mutation operations own result fields, while attachment file access is exposed through issued transfer descriptors."
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "outcome": {
+                    "enum": [
+                      "committed",
+                      "unchanged"
+                    ]
+                  },
+                  "receipt": {
+                    "allOf": [
+                      {
+                        "$ref": "#/$defs/receipt"
+                      },
+                      {
+                        "properties": {
+                          "operation": {
+                            "const": "notes.updateContent"
+                          }
+                        },
+                        "required": [
+                          "operation"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "result": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "note": {
+                        "additionalProperties": true,
+                        "type": "object"
+                      }
+                    },
+                    "required": [
+                      "note"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "outcome",
+                  "receipt",
+                  "result"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "attempt": {
+                    "$ref": "#/$defs/mutationAttempt"
+                  },
+                  "outcome": {
+                    "enum": [
+                      "failed",
+                      "canceled",
+                      "unknown",
+                      "repair_required"
+                    ]
+                  }
+                },
+                "required": [
+                  "outcome",
+                  "attempt"
+                ],
+                "type": "object"
+              }
+            ]
           }
-        },
-        "type": "object",
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+        ]
       }
     },
     "required": [
@@ -1134,7 +4445,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
   "targets": [
     {
       "kind": "capability",
-      "target": "mutation.execute"
+      "target": "notes.updateContent"
     }
   ]
 }
@@ -1211,7 +4522,7 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 [
   {
     "kind": "capability",
-    "target": "mutation.execute"
+    "target": "notes.updateContent"
   }
 ]
 ```

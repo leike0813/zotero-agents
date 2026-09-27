@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/leike0813/zotero-agents/releases"><img src="https://img.shields.io/badge/version-v0.5.0-blue?style=flat-square" alt="v0.5.0" /></a>
-  <img src="https://img.shields.io/badge/Zotero-7|9-CC2936?style=flat-square&logo=zotero&logoColor=white" alt="Zotero 7/9" />
+  <img src="https://img.shields.io/badge/Zotero-7|9|10-CC2936?style=flat-square&logo=zotero&logoColor=white" alt="Zotero 7/9/10" />
   <a href="https://github.com/leike0813/zotero-agents/blob/main/LICENSE"><img src="https://img.shields.io/github/license/leike0813/zotero-agents?style=flat-square" alt="AGPL-3.0" /></a>
   <img src="https://img.shields.io/badge/TypeScript-4.0+-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
 </p>
@@ -88,11 +88,11 @@ Zotero Agents 是 Zotero 文献库的**一站式 Agentic 工作台**——它不
 
 ### 系统要求
 
-- [Zotero 9](https://www.zotero.org/download/) 或 [Zotero 7](https://www.zotero.org/download/)（版本 ≥ 6.999）
+- [Zotero 10](https://www.zotero.org/download/)、[Zotero 9](https://www.zotero.org/download/) 或 [Zotero 7](https://www.zotero.org/download/)（版本 ≥ 7.0）
 - 如果使用 ACP 后端：本机已安装对应的 Agent CLI 工具（`npx` 自动安装亦可）
 - 如果使用 Skill-Runner 后端：已部署 [Skill-Runner](https://github.com/leike0813/Skill-Runner) 实例
 
-> **关于 Zotero 版本**：本插件在 Zotero 9 上开发与测试。Zotero 8 理论上可完整支持（Zotero 8/9 的插件框架没有明显改变）；Zotero 7 理论上也能支持，但受精力所限未进行深入测试，未来的维护重点将放在 Zotero 9 上。如果在 Zotero 7 使用过程中遇到问题，请在 [Issues](https://github.com/leike0813/zotero-agents/issues) 反馈。
+> **关于 Zotero 版本**：本插件支持 Zotero 7、9 和 10。Windows 与 Linux 固定验证代表版本 7.0.32、9.0.6 和 10.0.1。macOS 上的 Zotero 10 当前只有非阻塞的正式 XPI smoke 证据，不代表覆盖所有历史 patch 版本。
 
 ### 后端类型
 
@@ -599,12 +599,12 @@ npm run build        # 生产构建
 
 | 文档 | 说明 |
 |------|------|
-| [架构流程](doc/architecture-flow.md) | 执行管线总览（含 Mermaid 流程图） |
-| [开发指南](doc/dev_guide.md) | 核心组件、配置模型、执行链路 |
-| [工作流组件](doc/components/workflows.md) | Manifest schema、hooks、输入筛选、执行语义 |
-| [Provider 组件](doc/components/providers.md) | Provider 契约系统、请求类型 |
-| [测试策略](doc/testing-framework.md) | 双运行环境、lite/full 模式、CI 门禁 |
-| [Synthesis 层](doc/synthesis-layer/README.md) | 知识图谱、引文图谱、概念知识库的内部设计 |
+| [架构流程](docs/architecture-flow.md) | 执行管线总览（含 Mermaid 流程图） |
+| [开发指南](docs/dev_guide.md) | 核心组件、配置模型、执行链路 |
+| [工作流组件](docs/components/workflows.md) | Manifest schema、hooks、输入筛选、执行语义 |
+| [Provider 组件](docs/components/providers.md) | Provider 契约系统、请求类型 |
+| [测试策略](docs/testing-framework.md) | 双运行环境、lite/full 模式、CI 门禁 |
+| [Synthesis 层](docs/synthesis-layer/README.md) | 知识图谱、引文图谱、概念知识库的内部设计 |
 
 </details>
 

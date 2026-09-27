@@ -198,7 +198,7 @@ Runtime log append notifications and routine Runtime Logs UI refreshes MUST expo
 
 #### Scenario: Runtime Logs page refreshes
 
-- **WHEN** Task Manager refreshes the Runtime Logs page
+- **WHEN** Task Dashboard refreshes the Runtime Logs page
 - **THEN** it SHALL read aggregate summary data and at most 300 visible entries
 - **AND** the refresh SHALL NOT construct a complete `RuntimeLogSnapshot`.
 
@@ -237,7 +237,7 @@ duration, Host classification, and public semantic status only.
 - **AND** HTTP status, sizes, request IDs, worker codes, and trace data are absent
 
 ### Requirement: Workflow logging adapter SHALL bind trusted identity and bounded data
-The workflow logging adapter SHALL accept only level, stage, message, optional operation and phase, and optional strict-JSON details. The Host MUST bind workflow, package, run, request, job, backend, and timestamp facts from trusted context; reject caller-supplied identity or retention fields; and sanitize secrets, paths, native errors, stacks, and transport locations before the existing runtime log pipeline stores the entry.
+The Workflow logging owner SHALL accept only level, stage, message, optional operation and phase, and optional strict-JSON details. It SHALL own caller-input validation, trusted workflow identity binding, and Workflow-specific sanitization before submitting a normalized entry. The runtime log pipeline SHALL own normalized storage, retention, persistence, and observation without depending on Workflow Host definitions. The Host MUST reject caller-supplied identity or retention fields and sanitize secrets, paths, native errors, stacks, and transport locations before storage.
 
 #### Scenario: Workflow appends a valid log entry
 - **WHEN** a workflow submits bounded portable logging data
@@ -253,6 +253,11 @@ The workflow logging adapter SHALL accept only level, stage, message, optional o
 - **WHEN** a non-interactive workflow submits a valid log request
 - **THEN** logging remains available and uses the same trusted binding and sanitization path
 
+#### Scenario: Runtime log core is used without Workflow Host
+- **WHEN** a non-Workflow producer submits an already normalized runtime log entry
+- **THEN** the runtime log pipeline SHALL apply its storage, retention, persistence, and observation rules
+- **AND** loading the pipeline SHALL NOT require Workflow Host composition or caller DTO validation.
+
 ### Requirement: Test probes SHALL remain outside the workflow logging contract
 Performance-span and leak-artifact probe controls SHALL be available only through an internal harness seam and MUST NOT be exposed by the workflow logging adapter.
 
@@ -260,4 +265,18 @@ Performance-span and leak-artifact probe controls SHALL be available only throug
 - **WHEN** workflow code addresses a performance or leak-probe test member
 - **THEN** no such member exists on the workflow logging contract
 - **AND** ordinary bounded logging remains available
+
+### Requirement: Workspace protocol success chatter SHALL bypass persistent logs
+
+Successful tab selection, sidebar close, publication ACK, render observation,
+transcript page/details request, handshake retry, publication pulse, snapshot
+schedule, and backend refresh scheduling SHALL NOT be appended to the runtime
+log, including diagnostic mode. Shell and child ready SHALL remain info lifecycle
+events, and failures SHALL remain warn/error events.
+
+#### Scenario: Diagnostic mode processes normal UI traffic
+
+- **WHEN** a tab switch produces publications, acknowledgements, and render observations
+- **THEN** exported runtime logs omit those successful stages
+- **AND** retain ready lifecycle entries and representative warnings
 

@@ -52,7 +52,7 @@ provider:
 Profile 附带 Host Bridge 连接模板文件 `assets/host-bridge/profile.example.json`。你需要提供实际的 endpoint 和 token：
 
 1. 打开 Zotero → 设置 → Zotero Agents → Host Bridge
-2. 点击 **启动/显示端点**，确保 Bridge 正在运行并记下端点 URL（如 `http://127.0.0.1:26570/bridge/v1`）
+2. 点击 **启动/显示端点**，确保 Bridge 正在运行并记下端点 URL（如 `http://127.0.0.1:26570/bridge/v2`）
 3. 点击 **复制 Master Token**（或使用面板中显示的会话 token）
 4. 将 token 设置为环境变量：
 
@@ -67,7 +67,7 @@ $env:ZOTERO_BRIDGE_TOKEN = "<your-token>"
 5. 远程/LAN 访问时，还需指定 endpoint：
 
 ```bash
-export ZOTERO_BRIDGE_ENDPOINT="http://127.0.0.1:26570/bridge/v1"
+export ZOTERO_BRIDGE_ENDPOINT="http://127.0.0.1:26570/bridge/v2"
 ```
 
 Profile 模板使用 `auth.tokenEnv: "ZOTERO_BRIDGE_TOKEN"`，因此 CLI 会自动从环境变量中读取 token。详细的 endpoint、token 和 profile 文件说明请参阅 [Host Bridge 配置](#doc/backends%2Fhost-bridge)。

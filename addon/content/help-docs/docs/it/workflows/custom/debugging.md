@@ -98,7 +98,7 @@ Se `applyResult` utilizza `hostApi.mutations.execute()` ma non ha effetto, possi
 
 ```js
 hostApi.notifications.toast({
-  text: `buildRequest ha ricevuto ${selectionContext.items.parents.length} elementi principali`,
+  text: `buildRequest ha ricevuto ${selectionContext.items.filter((item) => item.kind === "parent").length} elementi principali`,
   type: "default",
 });
 ```

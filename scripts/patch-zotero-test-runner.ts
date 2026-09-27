@@ -51,8 +51,35 @@ function escapeInlineScriptForXml(source: string) {
   return source.replaceAll("&", "&amp;").replaceAll("<", "&lt;");
 }
 
-function buildTransportBlock(port: string) {
-  return escapeInlineScriptForXml(`async function sendBlocking(data) {
+function normalizeSystemE2EEventUrl(value: string | undefined) {
+  const url = String(value || "").trim();
+  if (!url) return "";
+  if (!/^http:\/\/(?:127\.0\.0\.1|localhost):\d+\/events$/.test(url)) {
+    throw new Error("Invalid System E2E event URL");
+  }
+  return url;
+}
+
+function buildTransportBlock(port: string, systemE2EEventUrl: string) {
+  return escapeInlineScriptForXml(`Services.prefs.setStringPref(
+  "extensions.zotero-agents.test.systemE2EEventUrl",
+  ${JSON.stringify(systemE2EEventUrl)},
+);
+
+async function __zsMirrorSystemE2EEvent(data) {
+  const endpoint = ${JSON.stringify(systemE2EEventUrl)};
+  if (!endpoint) {
+    return;
+  }
+  const mirrored = await Zotero.HTTP.request("POST", endpoint, {
+    body: JSON.stringify(data),
+  });
+  if (mirrored.status !== 200) {
+    throw new Error("System E2E event sink rejected reporter event");
+  }
+}
+
+async function sendBlocking(data) {
   const req = await Zotero.HTTP.request(
     "POST",
     "http://localhost:${port}/update",
@@ -60,6 +87,8 @@ function buildTransportBlock(port: string) {
       body: JSON.stringify(data),
     }
   );
+
+  await __zsMirrorSystemE2EEvent(data);
 
   if (req.status !== 200) {
     dump("Error sending data to server" + req.responseText);
@@ -262,11 +291,17 @@ function requireAnchor(html: string, anchor: string, message: string) {
   }
 }
 
-export function patchZoteroTestRunnerHtml(html: string) {
+export function patchZoteroTestRunnerHtml(
+  html: string,
+  options: { systemE2EEventUrl?: string } = {},
+) {
   if (html.includes(DIAGNOSTIC_MARKER)) {
     return html;
   }
   const port = resolvePortFromHtml(html);
+  const systemE2EEventUrl = normalizeSystemE2EEventUrl(
+    options.systemE2EEventUrl,
+  );
   const sendAnchor = SEND_FUNCTION_ANCHOR.replace("__PORT__", port);
 
   requireAnchor(
@@ -297,7 +332,7 @@ export function patchZoteroTestRunnerHtml(html: string) {
 
   return html
     .replace(MOCHA_CONTAINER_ANCHOR, MOCHA_CONTAINER_PATCH)
-    .replace(sendAnchor, buildTransportBlock(port))
+    .replace(sendAnchor, buildTransportBlock(port, systemE2EEventUrl))
     .replace(DEBUG_ANCHOR, buildDiagnosticBridgeBlock())
     .replace(DUMP_LINE_ANCHOR, `    __zsAppendMochaOutput(str);`)
     .replaceAll(`${START_LOG_ANCHOR}\n`, "")
@@ -351,7 +386,9 @@ export function resolveGeneratedZoteroTestRunnerPath(rootDir = process.cwd()) {
 export async function patchGeneratedZoteroTestRunner(rootDir = process.cwd()) {
   const runnerPath = resolveGeneratedZoteroTestRunnerPath(rootDir);
   const original = await readFile(runnerPath, "utf8");
-  const patched = patchZoteroTestRunnerHtml(original);
+  const patched = patchZoteroTestRunnerHtml(original, {
+    systemE2EEventUrl: process.env.ZOTERO_SYSTEM_E2E_EVENT_URL,
+  });
   if (patched !== original) {
     await writeFile(runnerPath, patched, "utf8");
   }

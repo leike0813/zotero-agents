@@ -1,14 +1,14 @@
-import "../test/setup/zotero-mock.ts";
+import "../tests/setup/zotero-mock.ts";
 import fs from "fs/promises";
 import path from "path";
 import { JobQueueManager } from "../src/jobQueue/manager";
-import { SkillRunnerProvider } from "../src/providers/skillrunnerProvider";
+import { SkillRunnerProvider } from "../src/providers/skillrunner/provider";
 import { loadWorkflowManifests } from "../src/workflows/loader";
 import { executeBuildRequests } from "../src/workflows/runtime";
 import {
   literatureDigestBundlePath,
   startMockSkillRunnerServer,
-} from "../test/mock-skillrunner/server";
+} from "../tests/mock-skillrunner/server";
 
 type SelectionAttachment = {
   filePath?: string;
@@ -42,7 +42,7 @@ function projectRoot() {
 async function readSelectionFixture(rootDir: string) {
   const fixturePath = path.join(
     rootDir,
-    "test",
+    "tests",
     "fixtures",
     "selection-context",
     "selection-context-single-markdown.json",
@@ -56,7 +56,7 @@ function normalizeAttachmentPaths(
   selection: SelectionContext,
 ) {
   const copied = JSON.parse(JSON.stringify(selection)) as SelectionContext;
-  const baseDir = path.join(rootDir, "test", "fixtures", "selection-context");
+  const baseDir = path.join(rootDir, "tests", "fixtures", "selection-context");
   for (const attachment of copied.items?.attachments || []) {
     const currentPath = attachment.filePath || "";
     if (!currentPath || path.isAbsolute(currentPath)) {

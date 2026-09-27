@@ -27,10 +27,15 @@ const item = hostApi.items.getByLibraryAndKey(1, "ABCD1234");
 
 ## 上下文（hostApi.context）
 
+上下文 API 提供轻量的当前视图，以及绑定选择 basis 的精确分页。返回值使用可移植引用和规范事实；不会暴露 Zotero 对象、数字条目 ID、本地路径，也不会把完整的选中条目快照嵌入当前视图。
+
 ```ts
 hostApi.context = {
-  getCurrentView: () => ZoteroHostCurrentViewDto,  // 当前活动视图信息
-  getSelectedItems: () => ZoteroHostItemSummaryDto[],  // 当前选中的条目列表
+  getCurrentView: () => CurrentViewDto,  // 当前视图和库树事实
+  getSelectedItems: (request?: {
+    limit?: number | string;
+    cursor?: string;
+  }) => Promise<SelectedItemsPageDto>,  // 精确的有序选择页
 }
 ```
 
@@ -38,11 +43,14 @@ hostApi.context = {
 
 ```js
 const view = hostApi.context.getCurrentView();
-// { libraryID: 1, selectedItems: [...], ... }
+// { target: "library", libraryIds: [1], selectedSources: [...], selectionEmpty: false }
 
-const selected = hostApi.context.getSelectedItems();
-// [{ id, key, libraryID, title, ... }, ...]
+const firstPage = await hostApi.context.getSelectedItems({ limit: 25 });
+// { items: [{ ref: { libraryId: 1, key: "ABCD1234" }, itemType: "journalArticle" }],
+//   returned: 1, total: 1, hasMore: false, nextCursor: null }
 ```
+
+分页使用 Zotero 当前顺序并保留每个选中条目，包括子条目、附件和笔记。它不会提升父条目、去重、排序，也不会物化当前页以外的条目。默认每页 25 项，最多 100 项。当 `hasMore` 为 true 时继续传入 `nextCursor`；如果选择的成员或顺序发生变化，续页会以 `basis_mismatch` 失败，调用方必须丢弃已获取的部分结果。
 
 ## 库操作（hostApi.library）
 

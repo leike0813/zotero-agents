@@ -2,10 +2,10 @@
 
 ## Requisitos del sistema
 
-- **Zotero**: 7.0 o posterior (se recomienda Zotero 9)
+- **Zotero**: 7.0 o posterior (se recomienda Zotero 10)
 - **Plataforma**: Windows 10+, macOS 12+, Linux (x86_64 / x86 / ARM64 / ARM)
 
-> **Sobre las versiones de Zotero**: Este complemento se desarrolla y prueba en Zotero 9. Zotero 8 está teóricamente soportado en su totalidad (el marco de complementos no tiene cambios significativos entre Zotero 8/9); Zotero 7 también debería estar soportado en teoría, pero no ha sido probado exhaustivamente debido a recursos limitados. El mantenimiento futuro se centrará en Zotero 9. Si encuentras problemas en Zotero 7, por favor repórtalos en [Issues](https://github.com/leike0813/zotero-agents/issues).
+> **Sobre las versiones de Zotero**: Este complemento es compatible con Zotero 7, 9 y 10. En Windows y Linux se prueban las versiones representativas 7.0.32, 9.0.6 y 10.0.1. Para Zotero 10 en macOS, la evidencia actual es una prueba de humo formal del XPI no bloqueante; no implica cobertura de todas las versiones de parche anteriores.
 
 ## Instalación del complemento
 
