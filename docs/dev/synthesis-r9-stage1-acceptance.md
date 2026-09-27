@@ -3,8 +3,8 @@
 The active change is `complete-synthesis-r9-stage1-acceptance`. Its decision
 uses one pushed source commit and pinned host-built universal XPIs. The two R9b
 retirement changes are archived; that fact alone does not complete R9 or Stage 1.
-The first candidate was invalidated by the HB-03 source repair. The current
-candidate and its outstanding gates are recorded below.
+The first candidate was invalidated by the HB-03 source repair. The accepted
+candidate and its source-bound evidence are recorded below.
 
 ## Evidence joins
 
@@ -21,10 +21,10 @@ compatibility cell or the six-cell acceptance plan. Missing blocking cells are
 pending; mismatched or failed cells are failed. The existing compatibility
 receipt already contains the XPI digest, while sidecar runtime evidence
 contains the installed bundle ID and build fingerprint. No second release-set
-format is needed for this join. Remote workflow trust and the remaining case
-receipts still need verification before a final acceptance decision.
+format is needed for this join. The final decision also joins the isolated
+installation, migration, lifecycle, and recovery receipts below.
 
-## Current unpublished candidate (2026-09-26)
+## Current unpublished candidate (accepted 2026-09-27)
 
 The pinned candidate source is pushed commit
 `8632cfd537ae9aa3eae9b05da2c907764c932a77` on `dev`. Its governed
@@ -97,7 +97,23 @@ The operator rehearsal receipt `.scaffold/r9-operator-runbook-8632-receipt.json`
 records a compatible v6 restart, repair and retry after a failed migration,
 forward migration with a verified backup, and a stopped-service restore from
 that v5 backup into an isolated copy followed by native startup and a durable
-reference-binding check. Network-disabled Zotero installation remains open.
+reference-binding check.
+
+The network-disabled installation ran in Windows Sandbox with
+`<Networking>Disable</Networking>` and a clean detached checkout of the pinned
+source. Local read-only inputs supplied the fixed XPI, Zotero 7 archive, Node
+dependencies, test-library cache, and source-fingerprint-matched Host Bridge
+CLI; the CLI's required `VCRUNTIME140.dll` was staged in the sandbox only.
+Receipt `.scaffold/r9-offline-windows-8632-receipt.json` records failed direct
+Internet probes before and after the run. The raw compatibility receipt, Run
+Manifest, and installed-runtime evidence are under
+`.scaffold/r9-sandbox-output/`. Zotero 7.0.32 installed Windows XPI SHA-256
+`080d2b35d68c42c79f844eb631920059ff219d3cc4b60af8a2f99e07b38856cf`
+and bundle ID `46efcfbd11138e7d6a8bf9f8cd2d47bb2665c3cc022771983ea2acdbaefa3881`.
+Run Manifest `f8cf9bae-e1d4-4d92-b9c7-70ce9c7a8e07` completed all 16 records
+with passed health and cleanup, including authenticated shutdown, restart,
+representative reads, and Host Bridge cases. The compatibility receipt reports
+`dirty=false`, `passed`, and complete cleanup.
 
 The Linux host built its own universal XPI from the same source and seven native
 bundles, at `.scaffold/r9-linux-8632/zotero-agents-linux.xpi`, SHA-256
@@ -115,8 +131,11 @@ Windows and Linux host-built XPIs. The six-cell decision at
 `.scaffold/r9-matrix-decision-8632.json` is now `passed` with no cell reasons.
 The older Linux receipts below belong to `a7dd12b5…` and are historical.
 macOS Zotero 10 XPI smoke has no current receipt and remains nonblocking.
-Network-disabled Zotero installation is still missing, so R9 and Stage 1 are
-not complete.
+The six blocking compatibility cells and the isolated installation, offline,
+upgrade, migration, lifecycle, and recovery cases now pass for this candidate.
+R9 and Stage 1 acceptance are complete. The XPI remains unpublished; release
+tags/assets, feeds, production pointers, and Gitee synchronization remain
+outside this change.
 
 ## Previous unpublished candidate (2026-09-26)
 

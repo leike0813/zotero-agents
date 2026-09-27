@@ -18,7 +18,7 @@
 
 ## 4. Exercise Installation, Upgrade, and Data Safety
 
-- [ ] 4.1 Install the pinned XPI into isolated clean-profile and offline cases; verify its digest, authenticated readiness, representative reads, shutdown, and restart
+- [x] 4.1 Install the pinned XPI into isolated clean-profile and offline cases; verify its digest, authenticated readiness, representative reads, shutdown, and restart
 - [x] 4.2 Run existing-profile and XPI-upgrade cases on isolated copies; verify the pinned XPI replaces current runtime atomically and preserves unrelated profile data and inert legacy lifecycle files
 - [x] 4.3 Run corrupt, stale, and wrong-platform bundle cases and verify fail-closed behavior leaves the previous runtime usable
 - [x] 4.4 Run registered migration success, backup failure, migration failure, unknown-variant, and retry cases on isolated profile copies and verify original source hashes remain unchanged
