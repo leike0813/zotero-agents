@@ -3,7 +3,7 @@
 - 状态核对：2026-09-28
 - 工作分支：`dev-agent-harness`
 - 实施路线：[地图 #10](https://github.com/leike0813/zotero-agents/issues/10)、[执行计划 #26](https://github.com/leike0813/zotero-agents/issues/26)
-- 已完成切片：W0 C01（提交 `fbd297d4`）、W1 C02（提交 `1da0cd84`）、W1 C03（本工作区实现，未提交）。[C01 归档 change](../openspec/changes/archive/2026-09-27-establish-pi-runtime-contract-and-spine/)、[C02 归档 change](../openspec/changes/archive/2026-09-27-establish-pi-owner-persistence/)、[C03 归档 change](../openspec/changes/archive/2026-09-28-establish-pi-provider-configuration/)
+- 已实现切片：W0 C01（提交 `fbd297d4`）、W1 C02（提交 `1da0cd84`）、W1 C03（提交 `ef91407c`）、W1 C07（本工作区未提交）。[C01 归档 change](../openspec/changes/archive/2026-09-27-establish-pi-runtime-contract-and-spine/)、[C02 归档 change](../openspec/changes/archive/2026-09-27-establish-pi-owner-persistence/)、[C03 归档 change](../openspec/changes/archive/2026-09-28-establish-pi-provider-configuration/)、[C07 归档 change](../openspec/changes/archive/2026-09-28-establish-pi-tool-gateway-policy/)
 
 本文是持续更新的工作交接。**后续每个 Pi Runtime 相关 change 完成、归档或改变实施决定时，实施者须在交接前按实际进度更新本文**：核对已实现边界、下一步、验证结果、未解决风险及链接，并更新状态日期。拟议能力不得写成已交付能力；实现与规格冲突时先核对代码和正式决策。
 
@@ -11,7 +11,7 @@
 
 这份文档帮助后续 change 接续已确定的产品边界和实现进度。内置 Pi Agent Runtime 最终应成为完整 Agent：支持可持久化的多轮交互、经策略中介使用 Shell、文件和网络能力，并通过稳定的插件内边界操作 Zotero 文献库。
 
-W0 C01 已建立无 Node.js 依赖的瞬态 Pi 运行时骨架，W1 C02 已增加项目自有的 Pi owner 持久化基础，W1 C03 增加模型目录、配置、加密凭据和 Backend Manager 独立页面。真实模型调用、Agent 会话界面、工具和自动恢复仍需依照地图与执行计划分步实现。早期兼容性原型只保留为历史证据。
+W0 C01 已建立无 Node.js 依赖的瞬态 Pi 运行时骨架，W1 C02 已增加项目自有的 Pi owner 持久化基础，W1 C03 增加模型目录、配置、加密凭据和 Backend Manager 独立页面。W1 C07 已建立工具目录、策略和执行证据内核。真实模型调用、Agent 会话界面、具体工具和自动恢复仍需依照地图与执行计划分步实现。早期兼容性原型只保留为历史证据。
 
 ## 统一术语
 
@@ -68,7 +68,14 @@ C01 没有生产 caller；Zotero 用例直接导入生产模块。真实 provide
 - Backend Manager 增加独立的“内置 Agent”页：管理配置、目录 overlay 和默认项，显示已保存凭据的掩码状态，不把 Pi 数据写入 `backendsConfigJson` 或 `BackendInstance`；API key 页面录入/清除、OpenAI Codex 连接与真实模型执行仍属于后续 change。
 - Node 定向测试覆盖配置优先级、认证类型、目录白名单与 last-good 缓存、凭据替换及篡改；`runtime-provider-registry`、`dashboard`、`ui` 分片通过。真实 Zotero lite core 定向 5 项、UI 定向 1 项通过，UI 测试曾发现 Zotero 插件全局缺少 `structuredClone`，现已改用显式空状态构造。`npm run test:node` 全量运行未通过：多个非 Pi 分片失败，文献工作流出现 `embedded payload attachment is unavailable`；本次没有把这些失败归因于 C03，也没有全量 Node 通过证据。用户已接受 C03 的定向真实 Zotero core/UI 门禁，全量 Zotero 套件未运行。
 
-当前写入会扫描 owner 的完整历史以检查损坏，并重建无 payload 索引；长历史的写入吞吐仍需实测后优化。C02 的持久化 API 尚无生产 caller，传入的 JSON payload 必须由后续 caller 在边界完成凭据脱敏。后续 lifecycle / startup reconciliation 由 C17 负责。
+当前写入会扫描 owner 的完整历史以检查损坏，并重建无 payload 索引；长历史的写入吞吐仍需实测后优化。C02 的持久化 API 尚无生产 caller，传入的 JSON payload 必须由后续 caller 在边界完成凭据脱敏。后续 lifecycle / startup reconciliation 由最终实施顺序中的 C19 负责。
+
+### W1 C07：Pi Tool Gateway 策略内核
+
+- [`src/modules/piToolGateway.ts`](../src/modules/piToolGateway.ts) 接受项目自有 descriptor，校验并冻结每轮模型可见工具目录及摘要；工具调用先经 schema、可信效果/资源分类、系统可准入范围、Runtime Capability Receipt 与当前授权判定。C08 的修正允许交互模式对当前授权之外但系统可准入的原调用请求一次精确审批；自动模式拒绝。
+- Gateway 在完整批次预检后调度互不冲突的调用，同一 canonical 资源串行，结果按模型原顺序返回。执行前由 owner 提供的回调先持久化 `tool_call_started`，权威回执持久化后才暴露成功；效果无法确认时给出 `state_unknown`，不自动重放。精确审批只能在新 Runtime Turn 复核原参数及目录、授权、能力摘要后续行，不形成常驻 grant。
+- C07 的持久化与权限回调只用确定性测试替身验证，尚未连接 C02 的生产 owner、Assistant Workspace 或任何具体工具目录。后续 C08/C10/C11/C12 提供 Native、MCP、Web、Zotero 工具定义，C16/C17 接入 Conversation 与 Skill Run，C19 负责最终 teardown、重启对账和有界恢复。
+- 验证：`npm run test:node -- --shard runtime-provider-execution`、`npm run lint:check`、`npm run build` 与 `ZOTERO_TEST_GREP='Pi Tool Gateway' npm run test:zotero:core`（16 项）通过；最终验证记录见 [C07 verification](../openspec/changes/archive/2026-09-28-establish-pi-tool-gateway-policy/verification.md)。全量 `npm run test:zotero:core` 曾停在既有 SQLite 分页用例 `returns real SQLite pages with stable, user-visible results`，独立运行该用例 120 秒仍超时；目前没有全量 core 通过证据。#26 所列 `test:node:core` 脚本在当前仓库不存在，Node 使用现有分片命令。后续处理全量门禁时先调查该分页用例的阻塞，再重跑整套。
 
 ### Pi core Zotero 兼容性原型
 
@@ -113,7 +120,7 @@ git show research/pi-agent-sandbox-models:artifact/pi-agent-runtime/sandbox-and-
 
 ## 当前工作区状态
 
-在状态核对时，C01、C02 已分别进入 `dev-agent-harness` 的提交 `fbd297d4`、`1da0cd84`；C03 尚未提交。`PiRuntime`、C02 owner 持久化接口和 C03 选择接口尚未连成真实模型执行路径。工作区中另有 Host Bridge 发布面文件的未提交变化；后续执行者须按最新 `git status` 辨别所有权，不覆盖并行改动。
+在状态核对时，C01、C02、C03 已分别进入 `dev-agent-harness` 的提交 `fbd297d4`、`1da0cd84`、`ef91407c`；C07 是本工作区尚未提交的变更。`PiRuntime`、C02 owner 持久化接口和 C03 选择接口尚未连成真实模型执行路径。以最新 `git status` 辨别所有权，不覆盖并行改动。
 
 ## 建议的系统边界
 
@@ -148,7 +155,7 @@ git show research/pi-agent-sandbox-models:artifact/pi-agent-runtime/sandbox-and-
 
 ## 后续需要落实的边界
 
-下列能力尚未由 C01/C02 实现。每个后续 change 应先核对 #10/#26 和现行 ADR，再写明本次范围及可观察的完成条件。
+下列能力尚未由 C01/C02/C03/C07 实现。每个后续 change 应先核对 #10/#26 和现行 ADR，再写明本次范围及可观察的完成条件。
 
 ### Runtime 与 provider
 
@@ -168,7 +175,7 @@ git show research/pi-agent-sandbox-models:artifact/pi-agent-runtime/sandbox-and-
 
 ### Trusted Native Execution 与可选 Strong
 
-- Tool Gateway 的 Shell、文件、搜索、fetch 和 web search 工具 schema、输出上限、取消与审批仍需逐项实现。
+- C07 仅建立 Tool Gateway 的目录、策略、审批续行、批次调度和回执内核；Shell、文件、搜索、fetch、web search 的具体 schema、执行器与宿主权限呈现仍需后续 change 实现。
 - Workspace Scope、命令和网络意图须遵守 ADR 0002；opaque executor 的潜在宿主访问必须在授权界面明确呈现。
 - 未来如引入 Strong Executor，再单独规定各平台适配器、能力证明、路径与网络隔离、资源限制和失败处理，不将研究原型视为已实现安全保证。
 
@@ -183,9 +190,9 @@ git show research/pi-agent-sandbox-models:artifact/pi-agent-runtime/sandbox-and-
 
 ## 下一步实施入口
 
-W0 C01、W1 C02 与本次 W1 C03 是后续接线基础。下一项 change 应从 [执行计划 #26](https://github.com/leike0813/zotero-agents/issues/26) 当前顺序和 [地图 #10](https://github.com/leike0813/zotero-agents/issues/10) 领取，而非重新创建一个笼统的 MVP change。C03 经用户确认采用定向真实 Zotero core/UI 验证；全量 Zotero 套件仍无本次通过证据。
+W0 C01、W1 C02/C03 与本次 W1 C07 是后续接线基础。依 [#26 最终 wave 表](https://github.com/leike0813/zotero-agents/issues/26#issuecomment-5552013273)，W1 还需独立完成 C09 `generalize-windows-stdio-process-bridge`；W1 的每个 change 核对、同步并归档后，才能开始 W2 生产实施。C03 经用户确认采用定向真实 Zotero core/UI 验证；它没有全量 Zotero 套件通过证据。
 
-接续工作首先复核 `PiRuntime`、C02 canonical transcript 与下一票的输入/输出契约，按 TDD 在现有测试目录中扩展真实调用路径。接入真实 provider 时再按实际导入决定是否需要原型中 `provider-env.js → node:fs` 的精确 guard；不得为了尚未导入的 provider 预先添加广泛 polyfill。Assistant Workspace、工具和自动恢复分别遵守 ADR 0001/0003、区域级 DOM identity 约束和 ADR 0002。每项能力的完成证据应落在对应 OpenSpec change 与测试中，并回写本文状态。
+接续工作按 C09 已接受方案核对 Windows stdio 桥接边界。接入真实 provider 时再按实际导入决定是否需要原型中 `provider-env.js → node:fs` 的精确 guard；不得为了尚未导入的 provider 预先添加广泛 polyfill。Assistant Workspace、具体工具和自动恢复分别遵守 ADR 0001/0003、区域级 DOM identity 约束和 ADR 0002。后续会话接线是 C16，Skill Run 接线是 C17，生命周期恢复是 C19。每项能力的完成证据应落在对应 OpenSpec change 与测试中，并回写本文状态。
 
 ## 实施前的代码探索入口
 
