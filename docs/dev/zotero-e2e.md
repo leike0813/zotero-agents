@@ -157,6 +157,27 @@ MOZ_CRASHREPORTER_FULLDUMP=1
    通常是一对同名的 `.dmp` 与 `.extra`。多个 profile 共存时，可读 `%APPDATA%\Zotero\Zotero\profiles.ini` 确认桌面启动使用哪一个；Zotero 10 也可能在 `%APPDATA%\Zotero\Zotero\Crash Reports\pending\` 留有等待上报的副本。
 
 需要回避污染安装树时，先在临时 profile 复现；若只能动真实 profile，复现后清理该 profile 的 `minidumps/` 与 `Crash Reports/`。当前 Zotero profile 的具体路径可在 `%APPDATA%\Zotero\Zotero\profiles.ini` 的 `Default=1` 或 `StartWithLastProfile` 中核对。
+
+## 用脚本查询与切换
+
+仓库内 `scripts/zotero-native-crash-env.ps1` 封装了上述状态查询和切换：
+
+```pwsh
+# 查看当前状态
+pwsh -NoProfile -File scripts/zotero-native-crash-env.ps1 -Action status
+
+# 启用：设置 MOZ_CRASHREPORTER/NO_REPORT/FULLDUMP=1，自动删除 MOZ_CRASHREPORTER_DISABLE
+pwsh -NoProfile -File scripts/zotero-native-crash-env.ps1 -Action enable
+
+# 关闭取证：清理三条变量
+pwsh -NoProfile -File scripts/zotero-native-crash-env.ps1 -Action disable
+
+# 只看不改：附加 -WhatIf
+pwsh -NoProfile -File scripts/zotero-native-crash-env.ps1 -Action enable -WhatIf
+```
+
+脚本只动当前用户的用户变量；运行后仍需注销登录，下次桌面启动的 Zotero 子进程才会拿到新值。机器级 `MOZ_CRASHREPORTER_DISABLE` 仍由安装程序控制。
+
 桌面入口下不便调整变量时，可对真实 Zotero 主进程附加 ProcDump（例如 `procdump -ma -e 1 -f "" <pid>`）拿 full dump；但它只能捕获附加之后的崩溃，附加前发生的崩溃会丢失。
 
 `scripts/run-zotero-test-with-mock.ts` 会把 Zotero 的 stderr 重定向到 `.scaffold/zotero-stderr.log`：测试脚手架的 `spawn(path, args, { env })` 只给 stdout 挂了 reader，从不读取 Zotero 的 stderr 管道，因此一旦 stderr 突发超过 socket 缓冲（Zotero 9/10 Linux 上 GTK 图标断言会一次写出上百 KB），Zotero 主线程就会阻塞在 `write(2)` 上，JS 定时器全部停止，整轮运行只能被外部超时杀掉。测试入口据此生成 `.scaffold/zotero-stderr-drain.sh`，把对应二进制换成 `exec <real> "$@" 2>>'<log>'`；Windows 上无法用脚本 shim，保持原路径。调整 Zotero 启动方式时不要绕过这个 shim。
