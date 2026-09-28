@@ -273,6 +273,13 @@ This is a single-context repository using a root `CONTEXT.md` and root `docs/adr
 - 压缩只在已结算的 durable 边界运行，保留完整语义单元和当前 turn 输入；摘要经 schema、覆盖范围、摘要输入和预算校验后，凭 revision 与 active leaf 提交。失败保留原路径。
 - 普通模型与压缩调用前先持久化版本化 preparation record，只记录安全引用、摘要、版本和 token 统计；完整消息、凭据、授权头和用户文件绝对路径留在各自事实源或暂态 context 中。
 
+# Pi Trusted Native Execution 硬约束
+
+- `src/modules/piTrustedNativeExecution.ts` 持有内置 Pi 文件、搜索、Shell 与 owner managed-file 语义；工具定义经 C07 Gateway 冻结，异步 canonical 路径分类必须在策略判定和调度前完成，执行前重新核验。路径身份无法证明时隐藏受影响工具。
+- Restricted Broker 只在进程内读取已验证的 Workspace Scope，不能触及 owner 私有目录或启动子进程。Windows 路径必须检查每段原始 reparse 属性，不能依赖 `nsIFile.isSymlink()`。
+- Native Shell 使用 Mozilla Subprocess 的替换环境、固定的安全 PATH、owner HOME/TEMP 和有界输出/超时；无法证明停止时报告 `unknown`，不得自动重放。不得用继承宿主环境的通用长时进程适配器执行 Agent Shell。
+- owner managed-file manifest 原子提交，只持久化源身份摘要、revision 摘要、大小、复制时 SHA-256 与受管文件名，不持久化源路径；同源同指纹复用受管副本，源改变时保留旧代。生成输出按文件、调用和 owner 配额提交。
+
 # Workflow Host Runtime Adaptation硬约束
 
 - `src/modules/runtimePersistence.ts` 是跨运行时文件系统 adapter 选择的唯一事实源；Workflow Host、输入物化、图片准备、附件导入等模块不得自行选择 `IOUtils`、`OS.File`、Node filesystem 或 Components stream。

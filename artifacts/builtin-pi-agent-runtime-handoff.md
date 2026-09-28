@@ -3,7 +3,7 @@
 - 状态核对：2026-09-28
 - 工作分支：`dev-agent-harness`
 - 实施路线：[地图 #10](https://github.com/leike0813/zotero-agents/issues/10)、[执行计划 #26](https://github.com/leike0813/zotero-agents/issues/26)
-- 已实现切片：W0 C01（提交 `fbd297d4`）、W1 C02（提交 `1da0cd84`）、W1 C03（提交 `ef91407c`）、W1 C07（提交 `f5ce9fe6`）、W1 C09（提交 `5077c7b3`）、W2 C04（提交 `f88e2825`）。本次正在实施 W2 C06。[C01 归档 change](../openspec/changes/archive/2026-09-27-establish-pi-runtime-contract-and-spine/)、[C02 归档 change](../openspec/changes/archive/2026-09-27-establish-pi-owner-persistence/)、[C03 归档 change](../openspec/changes/archive/2026-09-28-establish-pi-provider-configuration/)、[C07 归档 change](../openspec/changes/archive/2026-09-28-establish-pi-tool-gateway-policy/)、[C09 归档 change](../openspec/changes/archive/2026-09-28-generalize-windows-stdio-process-bridge/)、[C04 归档 change](../openspec/changes/archive/2026-09-28-add-pi-api-key-provider-execution/)
+- 已实现并归档：W0 C01（提交 `fbd297d4`）、W1 C02（`1da0cd84`）、W1 C03（`ef91407c`）、W1 C07（`f5ce9fe6`）、W1 C09（`5077c7b3`）、W2 C04（`f88e2825`）、W2 C06（`2bb22e90`）。W2 C08 正在实施，尚未归档；见 [C08 change](../openspec/changes/add-pi-trusted-native-execution/)。
 
 本文是持续更新的工作交接。**后续每个 Pi Runtime 相关 change 完成、归档或改变实施决定时，实施者须在交接前按实际进度更新本文**：核对已实现边界、下一步、验证结果、未解决风险及链接，并更新状态日期。拟议能力不得写成已交付能力；实现与规格冲突时先核对代码和正式决策。
 
@@ -74,7 +74,7 @@ C01 没有生产 caller；Zotero 用例直接导入生产模块。真实 provide
 
 - [`src/modules/piToolGateway.ts`](../src/modules/piToolGateway.ts) 接受项目自有 descriptor，校验并冻结每轮模型可见工具目录及摘要；工具调用先经 schema、可信效果/资源分类、系统可准入范围、Runtime Capability Receipt 与当前授权判定。C08 的修正允许交互模式对当前授权之外但系统可准入的原调用请求一次精确审批；自动模式拒绝。
 - Gateway 在完整批次预检后调度互不冲突的调用，同一 canonical 资源串行，结果按模型原顺序返回。执行前由 owner 提供的回调先持久化 `tool_call_started`，权威回执持久化后才暴露成功；效果无法确认时给出 `state_unknown`，不自动重放。精确审批只能在新 Runtime Turn 复核原参数及目录、授权、能力摘要后续行，不形成常驻 grant。
-- C07 的持久化与权限回调只用确定性测试替身验证，尚未连接 C02 的生产 owner、Assistant Workspace 或任何具体工具目录。后续 C08/C10/C11/C12 提供 Native、MCP、Web、Zotero 工具定义，C16/C17 接入 Conversation 与 Skill Run，C19 负责最终 teardown、重启对账和有界恢复。
+- C07 的持久化与权限回调只用确定性测试替身验证，尚未连接 C02 的生产 owner 或 Assistant Workspace。C08 已在独立模块中建立 Native 文件、搜索与 Shell 定义，尚待 Windows 宿主验收及后续 owner 接线；C10/C11/C12 提供 MCP、Web、Zotero 工具，C16/C17 接入 Conversation 与 Skill Run，C19 负责最终 teardown、重启对账和有界恢复。
 - 验证：`npm run test:node -- --shard runtime-provider-execution`、`npm run lint:check`、`npm run build` 与 `ZOTERO_TEST_GREP='Pi Tool Gateway' npm run test:zotero:core`（16 项）通过；最终验证记录见 [C07 verification](../openspec/changes/archive/2026-09-28-establish-pi-tool-gateway-policy/verification.md)。全量 `npm run test:zotero:core` 曾停在既有 SQLite 分页用例 `returns real SQLite pages with stable, user-visible results`，独立运行该用例 120 秒仍超时；目前没有全量 core 通过证据。#26 所列 `test:node:core` 脚本在当前仓库不存在，Node 使用现有分片命令。后续处理全量门禁时先调查该分页用例的阻塞，再重跑整套。
 
 ### W1 C09：通用长驻 stdio 进程桥（已归档）
@@ -95,6 +95,12 @@ C01 没有生产 caller；Zotero 用例直接导入生产模块。真实 provide
 - [已归档 C06 change](../openspec/changes/archive/2026-09-28-establish-pi-turn-preparation/) 新增 `src/modules/piTurnPreparation.ts`，在每次模型调用前从 C02 的 revision、active leaf 和 parent-linked transcript 重建活动路径；只投影完整消息与工具配对，按冻结事实组装受管指令、Skill metadata、显式 Zotero selection、附件 opaque ref、用户文件路径和 C07 工具目录。`PiRuntime` 与 C02/C07 的生产实现未改动，Conversation/Skill Run 接线仍属于 C16/C17。
 - C06 使用版本化 estimator 和有效 context window 计算预算；自动压缩只在超预算且已结算的边界运行，手动压缩要求 owner idle。超出单次摘要窗口的旧历史按完整单元分批汇总，每批有独立 preparation record；最终摘要经 schema、覆盖范围、输入 digest、完整 tail 和预算验证后，由注入的 C02 CAS 回调一次提交。普通与压缩 Provider 调用均先写不含凭据、正文或用户绝对路径的 `TurnPreparationRecord`；记录回调返回的当前 transcript basis 供后续记录和 CAS 使用。当前 C02 尚无生产 CAS API，C06 的注入回调由确定性替身验证；后续 owner 接线必须提供真正的 owner-locked CAS。
 - 共享 Node 14 项、真实 Zotero core 定向 15 项、`runtime-provider-execution` 7 文件、TypeScript、完整 `npm run lint:check`、生产 `npm run build` 和 OpenSpec 严格校验通过；[能力规格](../openspec/specs/pi-turn-preparation/spec.md)已同步。用户撤回先修全量门禁的决定，明确接受定向验证作为 C06 归档门禁例外。`test:node:runtime` 在既有 `239-runtime-host-adaptation-governance` 默认 2 秒超时，provider-products 分片随后长时间无进展并被中止；全量 `test:zotero:core` 在 180 秒上限后退出 124。两项全量套件仍无通过证据，详见 [C06 verification](../openspec/changes/archive/2026-09-28-establish-pi-turn-preparation/verification.md)。
+
+### W2 C08：Trusted Native Execution（实施中）
+
+- [C08 change](../openspec/changes/add-pi-trusted-native-execution/) 已起草 proposal、spec、design 与 tasks。`piTrustedNativeExecution.ts` 提供 Trusted Native 的 `read/bash|powershell/edit/write` 与 Restricted Broker 的 `read/edit/write/grep/find/ls` 固定目录。C07 Gateway 的 classifier 兼容异步路径证明；`runtimePersistence.ts` 按路径段检查 Node symlink、POSIX nsIFile symlink 与 Windows 原始 reparse 属性，无法证明时不发布文件能力。
+- 文件与搜索限定在 Workspace Scope，结果与遍历有界；Restricted Broker 不调用子进程，`grep` 的正则只接受可有界执行的简单形式。Shell 在 Zotero 中使用 Mozilla Subprocess、替换环境和 owner scratch，超时或无法证明退出时给出 unknown。owner managed-file manifest 原子记录源身份/修订摘要、大小、复制时 SHA-256 与受管名；同源指纹复用，源改变产生新代。生成输出有独立提交与配额接口。小图像作为 JSON 内 base64 图像结果返回；Gateway 单结果 1 MiB 上限使当前 read 图像限于 700 KiB，后续模型图像投影仍需在 C16/C17 接线时确认。
+- Node 定向及 Linux 真实 Zotero core 的文件和 Shell 探针已通过；Windows 实机探针尚未运行，C08 保持活跃，不能声称完成或归档。用户已接受针对 C08 的定向 Node 与真实 Zotero（含 Windows）作为全量套件门禁例外；当前没有全量 Node 或 Zotero core 通过证据。最终命令、数量与任何失败须在 C08 verification 中更新。
 
 ### Pi core Zotero 兼容性原型
 
@@ -139,7 +145,7 @@ git show research/pi-agent-sandbox-models:artifact/pi-agent-runtime/sandbox-and-
 
 ## 当前工作区状态
 
-在状态核对时，C01、C02、C03、C07、C09、C04 已进入 `dev-agent-harness` 的提交，HEAD 为 `f88e2825`；C06 已在本工作区归档，尚未提交。C04 提供独立的模型执行源与手动连接测试；C02 owner、Conversation/Skill Run 和普通用户交互尚未接入该源。以最新 `git status` 辨别所有权，不覆盖并行改动。
+在状态核对时，C01、C02、C03、C07、C09、C04、C06 已提交，HEAD 为 `2bb22e90`；C08 的 OpenSpec、代码、测试和文档是当前未提交工作。C02 owner、Conversation/Skill Run 与普通用户交互尚未接线。以最新 `git status` 辨别所有权，不覆盖并行改动。
 
 ## 建议的系统边界
 
@@ -194,7 +200,7 @@ git show research/pi-agent-sandbox-models:artifact/pi-agent-runtime/sandbox-and-
 
 ### Trusted Native Execution 与可选 Strong
 
-- C07 仅建立 Tool Gateway 的目录、策略、审批续行、批次调度和回执内核；Shell、文件、搜索、fetch、web search 的具体 schema、执行器与宿主权限呈现仍需后续 change 实现。
+- C08 正在补齐 Shell、文件和进程内搜索的 schema 与执行器；fetch、web search、宿主权限呈现和 Conversation/Skill Run 接线仍属后续 change。Windows 实机证据是 C08 归档前的未完成条件。
 - Workspace Scope、命令和网络意图须遵守 ADR 0002；opaque executor 的潜在宿主访问必须在授权界面明确呈现。
 - 未来如引入 Strong Executor，再单独规定各平台适配器、能力证明、路径与网络隔离、资源限制和失败处理，不将研究原型视为已实现安全保证。
 
@@ -209,7 +215,7 @@ git show research/pi-agent-sandbox-models:artifact/pi-agent-runtime/sandbox-and-
 
 ## 下一步实施入口
 
-W1 C09、W2 C04 与 C06 已归档，C04 的模型源只接受冻结的配置选择。按 [#26 最终 wave 表](https://github.com/leike0813/zotero-agents/issues/26#issuecomment-5552013273) 选择下一个 change；C06 的全量 runtime/core 阻塞保留在[验证记录](../openspec/changes/archive/2026-09-28-establish-pi-turn-preparation/verification.md)中，后续单独排查。C03 经用户确认采用定向真实 Zotero core/UI 验证；它没有全量 Zotero 套件通过证据。
+C08 当前先完成 Linux/Node 定向门禁、Windows 实机文件与 Shell 探针和 verification，再核对 [#26 最终 wave 表](https://github.com/leike0813/zotero-agents/issues/26#issuecomment-5552013273) 选择后继 change。C06 的全量 runtime/core 阻塞保留在[验证记录](../openspec/changes/archive/2026-09-28-establish-pi-turn-preparation/verification.md)中，后续单独排查；不能用本次定向结果宣称全量通过。
 
 接续工作按 [C04 verification](../openspec/changes/archive/2026-09-28-add-pi-api-key-provider-execution/verification.md) 和 C06 的验证记录核对 Provider 与 context 边界。Assistant Workspace、具体工具和自动恢复分别遵守 ADR 0001/0003、区域级 DOM identity 约束和 ADR 0002。后续会话接线是 C16，Skill Run 接线是 C17，生命周期恢复是 C19。每项能力的完成证据应落在对应 OpenSpec change 与测试中，并回写本文状态。
 
@@ -257,4 +263,4 @@ W1 C09、W2 C04 与 C06 已归档，C04 的模型源只接受冻结的配置选�
 2. 以最新 issue 的下一项 change 为范围，追踪实际代码调用链，写明与 `PiRuntime`、owner、provider、Tool Gateway 的边界；按项目流程完成规格、TDD 和宿主验证。
 3. **每个后续实现 change 结束时更新本文**：推进“已完成的证据”和“后续需要落实的边界”，记录验证通过与未完成的范围，替换失效链接和旧路径，再更新状态日期。只记已确认事实；研究建议和规划保留其状态标识。
 
-本次 C01 的全量 Zotero core 套件结果仍待补齐；C02、C03 和 C06 依据各自确认的定向宿主门禁完成，没有全量通过证据。C03 全量 Node 套件仍有其他分片失败，C06 全量 runtime/core 套件仍受既有用例阻塞；后续复跑应记录实际命令、通过范围和失败原因，不把定向结果写成全量通过。
+本次 C01 的全量 Zotero core 套件结果仍待补齐；C02、C03 和 C06 依据各自确认的定向宿主门禁完成，没有全量通过证据。C03 全量 Node 套件仍有其他分片失败，C06 全量 runtime/core 套件仍受既有用例阻塞；C08 的定向门禁还缺 Windows 实机回执。后续复跑应记录实际命令、通过范围和失败原因，不把定向结果写成全量通过。

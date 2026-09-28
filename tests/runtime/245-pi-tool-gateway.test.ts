@@ -85,6 +85,34 @@ async function rejects(work: () => Promise<unknown>, code: string) {
 }
 
 describe("Pi Tool Gateway shared behavior", function () {
+  it("awaits canonical classification before authorization and executor start", async function () {
+    const steps: string[] = [];
+    const item = fixture({
+      classify: async () => {
+        await Promise.resolve();
+        steps.push("classified");
+        return {
+          effects: ["bounded-read"],
+          authorizationKeys: ["workspace:canonical"],
+          resourceKeys: ["file:canonical"],
+          cost: 1,
+        };
+      },
+      execute: async () => {
+        steps.push("executed");
+        return { status: "completed", effectCertainty: "not_applicable" };
+      },
+    });
+    const gateway = await turn([item.definition], {
+      policy: { authorizedKeys: ["workspace:canonical"] },
+    });
+    const result = await gateway.executeBatch([
+      { callId: "async", name: "fixture_read", arguments: { path: "p" } },
+    ]);
+    assert.equal(result.results[0].status, "completed");
+    assert.deepEqual(steps, ["classified", "executed"]);
+  });
+
   it("freezes a validated catalog and rejects unknown or malformed calls before effects", async function () {
     const item = fixture();
     const gateway = await turn([item.definition]);

@@ -46,7 +46,9 @@ export type PiGatewayToolDefinition = {
   minimumEffects: PiGatewayEffect[];
   maxResultBytes: number;
   batchMode?: "ordinary" | "exclusive" | "deferred";
-  classify(args: JsonValue): PiGatewayClassification;
+  classify(
+    args: JsonValue,
+  ): PiGatewayClassification | Promise<PiGatewayClassification>;
   execute(
     args: JsonValue,
     context: { signal: AbortSignal; onUpdate: (update: JsonValue) => void },
@@ -420,9 +422,9 @@ export async function freezePiToolGatewayTurn(
     throw new Error("pi_gateway_signal_unavailable");
   const signal = input.signal || new AbortControllerCtor!().signal;
 
-  function classify(definition: FrozenDefinition, args: JsonValue) {
+  async function classify(definition: FrozenDefinition, args: JsonValue) {
     try {
-      const claims = definition.classify(args);
+      const claims = await definition.classify(args);
       if (
         !claims ||
         !Array.isArray(claims.effects) ||
@@ -487,7 +489,7 @@ export async function freezePiToolGatewayTurn(
     if (utf8.encode(canonical(args)).byteLength > MAX_ARGUMENT_BYTES) {
       return fail(call, "resource_limited");
     }
-    const claims = classify(definition, args);
+    const claims = await classify(definition, args);
     if (
       !claims ||
       claims.effects.includes("forbidden") ||

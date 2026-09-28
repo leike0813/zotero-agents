@@ -1,5 +1,6 @@
 import { joinPath, normalizeNativeLocalPath } from "../utils/path";
 import { isNonNativeAbsolutePath } from "../platform/path";
+import { detectRuntimePlatform } from "../platform/runtimePlatform";
 import {
   RuntimeFileIoError,
   readRuntimeFileRangesWithWorker,
@@ -695,6 +696,153 @@ async function tryNodeFs() {
   } catch {
     return null;
   }
+}
+
+/** Rejects unresolved links instead of allowing a lexical workspace check to authorize another file. */
+export async function resolveRuntimePathIdentity(args: {
+  root: string;
+  path: string;
+  allowMissing?: boolean;
+}): Promise<{ path: string; exists: boolean; canonicalKey: string }> {
+  const root = normalizeNativeLocalPath(args.root);
+  const input = normalizeNativeLocalPath(args.path);
+  if (
+    !root ||
+    !input ||
+    !isAbsolutePathLike(root) ||
+    isNonNativeAbsolutePath(root)
+  )
+    throw new Error("pi_path_invalid");
+  const normalizedRoot = root.replace(/[\\/]+$/, "");
+  const rootForComparison = normalizedRoot.replace(/\\/g, "/");
+  const inputForComparison = input.replace(/\\/g, "/");
+  const windows = detectRuntimePlatform() === "win32";
+  const comparedRoot = windows
+    ? rootForComparison.toLowerCase()
+    : rootForComparison;
+  const comparedInput = windows
+    ? inputForComparison.toLowerCase()
+    : inputForComparison;
+  const absolute = /^(?:[A-Za-z]:)?\//.test(inputForComparison);
+  const relative = absolute
+    ? comparedInput.startsWith(`${comparedRoot}/`)
+      ? inputForComparison.slice(rootForComparison.length + 1)
+      : comparedInput === comparedRoot
+        ? ""
+        : null
+    : inputForComparison;
+  if (
+    relative === null ||
+    (relative && relative.split("/").some((s) => s === ".." || s === "." || !s))
+  )
+    throw new Error("pi_path_outside_workspace");
+  const parts = relative ? relative.split("/") : [];
+  const fs = await tryNodeFs();
+  if (fs?.realpath && fs?.lstat) {
+    const canonicalRoot = await fs.realpath(normalizedRoot);
+    let path = canonicalRoot;
+    let exists = true;
+    for (const part of parts) {
+      path = joinPath(path, part);
+      if (!exists) continue;
+      try {
+        const info = await fs.lstat(path);
+        if (info.isSymbolicLink()) throw new Error("pi_path_link_unverified");
+      } catch (error) {
+        if ((error as { code?: string }).code !== "ENOENT") throw error;
+        exists = false;
+      }
+    }
+    if (!exists && !args.allowMissing) throw new Error("pi_path_missing");
+    return {
+      path,
+      exists,
+      canonicalKey:
+        windows || detectRuntimePlatform() === "darwin"
+          ? path.toLowerCase()
+          : path,
+    };
+  }
+  const runtime = globalThis as {
+    Components?: {
+      classes?: Record<string, { createInstance: (iface: unknown) => any }>;
+      interfaces?: { nsIFile?: unknown; nsILocalFileWin?: unknown };
+    };
+  };
+  const file = runtime.Components?.classes?.[
+    "@mozilla.org/file/local;1"
+  ]?.createInstance(runtime.Components.interfaces?.nsIFile);
+  if (!file?.initWithPath || !file?.normalize || !file?.append)
+    throw new Error("pi_path_inspection_unavailable");
+  file.initWithPath(normalizedRoot);
+  file.normalize();
+  if (!file.exists() || !file.isDirectory()) throw new Error("pi_path_missing");
+  const windowsInterface = runtime.Components?.interfaces?.nsILocalFileWin;
+  if (windows && !windowsInterface)
+    throw new Error("pi_path_inspection_unavailable");
+  function rejectLink(candidate: any) {
+    if (windows) {
+      let attributes: unknown;
+      try {
+        attributes =
+          candidate.QueryInterface?.(windowsInterface)?.windowsFileAttributes;
+      } catch {
+        // A missing child has no attributes. Existing children must be inspectable.
+      }
+      if (typeof attributes === "number") {
+        if (attributes & 0x400) throw new Error("pi_path_link_unverified");
+        return true;
+      }
+      try {
+        if (!candidate.exists()) return false;
+      } catch {
+        throw new Error("pi_path_inspection_unavailable");
+      }
+      throw new Error("pi_path_inspection_unavailable");
+    } else {
+      try {
+        if (candidate.isSymlink()) throw new Error("pi_path_link_unverified");
+      } catch (error) {
+        if (String(error).includes("pi_path_link_unverified")) throw error;
+        try {
+          if (!candidate.exists()) return false;
+        } catch {
+          /* Existing paths still need a link proof. */
+        }
+        throw new Error("pi_path_inspection_unavailable");
+      }
+      try {
+        return candidate.exists();
+      } catch {
+        throw new Error("pi_path_inspection_unavailable");
+      }
+    }
+  }
+  if (windows) {
+    let ancestor = file;
+    while (ancestor) {
+      rejectLink(ancestor);
+      const parent = ancestor.parent;
+      if (!parent || parent.path === ancestor.path) break;
+      ancestor = parent;
+    }
+  } else rejectLink(file);
+  let exists = true;
+  for (const part of parts) {
+    file.append(part);
+    if (!exists) continue;
+    exists = rejectLink(file);
+  }
+  if (!exists && !args.allowMissing) throw new Error("pi_path_missing");
+  const path = file.path as string;
+  return {
+    path,
+    exists,
+    canonicalKey:
+      windows || detectRuntimePlatform() === "darwin"
+        ? path.toLowerCase()
+        : path,
+  };
 }
 
 function normalizeRuntimeFsPath(pathRaw: string) {
