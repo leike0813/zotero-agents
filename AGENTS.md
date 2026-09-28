@@ -267,6 +267,12 @@ This is a single-context repository using a root `CONTEXT.md` and root `docs/adr
 - Provider 响应正文、头、原生异常和密钥不得进入 `PiRuntime` 终态、Backend Manager 快照、页面消息或日志；失败只传项目自有的结构化码。连接测试须由用户动作触发，并按请求 ID 关联结果。
 - 插件浏览器包只允许精确的 `provider-env.js → node:fs` 不可达导入 guard；其它 Node/Bun builtin 继续由浏览器构建拒绝。Provider 版本或导入图变动后，重跑构建和真实 Zotero 定向用例。
 
+# Pi Turn Preparation 硬约束
+
+- 每次 Pi 模型调用前由 `piTurnPreparation.ts` 从 C02 canonical transcript 的已选活动路径重建 context；同一 turn 的续调用沿用冻结的模型、工具和资源事实。C02 持有 transcript 与压缩 CAS，C07 持有工具合同。
+- 压缩只在已结算的 durable 边界运行，保留完整语义单元和当前 turn 输入；摘要经 schema、覆盖范围、摘要输入和预算校验后，凭 revision 与 active leaf 提交。失败保留原路径。
+- 普通模型与压缩调用前先持久化版本化 preparation record，只记录安全引用、摘要、版本和 token 统计；完整消息、凭据、授权头和用户文件绝对路径留在各自事实源或暂态 context 中。
+
 # Workflow Host Runtime Adaptation硬约束
 
 - `src/modules/runtimePersistence.ts` 是跨运行时文件系统 adapter 选择的唯一事实源；Workflow Host、输入物化、图片准备、附件导入等模块不得自行选择 `IOUtils`、`OS.File`、Node filesystem 或 Components stream。
