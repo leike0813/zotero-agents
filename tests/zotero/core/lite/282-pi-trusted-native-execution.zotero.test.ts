@@ -80,6 +80,31 @@ describe("Pi Trusted Native in real Zotero", function () {
         (result.value as { text: string }).text.toLowerCase(),
         workspaceRoot.toLowerCase(),
       );
+      if (Zotero.isWin) {
+        const junction = joinPath(workspaceRoot, "junction");
+        const target = Zotero.getTempDirectory().path;
+        const quote = (path: string) => `'${path.replace(/'/g, "''")}'`;
+        const created = await shell!.execute(
+          {
+            command: `New-Item -ItemType Junction -Path ${quote(junction)} -Target ${quote(target)} | Out-Null`,
+            timeout: 10,
+          },
+          { signal: new AbortController().signal, onUpdate: () => undefined },
+        );
+        assert.equal(created.status, "completed");
+        try {
+          const read = native.definitions.find((item) => item.name === "read")!;
+          let admitted = true;
+          try {
+            await read.classify({ path: "junction" });
+          } catch {
+            admitted = false;
+          }
+          assert.isFalse(admitted);
+        } finally {
+          await IOUtils.remove(junction, { recursive: false });
+        }
+      }
     } finally {
       await removeRuntimePath(workspaceRoot).catch(() => false);
     }

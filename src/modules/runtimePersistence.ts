@@ -764,9 +764,10 @@ export async function resolveRuntimePathIdentity(args: {
     };
   }
   const runtime = globalThis as {
+    ChromeUtils?: { importESModule?: (url: string) => { ctypes?: any } };
     Components?: {
       classes?: Record<string, { createInstance: (iface: unknown) => any }>;
-      interfaces?: { nsIFile?: unknown; nsILocalFileWin?: unknown };
+      interfaces?: { nsIFile?: unknown };
     };
   };
   const file = runtime.Components?.classes?.[
@@ -777,28 +778,53 @@ export async function resolveRuntimePathIdentity(args: {
   file.initWithPath(normalizedRoot);
   file.normalize();
   if (!file.exists() || !file.isDirectory()) throw new Error("pi_path_missing");
-  const windowsInterface = runtime.Components?.interfaces?.nsILocalFileWin;
-  if (windows && !windowsInterface)
-    throw new Error("pi_path_inspection_unavailable");
+  let windowsLibrary:
+    | {
+        close: () => void;
+        declare: (...args: unknown[]) => (path: string) => unknown;
+      }
+    | undefined;
+  let windowsAttributes:
+    | ((path: string) => { attributes: number; error: number })
+    | undefined;
+  if (windows) {
+    try {
+      const ctypes = runtime.ChromeUtils?.importESModule?.(
+        "resource://gre/modules/ctypes.sys.mjs",
+      ).ctypes;
+      windowsLibrary = ctypes.open("kernel32.dll");
+      const getAttributes = windowsLibrary!.declare(
+        "GetFileAttributesW",
+        ctypes.winapi_abi,
+        ctypes.uint32_t,
+        ctypes.jschar.ptr,
+      );
+      windowsAttributes = (path) => ({
+        attributes: Number(getAttributes(path)),
+        error: Number(ctypes.winLastError),
+      });
+    } catch {
+      windowsLibrary?.close();
+      throw new Error("pi_path_inspection_unavailable");
+    }
+  }
   function rejectLink(candidate: any) {
     if (windows) {
-      let attributes: unknown;
+      let result: { attributes: number; error: number };
       try {
-        attributes =
-          candidate.QueryInterface?.(windowsInterface)?.windowsFileAttributes;
-      } catch {
-        // A missing child has no attributes. Existing children must be inspectable.
-      }
-      if (typeof attributes === "number") {
-        if (attributes & 0x400) throw new Error("pi_path_link_unverified");
-        return true;
-      }
-      try {
-        if (!candidate.exists()) return false;
+        result = windowsAttributes!(candidate.path);
       } catch {
         throw new Error("pi_path_inspection_unavailable");
       }
-      throw new Error("pi_path_inspection_unavailable");
+      if (result.attributes === 0xffffffff) {
+        if (result.error === 2 || result.error === 3) return false;
+        throw new Error("pi_path_inspection_unavailable");
+      }
+      if (!Number.isInteger(result.attributes))
+        throw new Error("pi_path_inspection_unavailable");
+      // GetFileAttributesW exposes reparse points that nsIFile.isSymlink misses.
+      if (result.attributes & 0x400) throw new Error("pi_path_link_unverified");
+      return true;
     } else {
       try {
         if (candidate.isSymlink()) throw new Error("pi_path_link_unverified");
@@ -818,31 +844,36 @@ export async function resolveRuntimePathIdentity(args: {
       }
     }
   }
-  if (windows) {
-    let ancestor = file;
-    while (ancestor) {
-      rejectLink(ancestor);
-      const parent = ancestor.parent;
-      if (!parent || parent.path === ancestor.path) break;
-      ancestor = parent;
+  try {
+    if (windows) {
+      let ancestor = file;
+      while (ancestor) {
+        if (!rejectLink(ancestor))
+          throw new Error("pi_path_inspection_unavailable");
+        const parent = ancestor.parent;
+        if (!parent || parent.path === ancestor.path) break;
+        ancestor = parent;
+      }
+    } else rejectLink(file);
+    let exists = true;
+    for (const part of parts) {
+      file.append(part);
+      if (!exists) continue;
+      exists = rejectLink(file);
     }
-  } else rejectLink(file);
-  let exists = true;
-  for (const part of parts) {
-    file.append(part);
-    if (!exists) continue;
-    exists = rejectLink(file);
+    if (!exists && !args.allowMissing) throw new Error("pi_path_missing");
+    const path = file.path as string;
+    return {
+      path,
+      exists,
+      canonicalKey:
+        windows || detectRuntimePlatform() === "darwin"
+          ? path.toLowerCase()
+          : path,
+    };
+  } finally {
+    windowsLibrary?.close();
   }
-  if (!exists && !args.allowMissing) throw new Error("pi_path_missing");
-  const path = file.path as string;
-  return {
-    path,
-    exists,
-    canonicalKey:
-      windows || detectRuntimePlatform() === "darwin"
-        ? path.toLowerCase()
-        : path,
-  };
 }
 
 function normalizeRuntimeFsPath(pathRaw: string) {

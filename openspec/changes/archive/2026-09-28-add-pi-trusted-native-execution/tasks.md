@@ -14,5 +14,5 @@
 ## 3. Owner files and integration
 
 - [x] 3.1 Add failing manifest tests, implement atomic `materializeOrReuse` and generated-output commit with quotas, and pass targeted tests.
-- [ ] 3.2 Add real Zotero C08 tests and pass Linux and Windows targeted canaries.
+- [x] 3.2 Add real Zotero C08 tests and pass Linux and Windows targeted canaries.
 - [x] 3.3 Update C08 handoff, constraints and shard wiring; pass targeted Node, lint, build and strict OpenSpec validation, and record the approved full-suite exception.
