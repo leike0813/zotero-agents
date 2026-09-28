@@ -2,7 +2,7 @@
 
 ## Status
 
-C09 remains active at 8/9 tasks. The Windows build host is unavailable, so the renamed Rust source has no new Windows executable, synchronized checksum, or real Zotero canary yet. The old ACP executable must not be renamed as a substitute. Do not archive or claim the C10 dependency is ready until those gates pass.
+C09 has 9/9 tasks complete. The Windows binary was built from `rust/stdio-bridge` and the real Zotero 10.0.2 Windows canary passed. The change remains active pending a separate sync/archive action.
 
 ## Evidence collected on Linux
 
@@ -20,6 +20,11 @@ C09 remains active at 8/9 tasks. The Windows build host is unavailable, so the r
 - `ZOTERO_TEST_GREP='streams a long-lived stdio process' timeout 150s npm run test:zotero:core` — real Linux Zotero passed the new long-lived stdin/stdout/stderr/exit test (1 passed, 115 ms test time). This does not replace the Windows canary.
 - Final `npx tsc --noEmit --pretty false`, `npm run lint:check`, `openspec validate ... --strict`, and `git diff --check` — passed.
 
-## Remaining checks
+## Windows completion evidence (2026-09-28)
 
-- Windows prebuild from `rust/stdio-bridge`, new asset checksum, and real Windows Zotero canary.
+- `npm run prebuild:stdio-bridge` built `x86_64-pc-windows-msvc` from the renamed Rust source and packaged `addon/bin/win32-x64/zotero-stdio-bridge.exe`.
+- The binary SHA-256 and its `.sha256` sidecar agree: `fb7e8f1d9f0fea7cc6a88078a7a72c4fdc143d5c490ce4b25a71fbb6d0cebdd7`. The two legacy `zotero-acp-bridge.exe` assets were removed.
+- `npm run build` passed with the new packaged asset. The staged build contains the new executable and sidecar and neither legacy ACP asset. `npx mocha --require tsx --require tests/setup/zotero-mock.ts tests/acp/166-stdio-bridge-packaging.test.ts` passed all 5 cases, including the now required on-disk Windows asset check.
+- `ZOTERO_PLUGIN_ZOTERO_BIN_PATH=<Windows Zotero 10.0.2 executable>` and `ZOTERO_TEST_GREP='streams a long-lived stdio process'` with `npm run test:zotero:core` reported `1 passed` in the real Windows host. The test now copies raw bytes through PowerShell standard streams. The first run exposed a PowerShell text-stream byte truncation: the bridge received all 15 input bytes, but PowerShell returned 14. The raw byte-stream canary passed in 1601 ms.
+- After the passing canary, the test command waited for an orphaned stdio daemon after Zotero exited. Stopping that specific daemon allowed the command to exit 0. This teardown observation does not affect the canary assertion; it should be investigated before relying on automatic cleanup after abrupt host exit.
+- Final `npm run lint:check`, `openspec validate generalize-windows-stdio-process-bridge --strict`, and `git diff --check` passed. `openspec instructions apply` reports `all_done`, 9/9 tasks.

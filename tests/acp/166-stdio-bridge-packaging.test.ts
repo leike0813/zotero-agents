@@ -342,15 +342,12 @@ describe("stdio bridge packaging", function () {
     }
   });
 
-  it("ships only the neutral Windows stdio bridge asset once prebuilt", function () {
+  it("ships only the neutral Windows stdio bridge asset", function () {
     const binDir = path.join(process.cwd(), "addon", "bin", "win32-x64");
     const bridge = path.join(binDir, "zotero-stdio-bridge.exe");
     const sidecar = `${bridge}.sha256`;
-    // The Windows prebuild host is unavailable, so the packaged bridge and its
-    // sidecar do not exist yet; the packaging gate stays open until they do.
-    if (!fs.existsSync(bridge) || !fs.existsSync(sidecar)) {
-      this.skip();
-    }
+    assert.isTrue(fs.existsSync(bridge));
+    assert.isTrue(fs.existsSync(sidecar));
     const digest = sha256(fs.readFileSync(bridge));
     assert.include(fs.readFileSync(sidecar, "utf8"), digest);
     assert.isFalse(fs.existsSync(path.join(binDir, "zotero-acp-bridge.exe")));

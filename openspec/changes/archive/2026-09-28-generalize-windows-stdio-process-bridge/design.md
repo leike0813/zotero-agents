@@ -20,7 +20,7 @@ See [proposal](proposal.md). ACP currently combines command planning, byte trans
 
 ## Risks / Trade-offs
 
-- Windows host unavailable now → Node/Rust contract tests can run locally, but the new binary and real Zotero canary remain open gates; keep the change active.
+- Windows prebuild and canary require a real Windows host; keep the change active if either gate lacks evidence.
 - Process-tree termination may race with child exit → record observed exit and explicit uncertainty; never claim kill success from a disconnect.
 - ACP transport is large → migrate only process ownership and streams; leave ACP framing and diagnostics in place to minimize behavior drift.
 

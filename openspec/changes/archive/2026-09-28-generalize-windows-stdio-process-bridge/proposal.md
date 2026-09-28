@@ -24,4 +24,4 @@ ACP currently owns a Windows-only stdio bridge even though the next native tool 
 
 ## Impact
 
-`src/platform/`, ACP transport, Windows Rust broker, packaging scripts/assets, ACP and platform tests, root runtime guidance, and the Pi runtime handoff. Windows binary prebuild and Zotero canary remain required before archiving; the Windows host is unavailable during this implementation.
+`src/platform/`, ACP transport, Windows Rust broker, packaging scripts/assets, ACP and platform tests, root runtime guidance, and the Pi runtime handoff. Windows binary prebuild and Zotero canary are required before archiving.

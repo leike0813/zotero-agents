@@ -14,7 +14,7 @@
 
 - [x] 3.1 Rename the Rust broker and extend its neutral protocol for stdin EOF, terminate, and truthful exit evidence; verify Rust tests pass.
 - [x] 3.2 Rename broker scripts/package references and asset checks; verify package contract tests and asset checks identify the new binary.
-- [ ] 3.3 Build the new Windows binary from the renamed source, synchronize checksum, and run the Windows Zotero canary; verify a real Windows receipt before checking this task.
+- [x] 3.3 Build the new Windows binary from the renamed source, synchronize checksum, and run the Windows Zotero canary; verify a real Windows receipt before checking this task.
 
 ## 4. Integration and Documentation
 

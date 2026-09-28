@@ -154,7 +154,7 @@ describe("runtime platform services in Zotero", function () {
             "-NoLogo",
             "-NoProfile",
             "-Command",
-            "$value = [Console]::In.ReadToEnd(); [Console]::Out.Write($value); [Console]::Error.Write('zotero-stderr'); exit 3",
+            "$output = [Console]::OpenStandardOutput(); [Console]::OpenStandardInput().CopyTo($output); $output.Flush(); [Console]::Error.Write('zotero-stderr'); exit 3",
           ]
         : ["-c", "cat; printf 'zotero-stderr' >&2; exit 3"],
       cwd: getZoteroTempDirectoryPath(),

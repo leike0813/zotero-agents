@@ -104,12 +104,12 @@ The platform services SHALL include the platform-specific launch command, argume
 
 ### Requirement: Runtime platform services SHALL package the ACP bridge binary
 
-Runtime platform services SHALL make the packaged Windows ACP bridge binary
+Runtime platform services SHALL make the packaged Windows stdio bridge binary
 available from the plugin runtime without overwriting a running executable.
 
 #### Scenario: Packaged bridge is copied to content-addressed runtime path
 
-- **GIVEN** `addon/bin/win32-x64/zotero-acp-bridge.exe` and its `.sha256`
+- **GIVEN** `addon/bin/win32-x64/zotero-stdio-bridge.exe` and its `.sha256`
   sidecar are packaged with the plugin
 - **WHEN** the Windows bridge service starts
 - **THEN** the plugin SHALL copy the binary to a runtime path derived from the
@@ -134,13 +134,13 @@ available from the plugin runtime without overwriting a running executable.
 
 ### Requirement: Runtime platform services SHALL launch the ACP bridge daemon
 
-Runtime platform services SHALL start the Windows ACP bridge daemon with
+Runtime platform services SHALL start the Windows stdio bridge daemon with
 localhost binding, a random token, a ready file, and a log file.
 
 #### Scenario: Bridge service starts with fixed arguments
 
-- **WHEN** the plugin starts the ACP bridge daemon
-- **THEN** it SHALL launch `zotero-acp-bridge.exe` with `--serve`, `--host
+- **WHEN** the plugin starts the stdio bridge daemon
+- **THEN** it SHALL launch `zotero-stdio-bridge.exe` with `--serve`, `--host
   127.0.0.1`, `--port 0`, `--token <random>`, `--ready-file <path>`, and
   `--log-file <path>`
 - **AND** it SHALL wait for the ready file before returning the bridge service.
@@ -190,14 +190,14 @@ existing runtime command launch plan and SHALL NOT perform command resolution.
 
 ### Requirement: ACP bridge build and package scripts SHALL be independent
 
-The ACP bridge build pipeline SHALL be independent from Host Bridge CLI build,
+The stdio bridge build pipeline SHALL be independent from Host Bridge CLI build,
 publish, and release surfaces.
 
 #### Scenario: ACP bridge scripts are separate
 
-- **WHEN** developers build or package the ACP bridge
-- **THEN** they SHALL use ACP-specific scripts such as
-  `prebuild:acp-ws-bridge` and `package:acp-ws-bridge`
+- **WHEN** developers build or package the stdio bridge
+- **THEN** they SHALL use dedicated scripts `prebuild:stdio-bridge` and
+  `package:stdio-bridge`
 - **AND** those scripts SHALL NOT modify Host Bridge CLI crates, workflows, or
   release bundles.
 
@@ -206,6 +206,17 @@ publish, and release surfaces.
 - **WHEN** Host Bridge CLI release scripts run
 - **THEN** they SHALL NOT build, package, publish, or require the ACP bridge
   binary.
+
+### Requirement: Platform services SHALL own long-lived process adapters
+
+The platform layer SHALL expose one shared process contract for streaming
+child workloads and keep adapter selection out of domain callers.
+
+#### Scenario: Another domain needs streaming stdio
+
+- **WHEN** a domain caller supplies resolved execution input
+- **THEN** it SHALL use the shared long-lived process interface without
+  importing ACP transport code.
 
 ### Requirement: Runtime platform services SHALL prefer node-direct npx launches for ACP stdio on Windows
 
