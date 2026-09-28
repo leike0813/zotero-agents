@@ -10,17 +10,15 @@ function argValue(name) {
 }
 
 const target = (
-  process.env.ZOTERO_ACP_BRIDGE_TARGET ||
+  process.env.ZOTERO_STDIO_BRIDGE_TARGET ||
   argValue("target") ||
   TARGET
 ).trim();
 if (target !== TARGET) {
-  throw new Error(
-    `ACP WebSocket bridge only supports ${TARGET}, got ${target}`,
-  );
+  throw new Error(`stdio bridge only supports ${TARGET}, got ${target}`);
 }
 if (process.platform !== "win32") {
-  throw new Error("ACP WebSocket bridge prebuilds must be built on Windows");
+  throw new Error("stdio bridge prebuilds must be built on Windows");
 }
 
 const result = spawnSync(
@@ -29,7 +27,7 @@ const result = spawnSync(
     "build",
     "--release",
     "--manifest-path",
-    "rust/acp-ws-bridge/Cargo.toml",
+    "rust/stdio-bridge/Cargo.toml",
     "--target",
     target,
   ],
@@ -44,12 +42,12 @@ if (result.status !== 0) {
 
 const packageResult = spawnSync(
   "node",
-  ["scripts/acp-ws-bridge/package-acp-ws-bridge.mjs", `--target=${target}`],
+  ["scripts/stdio-bridge/package-stdio-bridge.mjs", `--target=${target}`],
   { stdio: "inherit" },
 );
 if (packageResult.error) {
   throw packageResult.error;
 }
 if (packageResult.status !== 0) {
-  throw new Error(`package-acp-ws-bridge exited ${packageResult.status}`);
+  throw new Error(`package-stdio-bridge exited ${packageResult.status}`);
 }

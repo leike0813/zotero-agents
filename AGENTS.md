@@ -102,7 +102,7 @@
 │   ├── fixtures/             # 测试 fixtures
 │   ├── setup/                # 测试环境初始化
 │   └── mock-skillrunner/     # Mock Skill-Runner 服务
-├── scripts/                  # 构建、治理与运维脚本（按交付域分组：host-bridge、content-package、acp-ws-bridge、synthesis、system-e2e、internal）
+├── scripts/                  # 构建、治理与运维脚本（按交付域分组：host-bridge、content-package、stdio-bridge、synthesis、system-e2e、internal）
 ├── skills_builtin/           # 内置 Skill 定义（26 个 skill 目录；literature-analysis / literature-explainer / literature-translator 是 submodule）
 ├── skills_src/               # Skill 模板与合约源码
 │   ├── topic-synthesis/      # topic-synthesis 合约、运行时、模板
@@ -121,7 +121,7 @@
 ├── profiles_src/             # Hermes Profile 源文件
 ├── contracts/                # Host Bridge 与 Synthesis sidecar 跨语言契约
 ├── releases/                 # 受治理的发布身份与 receipt
-├── rust/                     # Zotero Bridge、ACP WS Bridge 与 Synthesis sidecar
+├── rust/                     # Zotero Bridge、stdio Bridge 与 Synthesis sidecar
 ├── artifacts/                # 开发过程工件（设计评审、审计报告、playbook 等）
 ├── assets/                   # 共享资产（Skill Runner 输出合约 Python 库、站点图片）
 ├── feeds/                    # 内容订阅 feed
@@ -217,6 +217,12 @@ This is a single-context repository using a root `CONTEXT.md` and root `docs/adr
 - Dashboard README 使用共享 Markdown renderer 的 document profile 和原始 baseFileUri；文档滚动位置属于页面本地状态，不得进入区域 signature 或触发宿主消息。
 - 跨页面设计 token（控件色、字阶、间距、徽章）与共享模式（panel header、返回入口、空态、滚动工具类）以 `addon/content/shared/page-chrome.css` 为唯一来源；两页面不得再各自定义同名色值或另起私有别名层。
 - 滚动所有权模型（详见 `page-chrome.css` 头部注释）：页面根与 `.main` 永不滚动；每个面板固定自己的页头/工具栏/筛选/分页区，并有且仅有一个主内容滚动区（Dashboard 使用 `.zs-scroll-region` 工具类，Synthesis 各 surface 以自身表格容器如 `.concept-table-wrap`、`.tags-table-wrap` 充当）；概念审阅面板、标签导入浮层等有界二级子面板（`max-height` 百分比 + `overflow:auto`）允许保留自身滚动，但不得承载主内容；禁止页级滚动容器内嵌 `max-height` 滚动区（Dashboard `.table-wrap` 的 320px 仅对区域外的独立滚动容器生效，区域内以 `max-height:none` 压平）、禁止 grid/flex 行数与子元素数不匹配、sticky 元素必须位于真实滚动容器内。二级视图（详情/文档页）页头左侧第一位固定为 `.zs-back-link` 返回入口。
+
+# 长驻 stdio 进程硬约束
+
+- `src/platform/longLivedProcess.ts` 接收已解析的 executable、argv、cwd 与经过调用方整理的 environment，统一持有长驻子进程的 stdin/stdout/stderr、EOF、wait、termination 与证据；领域调用方不得把 ACP transport 当成通用进程接口。
+- Zotero Windows 使用 `src/platform/windowsStdioBridgeService.ts` 管理单例 loopback broker，Linux/macOS 使用晚绑定 Mozilla Subprocess；插件运行时不得依赖 Node.js。stdout/stderr 必须分离且有界，stdin EOF 不等于终止进程。
+- 断线、取消、超时或发出 kill 请求不能独自证明子进程已退出；缺少观察或等效证据时只能报告 unknown。Windows 新协议与 asset 改动必须用对应源码生成新二进制并在真实宿主验证，不能把旧二进制换名。
 
 # ACP Transcript Projection硬约束
 

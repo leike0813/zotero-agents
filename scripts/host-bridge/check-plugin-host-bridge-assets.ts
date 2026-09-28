@@ -31,6 +31,7 @@ export type PluginHostBridgeAssetIssueCode =
   | "native_sidecar_missing"
   | "native_sidecar_invalid"
   | "native_checksum_mismatch"
+  | "legacy_bridge_asset_present"
   | "host_bridge_release_mismatch"
   | "skill_bundle_manifest_missing"
   | "skill_bundle_manifest_invalid"
@@ -49,7 +50,11 @@ export type PluginHostBridgeAssetVerification = {
   issues: PluginHostBridgeAssetIssue[];
 };
 
-const ACP_BRIDGE_BINARY = "bin/win32-x64/zotero-acp-bridge.exe";
+const STDIO_BRIDGE_BINARY = "bin/win32-x64/zotero-stdio-bridge.exe";
+const LEGACY_BRIDGE_BINARIES = [
+  "bin/win32-x64/zotero-acp-bridge.exe",
+  "bin/win32-x64/zotero-acp-bridge.exe.sha256",
+];
 const CLI_RELEASE_PATH = "bin/zotero-bridge-release.json";
 const SKILL_BUNDLE_ROOT = "content/host-bridge-skills";
 const SKILL_BUNDLE_MANIFEST_PATH = `${SKILL_BUNDLE_ROOT}/manifest.json`;
@@ -190,12 +195,13 @@ export function verifyPluginHostBridgeAssets(args: {
       hostBridge: true,
     })),
     {
-      binaryPath: ACP_BRIDGE_BINARY,
+      binaryPath: STDIO_BRIDGE_BINARY,
       expectedSha256: "",
       expectedBytes: -1,
       hostBridge: false,
     },
   ];
+  const legacyAssets = new Set(LEGACY_BRIDGE_BINARIES);
   const nativePaths = new Set(
     expectedAssets.flatMap(({ binaryPath }) => [
       binaryPath,
@@ -334,6 +340,12 @@ export function verifyPluginHostBridgeAssets(args: {
         code: "host_bridge_release_mismatch",
         path: asset.binaryPath,
       });
+    }
+  }
+
+  for (const legacyPath of legacyAssets) {
+    if (inventoryRead.entryNames.includes(legacyPath)) {
+      issues.push({ code: "legacy_bridge_asset_present", path: legacyPath });
     }
   }
 

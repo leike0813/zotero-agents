@@ -8,6 +8,7 @@ import {
   resetRuntimeCommandRegistryForTests,
 } from "../../../../src/platform/command";
 import { executeOneShotSubprocess } from "../../../../src/platform/subprocess";
+import { startLongLivedProcess } from "../../../../src/platform/longLivedProcess";
 import { defaultAcpRuntimeDependencyProbe } from "../../../../src/modules/acp/skillRun/acpRuntimeDependencyWrapper";
 import {
   runtimePathExists,
@@ -136,6 +137,59 @@ describe("runtime platform services in Zotero", function () {
     assert.equal(result.adapter, "mozilla");
     assert.include(result.stdout, stdoutMarker);
     assert.include(result.stderr, stderrMarker);
+  });
+
+  it("streams a long-lived stdio process through the live Zotero adapter", async function () {
+    this.timeout(120000);
+    await preflightRuntimeCommandsOnStartup();
+    const windows = detectRuntimePlatform() === "win32";
+    const resolved = windows
+      ? getCachedRuntimeCommand("powershell") || getCachedRuntimeCommand("pwsh")
+      : getCachedRuntimeCommand("sh");
+    if (!resolved?.available || !resolved.resolvedPath) this.skip();
+    const child = await startLongLivedProcess({
+      executable: resolved.resolvedPath,
+      argv: windows
+        ? [
+            "-NoLogo",
+            "-NoProfile",
+            "-Command",
+            "$value = [Console]::In.ReadToEnd(); [Console]::Out.Write($value); [Console]::Error.Write('zotero-stderr'); exit 3",
+          ]
+        : ["-c", "cat; printf 'zotero-stderr' >&2; exit 3"],
+      cwd: getZoteroTempDirectoryPath(),
+      environment: { ZOTERO_LONG_LIVED_TEST: "1" },
+    });
+    const writer = child.stdin.getWriter();
+    await writer.write(new TextEncoder().encode("hello-stdio-文"));
+    await writer.close();
+    writer.releaseLock();
+    const readAll = async (stream: typeof child.stdout) => {
+      const reader = stream.getReader();
+      const decoder = new TextDecoder();
+      let text = "";
+      try {
+        while (true) {
+          const result = await reader.read();
+          if (result.done) break;
+          if (result.value)
+            text += decoder.decode(result.value, { stream: true });
+        }
+      } finally {
+        reader.releaseLock();
+      }
+      return text + decoder.decode();
+    };
+    const [stdout, stderr, exit] = await Promise.all([
+      readAll(child.stdout),
+      readAll(child.stderr),
+      child.wait(),
+    ]);
+    assert.equal(stdout, "hello-stdio-文");
+    assert.equal(stderr, "zotero-stderr");
+    assert.equal(exit.outcome, "exited");
+    assert.equal(exit.exitCode, 3);
+    assert.equal(exit.adapter, windows ? "websocket-bridge" : "mozilla");
   });
 
   it("resolves an ACP runtime dependency strategy through live Zotero subprocess", async function () {

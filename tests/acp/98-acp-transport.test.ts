@@ -21,16 +21,16 @@ import {
   seedRuntimeProcessControlSnapshotForTests,
 } from "../../src/platform/processControl";
 import {
-  acpWebSocketBridgeServiceInternalsForTests,
-  ensureAcpWebSocketBridgeService,
-  getAcpWebSocketBridgeSnapshot,
-  getAcpWebSocketConstructor,
-  resetAcpWebSocketBridgeServiceForTests,
-  seedAcpWebSocketBridgeServiceForTests,
-  setAcpWebSocketBridgeTestOverridesForTests,
-  shutdownAcpWebSocketBridgeService,
-  type AcpWebSocketBridgeService,
-} from "../../src/modules/acp/transport/acpWebSocketBridgeService";
+  windowsStdioBridgeServiceInternalsForTests as acpWebSocketBridgeServiceInternalsForTests,
+  ensureWindowsStdioBridgeService as ensureAcpWebSocketBridgeService,
+  getWindowsStdioBridgeSnapshot as getAcpWebSocketBridgeSnapshot,
+  getWindowsStdioWebSocketConstructor as getAcpWebSocketConstructor,
+  resetWindowsStdioBridgeServiceForTests as resetAcpWebSocketBridgeServiceForTests,
+  seedWindowsStdioBridgeServiceForTests as seedAcpWebSocketBridgeServiceForTests,
+  setWindowsStdioBridgeTestOverridesForTests as setAcpWebSocketBridgeTestOverridesForTests,
+  shutdownWindowsStdioBridgeService as shutdownAcpWebSocketBridgeService,
+  type WindowsStdioBridgeService as AcpWebSocketBridgeService,
+} from "../../src/platform/windowsStdioBridgeService";
 import { resolveWindowsCommandFromPowerShell } from "../../src/modules/windowsCommandResolution";
 import type { BackendInstance } from "../../src/backends/types";
 
@@ -260,15 +260,15 @@ async function waitForFakeSocket(instances: FakeWebSocketInstance[]) {
 
 function seedFakeBridgeService(): AcpWebSocketBridgeService {
   const service = {
-    url: "ws://127.0.0.1:34567/v1/acp?token=test-secret-token",
+    url: "ws://127.0.0.1:34567/v1/stdio?token=test-secret-token",
     pid: 4242,
     proc: {
       wait: async () => new Promise(() => undefined),
       kill: () => undefined,
     },
-    binaryPath: "D:\\Runtime\\bin\\zotero-acp-bridge.exe",
-    readyFile: "D:\\Runtime\\tmp\\acp-websocket-bridge\\ready.json",
-    logFile: "D:\\Runtime\\tmp\\acp-websocket-bridge\\bridge.log",
+    binaryPath: "D:\\Runtime\\bin\\zotero-stdio-bridge.exe",
+    readyFile: "D:\\Runtime\\tmp\\stdio-bridge\\ready.json",
+    logFile: "D:\\Runtime\\tmp\\stdio-bridge\\bridge.log",
     startedAt: "2026-06-28T00:00:00.000Z",
     closed: new Promise<void>(() => undefined),
   } as AcpWebSocketBridgeService;
@@ -1530,7 +1530,7 @@ describe("acp transport", function () {
   it("bounds ACP WebSocket bridge service shutdown when process wait never settles", async function () {
     let killCount = 0;
     const service = {
-      url: "ws://127.0.0.1:34567/v1/acp?token=test-secret-token",
+      url: "ws://127.0.0.1:34567/v1/stdio?token=test-secret-token",
       pid: 4242,
       proc: {
         wait: async () => new Promise(() => undefined),
@@ -1538,9 +1538,9 @@ describe("acp transport", function () {
           killCount += 1;
         },
       },
-      binaryPath: "D:\\Runtime\\bin\\zotero-acp-bridge.exe",
-      readyFile: "D:\\Runtime\\tmp\\acp-websocket-bridge\\ready.json",
-      logFile: "D:\\Runtime\\tmp\\acp-websocket-bridge\\bridge.log",
+      binaryPath: "D:\\Runtime\\bin\\zotero-stdio-bridge.exe",
+      readyFile: "D:\\Runtime\\tmp\\stdio-bridge\\ready.json",
+      logFile: "D:\\Runtime\\tmp\\stdio-bridge\\bridge.log",
       startedAt: "2026-06-28T00:00:00.000Z",
       closed: new Promise<void>(() => undefined),
     } as AcpWebSocketBridgeService;
@@ -1604,7 +1604,7 @@ describe("acp transport", function () {
       const socket = await waitForFakeSocket(harness.instances);
       assert.equal(
         socket.url,
-        "ws://127.0.0.1:34567/v1/acp?token=test-secret-token",
+        "ws://127.0.0.1:34567/v1/stdio?token=test-secret-token",
       );
       assert.equal(socket.binaryType, "arraybuffer");
 
@@ -1649,8 +1649,11 @@ describe("acp transport", function () {
 
       const writer = transport.stdin.getWriter();
       await writer.write(new TextEncoder().encode('{"jsonrpc":"2.0"}\n'));
+      await writer.close?.();
       writer.releaseLock();
       assert.instanceOf(socket.sent[1], Uint8Array);
+      assert.equal(JSON.parse(String(socket.sent[2])).type, "stdin_eof");
+      assert.equal(socket.closeCalls, 0);
 
       socket.emitMessage(
         JSON.stringify({ type: "exit", id: spawnRequest.id, code: 0 }),
@@ -1695,6 +1698,55 @@ describe("acp transport", function () {
       assert.notProperty(launchAudit || {}, "command");
       assert.isTrue(
         auditEvents.every((event) => event.spawnId === spawnRequest.id),
+      );
+    } finally {
+      restoreGlobalProperty("ChromeUtils", previousChromeUtils);
+      restoreGlobalProperty("Zotero", previousZotero);
+    }
+  });
+
+  it("keeps ACP child exit unknown when bridge cleanup has no exit frame", async function () {
+    this.timeout(5_000);
+    const harness = createFakeWebSocketHarness();
+    setAcpWebSocketBridgeTestOverridesForTests({
+      enabled: true,
+      websocketCtor: harness.WebSocketCtor,
+      service: seedFakeBridgeService(),
+    });
+    const previousZotero = redefineGlobalProperty("Zotero", { isWin: true });
+    const previousChromeUtils = redefineGlobalProperty("ChromeUtils", {
+      import: () => ({
+        Subprocess: { pathSearch: async () => "C:\\Tools\\agent.exe" },
+      }),
+    });
+    try {
+      const launch = launchAcpTransport({
+        backend: {
+          id: "acp-exit-unknown",
+          displayName: "ACP Exit Unknown",
+          type: "acp",
+          baseUrl: "local://acp-exit-unknown",
+          command: "agent",
+          args: ["acp"],
+        } as BackendInstance,
+        cwd: "D:\\Workspace",
+      });
+      const socket = await waitForFakeSocket(harness.instances);
+      socket.emitOpen();
+      const spawn = JSON.parse(String(socket.sent[0]));
+      socket.emitMessage(
+        JSON.stringify({ type: "spawned", id: spawn.id, pid: 99 }),
+      );
+      const transport = await launch;
+      await transport.close({ graceMs: 0 });
+      assert.equal(transport.getLifecycle().exitSource, "unknown");
+      assert.equal(transport.getLifecycle().exitCode, null);
+      assert.equal(
+        socket.sent.some(
+          (frame) =>
+            typeof frame === "string" && frame.includes('"type":"terminate"'),
+        ),
+        true,
       );
     } finally {
       restoreGlobalProperty("ChromeUtils", previousChromeUtils);
@@ -2133,7 +2185,7 @@ describe("acp transport", function () {
 
   it("uses a content-addressed ACP bridge runtime binary path on Windows", function () {
     const sha =
-      "82c665cdb134db0b21a2c36915c1d9a2aaac13060918b42f9c6612b2f9299175  zotero-acp-bridge.exe";
+      "82c665cdb134db0b21a2c36915c1d9a2aaac13060918b42f9c6612b2f9299175  zotero-stdio-bridge.exe";
     const parsed =
       acpWebSocketBridgeServiceInternalsForTests.parseBridgeSha256Text(sha);
     const binaryPath =
@@ -2153,11 +2205,11 @@ describe("acp transport", function () {
     );
     assert.include(
       binaryPath.replace(/[\\/]+/g, "\\"),
-      "D:\\Runtime\\bin\\acp-ws-bridge\\82c665cdb134db0b\\zotero-acp-bridge.exe",
+      "D:\\Runtime\\bin\\stdio-bridge\\82c665cdb134db0b\\zotero-stdio-bridge.exe",
     );
     assert.equal(
       fallbackPath.replace(/[\\/]+/g, "\\"),
-      "D:\\Runtime\\bin\\zotero-acp-bridge.exe",
+      "D:\\Runtime\\bin\\zotero-stdio-bridge.exe",
     );
   });
 
@@ -2358,7 +2410,7 @@ describe("acp transport", function () {
 
   it("coalesces concurrent ACP bridge service startup into one daemon process", async function () {
     const runtimeRoot = await fs.mkdtemp(
-      path.join(os.tmpdir(), "zotero-acp-bridge-service-"),
+      path.join(os.tmpdir(), "zotero-stdio-bridge-service-"),
     );
     let callCount = 0;
     let killCount = 0;
@@ -2368,7 +2420,7 @@ describe("acp transport", function () {
     setAcpWebSocketBridgeTestOverridesForTests({
       enabled: true,
       runtimeRoot,
-      binaryPath: path.join(runtimeRoot, "bin", "zotero-acp-bridge.exe"),
+      binaryPath: path.join(runtimeRoot, "bin", "zotero-stdio-bridge.exe"),
       token: "service-secret-token",
       subprocess: {
         call: async (args: { arguments?: string[] }) => {
@@ -2383,7 +2435,7 @@ describe("acp transport", function () {
             readyFile,
             JSON.stringify({
               ok: true,
-              url: "ws://127.0.0.1:29999/v1/acp?token=service-secret-token",
+              url: "ws://127.0.0.1:29999/v1/stdio?token=service-secret-token",
               pid: 7654,
             }),
             "utf8",
@@ -2419,7 +2471,7 @@ describe("acp transport", function () {
       ]);
       assert.equal(
         snapshot?.url,
-        "ws://127.0.0.1:29999/v1/acp?token=<redacted>",
+        "ws://127.0.0.1:29999/v1/stdio?token=<redacted>",
       );
 
       await resetAcpWebSocketBridgeServiceForTests();

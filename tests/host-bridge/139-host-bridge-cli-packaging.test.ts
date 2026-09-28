@@ -188,22 +188,22 @@ describe("host bridge cli packaging and install", function () {
     const sourceRoot = path.join(root, "source");
     const targetRoot = path.join(root, "target");
     const staleMarker = path.join(targetRoot, "linux-x64", "stale");
-    const acpBridge = path.join(
+    const stdioBridge = path.join(
       targetRoot,
       "win32-x64",
-      "zotero-acp-bridge.exe",
+      "zotero-stdio-bridge.exe",
     );
-    const acpBridgeSidecar = `${acpBridge}.sha256`;
+    const stdioBridgeSidecar = `${stdioBridge}.sha256`;
     await writeTextFile(targetRoot, "linux-x64/stale", "preserve-on-error");
     await writeTextFile(
       targetRoot,
-      "win32-x64/zotero-acp-bridge.exe",
-      "preserve-acp-binary",
+      "win32-x64/zotero-stdio-bridge.exe",
+      "preserve-stdio-binary",
     );
     await writeTextFile(
       targetRoot,
-      "win32-x64/zotero-acp-bridge.exe.sha256",
-      "preserve-acp-sidecar",
+      "win32-x64/zotero-stdio-bridge.exe.sha256",
+      "preserve-stdio-sidecar",
     );
 
     let missingError: unknown;
@@ -242,12 +242,12 @@ describe("host bridge cli packaging and install", function () {
       "preserve-on-error",
     );
     assert.strictEqual(
-      await fs.readFile(acpBridge, "utf8"),
-      "preserve-acp-binary",
+      await fs.readFile(stdioBridge, "utf8"),
+      "preserve-stdio-binary",
     );
     assert.strictEqual(
-      await fs.readFile(acpBridgeSidecar, "utf8"),
-      "preserve-acp-sidecar",
+      await fs.readFile(stdioBridgeSidecar, "utf8"),
+      "preserve-stdio-sidecar",
     );
     for (const {
       platform,
@@ -762,7 +762,7 @@ describe("host bridge cli packaging and install", function () {
       );
       await writeTextFile(
         root,
-        "addon/bin/win32-x64/zotero-acp-bridge.exe",
+        "addon/bin/win32-x64/zotero-stdio-bridge.exe",
         "unrelated",
       );
 
@@ -810,7 +810,13 @@ describe("host bridge cli packaging and install", function () {
       );
       assert.strictEqual(
         await fs.readFile(
-          path.join(root, "addon", "bin", "win32-x64", "zotero-acp-bridge.exe"),
+          path.join(
+            root,
+            "addon",
+            "bin",
+            "win32-x64",
+            "zotero-stdio-bridge.exe",
+          ),
           "utf8",
         ),
         "unrelated",
@@ -1478,7 +1484,7 @@ describe("host bridge cli packaging and install", function () {
     try {
       const candidates =
         packagedAssetResolverInternalsForTests.buildPackagedAssetCandidates(
-          "bin/win32-x64/zotero-acp-bridge.exe",
+          "bin/win32-x64/zotero-stdio-bridge.exe",
         );
       assert.equal(candidates.rootURI, addonData.packagedAssets.rootURI);
       assert.equal(
@@ -1488,11 +1494,11 @@ describe("host bridge cli packaging and install", function () {
       assert.equal(candidates.rootPath, addonData.packagedAssets.rootPath);
       assert.include(
         candidates.checkedUris,
-        "https://installed.example/addon/bin/win32-x64/zotero-acp-bridge.exe",
+        "https://installed.example/addon/bin/win32-x64/zotero-stdio-bridge.exe",
       );
       assert.include(
         candidates.checkedPaths,
-        "D:\\Profiles\\extensions\\zotero-skills\\bin\\win32-x64\\zotero-acp-bridge.exe",
+        "D:\\Profiles\\extensions\\zotero-skills\\bin\\win32-x64\\zotero-stdio-bridge.exe",
       );
     } finally {
       if (typeof previousRoots.rootURI === "string") {

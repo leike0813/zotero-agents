@@ -4,7 +4,7 @@ import path from "node:path";
 
 const TARGET = "x86_64-pc-windows-msvc";
 const PLATFORM = "win32-x64";
-const BINARY = "zotero-acp-bridge.exe";
+const BINARY = "zotero-stdio-bridge.exe";
 
 function argValue(name) {
   const prefix = `--${name}=`;
@@ -14,19 +14,17 @@ function argValue(name) {
 }
 
 const target = (
-  process.env.ZOTERO_ACP_BRIDGE_TARGET ||
+  process.env.ZOTERO_STDIO_BRIDGE_TARGET ||
   argValue("target") ||
   TARGET
 ).trim();
 if (target !== TARGET) {
-  throw new Error(
-    `ACP WebSocket bridge only supports ${TARGET}, got ${target}`,
-  );
+  throw new Error(`stdio bridge only supports ${TARGET}, got ${target}`);
 }
 
 const source = path.join(
   "rust",
-  "acp-ws-bridge",
+  "stdio-bridge",
   "target",
   target,
   "release",

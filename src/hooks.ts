@@ -112,7 +112,7 @@ import {
 import { shutdownAcpSessionManager } from "./modules/acp/chat/acpSessionManager";
 import { releaseAcpSkillRunAuditTrailWrites } from "./modules/acp/skillRun/acpSkillRunAuditTrail";
 import { initializeWorkflowProductStorage } from "./modules/workflow/catalog/workflowProductStore";
-import { shutdownAcpWebSocketBridgeService } from "./modules/acp/transport/acpWebSocketBridgeService";
+import { shutdownWindowsStdioBridgeService } from "./platform/windowsStdioBridgeService";
 import { reconcileAcpSkillRunWorkflowTasksOnStartup } from "./modules/acp/skillRun/acpSkillRunStore";
 import { getRuntimePersistencePaths } from "./modules/runtimePersistence";
 import { recoverStoredAttachmentReplacements } from "./modules/zoteroHost/zoteroHostNativeMutations";
@@ -1196,8 +1196,8 @@ async function onShutdown(): Promise<void> {
     releaseAcpSkillRunAuditTrailWrites,
   );
   await runShutdownStepWithTimeout(
-    "acp-websocket-bridge-shutdown",
-    shutdownAcpWebSocketBridgeService,
+    "stdio-bridge-shutdown",
+    shutdownWindowsStdioBridgeService,
   );
   await runShutdownStepWithTimeout(
     "zotero-mcp-shutdown",

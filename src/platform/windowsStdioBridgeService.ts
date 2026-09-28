@@ -1,17 +1,17 @@
-import { buildSubprocessEnvironment } from "../../../platform/env";
-import { detectRuntimePlatform } from "../../../platform/runtimePlatform";
-import { getMozillaSubprocessModule } from "../../../platform/subprocess";
-import { joinPath } from "../../../utils/path";
+import { joinPath } from "../utils/path";
 import {
   readPackagedBinaryAsset,
   type PackagedAssetSource,
   writeBinaryFile,
-} from "../../packagedAssetResolver";
+} from "../modules/packagedAssetResolver";
 import {
   readRuntimeTextFile,
   runtimePathExists,
   writeRuntimeTextFile,
-} from "../../runtimePersistence";
+} from "../modules/runtimePersistence";
+import { buildSubprocessEnvironment } from "./env";
+import { detectRuntimePlatform } from "./runtimePlatform";
+import { getMozillaSubprocessModule } from "./subprocess";
 
 type MozillaSubprocessModule = NonNullable<
   ReturnType<typeof getMozillaSubprocessModule>
@@ -21,7 +21,7 @@ type BridgeProcess = Awaited<
   ReturnType<NonNullable<MozillaSubprocessModule["call"]>>
 >;
 
-export type AcpWebSocketLike = {
+export type WindowsStdioWebSocketLike = {
   binaryType?: string;
   onopen: ((event: unknown) => void) | null;
   onmessage: ((event: { data?: unknown }) => void) | null;
@@ -31,9 +31,9 @@ export type AcpWebSocketLike = {
   close: () => void;
 };
 
-type AcpWebSocketConstructor = new (url: string) => AcpWebSocketLike;
+type StdioWebSocketConstructor = new (url: string) => WindowsStdioWebSocketLike;
 
-export type AcpWebSocketBridgeSnapshot = {
+export type WindowsStdioBridgeSnapshot = {
   url: string;
   pid: number | null;
   binaryPath: string;
@@ -43,7 +43,7 @@ export type AcpWebSocketBridgeSnapshot = {
   source?: PackagedAssetSource;
 };
 
-export type AcpWebSocketBridgeService = {
+export type WindowsStdioBridgeService = {
   url: string;
   pid: number | null;
   proc: BridgeProcess;
@@ -63,22 +63,23 @@ type ReadyFile = {
 
 type BridgeTestOverrides = {
   enabled?: boolean;
-  service?: AcpWebSocketBridgeService;
-  websocketCtor?: AcpWebSocketConstructor;
+  service?: WindowsStdioBridgeService;
+  websocketCtor?: StdioWebSocketConstructor;
   binaryPath?: string;
   subprocess?: MozillaSubprocessModule | null;
   runtimeRoot?: string;
   token?: string;
 };
 
-const BRIDGE_RELATIVE_PATH = "bin/win32-x64/zotero-acp-bridge.exe";
-const BRIDGE_SHA_RELATIVE_PATH = "bin/win32-x64/zotero-acp-bridge.exe.sha256";
-const BRIDGE_RUNTIME_DIR = ["tmp", "acp-websocket-bridge"];
+const BRIDGE_RELATIVE_PATH = "bin/win32-x64/zotero-stdio-bridge.exe";
+const BRIDGE_SHA_RELATIVE_PATH = "bin/win32-x64/zotero-stdio-bridge.exe.sha256";
+const BRIDGE_RUNTIME_DIR = ["tmp", "stdio-bridge"];
 const BRIDGE_READY_TIMEOUT_MS = 5_000;
 const BRIDGE_SHUTDOWN_WAIT_MS = 1_000;
+const BRIDGE_BINARY_NAME = "zotero-stdio-bridge.exe";
 
-let bridgeServicePromise: Promise<AcpWebSocketBridgeService> | null = null;
-let bridgeService: AcpWebSocketBridgeService | null = null;
+let bridgeServicePromise: Promise<WindowsStdioBridgeService> | null = null;
+let bridgeService: WindowsStdioBridgeService | null = null;
 let bridgeTestOverrides: BridgeTestOverrides = {};
 
 function normalizeString(value: unknown) {
@@ -101,14 +102,14 @@ function parseBridgeSha256Text(text: string) {
 function buildBridgeRuntimeBinaryPath(runtimeRoot: string, sha256: string) {
   const normalizedSha = parseBridgeSha256Text(sha256);
   if (!normalizedSha) {
-    return joinPath(runtimeRoot, "bin", "zotero-acp-bridge.exe");
+    return joinPath(runtimeRoot, "bin", BRIDGE_BINARY_NAME);
   }
   return joinPath(
     runtimeRoot,
     "bin",
-    "acp-ws-bridge",
+    "stdio-bridge",
     normalizedSha.slice(0, 16),
-    "zotero-acp-bridge.exe",
+    BRIDGE_BINARY_NAME,
   );
 }
 
@@ -117,7 +118,7 @@ function isNodeRuntime() {
   return Boolean(runtime.process?.versions?.node);
 }
 
-export function shouldUseAcpWebSocketBridgeTransport() {
+export function shouldUseWindowsStdioBridge() {
   if (typeof bridgeTestOverrides.enabled === "boolean") {
     return bridgeTestOverrides.enabled;
   }
@@ -187,7 +188,7 @@ async function waitForReadyFile(path: string) {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error(
-    `ACP WebSocket bridge did not write a ready file within ${BRIDGE_READY_TIMEOUT_MS}ms; last=${lastText.slice(
+    `Stdio bridge did not write a ready file within ${BRIDGE_READY_TIMEOUT_MS}ms; last=${lastText.slice(
       -500,
     )}`,
   );
@@ -244,7 +245,7 @@ async function resolveBridgeBinary(runtimeRoot: string) {
   }
 
   throw new Error(
-    `ACP WebSocket bridge binary is unavailable; checked=${JSON.stringify({
+    `Stdio bridge binary is unavailable; checked=${JSON.stringify({
       sha: shaRead.diagnostics,
       binary: binaryRead.diagnostics,
     })}`,
@@ -270,16 +271,14 @@ async function startBridgeService() {
   }
   const subprocess = getSubprocessForBridge();
   if (!subprocess?.call) {
-    throw new Error(
-      "Mozilla Subprocess.call is required for ACP WebSocket bridge",
-    );
+    throw new Error("Mozilla Subprocess.call is required for the stdio bridge");
   }
   const runtimeRoot = getRuntimeRootPath();
   const bridgeDir = joinPath(runtimeRoot, ...BRIDGE_RUNTIME_DIR);
   const token = bridgeTestOverrides.token || randomHex(32);
   const startedAt = new Date().toISOString();
   const readyFile = joinPath(bridgeDir, `ready-${Date.now()}.json`);
-  const logFile = joinPath(bridgeDir, "zotero-acp-bridge.log");
+  const logFile = joinPath(bridgeDir, "zotero-stdio-bridge.log");
   const { binaryPath, source } = await resolveBridgeBinary(runtimeRoot);
 
   await writeRuntimeTextFile(readyFile, "");
@@ -306,12 +305,10 @@ async function startBridgeService() {
   });
   const ready = await waitForReadyFile(readyFile);
   if (ready.ok !== true || !normalizeString(ready.url)) {
-    throw new Error(
-      `ACP WebSocket bridge failed to start: ${JSON.stringify(ready)}`,
-    );
+    throw new Error(`Stdio bridge failed to start: ${JSON.stringify(ready)}`);
   }
 
-  const service: AcpWebSocketBridgeService = {
+  const service: WindowsStdioBridgeService = {
     url: normalizeString(ready.url),
     pid: extractPid(ready.pid),
     proc,
@@ -338,7 +335,7 @@ async function startBridgeService() {
   return service;
 }
 
-export async function ensureAcpWebSocketBridgeService() {
+export async function ensureWindowsStdioBridgeService() {
   if (bridgeService) {
     return bridgeService;
   }
@@ -350,7 +347,7 @@ export async function ensureAcpWebSocketBridgeService() {
   return bridgeServicePromise;
 }
 
-export function getAcpWebSocketBridgeSnapshot(): AcpWebSocketBridgeSnapshot | null {
+export function getWindowsStdioBridgeSnapshot(): WindowsStdioBridgeSnapshot | null {
   if (!bridgeService) {
     return null;
   }
@@ -365,7 +362,7 @@ export function getAcpWebSocketBridgeSnapshot(): AcpWebSocketBridgeSnapshot | nu
   };
 }
 
-export async function shutdownAcpWebSocketBridgeService() {
+export async function shutdownWindowsStdioBridgeService() {
   const service = bridgeService;
   bridgeService = null;
   bridgeServicePromise = null;
@@ -379,20 +376,20 @@ export async function shutdownAcpWebSocketBridgeService() {
   }
 }
 
-export async function resetAcpWebSocketBridgeServiceForTests() {
-  await shutdownAcpWebSocketBridgeService();
+export async function resetWindowsStdioBridgeServiceForTests() {
+  await shutdownWindowsStdioBridgeService();
   bridgeTestOverrides = {};
 }
 
-export function seedAcpWebSocketBridgeServiceForTests(
-  service: AcpWebSocketBridgeService,
+export function seedWindowsStdioBridgeServiceForTests(
+  service: WindowsStdioBridgeService,
 ) {
   bridgeTestOverrides.service = service;
   bridgeService = service;
   bridgeServicePromise = Promise.resolve(service);
 }
 
-export function setAcpWebSocketBridgeTestOverridesForTests(
+export function setWindowsStdioBridgeTestOverridesForTests(
   overrides?: BridgeTestOverrides,
 ) {
   bridgeTestOverrides = overrides || {};
@@ -402,7 +399,7 @@ export function setAcpWebSocketBridgeTestOverridesForTests(
   }
 }
 
-export function getAcpWebSocketConstructor() {
+export function getWindowsStdioWebSocketConstructor() {
   if (bridgeTestOverrides.websocketCtor) {
     return bridgeTestOverrides.websocketCtor;
   }
@@ -435,7 +432,7 @@ export function getAcpWebSocketConstructor() {
         `${candidate.label}:${typeof ctor === "function" ? "function" : "missing"}`,
       );
       if (typeof ctor === "function") {
-        return ctor as AcpWebSocketConstructor;
+        return ctor as StdioWebSocketConstructor;
       }
     } catch (error) {
       checked.push(
@@ -444,18 +441,18 @@ export function getAcpWebSocketConstructor() {
     }
   }
   throw new Error(
-    `WebSocket constructor is unavailable for ACP bridge transport; checked=${checked.join(
+    `WebSocket constructor is unavailable for the stdio bridge transport; checked=${checked.join(
       " | ",
     )}`,
   );
 }
 
-export const acpWebSocketBridgeServiceInternalsForTests = {
+export const windowsStdioBridgeServiceInternalsForTests = {
   redactBridgeUrl,
   randomHex,
   parseBridgeSha256Text,
   buildBridgeRuntimeBinaryPath,
   waitForReadyFile,
   waitForBridgeCloseWithTimeout,
-  shouldUseAcpWebSocketBridgeTransport,
+  shouldUseWindowsStdioBridge,
 };

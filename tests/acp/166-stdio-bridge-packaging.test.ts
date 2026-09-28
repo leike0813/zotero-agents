@@ -55,10 +55,10 @@ function createStoredZip(entries: Array<{ name: string; bytes: Uint8Array }>) {
 }
 
 const HOST_BINARY_PATH = "bin/win32-x64/zotero-bridge.exe";
-const ACP_BINARY_PATH = "bin/win32-x64/zotero-acp-bridge.exe";
+const STDIO_BINARY_PATH = "bin/win32-x64/zotero-stdio-bridge.exe";
 const SKILL_MANIFEST_PATH = "content/host-bridge-skills/manifest.json";
 const hostBytes = Buffer.from("host-bridge");
-const acpBytes = Buffer.from("acp-bridge");
+const stdioBytes = Buffer.from("stdio-bridge");
 const hostBridgeRelease: HostBridgeCliReleaseManifest = {
   schema: "zotero-bridge-cli-release.v1",
   version: "1.2.3",
@@ -140,54 +140,54 @@ function validNativeEntries() {
       name: `${HOST_BINARY_PATH}.sha256`,
       bytes: Buffer.from(`${sha256(hostBytes)}  zotero-bridge.exe\n`),
     },
-    { name: ACP_BINARY_PATH, bytes: acpBytes },
+    { name: STDIO_BINARY_PATH, bytes: stdioBytes },
     {
-      name: `${ACP_BINARY_PATH}.sha256`,
-      bytes: Buffer.from(`${sha256(acpBytes)}  zotero-acp-bridge.exe\n`),
+      name: `${STDIO_BINARY_PATH}.sha256`,
+      bytes: Buffer.from(`${sha256(stdioBytes)}  zotero-stdio-bridge.exe\n`),
     },
     ...validSkillBundleEntries(),
   ];
 }
 
-describe("acp websocket bridge packaging", function () {
-  it("keeps ACP WebSocket bridge packaging independent from Host Bridge CLI", function () {
+describe("stdio bridge packaging", function () {
+  it("keeps stdio bridge packaging independent from Host Bridge CLI", function () {
     const packageJson = JSON.parse(
       fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8"),
     );
     const buildScript = fs.readFileSync(
-      path.join(process.cwd(), "scripts/acp-ws-bridge/build-acp-ws-bridge.mjs"),
+      path.join(process.cwd(), "scripts/stdio-bridge/build-stdio-bridge.mjs"),
       "utf8",
     );
     const packageScript = fs.readFileSync(
-      path.join(
-        process.cwd(),
-        "scripts/acp-ws-bridge/package-acp-ws-bridge.mjs",
-      ),
+      path.join(process.cwd(), "scripts/stdio-bridge/package-stdio-bridge.mjs"),
       "utf8",
     );
     const cargoToml = fs.readFileSync(
-      path.join(process.cwd(), "rust/acp-ws-bridge/Cargo.toml"),
+      path.join(process.cwd(), "rust/stdio-bridge/Cargo.toml"),
       "utf8",
     );
 
     assert.equal(
-      packageJson.scripts["prebuild:acp-ws-bridge"],
-      "node scripts/acp-ws-bridge/build-acp-ws-bridge.mjs",
+      packageJson.scripts["prebuild:stdio-bridge"],
+      "node scripts/stdio-bridge/build-stdio-bridge.mjs",
     );
     assert.equal(
-      packageJson.scripts["package:acp-ws-bridge"],
-      "node scripts/acp-ws-bridge/package-acp-ws-bridge.mjs",
+      packageJson.scripts["package:stdio-bridge"],
+      "node scripts/stdio-bridge/package-stdio-bridge.mjs",
     );
-    assert.include(cargoToml, 'name = "zotero-acp-bridge"');
-    assert.include(packageScript, "zotero-acp-bridge.exe");
+    assert.isUndefined(packageJson.scripts["prebuild:acp-ws-bridge"]);
+    assert.isUndefined(packageJson.scripts["package:acp-ws-bridge"]);
+    assert.include(cargoToml, 'name = "zotero-stdio-bridge"');
+    assert.include(packageScript, "zotero-stdio-bridge.exe");
+    assert.notInclude(packageScript, "zotero-acp-bridge.exe");
     assert.include(packageScript, "addon");
     assert.include(packageScript, "win32-x64");
-    assert.include(buildScript, "rust/acp-ws-bridge/Cargo.toml");
+    assert.include(buildScript, "rust/stdio-bridge/Cargo.toml");
     assert.notInclude(buildScript, "cli/zotero-bridge");
     assert.notInclude(packageScript, "cli/zotero-bridge");
   });
 
-  it("verifies Host Bridge and ACP native assets in the final XPI", async function () {
+  it("verifies Host Bridge and stdio bridge native assets in the final XPI", async function () {
     const root = await fsp.mkdtemp(path.join(os.tmpdir(), "zs-native-xpi-"));
     const xpiPath = path.join(root, "valid.xpi");
     await fsp.writeFile(xpiPath, createStoredZip(validNativeEntries()));
@@ -205,9 +205,9 @@ describe("acp websocket bridge packaging", function () {
   it("reports structured final-XPI native asset failures", async function () {
     const cases = [
       {
-        name: "missing ACP binary",
+        name: "missing stdio bridge binary",
         entries: validNativeEntries().filter(
-          (entry) => entry.name !== ACP_BINARY_PATH,
+          (entry) => entry.name !== STDIO_BINARY_PATH,
         ),
         code: "native_binary_missing",
       },
@@ -219,13 +219,24 @@ describe("acp websocket bridge packaging", function () {
         code: "native_sidecar_missing",
       },
       {
-        name: "ACP checksum mismatch",
+        name: "stdio bridge checksum mismatch",
         entries: validNativeEntries().map((entry) =>
-          entry.name === `${ACP_BINARY_PATH}.sha256`
+          entry.name === `${STDIO_BINARY_PATH}.sha256`
             ? { ...entry, bytes: Buffer.from(`${"0".repeat(64)}\n`) }
             : entry,
         ),
         code: "native_checksum_mismatch",
+      },
+      {
+        name: "legacy ACP bridge asset present",
+        entries: [
+          ...validNativeEntries(),
+          {
+            name: "bin/win32-x64/zotero-acp-bridge.exe",
+            bytes: Buffer.from("legacy"),
+          },
+        ],
+        code: "legacy_bridge_asset_present",
       },
       {
         name: "Host Bridge release digest mismatch",
@@ -329,5 +340,22 @@ describe("acp websocket bridge packaging", function () {
         pattern,
       );
     }
+  });
+
+  it("ships only the neutral Windows stdio bridge asset once prebuilt", function () {
+    const binDir = path.join(process.cwd(), "addon", "bin", "win32-x64");
+    const bridge = path.join(binDir, "zotero-stdio-bridge.exe");
+    const sidecar = `${bridge}.sha256`;
+    // The Windows prebuild host is unavailable, so the packaged bridge and its
+    // sidecar do not exist yet; the packaging gate stays open until they do.
+    if (!fs.existsSync(bridge) || !fs.existsSync(sidecar)) {
+      this.skip();
+    }
+    const digest = sha256(fs.readFileSync(bridge));
+    assert.include(fs.readFileSync(sidecar, "utf8"), digest);
+    assert.isFalse(fs.existsSync(path.join(binDir, "zotero-acp-bridge.exe")));
+    assert.isFalse(
+      fs.existsSync(path.join(binDir, "zotero-acp-bridge.exe.sha256")),
+    );
   });
 });

@@ -11,12 +11,13 @@ use std::net::{Shutdown, TcpListener, TcpStream};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const WS_GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 const MAX_HEADER_BYTES: usize = 16 * 1024;
 const MAX_FRAME_BYTES: u64 = 16 * 1024 * 1024;
-const AUDIT_SCHEMA: &str = "zotero-skills.acp.bridge-audit.v1";
+const AUDIT_SCHEMA: &str = "zotero-skills.stdio.bridge-audit.v1";
+const TERMINATE_EVIDENCE_WAIT_MS: u64 = 2_000;
 const AUDIT_PREVIEW_CHARS: usize = 512;
 
 #[derive(Debug, Clone)]
@@ -310,7 +311,7 @@ fn target_has_token(target: &str, expected: &str) -> bool {
     let Some((path, query)) = target.split_once('?') else {
         return false;
     };
-    if path != "/v1/acp" {
+    if path != "/v1/stdio" {
         return false;
     }
     query
@@ -592,20 +593,84 @@ fn spawn_backend(request: &SpawnRequest) -> io::Result<Child> {
     command.spawn()
 }
 
-fn terminate_child(pid: u32) {
+#[derive(Debug, Default, Clone)]
+struct ChildExitState {
+    observed: bool,
+    code: Option<i32>,
+}
+
+type ExitState = Arc<Mutex<ChildExitState>>;
+
+#[derive(Debug, PartialEq, Eq)]
+enum ControlFrame {
+    StdinEof,
+    Terminate,
+}
+
+fn parse_control_frame(text: &str) -> Option<ControlFrame> {
+    let value: Value = serde_json::from_str(text).ok()?;
+    match value.get("type").and_then(Value::as_str) {
+        Some("stdin_eof") => Some(ControlFrame::StdinEof),
+        Some("terminate") => Some(ControlFrame::Terminate),
+        _ => None,
+    }
+}
+
+fn termination_confirmed(taskkill_ok: bool, exit_observed: bool) -> bool {
+    taskkill_ok && exit_observed
+}
+
+fn terminate_child_tree(pid: u32) -> bool {
     #[cfg(windows)]
     {
-        let _ = Command::new("taskkill")
+        return Command::new("taskkill")
             .args(["/PID", &pid.to_string(), "/T", "/F"])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .status();
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false);
     }
     #[cfg(not(windows))]
     {
         let _ = pid;
+        false
     }
+}
+
+fn wait_for_observed_exit(exit_state: &ExitState, timeout_ms: u64) -> bool {
+    let deadline = Instant::now() + Duration::from_millis(timeout_ms);
+    loop {
+        if let Ok(state) = exit_state.lock() {
+            if state.observed {
+                return true;
+            }
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn stop_child(pid: u32, exit_state: &ExitState) -> (bool, bool, bool) {
+    let already_exited = exit_state
+        .lock()
+        .map(|state| state.observed)
+        .unwrap_or(false);
+    if already_exited {
+        // The child is gone, but no taskkill evidence exists for the process
+        // tree, so cleanup stays unconfirmed.
+        return (false, false, true);
+    }
+    let taskkill_ok = terminate_child_tree(pid);
+    let exit_observed = wait_for_observed_exit(exit_state, TERMINATE_EVIDENCE_WAIT_MS);
+    (
+        termination_confirmed(taskkill_ok, exit_observed),
+        taskkill_ok,
+        exit_observed,
+    )
 }
 
 fn handle_connection(mut stream: TcpStream, token: String, log_file: String) {
@@ -846,10 +911,12 @@ fn handle_connection(mut stream: TcpStream, token: String, log_file: String) {
         })
     });
 
+    let exit_state: ExitState = Arc::new(Mutex::new(ChildExitState::default()));
     {
         let writer = Arc::clone(&writer);
         let id = request.id.clone();
         let audit = audit.clone();
+        let exit_state = Arc::clone(&exit_state);
         thread::spawn(move || {
             let status = child.wait().ok();
             if let Some(handle) = stdout_handle {
@@ -859,6 +926,10 @@ fn handle_connection(mut stream: TcpStream, token: String, log_file: String) {
                 let _ = handle.join();
             }
             let code = status.and_then(|status| status.code());
+            if let Ok(mut state) = exit_state.lock() {
+                state.observed = true;
+                state.code = code;
+            }
             append_audit_event(
                 &audit,
                 &id,
@@ -879,6 +950,11 @@ fn handle_connection(mut stream: TcpStream, token: String, log_file: String) {
             send_close(&writer);
         });
     }
+
+    let exit_state_for_stop = Arc::clone(&exit_state);
+    let request_stop =
+        move || -> (bool, bool, bool) { stop_child(child_pid, &exit_state_for_stop) };
+    let mut stop_result: Option<(bool, bool, bool)> = None;
 
     loop {
         match read_client_frame(&mut stream, &mut pending) {
@@ -919,6 +995,46 @@ fn handle_connection(mut stream: TcpStream, token: String, log_file: String) {
                 }
             }
             Ok(ClientFrame::Text(text)) => {
+                match parse_control_frame(&text) {
+                    Some(ControlFrame::StdinEof) => {
+                        let had_pipe = child_stdin.take().is_some();
+                        append_audit_event(
+                            &audit,
+                            &request.id,
+                            "client_stdin_eof_requested",
+                            json!({
+                                "hadPipe": had_pipe,
+                            }),
+                        );
+                        continue;
+                    }
+                    Some(ControlFrame::Terminate) => {
+                        let (confirmed, taskkill_ok, exit_observed) = request_stop();
+                        stop_result = Some((confirmed, taskkill_ok, exit_observed));
+                        append_audit_event(
+                            &audit,
+                            &request.id,
+                            "client_terminate_requested",
+                            json!({
+                                "taskkillOk": taskkill_ok,
+                                "exitObserved": exit_observed,
+                                "confirmed": confirmed,
+                            }),
+                        );
+                        let _ = send_text(
+                            &writer,
+                            json!({
+                                "type": "terminated",
+                                "id": request.id,
+                                "confirmed": confirmed,
+                                "taskkillOk": taskkill_ok,
+                                "exitObserved": exit_observed,
+                            }),
+                        );
+                        break;
+                    }
+                    None => {}
+                }
                 append_audit_event(
                     &audit,
                     &request.id,
@@ -978,21 +1094,24 @@ fn handle_connection(mut stream: TcpStream, token: String, log_file: String) {
         }
     }
     drop(child_stdin);
+    let (confirmed, taskkill_ok, exit_observed) = stop_result.unwrap_or_else(request_stop);
     append_audit_event(
         &audit,
         &request.id,
         "client_loop_finished",
         json!({
             "childPid": child_pid,
+            "taskkillOk": taskkill_ok,
+            "exitObserved": exit_observed,
+            "confirmed": confirmed,
         }),
     );
-    terminate_child(child_pid);
 }
 
 fn run_server(args: ServeArgs) -> io::Result<()> {
     let listener = TcpListener::bind(format!("{}:{}", args.host, args.port))?;
     let port = listener.local_addr()?.port();
-    let url = format!("ws://{}:{}/v1/acp?token={}", args.host, port, args.token);
+    let url = format!("ws://{}:{}/v1/stdio?token={}", args.host, port, args.token);
     write_json_file(
         &args.ready_file,
         &ReadyFile {
@@ -1061,10 +1180,26 @@ mod tests {
     }
 
     #[test]
-    fn validates_token_only_on_acp_path() {
-        assert!(target_has_token("/v1/acp?token=abc", "abc"));
-        assert!(!target_has_token("/v1/acp?token=wrong", "abc"));
+    fn validates_token_only_on_stdio_path() {
+        assert!(target_has_token("/v1/stdio?token=abc", "abc"));
+        assert!(!target_has_token("/v1/stdio?token=wrong", "abc"));
         assert!(!target_has_token("/other?token=abc", "abc"));
+    }
+
+    #[test]
+    fn parses_stdin_eof_and_terminate_control_frames() {
+        assert_eq!(
+            parse_control_frame(r#"{"type":"stdin_eof","id":"a"}"#),
+            Some(ControlFrame::StdinEof)
+        );
+        assert_eq!(
+            parse_control_frame(r#"{"type":"terminate","id":"a"}"#),
+            Some(ControlFrame::Terminate)
+        );
+        assert_eq!(parse_control_frame(r#"{"id":"a"}"#), None);
+        assert_eq!(parse_control_frame(r#"{"type":"spawn","id":"a"}"#), None);
+        assert_eq!(parse_control_frame("not json"), None);
+        assert_eq!(parse_control_frame(r#"{"type":"exit","id":"a"}"#), None);
     }
 
     #[test]
@@ -1078,7 +1213,7 @@ mod tests {
     #[test]
     fn reads_headers_after_request_line() {
         let headers = concat!(
-            "GET /v1/acp?token=abc HTTP/1.1\r\n",
+            "GET /v1/stdio?token=abc HTTP/1.1\r\n",
             "Host: 127.0.0.1:12345\r\n",
             "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n",
             "\r\n"
@@ -1107,7 +1242,7 @@ mod tests {
     #[test]
     fn writes_sanitized_bridge_audit_event() {
         let dir = std::env::temp_dir().join(format!(
-            "zotero-acp-bridge-audit-test-{}",
+            "zotero-stdio-bridge-audit-test-{}",
             std::process::id()
         ));
         let _ = fs::remove_dir_all(&dir);
@@ -1178,7 +1313,7 @@ mod tests {
     #[test]
     fn sanitizes_nested_sensitive_audit_payloads() {
         let dir = std::env::temp_dir().join(format!(
-            "zotero-acp-bridge-nested-audit-test-{}",
+            "zotero-stdio-bridge-nested-audit-test-{}",
             std::process::id()
         ));
         let _ = fs::remove_dir_all(&dir);
@@ -1229,5 +1364,45 @@ mod tests {
             ]),
             Some(3)
         );
+    }
+
+    #[test]
+    fn requires_taskkill_success_and_observed_exit_for_confirmation() {
+        assert!(termination_confirmed(true, true));
+        assert!(!termination_confirmed(true, false));
+        assert!(!termination_confirmed(false, true));
+        assert!(!termination_confirmed(false, false));
+    }
+
+    #[test]
+    fn does_not_confirm_cleanup_without_taskkill_evidence() {
+        let exit_state: ExitState = Arc::new(Mutex::new(ChildExitState {
+            observed: true,
+            code: Some(0),
+        }));
+
+        let (confirmed, taskkill_ok, exit_observed) = stop_child(4242, &exit_state);
+
+        assert!(!confirmed);
+        assert!(!taskkill_ok);
+        assert!(exit_observed);
+    }
+
+    #[test]
+    fn times_out_waiting_for_unobserved_exit() {
+        let exit_state: ExitState = Arc::new(Mutex::new(ChildExitState::default()));
+
+        assert!(!wait_for_observed_exit(&exit_state, 60));
+    }
+
+    #[test]
+    fn stop_child_reports_unknown_without_exit_evidence() {
+        let exit_state: ExitState = Arc::new(Mutex::new(ChildExitState::default()));
+        let pid = u32::MAX;
+
+        let (confirmed, _taskkill_ok, exit_observed) = stop_child(pid, &exit_state);
+
+        assert!(!confirmed);
+        assert!(!exit_observed);
     }
 }

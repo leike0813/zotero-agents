@@ -1,12 +1,12 @@
 [package]
-name = "zotero-acp-bridge"
+name = "zotero-stdio-bridge"
 version = "0.1.0"
 edition = "2021"
-description = "Windows WebSocket bridge for Zotero Agents ACP transports"
+description = "Windows loopback WebSocket bridge for Zotero Agents long-lived stdio processes"
 license = "AGPL-3.0-or-later"
 
 [[bin]]
-name = "zotero-acp-bridge"
+name = "zotero-stdio-bridge"
 path = "src/main.rs"
 
 [dependencies]

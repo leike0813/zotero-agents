@@ -48,6 +48,12 @@ import {
   executeOneShotSubprocess,
   type OneShotSubprocessAdapter,
 } from "../../src/platform/subprocess";
+import { startLongLivedProcess } from "../../src/platform/longLivedProcess";
+import {
+  seedWindowsStdioBridgeServiceForTests,
+  setWindowsStdioBridgeTestOverridesForTests,
+  resetWindowsStdioBridgeServiceForTests,
+} from "../../src/platform/windowsStdioBridgeService";
 
 function redefineGlobalProperty(key: string, value: unknown) {
   const runtime = globalThis as Record<string, unknown>;
@@ -74,6 +80,287 @@ function decodeUtf16LeBase64(value: string) {
 }
 
 describe("runtime platform services", function () {
+  it("streams stdout and stderr separately after stdin EOF", async function () {
+    const child = await startLongLivedProcess({
+      executable: process.execPath,
+      argv: [
+        "-e",
+        "process.stdin.on('data', b => process.stdout.write(b)); process.stdin.on('end', () => { process.stderr.write('diagnostic'); process.exit(7); });",
+      ],
+      cwd: process.cwd(),
+      environment: { ...process.env } as Record<string, string>,
+    });
+    assert.equal(child.snapshot().outcome, "running");
+    const stdin = child.stdin.getWriter();
+    await stdin.write(new TextEncoder().encode("request"));
+    await stdin.close?.();
+    stdin.releaseLock();
+    const stdout = child.stdout.getReader();
+    const stderr = child.stderr.getReader();
+    assert.equal(
+      new TextDecoder().decode((await stdout.read()).value),
+      "request",
+    );
+    assert.equal(
+      new TextDecoder().decode((await stderr.read()).value),
+      "diagnostic",
+    );
+    stdout.releaseLock();
+    stderr.releaseLock();
+    const exit = await child.wait();
+    assert.deepInclude(exit, {
+      adapter: "node",
+      exitCode: 7,
+      outcome: "exited",
+    });
+  });
+
+  it("fails explicitly when unread long-lived stdout exceeds its byte bound", async function () {
+    const child = await startLongLivedProcess({
+      executable: process.execPath,
+      argv: ["-e", "process.stdout.write(Buffer.alloc(17 * 1024 * 1024));"],
+      cwd: process.cwd(),
+      environment: { ...process.env } as Record<string, string>,
+    });
+    await child.wait();
+    try {
+      await child.stdout.getReader().read();
+      assert.fail("overflow must be reported to the reader");
+    } catch (error) {
+      assert.match(String(error), /buffer exceeded 16 MiB/);
+    }
+  });
+
+  it("does not report a successful exit for an unavailable executable", async function () {
+    const child = await startLongLivedProcess({
+      executable: "/missing-zotero-test-executable",
+      argv: [],
+      cwd: process.cwd(),
+      environment: { ...process.env } as Record<string, string>,
+    });
+    assert.deepInclude(await child.wait(), {
+      adapter: "node",
+      outcome: "unknown",
+      exitCode: null,
+    });
+  });
+
+  it("uses Mozilla Subprocess without a Node runtime", async function () {
+    const calls: Array<Record<string, unknown>> = [];
+    let stdinText = "";
+    const previousProcess = redefineGlobalProperty("process", undefined);
+    const previousZotero = redefineGlobalProperty("Zotero", { isLinux: true });
+    const previousChromeUtils = redefineGlobalProperty("ChromeUtils", {
+      importESModule: () => ({
+        Subprocess: {
+          call: async (input: Record<string, unknown>) => {
+            calls.push(input);
+            let stdoutRead = false;
+            let stderrRead = false;
+            return {
+              pid: 71,
+              stdin: {
+                write: async (value: string) => {
+                  stdinText += value;
+                },
+                close: async () => undefined,
+              },
+              stdout: {
+                readString: async () => {
+                  if (stdoutRead) return "";
+                  stdoutRead = true;
+                  return "reply";
+                },
+              },
+              stderr: {
+                readString: async () => {
+                  if (stderrRead) return "";
+                  stderrRead = true;
+                  return "warn";
+                },
+              },
+              wait: async () => 3,
+              kill: () => undefined,
+            };
+          },
+        },
+      }),
+    });
+    try {
+      const child = await startLongLivedProcess({
+        executable: "/resolved/worker",
+        argv: ["--serve"],
+        cwd: "/work",
+        environment: { TOKEN: "test" },
+      });
+      assert.deepInclude(calls[0], {
+        command: "/resolved/worker",
+        arguments: ["--serve"],
+        workdir: "/work",
+        environment: { TOKEN: "test" },
+      });
+      const stdin = child.stdin.getWriter();
+      const encoded = new TextEncoder().encode("文");
+      await stdin.write(encoded.slice(0, 1));
+      await stdin.write(encoded.slice(1));
+      await stdin.close();
+      assert.equal(stdinText, "文");
+      assert.equal(
+        new TextDecoder().decode((await child.stdout.getReader().read()).value),
+        "reply",
+      );
+      assert.equal(
+        new TextDecoder().decode((await child.stderr.getReader().read()).value),
+        "warn",
+      );
+      assert.deepInclude(await child.wait(), {
+        adapter: "mozilla",
+        pid: 71,
+        exitCode: 3,
+        outcome: "exited",
+      });
+    } finally {
+      restoreGlobalProperty("ChromeUtils", previousChromeUtils);
+      restoreGlobalProperty("Zotero", previousZotero);
+      restoreGlobalProperty("process", previousProcess);
+    }
+  });
+
+  it("keeps Windows broker streams alive after stdin EOF and waits for observed exit", async function () {
+    this.timeout(5_000);
+    let socket:
+      | {
+          onopen: (() => void) | null;
+          onmessage: ((event: { data: unknown }) => void) | null;
+          onclose: (() => void) | null;
+          onerror: (() => void) | null;
+          sent: Array<string | Uint8Array>;
+          closeCalls: number;
+          send(value: string | Uint8Array): void;
+          close(): void;
+        }
+      | undefined;
+    class FakeSocket {
+      onopen: (() => void) | null = null;
+      onmessage: ((event: { data: unknown }) => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      sent: Array<string | Uint8Array> = [];
+      closeCalls = 0;
+      binaryType = "arraybuffer";
+      constructor(_url: string) {
+        sockets.push(this);
+      }
+      send(value: string | Uint8Array) {
+        this.sent.push(value);
+      }
+      close() {
+        this.closeCalls += 1;
+        this.onclose?.();
+      }
+    }
+    const sockets: FakeSocket[] = [];
+    const previousProcess = redefineGlobalProperty("process", undefined);
+    const previousZotero = redefineGlobalProperty("Zotero", { isWin: true });
+    setWindowsStdioBridgeTestOverridesForTests({
+      enabled: true,
+      websocketCtor: FakeSocket as never,
+    });
+    seedWindowsStdioBridgeServiceForTests({
+      url: "ws://127.0.0.1:4444/v1/stdio?token=secret",
+      pid: 44,
+      proc: { wait: () => new Promise(() => undefined), kill: () => undefined },
+      binaryPath: "D:\\runtime\\zotero-stdio-bridge.exe",
+      readyFile: "D:\\runtime\\ready.json",
+      logFile: "D:\\runtime\\bridge.log",
+      startedAt: "2026-09-28T00:00:00.000Z",
+      closed: new Promise(() => undefined),
+    } as never);
+    try {
+      const pending = startLongLivedProcess({
+        executable: "D:\\bin\\worker.exe",
+        argv: ["--serve"],
+        cwd: "D:\\work",
+        environment: { TOKEN: "test" },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      socket = sockets[sockets.length - 1];
+      assert.exists(socket);
+      socket!.onopen?.();
+      const spawn = JSON.parse(String(socket!.sent[0]));
+      socket!.onmessage?.({
+        data: JSON.stringify({ type: "spawned", id: spawn.id, pid: 81 }),
+      });
+      const child = await pending;
+      assert.equal(child.snapshot().outcome, "running");
+      const stdin = child.stdin.getWriter();
+      await stdin.close();
+      stdin.releaseLock();
+      assert.equal(JSON.parse(String(socket!.sent[1])).type, "stdin_eof");
+      assert.equal(socket!.closeCalls, 0);
+      socket!.onmessage?.({ data: new TextEncoder().encode("ok") });
+      socket!.onmessage?.({
+        data: JSON.stringify({ type: "exit", id: spawn.id, code: 0 }),
+      });
+      assert.equal(
+        new TextDecoder().decode((await child.stdout.getReader().read()).value),
+        "ok",
+      );
+      assert.deepInclude(await child.wait(), {
+        adapter: "websocket-bridge",
+        exitCode: 0,
+        outcome: "exited",
+      });
+
+      const disconnected = startLongLivedProcess({
+        executable: "D:\\bin\\worker.exe",
+        argv: [],
+        cwd: "D:\\work",
+        environment: {},
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      socket = sockets[sockets.length - 1];
+      socket!.onopen?.();
+      const secondSpawn = JSON.parse(String(socket!.sent[0]));
+      socket!.onmessage?.({
+        data: JSON.stringify({ type: "spawned", id: secondSpawn.id, pid: 82 }),
+      });
+      const secondChild = await disconnected;
+      socket!.close();
+      assert.deepInclude(await secondChild.wait(), {
+        adapter: "websocket-bridge",
+        outcome: "unknown",
+        exitCode: null,
+      });
+
+      const terminated = startLongLivedProcess({
+        executable: "D:\\bin\\worker.exe",
+        argv: [],
+        cwd: "D:\\work",
+        environment: {},
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      socket = sockets[sockets.length - 1];
+      socket!.onopen?.();
+      const thirdSpawn = JSON.parse(String(socket!.sent[0]));
+      socket!.onmessage?.({
+        data: JSON.stringify({ type: "spawned", id: thirdSpawn.id, pid: 83 }),
+      });
+      const thirdChild = await terminated;
+      const attempted = thirdChild.terminate();
+      assert.equal(JSON.parse(String(socket!.sent[1])).type, "terminate");
+      assert.deepInclude(await attempted, {
+        adapter: "websocket-bridge",
+        outcome: "unknown",
+        terminationRequested: true,
+      });
+    } finally {
+      restoreGlobalProperty("Zotero", previousZotero);
+      restoreGlobalProperty("process", previousProcess);
+      await resetWindowsStdioBridgeServiceForTests();
+    }
+  });
+
   beforeEach(function () {
     resetRuntimeCommandRegistryForTests();
     resetRuntimeEnvironmentSnapshotForTests();
