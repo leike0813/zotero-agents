@@ -13,6 +13,7 @@ describe("Built-in Agent Backend Manager page in real Zotero", function () {
     const credentialsBefore = String(
       getPref("piCredentialEncryptedJson") || "",
     );
+    const mcpBefore = String(getPref("piMcpSourceRegistryJson") || "");
     const credentialCount = listPiCredentials().length;
     const opened = plugin.hooks.onPrefsEvent("openBackendManager", {
       window: Zotero.getMainWindow(),
@@ -35,6 +36,9 @@ describe("Built-in Agent Backend Manager page in real Zotero", function () {
         "[data-zs-role='backend-manager-dialog-frame']",
       ) as HTMLIFrameElement;
       assert.isOk(frame.contentDocument?.querySelector(".backend-pi-section"));
+      assert.isOk(
+        frame.contentDocument?.querySelector("[data-pi-mcp-sources]"),
+      );
       assert.isNotOk(
         frame.contentDocument?.querySelector(".backend-profile-card"),
       );
@@ -72,6 +76,34 @@ describe("Built-in Agent Backend Manager page in real Zotero", function () {
         String(getPref("piCredentialEncryptedJson")),
         "fixture-only",
       );
+      for (const [field, value] of [
+        ["id", "fixture-mcp"],
+        ["label", "Fixture MCP"],
+        ["url", "https://example.org/mcp"],
+      ] as const) {
+        const input = frame.contentDocument?.querySelector(
+          `[data-mcp-field='${field}']`,
+        ) as HTMLInputElement;
+        assert.isOk(input);
+        input.value = value;
+        input.dispatchEvent(
+          new frame.contentWindow!.Event("input", { bubbles: true }),
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      (
+        frame.contentDocument?.querySelector(
+          "[data-mcp-action='save-source']",
+        ) as HTMLButtonElement
+      ).click();
+      for (
+        let i = 0;
+        i < 30 &&
+        String(getPref("piMcpSourceRegistryJson") || "") === mcpBefore;
+        i++
+      )
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      assert.include(String(getPref("piMcpSourceRegistryJson")), "fixture-mcp");
       (
         frame.contentDocument?.querySelector(
           "[data-pi-action='save']",
@@ -93,6 +125,7 @@ describe("Built-in Agent Backend Manager page in real Zotero", function () {
     } finally {
       setPref("piProviderConfigurationJson", piBefore);
       setPref("piCredentialEncryptedJson", credentialsBefore);
+      setPref("piMcpSourceRegistryJson", mcpBefore);
       plugin.data.dialog?.window?.close();
       await opened;
     }

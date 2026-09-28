@@ -65,6 +65,18 @@ import {
   putPiCredential,
 } from "../../piCredentialStore";
 import {
+  acceptPiMcpImport,
+  deletePiMcpSource,
+  exportPiMcpJson,
+  loadPiMcpSourceRegistry,
+  previewPiMcpJson,
+  reviewPiMcpTool,
+  resetPiMcpSourceRegistry,
+  unreviewPiMcpTool,
+  upsertPiMcpSource,
+  type PiMcpSource,
+} from "../../piMcpSourceRegistry";
+import {
   deletePiProviderConfiguration,
   loadPiProviderConfigurationState,
   setPiOverlayPath,
@@ -2368,6 +2380,101 @@ function buildBackendManagerLabels() {
       "backend-manager-pi-credentials",
       "Saved credentials",
     ),
+    mcpSources: localizeBackendManager(
+      "backend-manager-mcp-sources",
+      "MCP Tool Sources",
+    ),
+    mcpRegistryCorrupt: localizeBackendManager(
+      "backend-manager-mcp-registry-corrupt",
+      "MCP source settings are damaged.",
+    ),
+    mcpResetConfirm: localizeBackendManager(
+      "backend-manager-mcp-reset-confirm",
+      "Delete all MCP source settings?",
+    ),
+    mcpReset: localizeBackendManager(
+      "backend-manager-mcp-reset",
+      "Reset sources",
+    ),
+    mcpName: localizeBackendManager("backend-manager-mcp-name", "Name"),
+    mcpTransport: localizeBackendManager(
+      "backend-manager-mcp-transport",
+      "Transport",
+    ),
+    mcpExecutable: localizeBackendManager(
+      "backend-manager-mcp-executable",
+      "Executable",
+    ),
+    mcpArguments: localizeBackendManager(
+      "backend-manager-mcp-arguments",
+      "Arguments (one per line)",
+    ),
+    mcpCwd: localizeBackendManager(
+      "backend-manager-mcp-cwd",
+      "Working directory",
+    ),
+    mcpSlot: localizeBackendManager(
+      "backend-manager-mcp-slot",
+      "Credential slot (HTTP header / environment variable)",
+    ),
+    mcpSecretId: localizeBackendManager(
+      "backend-manager-mcp-secret-id",
+      "Saved credential ID",
+    ),
+    mcpEnabled: localizeBackendManager(
+      "backend-manager-mcp-enabled",
+      "Enabled",
+    ),
+    mcpLocalNetwork: localizeBackendManager(
+      "backend-manager-mcp-local-network",
+      "Allow local network endpoint",
+    ),
+    mcpCleartext: localizeBackendManager(
+      "backend-manager-mcp-cleartext",
+      "Allow cleartext private endpoint",
+    ),
+    mcpSaveSource: localizeBackendManager(
+      "backend-manager-mcp-save-source",
+      "Save source",
+    ),
+    mcpSecret: localizeBackendManager("backend-manager-mcp-secret", "Secret"),
+    mcpSaveSecret: localizeBackendManager(
+      "backend-manager-mcp-save-secret",
+      "Save secret",
+    ),
+    mcpClear: localizeBackendManager("backend-manager-mcp-clear", "Clear"),
+    mcpEdit: localizeBackendManager("backend-manager-mcp-edit", "Edit"),
+    mcpTest: localizeBackendManager(
+      "backend-manager-mcp-test",
+      "Test / discover",
+    ),
+    mcpDelete: localizeBackendManager("backend-manager-mcp-delete", "Delete"),
+    mcpSelect: localizeBackendManager("backend-manager-mcp-select", "Select"),
+    mcpDirect: localizeBackendManager("backend-manager-mcp-direct", "Direct"),
+    mcpImport: localizeBackendManager(
+      "backend-manager-mcp-import",
+      "Import .mcp.json",
+    ),
+    mcpImportReadFailed: localizeBackendManager(
+      "backend-manager-mcp-import-read-failed",
+      "Could not read this file (limit: 1 MiB).",
+    ),
+    mcpPreview: localizeBackendManager(
+      "backend-manager-mcp-preview",
+      "Preview import",
+    ),
+    mcpSecretSlots: localizeBackendManager(
+      "backend-manager-mcp-secret-slots",
+      "secret slots",
+    ),
+    mcpConfirmImport: localizeBackendManager(
+      "backend-manager-mcp-confirm-import",
+      "Import",
+    ),
+    mcpExport: localizeBackendManager(
+      "backend-manager-mcp-export",
+      "Export template",
+    ),
     piCredentialLabel: localizeBackendManager(
       "backend-manager-pi-credential-label",
       "Key label",
@@ -2667,6 +2774,13 @@ function buildBackendManagerSnapshot(
   const npxRuntimeStatus = getBackendManagerNpxRuntimeStatus();
   const piState = loadPiProviderConfigurationState();
   const piCredentials = listPiCredentials();
+  let mcpSources: PiMcpSource[] = [];
+  let mcpError = "";
+  try {
+    mcpSources = loadPiMcpSourceRegistry().sources;
+  } catch {
+    mcpError = "mcp_source_registry_corrupt";
+  }
   const configurationStatus: BackendManagerBuiltinAgentSnapshot["configurationStatus"] =
     {};
   for (const entry of piState.configurations) {
@@ -2728,6 +2842,10 @@ function buildBackendManagerSnapshot(
       configurations: piState.configurations,
       configurationStatus,
       credentials: piCredentials,
+      mcpSources,
+      ...(mcpError ? { mcpError } : {}),
+      mcpCredentials: listPiCredentials("mcp-source"),
+      mcpDiscovered: {},
       defaults: piState.defaults,
       overlayPath: piState.overlayPath,
       catalog: {
@@ -3005,6 +3123,111 @@ export async function openBackendManagerDialog(
                 });
               } else if (action === "pi-delete-credential") {
                 await deletePiCredential(String(payload.id || ""));
+              } else if (action === "pi-mcp-upsert-source") {
+                const source = upsertPiMcpSource(payload.source as PiMcpSource);
+                await (
+                  await import("../../piMcpRuntimeOwner")
+                ).disconnectPiMcpSource(source.id);
+              } else if (action === "pi-mcp-delete-source") {
+                const id = String(payload.id || "");
+                deletePiMcpSource(id);
+                await (
+                  await import("../../piMcpRuntimeOwner")
+                ).disconnectPiMcpSource(id);
+              } else if (action === "pi-mcp-put-secret") {
+                await putPiCredential({
+                  id: String(payload.id || ""),
+                  label: String(payload.label || ""),
+                  namespace: "mcp-source",
+                  material: {
+                    kind: "mcp-secret",
+                    secret: String(payload.secret || ""),
+                  },
+                });
+              } else if (action === "pi-mcp-delete-secret") {
+                await deletePiCredential(
+                  String(payload.id || ""),
+                  "mcp-source",
+                );
+              } else if (action === "pi-mcp-test-source") {
+                const tools = await (await import("../../piMcpRuntimeOwner"))
+                  .getPiMcpToolSources()
+                  .testSource(String(payload.id || ""));
+                postToFrame("backend-manager-dialog:action-result", {
+                  action,
+                  ok: true,
+                  id: String(payload.id || ""),
+                  requestId: String(payload.requestId || ""),
+                  tools: tools.map(({ name, description, digest }) => ({
+                    name,
+                    description,
+                    digest,
+                  })),
+                });
+                return;
+              } else if (action === "pi-mcp-review-tool") {
+                reviewPiMcpTool(
+                  String(payload.sourceId || ""),
+                  String(payload.name || ""),
+                  String(payload.digest || ""),
+                  { promoted: payload.promoted === true },
+                );
+              } else if (action === "pi-mcp-unreview-tool") {
+                unreviewPiMcpTool(
+                  String(payload.sourceId || ""),
+                  String(payload.name || ""),
+                );
+              } else if (action === "pi-mcp-import") {
+                await acceptPiMcpImport(
+                  previewPiMcpJson(String(payload.json || "")),
+                  Array.isArray(payload.approvals)
+                    ? (payload.approvals as Array<{
+                        sourceId: string;
+                        origin: string;
+                        cleartext: boolean;
+                      }>)
+                    : [],
+                );
+              } else if (action === "pi-mcp-preview-import") {
+                const preview = previewPiMcpJson(String(payload.json || ""));
+                postToFrame("backend-manager-dialog:action-result", {
+                  action,
+                  ok: true,
+                  sources: preview.sources.map(
+                    ({
+                      id,
+                      transport,
+                      url,
+                      executable,
+                      localNetworkApproval,
+                      cleartextApproval,
+                    }) => ({
+                      id,
+                      transport,
+                      endpoint: url || executable || "",
+                      origin: localNetworkApproval || "",
+                      localNetwork: !!localNetworkApproval,
+                      cleartext: !!cleartextApproval,
+                    }),
+                  ),
+                  secretSlots: preview.secrets.map(({ sourceId, slot }) => ({
+                    sourceId,
+                    slot,
+                  })),
+                });
+                return;
+              } else if (action === "pi-mcp-export") {
+                postToFrame("backend-manager-dialog:action-result", {
+                  action,
+                  ok: true,
+                  json: exportPiMcpJson(),
+                });
+                return;
+              } else if (action === "pi-mcp-reset-registry") {
+                resetPiMcpSourceRegistry();
+                await (
+                  await import("../../piMcpRuntimeOwner")
+                ).shutdownPiMcpToolSources();
               } else if (action === "pi-test-connection") {
                 if (!activePiCatalog) throw new Error("Provider unavailable");
                 const selection = resolvePiModelSelection({
@@ -3050,6 +3273,7 @@ export async function openBackendManagerDialog(
               pushSnapshot("backend-manager-dialog:snapshot");
             } catch (error) {
               const sensitive =
+                action.startsWith("pi-mcp-") ||
                 action === "pi-put-credential" ||
                 action === "pi-delete-credential" ||
                 action === "pi-test-connection";
@@ -3062,13 +3286,28 @@ export async function openBackendManagerDialog(
               postToFrame("backend-manager-dialog:action-result", {
                 action,
                 ok: false,
+                ...(action === "pi-mcp-test-source"
+                  ? {
+                      id: String(payload.id || ""),
+                      requestId: String(payload.requestId || ""),
+                    }
+                  : {}),
                 ...(action === "pi-test-connection"
                   ? {
                       requestId: String(payload.requestId || ""),
                       code: failureCode,
                     }
                   : {
-                      error: sensitive ? "Pi action failed" : String(error),
+                      error: action.startsWith("pi-mcp-")
+                        ? error instanceof Error &&
+                          /^(mcp_[a-z0-9_]+|oauth_not_supported)$/.test(
+                            error.message,
+                          )
+                          ? error.message
+                          : "mcp_source_unavailable"
+                        : sensitive
+                          ? "Pi action failed"
+                          : String(error),
                     }),
               });
             }

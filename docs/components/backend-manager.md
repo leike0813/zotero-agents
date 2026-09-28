@@ -21,6 +21,10 @@ Pi 模型目录由 `src/modules/piModelCatalog.ts` 持有，仅读取固定的�
 
 `src/modules/piApiKeyProviderExecution.ts` 把已解析的选择快照投影给原生 Pi stream adapter，逐次读取指定的加密凭据。自定义本地端点须由调用方先提供 Local Network 授权；缺失时调用在发出请求前失败。模型流只向 `PiRuntime` 传递文本增量或结构化失败码，不把原始响应正文、请求头或异常传到 UI。此切片尚未把模型源接入 Pi Conversation 或 Skill Run owner。
 
+同页的 MCP Tool Sources 区域管理独立的 profile 源注册表。保存源不连接；用户主动测试后才显示工具，逐项选择并可将已选工具提升为直接工具。审阅绑定工具描述符摘要，源地址或描述符改变后须重新审阅。HTTP 公网源必须使用 HTTPS，本地网络源要显式批准 origin；私有网络明文 HTTP 不得绑定凭据。stdio 使用绝对可执行路径、显式参数和最小环境，通过长驻进程适配器执行。`.mcp.json` 先预览再导入，字面密钥进入同一加密凭据库的 `mcp-source` 命名空间；导出只提供需重新绑定的空槽位。
+
+`src/modules/piMcpToolSources.ts` 惰性持有官方 MCP v2 客户端及内存目录。每个 turn 的已选目录由 C07 Gateway 代理与直出定义冻结；代理的 search/describe 只读取冻结目录，call 由 Gateway 审批、调度和记录。连接中断后的调用不自动重放，结果经 1 MiB 边界归一化。当前 C10 提供源与 Gateway 组合接口，实际 Pi Conversation / Skill Run owner 的模型工具接线属于后续 change。
+
 ## 验证入口
 
 - `tests/dashboard/251-dashboard-backend-manager.test.ts`：页面动作、区域身份和三个原有页的行为。
@@ -29,3 +33,4 @@ Pi 模型目录由 `src/modules/piModelCatalog.ts` 持有，仅读取固定的�
 - `tests/runtime/246-pi-api-key-provider-execution.test.ts`、`tests/tooling/246-pi-provider-env-guard.test.ts`：模型流、脱敏失败和浏览器构建边界。
 - `tests/zotero/core/lite/278-pi-provider-configuration.zotero.test.ts` 与 `tests/zotero/ui/lite/278-pi-provider-configuration.zotero.test.ts`：真实宿主边界。
 - `tests/zotero/core/lite/280-pi-api-key-provider-execution.zotero.test.ts`：真实 Zotero 中使用确定性响应夹具执行原生 Provider 路径。
+- `tests/runtime/249-pi-mcp-tool-sources.test.ts`、`tests/zotero/core/lite/283-pi-mcp-tool-sources.zotero.test.ts`：源、审阅、Gateway 代理与真实 stdio 边界；`npm run check:pi-mcp-browser-bundle` 验证浏览器包。

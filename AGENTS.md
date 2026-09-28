@@ -273,6 +273,12 @@ This is a single-context repository using a root `CONTEXT.md` and root `docs/adr
 - 压缩只在已结算的 durable 边界运行，保留完整语义单元和当前 turn 输入；摘要经 schema、覆盖范围、摘要输入和预算校验后，凭 revision 与 active leaf 提交。失败保留原路径。
 - 普通模型与压缩调用前先持久化版本化 preparation record，只记录安全引用、摘要、版本和 token 统计；完整消息、凭据、授权头和用户文件绝对路径留在各自事实源或暂态 context 中。
 
+# Pi MCP Tool Sources 硬约束
+
+- 出站 MCP 源由 `piMcpSourceRegistry.ts` 保存 profile 配置和描述符审阅；加密密钥只放在 `piCredentialStore.ts` 的 `mcp-source` 命名空间。保存源不得连接，未审阅或描述符变化的工具不得进入 Pi turn。
+- HTTP 源使用官方 MCP v2 浏览器客户端，stdio 仅经 `PiMcpStdioTransport` 与 C09 长驻进程适配器；不得把 Node MCP stdio 客户端或旧版 SDK 导入插件包。Local Network 和明文私网端点先完成源级审批，跨 origin 重定向拒绝。
+- 每个 Pi turn 的 MCP 工具必须经 C07 Gateway 冻结、分类、授权、调度和记录。已发送的工具调用不得自动重放；失联或超时只能报告未知效果。结果先归一化并有界化，再进入 transcript 或 receipt。
+
 # Pi Trusted Native Execution 硬约束
 
 - `src/modules/piTrustedNativeExecution.ts` 持有内置 Pi 文件、搜索、Shell 与 owner managed-file 语义；工具定义经 C07 Gateway 冻结，异步 canonical 路径分类必须在策略判定和调度前完成，执行前重新核验。路径身份无法证明时隐藏受影响工具。

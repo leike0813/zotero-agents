@@ -10,6 +10,7 @@ export type {
 } from "../shared/piProviderContract";
 
 type Envelope = PiCredentialMetadata & { iv: string; ciphertext: string };
+type PiCredentialNamespace = PiCredentialMetadata["namespace"];
 type CredentialDocument = { version: 1; records: Record<string, Envelope> };
 export type PiCredentialReadResult =
   | { ok: true; material: PiCredentialMaterial }
@@ -76,7 +77,7 @@ async function key(create: boolean) {
 }
 function validateMaterial(material: PiCredentialMaterial): void {
   if (
-    material?.kind === "api-key" &&
+    (material?.kind === "api-key" || material?.kind === "mcp-secret") &&
     typeof material.secret === "string" &&
     material.secret.trim()
   )
@@ -100,19 +101,38 @@ function enqueue<T>(work: () => Promise<T>): Promise<T> {
   return next;
 }
 
-export function listPiCredentials(): PiCredentialMetadata[] {
+export function listPiCredentials(
+  namespace: PiCredentialNamespace = "model-provider",
+): PiCredentialMetadata[] {
   try {
-    return Object.values(load().records).map(
-      ({ id, label, kind, masked, updatedAt }) => ({
+    return Object.values(load().records)
+      .filter((record) => (record.namespace || "model-provider") === namespace)
+      .map(({ id, label, kind, masked, updatedAt }) => ({
         id,
         label,
         kind,
+        namespace,
         masked,
         updatedAt,
-      }),
-    );
+      }));
   } catch {
     return [];
+  }
+}
+
+export function getPiCredentialRevision(
+  idRaw: string,
+  namespace: PiCredentialNamespace,
+): string | null {
+  try {
+    const envelope = load().records[idText(idRaw)];
+    return envelope &&
+      (envelope.namespace || "model-provider") === namespace &&
+      typeof envelope.iv === "string"
+      ? envelope.iv
+      : null;
+  } catch {
+    return null;
   }
 }
 
@@ -120,6 +140,7 @@ export function putPiCredential(args: {
   id: string;
   label: string;
   material: PiCredentialMaterial;
+  namespace?: PiCredentialNamespace;
 }): Promise<PiCredentialMetadata> {
   return enqueue(async () => {
     const id = idText(args.id);
@@ -127,7 +148,13 @@ export function putPiCredential(args: {
     if (!label || label.length > 128)
       throw new Error("Pi credential label is required");
     validateMaterial(args.material);
+    const namespace = args.namespace || "model-provider";
+    if ((args.material.kind === "mcp-secret") !== (namespace === "mcp-source"))
+      throw new Error("Pi credential namespace mismatch");
     const doc = load();
+    const existing = doc.records[id];
+    if (existing && (existing.namespace || "model-provider") !== namespace)
+      throw new Error("Pi credential namespace mismatch");
     const api = cryptoApi();
     const iv = new Uint8Array(12);
     api.getRandomValues(iv);
@@ -145,8 +172,9 @@ export function putPiCredential(args: {
       id,
       label,
       kind: args.material.kind,
+      namespace,
       masked:
-        args.material.kind === "api-key"
+        args.material.kind === "api-key" || args.material.kind === "mcp-secret"
           ? "••••"
           : `••••${args.material.accountId.slice(-4)}`,
       updatedAt: new Date().toISOString(),
@@ -163,6 +191,7 @@ export function putPiCredential(args: {
 
 export async function readPiCredential(
   idRaw: string,
+  namespace: PiCredentialNamespace = "model-provider",
 ): Promise<PiCredentialReadResult> {
   let envelope: Envelope | undefined;
   let id: string;
@@ -173,6 +202,8 @@ export async function readPiCredential(
     return { ok: false, code: "decrypt_failed" };
   }
   if (!envelope) return { ok: false, code: "missing" };
+  if ((envelope.namespace || "model-provider") !== namespace)
+    return { ok: false, code: "missing" };
   if (!globalThis.crypto?.subtle)
     return { ok: false, code: "crypto_unavailable" };
   try {
@@ -190,7 +221,10 @@ export async function readPiCredential(
       new TextDecoder().decode(bytes),
     ) as PiCredentialMaterial;
     validateMaterial(material);
-    if (material.kind !== envelope.kind)
+    if (
+      material.kind !== envelope.kind ||
+      (material.kind === "mcp-secret") !== (namespace === "mcp-source")
+    )
       throw new Error("Pi credential kind mismatch");
     return { ok: true, material };
   } catch {
@@ -198,10 +232,18 @@ export async function readPiCredential(
   }
 }
 
-export function deletePiCredential(idRaw: string): Promise<void> {
+export function deletePiCredential(
+  idRaw: string,
+  namespace: PiCredentialNamespace = "model-provider",
+): Promise<void> {
   return enqueue(async () => {
     const id = idText(idRaw);
     const doc = load();
+    if (
+      doc.records[id] &&
+      (doc.records[id].namespace || "model-provider") !== namespace
+    )
+      throw new Error("Pi credential namespace mismatch");
     delete doc.records[id];
     setPref("piCredentialEncryptedJson", JSON.stringify(doc));
   });

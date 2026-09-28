@@ -32,6 +32,7 @@
     "start:direct:build": "tsx scripts/run-zotero-direct.ts --build",
     "start:raw": "zotero-plugin serve",
     "build": "npm run build:help-docs && npm run check:synthesis-engine && npm run check:synthesis-contracts && npm run check:synthesis-repository && npm run check:synthesis-application && zotero-plugin build && tsc --noEmit && tsc --noEmit -p tsconfig.sidebar.json && tsc --noEmit -p tsconfig.dashboard.json && tsc --noEmit -p tsconfig.synthesis.json",
+    "check:pi-mcp-browser-bundle": "tsx scripts/check-pi-mcp-browser-bundle.ts",
     "build:help-docs": "tsx scripts/build-help-docs.ts",
     "check:help-docs": "tsx scripts/build-help-docs.ts --check",
     "harness:ui": "tsx scripts/ui-harness-serve.ts",
@@ -172,6 +173,8 @@
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.84.4",
     "@earendil-works/pi-ai": "0.84.4",
+    "@modelcontextprotocol/client": "2.0.0",
+    "@modelcontextprotocol/core": "2.0.0",
     "@oh-my-pi/pi-catalog": "18.0.11",
     "ajv": "^8.12.0",
     "ajv-formats": "^2.1.1",
@@ -186,7 +189,6 @@
     "zotero-plugin-toolkit": "^5.1.0-beta.13"
   },
   "devDependencies": {
-    "@modelcontextprotocol/sdk": "^1.27.1",
     "@types/chai": "^5.2.3",
     "@types/jsdom": "^28.0.3",
     "@types/mocha": "^10.0.10",

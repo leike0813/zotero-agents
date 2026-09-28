@@ -11,6 +11,7 @@ declare namespace _ZoteroTypes {
       "backendsConfigJson": string;
       "piProviderConfigurationJson": string;
       "piCredentialEncryptedJson": string;
+      "piMcpSourceRegistryJson": string;
       "workflowSettingsJson": string;
       "skillRunnerModelCacheJson": string;
       "skillRunnerDeferredTasksJson": string;

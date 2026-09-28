@@ -5,6 +5,7 @@ type PluginPrefsMap = BasePluginPrefsMap & {
   backendsConfigJson: string;
   piProviderConfigurationJson: string;
   piCredentialEncryptedJson: string;
+  piMcpSourceRegistryJson: string;
   workflowSettingsJson: string;
   taskDashboardHistoryJson: string;
   runtimeLogsJson: string;

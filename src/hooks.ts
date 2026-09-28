@@ -1195,6 +1195,9 @@ async function onShutdown(): Promise<void> {
     "acp-audit-drain",
     releaseAcpSkillRunAuditTrailWrites,
   );
+  await runShutdownStepWithTimeout("pi-mcp-sources-shutdown", async () =>
+    (await import("./modules/piMcpRuntimeOwner")).shutdownPiMcpToolSources(),
+  );
   await runShutdownStepWithTimeout(
     "stdio-bridge-shutdown",
     shutdownWindowsStdioBridgeService,

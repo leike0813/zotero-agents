@@ -217,6 +217,8 @@ export function createBackendManagerController(
   };
   let statusTimer: ReturnType<typeof setTimeout> | null = null;
   let piTestSequence = 0;
+  const mcpDiscovered: BackendManagerBuiltinAgentSnapshot["mcpDiscovered"] = {};
+  const mcpTestRequestIds: Record<string, string> = {};
   let lastPiTestRequestId = "";
   let disposed = false;
 
@@ -401,6 +403,8 @@ export function createBackendManagerController(
   function applySnapshot(payload: BackendManagerSnapshot | null): void {
     if (disposed) return;
     state.snapshot = payload || ({} as BackendManagerSnapshot);
+    if (state.snapshot.builtinAgent)
+      state.snapshot.builtinAgent.mcpDiscovered = { ...mcpDiscovered };
     state.rows = Array.isArray(state.snapshot.rows)
       ? state.snapshot.rows.map(cleanRow)
       : [];
@@ -428,6 +432,57 @@ export function createBackendManagerController(
       return;
     }
     if (action.startsWith("pi-")) {
+      if (action === "pi-mcp-test-source") {
+        const id = String(payload.id || "");
+        if (String(payload.requestId || "") !== mcpTestRequestIds[id]) return;
+      }
+      if (
+        action === "pi-mcp-test-source" &&
+        payload.ok === true &&
+        state.snapshot?.builtinAgent &&
+        Array.isArray(payload.tools)
+      ) {
+        mcpDiscovered[String(payload.id || "")] =
+          payload.tools as BackendManagerBuiltinAgentSnapshot["mcpDiscovered"][string];
+        state.snapshot.builtinAgent.mcpDiscovered = { ...mcpDiscovered };
+        renderCurrent();
+      }
+      if (
+        action === "pi-mcp-preview-import" &&
+        payload.ok === true &&
+        state.snapshot?.builtinAgent &&
+        Array.isArray(payload.sources) &&
+        Array.isArray(payload.secretSlots)
+      ) {
+        state.snapshot.builtinAgent.mcpImportPreview = {
+          sources: payload.sources as {
+            id: string;
+            transport: "http" | "stdio";
+            endpoint: string;
+            origin: string;
+            localNetwork: boolean;
+            cleartext: boolean;
+          }[],
+          secretSlots: payload.secretSlots as {
+            sourceId: string;
+            slot: string;
+          }[],
+        };
+        renderCurrent();
+      }
+      if (
+        action === "pi-mcp-export" &&
+        payload.ok === true &&
+        typeof payload.json === "string"
+      ) {
+        const file = new Blob([payload.json], { type: "application/json" });
+        const url = URL.createObjectURL(file);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = ".mcp.json";
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 0);
+      }
       if (payload.ok === false)
         showStatusMessage(String(payload.error || "Pi action failed"), "error");
       else if (action !== "pi-catalog-query")
@@ -702,6 +757,56 @@ export function createBackendManagerController(
         configurationId,
         requestId: lastPiTestRequestId,
       });
+    },
+    upsertMcpSource(source) {
+      delete mcpDiscovered[source.id];
+      delete mcpTestRequestIds[source.id];
+      deps.sendAction("pi-mcp-upsert-source", { source });
+    },
+    deleteMcpSource(id) {
+      delete mcpDiscovered[id];
+      delete mcpTestRequestIds[id];
+      deps.sendAction("pi-mcp-delete-source", { id });
+    },
+    testMcpSource(id) {
+      mcpTestRequestIds[id] = String(++piTestSequence);
+      deps.sendAction("pi-mcp-test-source", {
+        id,
+        requestId: mcpTestRequestIds[id],
+      });
+    },
+    reviewMcpTool(sourceId, name, digest, promoted) {
+      deps.sendAction("pi-mcp-review-tool", {
+        sourceId,
+        name,
+        digest,
+        promoted,
+      });
+    },
+    unreviewMcpTool(sourceId, name) {
+      deps.sendAction("pi-mcp-unreview-tool", { sourceId, name });
+    },
+    putMcpSecret(id, label, secret) {
+      deps.sendAction("pi-mcp-put-secret", { id, label, secret });
+    },
+    deleteMcpSecret(id) {
+      deps.sendAction("pi-mcp-delete-secret", { id });
+    },
+    importMcpJson(json, approvals) {
+      deps.sendAction("pi-mcp-import", { json, approvals });
+    },
+    previewMcpJson(json) {
+      if (state.snapshot?.builtinAgent) {
+        state.snapshot.builtinAgent.mcpImportPreview = undefined;
+        renderCurrent();
+      }
+      deps.sendAction("pi-mcp-preview-import", { json });
+    },
+    exportMcpJson() {
+      deps.sendAction("pi-mcp-export", {});
+    },
+    resetMcpRegistry() {
+      deps.sendAction("pi-mcp-reset-registry", {});
     },
   };
 

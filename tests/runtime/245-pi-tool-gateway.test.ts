@@ -85,6 +85,58 @@ async function rejects(work: () => Promise<unknown>, code: string) {
 }
 
 describe("Pi Tool Gateway shared behavior", function () {
+  it("binds hidden MCP catalog identity and admits external mutation as its own effect", async function () {
+    const item = fixture({
+      execute: async () => ({
+        status: "completed",
+        effectCertainty: "confirmed_complete",
+        value: { text: "done" },
+      }),
+      classify: () => ({
+        effects: ["bounded-read", "external-egress", "external-mutation"],
+        authorizationKeys: ["mcp:source"],
+        resourceKeys: ["mcp:source"],
+        cost: 1,
+      }),
+    });
+    const first = await turn([item.definition], {
+      hiddenCatalogDigest: "sha256:aaaa",
+      policy: {
+        systemAllowedEffects: [
+          "bounded-read",
+          "external-egress",
+          "external-mutation",
+        ],
+        authorizedEffects: [
+          "bounded-read",
+          "external-egress",
+          "external-mutation",
+        ],
+        authorizedKeys: ["mcp:source"],
+      },
+    });
+    const second = await turn([item.definition], {
+      hiddenCatalogDigest: "sha256:bbbb",
+      policy: {
+        systemAllowedEffects: [
+          "bounded-read",
+          "external-egress",
+          "external-mutation",
+        ],
+        authorizedEffects: [
+          "bounded-read",
+          "external-egress",
+          "external-mutation",
+        ],
+        authorizedKeys: ["mcp:source"],
+      },
+    });
+    assert.notEqual(first.catalog.digest, second.catalog.digest);
+    const result = await first.executeBatch([
+      { callId: "mcp", name: "fixture_read", arguments: { path: "p" } },
+    ]);
+    assert.equal(result.results[0].status, "completed");
+  });
   it("awaits canonical classification before authorization and executor start", async function () {
     const steps: string[] = [];
     const item = fixture({

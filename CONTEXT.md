@@ -269,3 +269,7 @@ _Avoid_: Workflow bundle builder, direct-export packager, Research Bundle servic
 **Host Bridge Locality Projection**:
 The sole remote-boundary conversion of process-local attachment DTOs into path-free opaque file handles or unavailable access descriptors. MCP reuses this projection through the Host Bridge capability handlers.
 _Avoid_: MCP attachment adapter, localhost path mode, path passthrough
+
+**Pi MCP Tool Source**:
+An explicitly configured outbound MCP endpoint or stdio process whose connection, credentials, selected tool reviews, and runtime catalog belong to the Built-in Agent profile. The registry stores safe references; the live catalog is a turn input, not durable state.
+_Avoid_: Inbound Zotero MCP server, model provider, generic backend profile

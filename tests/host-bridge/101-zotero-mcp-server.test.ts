@@ -37,6 +37,16 @@ import {
   type ZoteroHostCanonicalMutationControl,
 } from "../../src/modules/zoteroHostCapabilityBroker";
 import { createFailClosedZoteroHostCapabilityBroker } from "../helpers/zoteroHostCapabilityBrokerHarness";
+import { getPref, setPref } from "../../src/utils/prefs";
+import {
+  putPiCredential,
+  deletePiCredential,
+} from "../../src/modules/piCredentialStore";
+import { createPiMcpToolSources } from "../../src/modules/piMcpToolSources";
+import {
+  upsertPiMcpSource,
+  reviewPiMcpTool,
+} from "../../src/modules/piMcpSourceRegistry";
 
 const ZOTERO_MCP_TOOL_GET_CURRENT_VIEW = "context.get_current_view";
 const ZOTERO_MCP_TOOL_GET_SELECTED_ITEMS = "context.get_selected_items";
@@ -253,14 +263,9 @@ async function createMcpSdkClient(args: {
   if (isRealZoteroRuntime()) {
     throw new Error("MCP SDK client is only available in Node tests");
   }
-  const [{ Client }, { StreamableHTTPClientTransport }] = await Promise.all([
-    dynamicImport<typeof import("@modelcontextprotocol/sdk/client/index.js")>(
-      "@modelcontextprotocol/sdk/client/index.js",
-    ),
-    dynamicImport<
-      typeof import("@modelcontextprotocol/sdk/client/streamableHttp.js")
-    >("@modelcontextprotocol/sdk/client/streamableHttp.js"),
-  ]);
+  const { Client, StreamableHTTPClientTransport } = await dynamicImport<
+    typeof import("@modelcontextprotocol/client")
+  >("@modelcontextprotocol/client");
   const client = new Client({
     name: args.name,
     version: "0.0.0",
@@ -2644,6 +2649,76 @@ describe("embedded Zotero MCP server protocol", function () {
     } finally {
       await client.close();
       await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it("discovers and calls a reviewed outbound Pi MCP source over HTTP", async function () {
+    if (isRealZoteroRuntime()) this.skip();
+    this.timeout(15000);
+    const priorRegistry = String(getPref("piMcpSourceRegistryJson") || "");
+    const token = configureZoteroMcpServerForTests({
+      resolveZoteroHostCapabilityBroker: () =>
+        createFailClosedZoteroHostCapabilityBroker({
+          context: {
+            getCurrentView: () => ({
+              target: "library",
+              libraryId: 7,
+              libraryIds: [7],
+              selectionEmpty: true,
+              currentItem: null,
+              selectedSources: [],
+            }),
+          },
+        }),
+    });
+    const server = await createNodeMcpTestServer();
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    const address = server.address();
+    assert.isObject(address);
+    const url = `http://127.0.0.1:${(address as { port: number }).port}/mcp`;
+    const runtime = createPiMcpToolSources();
+    try {
+      await putPiCredential({
+        id: "mcp-http-fixture",
+        label: "HTTP fixture",
+        namespace: "mcp-source",
+        material: { kind: "mcp-secret", secret: `Bearer ${token}` },
+      });
+      upsertPiMcpSource({
+        id: "host-fixture",
+        label: "Host fixture",
+        transport: "http",
+        url,
+        enabled: true,
+        credentialSlots: { Authorization: "mcp-http-fixture" },
+        selectedTools: {},
+        localNetworkApproval: new URL(url).origin,
+      });
+      const found = await runtime.testSource("host-fixture");
+      const tool = found.find(
+        (entry) => entry.name === ZOTERO_MCP_TOOL_GET_CURRENT_VIEW,
+      );
+      assert.isOk(tool);
+      reviewPiMcpTool("host-fixture", tool!.name, tool!.digest, {
+        promoted: false,
+      });
+      const catalog = await runtime.getCatalogForTurn();
+      assert.lengthOf(catalog.tools, 1);
+      const result = await runtime.callTool(
+        catalog,
+        "host-fixture",
+        tool!.name,
+        {},
+        new AbortController().signal,
+      );
+      assert.equal(result.status, "completed");
+    } finally {
+      await runtime.dispose();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      setPref("piMcpSourceRegistryJson", priorRegistry);
+      await deletePiCredential("mcp-http-fixture", "mcp-source");
     }
   });
 

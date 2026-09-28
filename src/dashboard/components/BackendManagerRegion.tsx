@@ -240,6 +240,27 @@ export type BackendManagerRegionHandlers = {
   putPiCredential(input: { id: string; label: string; secret: string }): void;
   deletePiCredential(id: string): void;
   testPiConnection(configurationId: string): void;
+  upsertMcpSource(
+    source: import("../../shared/piMcpSourceContract").PiMcpSource,
+  ): void;
+  deleteMcpSource(id: string): void;
+  testMcpSource(id: string): void;
+  reviewMcpTool(
+    sourceId: string,
+    name: string,
+    digest: string,
+    promoted: boolean,
+  ): void;
+  unreviewMcpTool(sourceId: string, name: string): void;
+  putMcpSecret(id: string, label: string, secret: string): void;
+  deleteMcpSecret(id: string): void;
+  importMcpJson(
+    json: string,
+    approvals: Array<{ sourceId: string; origin: string; cleartext: boolean }>,
+  ): void;
+  previewMcpJson(json: string): void;
+  exportMcpJson(): void;
+  resetMcpRegistry(): void;
 };
 
 // ---------------------------------------------------------------------------
@@ -1160,6 +1181,503 @@ function PiConfigurationPanel(props: {
           {labelText(labels, "piRefresh", "Import / refresh")}
         </button>
       </section>
+      <PiMcpSourcesPanel value={value} labels={labels} handlers={handlers} />
+    </section>
+  );
+}
+
+function PiMcpSourcesPanel(props: {
+  value: BackendManagerBuiltinAgentSnapshot;
+  labels: BackendManagerLabels;
+  handlers: BackendManagerRegionHandlers;
+}) {
+  const { value, labels, handlers } = props;
+  const label = (key: string, fallback: string) =>
+    labelText(labels, `mcp${key}`, fallback);
+  const [draft, setDraft] = useState<
+    import("../../shared/piMcpSourceContract").PiMcpSource
+  >({
+    id: "",
+    label: "",
+    transport: "http",
+    url: "",
+    enabled: true,
+    credentialSlots: {},
+    selectedTools: {},
+  });
+  const [slot, setSlot] = useState("");
+  const [secretRef, setSecretRef] = useState("");
+  const [secret, setSecret] = useState("");
+  const [importJson, setImportJson] = useState("");
+  const [previewInput, setPreviewInput] = useState("");
+  const [importError, setImportError] = useState(false);
+  const [approvedOrigins, setApprovedOrigins] = useState<
+    Record<string, boolean>
+  >({});
+  const approvalKey = (source: { id: string; origin: string }) =>
+    `${source.id}\n${source.origin}`;
+  const patch = (value: Partial<typeof draft>) =>
+    setDraft((current) => ({ ...current, ...value }));
+  return (
+    <section class="backend-pi-credentials" data-pi-mcp-sources>
+      <h3>{label("Sources", "MCP Tool Sources")}</h3>
+      {value.mcpError ? (
+        <div role="alert">
+          <span>
+            {label("RegistryCorrupt", "MCP source settings are damaged.")}
+          </span>
+          <button
+            type="button"
+            class="backend-button danger"
+            onClick={() => {
+              if (
+                window.confirm(
+                  label("ResetConfirm", "Delete all MCP source settings?"),
+                )
+              )
+                handlers.resetMcpRegistry();
+            }}
+          >
+            {label("Reset", "Reset sources")}
+          </button>
+        </div>
+      ) : null}
+      <div class="backend-pi-grid">
+        <label class="backend-field">
+          <span>ID</span>
+          <input
+            class="backend-input"
+            data-mcp-field="id"
+            value={draft.id}
+            onInput={(event) =>
+              patch({ id: (event.target as HTMLInputElement).value })
+            }
+          />
+        </label>
+        <label class="backend-field">
+          <span>{label("Name", "Name")}</span>
+          <input
+            class="backend-input"
+            data-mcp-field="label"
+            value={draft.label}
+            onInput={(event) =>
+              patch({ label: (event.target as HTMLInputElement).value })
+            }
+          />
+        </label>
+        <label class="backend-field">
+          <span>{label("Transport", "Transport")}</span>
+          <select
+            class="backend-input"
+            value={draft.transport}
+            onChange={(event) =>
+              patch({
+                transport: (event.target as HTMLSelectElement).value as
+                  | "http"
+                  | "stdio",
+                url: undefined,
+                executable: undefined,
+                argv: [],
+                cwd: undefined,
+                selectedTools: {},
+              })
+            }
+          >
+            <option value="http">Streamable HTTP</option>
+            <option value="stdio">stdio</option>
+          </select>
+        </label>
+        {draft.transport === "http" ? (
+          <label class="backend-field">
+            <span>URL</span>
+            <input
+              class="backend-input"
+              data-mcp-field="url"
+              type="url"
+              value={draft.url || ""}
+              onInput={(event) =>
+                patch({ url: (event.target as HTMLInputElement).value })
+              }
+            />
+          </label>
+        ) : (
+          <>
+            <label class="backend-field">
+              <span>{label("Executable", "Executable")}</span>
+              <input
+                class="backend-input"
+                value={draft.executable || ""}
+                onInput={(event) =>
+                  patch({
+                    executable: (event.target as HTMLInputElement).value,
+                  })
+                }
+              />
+            </label>
+            <label class="backend-field">
+              <span>{label("Arguments", "Arguments (one per line)")}</span>
+              <textarea
+                class="backend-input"
+                value={(draft.argv || []).join("\n")}
+                onInput={(event) =>
+                  patch({
+                    argv: (event.target as HTMLTextAreaElement).value.split(
+                      "\n",
+                    ),
+                  })
+                }
+              />
+            </label>
+            <label class="backend-field">
+              <span>{label("Cwd", "Working directory")}</span>
+              <input
+                class="backend-input"
+                value={draft.cwd || ""}
+                onInput={(event) =>
+                  patch({ cwd: (event.target as HTMLInputElement).value })
+                }
+              />
+            </label>
+          </>
+        )}
+        <label class="backend-field">
+          <span>
+            {label(
+              "Slot",
+              "Credential slot (HTTP header / environment variable)",
+            )}
+          </span>
+          <input
+            class="backend-input"
+            value={slot}
+            onInput={(event) =>
+              setSlot((event.target as HTMLInputElement).value)
+            }
+          />
+        </label>
+        <label class="backend-field">
+          <span>{label("SecretId", "Saved credential ID")}</span>
+          <input
+            class="backend-input"
+            value={secretRef}
+            onInput={(event) =>
+              setSecretRef((event.target as HTMLInputElement).value)
+            }
+          />
+        </label>
+        <label class="backend-field">
+          <span>
+            <input
+              type="checkbox"
+              checked={draft.enabled}
+              onChange={(event) =>
+                patch({ enabled: (event.target as HTMLInputElement).checked })
+              }
+            />{" "}
+            {label("Enabled", "Enabled")}
+          </span>
+        </label>
+        {draft.transport === "http" && draft.url ? (
+          <label class="backend-field">
+            <span>
+              <input
+                type="checkbox"
+                checked={!!draft.localNetworkApproval}
+                onChange={(event) =>
+                  patch({
+                    localNetworkApproval: (event.target as HTMLInputElement)
+                      .checked
+                      ? new URL(draft.url || "").origin
+                      : undefined,
+                  })
+                }
+              />{" "}
+              {label("LocalNetwork", "Allow local network endpoint")}
+            </span>
+          </label>
+        ) : null}
+        {draft.transport === "http" && draft.url?.startsWith("http:") ? (
+          <label class="backend-field">
+            <span>
+              <input
+                type="checkbox"
+                checked={!!draft.cleartextApproval}
+                onChange={(event) =>
+                  patch({
+                    cleartextApproval: (event.target as HTMLInputElement)
+                      .checked
+                      ? new URL(draft.url || "").origin
+                      : undefined,
+                  })
+                }
+              />{" "}
+              {label("Cleartext", "Allow cleartext private endpoint")}
+            </span>
+          </label>
+        ) : null}
+      </div>
+      <button
+        type="button"
+        class="backend-button"
+        data-mcp-action="save-source"
+        onClick={() =>
+          handlers.upsertMcpSource({
+            ...draft,
+            credentialSlots:
+              slot && secretRef ? { [slot]: secretRef } : draft.credentialSlots,
+          })
+        }
+      >
+        {label("SaveSource", "Save source")}
+      </button>
+      <div class="backend-pi-grid">
+        <label class="backend-field">
+          <span>{label("SecretId", "Secret ID")}</span>
+          <input
+            class="backend-input"
+            value={secretRef}
+            onInput={(event) =>
+              setSecretRef((event.target as HTMLInputElement).value)
+            }
+          />
+        </label>
+        <label class="backend-field">
+          <span>{label("Secret", "Secret")}</span>
+          <input
+            class="backend-input"
+            type="password"
+            autocomplete="off"
+            value={secret}
+            onInput={(event) =>
+              setSecret((event.target as HTMLInputElement).value)
+            }
+          />
+        </label>
+      </div>
+      <button
+        type="button"
+        class="backend-button"
+        onClick={() => {
+          handlers.putMcpSecret(secretRef, secretRef, secret);
+          setSecret("");
+        }}
+      >
+        {label("SaveSecret", "Save secret")}
+      </button>
+      {value.mcpCredentials.map((entry) => (
+        <div class="backend-pi-credential-row" key={entry.id}>
+          <span>
+            {entry.label} ({entry.masked})
+          </span>
+          <button
+            type="button"
+            class="backend-button danger"
+            onClick={() => handlers.deleteMcpSecret(entry.id)}
+          >
+            {label("Clear", "Clear")}
+          </button>
+        </div>
+      ))}
+      {value.mcpSources.map((source) => (
+        <div class="backend-pi-credential-row" key={source.id}>
+          <strong>{source.label}</strong>
+          <span>
+            {source.transport === "http" ? source.url : source.executable}
+          </span>
+          <button
+            type="button"
+            class="backend-button"
+            onClick={() => {
+              setDraft(source);
+              const entry = Object.entries(source.credentialSlots)[0];
+              setSlot(entry?.[0] || "");
+              setSecretRef(entry?.[1] || "");
+            }}
+          >
+            {label("Edit", "Edit")}
+          </button>
+          <button
+            type="button"
+            class="backend-button"
+            onClick={() => handlers.testMcpSource(source.id)}
+          >
+            {label("Test", "Test / discover")}
+          </button>
+          <button
+            type="button"
+            class="backend-button danger"
+            onClick={() => handlers.deleteMcpSource(source.id)}
+          >
+            {label("Delete", "Delete")}
+          </button>
+          {(value.mcpDiscovered[source.id] || []).map((tool) => (
+            <div key={tool.name}>
+              <span>
+                {tool.name}: {tool.description || ""}
+              </span>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={
+                    source.selectedTools[tool.name]?.digest === tool.digest
+                  }
+                  onChange={(event) =>
+                    (event.target as HTMLInputElement).checked
+                      ? handlers.reviewMcpTool(
+                          source.id,
+                          tool.name,
+                          tool.digest,
+                          false,
+                        )
+                      : handlers.unreviewMcpTool(source.id, tool.name)
+                  }
+                />{" "}
+                {label("Select", "Select")}
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={!!source.selectedTools[tool.name]?.promoted}
+                  disabled={
+                    source.selectedTools[tool.name]?.digest !== tool.digest
+                  }
+                  onChange={(event) =>
+                    handlers.reviewMcpTool(
+                      source.id,
+                      tool.name,
+                      tool.digest,
+                      (event.target as HTMLInputElement).checked,
+                    )
+                  }
+                />{" "}
+                {label("Direct", "Direct")}
+              </label>
+            </div>
+          ))}
+        </div>
+      ))}
+      <label class="backend-field">
+        <span>{label("Import", "Import .mcp.json")}</span>
+        <input
+          type="file"
+          accept=".json,application/json"
+          onChange={async (event) => {
+            const file = (event.target as HTMLInputElement).files?.[0];
+            if (!file) return;
+            setPreviewInput("");
+            setApprovedOrigins({});
+            if (file.size > 1024 * 1024) {
+              setImportJson("");
+              setImportError(true);
+              return;
+            }
+            try {
+              setImportJson(await file.text());
+              setImportError(false);
+            } catch {
+              setImportJson("");
+              setImportError(true);
+            }
+          }}
+        />
+        <textarea
+          class="backend-input"
+          value={importJson}
+          onInput={(event) =>
+            setImportJson((event.target as HTMLTextAreaElement).value)
+          }
+        />
+      </label>
+      {importError ? (
+        <span role="alert">
+          {label(
+            "ImportReadFailed",
+            "Could not read this file (limit: 1 MiB).",
+          )}
+        </span>
+      ) : null}
+      <button
+        type="button"
+        class="backend-button"
+        onClick={() => {
+          setPreviewInput(importJson);
+          setApprovedOrigins({});
+          handlers.previewMcpJson(importJson);
+        }}
+      >
+        {label("Preview", "Preview import")}
+      </button>
+      {value.mcpImportPreview && previewInput === importJson ? (
+        <div>
+          <span>
+            {value.mcpImportPreview.sources
+              .map(
+                (source) =>
+                  `${source.id} (${source.transport}: ${source.endpoint}${source.localNetwork ? `, ${label("LocalNetwork", "Allow local network endpoint")}` : ""}${source.cleartext ? `, ${label("Cleartext", "Allow cleartext private endpoint")}` : ""})`,
+              )
+              .join(", ")}
+            ; {value.mcpImportPreview.secretSlots.length}{" "}
+            {label("SecretSlots", "secret slots")}
+          </span>
+          {value.mcpImportPreview.sources
+            .filter((source) => source.localNetwork)
+            .map((source) => (
+              <label key={approvalKey(source)}>
+                <input
+                  type="checkbox"
+                  checked={!!approvedOrigins[approvalKey(source)]}
+                  onChange={(event) =>
+                    setApprovedOrigins((current) => ({
+                      ...current,
+                      [approvalKey(source)]: (event.target as HTMLInputElement)
+                        .checked,
+                    }))
+                  }
+                />{" "}
+                {source.id}: {source.origin} —{" "}
+                {label("LocalNetwork", "Allow local network endpoint")}
+                {source.cleartext
+                  ? `; ${label("Cleartext", "Allow cleartext private endpoint")}`
+                  : ""}
+              </label>
+            ))}
+          <button
+            type="button"
+            class="backend-button"
+            disabled={value.mcpImportPreview.sources.some(
+              (source) =>
+                source.localNetwork && !approvedOrigins[approvalKey(source)],
+            )}
+            onClick={() => {
+              handlers.importMcpJson(
+                previewInput,
+                value
+                  .mcpImportPreview!.sources.filter(
+                    (source) =>
+                      source.localNetwork &&
+                      approvedOrigins[approvalKey(source)],
+                  )
+                  .map((source) => ({
+                    sourceId: source.id,
+                    origin: source.origin,
+                    cleartext: source.cleartext,
+                  })),
+              );
+              setImportJson("");
+              setPreviewInput("");
+            }}
+          >
+            {label("ConfirmImport", "Import")}
+          </button>
+        </div>
+      ) : null}
+      <button
+        type="button"
+        class="backend-button"
+        onClick={() => handlers.exportMcpJson()}
+      >
+        {label("Export", "Export template")}
+      </button>
     </section>
   );
 }

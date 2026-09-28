@@ -4,15 +4,8 @@ import { assertWorkflowHostStrictJsonValue } from "../workflows/workflowHostErro
 import { sha256PrefixedHex } from "../utils/sha256";
 import { resolveNativeAbortControllerConstructor } from "../utils/wait";
 
-export type PiGatewayEffect =
-  | "bounded-read"
-  | "workspace-mutation"
-  | "code-execution"
-  | "external-egress"
-  | "local-network"
-  | "zotero-mutation"
-  | "host-control"
-  | "forbidden";
+import type { PiGatewayEffect } from "../shared/piToolGatewayContract";
+export type { PiGatewayEffect } from "../shared/piToolGatewayContract";
 
 export type PiGatewayCertainty =
   | "not_applicable"
@@ -140,6 +133,7 @@ export type PiGatewayPendingCall = {
 export type PiGatewayTurnInput = {
   owner: PiGatewayAttemptReceipt["owner"];
   turnId: string;
+  hiddenCatalogDigest?: string;
   definitions: PiGatewayToolDefinition[];
   policy: PiGatewayPolicy;
   runtimeCapability: { identity: string; availableCapabilityIds: string[] };
@@ -189,6 +183,7 @@ const EFFECTS = new Set<PiGatewayEffect>([
   "workspace-mutation",
   "code-execution",
   "external-egress",
+  "external-mutation",
   "local-network",
   "zotero-mutation",
   "host-control",
@@ -405,9 +400,16 @@ export async function freezePiToolGatewayTurn(
       schema,
     })),
   );
-  const catalogDigest = await digest(
-    visible.map(({ descriptorDigest }) => descriptorDigest),
-  );
+  if (
+    input.hiddenCatalogDigest !== undefined &&
+    (typeof input.hiddenCatalogDigest !== "string" ||
+      !/^sha256:[a-f0-9]+$/i.test(input.hiddenCatalogDigest))
+  )
+    throw new Error("pi_gateway_catalog_identity_invalid");
+  const catalogDigest = await digest({
+    definitions: visible.map(({ descriptorDigest }) => descriptorDigest),
+    hiddenCatalogDigest: input.hiddenCatalogDigest || null,
+  });
   const catalog = Object.freeze({ digest: catalogDigest, tools });
   const envelopeDigest = await digest(policy as unknown as JsonValue);
   const runtimeCapabilityDigest = await digest({

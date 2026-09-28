@@ -268,6 +268,9 @@ describe("dashboard backend-manager page (src/dashboard)", function () {
         configurations: [],
         configurationStatus: {},
         credentials: [],
+        mcpSources: [],
+        mcpCredentials: [],
+        mcpDiscovered: {},
         defaults: {},
         overlayPath: "",
         catalog: {
@@ -290,8 +293,101 @@ describe("dashboard backend-manager page (src/dashboard)", function () {
     assert.ok(page.root.querySelector("[data-pi-field='provider']"));
     clickButton(page.root.querySelector("[data-pi-action='save']"));
     assert.equal(page.actions.at(-1)?.action, "pi-upsert-configuration");
+    for (const [field, value] of [
+      ["id", "mcp-fixture"],
+      ["label", "MCP fixture"],
+      ["url", "https://example.org/mcp"],
+    ]) {
+      const input = page.root.querySelector(
+        `[data-mcp-field='${field}']`,
+      ) as HTMLInputElement;
+      input.value = value;
+      input.dispatchEvent(new window.Event("input", { bubbles: true }));
+    }
+    clickButton(page.root.querySelector("[data-mcp-action='save-source']"));
+    assert.equal(page.actions.at(-1)?.action, "pi-mcp-upsert-source");
     assert.equal(page.controller.state.rows.length, 3);
     assert.isFalse(page.actions.some((entry) => entry.action === "save"));
+  });
+
+  it("ignores an older MCP discovery result for the same source", function () {
+    const page = createPage();
+    initPage(page, {
+      builtinAgent: {
+        configurations: [],
+        configurationStatus: {},
+        credentials: [],
+        mcpSources: [
+          {
+            id: "mcp-fixture",
+            label: "MCP fixture",
+            transport: "http",
+            url: "https://example.org/mcp",
+            enabled: true,
+            credentialSlots: {},
+            selectedTools: {},
+          },
+        ],
+        mcpCredentials: [],
+        mcpDiscovered: {},
+        defaults: {},
+        overlayPath: "",
+        catalog: {
+          status: "ready",
+          revision: "r1",
+          modelCount: 0,
+          providers: [],
+        },
+        models: [],
+      },
+    });
+    const tabs = Array.from(
+      page.root.querySelectorAll(".backend-provider-tab"),
+    );
+    clickButton(tabs[tabs.length - 1]);
+    const test = page.root.querySelectorAll(
+      ".backend-pi-credential-row button",
+    )[1];
+    clickButton(test);
+    clickButton(test);
+    const requests = page.actions.filter(
+      (entry) => entry.action === "pi-mcp-test-source",
+    );
+    assert.lengthOf(requests, 2);
+    assert.notEqual(
+      requests[0].payload.requestId,
+      requests[1].payload.requestId,
+    );
+    page.controller.handleMessage({
+      type: "backend-manager-dialog:action-result",
+      payload: {
+        action: "pi-mcp-test-source",
+        ok: true,
+        id: "mcp-fixture",
+        requestId: requests[0].payload.requestId,
+        tools: [{ name: "old", digest: "old" }],
+      },
+    });
+    assert.deepEqual(
+      page.controller.state.snapshot!.builtinAgent!.mcpDiscovered,
+      {},
+    );
+    page.controller.handleMessage({
+      type: "backend-manager-dialog:action-result",
+      payload: {
+        action: "pi-mcp-test-source",
+        ok: true,
+        id: "mcp-fixture",
+        requestId: requests[1].payload.requestId,
+        tools: [{ name: "current", digest: "current" }],
+      },
+    });
+    assert.equal(
+      page.controller.state.snapshot!.builtinAgent!.mcpDiscovered[
+        "mcp-fixture"
+      ][0].name,
+      "current",
+    );
   });
 
   it("submits API keys once and starts connection tests only on click", async function () {
@@ -310,6 +406,9 @@ describe("dashboard backend-manager page (src/dashboard)", function () {
         ],
         configurationStatus: { "pi-config": "needs-auth" },
         credentials: [],
+        mcpSources: [],
+        mcpCredentials: [],
+        mcpDiscovered: {},
         defaults: {},
         overlayPath: "",
         catalog: {
