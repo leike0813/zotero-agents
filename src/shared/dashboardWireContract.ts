@@ -405,7 +405,10 @@ export type BackendManagerActionName =
   | "pi-delete-configuration"
   | "pi-set-defaults"
   | "pi-refresh-overlay"
-  | "pi-catalog-query";
+  | "pi-catalog-query"
+  | "pi-put-credential"
+  | "pi-delete-credential"
+  | "pi-test-connection";
 
 export type BackendManagerBuiltinAgentSnapshot = {
   configurations: import("./piProviderContract").PiProviderConfiguration[];
@@ -482,6 +485,16 @@ export type BackendManagerActionPayloadMap = {
   "pi-catalog-query": DashboardActionPayloadShape<{
     provider: string;
     query: string;
+  }>;
+  "pi-put-credential": DashboardActionPayloadShape<{
+    id: string;
+    label: string;
+    secret: string;
+  }>;
+  "pi-delete-credential": DashboardActionPayloadShape<{ id: string }>;
+  "pi-test-connection": DashboardActionPayloadShape<{
+    configurationId: string;
+    requestId: string;
   }>;
 };
 

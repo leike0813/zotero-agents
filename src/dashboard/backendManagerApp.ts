@@ -216,6 +216,8 @@ export function createBackendManagerController(
     genericHttpPresetDialog: null,
   };
   let statusTimer: ReturnType<typeof setTimeout> | null = null;
+  let piTestSequence = 0;
+  let lastPiTestRequestId = "";
   let disposed = false;
 
   function isSkillRunnerReachable(row: BackendManagerDraftRow): boolean {
@@ -413,6 +415,18 @@ export function createBackendManagerController(
   function handleActionResult(payload: Record<string, unknown>): void {
     if (disposed) return;
     const action = String(payload.action || "");
+    if (action === "pi-test-connection") {
+      if (String(payload.requestId || "") !== lastPiTestRequestId) return;
+      showStatusMessage(
+        payload.ok === true
+          ? state.snapshot?.labels.piConnectionAvailable ||
+              "Connection available"
+          : state.snapshot?.labels.piConnectionUnavailable ||
+              "Connection unavailable",
+        payload.ok === true ? "success" : "error",
+      );
+      return;
+    }
     if (action.startsWith("pi-")) {
       if (payload.ok === false)
         showStatusMessage(String(payload.error || "Pi action failed"), "error");
@@ -675,6 +689,19 @@ export function createBackendManagerController(
     },
     queryPiCatalog(provider, query) {
       deps.sendAction("pi-catalog-query", { provider, query });
+    },
+    putPiCredential(input) {
+      deps.sendAction("pi-put-credential", input);
+    },
+    deletePiCredential(id) {
+      deps.sendAction("pi-delete-credential", { id });
+    },
+    testPiConnection(configurationId) {
+      lastPiTestRequestId = String(++piTestSequence);
+      deps.sendAction("pi-test-connection", {
+        configurationId,
+        requestId: lastPiTestRequestId,
+      });
     },
   };
 

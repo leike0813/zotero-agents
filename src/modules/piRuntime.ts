@@ -14,16 +14,51 @@ export type PiRuntimeModelInput = {
   signal: AbortSignal;
 };
 
-/** Internal model-stream seam; provider selection and credentials arrive in later changes. */
+/** Internal model-stream seam; the selected Provider source supplies text deltas. */
 export type PiRuntimeModelSource = (
   input: PiRuntimeModelInput,
 ) => AsyncIterable<string>;
+
+export type PiModelFailureCode =
+  | "credential_missing"
+  | "provider_auth_failed"
+  | "unsupported_provider"
+  | "unsupported_model"
+  | "provider_unavailable"
+  | "provider_rate_limited"
+  | "provider_network_error"
+  | "provider_http_error"
+  | "provider_stream_error"
+  | "aborted";
+
+const MODEL_FAILURE_CODES = new Set<string>([
+  "credential_missing",
+  "provider_auth_failed",
+  "unsupported_provider",
+  "unsupported_model",
+  "provider_unavailable",
+  "provider_rate_limited",
+  "provider_network_error",
+  "provider_http_error",
+  "provider_stream_error",
+  "aborted",
+]);
+
+export class PiModelStreamFailure extends Error {
+  constructor(readonly code: PiModelFailureCode) {
+    super(code);
+    this.name = "PiModelStreamFailure";
+  }
+}
 
 export type PiTurnResult =
   | { status: "completed"; text: string }
   | {
       status: "failed";
-      failure: { code: "model_failed" | "runtime_failed"; message: string };
+      failure: {
+        code: "model_failed" | "runtime_failed" | PiModelFailureCode;
+        message: string;
+      };
     }
   | { status: "canceled" };
 
@@ -174,11 +209,16 @@ function streamFrom(modelStream: PiRuntimeModelSource): StreamFn {
             message: modelMessage(model, text, "stop"),
           });
         }
-      } catch {
+      } catch (error) {
         stream.push({
           type: "error",
           reason: "error",
-          error: modelMessage(model, text, "error", "model_failed"),
+          error: modelMessage(
+            model,
+            text,
+            "error",
+            error instanceof PiModelStreamFailure ? error.code : "model_failed",
+          ),
         });
       }
     })();
@@ -218,6 +258,8 @@ export class PiRuntime {
         let terminal = false;
         let text = "";
         let nativeFailure = false;
+        let nativeFailureCode: PiModelFailureCode | "model_failed" =
+          "model_failed";
         const publish = (event: PiRuntimeEventPayload) => {
           events.push({ ...event, sessionId, turnId, sequence: ++sequence });
         };
@@ -240,6 +282,13 @@ export class PiRuntime {
             event.message.role === "assistant"
           ) {
             nativeFailure = event.message.stopReason === "error";
+            if (
+              nativeFailure &&
+              event.message.errorMessage &&
+              MODEL_FAILURE_CODES.has(event.message.errorMessage)
+            )
+              nativeFailureCode = event.message
+                .errorMessage as PiModelFailureCode;
           }
         });
         const abort = () => {
@@ -261,7 +310,7 @@ export class PiRuntime {
                 ? {
                     status: "failed",
                     failure: {
-                      code: "model_failed",
+                      code: nativeFailureCode,
                       message: "Model execution failed",
                     },
                   }

@@ -16,6 +16,7 @@ import {
 import { isWindowAlive } from "../../../utils/window";
 import { getString } from "../../../utils/locale";
 import { resolveAddonRef } from "../../../utils/runtimeBridge";
+import { resolveNativeAbortControllerConstructor } from "../../../utils/wait";
 import { buildSkillRunnerManagementUiUrl } from "../../skillRunner/surface/skillRunnerManagementDialog";
 import { openZoteroSkillsWorkspaceTab } from "../../workspaceTab";
 import type { BackendInstance } from "../../../backends/types";
@@ -58,13 +59,18 @@ import type {
   BackendManagerBuiltinAgentSnapshot,
 } from "../../../shared/dashboardWireContract";
 import type { PiCatalog } from "../../piModelCatalog";
-import { listPiCredentials } from "../../piCredentialStore";
+import {
+  deletePiCredential,
+  listPiCredentials,
+  putPiCredential,
+} from "../../piCredentialStore";
 import {
   deletePiProviderConfiguration,
   loadPiProviderConfigurationState,
   setPiOverlayPath,
   setPiProviderDefaults,
   upsertPiProviderConfiguration,
+  resolvePiModelSelection,
   type PiProviderConfiguration,
   type PiProviderDefaults,
 } from "../../piProviderConfiguration";
@@ -2362,6 +2368,34 @@ function buildBackendManagerLabels() {
       "backend-manager-pi-credentials",
       "Saved credentials",
     ),
+    piCredentialLabel: localizeBackendManager(
+      "backend-manager-pi-credential-label",
+      "Key label",
+    ),
+    piCredentialSecret: localizeBackendManager(
+      "backend-manager-pi-credential-secret",
+      "API key",
+    ),
+    piSaveCredential: localizeBackendManager(
+      "backend-manager-pi-save-credential",
+      "Save API key",
+    ),
+    piClearCredential: localizeBackendManager(
+      "backend-manager-pi-clear-credential",
+      "Clear",
+    ),
+    piTestConnection: localizeBackendManager(
+      "backend-manager-pi-test-connection",
+      "Test connection",
+    ),
+    piConnectionAvailable: localizeBackendManager(
+      "backend-manager-pi-connection-available",
+      "Connection available",
+    ),
+    piConnectionUnavailable: localizeBackendManager(
+      "backend-manager-pi-connection-unavailable",
+      "Connection unavailable",
+    ),
     piEndpoint: localizeBackendManager(
       "backend-manager-pi-endpoint",
       "Custom endpoint",
@@ -2960,6 +2994,52 @@ export async function openBackendManagerDialog(
                 });
                 setPiOverlayPath(path);
                 activePiCatalogError = "";
+              } else if (action === "pi-put-credential") {
+                await putPiCredential({
+                  id: String(payload.id || "").trim() || randomId(),
+                  label: String(payload.label || ""),
+                  material: {
+                    kind: "api-key",
+                    secret: String(payload.secret || ""),
+                  },
+                });
+              } else if (action === "pi-delete-credential") {
+                await deletePiCredential(String(payload.id || ""));
+              } else if (action === "pi-test-connection") {
+                if (!activePiCatalog) throw new Error("Provider unavailable");
+                const selection = resolvePiModelSelection({
+                  kind: "conversation",
+                  catalog: activePiCatalog,
+                  credentials: listPiCredentials(),
+                  explicit: {
+                    configurationId: String(payload.configurationId || ""),
+                  },
+                });
+                const AbortControllerCtor =
+                  resolveNativeAbortControllerConstructor();
+                if (!AbortControllerCtor)
+                  throw new Error("Provider unavailable");
+                const controller = new AbortControllerCtor();
+                const timeout = setTimeout(() => controller.abort(), 20_000);
+                try {
+                  const { createPiApiKeyModelSource } =
+                    await import("../../piApiKeyProviderExecution");
+                  for await (const _ of createPiApiKeyModelSource(selection)({
+                    systemPrompt: "",
+                    messages: [{ role: "user", text: "Reply OK." }],
+                    signal: controller.signal,
+                  })) {
+                    // A completed stream is the connection-test success boundary.
+                  }
+                } finally {
+                  clearTimeout(timeout);
+                }
+                postToFrame("backend-manager-dialog:action-result", {
+                  action,
+                  ok: true,
+                  requestId: String(payload.requestId || ""),
+                });
+                return;
               } else {
                 throw new Error("Unknown Pi action");
               }
@@ -2969,10 +3049,27 @@ export async function openBackendManagerDialog(
               });
               pushSnapshot("backend-manager-dialog:snapshot");
             } catch (error) {
+              const sensitive =
+                action === "pi-put-credential" ||
+                action === "pi-delete-credential" ||
+                action === "pi-test-connection";
+              const failureCode =
+                action === "pi-test-connection" &&
+                error instanceof
+                  (await import("../../piRuntime")).PiModelStreamFailure
+                  ? error.code
+                  : "provider_unavailable";
               postToFrame("backend-manager-dialog:action-result", {
                 action,
                 ok: false,
-                error: String(error),
+                ...(action === "pi-test-connection"
+                  ? {
+                      requestId: String(payload.requestId || ""),
+                      code: failureCode,
+                    }
+                  : {
+                      error: sensitive ? "Pi action failed" : String(error),
+                    }),
               });
             }
           })();

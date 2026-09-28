@@ -294,6 +294,122 @@ describe("dashboard backend-manager page (src/dashboard)", function () {
     assert.isFalse(page.actions.some((entry) => entry.action === "save"));
   });
 
+  it("submits API keys once and starts connection tests only on click", async function () {
+    const page = createPage();
+    initPage(page, {
+      builtinAgent: {
+        configurations: [
+          {
+            id: "pi-config",
+            label: "Pi",
+            provider: "openai",
+            modelId: "test-model",
+            authVariant: "api-key",
+            enabled: true,
+          },
+        ],
+        configurationStatus: { "pi-config": "needs-auth" },
+        credentials: [],
+        defaults: {},
+        overlayPath: "",
+        catalog: {
+          status: "ready",
+          revision: "r1",
+          modelCount: 1,
+          providers: ["openai"],
+        },
+        models: [{ provider: "openai", id: "test-model", name: "Test" }],
+      },
+    });
+    const tabs = Array.from(
+      page.root.querySelectorAll(".backend-provider-tab"),
+    );
+    clickButton(tabs[tabs.length - 1]);
+    const config = page.root.querySelector(
+      "[data-pi-field='configuration']",
+    ) as HTMLSelectElement;
+    config.value = "pi-config";
+    fireChange(config);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.isFalse(
+      page.actions.some((entry) => entry.action === "pi-test-connection"),
+    );
+    fireInput(
+      page.root.querySelector("[data-pi-field='credential-label']")!,
+      "Personal",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fireInput(
+      page.root.querySelector("[data-pi-field='credential-secret']")!,
+      "private-secret",
+    );
+    clickButton(page.root.querySelector("[data-pi-action='credential-save']"));
+    const submitted = page.actions.find(
+      (entry) => entry.action === "pi-put-credential",
+    );
+    assert.isOk(submitted);
+    assert.equal(submitted?.payload.secret, "private-secret");
+    assert.notInclude(
+      JSON.stringify(page.controller.state.snapshot),
+      "private-secret",
+    );
+    assert.equal(
+      (
+        page.root.querySelector(
+          "[data-pi-field='credential-secret']",
+        ) as HTMLInputElement
+      ).value,
+      "",
+    );
+    clickButton(page.root.querySelector("[data-pi-action='connection-test']"));
+    const tested = page.actions.find(
+      (entry) => entry.action === "pi-test-connection",
+    );
+    assert.isOk(tested);
+    assert.equal(tested?.payload.configurationId, "pi-config");
+    page.controller.handleMessage({
+      type: "backend-manager-dialog:action-result",
+      payload: {
+        action: "pi-test-connection",
+        requestId: tested?.payload.requestId,
+        ok: false,
+        code: "provider_auth_failed",
+      },
+    });
+    assert.include(
+      page.root.querySelector(".backend-footer-status")?.textContent || "",
+      "Connection unavailable",
+    );
+    assert.notInclude(page.root.textContent || "", "provider_auth_failed");
+    const snapshot = page.controller.state.snapshot!;
+    page.controller.handleMessage({
+      type: "backend-manager-dialog:snapshot",
+      payload: {
+        ...snapshot,
+        builtinAgent: {
+          ...snapshot.builtinAgent!,
+          credentials: [
+            {
+              id: "saved-key",
+              label: "Personal",
+              kind: "api-key",
+              masked: "••••",
+              updatedAt: "2026-09-28T00:00:00.000Z",
+            },
+          ],
+        },
+      },
+    });
+    const clear = page.root.querySelector(".backend-pi-credential-row button");
+    clickButton(clear);
+    assert.equal(
+      page.actions.find((entry) => entry.action === "pi-delete-credential")
+        ?.payload.id,
+      "saved-key",
+    );
+    assert.equal(page.controller.state.rows.length, 3);
+  });
+
   it("renders loading until init, then sorted tabs and the active provider rows", function () {
     const page = createPage();
     assert.equal(

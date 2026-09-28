@@ -261,6 +261,12 @@ This is a single-context repository using a root `CONTEXT.md` and root `docs/adr
 - `maintenance-started` 按 operation 只发布一次：initial/retry insert winner 发布，continue 不发布。所有 success、failure、cancel、timeout、spawn failure 与 restart classification 只能由 terminal compare-and-set winner 发布 `maintenance-terminal`；后续 trace 必须按 operation ID 解除 originating trace 的 active pin。
 - maintenance interface 只返回 typed operation view/receipt，不得向 wire adapter、Workbench 或 Host observation 暴露 `OperationRecord`、持久化 basis 或 diagnostics storage 格式。分页缓存、Host receipt inference 和进程内事件不得成为 durable operation 正确性的事实源。
 
+# 内置 Pi Provider 执行硬约束
+
+- `src/modules/piApiKeyProviderExecution.ts` 只接受 C03 已解析的冻结选择快照；每次调用仅读取该快照引用的加密凭据，显式无密钥的 OpenAI 兼容自定义端点在发请求前移除授权头。本地端点须先通过调用方的 Local Network 授权。
+- Provider 响应正文、头、原生异常和密钥不得进入 `PiRuntime` 终态、Backend Manager 快照、页面消息或日志；失败只传项目自有的结构化码。连接测试须由用户动作触发，并按请求 ID 关联结果。
+- 插件浏览器包只允许精确的 `provider-env.js → node:fs` 不可达导入 guard；其它 Node/Bun builtin 继续由浏览器构建拒绝。Provider 版本或导入图变动后，重跑构建和真实 Zotero 定向用例。
+
 # Workflow Host Runtime Adaptation硬约束
 
 - `src/modules/runtimePersistence.ts` 是跨运行时文件系统 adapter 选择的唯一事实源；Workflow Host、输入物化、图片准备、附件导入等模块不得自行选择 `IOUtils`、`OS.File`、Node filesystem 或 Components stream。

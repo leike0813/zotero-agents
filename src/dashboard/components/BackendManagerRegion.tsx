@@ -8,7 +8,7 @@
 // calls FTL itself.
 
 import { memo } from "preact/compat";
-import { useState } from "preact/hooks";
+import { useRef, useState } from "preact/hooks";
 
 export type { BackendManagerActionEnvelope } from "../../shared/dashboardWireContract";
 import type { BackendManagerBuiltinAgentSnapshot } from "../../shared/dashboardWireContract";
@@ -237,6 +237,9 @@ export type BackendManagerRegionHandlers = {
   setPiDefaults(defaults: PiProviderDefaults): void;
   refreshPiOverlay(path: string): void;
   queryPiCatalog(provider: string, query: string): void;
+  putPiCredential(input: { id: string; label: string; secret: string }): void;
+  deletePiCredential(id: string): void;
+  testPiConnection(configurationId: string): void;
 };
 
 // ---------------------------------------------------------------------------
@@ -751,6 +754,8 @@ function PiConfigurationPanel(props: {
   });
   const [defaults, setDefaults] = useState<PiProviderDefaults>(value.defaults);
   const [overlayPath, setOverlayPath] = useState(value.overlayPath);
+  const [credentialLabel, setCredentialLabel] = useState("");
+  const secretInput = useRef<HTMLInputElement>(null);
   const statusLabels: Record<string, string> = {
     configured: labelText(labels, "piStatusConfigured", "Configured"),
     disabled: labelText(labels, "disabled", "Disabled"),
@@ -875,6 +880,7 @@ function PiConfigurationPanel(props: {
           <span>{labelText(labels, "piConfigurations", "Configurations")}</span>
           <select
             class="backend-input"
+            data-pi-field="configuration"
             value={draft.id}
             onChange={(event) => {
               const id = (event.target as HTMLSelectElement).value;
@@ -1040,6 +1046,16 @@ function PiConfigurationPanel(props: {
             {labelText(labels, "remove", "Remove")}
           </button>
         ) : null}
+        {draft.id ? (
+          <button
+            type="button"
+            class="backend-button"
+            data-pi-action="connection-test"
+            onClick={() => handlers.testPiConnection(draft.id)}
+          >
+            {labelText(labels, "piTestConnection", "Test connection")}
+          </button>
+        ) : null}
       </div>
       <section class="backend-pi-defaults">
         <h3>{labelText(labels, "piDefaults", "Defaults")}</h3>
@@ -1065,11 +1081,63 @@ function PiConfigurationPanel(props: {
       </section>
       <section class="backend-pi-credentials">
         <h3>{labelText(labels, "piCredentials", "Saved credentials")}</h3>
+        <div class="backend-pi-grid">
+          <label class="backend-field">
+            <span>{labelText(labels, "piCredentialLabel", "Key label")}</span>
+            <input
+              class="backend-input"
+              data-pi-field="credential-label"
+              value={credentialLabel}
+              onInput={(event) =>
+                setCredentialLabel((event.target as HTMLInputElement).value)
+              }
+            />
+          </label>
+          <label class="backend-field">
+            <span>{labelText(labels, "piCredentialSecret", "API key")}</span>
+            <input
+              class="backend-input"
+              type="password"
+              data-pi-field="credential-secret"
+              ref={secretInput}
+              autocomplete="off"
+            />
+          </label>
+        </div>
+        <button
+          type="button"
+          class="backend-button"
+          data-pi-action="credential-save"
+          onClick={() => {
+            const secret = secretInput.current?.value || "";
+            if (secretInput.current) secretInput.current.value = "";
+            if (!credentialLabel.trim() || !secret.trim()) return;
+            handlers.putPiCredential({
+              id:
+                draft.authVariant === "api-key"
+                  ? draft.credentialRef || ""
+                  : "",
+              label: credentialLabel,
+              secret,
+            });
+          }}
+        >
+          {labelText(labels, "piSaveCredential", "Save API key")}
+        </button>
         {value.credentials.map((entry) => (
           <div class="backend-pi-credential-row" key={entry.id}>
             <span>
               {entry.label} ({entry.masked})
             </span>
+            {entry.kind === "api-key" ? (
+              <button
+                type="button"
+                class="backend-button danger"
+                onClick={() => handlers.deletePiCredential(entry.id)}
+              >
+                {labelText(labels, "piClearCredential", "Clear")}
+              </button>
+            ) : null}
           </div>
         ))}
       </section>

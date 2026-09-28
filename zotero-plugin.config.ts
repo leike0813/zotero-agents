@@ -1,4 +1,5 @@
 import { defineConfig } from "zotero-plugin-scaffold";
+import type { Plugin } from "esbuild";
 import path from "node:path";
 import { promises as fs } from "node:fs";
 import pkg from "./package.json";
@@ -21,6 +22,26 @@ import {
   materializeCommittedSeed,
   readFixtureRegistry,
 } from "./scripts/system-e2e/fixture";
+
+export const piProviderEnvGuardPlugin: Plugin = {
+  name: "pi-provider-env-guard",
+  setup(build) {
+    build.onResolve({ filter: /^node:fs$/ }, (args) =>
+      args.importer
+        .replace(/\\/g, "/")
+        .endsWith(
+          "/node_modules/@earendil-works/pi-ai/dist/utils/provider-env.js",
+        )
+        ? { path: args.path, namespace: "pi-provider-env-guard" }
+        : undefined,
+    );
+    build.onLoad({ filter: /.*/, namespace: "pi-provider-env-guard" }, () => ({
+      contents:
+        'throw new Error("provider-env node:fs branch is unavailable in Zotero");',
+      loader: "js",
+    }));
+  },
+};
 
 export type TestDomain = "all" | "core" | "ui" | "workflow" | "e2e";
 type TestMode = "lite" | "full";
@@ -376,7 +397,10 @@ export default defineConfig({
         },
         bundle: true,
         minifySyntax: true,
-        plugins: [runtimeDiagnosticsSideEffectsPlugin],
+        plugins: [
+          runtimeDiagnosticsSideEffectsPlugin,
+          piProviderEnvGuardPlugin,
+        ],
         target: "firefox115",
         outfile: `.scaffold/build/addon/content/scripts/${pkg.config.addonRef}.js`,
       },

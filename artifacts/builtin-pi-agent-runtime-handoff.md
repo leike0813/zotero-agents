@@ -3,7 +3,7 @@
 - 状态核对：2026-09-28
 - 工作分支：`dev-agent-harness`
 - 实施路线：[地图 #10](https://github.com/leike0813/zotero-agents/issues/10)、[执行计划 #26](https://github.com/leike0813/zotero-agents/issues/26)
-- 已实现切片：W0 C01（提交 `fbd297d4`）、W1 C02（提交 `1da0cd84`）、W1 C03（提交 `ef91407c`）、W1 C07（提交 `f5ce9fe6`）。W1 C09 已完成实施任务，尚未归档。[C01 归档 change](../openspec/changes/archive/2026-09-27-establish-pi-runtime-contract-and-spine/)、[C02 归档 change](../openspec/changes/archive/2026-09-27-establish-pi-owner-persistence/)、[C03 归档 change](../openspec/changes/archive/2026-09-28-establish-pi-provider-configuration/)、[C07 归档 change](../openspec/changes/archive/2026-09-28-establish-pi-tool-gateway-policy/)、[C09 活跃 change](../openspec/changes/generalize-windows-stdio-process-bridge/)
+- 已实现切片：W0 C01（提交 `fbd297d4`）、W1 C02（提交 `1da0cd84`）、W1 C03（提交 `ef91407c`）、W1 C07（提交 `f5ce9fe6`）、W1 C09（提交 `5077c7b3`），以及本次尚未提交的 W2 C04。[C01 归档 change](../openspec/changes/archive/2026-09-27-establish-pi-runtime-contract-and-spine/)、[C02 归档 change](../openspec/changes/archive/2026-09-27-establish-pi-owner-persistence/)、[C03 归档 change](../openspec/changes/archive/2026-09-28-establish-pi-provider-configuration/)、[C07 归档 change](../openspec/changes/archive/2026-09-28-establish-pi-tool-gateway-policy/)、[C09 归档 change](../openspec/changes/archive/2026-09-28-generalize-windows-stdio-process-bridge/)、[C04 归档 change](../openspec/changes/archive/2026-09-28-add-pi-api-key-provider-execution/)
 
 本文是持续更新的工作交接。**后续每个 Pi Runtime 相关 change 完成、归档或改变实施决定时，实施者须在交接前按实际进度更新本文**：核对已实现边界、下一步、验证结果、未解决风险及链接，并更新状态日期。拟议能力不得写成已交付能力；实现与规格冲突时先核对代码和正式决策。
 
@@ -11,7 +11,7 @@
 
 这份文档帮助后续 change 接续已确定的产品边界和实现进度。内置 Pi Agent Runtime 最终应成为完整 Agent：支持可持久化的多轮交互、经策略中介使用 Shell、文件和网络能力，并通过稳定的插件内边界操作 Zotero 文献库。
 
-W0 C01 已建立无 Node.js 依赖的瞬态 Pi 运行时骨架，W1 C02 已增加项目自有的 Pi owner 持久化基础，W1 C03 增加模型目录、配置、加密凭据和 Backend Manager 独立页面。W1 C07 已建立工具目录、策略和执行证据内核。真实模型调用、Agent 会话界面、具体工具和自动恢复仍需依照地图与执行计划分步实现。早期兼容性原型只保留为历史证据。
+W0 C01 已建立无 Node.js 依赖的瞬态 Pi 运行时骨架，W1 C02 已增加项目自有的 Pi owner 持久化基础，W1 C03 增加模型目录、配置、加密凭据和 Backend Manager 独立页面。W1 C07 已建立工具目录、策略和执行证据内核。W2 C04 已接入 API key Provider 模型流和手动连接测试；Agent 会话界面、具体工具和自动恢复仍需依照地图与执行计划分步实现。早期兼容性原型只保留为历史证据。
 
 ## 统一术语
 
@@ -77,12 +77,18 @@ C01 没有生产 caller；Zotero 用例直接导入生产模块。真实 provide
 - C07 的持久化与权限回调只用确定性测试替身验证，尚未连接 C02 的生产 owner、Assistant Workspace 或任何具体工具目录。后续 C08/C10/C11/C12 提供 Native、MCP、Web、Zotero 工具定义，C16/C17 接入 Conversation 与 Skill Run，C19 负责最终 teardown、重启对账和有界恢复。
 - 验证：`npm run test:node -- --shard runtime-provider-execution`、`npm run lint:check`、`npm run build` 与 `ZOTERO_TEST_GREP='Pi Tool Gateway' npm run test:zotero:core`（16 项）通过；最终验证记录见 [C07 verification](../openspec/changes/archive/2026-09-28-establish-pi-tool-gateway-policy/verification.md)。全量 `npm run test:zotero:core` 曾停在既有 SQLite 分页用例 `returns real SQLite pages with stable, user-visible results`，独立运行该用例 120 秒仍超时；目前没有全量 core 通过证据。#26 所列 `test:node:core` 脚本在当前仓库不存在，Node 使用现有分片命令。后续处理全量门禁时先调查该分页用例的阻塞，再重跑整套。
 
-### W1 C09：通用长驻 stdio 进程桥（实施完成，待归档）
+### W1 C09：通用长驻 stdio 进程桥（已归档）
 
 - [活跃 OpenSpec change](../openspec/changes/generalize-windows-stdio-process-bridge/) 已记录平台进程契约、ACP 迁移、Windows broker 与打包范围。实施任务已完成，尚未同步或归档；C10 仍须等待 W1 收口。
 - 当前工作区已建立 `src/platform/longLivedProcess.ts` 的 Node、Mozilla 与 Windows adapter，Windows ACP 子进程流已接入该接口；Windows daemon 服务移至 `src/platform/windowsStdioBridgeService.ts`。现有 POSIX ACP 进程组所有权校验保持原路径，通用 Node/Mozilla adapter 目前只保证直接子进程的有界终止，后续原生工具若要求 POSIX 进程树清理须先扩展并验证这一平台能力。Node 定向测试验证了流分离、UTF-8 跨 chunk、stdin EOF、缓冲上限、观察到的 exit 与断线 unknown；ACP transport 定向 43 项通过。最终验证结果以 change 的 verification 记录为准。
-- Windows 主机已从重命名后的 Rust 源码构建 `zotero-stdio-bridge.exe` 并同步摘要，旧 ACP 二进制已移除；真实 Windows Zotero 10.0.2 长驻 stdio canary 通过。C09 实施任务 9/9 完成，尚待独立同步与归档。
-- C09 的 `acp-runtime`、`runtime-platform-persistence`、`host-bridge-surface-release` Node 分片、lint、OpenSpec 严格校验与 Rust 测试通过；真实 Linux 和 Windows Zotero 的长驻 stdio 定向用例通过，Windows `npm run build` 和打包资产测试也通过。全量 Node 在其他领域出现多项失败，全量 Zotero core 在既有 library page query 阶段达到 180 秒上限；Windows canary 结束后曾需手动停止孤留的 stdio daemon 才使测试命令退出。完整命令与结果见 [C09 verification](../openspec/changes/generalize-windows-stdio-process-bridge/verification.md)。
+- Windows 主机已从重命名后的 Rust 源码构建 `zotero-stdio-bridge.exe` 并同步摘要，旧 ACP 二进制已移除；真实 Windows Zotero 10.0.2 长驻 stdio canary 通过。C09 实施任务 9/9 完成并归档。
+- C09 的 `acp-runtime`、`runtime-platform-persistence`、`host-bridge-surface-release` Node 分片、lint、OpenSpec 严格校验与 Rust 测试通过；真实 Linux 和 Windows Zotero 的长驻 stdio 定向用例通过，Windows `npm run build` 和打包资产测试也通过。全量 Node 在其他领域出现多项失败，全量 Zotero core 在既有 library page query 阶段达到 180 秒上限；Windows canary 结束后曾需手动停止孤留的 stdio daemon 才使测试命令退出。完整命令与结果见 [C09 verification](../openspec/changes/archive/2026-09-28-generalize-windows-stdio-process-bridge/verification.md)。
+
+### W2 C04：API key Provider 执行（已归档）
+
+- [`src/modules/piApiKeyProviderExecution.ts`](../src/modules/piApiKeyProviderExecution.ts) 从冻结的选择快照逐次读取指定密钥，接入原生 Pi API stream，拒绝缺失凭据与未经授权的本地端点；`PiRuntime` 保留项目自有的失败码，不外传原生响应。
+- Backend Manager 已增加 API key 的暂态输入、加密保存、清除及主动连接测试。测试只读取已保存配置并在短超时后取消，不自动运行，也不成为 Conversation 或 Skill Run owner。
+- 浏览器构建为 `provider-env.js → node:fs` 的精确导入装有执行即抛错的 guard。Node 定向、生产 build、lint、真实 Zotero core/UI 定向用例与 OpenSpec 严格校验通过。Google 原生适配器不接受自定义 `fetch`，其不透明 SDK 错误暂归为 `provider_stream_error`；完整证据见 [C04 verification](../openspec/changes/archive/2026-09-28-add-pi-api-key-provider-execution/verification.md)。
 
 ### Pi core Zotero 兼容性原型
 
@@ -127,7 +133,7 @@ git show research/pi-agent-sandbox-models:artifact/pi-agent-runtime/sandbox-and-
 
 ## 当前工作区状态
 
-在状态核对时，C01、C02、C03、C07 已分别进入 `dev-agent-harness` 的提交 `fbd297d4`、`1da0cd84`、`ef91407c`、`f5ce9fe6`；C09 的实施任务已在当前工作区完成，尚未归档。`PiRuntime`、C02 owner 持久化接口和 C03 选择接口尚未连成真实模型执行路径。以最新 `git status` 辨别所有权，不覆盖并行改动。
+在状态核对时，C01、C02、C03、C07、C09 已进入 `dev-agent-harness` 的提交，C04 已完成实施与归档但尚未提交。C04 提供独立的模型执行源与手动连接测试；C02 owner、Conversation/Skill Run 和普通用户交互尚未接入该源。以最新 `git status` 辨别所有权，不覆盖并行改动。
 
 ## 建议的系统边界
 
@@ -167,8 +173,8 @@ git show research/pi-agent-sandbox-models:artifact/pi-agent-runtime/sandbox-and-
 ### Runtime 与 provider
 
 - C01 已固定 `0.84.4`；后续升级需重跑 browser 兼容性与真实宿主探针。
-- C03 已固定静态目录；C04 仍须确定真实 provider adapter 的导入边界、首批可运行 provider 和不导入 `providers/all` 的构建门禁。
-- C03 已提供 API key 加密存储、脱敏元数据与显式删除；C04/C05 仍须接入实际调用时读取、错误归一化和日志脱敏，C05 只处理 OpenAI Codex OAuth。
+- C03 已固定静态目录；C04 的原生 API stream 选择和精确浏览器构建 guard 已进入实现，后续 Pi 升级需重跑真实宿主探针。
+- C03 已提供 API key 加密存储、脱敏元数据与显式删除；C04 逐次读取显式选择的密钥并归一化失败，C05 仍需处理 OpenAI Codex OAuth。
 - 真实 fetch 的 CORS、Zotero proxy、重试、超时、限流和错误归一化。
 - 多会话并发、插件禁用/卸载、窗口关闭和异常退出时的资源清理。
 
@@ -197,9 +203,9 @@ git show research/pi-agent-sandbox-models:artifact/pi-agent-runtime/sandbox-and-
 
 ## 下一步实施入口
 
-W0 C01、W1 C02/C03/C07 是后续接线基础。依 [#26 最终 wave 表](https://github.com/leike0813/zotero-agents/issues/26#issuecomment-5552013273)，W1 C09 `generalize-windows-stdio-process-bridge` 已完成 9/9 实施任务，包括 Windows 新二进制预构建与真实 Zotero canary，尚待核对、同步和归档。W1 的每个 change 核对、同步并归档后，才能开始 W2 生产实施。C03 经用户确认采用定向真实 Zotero core/UI 验证；它没有全量 Zotero 套件通过证据。
+W1 C09 与 W2 C04 已归档，C04 的模型源只接受冻结的配置选择；将它接入 Conversation 与 Skill Run 的生命周期属于后续切片。按 [#26 最终 wave 表](https://github.com/leike0813/zotero-agents/issues/26#issuecomment-5552013273) 选择下一个仍未实施的 change。C03 经用户确认采用定向真实 Zotero core/UI 验证；它没有全量 Zotero 套件通过证据。
 
-接续工作按 C09 已接受方案核对 Windows stdio 桥接边界。接入真实 provider 时再按实际导入决定是否需要原型中 `provider-env.js → node:fs` 的精确 guard；不得为了尚未导入的 provider 预先添加广泛 polyfill。Assistant Workspace、具体工具和自动恢复分别遵守 ADR 0001/0003、区域级 DOM identity 约束和 ADR 0002。后续会话接线是 C16，Skill Run 接线是 C17，生命周期恢复是 C19。每项能力的完成证据应落在对应 OpenSpec change 与测试中，并回写本文状态。
+接续工作按 [C04 verification](../openspec/changes/archive/2026-09-28-add-pi-api-key-provider-execution/verification.md) 核对 Provider 执行边界。Assistant Workspace、具体工具和自动恢复分别遵守 ADR 0001/0003、区域级 DOM identity 约束和 ADR 0002。后续会话接线是 C16，Skill Run 接线是 C17，生命周期恢复是 C19。每项能力的完成证据应落在对应 OpenSpec change 与测试中，并回写本文状态。
 
 ## 实施前的代码探索入口
 
