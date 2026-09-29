@@ -28,6 +28,8 @@ export type PiGatewayExecution = {
   effectCertainty: PiGatewayCertainty;
   value?: JsonValue;
   code?: string;
+  retryable?: boolean;
+  details?: JsonValue;
   domainReceiptRef?: string;
 };
 
@@ -66,6 +68,7 @@ export type PiGatewayFailure = {
     | "lifecycle";
   code: string;
   retryable: boolean;
+  details?: JsonValue;
 };
 
 export type PiGatewayCallResult = {
@@ -587,6 +590,29 @@ export async function freezePiToolGatewayTurn(
         code: "execution_failed",
       };
     }
+    if (execution.status === "failed") {
+      try {
+        if (
+          execution.retryable !== undefined &&
+          typeof execution.retryable !== "boolean"
+        )
+          throw new Error("invalid_retryability");
+        if (execution.details !== undefined) {
+          assertWorkflowHostStrictJsonValue(execution.details);
+          if (
+            utf8.encode(canonical(execution.details)).byteLength >
+            definition.maxResultBytes
+          )
+            throw new Error("failure_details_too_large");
+        }
+      } catch {
+        execution = {
+          status: "failed",
+          effectCertainty: execution.effectCertainty,
+          code: "execution_failed",
+        };
+      }
+    }
     const effectful = claims.effects.some(
       (effect) => effect !== "bounded-read",
     );
@@ -642,9 +668,19 @@ export async function freezePiToolGatewayTurn(
         effectCertainty: execution.effectCertainty,
       };
     } else {
+      const baseFailure = failure(execution.code || "execution_failed");
       result = {
-        ...fail(call, execution.code || "execution_failed"),
+        callId: call.callId,
+        name: call.name,
+        status: "failed",
         effectCertainty: execution.effectCertainty,
+        failure: {
+          ...baseFailure,
+          retryable: execution.retryable ?? baseFailure.retryable,
+          ...(execution.details !== undefined
+            ? { details: copyJson(execution.details) }
+            : {}),
+        },
       };
     }
     const receipt: PiGatewayAttemptReceipt = {

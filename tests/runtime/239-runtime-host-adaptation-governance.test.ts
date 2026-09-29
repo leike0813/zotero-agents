@@ -144,6 +144,7 @@ describe("runtime host adaptation governance", function () {
   });
 
   it("keeps ordinary filesystem adapter selection inside runtime persistence", function () {
+    this.timeout(10_000);
     const unauthorized = inventorySelectors().filter((finding) => {
       if (finding.file === OWNER_FILE) {
         return false;

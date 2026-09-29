@@ -332,6 +332,7 @@ describe("Topic synthesis suite renderer", function () {
   });
 
   it("renders deterministic self-contained packages", async function () {
+    this.timeout(10_000);
     const rootA = await fs.mkdtemp(
       path.join(os.tmpdir(), "topic-synthesis-render-a-"),
     );

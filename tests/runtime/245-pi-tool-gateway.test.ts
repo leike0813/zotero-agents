@@ -1,6 +1,7 @@
 import { assert } from "chai";
 import {
   freezePiToolGatewayTurn,
+  type PiGatewayAttemptReceipt,
   type PiGatewayToolDefinition,
   type PiGatewayPolicy,
   type PiGatewayTurnInput,
@@ -85,6 +86,72 @@ async function rejects(work: () => Promise<unknown>, code: string) {
 }
 
 describe("Pi Tool Gateway shared behavior", function () {
+  it("preserves bounded executor failure facts without copying them into receipts", async function () {
+    const receipts: PiGatewayAttemptReceipt[] = [];
+    const gateway = await turn(
+      [
+        fixture({
+          execute: async () => ({
+            status: "failed",
+            effectCertainty: "confirmed_none",
+            code: "not_found",
+            retryable: true,
+            details: { kind: "item", opaqueKey: "missing" },
+          }),
+        }).definition,
+      ],
+      {
+        hooks: {
+          recordStarted: async () => undefined,
+          recordReceipt: async (receipt) => {
+            receipts.push(receipt);
+          },
+          recordPermission: async () => undefined,
+        },
+      },
+    );
+    const result = (
+      await gateway.executeBatch([
+        { callId: "missing", name: "fixture_read", arguments: { path: "p" } },
+      ])
+    ).results[0];
+    assert.equal(result.status, "failed");
+    assert.equal(result.failure?.code, "not_found");
+    assert.equal(result.failure?.retryable, true);
+    assert.deepEqual(result.failure?.details, {
+      kind: "item",
+      opaqueKey: "missing",
+    });
+    assert.lengthOf(receipts, 1);
+    assert.notProperty(receipts[0], "details");
+  });
+
+  it("rejects invalid or oversized executor failure details", async function () {
+    for (const details of [
+      { unsafe: new Error("private cause") },
+      { oversized: "x".repeat(2048) },
+    ]) {
+      const gateway = await turn([
+        fixture({
+          execute: async () => ({
+            status: "failed",
+            effectCertainty: "confirmed_none",
+            code: "not_found",
+            details: details as any,
+          }),
+        }).definition,
+      ]);
+      const result = (
+        await gateway.executeBatch([
+          { callId: "invalid", name: "fixture_read", arguments: { path: "p" } },
+        ])
+      ).results[0];
+      assert.equal(result.status, "failed");
+      assert.equal(result.failure?.code, "execution_failed");
+      assert.notProperty(result.failure || {}, "details");
+    }
+  });
+
   it("binds hidden MCP catalog identity and admits external mutation as its own effect", async function () {
     const item = fixture({
       execute: async () => ({

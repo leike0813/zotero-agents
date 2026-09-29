@@ -85,7 +85,7 @@ export const ZOTERO_TEST_HEADLESS_WIDTH = "1280";
 export const ZOTERO_TEST_HEADLESS_HEIGHT = "1024";
 
 export type ZoteroTestDisplayMode = {
-  /** Zotero runs without a display through the native `MOZ_HEADLESS` backend. */
+  /** Zotero runs through the native headless backend or a virtual display. */
   headless: boolean;
   /** The `zotero-plugin-scaffold` Xvfb path is needed to supply a virtual display. */
   needsXvfb: boolean;
@@ -97,9 +97,9 @@ export type ZoteroTestDisplayEnvironment = Pick<
 >;
 
 /**
- * Headless is the default on every platform: Windows and macOS have no Xvfb
- * equivalent, so the native `MOZ_HEADLESS` backend is the only portable path.
- * Set `ZOTERO_TEST_HEADLESS=0` to fall back to a visible Zotero window.
+ * Headless is the default on every platform. Display-less Linux uses Xvfb;
+ * other hosts use the native `MOZ_HEADLESS` backend. Set
+ * `ZOTERO_TEST_HEADLESS=0` to use a visible Zotero window.
  */
 export function resolveZoteroTestDisplayMode(
   platform: NodeJS.Platform = process.platform,
@@ -128,7 +128,8 @@ export function applyZoteroTestHeadlessEnvironment(
   env: NodeJS.ProcessEnv,
   platform: NodeJS.Platform = process.platform,
 ): NodeJS.ProcessEnv {
-  if (!resolveZoteroTestDisplayMode(platform, env).headless) {
+  const mode = resolveZoteroTestDisplayMode(platform, env);
+  if (!mode.headless || mode.needsXvfb) {
     delete env[MOZ_HEADLESS_ENV];
     return env;
   }

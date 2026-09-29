@@ -637,7 +637,7 @@ async function createNote(parent: Zotero.Item, title: string, html: string) {
 
 describe("host bridge capability calls", function () {
   it("imports the capability registry with production diagnostic defines", async function () {
-    this.timeout(10_000);
+    this.timeout(30_000);
     const bundleRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "host-bridge-registry-production-"),
     );

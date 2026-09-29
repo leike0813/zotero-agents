@@ -29,6 +29,7 @@ import {
   patchZoteroTestRunnerHtml,
 } from "../../scripts/patch-zotero-test-runner";
 import {
+  applyZoteroTestHeadlessEnvironment,
   resolveSystemE2ETestPrefs,
   resolveTestEntries,
   resolveZoteroTestDisplayMode,
@@ -1187,6 +1188,19 @@ describe("zotero test infrastructure helpers", function () {
   });
 
   describe("Zotero display environment", function () {
+    it("uses Xvfb without native headless on display-less Linux", function () {
+      const linux = applyZoteroTestHeadlessEnvironment(
+        { MOZ_HEADLESS: "1" },
+        "linux",
+      );
+      assert.isTrue(resolveZoteroTestDisplayMode("linux", linux).needsXvfb);
+      assert.isUndefined(linux.MOZ_HEADLESS);
+      assert.equal(
+        applyZoteroTestHeadlessEnvironment({}, "win32").MOZ_HEADLESS,
+        "1",
+      );
+    });
+
     it("runs headless by default on every platform", function () {
       assert.isTrue(resolveZoteroTestDisplayMode("linux", {}).headless);
       assert.isTrue(resolveZoteroTestDisplayMode("win32", {}).headless);
@@ -1328,14 +1342,18 @@ describe("zotero test infrastructure helpers", function () {
       assert.equal(env.ZOTERO_TEST_DATA_DIR_MANAGED, undefined);
     });
 
-    it("propagates headless mode into the spawned test environment", function () {
+    it("propagates the selected headless backend into the spawned test environment", function () {
       const invocation = parseWrappedTestInvocation(
         ["test:node:raw:core", "lite", "core"],
         {},
       );
       const env = buildTestEnvironment(invocation, {});
 
-      assert.equal(env.MOZ_HEADLESS, "1");
+      if (resolveZoteroTestDisplayMode(process.platform, env).needsXvfb) {
+        assert.isUndefined(env.MOZ_HEADLESS);
+      } else {
+        assert.equal(env.MOZ_HEADLESS, "1");
+      }
     });
 
     it("routes the Zotero binary through a stderr-draining launcher", function () {
