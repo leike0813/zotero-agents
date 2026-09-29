@@ -1,5 +1,5 @@
 import { assert } from "chai";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "fs/promises";
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import {
@@ -234,6 +234,73 @@ describe("Pi Trusted Native execution", function () {
     );
     assert.notInclude(manifest, source);
     assert.include(manifest, "sha256:");
+  });
+
+  it("commits a source page together and leaves prior copies on a rejected page", async function () {
+    const root = await mkdtemp(join(tmpdir(), "pi-native-batch-"));
+    const sources = [join(root, "first.txt"), join(root, "second.txt")];
+    await writeFile(sources[0], "first");
+    await writeFile(sources[1], "second");
+    const native = await createPiTrustedNativeExecution({
+      workspaceRoot: root,
+      ownerRoot: join(root, ".owner"),
+      mode: "restricted",
+    });
+    const inputs = sources.map((sourcePath, index) => ({
+      sourcePath,
+      sourceId: `attachment:${index}`,
+      revision: "1",
+    }));
+    const page = await native.materializeOrReuseMany(inputs);
+    assert.lengthOf(page, 2);
+    assert.deepEqual(
+      await Promise.all(page.map(({ path }) => readFile(path, "utf8"))),
+      ["first", "second"],
+    );
+    const manifestPath = join(root, ".owner", "managed-files.json");
+    const before = await readFile(manifestPath, "utf8");
+    try {
+      await native.materializeOrReuseMany([
+        { ...inputs[0], revision: "2" },
+        { ...inputs[1], sourcePath: join(root, "missing.txt") },
+      ]);
+      assert.fail("incomplete page accepted");
+    } catch (error) {
+      assert.notInclude(String(error), "incomplete page accepted");
+    }
+    assert.equal(await readFile(manifestPath, "utf8"), before);
+    assert.equal(
+      (await native.materializeOrReuseMany(inputs))[0].path,
+      page[0].path,
+    );
+  });
+
+  it("commits bounded staged text and discards an interrupted output", async function () {
+    const root = await mkdtemp(join(tmpdir(), "pi-native-text-"));
+    const native = await createPiTrustedNativeExecution({
+      workspaceRoot: root,
+      ownerRoot: join(root, ".owner"),
+      mode: "restricted",
+    });
+    const output = await native.beginGeneratedTextOutput(".ndjson");
+    await output.append('{"id":1}\n');
+    await output.append('{"id":2}\n');
+    const committed = await output.commit();
+    assert.equal(
+      await readFile(committed.path, "utf8"),
+      '{"id":1}\n{"id":2}\n',
+    );
+    assert.equal(committed.sizeBytes, 18);
+    assert.match(committed.sha256, /^sha256:/);
+    const interrupted = await native.beginGeneratedTextOutput(".md");
+    await interrupted.append("unfinished");
+    await interrupted.discard();
+    await interrupted.discard();
+    const manifest = await readFile(
+      join(root, ".owner", "managed-files.json"),
+      "utf8",
+    );
+    assert.notInclude(manifest, "unfinished");
   });
 
   it("commits generated output into an owner path and rejects an escaping stage", async function () {

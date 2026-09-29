@@ -214,9 +214,23 @@ export async function createPiTrustedNativeExecution(args: {
       }): Promise<{ path: string; reused: boolean }> => {
         throw new Error("pi_path_inspection_unavailable");
       },
+      materializeOrReuseMany: async (
+        _inputs: {
+          sourcePath: string;
+          sourceId: string;
+          revision: string;
+        }[],
+      ): Promise<{ path: string; reused: boolean }[]> => {
+        throw new Error("pi_path_inspection_unavailable");
+      },
       commitGeneratedOutputs: async (
         _files: { stagedPath: string }[],
       ): Promise<string[]> => {
+        throw new Error("pi_path_inspection_unavailable");
+      },
+      beginGeneratedTextOutput: async (
+        _suffix: ".md" | ".json" | ".ndjson",
+      ) => {
         throw new Error("pi_path_inspection_unavailable");
       },
     };
@@ -294,79 +308,122 @@ export async function createPiTrustedNativeExecution(args: {
     throw new Error("pi_managed_name_unavailable");
   }
 
-  async function materializeOrReuse(input: {
+  type ManagedSourceInput = {
     sourcePath: string;
     sourceId: string;
     revision: string;
-  }) {
+  };
+
+  async function materializeOrReuseMany(inputs: ManagedSourceInput[]) {
     return withOwnerLock(args.ownerRoot, async () => {
-      if (!input.sourceId || !input.revision)
-        throw new Error("pi_source_identity_missing");
-      const source = await inspectRuntimeFileSource(input.sourcePath);
-      if (source.size > 256 * 1024 * 1024)
-        throw new Error("pi_managed_file_too_large");
-      const digest = await digestRuntimeFileSource(source);
-      if (digest.bytesRead !== source.size)
-        throw new Error("pi_source_changed");
-      const sourceKey = await sha256PrefixedHex(
-        textEncoder.encode(input.sourceId),
-      );
-      const revisionKey = await sha256PrefixedHex(
-        textEncoder.encode(input.revision),
-      );
-      if (!sourceKey || !revisionKey) throw new Error("pi_digest_unavailable");
       const entries = await readManifest();
-      const current = entries.find(
-        (entry) =>
-          entry.kind === "source" &&
-          entry.sourceKey === sourceKey &&
-          entry.revisionKey === revisionKey &&
-          entry.size === source.size &&
-          entry.sha256 === digest.sha256,
-      );
-      if (current) {
-        const existingPath = joinPath(managedDir, current.name);
-        const existing = await resolveRuntimePathIdentity({
-          root: args.ownerRoot,
-          path: existingPath,
-        }).catch(() => null);
-        if (existing?.exists) {
-          const info = await statRuntimePathStrict(existing.path);
-          if (!info.isDir) return { path: existing.path, reused: true };
-        }
-      }
-      if (
-        entries.reduce((sum, entry) => sum + entry.size, 0) + source.size >
-        2 * 1024 * 1024 * 1024
-      )
-        throw new Error("pi_owner_quota_exceeded");
-      const target = await nextManagedPath(input.sourcePath);
-      try {
-        await copyRuntimeFile({
-          sourcePath: input.sourcePath,
-          targetPath: target.path,
-        });
-        const copied = await digestRuntimeFileSource({
-          path: target.path,
-          size: source.size,
-        });
-        if (copied.bytesRead !== source.size || copied.sha256 !== digest.sha256)
+      const planned: Array<{
+        sourcePath: string;
+        size: number;
+        sha256: string;
+        sourceKey: string;
+        revisionKey: string;
+        reusedPath?: string;
+      }> = [];
+      let newBytes = 0;
+      for (const input of inputs) {
+        if (!input.sourceId || !input.revision)
+          throw new Error("pi_source_identity_missing");
+        const source = await inspectRuntimeFileSource(input.sourcePath);
+        if (source.size > 256 * 1024 * 1024)
+          throw new Error("pi_managed_file_too_large");
+        const digest = await digestRuntimeFileSource(source);
+        if (digest.bytesRead !== source.size)
           throw new Error("pi_source_changed");
-        entries.push({
-          kind: "source",
-          sourceKey,
-          revisionKey,
+        const sourceKey = await sha256PrefixedHex(
+          textEncoder.encode(input.sourceId),
+        );
+        const revisionKey = await sha256PrefixedHex(
+          textEncoder.encode(input.revision),
+        );
+        if (!sourceKey || !revisionKey)
+          throw new Error("pi_digest_unavailable");
+        const current = entries.find(
+          (entry) =>
+            entry.kind === "source" &&
+            entry.sourceKey === sourceKey &&
+            entry.revisionKey === revisionKey &&
+            entry.size === source.size &&
+            entry.sha256 === digest.sha256,
+        );
+        let reusedPath: string | undefined;
+        if (current) {
+          const existingPath = joinPath(managedDir, current.name);
+          const existing = await resolveRuntimePathIdentity({
+            root: args.ownerRoot,
+            path: existingPath,
+          }).catch(() => null);
+          if (existing?.exists) {
+            const info = await statRuntimePathStrict(existing.path);
+            if (!info.isDir) reusedPath = existing.path;
+          }
+        }
+        if (!reusedPath) newBytes += source.size;
+        planned.push({
+          sourcePath: input.sourcePath,
           size: source.size,
           sha256: digest.sha256,
-          name: target.name,
+          sourceKey,
+          revisionKey,
+          reusedPath,
         });
-        await commitManifest(entries);
-        return { path: target.path, reused: false };
+      }
+      if (
+        newBytes > 512 * 1024 * 1024 ||
+        entries.reduce((sum, entry) => sum + entry.size, 0) + newBytes >
+          2 * 1024 * 1024 * 1024
+      )
+        throw new Error("pi_owner_quota_exceeded");
+      const created: string[] = [];
+      const result: { path: string; reused: boolean }[] = [];
+      try {
+        for (const item of planned) {
+          if (item.reusedPath) {
+            result.push({ path: item.reusedPath, reused: true });
+            continue;
+          }
+          const target = await nextManagedPath(item.sourcePath);
+          created.push(target.path);
+          await copyRuntimeFile({
+            sourcePath: item.sourcePath,
+            targetPath: target.path,
+          });
+          const copied = await digestRuntimeFileSource({
+            path: target.path,
+            size: item.size,
+          });
+          if (copied.bytesRead !== item.size || copied.sha256 !== item.sha256)
+            throw new Error("pi_source_changed");
+          entries.push({
+            kind: "source",
+            sourceKey: item.sourceKey,
+            revisionKey: item.revisionKey,
+            size: item.size,
+            sha256: item.sha256,
+            name: target.name,
+          });
+          result.push({ path: target.path, reused: false });
+        }
+        if (created.length) await commitManifest(entries);
+        return result;
       } catch (error) {
-        await removeRuntimePath(target.path).catch(() => false);
+        const removed = await Promise.all(
+          created.map((path) => removeRuntimePath(path).catch(() => false)),
+        );
+        if (removed.some((ok) => !ok))
+          throw new Error("pi_managed_cleanup_pending");
         throw error;
       }
     });
+  }
+
+  async function materializeOrReuse(input: ManagedSourceInput) {
+    return (await materializeOrReuseMany([input]))[0];
   }
 
   async function commitGeneratedOutputs(files: { stagedPath: string }[]) {
@@ -438,6 +495,60 @@ export async function createPiTrustedNativeExecution(args: {
         throw error;
       }
     });
+  }
+
+  async function beginGeneratedTextOutput(suffix: ".md" | ".json" | ".ndjson") {
+    if (![".md", ".json", ".ndjson"].includes(suffix))
+      throw new Error("pi_generated_suffix_invalid");
+    const stagingDir = joinPath(args.ownerRoot, "staging");
+    await ensureRuntimeDirectoryStrict(stagingDir);
+    let stagedPath = "";
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const candidate = joinPath(
+        stagingDir,
+        `managed-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}${suffix}`,
+      );
+      if (await runtimePathExists(candidate)) continue;
+      await writeRuntimeBytes(candidate, new Uint8Array(), {
+        overwrite: false,
+      });
+      stagedPath = candidate;
+      break;
+    }
+    if (!stagedPath) throw new Error("pi_managed_name_unavailable");
+    let sizeBytes = 0;
+    let state: "open" | "committed" | "discarded" = "open";
+    const discard = async () => {
+      if (state !== "open") return;
+      if (!(await removeRuntimePath(stagedPath).catch(() => false)))
+        throw new Error("pi_managed_cleanup_pending");
+      state = "discarded";
+    };
+    return {
+      append: async (content: string) => {
+        if (state !== "open") throw new Error("pi_generated_output_closed");
+        const bytes = textEncoder.encode(content).byteLength;
+        if (sizeBytes + bytes > 256 * 1024 * 1024)
+          throw new Error("pi_generated_file_too_large");
+        await appendRuntimeTextFile(stagedPath, content);
+        sizeBytes += bytes;
+      },
+      commit: async () => {
+        if (state !== "open") throw new Error("pi_generated_output_closed");
+        const digest = await digestRuntimeFileSource({
+          path: stagedPath,
+          size: sizeBytes,
+        });
+        if (digest.bytesRead !== sizeBytes)
+          throw new Error("pi_generated_file_changed");
+        const [path] = await commitGeneratedOutputs([{ stagedPath }]);
+        state = "committed";
+        if (!(await removeRuntimePath(stagedPath).catch(() => false)))
+          throw new Error("pi_managed_cleanup_pending");
+        return { path, sizeBytes, sha256: digest.sha256 };
+      },
+      discard,
+    };
   }
 
   const fileTool = (
@@ -1194,7 +1305,9 @@ export async function createPiTrustedNativeExecution(args: {
   return {
     definitions,
     materializeOrReuse,
+    materializeOrReuseMany,
     commitGeneratedOutputs,
+    beginGeneratedTextOutput,
     runtimeCapability: {
       identity: `pi-native:${args.mode}:${root}`,
       availableCapabilityIds: definitions.map((item) => item.capabilityId),

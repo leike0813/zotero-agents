@@ -2,7 +2,9 @@ import { assert } from "chai";
 import { createPiTrustedNativeExecution } from "../../../../src/modules/piTrustedNativeExecution";
 import {
   ensureRuntimeDirectoryStrict,
+  readRuntimeTextFileStrict,
   removeRuntimePath,
+  writeRuntimeBytes,
 } from "../../../../src/modules/runtimePersistence";
 import { joinPath } from "../../../../src/utils/path";
 
@@ -46,6 +48,19 @@ describe("Pi Trusted Native in real Zotero", function () {
       const result = await read.execute({ path: "canary.txt" }, context);
       assert.equal(result.status, "completed");
       assert.deepInclude(result.value as object, { text: "pi-host" });
+      const sourcePath = joinPath(workspaceRoot, "attachment.txt");
+      await writeRuntimeBytes(sourcePath, new TextEncoder().encode("source"));
+      const page = await native.materializeOrReuseMany([
+        { sourcePath, sourceId: "attachment:host", revision: "1" },
+      ]);
+      assert.equal(await readRuntimeTextFileStrict(page[0].path), "source");
+      const output = await native.beginGeneratedTextOutput(".ndjson");
+      await output.append('{"host":true}\n');
+      const artifact = await output.commit();
+      assert.equal(
+        await readRuntimeTextFileStrict(artifact.path),
+        '{"host":true}\n',
+      );
     } finally {
       await removeRuntimePath(workspaceRoot).catch(() => false);
     }
