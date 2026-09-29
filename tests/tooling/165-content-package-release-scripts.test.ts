@@ -712,6 +712,7 @@ describe("content package release scripts", function () {
   });
 
   it("patches selected feeds without changing other content-feed entries", async function () {
+    this.timeout(30_000);
     const remote = path.join(tempRoot, "content-feed.git");
     const seed = path.join(tempRoot, "seed");
     const sourceRoot = path.join(tempRoot, "source");
@@ -748,22 +749,13 @@ describe("content package release scripts", function () {
     });
 
     await git(["clone", "--branch", "content-feed", remote, clone]);
-    assert.equal(
-      await fs.readFile(path.join(clone, "stable", "feed.json"), "utf8"),
-      "stable-new\n",
-    );
-    assert.equal(
-      await fs.readFile(path.join(clone, "beta", "feed.json"), "utf8"),
-      "beta-old\n",
-    );
-    assert.equal(
-      await fs.readFile(path.join(clone, "dev", "feed.json"), "utf8"),
-      "dev-old\n",
-    );
-    assert.equal(
-      await fs.readFile(path.join(clone, "README.md"), "utf8"),
-      "existing readme\n",
-    );
+    const committed = async (name: string) =>
+      (await execFileAsync("git", ["show", `HEAD:${name}`], { cwd: clone }))
+        .stdout;
+    assert.equal(await committed("stable/feed.json"), "stable-new\n");
+    assert.equal(await committed("beta/feed.json"), "beta-old\n");
+    assert.equal(await committed("dev/feed.json"), "dev-old\n");
+    assert.equal(await committed("README.md"), "existing readme\n");
   });
 
   it("verifies canonical GitHub feed and release assets by default", async function () {

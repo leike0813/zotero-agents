@@ -2,6 +2,7 @@ import { assert } from "chai";
 import Ajv from "ajv/dist/2020";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
 import {
   existsSync,
   mkdirSync,
@@ -511,10 +512,18 @@ describe("Host Bridge release coordinator", function () {
       "releases/host-bridge/release-set.json",
     ];
     const before = identityPaths.map((path) => readFileSync(path, "utf8"));
-    execFileSync("npm", ["run", "render:host-bridge-content"], {
-      cwd: process.cwd(),
-      stdio: "pipe",
-    });
+    execFileSync(
+      process.execPath,
+      [
+        createRequire(import.meta.url).resolve("tsx/cli"),
+        "scripts/host-bridge/render-host-bridge-surfaces.ts",
+        "--content-only",
+      ],
+      {
+        cwd: process.cwd(),
+        stdio: "pipe",
+      },
+    );
     assert.deepEqual(
       identityPaths.map((path) => readFileSync(path, "utf8")),
       before,

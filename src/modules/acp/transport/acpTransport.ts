@@ -437,14 +437,9 @@ async function resolveNodeDirectNpxLaunch(args: {
   const candidates: string[] = [];
   const npxPath = normalizeString(args.resolvedNpxPath);
   const npxDir = getWindowsDirName(npxPath);
-  const nodeDir = getWindowsDirName(nodePath);
   pushUniquePath(
     candidates,
     joinWindowsPath(npxDir, "node_modules\\npm\\bin\\npx-cli.js"),
-  );
-  pushUniquePath(
-    candidates,
-    joinWindowsPath(nodeDir, "node_modules\\npm\\bin\\npx-cli.js"),
   );
   try {
     const shimText = await readRuntimeTextFile(npxPath);
@@ -1308,6 +1303,7 @@ async function launchNodeAcpTransport(
       env?: Record<string, string | undefined>;
       stdio: ["pipe", "pipe", "pipe"];
       detached?: boolean;
+      windowsVerbatimArguments?: boolean;
     },
   ) => {
     pid?: number;
@@ -1352,6 +1348,7 @@ async function launchNodeAcpTransport(
     env,
     stdio: ["pipe", "pipe", "pipe"],
     detached: useNodeProcessGroup,
+    windowsVerbatimArguments: platform === "win32" && launchPlan.mode === "cmd",
   });
   let stderrText = "";
   let stdoutText = "";

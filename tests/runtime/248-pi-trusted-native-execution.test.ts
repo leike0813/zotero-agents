@@ -2,10 +2,30 @@ import { assert } from "chai";
 import { mkdtemp, mkdir, rm, symlink, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
+import {
+  resetRuntimeEnvironmentSnapshotForTests,
+  seedRuntimeEnvironmentSnapshotForTests,
+} from "../../src/platform/env";
 import { resolveRuntimePathIdentity } from "../../src/modules/runtimePersistence";
 import { createPiTrustedNativeExecution } from "../../src/modules/piTrustedNativeExecution";
 
 describe("Pi Trusted Native execution", function () {
+  const shellName = process.platform === "win32" ? "powershell" : "bash";
+  const directoryLinkType = process.platform === "win32" ? "junction" : "dir";
+  before(function () {
+    if (process.platform !== "win32") return;
+    seedRuntimeEnvironmentSnapshotForTests({
+      initialized: true,
+      platform: "win32",
+      source: "current-process",
+      env: { SystemRoot: process.env.SystemRoot || "C:\\Windows" },
+      pathKey: "PATH",
+      pathEntryCount: 0,
+    });
+  });
+  after(function () {
+    if (process.platform === "win32") resetRuntimeEnvironmentSnapshotForTests();
+  });
   it("reads, writes, and edits only verified workspace files", async function () {
     const root = await mkdtemp(join(tmpdir(), "pi-native-files-"));
     const native = await createPiTrustedNativeExecution({
@@ -83,7 +103,7 @@ describe("Pi Trusted Native execution", function () {
       "before\nneedle\nafter\nneedle\n",
     );
     await writeFile(join(root, "private.txt"), "needle\n");
-    await symlink(tmpdir(), join(root, "outside"));
+    await symlink(tmpdir(), join(root, "outside"), directoryLinkType);
     const native = await createPiTrustedNativeExecution({
       workspaceRoot: root,
       ownerRoot: join(root, ".owner"),
@@ -159,7 +179,9 @@ describe("Pi Trusted Native execution", function () {
         ownerRoot: join(root, ".owner"),
         mode: "trusted",
       });
-      const shell = available.definitions.find((item) => item.name === "bash")!;
+      const shell = available.definitions.find(
+        (item) => item.name === shellName,
+      )!;
       assert.isDefined(shell);
       const dynamic = await shell.classify({ command: "pwd | cat" });
       assert.include(dynamic.effects, "external-egress");
@@ -270,17 +292,19 @@ describe("Pi Trusted Native execution", function () {
         ownerRoot: join(root, ".owner"),
         mode: "trusted",
       });
-      const shell = native.definitions.find((item) => item.name === "bash")!;
+      const shell = native.definitions.find((item) => item.name === shellName)!;
       const execution = await shell.execute(
         { command: "pwd" },
         { signal: new AbortController().signal, onUpdate: () => undefined },
       );
       assert.equal(execution.status, "completed");
       assert.equal(launch?.environmentAppend, false);
-      assert.deepEqual((launch?.arguments as string[]).slice(0, 2), [
-        "--noprofile",
-        "--norc",
-      ]);
+      assert.deepEqual(
+        (launch?.arguments as string[]).slice(0, 2),
+        process.platform === "win32"
+          ? ["-NoLogo", "-NoProfile"]
+          : ["--noprofile", "--norc"],
+      );
       assert.notProperty(launch?.environment as object, "OPENAI_API_KEY");
       assert.include((execution.value as { text: string }).text, "hello");
     } finally {
@@ -312,7 +336,7 @@ describe("Pi Trusted Native execution", function () {
         ownerRoot: join(root, ".owner"),
         mode: "trusted",
       });
-      const shell = native.definitions.find((item) => item.name === "bash")!;
+      const shell = native.definitions.find((item) => item.name === shellName)!;
       const started = Date.now();
       const outcome = await shell.execute(
         { command: "pwd", timeout: 1 },
@@ -350,14 +374,18 @@ describe("Pi Trusted Native execution", function () {
         assert.include(String(error), "pi_path_");
       }
     }
-    await symlink(tmpdir(), join(root, "link"));
+    await symlink(tmpdir(), join(root, "link"), directoryLinkType);
     try {
       await resolveRuntimePathIdentity({ root, path: "link/other" });
       assert.fail("link followed");
     } catch (error) {
       assert.include(String(error), "pi_path_");
     }
-    await symlink(join(root, "missing-target"), join(root, "dangling"));
+    await symlink(
+      join(root, "missing-target"),
+      join(root, "dangling"),
+      directoryLinkType,
+    );
     try {
       await resolveRuntimePathIdentity({
         root,

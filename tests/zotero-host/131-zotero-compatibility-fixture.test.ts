@@ -1853,7 +1853,11 @@ describe("Zotero compatibility fixture contracts", function () {
       });
       assert.isTrue(result.timedOut);
       assert.isTrue(result.graceful || result.forced);
-      assert.isNull(result.exitCode);
+      if (process.platform === "win32") {
+        assert.isNumber(result.exitCode);
+      } else {
+        assert.isNull(result.exitCode);
+      }
     });
 
     it("preserves a failed worker exit code", async function () {

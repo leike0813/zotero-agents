@@ -356,7 +356,9 @@ describe("ACP runtime semantic trace", function () {
       ),
       "text-continuation",
     );
-    assert.equal((await fs.stat(saved.path)).mode & 0o777, 0o600);
+    if (process.platform !== "win32") {
+      assert.equal((await fs.stat(saved.path)).mode & 0o777, 0o600);
+    }
   });
 
   it("retains interleaved Workflow request hierarchy and ignores other roots", async function () {

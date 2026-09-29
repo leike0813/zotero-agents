@@ -35,11 +35,13 @@ async function runFixture(
     child.on("exit", resolve),
   );
   let stdout = "";
+  let stderr = "";
   child.stdout.setEncoding("utf8").on("data", (chunk) => (stdout += chunk));
+  child.stderr.setEncoding("utf8").on("data", (chunk) => (stderr += chunk));
   try {
     for (const request of requests) {
       child.stdin.write(
-        `${JSON.stringify(request).replace("__E2E_MANIFEST__", manifestPath)}\n`,
+        `${JSON.stringify(request).replace("__E2E_MANIFEST__", JSON.stringify(manifestPath).slice(1, -1))}\n`,
       );
     }
     await new Promise((resolve) => setTimeout(resolve, waitMs));
@@ -55,12 +57,19 @@ async function runFixture(
       .split("\n")
       .filter(Boolean)
       .map((line) => JSON.parse(line));
-    const evidence =
-      mode === "typo"
-        ? null
-        : JSON.parse(
-            (await readFile(evidencePath, "utf8")).trim().split("\n")[0],
-          );
+    let evidence = null;
+    if (mode !== "typo") {
+      let recorded: string;
+      try {
+        recorded = await readFile(evidencePath, "utf8");
+      } catch (error) {
+        throw new Error(
+          `ACP fixture exited with code ${code} before recording evidence: ${stderr.slice(-2048)}`,
+          { cause: error },
+        );
+      }
+      evidence = JSON.parse(recorded.trim().split("\n")[0]);
+    }
     return { code, messages, evidence };
   } finally {
     child.kill();

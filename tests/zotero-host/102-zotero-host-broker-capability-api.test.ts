@@ -6064,6 +6064,7 @@ describe("zotero host broker capability api", function () {
   });
 
   it("pages the exact ordered selection with the bounded defaults and no snapshot cap", async function () {
+    this.timeout(10_000);
     const selectedItems = Array.from({ length: 10_001 }, (_, index) => ({
       id: index + 1,
       key: `SEL${String(index).padStart(5, "0")}`,

@@ -3,7 +3,7 @@
 - 状态核对：2026-09-29
 - 工作分支：`dev-agent-harness`
 - 实施路线：[地图 #10](https://github.com/leike0813/zotero-agents/issues/10)、[执行计划 #26](https://github.com/leike0813/zotero-agents/issues/26)
-- 已实现并归档：W0 C01（提交 `fbd297d4`）、W1 C02（`1da0cd84`）、W1 C03（`ef91407c`）、W1 C07（`f5ce9fe6`）、W1 C09（`5077c7b3`）、W2 C04（`f88e2825`）、W2 C06（`2bb22e90`）、W2 C08（实现 `fe6a5a51`，归档 `ad671f6f4`）；见 [C08 OpenSpec 归档](../openspec/changes/archive/2026-09-28-add-pi-trusted-native-execution/)。
+- 已实现并归档：W0 C01（提交 `fbd297d4`）、W1 C02（`1da0cd84`）、W1 C03（`ef91407c`）、W1 C07（`f5ce9fe6`）、W1 C09（`5077c7b3`）、W2 C04（`f88e2825`）、W2 C06（`2bb22e90`）、W2 C08（实现 `fe6a5a51`，归档 `ad671f6f4`）、W2 C10（实现 `78023c716`、`a8602bc77`，归档 `2026-09-29`）；见 C08 归档 [C08 OpenSpec 归档](../openspec/changes/archive/2026-09-28-add-pi-trusted-native-execution/) 与 [C10 OpenSpec 归档](../openspec/changes/archive/2026-09-29-establish-pi-mcp-tool-sources/)。
 
 本文是持续更新的工作交接。**后续每个 Pi Runtime 相关 change 完成、归档或改变实施决定时，实施者须在交接前按实际进度更新本文**：核对已实现边界、下一步、验证结果、未解决风险及链接，并更新状态日期。拟议能力不得写成已交付能力；实现与规格冲突时先核对代码和正式决策。
 
@@ -11,7 +11,7 @@
 
 这份文档帮助后续 change 接续已确定的产品边界和实现进度。内置 Pi Agent Runtime 最终应成为完整 Agent：支持可持久化的多轮交互、经策略中介使用 Shell、文件和网络能力，并通过稳定的插件内边界操作 Zotero 文献库。
 
-W0 C01 已建立无 Node.js 依赖的瞬态 Pi 运行时骨架，W1 C02 已增加项目自有的 Pi owner 持久化基础，W1 C03 增加模型目录、配置、加密凭据和 Backend Manager 独立页面。W1 C07 已建立工具目录、策略和执行证据内核。W2 C04 已接入 API key Provider 模型流和手动连接测试；W2 C08 已实现原生文件、搜索和 Shell 工具目录。W2 C10 的 MCP 来源、发现和 Tool Gateway 接线已实现，Linux/Windows 宿主门禁已通过；全量 Node 验收与归档仍待决定。Agent 会话界面、其他工具和自动恢复仍需依照地图与执行计划分步实现。早期兼容性原型只保留为历史证据。
+W0 C01 已建立无 Node.js 依赖的瞬态 Pi 运行时骨架，W1 C02 已增加项目自有的 Pi owner 持久化基础，W1 C03 增加模型目录、配置、加密凭据和 Backend Manager 独立页面。W1 C07 已建立工具目录、策略和执行证据内核。W2 C04 已接入 API key Provider 模型流和手动连接测试；W2 C08 已实现原生文件、搜索和 Shell 工具目录。W2 C10 的 MCP 来源、发现和 Tool Gateway 接线已实现；Linux/Windows 宿主门禁、全量 Node 分片、lint、build、浏览器导入审计与严格 OpenSpec 校验均已通过，delta specs 已同步进主规格并归档。Agent 会话界面、其他工具和自动恢复仍需依照地图与执行计划分步实现。早期兼容性原型只保留为历史证据。
 
 ## 统一术语
 
@@ -102,11 +102,13 @@ C01 没有生产 caller；Zotero 用例直接导入生产模块。真实 provide
 - 文件与搜索限定在 Workspace Scope，结果与遍历有界；Restricted Broker 不调用子进程，`grep` 的正则只接受可有界执行的简单形式。Shell 在 Zotero 中使用 Mozilla Subprocess、替换环境和 owner scratch，超时或无法证明退出时给出 unknown。owner managed-file manifest 原子记录源身份/修订摘要、大小、复制时 SHA-256 与受管名；同源指纹复用，源改变产生新代。生成输出有独立提交与配额接口。小图像作为 JSON 内 base64 图像结果返回；Gateway 单结果 1 MiB 上限使当前 read 图像限于 700 KiB，后续模型图像投影仍需在 C16/C17 接线时确认。
 - Linux 的 `runtime-provider-execution` Node 分片 8 个文件通过；Linux 与 Windows Zotero 10.0.2 的 `Pi Trusted Native in real Zotero` 定向 core 探针各 2 项通过。Windows 探针实际完成文件写读、PowerShell 执行和 junction 拒绝。`npm run build`、`npm run lint:check` 与严格 OpenSpec 校验通过。Windows Node 分片另有 5 个未通过用例：2 个 symlink fixture 缺少创建权限，3 个 mock Shell 用例固定期待 `bash`。用户接受定向门禁作为全量套件例外；全量 Node 与 Zotero core 均无 C08 通过证据。详情见 [C08 verification](../openspec/changes/archive/2026-09-28-add-pi-trusted-native-execution/verification.md)。
 
-### W2 C10：MCP Tool Sources（实现中）
+### W2 C10：MCP Tool Sources（已归档）
 
-- [C10 OpenSpec change](../openspec/changes/establish-pi-mcp-tool-sources/) 已建立。Backend Manager 独立内置 Agent 页现在管理 profile MCP 来源、加密凭据引用、显式的本地网络与明文授权、发现后的工具审阅、导入预览和无密钥导出。损坏的来源注册表拒绝调用，并提供显式重置。
+- [C10 OpenSpec 归档](../openspec/changes/archive/2026-09-29-establish-pi-mcp-tool-sources/)的四组任务共 11 项已全部完成，三个 delta（`pi-mcp-tool-sources`、`pi-tool-gateway-policy`、`backend-manager-ui`）已合入 `openspec/specs`。Backend Manager 独立内置 Agent 页现在管理 profile MCP 来源、加密凭据引用、显式的本地网络与明文授权、发现后的工具审阅、导入预览和无密钥导出。损坏的来源注册表拒绝调用，并提供显式重置。
 - `piMcpToolSources.ts` 延迟连接 MCP v2 Streamable HTTP 或 C09 长驻 stdio 传输，按当前来源与凭据版本冻结每轮目录；仅审阅且 descriptor 未改变的工具进入 C07 Gateway。代理搜索、描述、调用和直出工具共用 Gateway 的效果分类、审批与回执，远端结果有大小和内容类型边界，未知结果不自动重放。插件入口延迟加载 MCP SDK，避免 Zotero 启动时提前求值。
-- 已确认：Linux 的 Node `runtime-provider-execution`、`dashboard` 分片和真实 HTTP MCP server 联调通过；Linux、Windows Zotero core 的 stdio 探针与 Backend Manager UI 探针通过。Windows 完整 Zotero core 73 项通过、1 项标记 pending，UI 3/3，C10 Node 定向 10/10；TypeScript、lint、build、浏览器导入审计和严格 OpenSpec 校验通过。Windows 全量 Node 仅 14/28 个分片通过，失败分布在多个非 C10 领域，尚未取得验收例外，详见 [C10 验证记录](../openspec/changes/establish-pi-mcp-tool-sources/verification.md)。C10 尚未接入生产 Conversation / Skill Run owner；该接线仍属于 C16/C17。
+- 已确认通过：全量 `npm run test:node`（28 个分片，2026-09-29 由用户执行确认，运行输出未留档）、Linux 的 `runtime-provider-registry` / `runtime-provider-execution` / `dashboard` / `ui` 分片、真实 HTTP MCP server 联调、Windows Zotero 10.0.2 完整 core（73 项通过、1 项 pending）与 UI 3/3、Linux 与 Windows 的真实 stdio 探针及 Backend Manager UI 探针、Windows C10 定向用例 10/10；`npx tsc --noEmit`、`npm run lint:check`、`npm run build`、`npm run check:pi-mcp-browser-bundle` 与严格 OpenSpec 校验通过。完整命令与结果见 [C10 验证记录](../openspec/changes/archive/2026-09-29-establish-pi-mcp-tool-sources/verification.md)。
+- 全量 Node 从 14/28 分片失败转为全通过，取决于当前工作区尚未提交的一组测试治理与平台修正：Windows fixture 改用 `.cmd` 启动器、目录链接用例改用 junction 与按平台选择 shell 名、ACP e2e fixture 修正路径转义与 stderr 诊断、Host Bridge 与 Zotero Host 断言收紧，外加 `acpTransport` 的 Windows 参数传递与 `run-zotero-test-with-mock` 的 POSIX 路径修正。首次运行全量 Node 前还需按 [`docs/testing-framework.md`](../docs/testing-framework.md) 初始化 `literature-analysis`、`literature-explainer`、`literature-translator` 三个内置 Skill submodule。
+- 归档收尾已完成：三个 delta 已合入 `openspec/specs`（`pi-mcp-tool-sources` 新建，`pi-tool-gateway-policy`、`backend-manager-ui` 追加），`openspec validate` 对这三份主规格与 change 均为 strict 通过，change 已移至 `openspec/changes/archive/2026-09-29-establish-pi-mcp-tool-sources/`。C10 尚未接入生产 Conversation / Skill Run owner；该接线仍属于 C16/C17。
 
 ### Pi core Zotero 兼容性原型
 
@@ -151,7 +153,7 @@ git show research/pi-agent-sandbox-models:artifact/pi-agent-runtime/sandbox-and-
 
 ## 当前工作区状态
 
-在状态核对时，C08 实现、Windows 修正、主规格同步和 OpenSpec 归档均已提交，HEAD 为 `ad671f6f4`；本文更新是当前未提交工作。C02 owner、Conversation/Skill Run 与普通用户交互尚未接线。以最新 `git status` 辨别所有权，不覆盖并行改动。
+在状态核对时，HEAD 为 `9de9d5afc`（`origin/dev` merge）；C10 实现、其测试与 OpenSpec 归档均已落盘（`78023c716`、`a8602bc77`，归档见 `openspec/changes/archive/2026-09-29-establish-pi-mcp-tool-sources/`），工作区还留有未提交的测试治理与平台修正、两份测试诊断 JSON、`docs/testing-framework.md` 与本文更新。C02 owner、Conversation/Skill Run 与普通用户交互尚未接线。以最新 `git status` 辨别所有权，不覆盖并行改动。
 
 ## 建议的系统边界
 
@@ -221,7 +223,7 @@ git show research/pi-agent-sandbox-models:artifact/pi-agent-runtime/sandbox-and-
 
 ## 下一步实施入口
 
-C10 的实现与 Linux/Windows 宿主门禁已完成；Windows 完整 Zotero core/UI 也通过。全量 Node 仍有跨领域失败，用户此前未批准验收例外，因此 change 保持未归档，等待修复或明确的候选版本验收决定。完成后按 [#26 最终 wave 表](https://github.com/leike0813/zotero-agents/issues/26#issuecomment-5552013273) 选择后继 change。C06 的全量 runtime/core 阻塞保留在[验证记录](../openspec/changes/archive/2026-09-28-establish-pi-turn-preparation/verification.md)中，后续单独排查；不能用本次定向结果宣称全量通过。
+C10 的实现、Linux/Windows 宿主门禁、Windows 完整 Zotero core/UI 与全量 Node（28 个分片）均已通过，change 的 11 项任务全部完成，delta specs 已同步进 `openspec/specs` 并归档。按 [#26 最终 wave 表](https://github.com/leike0813/zotero-agents/issues/26#issuecomment-5552013273) 选择后继 change。C06 的全量 runtime/core 阻塞保留在[验证记录](../openspec/changes/archive/2026-09-28-establish-pi-turn-preparation/verification.md)中，后续单独排查；不能用本次定向结果宣称全量通过。
 
 接续工作按 [C04 verification](../openspec/changes/archive/2026-09-28-add-pi-api-key-provider-execution/verification.md) 和 C06 的验证记录核对 Provider 与 context 边界。Assistant Workspace、具体工具和自动恢复分别遵守 ADR 0001/0003、区域级 DOM identity 约束和 ADR 0002。后续会话接线是 C16，Skill Run 接线是 C17，生命周期恢复是 C19。每项能力的完成证据应落在对应 OpenSpec change 与测试中，并回写本文状态。
 
@@ -269,4 +271,4 @@ C10 的实现与 Linux/Windows 宿主门禁已完成；Windows 完整 Zotero cor
 2. 以最新 issue 的下一项 change 为范围，追踪实际代码调用链，写明与 `PiRuntime`、owner、provider、Tool Gateway 的边界；按项目流程完成规格、TDD 和宿主验证。
 3. **每个后续实现 change 结束时更新本文**：推进“已完成的证据”和“后续需要落实的边界”，记录验证通过与未完成的范围，替换失效链接和旧路径，再更新状态日期。只记已确认事实；研究建议和规划保留其状态标识。
 
-本次 C01 的全量 Zotero core 套件结果仍待补齐；C02、C03、C06 和 C08 依据各自确认的定向宿主门禁完成，没有全量通过证据。C03 全量 Node 套件仍有其他分片失败，C06 全量 runtime/core 套件仍受既有用例阻塞；C08 的 Windows Node 分片存在 5 个平台假设失败，Windows 真实 Zotero 定向探针通过 2/2。后续复跑应记录实际命令、通过范围和失败原因，不把定向结果写成全量通过。
+本次 C01 的全量 Zotero core 套件结果仍待补齐；C02、C03 和 C08 依据各自确认的定向宿主门禁完成，没有各自的完整通过证据。这些记录中的全量 Node 失败（C03 的其他分片、C06 的 `test:node:runtime` 分片、C08 的 Windows 平台假设）已随 C10 收尾时进入工作区的测试治理修正一并消除，2026-09-29 的全量 `npm run test:node` 已 28 个分片全部通过；仍待单独复跑确认的是 C06 记录的全量 `test:zotero:core` 阻塞。后续复跑应记录实际命令、通过范围和失败原因，不把定向结果写成全量通过。

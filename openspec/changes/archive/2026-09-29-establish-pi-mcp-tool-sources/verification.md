@@ -2,15 +2,15 @@
 
 ## Scope and result
 
-The outbound MCP source registry, Backend Manager controls, v2 HTTP client, C09 stdio transport, and C07 Gateway projection are implemented. Linux and Windows host acceptance passed. This change remains active because the full Node suite still fails outside the focused C10 tests; no acceptance exception has been granted.
+The outbound MCP source registry, Backend Manager controls, v2 HTTP client, C09 stdio transport, and C07 Gateway projection are implemented. Linux and Windows host acceptance passed, and the full Node suite now passes on all 28 shards (maintainer-reported after the workspace test-governance and platform fixes below; the run output was not archived). All three deltas were synced into `openspec/specs` on 2026-09-29 and the change was archived to `openspec/changes/archive/2026-09-29-establish-pi-mcp-tool-sources/`.
 
 | Dimension | Status |
 | --- | --- |
-| Completeness | 9/11 tasks checked; integrated acceptance and finalization remain |
+| Completeness | 11/11 tasks checked; delta specs synced to `openspec/specs`; change archived |
 | Correctness | 6/6 delta requirements have implementation paths; 10/10 scenarios have code paths, with focused tests for the main trust and lifecycle boundaries |
 | Coherence | Follows the single profile registry, C03 credential store, C09 process bridge, C07 Gateway, and lazy plugin ownership decisions |
 
-Official OpenSpec verification on 2026-09-29 found all 6 added requirements and 10 scenarios mapped to implementation and focused tests, with no new design or code-pattern divergence. Task completion is 9/11, so the two unchecked acceptance/finalization tasks are CRITICAL for archive readiness. No spec, scenario, or design check was skipped.
+Official OpenSpec verification on 2026-09-29 found all 6 added requirements and 10 scenarios mapped to implementation and focused tests, with no new design or code-pattern divergence. Task completion is 11/11 after the maintainer checked the integrated acceptance and finalization tasks. No spec, scenario, or design check was skipped.
 
 ## Passing evidence
 
@@ -29,9 +29,10 @@ Official OpenSpec verification on 2026-09-29 found all 6 added requirements and 
 
 The Windows browser check built the focused MCP entry at 1,280,452 bytes and found no Node MCP SDK; the full plugin browser entry did not include the legacy MCP SDK. The v1 SDK remains only as a transitive dependency of `@google/genai` through Pi AI and is absent from the plugin bundle.
 
-## Open issues before archive
+## Acceptance history and remaining work
 
-1. **CRITICAL — acceptance decision:** Windows `npm run test:node` completed with 14 of 28 shards passing and 14 failing. The failing shards span ACP, Host Bridge, SkillRunner, Synthesis, tooling, workflow packages, and Zotero Host. The C10-specific test passed 10/10, and the UI/shared suites passed. `npm run test:node -- --shard runtime-provider-execution` separately failed five existing C08 Trusted Native cases: two Windows symlink fixture permission errors and three Bash-specific mock Shell expectations. Earlier Linux verification also found Host Bridge runtime failures (`repair_required` rather than `committed` and a registry import timeout). These failures have not been accepted as a C10 exception. Investigate the unrelated suites or obtain a candidate-specific acceptance decision before checking task 4.1.
-2. **CRITICAL — finalization:** Task 4.2 remains open. After the acceptance decision, repeat official verification, sync the delta specs, and archive the change.
+1. **Resolved — acceptance decision:** Windows `npm run test:node` once completed with 14 of 28 shards passing and 14 failing, spanning ACP, Host Bridge, SkillRunner, Synthesis, tooling, workflow packages, and Zotero Host; `runtime-provider-execution` separately failed five existing C08 Trusted Native cases (two Windows symlink fixture permission errors, three Bash-specific mock Shell expectations), and earlier Linux verification found Host Bridge runtime failures (`repair_required` rather than `committed`, plus a registry import timeout). Those failures were traced to test-side Windows assumptions rather than to the C10 source runtime, and the workspace now carries the fixes: `.cmd` bridge launchers, junction instead of symlink for directory links, platform-selected shell names, a seeded runtime environment snapshot, ACP e2e fixture path escaping and stderr diagnostics, tightened Host Bridge and Zotero Host assertions, plus `acpTransport` Windows argument passing and `run-zotero-test-with-mock` POSIX path handling. The maintainer then reported the full `npm run test:node` run passing on all 28 shards; that output was not archived, so no shard-level counts are recorded here.
+2. **Resolved — finalization:** all three deltas were merged into `openspec/specs` on 2026-09-29 — `pi-mcp-tool-sources` created from its ADDED requirements (4 requirements, 7 scenarios), and `pi-tool-gateway-policy` (1 requirement) and `backend-manager-ui` (1 requirement) extended. `openspec validate <capability> --type spec --strict` passes for all three, and the change directory was moved to `openspec/changes/archive/2026-09-29-establish-pi-mcp-tool-sources/`.
+3. Full Node runs require the three built-in Skill submodules (`literature-analysis`, `literature-explainer`, `literature-translator`) to be initialized first; see `docs/testing-framework.md`.
 
 No production Conversation or Skill Run owner calls this source runtime yet. C16/C17 own that connection; this C10 module presents the frozen Gateway definitions for those owners.

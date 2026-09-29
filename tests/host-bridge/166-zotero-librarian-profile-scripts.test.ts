@@ -190,14 +190,45 @@ if (args.join(" ") === "context selection get") {
 `,
     "utf8",
   );
-  const sh = path.join(root, "zotero-bridge");
+  const sh = path.join(
+    root,
+    process.platform === "win32" ? "zotero-bridge.cmd" : "zotero-bridge",
+  );
   fs.writeFileSync(
     sh,
-    `#!/usr/bin/env sh\nnode "$(dirname "$0")/fake-bridge.js" "$@"\n`,
+    process.platform === "win32"
+      ? `@echo off\r\n"${process.execPath}" "%~dp0fake-bridge.js" %*\r\n`
+      : `#!/usr/bin/env sh\nnode "$(dirname "$0")/fake-bridge.js" "$@"\n`,
     "utf8",
   );
-  fs.chmodSync(sh, 0o755);
+  if (process.platform !== "win32") fs.chmodSync(sh, 0o755);
   return sh;
+}
+
+function writePackagedBridge(sourceRoot: string) {
+  const platformDir =
+    process.platform === "win32"
+      ? "win32-x64"
+      : process.platform === "darwin"
+        ? process.arch === "arm64"
+          ? "darwin-arm64"
+          : "darwin-x64"
+        : process.arch === "arm64"
+          ? "linux-arm64"
+          : "linux-x64";
+  const binaryName =
+    process.platform === "win32" ? "zotero-bridge.exe" : "zotero-bridge";
+  const binary = path.join(
+    sourceRoot,
+    "assets",
+    "zotero-bridge",
+    "bin",
+    platformDir,
+    binaryName,
+  );
+  fs.mkdirSync(path.dirname(binary), { recursive: true });
+  fs.writeFileSync(binary, "binary");
+  return binaryName;
 }
 
 describe("zotero-librarian resident service", function () {
@@ -428,36 +459,25 @@ describe("zotero-librarian resident service", function () {
     );
     assert.strictEqual(refreshed.status, "changed");
     const workspaceDir = fs.readdirSync(path.join(temp, "workspaces"))[0];
-    fs.mkdirSync(
-      path.join(temp, "workspaces", workspaceDir, ".zotero-bridge", "bin"),
-      { recursive: true },
-    );
-    fs.copyFileSync(
-      bridge,
-      path.join(
+    if (process.platform !== "win32") {
+      const localBin = path.join(
         temp,
         "workspaces",
         workspaceDir,
         ".zotero-bridge",
         "bin",
-        "zotero-bridge",
-      ),
-    );
-    fs.copyFileSync(
-      path.join(temp, "fake-bridge.js"),
-      path.join(
-        temp,
-        "workspaces",
-        workspaceDir,
-        ".zotero-bridge",
-        "bin",
-        "fake-bridge.js",
-      ),
-    );
-    const localPreferred = payload(
-      runPython(["--profile", profileA, "workflow", "catalog-refresh"], env),
-    );
-    assert.strictEqual(localPreferred.operation, "workflow.catalog-refresh");
+      );
+      fs.mkdirSync(localBin, { recursive: true });
+      fs.copyFileSync(bridge, path.join(localBin, "zotero-bridge"));
+      fs.copyFileSync(
+        path.join(temp, "fake-bridge.js"),
+        path.join(localBin, "fake-bridge.js"),
+      );
+      const localPreferred = payload(
+        runPython(["--profile", profileA, "workflow", "catalog-refresh"], env),
+      );
+      assert.strictEqual(localPreferred.operation, "workflow.catalog-refresh");
+    }
     const bSearch = payload(
       runPython(
         ["--bridge", bridge, "--profile", profileB, "index", "search", "One"],
@@ -481,7 +501,7 @@ describe("zotero-librarian resident service", function () {
     );
     assert.lengthOf(aSearch.data.items, 1);
     const profileLink = path.join(temp, "profiles", "a-link.json");
-    fs.symlinkSync(profileA, profileLink);
+    if (process.platform !== "win32") fs.symlinkSync(profileA, profileLink);
     fs.writeFileSync(profileA, '{"endpoint":"a","token":"changed"}');
     const linkedSearch = payload(
       runPython(
@@ -489,7 +509,7 @@ describe("zotero-librarian resident service", function () {
           "--bridge",
           bridge,
           "--profile",
-          profileLink,
+          process.platform === "win32" ? profileA : profileLink,
           "index",
           "search",
           "One",
@@ -581,9 +601,16 @@ describe("zotero-librarian resident service", function () {
         env,
       ),
     );
-    const logged = fs.readFileSync(bridgeLog, "utf8");
-    assert.include(logged, `"--profile"`);
-    assert.include(logged, path.resolve(profile));
+    const logged = fs
+      .readFileSync(bridgeLog, "utf8")
+      .trim()
+      .split(/\r?\n/)
+      .map((line) => JSON.parse(line) as string[]);
+    assert.isTrue(
+      logged.some(
+        (args) => args[0] === "--profile" && args[1] === path.resolve(profile),
+      ),
+    );
     const workspaceRoot = path.join(temp, "workspaces");
     assert.strictEqual(fs.readdirSync(workspaceRoot).length, 1);
   });
@@ -595,16 +622,7 @@ describe("zotero-librarian resident service", function () {
     const profile = path.join(temp, "profile.json");
     fs.writeFileSync(profile, "{}");
     const sourceRoot = path.join(temp, "source");
-    const binary = path.join(
-      sourceRoot,
-      "assets",
-      "zotero-bridge",
-      "bin",
-      "linux-x64",
-      "zotero-bridge",
-    );
-    fs.mkdirSync(path.dirname(binary), { recursive: true });
-    fs.writeFileSync(binary, "binary");
+    const binaryName = writePackagedBridge(sourceRoot);
     const result = runInstaller(
       [
         "--source-root",
@@ -628,45 +646,74 @@ describe("zotero-librarian resident service", function () {
           workspaceDirs[0],
           ".zotero-bridge",
           "bin",
-          "zotero-bridge",
+          binaryName,
         ),
       ),
     );
   });
 
-  it("keeps the default install and well-known link behavior", function () {
+  it("installs the default CLI locally without linking a profile", function () {
     const temp = fs.mkdtempSync(
       path.join(os.tmpdir(), "zotero-librarian-installer-default-"),
     );
     const sourceRoot = path.join(temp, "source");
-    const binary = path.join(
-      sourceRoot,
-      "assets",
-      "zotero-bridge",
-      "bin",
-      "linux-x64",
-      "zotero-bridge",
+    const binaryName = writePackagedBridge(sourceRoot);
+    const result = runInstaller(
+      ["--source-root", sourceRoot, "--no-link-well-known-profile"],
+      { ZOTERO_LIBRARIAN_STATE_DIR: path.join(temp, "state") },
     );
-    fs.mkdirSync(path.dirname(binary), { recursive: true });
-    fs.writeFileSync(binary, "binary");
+    assert.strictEqual(result.status, 0, result.stderr || result.stdout);
+    assert.isTrue(
+      fs.existsSync(
+        path.join(temp, "state", ".zotero-bridge", "bin", binaryName),
+      ),
+    );
+  });
+
+  it("links the well-known profile when file symlinks are available", function () {
+    const temp = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zotero-librarian-installer-link-"),
+    );
     const hostProfile = path.join(temp, "host-profile.json");
     fs.writeFileSync(hostProfile, "{}");
+    const probe = path.join(temp, "symlink-probe.json");
+    try {
+      fs.symlinkSync(hostProfile, probe);
+      fs.unlinkSync(probe);
+    } catch (error) {
+      if (
+        ["EPERM", "EACCES"].includes(
+          (error as NodeJS.ErrnoException).code || "",
+        )
+      ) {
+        this.skip();
+      }
+      throw error;
+    }
+    const sourceRoot = path.join(temp, "source");
+    const binaryName = writePackagedBridge(sourceRoot);
+    const home = path.join(temp, "home");
+    const localAppData = path.join(temp, "local-app-data");
     const result = runInstaller(["--source-root", sourceRoot], {
-      HOME: path.join(temp, "home"),
+      HOME: home,
+      USERPROFILE: home,
+      LOCALAPPDATA: localAppData,
+      XDG_DATA_HOME: path.join(home, ".local", "share"),
       ZOTERO_LIBRARIAN_STATE_DIR: path.join(temp, "state"),
       ZOTERO_BRIDGE_HOST_PROFILE: hostProfile,
     });
     assert.strictEqual(result.status, 0, result.stderr || result.stdout);
     assert.isTrue(
       fs.existsSync(
-        path.join(temp, "state", ".zotero-bridge", "bin", "zotero-bridge"),
+        path.join(temp, "state", ".zotero-bridge", "bin", binaryName),
       ),
     );
     const link = path.join(
-      temp,
-      "home",
-      ".local",
-      "share",
+      process.platform === "win32"
+        ? localAppData
+        : process.platform === "darwin"
+          ? path.join(home, "Library", "Application Support")
+          : path.join(home, ".local", "share"),
       "zotero-agents",
       "bridge-profile.json",
     );

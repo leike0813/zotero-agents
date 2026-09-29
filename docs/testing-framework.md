@@ -17,6 +17,14 @@
 
 Node 域命令为 `acp`、`assistant`、`dashboard`、`host-bridge`、`runtime`、`skillrunner`、`synthesis`、`tooling`、`ui`、`workflow` 和 `zotero-host`。
 
+首次运行 Node 全量测试前，初始化测试读取的三个内置 Skill submodule：
+
+```sh
+git submodule update --init -- skills_builtin/literature-analysis skills_builtin/literature-explainer skills_builtin/literature-translator
+```
+
+Windows 普通账户若没有创建文件符号链接的权限，Hermes 安装测试仍验证 CLI 安装；well-known profile 链接用例会跳过。需要验证链接正例时，在具备符号链接能力的 Windows 环境或 POSIX 环境运行该用例。
+
 Zotero 可按 `core`、`ui`、`workflow`、`e2e` 运行。`test:zotero:full` 顺序启动前三个独立宿主进程，避免一个长进程累积资源退化；`e2e` 由独立命令显式运行。
 
 ## 文件布局

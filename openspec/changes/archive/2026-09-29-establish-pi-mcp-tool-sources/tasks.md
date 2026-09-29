@@ -20,5 +20,6 @@
 
 ## 4. Integrated acceptance
 
-- [ ] 4.1 Run Node full and UI, Zotero core and UI, lint, build, browser check and strict OpenSpec validation; record exact results and any required exception.
-- [ ] 4.2 Update the Pi handoff with achieved evidence, run official verification, sync the specs and archive the complete change.
+- [x] 4.1 Run Node full and UI, Zotero core and UI, lint, build, browser check and strict OpenSpec validation; record exact results and any required exception.
+- [x] 4.2 Update the Pi handoff with achieved evidence, run official verification, sync the specs and archive the complete change.
+

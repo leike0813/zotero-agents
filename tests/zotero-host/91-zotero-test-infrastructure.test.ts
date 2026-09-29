@@ -546,7 +546,12 @@ describe("zotero test infrastructure helpers", function () {
       assert.isNumber(child.pid);
       try {
         await terminateExactProcess(child.pid!);
-        assert.isNull(await exited);
+        const exitCode = await exited;
+        if (process.platform === "win32") {
+          assert.isNumber(exitCode);
+        } else {
+          assert.isNull(exitCode);
+        }
       } finally {
         child.kill("SIGKILL");
       }
@@ -1386,11 +1391,12 @@ describe("zotero test infrastructure helpers", function () {
     });
 
     it("resolves the System E2E scaffold tree from the run-local data dir", function () {
+      const runRoot = path.join(os.tmpdir(), "e2e-1");
       assert.equal(
         resolveSystemE2EScaffoldRoot({
-          ZOTERO_TEST_DATA_DIR: "/run/e2e-1/.scaffold/test/data",
+          ZOTERO_TEST_DATA_DIR: path.join(runRoot, ".scaffold", "test", "data"),
         }),
-        "/run/e2e-1/.scaffold/test",
+        path.join(runRoot, ".scaffold", "test"),
       );
       assert.equal(
         resolveSystemE2EScaffoldRoot({

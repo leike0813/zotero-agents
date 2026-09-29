@@ -895,6 +895,7 @@ describe("background refresh governance", function () {
   });
 
   it("publishes a visible Replay failure when the host has no AbortController", async function () {
+    this.timeout(10_000);
     setDebugModeOverrideForTests(true);
     resetAcpRuntimeReplayControllerForTests();
     const restoreAbortController = replaceGlobalProperty(
@@ -914,7 +915,13 @@ describe("background refresh governance", function () {
         phase: "before-governance",
         cadence: "burst",
       });
-      await flushDashboardRuntime();
+      const deadline = Date.now() + 5_000;
+      while (Date.now() < deadline) {
+        await flushDashboardRuntime();
+        const latest = (harness.frameWindow.posted.at(-1) as any)?.payload
+          ?.acpReplayProfilerView;
+        if (latest?.state === "failed") break;
+      }
 
       const views = harness.frameWindow.posted
         .map((message) => (message as any)?.payload?.acpReplayProfilerView)

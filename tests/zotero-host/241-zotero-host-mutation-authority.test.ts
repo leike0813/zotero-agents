@@ -115,33 +115,42 @@ describe("Zotero host mutation authority", function () {
     const previous = {
       dataDirectory: runtime.Zotero.DataDirectory,
       getPref: runtime.Zotero.Prefs.get,
-      PathUtils: runtime.PathUtils,
       IOUtils: runtime.IOUtils,
       Services: runtime.Services,
     };
+    const dataDir = "/test-data";
+    const root = runtime.PathUtils.join(dataDir, "system-e2e");
+    const armedPath = runtime.PathUtils.join(
+      root,
+      "canonical-mutation-admission.armed.json",
+    );
+    const releasePath = runtime.PathUtils.join(
+      root,
+      "canonical-mutation-admission.release",
+    );
+    const heldPath = runtime.PathUtils.join(
+      root,
+      "canonical-mutation-admission.held",
+    );
     const writes: Array<[string, string]> = [];
     const files = new Map<string, string>([
-      [
-        "/test-data/system-e2e/canonical-mutation-admission.armed.json",
-        JSON.stringify({ operationId: "system-e2e:hb:03" }),
-      ],
-      ["/test-data/system-e2e/canonical-mutation-admission.release", "release"],
+      [armedPath, JSON.stringify({ operationId: "system-e2e:hb:03" })],
+      [releasePath, "release"],
     ]);
     try {
       runtime.Services = { prefs: { getStringPref: () => "" } };
-      runtime.Zotero.DataDirectory = { dir: "/test-data" };
+      runtime.Zotero.DataDirectory = { dir: dataDir };
       runtime.Zotero.Prefs.get = (key: string) =>
         key === "extensions.zotero-agents.test.systemE2EEventUrl"
           ? "http://127.0.0.1:3210/events"
           : undefined;
-      runtime.PathUtils = { join: (...parts: string[]) => parts.join("/") };
       // The governed writer ensures its parent directory and then writes text,
       // so the stub models both the directory it needs and the stat that
       // confirms it. The checkpoint no longer reaches IOUtils directly.
       runtime.IOUtils = {
         makeDirectory: async () => undefined,
         stat: async (path: string) => ({
-          type: path.endsWith("/system-e2e") ? "directory" : "file",
+          type: path === root ? "directory" : "file",
           size: 0,
         }),
         exists: async (path: string) => files.has(path),
@@ -167,16 +176,10 @@ describe("Zotero host mutation authority", function () {
         }),
       });
 
-      assert.deepEqual(writes, [
-        [
-          "/test-data/system-e2e/canonical-mutation-admission.held",
-          "system-e2e:hb:03",
-        ],
-      ]);
+      assert.deepEqual(writes, [[heldPath, "system-e2e:hb:03"]]);
     } finally {
       runtime.Zotero.DataDirectory = previous.dataDirectory;
       runtime.Zotero.Prefs.get = previous.getPref;
-      runtime.PathUtils = previous.PathUtils;
       runtime.IOUtils = previous.IOUtils;
       runtime.Services = previous.Services;
     }
