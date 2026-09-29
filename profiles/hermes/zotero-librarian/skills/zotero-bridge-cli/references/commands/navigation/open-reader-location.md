@@ -227,6 +227,87 @@ This command has no separate field-mapping program. Its binding mode is executab
 
 ```json
 {
+  "$defs": {
+    "itemRef": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "pattern": "^[A-Z0-9]{8}$",
+          "type": "string"
+        },
+        "libraryId": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "libraryId",
+        "key"
+      ],
+      "type": "object"
+    },
+    "readerLocation": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "attachment": {
+              "$ref": "#/$defs/itemRef"
+            },
+            "kind": {
+              "const": "page"
+            },
+            "pageIndex": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "attachment",
+            "pageIndex"
+          ]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "annotation": {
+              "$ref": "#/$defs/itemRef"
+            },
+            "kind": {
+              "const": "annotation"
+            }
+          },
+          "required": [
+            "kind",
+            "annotation"
+          ]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "attachment": {
+              "$ref": "#/$defs/itemRef"
+            },
+            "cfi": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "kind": {
+              "const": "epub"
+            }
+          },
+          "required": [
+            "kind",
+            "attachment",
+            "cfi"
+          ]
+        }
+      ],
+      "type": "object"
+    }
+  },
   "additionalProperties": false,
   "properties": {
     "approval": {
@@ -628,6 +709,87 @@ This closed descriptor is the machine-readable command contract returned by `sur
     }
   ],
   "resultSchema": {
+    "$defs": {
+      "itemRef": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "pattern": "^[A-Z0-9]{8}$",
+            "type": "string"
+          },
+          "libraryId": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "libraryId",
+          "key"
+        ],
+        "type": "object"
+      },
+      "readerLocation": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "attachment": {
+                "$ref": "#/$defs/itemRef"
+              },
+              "kind": {
+                "const": "page"
+              },
+              "pageIndex": {
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "attachment",
+              "pageIndex"
+            ]
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "annotation": {
+                "$ref": "#/$defs/itemRef"
+              },
+              "kind": {
+                "const": "annotation"
+              }
+            },
+            "required": [
+              "kind",
+              "annotation"
+            ]
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "attachment": {
+                "$ref": "#/$defs/itemRef"
+              },
+              "cfi": {
+                "maxLength": 4096,
+                "minLength": 1,
+                "type": "string"
+              },
+              "kind": {
+                "const": "epub"
+              }
+            },
+            "required": [
+              "kind",
+              "attachment",
+              "cfi"
+            ]
+          }
+        ],
+        "type": "object"
+      }
+    },
     "additionalProperties": false,
     "properties": {
       "approval": {
