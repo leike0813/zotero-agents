@@ -9,6 +9,7 @@ import {
 } from "../../../../src/platform/command";
 import { executeOneShotSubprocess } from "../../../../src/platform/subprocess";
 import { startLongLivedProcess } from "../../../../src/platform/longLivedProcess";
+import { shutdownWindowsStdioBridgeService } from "../../../../src/platform/windowsStdioBridgeService";
 import { defaultAcpRuntimeDependencyProbe } from "../../../../src/modules/acp/skillRun/acpRuntimeDependencyWrapper";
 import {
   runtimePathExists,
@@ -45,6 +46,11 @@ function getZoteroTempDirectoryPath() {
 }
 
 describe("runtime platform services in Zotero", function () {
+  after(async function () {
+    if (detectRuntimePlatform() === "win32")
+      await shutdownWindowsStdioBridgeService();
+  });
+
   before(function () {
     if (!hasRealZoteroRuntime()) {
       this.skip();

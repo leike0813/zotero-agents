@@ -11,7 +11,7 @@
 
 这份文档帮助后续 change 接续已确定的产品边界和实现进度。内置 Pi Agent Runtime 最终应成为完整 Agent：支持可持久化的多轮交互、经策略中介使用 Shell、文件和网络能力，并通过稳定的插件内边界操作 Zotero 文献库。
 
-W0 C01 已建立无 Node.js 依赖的瞬态 Pi 运行时骨架，W1 C02 已增加项目自有的 Pi owner 持久化基础，W1 C03 增加模型目录、配置、加密凭据和 Backend Manager 独立页面。W1 C07 已建立工具目录、策略和执行证据内核。W2 C04 已接入 API key Provider 模型流和手动连接测试；W2 C08 已实现原生文件、搜索和 Shell 工具目录。W2 C10 的 MCP 来源、发现和 Tool Gateway 接线已实现，Windows 宿主门禁与归档仍待完成。Agent 会话界面、其他工具和自动恢复仍需依照地图与执行计划分步实现。早期兼容性原型只保留为历史证据。
+W0 C01 已建立无 Node.js 依赖的瞬态 Pi 运行时骨架，W1 C02 已增加项目自有的 Pi owner 持久化基础，W1 C03 增加模型目录、配置、加密凭据和 Backend Manager 独立页面。W1 C07 已建立工具目录、策略和执行证据内核。W2 C04 已接入 API key Provider 模型流和手动连接测试；W2 C08 已实现原生文件、搜索和 Shell 工具目录。W2 C10 的 MCP 来源、发现和 Tool Gateway 接线已实现，Linux/Windows 宿主门禁已通过；全量 Node 验收与归档仍待决定。Agent 会话界面、其他工具和自动恢复仍需依照地图与执行计划分步实现。早期兼容性原型只保留为历史证据。
 
 ## 统一术语
 
@@ -106,7 +106,7 @@ C01 没有生产 caller；Zotero 用例直接导入生产模块。真实 provide
 
 - [C10 OpenSpec change](../openspec/changes/establish-pi-mcp-tool-sources/) 已建立。Backend Manager 独立内置 Agent 页现在管理 profile MCP 来源、加密凭据引用、显式的本地网络与明文授权、发现后的工具审阅、导入预览和无密钥导出。损坏的来源注册表拒绝调用，并提供显式重置。
 - `piMcpToolSources.ts` 延迟连接 MCP v2 Streamable HTTP 或 C09 长驻 stdio 传输，按当前来源与凭据版本冻结每轮目录；仅审阅且 descriptor 未改变的工具进入 C07 Gateway。代理搜索、描述、调用和直出工具共用 Gateway 的效果分类、审批与回执，远端结果有大小和内容类型边界，未知结果不自动重放。插件入口延迟加载 MCP SDK，避免 Zotero 启动时提前求值。
-- 已确认：Node `runtime-provider-execution`、`dashboard` 分片，真实 HTTP MCP server 联调，以及 Linux Zotero core 的 stdio 探针、Backend Manager UI 探针均通过；TypeScript、严格 OpenSpec 和浏览器导入审计通过。最终 lint/build、全量套件和 Windows Zotero stdio 探针仍以 [C10 验证记录](../openspec/changes/establish-pi-mcp-tool-sources/verification.md)为准。C10 尚未接入生产 Conversation / Skill Run owner；该接线仍属于 C16/C17。
+- 已确认：Linux 的 Node `runtime-provider-execution`、`dashboard` 分片和真实 HTTP MCP server 联调通过；Linux、Windows Zotero core 的 stdio 探针与 Backend Manager UI 探针通过。Windows 完整 Zotero core 73 项通过、1 项标记 pending，UI 3/3，C10 Node 定向 10/10；TypeScript、lint、build、浏览器导入审计和严格 OpenSpec 校验通过。Windows 全量 Node 仅 14/28 个分片通过，失败分布在多个非 C10 领域，尚未取得验收例外，详见 [C10 验证记录](../openspec/changes/establish-pi-mcp-tool-sources/verification.md)。C10 尚未接入生产 Conversation / Skill Run owner；该接线仍属于 C16/C17。
 
 ### Pi core Zotero 兼容性原型
 
@@ -221,7 +221,7 @@ git show research/pi-agent-sandbox-models:artifact/pi-agent-runtime/sandbox-and-
 
 ## 下一步实施入口
 
-C10 的实现与 Linux 定向门禁已完成；用户决定保持 change 未归档，待 Windows stdio 宿主探针和全量套件问题处理后再做最终验收。完成后按 [#26 最终 wave 表](https://github.com/leike0813/zotero-agents/issues/26#issuecomment-5552013273) 选择后继 change。C06 的全量 runtime/core 阻塞保留在[验证记录](../openspec/changes/archive/2026-09-28-establish-pi-turn-preparation/verification.md)中，后续单独排查；不能用本次定向结果宣称全量通过。
+C10 的实现与 Linux/Windows 宿主门禁已完成；Windows 完整 Zotero core/UI 也通过。全量 Node 仍有跨领域失败，用户此前未批准验收例外，因此 change 保持未归档，等待修复或明确的候选版本验收决定。完成后按 [#26 最终 wave 表](https://github.com/leike0813/zotero-agents/issues/26#issuecomment-5552013273) 选择后继 change。C06 的全量 runtime/core 阻塞保留在[验证记录](../openspec/changes/archive/2026-09-28-establish-pi-turn-preparation/verification.md)中，后续单独排查；不能用本次定向结果宣称全量通过。
 
 接续工作按 [C04 verification](../openspec/changes/archive/2026-09-28-add-pi-api-key-provider-execution/verification.md) 和 C06 的验证记录核对 Provider 与 context 边界。Assistant Workspace、具体工具和自动恢复分别遵守 ADR 0001/0003、区域级 DOM identity 约束和 ADR 0002。后续会话接线是 C16，Skill Run 接线是 C17，生命周期恢复是 C19。每项能力的完成证据应落在对应 OpenSpec change 与测试中，并回写本文状态。
 

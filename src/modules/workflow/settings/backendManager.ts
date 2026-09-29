@@ -3150,9 +3150,12 @@ export async function openBackendManagerDialog(
                   "mcp-source",
                 );
               } else if (action === "pi-mcp-test-source") {
-                const tools = await (await import("../../piMcpRuntimeOwner"))
-                  .getPiMcpToolSources()
-                  .testSource(String(payload.id || ""));
+                const { getPiMcpToolSources } =
+                  await import("../../piMcpRuntimeOwner");
+                const sourceOwner = await getPiMcpToolSources();
+                const tools = await sourceOwner.testSource(
+                  String(payload.id || ""),
+                );
                 postToFrame("backend-manager-dialog:action-result", {
                   action,
                   ok: true,

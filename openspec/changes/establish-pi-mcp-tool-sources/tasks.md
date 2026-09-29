@@ -13,7 +13,7 @@
 
 ## 3. Outbound runtime and policy
 
-- [ ] 3.1 Write failing stdio transport tests, implement the C09-backed SDK Transport, and pass Node plus real Zotero Linux/Windows canaries.
+- [x] 3.1 Write failing stdio transport tests, implement the C09-backed SDK Transport, and pass Node plus real Zotero Linux/Windows canaries.
 - [x] 3.2 Write failing HTTP discovery, invalidation, cancellation and result projection tests, implement the lazy MCP source owner, and pass targeted runtime tests.
 - [x] 3.3 Write failing Gateway proxy/effect/receipt tests, compose frozen hidden catalog and direct promotions through C07, and pass targeted Gateway tests.
 - [x] 3.4 Compose lazy ownership and bounded shutdown in hooks; pass the real Zotero core/UI source tests and update domain/agent constraints.
