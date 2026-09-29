@@ -1624,6 +1624,52 @@ describe("zotero host broker capability api", function () {
     assert.lengthOf(ordinary.getAttachments(), 0);
   });
 
+  it("rejects an unrelated child note added during a managed write", async function () {
+    const broker = createZoteroHostCapabilityBroker();
+    const baselineParent = await createParentItem("Managed Writer Own Child");
+    const baseline = await broker.literatureArtifacts.upsertDigest(
+      {
+        operationId: "managed-write-own-child",
+        parentRef: {
+          libraryId: baselineParent.libraryID,
+          key: baselineParent.key,
+        },
+        markdown: "Managed body",
+      },
+      { ownerId: "managed-write-concurrent-child-test" },
+    );
+    assert.strictEqual(baseline.outcome, "committed");
+
+    const parent = await createParentItem("Managed Writer Concurrent Child");
+    const originalCreate = brokerMutationPrimitives.note.create;
+    let unrelated: Zotero.Item | undefined;
+    brokerMutationPrimitives.note.create = (async (...args) => {
+      const created = await originalCreate(...args);
+      unrelated = new Zotero.Item("note");
+      unrelated.parentID = parent.id;
+      unrelated.setNote("<p>Unrelated note</p>");
+      await unrelated.saveTx();
+      return created;
+    }) as typeof originalCreate;
+    try {
+      const result = await broker.literatureArtifacts.upsertDigest(
+        {
+          operationId: "managed-write-concurrent-child",
+          parentRef: { libraryId: parent.libraryID, key: parent.key },
+          markdown: "Managed body",
+        },
+        { ownerId: "managed-write-concurrent-child-test" },
+      );
+      assert.strictEqual(result.outcome, "failed");
+      if (result.outcome === "failed") {
+        assert.strictEqual(result.attempt.error.phase, "staging");
+      }
+      assert.isOk(unrelated && Zotero.Items.get(unrelated.id));
+    } finally {
+      brokerMutationPrimitives.note.create = originalCreate;
+    }
+  });
+
   it("uses semantic artifact writers and reports stale citation basis", async function () {
     const parent = await createParentItem("Semantic Artifact Writer Parent");
     const broker = createZoteroHostCapabilityBroker();

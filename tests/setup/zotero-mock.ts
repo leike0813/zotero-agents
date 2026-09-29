@@ -768,7 +768,8 @@ class MockItem {
   async saveTx() {
     if (!this.id) {
       this.id = nextItemId++;
-      this.key ||= generateKey(this.id);
+      this.key ||=
+        (this as MockItem & { _key?: string })._key || generateKey(this.id);
       this.itemTypeID = itemTypeIdByName.get(this.itemType) ?? this.itemTypeID;
     }
     itemsById.set(this.id, this);

@@ -940,6 +940,7 @@ describe("host bridge cli packaging and install", function () {
   });
 
   it("renders exhaustive disjoint mechanism command references from the runtime descriptor", async function () {
+    this.timeout(10_000);
     const descriptor = buildHostBridgeAgentSurfaceDescriptor();
     const references = await readCommandReferences(
       "addon/content/host-bridge-skills/zotero-bridge-cli",

@@ -8348,7 +8348,10 @@ async function executeManagedSemanticMutationEffects(
               tags: [],
               collections: [],
             });
-            beforeEffect?.markWritten([]);
+            beforeEffect?.markWritten([
+              { kind: "item", ref: canonicalItemRef(parent!) },
+              { kind: "item", ref: canonicalItemRef(created) },
+            ]);
             return created;
           });
         }
@@ -8363,7 +8366,9 @@ async function executeManagedSemanticMutationEffects(
               note!,
               normalized.content,
             );
-            beforeEffect?.markWritten([]);
+            beforeEffect?.markWritten([
+              { kind: "item", ref: canonicalItemRef(note!) },
+            ]);
           });
         }
 
@@ -9535,11 +9540,24 @@ function createCanonicalMutationControl(): ZoteroHostCanonicalMutationControl {
           entities: readonly MutationEntityRef[],
         ) => {
           let added = false;
+          let currentScopeKeys: Set<string> | undefined;
           for (const entity of entities) {
             const key = mutationObservationEntityKey(entity);
             if (removedEntities.has(key)) continue;
-            const observation = currentMutationEntityObservation(entity);
             const index = expectedObservationIndexes.get(key);
+            if (
+              index === undefined &&
+              !record.destructivePrepared &&
+              !record.ingestPrepared
+            ) {
+              currentScopeKeys ??= new Set(
+                collectCanonicalMutationObservations(args.input).map(
+                  ({ entity }) => mutationObservationEntityKey(entity),
+                ),
+              );
+              if (!currentScopeKeys.has(key)) continue;
+            }
+            const observation = currentMutationEntityObservation(entity);
             if (index === undefined) {
               expectedObservations.push(observation);
               added = true;
@@ -9644,7 +9662,14 @@ function createCanonicalMutationControl(): ZoteroHostCanonicalMutationControl {
             withZoteroHostSlice(args.control, async () => {
               await beforeEffect(phase);
               const result = await work();
-              if (phase === "effect") beforeEffect.markWritten([]);
+              if (
+                phase === "effect" &&
+                args.input.operation === "attachments.replaceFile"
+              ) {
+                beforeEffect.markWritten([
+                  { kind: "item", ref: args.input.attachmentRef },
+                ]);
+              }
               return result;
             });
           primitives = {
@@ -9660,6 +9685,13 @@ function createCanonicalMutationControl(): ZoteroHostCanonicalMutationControl {
                     : normalizeLibraryId(undefined),
                 metadata: request.metadata,
                 admit,
+                afterImport: () => {
+                  if (parent) {
+                    beforeEffect.markWritten([
+                      { kind: "item", ref: canonicalItemRef(parent) },
+                    ]);
+                  }
+                },
               }),
             replaceFile: async (request, attachment) =>
               nativeMutations.attachments.replaceStoredAttachment({
@@ -12771,7 +12803,19 @@ async function executeNoteMutation(
                 tags: noteCreate!.initialTags,
                 collections: noteCreate!.collections,
               });
-              beforeEffect?.markWritten([]);
+              beforeEffect?.markWritten(
+                noteCreate!.placement.kind === "child"
+                  ? [
+                      {
+                        kind: "item",
+                        ref: noteCreate!.placement.parentRef,
+                      },
+                    ]
+                  : (noteCreate!.placement.collectionRefs || []).map((ref) => ({
+                      kind: "collection",
+                      ref,
+                    })),
+              );
               return created;
             });
           } catch (error) {
@@ -12800,7 +12844,9 @@ async function executeNoteMutation(
                   note,
                   bindNoteImageSlots(content.value, staged.attachmentKeys),
                 );
-                beforeEffect?.markWritten([]);
+                beforeEffect?.markWritten([
+                  { kind: "item", ref: canonicalItemRef(note) },
+                ]);
               });
             } catch (error) {
               const residualRefs = await cleanupNoteMutationItems(
@@ -13435,7 +13481,11 @@ async function executeAttachmentMutation(
                       title: input.metadata?.title,
                       contentType: input.metadata?.contentType,
                     });
-                  beforeEffect?.markWritten([]);
+                  if (parent) {
+                    beforeEffect?.markWritten([
+                      { kind: "item", ref: canonicalItemRef(parent) },
+                    ]);
+                  }
                   return attachment;
                 });
               } else {
@@ -13453,7 +13503,9 @@ async function executeAttachmentMutation(
                   },
                   control,
                   beforeEffect,
-                  writtenEntities: [],
+                  writtenEntities: parent
+                    ? [{ kind: "item", ref: canonicalItemRef(parent) }]
+                    : [],
                 });
               }
               for (const collection of collections) {
@@ -13463,7 +13515,12 @@ async function executeAttachmentMutation(
                     created!,
                     collection,
                   );
-                  beforeEffect?.markWritten([]);
+                  beforeEffect?.markWritten([
+                    {
+                      kind: "collection",
+                      ref: canonicalCollectionRef(collection),
+                    },
+                  ]);
                 });
               }
             } catch (primary) {
@@ -13778,7 +13835,17 @@ async function executeAttachmentMutation(
                     attachment,
                     nextParent,
                   );
-                  beforeEffect?.markWritten([]);
+                  beforeEffect?.markWritten([
+                    { kind: "item", ref: attachmentRef },
+                    ...(nextParent
+                      ? [
+                          {
+                            kind: "item" as const,
+                            ref: canonicalItemRef(nextParent),
+                          },
+                        ]
+                      : []),
+                  ]);
                 });
                 await withZoteroHostSlice(control, async () => {
                   await beforeEffect?.("effect");
@@ -13786,7 +13853,13 @@ async function executeAttachmentMutation(
                     attachment,
                     nextCollections,
                   );
-                  beforeEffect?.markWritten([]);
+                  beforeEffect?.markWritten([
+                    { kind: "item", ref: attachmentRef },
+                    ...nextCollections.map((collection) => ({
+                      kind: "collection" as const,
+                      ref: canonicalCollectionRef(collection),
+                    })),
+                  ]);
                 });
               } catch (primary) {
                 try {

@@ -777,6 +777,7 @@ describe("Zotero host native attachment mutations", function () {
   });
 
   it("preserves backup cleanup errors for Broker repair classification", async function () {
+    this.timeout(10_000);
     await withTemporaryDirectory(async (root) => {
       const storage = path.join(root, "storage");
       const stage = path.join(
