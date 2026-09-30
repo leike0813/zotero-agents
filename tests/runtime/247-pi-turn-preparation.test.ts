@@ -162,6 +162,21 @@ function ports(records: unknown[] = []): PiTurnPreparationPorts {
 }
 
 describe("Pi Turn Preparation shared behavior", function () {
+  it("reserves output within Codex context when discovery has no output ceiling", async function () {
+    const input = fixture();
+    input.frozen.model = {
+      ...model,
+      api: "openai-codex-responses",
+      policy: { ...model.policy, maxTokens: 0 },
+    };
+    const result = await preparePiTurn(input, ports());
+    assert.equal(result.status, "ready");
+    input.frozen.policy.outputReserve = 7000;
+    const oversized = await preparePiTurn(input, ports());
+    assert.equal(oversized.status, "failed");
+    if (oversized.status === "failed")
+      assert.equal(oversized.failure.code, "context_budget_exceeded");
+  });
   it("reconstructs only the active path from frozen trusted facts", async function () {
     const records: unknown[] = [];
     const result = await preparePiTurn(fixture(), ports(records));

@@ -3,6 +3,9 @@ import {
   getBundledProviders,
 } from "@oh-my-pi/pi-catalog/models";
 import { parseDocument } from "yaml";
+import { getPiCredentialRevision, readPiCredential } from "./piCredentialStore";
+import { resolvePiOpenAICodexAccess } from "./piOpenAICodexAuth";
+import { PiModelStreamFailure } from "./piRuntime";
 import { classifyPiEndpoint } from "./piProviderConfiguration";
 import type { PiCatalog, PiCatalogModel } from "../shared/piProviderContract";
 export type { PiCatalog, PiCatalogModel } from "../shared/piProviderContract";
@@ -293,4 +296,152 @@ export async function refreshPiModelCatalog(
     models: [...bundledModels(), ...overlay],
     overlayStatus: "refreshed",
   };
+}
+
+export async function removePiCodexCredentialModels(
+  catalog: PiCatalog,
+  credentialId: string,
+): Promise<PiCatalog> {
+  const models = catalog.models.filter(
+    (model) => model.credentialRef !== credentialId,
+  );
+  return { ...catalog, models, revision: await revision(models) };
+}
+
+export async function refreshPiCodexModelCatalog(
+  catalog: PiCatalog,
+  args: { credentialId: string; signal: AbortSignal; fetch?: typeof fetch },
+): Promise<PiCatalog> {
+  try {
+    const access = await resolvePiOpenAICodexAccess(
+      args.credentialId,
+      args.signal,
+    );
+    const credentialRevision = getPiCredentialRevision(
+      args.credentialId,
+      "model-provider",
+    );
+    const resolved = await readPiCredential(args.credentialId);
+    if (
+      !resolved.ok ||
+      resolved.material.kind !== "openai-codex" ||
+      resolved.material.access !== access ||
+      getPiCredentialRevision(args.credentialId, "model-provider") !==
+        credentialRevision
+    )
+      throw new PiModelStreamFailure("credential_missing");
+    const response = await (args.fetch || globalThis.fetch)(
+      "https://chatgpt.com/backend-api/codex/models?client_version=0.158.0",
+      {
+        headers: {
+          Authorization: `Bearer ${access}`,
+          "ChatGPT-Account-ID": resolved.material.accountId,
+          originator: "codex_cli_rs",
+        },
+        credentials: "omit",
+        redirect: "error",
+        signal: args.signal,
+      },
+    );
+    if (!response.ok)
+      throw new PiModelStreamFailure(
+        response.status === 401 || response.status === 403
+          ? "provider_auth_failed"
+          : "provider_unavailable",
+      );
+    if (!response.body) throw new PiModelStreamFailure("provider_http_error");
+    const reader =
+      response.body.getReader() as ReadableStreamDefaultReader<Uint8Array>;
+    const decoder = new TextDecoder("utf-8", { fatal: true });
+    let raw = "";
+    let bytes = 0;
+    try {
+      for (;;) {
+        const part = await reader.read();
+        if (part.done) break;
+        bytes += part.value.byteLength;
+        if (bytes > 2 * 1024 * 1024)
+          throw new PiModelStreamFailure("provider_http_error");
+        raw += decoder.decode(part.value, { stream: true });
+      }
+      raw += decoder.decode(new Uint8Array());
+    } finally {
+      await reader.cancel().catch(() => {});
+      reader.releaseLock();
+    }
+    const data = JSON.parse(raw) as { models?: unknown };
+    if (!Array.isArray(data?.models) || data.models.length > 1000)
+      throw new PiModelStreamFailure("provider_http_error");
+    const seen = new Set<string>();
+    const discovered: PiCatalogModel[] = [];
+    for (const item of data.models) {
+      if (!item || typeof item !== "object" || item.visibility !== "list")
+        continue;
+      const id = string(item.slug);
+      if (!id || id.length > 128 || seen.has(id))
+        throw new PiModelStreamFailure("provider_http_error");
+      seen.add(id);
+      const efforts: unknown[] = Array.isArray(item.supported_reasoning_levels)
+        ? item.supported_reasoning_levels.map(
+            (level: { effort?: unknown }) => level?.effort,
+          )
+        : [];
+      discovered.push({
+        provider: "openai-codex",
+        id,
+        name: string(item.display_name).slice(0, 256) || id,
+        api: "openai-codex-responses",
+        baseUrl: "https://chatgpt.com/backend-api",
+        contextWindow:
+          item.context_window === undefined
+            ? 0
+            : positiveInt(item.context_window, "contextWindow"),
+        maxTokens:
+          item.max_output_tokens === undefined
+            ? 0
+            : positiveInt(item.max_output_tokens, "maxTokens"),
+        input:
+          item.input_modalities === undefined
+            ? []
+            : knownStringArray(
+                item.input_modalities,
+                new Set(["text", "image"]),
+                "input",
+              ),
+        reasoning: [
+          ...new Set(
+            efforts.filter(
+              (level: unknown): level is string =>
+                typeof level === "string" && REASONING.has(level),
+            ),
+          ),
+        ],
+        supportsTools: item.supports_tools === true,
+        source: "discovered",
+        credentialRef: args.credentialId,
+      });
+    }
+    const models = [
+      ...catalog.models.filter(
+        (model) => model.credentialRef !== args.credentialId,
+      ),
+      ...discovered,
+    ];
+    const catalogRevision = await revision(models);
+    if (
+      args.signal.aborted ||
+      !credentialRevision ||
+      getPiCredentialRevision(args.credentialId, "model-provider") !==
+        credentialRevision
+    )
+      throw new PiModelStreamFailure(
+        args.signal.aborted ? "aborted" : "credential_missing",
+      );
+    return { ...catalog, models, revision: catalogRevision };
+  } catch (error) {
+    if (error instanceof PiModelStreamFailure) throw error;
+    throw new PiModelStreamFailure(
+      args.signal.aborted ? "aborted" : "provider_unavailable",
+    );
+  }
 }

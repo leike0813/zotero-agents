@@ -1,7 +1,7 @@
 import { assert } from "chai";
 import { getPref, setPref } from "../../src/utils/prefs";
 import { putPiCredential } from "../../src/modules/piCredentialStore";
-import { createPiApiKeyModelSource } from "../../src/modules/piApiKeyProviderExecution";
+import { createPiProviderModelSource } from "../../src/modules/piProviderExecution";
 import { PiRuntime } from "../../src/modules/piRuntime";
 import type { PiModelSelectionSnapshot } from "../../src/shared/piProviderContract";
 
@@ -39,7 +39,9 @@ describe("Pi API-key Provider execution", function () {
     setPref("piCredentialEncryptedJson", prior);
   });
 
-  async function collect(source: ReturnType<typeof createPiApiKeyModelSource>) {
+  async function collect(
+    source: ReturnType<typeof createPiProviderModelSource>,
+  ) {
     const result: string[] = [];
     for await (const delta of source({
       systemPrompt: "",
@@ -63,7 +65,7 @@ describe("Pi API-key Provider execution", function () {
         headers: { "content-type": "text/event-stream" },
       });
     };
-    const source = createPiApiKeyModelSource(selection, {
+    const source = createPiProviderModelSource(selection, {
       fetch: fetchFixture,
     });
     const deltas: string[] = [];
@@ -84,7 +86,7 @@ describe("Pi API-key Provider execution", function () {
 
   it("does not send ambient authorization to an explicitly keyless endpoint", async function () {
     let authorization: string | null = null;
-    const source = createPiApiKeyModelSource(
+    const source = createPiProviderModelSource(
       {
         ...selection,
         authVariant: "none",
@@ -105,7 +107,7 @@ describe("Pi API-key Provider execution", function () {
 
   it("fails before network when the selected credential has been cleared", async function () {
     let called = false;
-    const source = createPiApiKeyModelSource(selection, {
+    const source = createPiProviderModelSource(selection, {
       fetch: async () => {
         called = true;
         throw new Error("unexpected request");
@@ -122,7 +124,7 @@ describe("Pi API-key Provider execution", function () {
 
   it("refuses a local endpoint without Local Network authorization", async function () {
     let called = false;
-    const source = createPiApiKeyModelSource(
+    const source = createPiProviderModelSource(
       { ...selection, requiresLocalNetwork: true },
       {
         fetch: async () => {
@@ -146,7 +148,7 @@ describe("Pi API-key Provider execution", function () {
       label: "Fixture",
       material: { kind: "api-key", secret: "fixture-secret" },
     });
-    const source = createPiApiKeyModelSource(selection, {
+    const source = createPiProviderModelSource(selection, {
       fetch: async () =>
         new Response("private-response fixture-secret", { status: 401 }),
     });
@@ -177,7 +179,7 @@ describe("Pi API-key Provider execution", function () {
       });
       const session = new PiRuntime().openSession({
         sessionId: `http-${status}`,
-        modelStream: createPiApiKeyModelSource(selection, {
+        modelStream: createPiProviderModelSource(selection, {
           fetch: async () =>
             new Response("private-response fixture-secret", { status }),
         }),
@@ -218,7 +220,7 @@ describe("Pi API-key Provider execution", function () {
       });
       const session = new PiRuntime().openSession({
         sessionId: name,
-        modelStream: createPiApiKeyModelSource(selection, {
+        modelStream: createPiProviderModelSource(selection, {
           fetch: fetchFixture,
         }),
       });
@@ -234,7 +236,7 @@ describe("Pi API-key Provider execution", function () {
 
   it("rejects keyless non-OpenAI dialects before network", async function () {
     let called = false;
-    const source = createPiApiKeyModelSource(
+    const source = createPiProviderModelSource(
       {
         ...selection,
         authVariant: "none",
@@ -259,7 +261,7 @@ describe("Pi API-key Provider execution", function () {
 
   it("refuses a custom fetch injection for the native Google adapter", async function () {
     let called = false;
-    const source = createPiApiKeyModelSource(
+    const source = createPiProviderModelSource(
       { ...selection, api: "google-generative-ai" },
       {
         fetch: async () => {
@@ -286,7 +288,7 @@ describe("Pi API-key Provider execution", function () {
     let requestStarted!: () => void;
     const started = new Promise<void>((resolve) => (requestStarted = resolve));
     let requestAborted = false;
-    const source = createPiApiKeyModelSource(selection, {
+    const source = createPiProviderModelSource(selection, {
       fetch: async (input, init) => {
         const request = new Request(input, init);
         requestStarted();

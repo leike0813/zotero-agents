@@ -9,7 +9,8 @@ export type PiCatalogModel = {
   input: readonly string[];
   supportsTools: boolean;
   reasoning: readonly string[];
-  source: "bundled" | "overlay";
+  source: "bundled" | "overlay" | "discovered";
+  credentialRef?: string;
 };
 export type PiCatalog = {
   revision: string;

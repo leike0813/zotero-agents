@@ -1,7 +1,7 @@
 import { assert } from "chai";
 import { getPref, setPref } from "../../../../src/utils/prefs";
 import { putPiCredential } from "../../../../src/modules/piCredentialStore";
-import { createPiApiKeyModelSource } from "../../../../src/modules/piApiKeyProviderExecution";
+import { createPiProviderModelSource } from "../../../../src/modules/piProviderExecution";
 import type { PiModelSelectionSnapshot } from "../../../../src/shared/piProviderContract";
 
 describe("Pi API-key Provider in real Zotero", function () {
@@ -40,7 +40,7 @@ describe("Pi API-key Provider in real Zotero", function () {
         },
       };
       let authorization = "";
-      const source = createPiApiKeyModelSource(selection, {
+      const source = createPiProviderModelSource(selection, {
         fetch: async (input, init) => {
           const request = new Request(input, init);
           authorization = request.headers.get("authorization") || "";

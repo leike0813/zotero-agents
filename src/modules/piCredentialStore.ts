@@ -141,6 +141,8 @@ export function putPiCredential(args: {
   label: string;
   material: PiCredentialMaterial;
   namespace?: PiCredentialNamespace;
+  expectedRevision?: string | null;
+  signal?: AbortSignal;
 }): Promise<PiCredentialMetadata> {
   return enqueue(async () => {
     const id = idText(args.id);
@@ -155,6 +157,11 @@ export function putPiCredential(args: {
     const existing = doc.records[id];
     if (existing && (existing.namespace || "model-provider") !== namespace)
       throw new Error("Pi credential namespace mismatch");
+    if (
+      args.expectedRevision !== undefined &&
+      (existing?.iv || null) !== args.expectedRevision
+    )
+      throw new Error("Pi credential changed");
     const api = cryptoApi();
     const iv = new Uint8Array(12);
     api.getRandomValues(iv);
@@ -184,6 +191,7 @@ export function putPiCredential(args: {
       iv: encode(iv),
       ciphertext: encode(new Uint8Array(ciphertext)),
     };
+    if (args.signal?.aborted) throw new Error("Pi credential write canceled");
     setPref("piCredentialEncryptedJson", JSON.stringify(doc));
     return metadata;
   });

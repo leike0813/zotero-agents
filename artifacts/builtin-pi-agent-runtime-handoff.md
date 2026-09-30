@@ -1,9 +1,10 @@
 # 内置 Pi Agent Runtime 工作交接
 
-- 状态核对：2026-09-29
+- 状态核对：2026-09-30
 - 工作分支：`dev-agent-harness`
 - 实施路线：[地图 #10](https://github.com/leike0813/zotero-agents/issues/10)、[执行计划 #26](https://github.com/leike0813/zotero-agents/issues/26)
 - 已实现并归档：W0 C01（提交 `fbd297d4`）、W1 C02（`1da0cd84`）、W1 C03（`ef91407c`）、W1 C07（`f5ce9fe6`）、W1 C09（`5077c7b3`）、W2 C04（`f88e2825`）、W2 C06（`2bb22e90`）、W2 C08（实现 `fe6a5a51`，归档 `ad671f6f4`）、W2 C10（实现 `78023c716`、`a8602bc77`，归档 `2026-09-29`）、W2 C12（归档 `2026-09-29`）、C08 受管文件补齐与 W3 C13（均归档 `2026-09-29`）；见 [C08 补齐](../openspec/changes/archive/2026-09-29-complete-pi-managed-workspace-operations/)、[C12 OpenSpec 归档](../openspec/changes/archive/2026-09-29-establish-pi-zotero-tool-catalog/)与 [C13 OpenSpec 归档](../openspec/changes/archive/2026-09-29-add-pi-zotero-read-tools/)。
+- 最近完成：W3 C05 OpenAI Codex 认证，见 [归档 change](../openspec/changes/archive/2026-09-30-add-pi-openai-codex-auth/)。9/9 任务完成；真实登录、官方模型发现、`gpt-6-luna` SSE、过期记录刷新、本地断开与重连均通过。间歇性 start JSON 403 的原因仍未知，详见 [专项交接](builtin-pi-agent-c05-auth-handoff-2026-09-30.md)。下一切片为 C16 Conversation 接线。
 
 本文是持续更新的工作交接。**后续每个 Pi Runtime 相关 change 完成、归档或改变实施决定时，实施者须在交接前按实际进度更新本文**：核对已实现边界、下一步、验证结果、未解决风险及链接，并更新状态日期。拟议能力不得写成已交付能力；实现与规格冲突时先核对代码和正式决策。
 
@@ -11,7 +12,7 @@
 
 这份文档帮助后续 change 接续已确定的产品边界和实现进度。内置 Pi Agent Runtime 最终应成为完整 Agent：支持可持久化的多轮交互、经策略中介使用 Shell、文件和网络能力，并通过稳定的插件内边界操作 Zotero 文献库。
 
-W0 C01 已建立无 Node.js 依赖的瞬态 Pi 运行时骨架，W1 C02 已增加项目自有的 Pi owner 持久化基础，W1 C03 增加模型目录、配置、加密凭据和 Backend Manager 独立页面。W1 C07 已建立工具目录、策略和执行证据内核。W2 C04 已接入 API key Provider 模型流和手动连接测试；W2 C08 已实现原生文件、搜索和 Shell 工具目录。W2 C10 的 MCP 来源、发现和 Tool Gateway 接线已实现；W2 C12 建立首个 Broker-backed Zotero Native Tool，W3 C13 将目录扩展到 14 个经审阅的读工具。Agent 会话界面、认证、写入与导航工具和自动恢复仍需依照 #26 分步实现。早期兼容性原型只保留为历史证据。
+W0 C01 已建立无 Node.js 依赖的瞬态 Pi 运行时骨架，W1 C02 已增加项目自有的 Pi owner 持久化基础，W1 C03 增加模型目录、配置、加密凭据和 Backend Manager 独立页面。W1 C07 已建立工具目录、策略和执行证据内核。W2 C04 已接入 API key Provider 模型流和手动连接测试；W3 C05 的设备码、官方模型发现和 Codex 流已通过受控宿主与真实账号 smoke，并完成归档。W2 C08 已实现原生文件、搜索和 Shell 工具目录。W2 C10 的 MCP 来源、发现和 Tool Gateway 接线已实现；W2 C12 建立首个 Broker-backed Zotero Native Tool，W3 C13 将目录扩展到 14 个经审阅的读工具。Agent 会话界面、写入与导航工具和自动恢复仍需依照 #26 分步实现。早期兼容性原型只保留为历史证据。
 
 ## 统一术语
 
@@ -65,7 +66,7 @@ C01 没有生产 caller；Zotero 用例直接导入生产模块。真实 provide
 - [`src/modules/piModelCatalog.ts`](../src/modules/piModelCatalog.ts) 使用固定的 `@oh-my-pi/pi-catalog/models@18.0.11` 静态目录，并将本地 `models.yml` 限制为只读、无凭据的 provider/model 白名单；有效数据经归一化后缓存在现有 runtime cache。未知模型未声明的能力保持缺失，冲突的 bundled identity 被拒绝。
 - [`src/modules/piProviderConfiguration.ts`](../src/modules/piProviderConfiguration.ts) 保存 profile 内多份 Pi 配置与全局、Conversation、Skill Run 默认项，按显式选择、owner 选择、kind 默认、全局默认、可用配置的顺序解析，并冻结不含密钥的选择快照。自定义端点明确 API dialect，远端只接受 HTTPS；本地端点记录后续 Local Network preflight 所需标记。
 - [`src/modules/piCredentialStore.ts`](../src/modules/piCredentialStore.ts) 保存多个带标签的 API key / OpenAI Codex 加密记录；AES-GCM profile key 放在既有 `plugin_meta`。页面只拿到掩码元数据；损坏或缺失的密文与密钥读取失败即关闭，不回退到其他凭据。profile 全部可读者仍能取得 key，本设计不承诺 OS 密钥库隔离。
-- Backend Manager 增加独立的“内置 Agent”页：管理配置、目录 overlay 和默认项，显示已保存凭据的掩码状态，不把 Pi 数据写入 `backendsConfigJson` 或 `BackendInstance`；API key 页面录入/清除、OpenAI Codex 连接与真实模型执行仍属于后续 change。
+- Backend Manager 增加独立的“内置 Agent”页：管理配置、目录 overlay 和默认项，显示已保存凭据的掩码状态，不把 Pi 数据写入 `backendsConfigJson` 或 `BackendInstance`。C03 当时尚无 API key 录入和真实模型执行；后续 C04、C05 分别补入 API key 与 Codex 路径。
 - Node 定向测试覆盖配置优先级、认证类型、目录白名单与 last-good 缓存、凭据替换及篡改；`runtime-provider-registry`、`dashboard`、`ui` 分片通过。真实 Zotero lite core 定向 5 项、UI 定向 1 项通过，UI 测试曾发现 Zotero 插件全局缺少 `structuredClone`，现已改用显式空状态构造。`npm run test:node` 全量运行未通过：多个非 Pi 分片失败，文献工作流出现 `embedded payload attachment is unavailable`；本次没有把这些失败归因于 C03，也没有全量 Node 通过证据。用户已接受 C03 的定向真实 Zotero core/UI 门禁，全量 Zotero 套件未运行。
 
 当前写入会扫描 owner 的完整历史以检查损坏，并重建无 payload 索引；长历史的写入吞吐仍需实测后优化。C02 的持久化 API 尚无生产 caller，传入的 JSON payload 必须由后续 caller 在边界完成凭据脱敏。后续 lifecycle / startup reconciliation 由最终实施顺序中的 C19 负责。
@@ -86,7 +87,7 @@ C01 没有生产 caller；Zotero 用例直接导入生产模块。真实 provide
 
 ### W2 C04：API key Provider 执行（已归档）
 
-- [`src/modules/piApiKeyProviderExecution.ts`](../src/modules/piApiKeyProviderExecution.ts) 从冻结的选择快照逐次读取指定密钥，接入原生 Pi API stream，拒绝缺失凭据与未经授权的本地端点；`PiRuntime` 保留项目自有的失败码，不外传原生响应。
+- [`src/modules/piProviderExecution.ts`](../src/modules/piProviderExecution.ts) 从冻结的选择快照逐次读取指定密钥，接入原生 Pi API stream，拒绝缺失凭据与未经授权的本地端点；`PiRuntime` 保留项目自有的失败码，不外传原生响应。C05 将该文件扩展为 API key 与 Codex 共用的执行入口。
 - Backend Manager 已增加 API key 的暂态输入、加密保存、清除及主动连接测试。测试只读取已保存配置并在短超时后取消，不自动运行，也不成为 Conversation 或 Skill Run owner。
 - 浏览器构建为 `provider-env.js → node:fs` 的精确导入装有执行即抛错的 guard。Node 定向、生产 build、lint、真实 Zotero core/UI 定向用例与 OpenSpec 严格校验通过。Google 原生适配器不接受自定义 `fetch`，其不透明 SDK 错误暂归为 `provider_stream_error`；完整证据见 [C04 verification](../openspec/changes/archive/2026-09-28-add-pi-api-key-provider-execution/verification.md)。
 
@@ -126,6 +127,12 @@ C01 没有生产 caller；Zotero 用例直接导入生产模块。真实 provide
 - [C13 OpenSpec change](../openspec/changes/archive/2026-09-29-add-pi-zotero-read-tools/)将 C12 factory 硬切为 `{ broker, workspace }`，增加 13 个静态读定义，总数为 14。#26 后续 Q98 已取消两个 model-visible 底层 note payload 工具；Managed Note 由 `get_note_detail` 内联语义 payload，超 50 KiB 返回结构化 `resource_limited`。
 - 普通读取沿用 canonical Broker DTO 和分页。附件页调用 C08 同 owner 批量物化后才返回工作副本路径；附件 item detail 只返回无源路径的元数据。注释导出写入一个受管文件，遍历逐批写 NDJSON，只有完成时标记完整 coverage，资源受限时保留有效续读游标。文件工具经 Gateway 声明 `workspace-mutation`，identifier translation 声明 `external-egress`。
 - 共享目录用例 12 项、真实 Linux Zotero 定向 14 项、`runtime-provider-execution` Node 分片 10 文件与完整 Zotero core 89/89、TypeScript、lint、build、OpenSpec 严格校验通过。附件批量物化后取消会将已提交的工作区效果记为完成。未运行全量 Node 或 Windows/macOS 宿主矩阵；Conversation/Skill Run 的真实 owner 接线仍属于 C16/C17，不能把目录验证当成完整 Agent 交付。
+
+### W3 C05：OpenAI Codex 设备码认证（已归档）
+
+- [`piOpenAICodexAuth.ts`](../src/modules/piOpenAICodexAuth.ts) 使用固定的 Codex device-code 协议启动、轮询、交换与刷新；验证码只通过当前页面请求暂态展示。凭据库的 revision 检查使登出或并发替换不会被迟到的刷新覆盖，取消时不提交新密文。
+- `piProviderExecution.ts` 将已选 Codex 账号交给原生 Pi Codex SSE stream，仍按项目失败码归一化，拒绝原生响应正文外传。Backend Manager 增加连接、取消、重连和本地断开，登录状态不进入宿主 snapshot。配置与凭据引用仍由 C03 规则解析。
+- 独立弹窗选择控件、`AbortController` owner 与登录后草稿凭据引用缺陷已有定向回归验证。官方模型发现按凭据隔离，配置加载保持离线，缺失的 Codex 输出上限保持未知，由已知上下文约束输出预留。真实 Zotero 10.0.3 已完成 `gpt-6-luna` HTTP 200 文本流、生产过期凭据刷新与本地断开。刷新通过只将隔离凭据本地过期时间设为零进入生产路径，不声称服务端令牌自然过期。重连 start 曾返回 JSON 403，后来同路径恢复 200；不能归因于浏览器挑战。活动授权防重入、断开目录 revision、响应流式限额与 token/envelope 一致性修复均通过受影响门禁；真实重连已观察到 poll 200、exchange 200、complete；四份主规格已同步，9/9 任务完成并归档。最终包另修复同 revision 快照清空模型候选的问题，实机连续刷新保留 7 个可见候选和所选 `gpt-6-luna`。最终验证见 [C05 verification](../openspec/changes/archive/2026-09-30-add-pi-openai-codex-auth/verification.md) 与 [专项交接](builtin-pi-agent-c05-auth-handoff-2026-09-30.md)。
 
 ### Pi core Zotero 兼容性原型
 
@@ -170,7 +177,7 @@ git show research/pi-agent-sandbox-models:artifact/pi-agent-runtime/sandbox-and-
 
 ## 当前工作区状态
 
-在本次接续前，HEAD 为 `54c102a6`，工作树清洁且无活动 OpenSpec change。C12 的源码、测试、主规格、归档工件与本文更新现为本次未提交工作区改动；C02 owner、Conversation/Skill Run 与普通用户交互仍未接线。以最新 `git status` 辨别所有权，不覆盖并行改动。
+本次 C05 实施前，HEAD 为 `54da70b7`，工作树清洁。当前 C05 源码、测试、文档与 OpenSpec change 是未提交工作区改动；C02 owner、Conversation/Skill Run 与普通用户交互仍未接线。以最新 `git status` 辨别所有权，不覆盖并行改动。
 
 ## 建议的系统边界
 
@@ -211,7 +218,7 @@ git show research/pi-agent-sandbox-models:artifact/pi-agent-runtime/sandbox-and-
 
 - C01 已固定 `0.84.4`；后续升级需重跑 browser 兼容性与真实宿主探针。
 - C03 已固定静态目录；C04 的原生 API stream 选择和精确浏览器构建 guard 已进入实现，后续 Pi 升级需重跑真实宿主探针。
-- C03 已提供 API key 加密存储、脱敏元数据与显式删除；C04 逐次读取显式选择的密钥并归一化失败，C05 仍需处理 OpenAI Codex OAuth。
+- C03 已提供 API key 加密存储、脱敏元数据与显式删除；C04 逐次读取显式选择的密钥并归一化失败。C05 的真实登录、官方目录、指定模型流、过期记录刷新和本地断开已有证据；重连与归档也已完成。
 - 真实 fetch 的 CORS、Zotero proxy、重试、超时、限流和错误归一化。
 - 多会话并发、插件禁用/卸载、窗口关闭和异常退出时的资源清理。
 
@@ -240,7 +247,7 @@ git show research/pi-agent-sandbox-models:artifact/pi-agent-runtime/sandbox-and-
 
 ## 下一步实施入口
 
-C13 已归档，完整 Linux Zotero core 在当前源码上通过 89 项。按 [#26 最终 wave 表](https://github.com/leike0813/zotero-agents/issues/26#issuecomment-5552013273)，W3 尚有 C05 OpenAI Codex 认证与 C16 Conversation 接线；W3 gate 完成后再进入 W4 的 C11 Web、C14 写入与 C15 导航工具。
+C13 已归档，其完整 Linux Zotero core 曾通过 89 项。按 [#26 最终 wave 表](https://github.com/leike0813/zotero-agents/issues/26#issuecomment-5552013273)，C05 已完成指定模型的完整真实账号 smoke 并归档，接续 C16 Conversation 接线；验证与已知限制见 [C05 专项交接](builtin-pi-agent-c05-auth-handoff-2026-09-30.md)。W3 gate 完成后进入 W4 的 C11 Web、C14 写入与 C15 导航工具。
 
 接续工作按 [C04 verification](../openspec/changes/archive/2026-09-28-add-pi-api-key-provider-execution/verification.md) 和 C06 的验证记录核对 Provider 与 context 边界。Assistant Workspace、具体工具和自动恢复分别遵守 ADR 0001/0003、区域级 DOM identity 约束和 ADR 0002。后续会话接线是 C16，Skill Run 接线是 C17，生命周期恢复是 C19。每项能力的完成证据应落在对应 OpenSpec change 与测试中，并回写本文状态。
 

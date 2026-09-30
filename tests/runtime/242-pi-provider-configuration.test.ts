@@ -36,6 +36,65 @@ describe("Pi provider configuration", function () {
     { id: "key-b", kind: "api-key" as const },
   ];
 
+  it("selects discovered Codex models only for their credential without inventing an output ceiling", function () {
+    upsertPiProviderConfiguration({
+      id: "codex",
+      label: "Codex",
+      provider: "openai-codex",
+      modelId: "new-codex-model",
+      authVariant: "openai-codex",
+      credentialRef: "codex-key",
+      enabled: true,
+      reasoning: "low",
+    });
+    const discovered = {
+      ...model,
+      provider: "openai-codex",
+      id: "new-codex-model",
+      api: "openai-codex-responses",
+      maxTokens: 0,
+      source: "discovered" as const,
+      credentialRef: "codex-key",
+      supportsTools: false,
+    };
+    const args = {
+      kind: "conversation" as const,
+      credentials: [{ id: "codex-key", kind: "openai-codex" as const }],
+      explicit: { configurationId: "codex" },
+      catalog: { revision: "discovered", models: [discovered] },
+    };
+    assert.equal(resolvePiModelSelection(args).policy.maxTokens, 0);
+    assert.throws(() =>
+      resolvePiModelSelection({
+        ...args,
+        catalog: {
+          ...args.catalog,
+          models: [{ ...discovered, credentialRef: "other-key" }],
+        },
+      }),
+    );
+    assert.throws(() =>
+      resolvePiModelSelection({
+        ...args,
+        catalog: {
+          ...args.catalog,
+          models: [
+            { ...discovered, source: "bundled", credentialRef: undefined },
+          ],
+        },
+      }),
+    );
+    assert.throws(() =>
+      resolvePiModelSelection({
+        ...args,
+        catalog: {
+          ...args.catalog,
+          models: [{ ...discovered, contextWindow: 0 }],
+        },
+      }),
+    );
+  });
+
   it("isolates configurations, applies precedence, and freezes a secret-free selection", function () {
     upsertPiProviderConfiguration({
       id: "a",

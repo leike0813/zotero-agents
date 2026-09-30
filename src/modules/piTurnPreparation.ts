@@ -741,7 +741,13 @@ function budget(input: PiTurnPreparationInput) {
   const effectiveContextWindow = Math.min(...(values as number[]));
   const inputBudget =
     effectiveContextWindow - policy.outputReserve - policy.safetyMargin;
-  if (inputBudget <= 0 || policy.outputReserve > model.policy.maxTokens)
+  // Codex discovery may omit an output ceiling; the context reserve remains bounded.
+  const unknownCodexOutput =
+    model.api === "openai-codex-responses" && model.policy.maxTokens === 0;
+  if (
+    inputBudget <= 0 ||
+    (!unknownCodexOutput && policy.outputReserve > model.policy.maxTokens)
+  )
     fail("context_budget_exceeded");
   if (input.frozen.tools.tools.length && !model.policy.supportsTools)
     fail("model_capability_incompatible");

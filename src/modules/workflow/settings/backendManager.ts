@@ -78,6 +78,8 @@ import {
 } from "../../piMcpSourceRegistry";
 import {
   deletePiProviderConfiguration,
+  findPiCatalogModel,
+  hasPiModelCapabilities,
   loadPiProviderConfigurationState,
   setPiOverlayPath,
   setPiProviderDefaults,
@@ -2380,6 +2382,34 @@ function buildBackendManagerLabels() {
       "backend-manager-pi-credentials",
       "Saved credentials",
     ),
+    piCodexConnect: localizeBackendManager(
+      "backend-manager-pi-codex-connect",
+      "Connect OpenAI Codex",
+    ),
+    piCodexReconnect: localizeBackendManager(
+      "backend-manager-pi-codex-reconnect",
+      "Reconnect OpenAI Codex",
+    ),
+    piCodexCancel: localizeBackendManager(
+      "backend-manager-pi-codex-cancel",
+      "Cancel sign-in",
+    ),
+    piCodexOpen: localizeBackendManager(
+      "backend-manager-pi-codex-open",
+      "Open verification page",
+    ),
+    piCodexDisconnect: localizeBackendManager(
+      "backend-manager-pi-codex-disconnect",
+      "Disconnect locally",
+    ),
+    piCodexConnected: localizeBackendManager(
+      "backend-manager-pi-codex-connected",
+      "OpenAI Codex connected",
+    ),
+    piCodexFailed: localizeBackendManager(
+      "backend-manager-pi-codex-failed",
+      "OpenAI Codex sign-in failed",
+    ),
     mcpSources: localizeBackendManager(
       "backend-manager-mcp-sources",
       "MCP Tool Sources",
@@ -2784,10 +2814,9 @@ function buildBackendManagerSnapshot(
   const configurationStatus: BackendManagerBuiltinAgentSnapshot["configurationStatus"] =
     {};
   for (const entry of piState.configurations) {
-    const model = activePiCatalog?.models.find(
-      (candidate) =>
-        candidate.provider === entry.provider && candidate.id === entry.modelId,
-    );
+    const model = activePiCatalog
+      ? findPiCatalogModel(activePiCatalog, entry, entry.modelId)
+      : undefined;
     if (!entry.enabled) configurationStatus[entry.id] = "disabled";
     else if (
       !entry.provider ||
@@ -2806,10 +2835,7 @@ function buildBackendManagerSnapshot(
       configurationStatus[entry.id] = "needs-auth";
     else if (!activePiCatalog) configurationStatus[entry.id] = "unavailable";
     else if (
-      !model ||
-      model.contextWindow <= 0 ||
-      model.maxTokens <= 0 ||
-      !model.input.includes("text") ||
+      !hasPiModelCapabilities(model) ||
       !model.reasoning.includes(entry.reasoning || "off")
     )
       configurationStatus[entry.id] = "invalid";
@@ -2936,6 +2962,9 @@ export async function openBackendManagerDialog(
   }
   activePiCatalog = null;
   activePiCatalogError = "";
+  let activePiCodexLogin:
+    | { requestId: string; credentialId: string; controller: AbortController }
+    | undefined;
 
   const alertWindow = getAlertWindow(args?.window);
   const initialProviderType = normalizeBackendManagerProviderType(
@@ -3005,6 +3034,55 @@ export async function openBackendManagerDialog(
           }),
         );
       };
+      let catalogController: AbortController | undefined;
+      const refreshCodexModels = async (configurationId: string) => {
+        const configuration =
+          loadPiProviderConfigurationState().configurations.find(
+            (entry) => entry.id === configurationId,
+          );
+        if (
+          !configuration ||
+          configuration.authVariant !== "openai-codex" ||
+          !configuration.credentialRef
+        )
+          throw new Error("Provider unavailable");
+        const AbortControllerCtor =
+          resolveNativeAbortControllerConstructor(dialogWindow);
+        if (!AbortControllerCtor) throw new Error("Provider unavailable");
+        catalogController?.abort();
+        const controller = new AbortControllerCtor();
+        catalogController = controller;
+        const stop = () => controller.abort();
+        dialogWindow?.addEventListener("unload", stop, { once: true });
+        const timeout = setTimeout(stop, 30_000);
+        try {
+          const { refreshPiCodexModelCatalog, loadPiModelCatalog } =
+            await import("../../piModelCatalog");
+          const next = await refreshPiCodexModelCatalog(
+            activePiCatalog || (await loadPiModelCatalog()),
+            {
+              credentialId: configuration.credentialRef,
+              signal: controller.signal,
+            },
+          );
+          const current =
+            loadPiProviderConfigurationState().configurations.find(
+              (entry) => entry.id === configurationId,
+            );
+          if (
+            catalogController !== controller ||
+            controller.signal.aborted ||
+            current?.credentialRef !== configuration.credentialRef
+          )
+            throw new Error("Provider unavailable");
+          activePiCatalog = next;
+          activePiCatalogError = "";
+        } finally {
+          clearTimeout(timeout);
+          dialogWindow?.removeEventListener("unload", stop);
+          if (catalogController === controller) catalogController = undefined;
+        }
+      };
       const onMessage = (event: MessageEvent) => {
         const sourceWindow =
           event.source && "postMessage" in event.source
@@ -3064,6 +3142,9 @@ export async function openBackendManagerDialog(
             .filter(
               (model) =>
                 model.provider === provider &&
+                (provider !== "openai-codex" ||
+                  (model.source === "discovered" &&
+                    model.credentialRef === payload.credentialId)) &&
                 (!query ||
                   model.id.toLowerCase().includes(query) ||
                   model.name.toLowerCase().includes(query)),
@@ -3074,6 +3155,7 @@ export async function openBackendManagerDialog(
             action,
             ok: true,
             models,
+            requestId: String(payload.requestId || ""),
           });
           return;
         }
@@ -3085,7 +3167,137 @@ export async function openBackendManagerDialog(
                 globalThis.crypto.getRandomValues(bytes);
                 return `pi-${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
               };
-              if (action === "pi-upsert-configuration") {
+              if (action === "pi-codex-connect") {
+                const configurationId = String(payload.configurationId || "");
+                const requestId = String(payload.requestId || "");
+                const configuration =
+                  loadPiProviderConfigurationState().configurations.find(
+                    (entry) => entry.id === configurationId,
+                  );
+                if (
+                  !requestId ||
+                  !configuration ||
+                  configuration.provider !== "openai-codex" ||
+                  configuration.authVariant !== "openai-codex" ||
+                  (payload.credentialId &&
+                    payload.credentialId !== configuration.credentialRef) ||
+                  (configuration.credentialRef &&
+                    listPiCredentials().some(
+                      (item) =>
+                        item.id === configuration.credentialRef &&
+                        item.kind !== "openai-codex",
+                    ))
+                )
+                  throw new Error("Invalid Codex configuration");
+                activePiCodexLogin?.controller.abort();
+                const AbortControllerCtor =
+                  resolveNativeAbortControllerConstructor(dialogWindow);
+                if (!AbortControllerCtor)
+                  throw new Error("Provider unavailable");
+                const login = {
+                  requestId,
+                  credentialId: configuration.credentialRef || randomId(),
+                  controller: new AbortControllerCtor(),
+                };
+                activePiCodexLogin = login;
+                try {
+                  const { connectPiOpenAICodex } =
+                    await import("../../piOpenAICodexAuth");
+                  await connectPiOpenAICodex({
+                    id: login.credentialId,
+                    label: configuration.label || "OpenAI Codex",
+                    signal: login.controller.signal,
+                    onCode: ({ verificationUrl, userCode }) => {
+                      if (activePiCodexLogin !== login) return;
+                      postToFrame("backend-manager-dialog:action-result", {
+                        action,
+                        requestId,
+                        stage: "code",
+                        verificationUrl,
+                        userCode,
+                      });
+                    },
+                  });
+                  if (
+                    activePiCodexLogin !== login ||
+                    login.controller.signal.aborted
+                  )
+                    return;
+                  const current =
+                    loadPiProviderConfigurationState().configurations.find(
+                      (entry) => entry.id === configurationId,
+                    );
+                  if (
+                    !current ||
+                    current.provider !== "openai-codex" ||
+                    current.authVariant !== "openai-codex" ||
+                    current.credentialRef !== configuration.credentialRef
+                  )
+                    throw new Error("Codex configuration changed");
+                  upsertPiProviderConfiguration({
+                    ...current,
+                    credentialRef: login.credentialId,
+                  });
+                  postToFrame("backend-manager-dialog:action-result", {
+                    action,
+                    requestId,
+                    stage: "complete",
+                    ok: true,
+                  });
+                  pushSnapshot("backend-manager-dialog:snapshot");
+                  try {
+                    await refreshCodexModels(configurationId);
+                  } catch {
+                    activePiCatalogError = "provider_unavailable";
+                  }
+                  pushSnapshot("backend-manager-dialog:snapshot");
+                } finally {
+                  if (activePiCodexLogin === login)
+                    activePiCodexLogin = undefined;
+                }
+                return;
+              } else if (action === "pi-codex-cancel") {
+                if (
+                  activePiCodexLogin?.requestId ===
+                  String(payload.requestId || "")
+                )
+                  activePiCodexLogin.controller.abort();
+                return;
+              } else if (action === "pi-codex-open-verification") {
+                if (
+                  activePiCodexLogin?.requestId ===
+                  String(payload.requestId || "")
+                )
+                  (
+                    globalThis as {
+                      Zotero?: { launchURL?: (url: string) => void };
+                    }
+                  ).Zotero?.launchURL?.("https://auth.openai.com/codex/device");
+                return;
+              } else if (action === "pi-codex-disconnect") {
+                const credentialId = String(payload.credentialId || "");
+                if (
+                  !credentialId ||
+                  !listPiCredentials().some(
+                    (item) =>
+                      item.id === credentialId && item.kind === "openai-codex",
+                  )
+                )
+                  throw new Error("Codex credential unavailable");
+                if (activePiCodexLogin?.credentialId === credentialId)
+                  activePiCodexLogin.controller.abort();
+                await deletePiCredential(credentialId);
+                catalogController?.abort();
+                if (activePiCatalog)
+                  activePiCatalog = await (
+                    await import("../../piModelCatalog")
+                  ).removePiCodexCredentialModels(
+                    activePiCatalog,
+                    credentialId,
+                  );
+              } else if (action === "pi-codex-refresh-models") {
+                await refreshCodexModels(String(payload.configurationId || ""));
+              } else if (action === "pi-upsert-configuration") {
                 const raw = payload.configuration as PiProviderConfiguration;
                 if (!raw || typeof raw !== "object")
                   throw new Error("Pi configuration is required");
@@ -3242,15 +3454,15 @@ export async function openBackendManagerDialog(
                   },
                 });
                 const AbortControllerCtor =
-                  resolveNativeAbortControllerConstructor();
+                  resolveNativeAbortControllerConstructor(dialogWindow);
                 if (!AbortControllerCtor)
                   throw new Error("Provider unavailable");
                 const controller = new AbortControllerCtor();
                 const timeout = setTimeout(() => controller.abort(), 20_000);
                 try {
-                  const { createPiApiKeyModelSource } =
-                    await import("../../piApiKeyProviderExecution");
-                  for await (const _ of createPiApiKeyModelSource(selection)({
+                  const { createPiProviderModelSource } =
+                    await import("../../piProviderExecution");
+                  for await (const _ of createPiProviderModelSource(selection)({
                     systemPrompt: "",
                     messages: [{ role: "user", text: "Reply OK." }],
                     signal: controller.signal,
@@ -3277,18 +3489,34 @@ export async function openBackendManagerDialog(
             } catch (error) {
               const sensitive =
                 action.startsWith("pi-mcp-") ||
+                action.startsWith("pi-codex-") ||
                 action === "pi-put-credential" ||
                 action === "pi-delete-credential" ||
                 action === "pi-test-connection";
-              const failureCode =
-                action === "pi-test-connection" &&
+              const authFailure =
+                action === "pi-codex-connect" &&
                 error instanceof
-                  (await import("../../piRuntime")).PiModelStreamFailure
+                  (await import("../../piOpenAICodexAuth")).PiCodexAuthFailure
+                  ? error
+                  : null;
+              const failureCode = authFailure
+                ? authFailure.code
+                : action === "pi-test-connection" &&
+                    error instanceof
+                      (await import("../../piRuntime")).PiModelStreamFailure
                   ? error.code
                   : "provider_unavailable";
               postToFrame("backend-manager-dialog:action-result", {
                 action,
                 ok: false,
+                ...(action === "pi-codex-connect"
+                  ? {
+                      requestId: String(payload.requestId || ""),
+                      stage: "failed",
+                      code: failureCode,
+                      phase: authFailure?.phase,
+                    }
+                  : {}),
                 ...(action === "pi-mcp-test-source"
                   ? {
                       id: String(payload.id || ""),
@@ -3547,6 +3775,7 @@ export async function openBackendManagerDialog(
       installBackendManagerBeforeUnloadPrompt(doc, dialogData);
     },
     unloadCallback: () => {
+      activePiCodexLogin?.controller.abort();
       if (removeMessageListener) {
         removeMessageListener();
         removeMessageListener = undefined;

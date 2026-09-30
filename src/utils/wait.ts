@@ -24,10 +24,11 @@ type NativeAbortController = {
 
 type NativeAbortControllerConstructor = new () => NativeAbortController;
 
-export function resolveNativeAbortControllerConstructor() {
-  const AbortControllerCtor = (globalThis as Record<string, unknown>)[
-    "AbortController"
-  ];
+export function resolveNativeAbortControllerConstructor(owner?: object | null) {
+  const AbortControllerCtor =
+    (owner as Record<string, unknown> | null | undefined)?.[
+      "AbortController"
+    ] ?? (globalThis as Record<string, unknown>)["AbortController"];
   return typeof AbortControllerCtor === "function"
     ? (AbortControllerCtor as NativeAbortControllerConstructor)
     : undefined;

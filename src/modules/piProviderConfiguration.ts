@@ -272,12 +272,12 @@ export function setPiProviderDefaults(
       (entry) => entry.id === selection.configurationId,
     );
     const model = config
-      ? findModel(catalog, config, selection.modelId || config.modelId)
+      ? findPiCatalogModel(catalog, config, selection.modelId || config.modelId)
       : undefined;
     if (
       !config ||
       !isSelectable(config, credentials) ||
-      !hasRequiredCapabilities(model)
+      !hasPiModelCapabilities(model)
     )
       throw new Error("Pi default configuration is unavailable");
     if (selection.reasoning !== undefined && !isReasoning(selection.reasoning))
@@ -306,23 +306,29 @@ export function setPiOverlayPath(
   return save(state);
 }
 
-function findModel(
+export function findPiCatalogModel(
   catalog: Pick<PiCatalog, "models">,
   config: PiProviderConfiguration,
   modelId: string,
 ): PiCatalogModel | undefined {
   return catalog.models.find(
-    (entry) => entry.provider === config.provider && entry.id === modelId,
+    (entry) =>
+      entry.provider === config.provider &&
+      entry.id === modelId &&
+      (config.authVariant !== "openai-codex" ||
+        (entry.source === "discovered" &&
+          entry.credentialRef === config.credentialRef)),
   );
 }
 
-function hasRequiredCapabilities(
+export function hasPiModelCapabilities(
   model: PiCatalogModel | undefined,
 ): model is PiCatalogModel {
   return (
     !!model &&
     model.contextWindow > 0 &&
-    model.maxTokens > 0 &&
+    (model.maxTokens > 0 ||
+      (model.api === "openai-codex-responses" && model.maxTokens === 0)) &&
     model.input.includes("text")
   );
 }
@@ -357,18 +363,18 @@ export function resolvePiModelSelection(args: {
   }
   if (!config)
     config = state.configurations.find((entry) => {
-      const model = findModel(args.catalog, entry, entry.modelId);
+      const model = findPiCatalogModel(args.catalog, entry, entry.modelId);
       return (
         isSelectable(entry, credentials) &&
-        hasRequiredCapabilities(model) &&
+        hasPiModelCapabilities(model) &&
         model.reasoning.includes(entry.reasoning || "off")
       );
     });
   if (!config) throw new Error("No Pi provider configuration is available");
   const modelId = selected?.modelId || config.modelId;
-  const model = findModel(args.catalog, config, modelId);
+  const model = findPiCatalogModel(args.catalog, config, modelId);
   if (!model) throw new Error("Pi model is absent from catalog");
-  if (!hasRequiredCapabilities(model))
+  if (!hasPiModelCapabilities(model))
     throw new Error("Pi model has incomplete capabilities");
   const reasoning = selected?.reasoning || config.reasoning || "off";
   if (!isReasoning(reasoning) || !model.reasoning.includes(reasoning))

@@ -8,8 +8,10 @@ import { streamSimple as streamOpenAIResponses } from "@earendil-works/pi-ai/api
 import { streamSimple as streamOpenAICompletions } from "@earendil-works/pi-ai/api/openai-completions";
 import { streamSimple as streamAnthropicMessages } from "@earendil-works/pi-ai/api/anthropic-messages";
 import { streamSimple as streamGoogle } from "@earendil-works/pi-ai/api/google-generative-ai";
+import { stream as streamCodex } from "@earendil-works/pi-ai/api/openai-codex-responses";
 import type { PiModelSelectionSnapshot } from "../shared/piProviderContract";
 import { readPiCredential } from "./piCredentialStore";
+import { resolvePiOpenAICodexAccess } from "./piOpenAICodexAuth";
 import {
   PiModelStreamFailure,
   type PiModelFailureCode,
@@ -76,21 +78,24 @@ function contextOf(
   };
 }
 
-export function createPiApiKeyModelSource(
+export function createPiProviderModelSource(
   selection: PiModelSelectionSnapshot,
   admission: Admission = {},
 ): PiRuntimeModelSource {
   return async function* (input) {
     if (input.signal.aborted) throw new PiModelStreamFailure("aborted");
     const stream = streams[selection.api];
-    if (!stream) throw new PiModelStreamFailure("unsupported_provider");
+    if (!stream && selection.api !== "openai-codex-responses")
+      throw new PiModelStreamFailure("unsupported_provider");
     if (selection.api === "google-generative-ai" && admission.fetch)
       throw new PiModelStreamFailure("unsupported_provider");
     if (
       !selection.modelId ||
       !selection.baseUrl ||
       selection.policy.contextWindow < 1 ||
-      selection.policy.maxTokens < 1
+      selection.policy.maxTokens < 0 ||
+      (selection.policy.maxTokens === 0 &&
+        selection.api !== "openai-codex-responses")
     )
       throw new PiModelStreamFailure("unsupported_model");
     if (
@@ -110,6 +115,31 @@ export function createPiApiKeyModelSource(
       if (!["openai-responses", "openai-completions"].includes(selection.api))
         throw new PiModelStreamFailure("unsupported_provider");
       apiKey = "unused";
+    } else if (selection.authVariant === "openai-codex") {
+      if (
+        selection.provider !== "openai-codex" ||
+        selection.api !== "openai-codex-responses" ||
+        !selection.credentialRef
+      )
+        throw new PiModelStreamFailure("unsupported_provider");
+      try {
+        apiKey = await resolvePiOpenAICodexAccess(
+          selection.credentialRef,
+          input.signal,
+          admission.fetch,
+        );
+      } catch (error) {
+        const code = error instanceof Error ? error.message : "";
+        throw new PiModelStreamFailure(
+          code === "canceled"
+            ? "aborted"
+            : code === "credential_missing"
+              ? "credential_missing"
+              : code === "auth_unavailable"
+                ? "provider_unavailable"
+                : "provider_auth_failed",
+        );
+      }
     } else {
       throw new PiModelStreamFailure("unsupported_provider");
     }
@@ -141,14 +171,26 @@ export function createPiApiKeyModelSource(
       }
     };
     try {
-      const events = stream(model, contextOf(input, model), {
-        apiKey,
-        signal: input.signal,
-        cacheRetention: "short",
-        ...(selection.api === "google-generative-ai"
-          ? {}
-          : { fetch: requestFetch }),
-      });
+      const context = contextOf(input, model);
+      const events =
+        selection.api === "openai-codex-responses"
+          ? streamCodex(model as Model<"openai-codex-responses">, context, {
+              apiKey,
+              signal: input.signal,
+              cacheRetention: "short",
+              transport: "sse",
+              reasoningEffort:
+                selection.reasoning === "off" ? "none" : selection.reasoning,
+              fetch: requestFetch,
+            })
+          : stream(model, context, {
+              apiKey,
+              signal: input.signal,
+              cacheRetention: "short",
+              ...(selection.api === "google-generative-ai"
+                ? {}
+                : { fetch: requestFetch }),
+            });
       for await (const event of events) {
         if (input.signal.aborted) throw new PiModelStreamFailure("aborted");
         if (event.type === "text_delta") yield event.delta;

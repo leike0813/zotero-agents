@@ -8,7 +8,7 @@
 // calls FTL itself.
 
 import { memo } from "preact/compat";
-import { useRef, useState } from "preact/hooks";
+import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
 export type { BackendManagerActionEnvelope } from "../../shared/dashboardWireContract";
 import type { BackendManagerBuiltinAgentSnapshot } from "../../shared/dashboardWireContract";
@@ -156,6 +156,14 @@ export type BackendManagerBodySelection = {
   labels: BackendManagerLabels;
   rows: BackendManagerBodyRowEntry[];
   builtinAgent?: BackendManagerBuiltinAgentSnapshot;
+  codexAuth?: PiCodexAuthProgress | null;
+};
+
+export type PiCodexAuthProgress = {
+  requestId: string;
+  stage: "pending" | "code";
+  verificationUrl?: string;
+  userCode?: string;
 };
 
 export type BackendManagerFooterSelection = {
@@ -236,10 +244,15 @@ export type BackendManagerRegionHandlers = {
   deletePiConfiguration(id: string): void;
   setPiDefaults(defaults: PiProviderDefaults): void;
   refreshPiOverlay(path: string): void;
-  queryPiCatalog(provider: string, query: string): void;
+  queryPiCatalog(provider: string, query: string, credentialId?: string): void;
+  refreshPiCodexModels(configurationId: string): void;
   putPiCredential(input: { id: string; label: string; secret: string }): void;
   deletePiCredential(id: string): void;
   testPiConnection(configurationId: string): void;
+  connectPiCodex(configurationId: string, credentialId?: string): void;
+  cancelPiCodex(): void;
+  openPiCodexVerification(): void;
+  disconnectPiCodex(credentialId: string): void;
   upsertMcpSource(
     source: import("../../shared/piMcpSourceContract").PiMcpSource,
   ): void;
@@ -764,19 +777,94 @@ const EMPTY_PI_CONFIGURATION: PiProviderConfiguration = {
   enabled: true,
 };
 
+function BackendChoice(props: {
+  label: string;
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (value: string) => void;
+  piField?: string;
+  mcpField?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = props.options.find((option) => option.value === props.value);
+  return (
+    <div
+      class="backend-choice"
+      onKeyDown={(event) => {
+        if (event.key === "Escape") setOpen(false);
+      }}
+    >
+      <button
+        type="button"
+        class="backend-input backend-choice-trigger"
+        data-pi-field={props.piField}
+        data-mcp-field={props.mcpField}
+        aria-label={`${props.label}: ${selected?.label || ""}`}
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span>{selected?.label || props.options[0]?.label || ""}</span>
+        <span aria-hidden="true">▾</span>
+      </button>
+      {open ? (
+        <div class="backend-choice-list">
+          {props.options.map((option) => (
+            <button
+              type="button"
+              aria-current={option.value === props.value ? "true" : undefined}
+              data-choice-value={option.value}
+              key={option.value}
+              onClick={() => {
+                props.onChange(option.value);
+                setOpen(false);
+              }}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function PiConfigurationPanel(props: {
   value: BackendManagerBuiltinAgentSnapshot;
   labels: BackendManagerLabels;
   handlers: BackendManagerRegionHandlers;
+  codexAuth?: PiCodexAuthProgress | null;
 }) {
-  const { value, labels, handlers } = props;
+  const { value, labels, handlers, codexAuth } = props;
   const [draft, setDraft] = useState<PiProviderConfiguration>({
     ...EMPTY_PI_CONFIGURATION,
   });
+  useLayoutEffect(() => {
+    handlers.queryPiCatalog(draft.provider, "", draft.credentialRef);
+  }, [draft.provider, draft.credentialRef, value.catalog.revision]);
   const [defaults, setDefaults] = useState<PiProviderDefaults>(value.defaults);
   const [overlayPath, setOverlayPath] = useState(value.overlayPath);
   const [credentialLabel, setCredentialLabel] = useState("");
   const secretInput = useRef<HTMLInputElement>(null);
+  const previousConfigurations = useRef(value.configurations);
+  useLayoutEffect(() => {
+    const previous = previousConfigurations.current;
+    previousConfigurations.current = value.configurations;
+    setDraft((current) => {
+      const before = previous.find((entry) => entry.id === current.id);
+      const saved = value.configurations.find(
+        (entry) => entry.id === current.id,
+      );
+      if (
+        !saved ||
+        current.provider !== saved.provider ||
+        current.authVariant !== saved.authVariant ||
+        current.credentialRef !== before?.credentialRef ||
+        current.credentialRef === saved.credentialRef
+      )
+        return current;
+      return { ...current, credentialRef: saved.credentialRef };
+    });
+  }, [value.configurations]);
   const statusLabels: Record<string, string> = {
     configured: labelText(labels, "piStatusConfigured", "Configured"),
     disabled: labelText(labels, "disabled", "Disabled"),
@@ -812,6 +900,7 @@ function PiConfigurationPanel(props: {
                 handlers.queryPiCatalog(
                   (event.target as HTMLInputElement).value,
                   "",
+                  draft.credentialRef,
                 )
             : undefined
         }
@@ -826,33 +915,30 @@ function PiConfigurationPanel(props: {
     </label>
   );
   const selectDefault = (key: keyof PiProviderDefaults, label: string) => (
-    <label class="backend-field">
+    <div class="backend-field">
       <span>{label}</span>
-      <select
-        class="backend-input"
+      <BackendChoice
+        label={label}
         value={defaults[key]?.configurationId || ""}
-        onChange={(event) => {
-          const configurationId = (event.target as HTMLSelectElement).value;
+        onChange={(configurationId) => {
           setDefaults((current) => ({
             ...current,
             [key]: configurationId ? { configurationId } : undefined,
           }));
         }}
-      >
-        <option value="">
-          {labelText(labels, "piNoDefault", "No default")}
-        </option>
-        {value.configurations
-          .filter(
-            (entry) => value.configurationStatus[entry.id] === "configured",
-          )
-          .map((entry) => (
-            <option value={entry.id} key={entry.id}>
-              {entry.label || entry.id}
-            </option>
-          ))}
-      </select>
-    </label>
+        options={[
+          { value: "", label: labelText(labels, "piNoDefault", "No default") },
+          ...value.configurations
+            .filter(
+              (entry) => value.configurationStatus[entry.id] === "configured",
+            )
+            .map((entry) => ({
+              value: entry.id,
+              label: entry.label || entry.id,
+            })),
+        ]}
+      />
+    </div>
   );
   return (
     <section class="backend-provider-section backend-pi-section">
@@ -864,7 +950,10 @@ function PiConfigurationPanel(props: {
           type="button"
           class="backend-button"
           data-pi-action="add"
-          onClick={() => setDraft({ ...EMPTY_PI_CONFIGURATION })}
+          onClick={() => {
+            if (codexAuth) handlers.cancelPiCodex();
+            setDraft({ ...EMPTY_PI_CONFIGURATION });
+          }}
         >
           {labelText(labels, "piAdd", "Add configuration")}
         </button>
@@ -897,31 +986,32 @@ function PiConfigurationPanel(props: {
         </p>
       ) : null}
       <div class="backend-pi-grid">
-        <label class="backend-field">
+        <div class="backend-field">
           <span>{labelText(labels, "piConfigurations", "Configurations")}</span>
-          <select
-            class="backend-input"
-            data-pi-field="configuration"
+          <BackendChoice
+            label={labelText(labels, "piConfigurations", "Configurations")}
+            piField="configuration"
             value={draft.id}
-            onChange={(event) => {
-              const id = (event.target as HTMLSelectElement).value;
+            onChange={(id) => {
+              if (id !== draft.id && codexAuth) handlers.cancelPiCodex();
               setDraft(
                 value.configurations.find((entry) => entry.id === id) || {
                   ...EMPTY_PI_CONFIGURATION,
                 },
               );
             }}
-          >
-            <option value="">
-              {labelText(labels, "piNew", "New configuration")}
-            </option>
-            {value.configurations.map((entry) => (
-              <option value={entry.id} key={entry.id}>
-                {entry.label || entry.id}
-              </option>
-            ))}
-          </select>
-        </label>
+            options={[
+              {
+                value: "",
+                label: labelText(labels, "piNew", "New configuration"),
+              },
+              ...value.configurations.map((entry) => ({
+                value: entry.id,
+                label: entry.label || entry.id,
+              })),
+            ]}
+          />
+        </div>
         {draft.id ? (
           <p class="backend-pi-configuration-status" role="status">
             {statusLabels[value.configurationStatus[draft.id]] || ""}
@@ -944,94 +1034,92 @@ function PiConfigurationPanel(props: {
               </option>
             ))}
         </datalist>
-        <label class="backend-field">
+        <div class="backend-field">
           <span>{labelText(labels, "piAuth", "Authentication")}</span>
-          <select
-            class="backend-input"
+          <BackendChoice
+            label={labelText(labels, "piAuth", "Authentication")}
+            piField="authentication"
             value={draft.authVariant}
-            onChange={(event) =>
+            onChange={(authVariant) =>
               update({
-                authVariant: (event.target as HTMLSelectElement)
-                  .value as PiProviderConfiguration["authVariant"],
+                authVariant:
+                  authVariant as PiProviderConfiguration["authVariant"],
                 credentialRef: undefined,
               })
             }
-          >
-            <option value="api-key">API key</option>
-            <option value="openai-codex">OpenAI Codex</option>
-            <option value="none">
-              {labelText(labels, "authNone", "None")}
-            </option>
-          </select>
-        </label>
-        <label class="backend-field">
+            options={[
+              { value: "api-key", label: "API key" },
+              { value: "openai-codex", label: "OpenAI Codex" },
+              { value: "none", label: labelText(labels, "authNone", "None") },
+            ]}
+          />
+        </div>
+        <div class="backend-field">
           <span>{labelText(labels, "piCredential", "Credential")}</span>
-          <select
-            class="backend-input"
+          <BackendChoice
+            label={labelText(labels, "piCredential", "Credential")}
             value={draft.credentialRef || ""}
-            onChange={(event) =>
-              update({
-                credentialRef: (event.target as HTMLSelectElement).value,
-              })
-            }
-          >
-            <option value="">
-              {labelText(labels, "piNoCredential", "No credential")}
-            </option>
-            {value.credentials
-              .filter((entry) => entry.kind === draft.authVariant)
-              .map((entry) => (
-                <option value={entry.id} key={entry.id}>
-                  {entry.label} ({entry.masked})
-                </option>
-              ))}
-          </select>
-        </label>
+            onChange={(credentialRef) => update({ credentialRef })}
+            options={[
+              {
+                value: "",
+                label: labelText(labels, "piNoCredential", "No credential"),
+              },
+              ...value.credentials
+                .filter((entry) => entry.kind === draft.authVariant)
+                .map((entry) => ({
+                  value: entry.id,
+                  label: `${entry.label} (${entry.masked})`,
+                })),
+            ]}
+          />
+        </div>
         {field(
           "baseUrl",
           labelText(labels, "piEndpoint", "Custom endpoint"),
           "url",
         )}
-        <label class="backend-field">
+        <div class="backend-field">
           <span>{labelText(labels, "piDialect", "API dialect")}</span>
-          <select
-            class="backend-input"
+          <BackendChoice
+            label={labelText(labels, "piDialect", "API dialect")}
             value={draft.api || ""}
-            onChange={(event) =>
+            onChange={(api) =>
               update({
-                api: (event.target as HTMLSelectElement)
-                  .value as PiProviderConfiguration["api"],
+                api: api as PiProviderConfiguration["api"],
               })
             }
-          >
-            <option value="">
-              {labelText(labels, "piCatalogDefault", "Catalog default")}
-            </option>
-            <option value="openai-responses">openai-responses</option>
-            <option value="openai-completions">openai-completions</option>
-          </select>
-        </label>
-        <label class="backend-field">
+            options={[
+              {
+                value: "",
+                label: labelText(labels, "piCatalogDefault", "Catalog default"),
+              },
+              { value: "openai-responses", label: "openai-responses" },
+              { value: "openai-completions", label: "openai-completions" },
+            ]}
+          />
+        </div>
+        <div class="backend-field">
           <span>{labelText(labels, "piReasoning", "Reasoning")}</span>
-          <select
-            class="backend-input"
+          <BackendChoice
+            label={labelText(labels, "piReasoning", "Reasoning")}
             value={draft.reasoning || "off"}
-            onChange={(event) =>
+            onChange={(reasoning) =>
               update({
-                reasoning: (event.target as HTMLSelectElement)
-                  .value as PiProviderConfiguration["reasoning"],
+                reasoning: reasoning as PiProviderConfiguration["reasoning"],
               })
             }
-          >
-            {["off", "minimal", "low", "medium", "high", "xhigh", "max"].map(
-              (level) => (
-                <option value={level} key={level}>
-                  {level}
-                </option>
-              ),
-            )}
-          </select>
-        </label>
+            options={[
+              "off",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max",
+            ].map((level) => ({ value: level, label: level }))}
+          />
+        </div>
         <label class="backend-field backend-checkbox-field">
           <input
             type="checkbox"
@@ -1077,6 +1165,18 @@ function PiConfigurationPanel(props: {
             {labelText(labels, "piTestConnection", "Test connection")}
           </button>
         ) : null}
+        {draft.id &&
+        draft.authVariant === "openai-codex" &&
+        draft.credentialRef ? (
+          <button
+            type="button"
+            class="backend-button"
+            data-pi-action="codex-refresh-models"
+            onClick={() => handlers.refreshPiCodexModels(draft.id)}
+          >
+            {labelText(labels, "refreshModelCache", "Refresh models")}
+          </button>
+        ) : null}
       </div>
       <section class="backend-pi-defaults">
         <h3>{labelText(labels, "piDefaults", "Defaults")}</h3>
@@ -1102,61 +1202,124 @@ function PiConfigurationPanel(props: {
       </section>
       <section class="backend-pi-credentials">
         <h3>{labelText(labels, "piCredentials", "Saved credentials")}</h3>
-        <div class="backend-pi-grid">
-          <label class="backend-field">
-            <span>{labelText(labels, "piCredentialLabel", "Key label")}</span>
-            <input
-              class="backend-input"
-              data-pi-field="credential-label"
-              value={credentialLabel}
-              onInput={(event) =>
-                setCredentialLabel((event.target as HTMLInputElement).value)
+        {draft.authVariant === "openai-codex" && draft.id ? (
+          <div class="backend-pi-codex-auth">
+            <button
+              type="button"
+              class="backend-button"
+              data-pi-action="codex-connect"
+              disabled={!!codexAuth}
+              onClick={() =>
+                handlers.connectPiCodex(draft.id, draft.credentialRef)
               }
-            />
-          </label>
-          <label class="backend-field">
-            <span>{labelText(labels, "piCredentialSecret", "API key")}</span>
-            <input
-              class="backend-input"
-              type="password"
-              data-pi-field="credential-secret"
-              ref={secretInput}
-              autocomplete="off"
-            />
-          </label>
-        </div>
-        <button
-          type="button"
-          class="backend-button"
-          data-pi-action="credential-save"
-          onClick={() => {
-            const secret = secretInput.current?.value || "";
-            if (secretInput.current) secretInput.current.value = "";
-            if (!credentialLabel.trim() || !secret.trim()) return;
-            handlers.putPiCredential({
-              id:
-                draft.authVariant === "api-key"
-                  ? draft.credentialRef || ""
-                  : "",
-              label: credentialLabel,
-              secret,
-            });
-          }}
-        >
-          {labelText(labels, "piSaveCredential", "Save API key")}
-        </button>
+            >
+              {labelText(
+                labels,
+                draft.credentialRef ? "piCodexReconnect" : "piCodexConnect",
+                draft.credentialRef
+                  ? "Reconnect OpenAI Codex"
+                  : "Connect OpenAI Codex",
+              )}
+            </button>
+            {codexAuth ? (
+              <button
+                type="button"
+                class="backend-button"
+                data-pi-action="codex-cancel"
+                onClick={() => handlers.cancelPiCodex()}
+              >
+                {labelText(labels, "piCodexCancel", "Cancel sign-in")}
+              </button>
+            ) : null}
+            {codexAuth?.stage === "code" ? (
+              <p role="status" class="backend-pi-codex-code">
+                <button
+                  type="button"
+                  class="backend-button"
+                  data-pi-action="codex-open-verification"
+                  onClick={() => handlers.openPiCodexVerification()}
+                >
+                  {labelText(labels, "piCodexOpen", "Open verification page")}
+                </button>
+                <span>{codexAuth.verificationUrl}</span>
+                <strong>{codexAuth.userCode}</strong>
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+        {draft.authVariant === "api-key" ? (
+          <div class="backend-pi-grid">
+            <label class="backend-field">
+              <span>{labelText(labels, "piCredentialLabel", "Key label")}</span>
+              <input
+                class="backend-input"
+                data-pi-field="credential-label"
+                value={credentialLabel}
+                onInput={(event) =>
+                  setCredentialLabel((event.target as HTMLInputElement).value)
+                }
+              />
+            </label>
+            <label class="backend-field">
+              <span>{labelText(labels, "piCredentialSecret", "API key")}</span>
+              <input
+                class="backend-input"
+                type="password"
+                data-pi-field="credential-secret"
+                ref={secretInput}
+                autocomplete="off"
+              />
+            </label>
+          </div>
+        ) : null}
+        {draft.authVariant === "api-key" ? (
+          <button
+            type="button"
+            class="backend-button"
+            data-pi-action="credential-save"
+            onClick={() => {
+              const secret = secretInput.current?.value || "";
+              if (secretInput.current) secretInput.current.value = "";
+              if (!credentialLabel.trim() || !secret.trim()) return;
+              handlers.putPiCredential({
+                id: draft.credentialRef || "",
+                label: credentialLabel,
+                secret,
+              });
+            }}
+          >
+            {labelText(labels, "piSaveCredential", "Save API key")}
+          </button>
+        ) : null}
         {value.credentials.map((entry) => (
           <div class="backend-pi-credential-row" key={entry.id}>
             <span>
               {entry.label} ({entry.masked})
             </span>
-            {entry.kind === "api-key" ? (
+            {entry.kind === "api-key" || entry.kind === "openai-codex" ? (
               <button
                 type="button"
                 class="backend-button danger"
-                onClick={() => handlers.deletePiCredential(entry.id)}
+                data-pi-action={
+                  entry.kind === "openai-codex"
+                    ? "codex-disconnect"
+                    : "credential-clear"
+                }
+                onClick={() =>
+                  entry.kind === "openai-codex"
+                    ? handlers.disconnectPiCodex(entry.id)
+                    : handlers.deletePiCredential(entry.id)
+                }
               >
-                {labelText(labels, "piClearCredential", "Clear")}
+                {labelText(
+                  labels,
+                  entry.kind === "openai-codex"
+                    ? "piCodexDisconnect"
+                    : "piClearCredential",
+                  entry.kind === "openai-codex"
+                    ? "Disconnect locally"
+                    : "Clear",
+                )}
               </button>
             ) : null}
           </div>
@@ -1265,16 +1428,15 @@ function PiMcpSourcesPanel(props: {
             }
           />
         </label>
-        <label class="backend-field">
+        <div class="backend-field">
           <span>{label("Transport", "Transport")}</span>
-          <select
-            class="backend-input"
+          <BackendChoice
+            label={label("Transport", "Transport")}
+            mcpField="transport"
             value={draft.transport}
-            onChange={(event) =>
+            onChange={(transport) =>
               patch({
-                transport: (event.target as HTMLSelectElement).value as
-                  | "http"
-                  | "stdio",
+                transport: transport as "http" | "stdio",
                 url: undefined,
                 executable: undefined,
                 argv: [],
@@ -1282,11 +1444,12 @@ function PiMcpSourcesPanel(props: {
                 selectedTools: {},
               })
             }
-          >
-            <option value="http">Streamable HTTP</option>
-            <option value="stdio">stdio</option>
-          </select>
-        </label>
+            options={[
+              { value: "http", label: "Streamable HTTP" },
+              { value: "stdio", label: "stdio" },
+            ]}
+          />
+        </div>
         {draft.transport === "http" ? (
           <label class="backend-field">
             <span>URL</span>
@@ -1700,6 +1863,7 @@ export const BackendManagerBodyRegion = memo(function BackendManagerBodyRegion(
           value={selection.builtinAgent}
           labels={labels}
           handlers={handlers}
+          codexAuth={selection.codexAuth}
         />
       ) : (
         <section class="backend-provider-section">

@@ -424,11 +424,9 @@ describe("dashboard backend-manager page (src/dashboard)", function () {
       page.root.querySelectorAll(".backend-provider-tab"),
     );
     clickButton(tabs[tabs.length - 1]);
-    const config = page.root.querySelector(
-      "[data-pi-field='configuration']",
-    ) as HTMLSelectElement;
-    config.value = "pi-config";
-    fireChange(config);
+    clickButton(page.root.querySelector("[data-pi-field='configuration']"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    clickButton(page.root.querySelector("[data-choice-value='pi-config']"));
     await new Promise((resolve) => setTimeout(resolve, 0));
     assert.isFalse(
       page.actions.some((entry) => entry.action === "pi-test-connection"),
@@ -507,6 +505,264 @@ describe("dashboard backend-manager page (src/dashboard)", function () {
       "saved-key",
     );
     assert.equal(page.controller.state.rows.length, 3);
+  });
+
+  it("shows only the current Codex device code and keeps it out of snapshots", async function () {
+    const page = createPage();
+    initPage(page, {
+      builtinAgent: {
+        configurations: [
+          {
+            id: "codex-config",
+            label: "Codex",
+            provider: "openai-codex",
+            modelId: "fixture-model",
+            authVariant: "openai-codex",
+            enabled: true,
+          },
+        ],
+        configurationStatus: { "codex-config": "needs-auth" },
+        credentials: [],
+        mcpSources: [],
+        mcpCredentials: [],
+        mcpDiscovered: {},
+        defaults: {},
+        overlayPath: "",
+        catalog: {
+          status: "ready",
+          revision: "r1",
+          modelCount: 1,
+          providers: ["openai-codex"],
+        },
+        models: [
+          { provider: "openai-codex", id: "fixture-model", name: "Fixture" },
+        ],
+      },
+    });
+    const tabs = Array.from(
+      page.root.querySelectorAll(".backend-provider-tab"),
+    );
+    clickButton(tabs[tabs.length - 1]);
+    clickButton(page.root.querySelector("[data-pi-field='authentication']"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    clickButton(page.root.querySelector("[data-choice-value='openai-codex']"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.isNull(
+      page.root.querySelector("[data-pi-field='credential-secret']"),
+    );
+    clickButton(page.root.querySelector("[data-pi-field='configuration']"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    clickButton(page.root.querySelector("[data-choice-value='codex-config']"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    clickButton(page.root.querySelector("[data-pi-action='codex-connect']"));
+    const first = page.actions.find(
+      (entry) => entry.action === "pi-codex-connect",
+    )!;
+    assert.isOk(first);
+    clickButton(page.root.querySelector("[data-pi-action='codex-cancel']"));
+    assert.isOk(
+      page.actions.find((entry) => entry.action === "pi-codex-cancel"),
+    );
+    clickButton(page.root.querySelector("[data-pi-action='codex-connect']"));
+    const second = page.actions.filter(
+      (entry) => entry.action === "pi-codex-connect",
+    )[1];
+    assert.notEqual(first.payload.requestId, second.payload.requestId);
+    for (const [requestId, userCode] of [
+      [first.payload.requestId, "STALE-CODE"],
+      [second.payload.requestId, "CURRENT-CODE"],
+    ])
+      page.controller.handleMessage({
+        type: "backend-manager-dialog:action-result",
+        payload: {
+          action: "pi-codex-connect",
+          requestId,
+          stage: "code",
+          verificationUrl: "https://auth.openai.com/codex/device",
+          userCode,
+        },
+      });
+    assert.notInclude(page.root.textContent || "", "STALE-CODE");
+    assert.include(page.root.textContent || "", "CURRENT-CODE");
+    const pendingConnect = page.root.querySelector(
+      "[data-pi-action='codex-connect']",
+    ) as HTMLButtonElement;
+    assert.isTrue(pendingConnect.disabled);
+    clickButton(pendingConnect);
+    assert.equal(
+      page.actions.filter((entry) => entry.action === "pi-codex-connect")
+        .length,
+      2,
+    );
+    assert.equal(
+      page.controller.state.codexAuth?.requestId,
+      second.payload.requestId,
+    );
+    assert.notInclude(
+      JSON.stringify(page.controller.state.snapshot),
+      "CURRENT-CODE",
+    );
+    clickButton(
+      page.root.querySelector("[data-pi-action='codex-open-verification']"),
+    );
+    assert.isOk(
+      page.actions.find(
+        (entry) => entry.action === "pi-codex-open-verification",
+      ),
+    );
+    clickButton(page.root.querySelector("[data-pi-field='configuration']"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    clickButton(page.root.querySelector("[data-choice-value='']"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(
+      page.actions.filter((entry) => entry.action === "pi-codex-cancel").length,
+      2,
+    );
+    assert.notInclude(page.root.textContent || "", "CURRENT-CODE");
+    clickButton(page.root.querySelector("[data-pi-field='configuration']"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    clickButton(page.root.querySelector("[data-choice-value='codex-config']"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    clickButton(page.root.querySelector("[data-pi-action='codex-connect']"));
+    const third = page.actions.filter(
+      (entry) => entry.action === "pi-codex-connect",
+    )[2];
+    page.controller.handleMessage({
+      type: "backend-manager-dialog:action-result",
+      payload: {
+        action: "pi-codex-connect",
+        requestId: third.payload.requestId,
+        stage: "failed",
+        ok: false,
+        code: "auth_unavailable",
+        phase: "exchange",
+      },
+    });
+    assert.include(
+      page.controller.state.statusMessage?.text || "",
+      "auth_unavailable",
+    );
+    assert.include(page.controller.state.statusMessage?.text || "", "exchange");
+
+    fireInput(
+      page.root.querySelector("[data-pi-field='modelId']")!,
+      "next-model",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const snapshot = page.controller.state.snapshot!;
+    const builtinAgent = snapshot.builtinAgent!;
+    const connected = {
+      ...builtinAgent.configurations[0],
+      credentialRef: "connected-credential",
+    };
+    page.controller.handleMessage({
+      type: "backend-manager-dialog:snapshot",
+      payload: {
+        ...snapshot,
+        builtinAgent: {
+          ...builtinAgent,
+          configurations: [connected],
+          configurationStatus: { "codex-config": "configured" },
+          credentials: ["connected-credential", "other-credential"].map(
+            (id) => ({
+              id,
+              label: id,
+              kind: "openai-codex",
+              namespace: "model-provider",
+              masked: "••••",
+              updatedAt: "2026-09-30T00:00:00.000Z",
+            }),
+          ),
+        },
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    clickButton(page.root.querySelector("[data-pi-action='save']"));
+    const saved = page.actions
+      .filter((entry) => entry.action === "pi-upsert-configuration")
+      .at(-1)!.payload.configuration as Record<string, unknown>;
+    assert.equal(saved.credentialRef, "connected-credential");
+    assert.equal(saved.modelId, "next-model");
+    clickButton(
+      page.root.querySelector("[data-pi-action='codex-refresh-models']"),
+    );
+    assert.equal(
+      page.actions
+        .filter((entry) => entry.action === "pi-codex-refresh-models")
+        .at(-1)?.payload.configurationId,
+      "codex-config",
+    );
+
+    const catalogRequest = page.actions
+      .filter((entry) => entry.action === "pi-catalog-query")
+      .at(-1)!;
+    const catalogResult = {
+      action: "pi-catalog-query",
+      ok: true,
+      requestId: catalogRequest.payload.requestId,
+      models: [{ provider: "openai-codex", id: "next-model", name: "Next" }],
+    };
+    page.controller.handleMessage({
+      type: "backend-manager-dialog:action-result",
+      payload: catalogResult,
+    });
+    assert.equal(
+      page.root
+        .querySelector("#pi-model-options option")
+        ?.getAttribute("value"),
+      "next-model",
+    );
+    page.controller.handleMessage({
+      type: "backend-manager-dialog:snapshot",
+      payload: {
+        ...page.controller.state.snapshot!,
+        builtinAgent: {
+          ...page.controller.state.snapshot!.builtinAgent!,
+          models: [],
+        },
+      },
+    });
+    assert.equal(
+      page.root
+        .querySelector("#pi-model-options option")
+        ?.getAttribute("value"),
+      "next-model",
+    );
+
+    clickButton(page.root.querySelector("[aria-label^='Credential:']"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    clickButton(
+      page.root.querySelector("[data-choice-value='other-credential']"),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(
+      page.root.querySelectorAll("#pi-model-options option").length,
+      0,
+    );
+    page.controller.handleMessage({
+      type: "backend-manager-dialog:action-result",
+      payload: catalogResult,
+    });
+    assert.equal(
+      page.root.querySelectorAll("#pi-model-options option").length,
+      0,
+    );
+    page.controller.handleMessage({
+      type: "backend-manager-dialog:snapshot",
+      payload: {
+        ...page.controller.state.snapshot!,
+        builtinAgent: {
+          ...page.controller.state.snapshot!.builtinAgent!,
+          configurations: [builtinAgent.configurations[0]],
+        },
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    clickButton(page.root.querySelector("[data-pi-action='save']"));
+    const edited = page.actions
+      .filter((entry) => entry.action === "pi-upsert-configuration")
+      .at(-1)!.payload.configuration as Record<string, unknown>;
+    assert.equal(edited.credentialRef, "other-credential");
   });
 
   it("renders loading until init, then sorted tabs and the active provider rows", function () {

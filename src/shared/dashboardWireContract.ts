@@ -409,6 +409,11 @@ export type BackendManagerActionName =
   | "pi-put-credential"
   | "pi-delete-credential"
   | "pi-test-connection"
+  | "pi-codex-connect"
+  | "pi-codex-cancel"
+  | "pi-codex-open-verification"
+  | "pi-codex-disconnect"
+  | "pi-codex-refresh-models"
   | "pi-mcp-upsert-source"
   | "pi-mcp-delete-source"
   | "pi-mcp-test-source"
@@ -514,6 +519,11 @@ export type BackendManagerActionPayloadMap = {
   "pi-catalog-query": DashboardActionPayloadShape<{
     provider: string;
     query: string;
+    credentialId?: string;
+    requestId: string;
+  }>;
+  "pi-codex-refresh-models": DashboardActionPayloadShape<{
+    configurationId: string;
   }>;
   "pi-put-credential": DashboardActionPayloadShape<{
     id: string;
@@ -524,6 +534,18 @@ export type BackendManagerActionPayloadMap = {
   "pi-test-connection": DashboardActionPayloadShape<{
     configurationId: string;
     requestId: string;
+  }>;
+  "pi-codex-connect": DashboardActionPayloadShape<{
+    configurationId: string;
+    credentialId: string;
+    requestId: string;
+  }>;
+  "pi-codex-cancel": DashboardActionPayloadShape<{ requestId: string }>;
+  "pi-codex-open-verification": DashboardActionPayloadShape<{
+    requestId: string;
+  }>;
+  "pi-codex-disconnect": DashboardActionPayloadShape<{
+    credentialId: string;
   }>;
   "pi-mcp-upsert-source": DashboardActionPayloadShape<{
     source: import("./piMcpSourceContract").PiMcpSource;

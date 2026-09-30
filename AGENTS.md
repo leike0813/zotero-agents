@@ -263,9 +263,11 @@ This is a single-context repository using a root `CONTEXT.md` and root `docs/adr
 
 # 内置 Pi Provider 执行硬约束
 
-- `src/modules/piApiKeyProviderExecution.ts` 只接受 C03 已解析的冻结选择快照；每次调用仅读取该快照引用的加密凭据，显式无密钥的 OpenAI 兼容自定义端点在发请求前移除授权头。本地端点须先通过调用方的 Local Network 授权。
+- `src/modules/piProviderExecution.ts` 只接受 C03 已解析的冻结选择快照；每次调用仅读取该快照引用的加密凭据，显式无密钥的 OpenAI 兼容自定义端点在发请求前移除授权头。本地端点须先通过调用方的 Local Network 授权。
 - Provider 响应正文、头、原生异常和密钥不得进入 `PiRuntime` 终态、Backend Manager 快照、页面消息或日志；失败只传项目自有的结构化码。连接测试须由用户动作触发，并按请求 ID 关联结果。
 - 插件浏览器包只允许精确的 `provider-env.js → node:fs` 不可达导入 guard；其它 Node/Bun builtin 继续由浏览器构建拒绝。Provider 版本或导入图变动后，重跑构建和真实 Zotero 定向用例。
+- Codex 模型发现经 `piModelCatalog.ts` 使用所选加密凭据查询官方接口；用户登录或显式刷新触发网络，配置加载保持离线。发现事实按凭据隔离，删除与替换更新目录 revision 并拒绝迟到结果；缺失输出上限保持未知，由已知上下文约束输出预留。
+- Codex 授权请求在显示设备码后保持同一请求、窗口与插件实例，直到完成或用户明确取消；活动授权中的重复连接保留当前请求。
 
 # Pi Turn Preparation 硬约束
 

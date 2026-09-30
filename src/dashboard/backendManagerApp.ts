@@ -26,6 +26,7 @@ import {
   type BackendManagerRowPatch,
   type BackendManagerSnapshot,
   type BackendManagerView,
+  type PiCodexAuthProgress,
 } from "./components/BackendManagerRegion";
 import type {
   BackendManagerBuiltinAgentSnapshot,
@@ -67,6 +68,7 @@ export type BackendManagerControllerState = {
   pendingModelCacheRows: Set<number>;
   skillRunnerReachableById: Record<string, boolean>;
   statusMessage: { text: string; tone: string } | null;
+  codexAuth: PiCodexAuthProgress | null;
   scrollByProvider: Record<string, number>;
   acpPresetDialog: BackendManagerAcpPresetDialogState | null;
   genericHttpPresetDialog: BackendManagerGenericHttpPresetDialogState | null;
@@ -211,6 +213,7 @@ export function createBackendManagerController(
     pendingModelCacheRows: new Set<number>(),
     skillRunnerReachableById: Object.create(null) as Record<string, boolean>,
     statusMessage: null,
+    codexAuth: null,
     scrollByProvider: Object.create(null) as Record<string, number>,
     acpPresetDialog: null,
     genericHttpPresetDialog: null,
@@ -220,6 +223,7 @@ export function createBackendManagerController(
   const mcpDiscovered: BackendManagerBuiltinAgentSnapshot["mcpDiscovered"] = {};
   const mcpTestRequestIds: Record<string, string> = {};
   let lastPiTestRequestId = "";
+  let lastPiCatalogRequestId = "";
   let disposed = false;
 
   function isSkillRunnerReachable(row: BackendManagerDraftRow): boolean {
@@ -317,6 +321,7 @@ export function createBackendManagerController(
             labels,
             builtinAgent:
               provider.type === PI_SECTION ? snapshot.builtinAgent : undefined,
+            codexAuth: provider.type === PI_SECTION ? state.codexAuth : null,
             rows: state.rows
               .map((row, index) => ({ row, index }))
               .filter((entry) => entry.row.type === provider.type)
@@ -402,9 +407,16 @@ export function createBackendManagerController(
 
   function applySnapshot(payload: BackendManagerSnapshot | null): void {
     if (disposed) return;
+    const priorCatalog = state.snapshot?.builtinAgent;
     state.snapshot = payload || ({} as BackendManagerSnapshot);
-    if (state.snapshot.builtinAgent)
+    if (state.snapshot.builtinAgent) {
       state.snapshot.builtinAgent.mcpDiscovered = { ...mcpDiscovered };
+      if (
+        priorCatalog?.catalog.revision ===
+        state.snapshot.builtinAgent.catalog.revision
+      )
+        state.snapshot.builtinAgent.models = priorCatalog.models;
+    }
     state.rows = Array.isArray(state.snapshot.rows)
       ? state.snapshot.rows.map(cleanRow)
       : [];
@@ -419,6 +431,37 @@ export function createBackendManagerController(
   function handleActionResult(payload: Record<string, unknown>): void {
     if (disposed) return;
     const action = String(payload.action || "");
+    if (action === "pi-codex-connect") {
+      if (String(payload.requestId || "") !== state.codexAuth?.requestId)
+        return;
+      if (payload.stage === "code") {
+        state.codexAuth = {
+          requestId: state.codexAuth.requestId,
+          stage: "code",
+          verificationUrl: "https://auth.openai.com/codex/device",
+          userCode: String(payload.userCode || "").slice(0, 64),
+        };
+        renderCurrent();
+      } else {
+        state.codexAuth = null;
+        const code = String(payload.code || "");
+        const phase = String(payload.phase || "");
+        const detail = /^[a-z][a-z0-9_]{0,39}$/.test(code)
+          ? ` (${code}${["start", "poll", "exchange", "refresh"].includes(phase) ? `: ${phase}` : ""})`
+          : "";
+        showStatusMessage(
+          payload.ok === true
+            ? state.snapshot?.labels.piCodexConnected ||
+                "OpenAI Codex connected"
+            : (state.snapshot?.labels.piCodexFailed ||
+                "OpenAI Codex sign-in failed") + detail,
+          payload.ok === true ? "success" : "error",
+        );
+      }
+      return;
+    }
+    if (action === "pi-codex-cancel" || action === "pi-codex-open-verification")
+      return;
     if (action === "pi-test-connection") {
       if (String(payload.requestId || "") !== lastPiTestRequestId) return;
       showStatusMessage(
@@ -489,6 +532,7 @@ export function createBackendManagerController(
         showStatusMessage(String(payload.message || "Saved"), "success");
       if (
         action === "pi-catalog-query" &&
+        String(payload.requestId || "") === lastPiCatalogRequestId &&
         Array.isArray(payload.models) &&
         state.snapshot?.builtinAgent
       ) {
@@ -742,8 +786,24 @@ export function createBackendManagerController(
     refreshPiOverlay(path) {
       deps.sendAction("pi-refresh-overlay", { path });
     },
-    queryPiCatalog(provider, query) {
-      deps.sendAction("pi-catalog-query", { provider, query });
+    queryPiCatalog(provider, query, credentialId) {
+      lastPiCatalogRequestId = String(++piTestSequence);
+      if (state.snapshot?.builtinAgent?.models.length) {
+        state.snapshot.builtinAgent = {
+          ...state.snapshot.builtinAgent,
+          models: [],
+        };
+        renderCurrent();
+      }
+      deps.sendAction("pi-catalog-query", {
+        provider,
+        query,
+        credentialId,
+        requestId: lastPiCatalogRequestId,
+      });
+    },
+    refreshPiCodexModels(configurationId) {
+      deps.sendAction("pi-codex-refresh-models", { configurationId });
     },
     putPiCredential(input) {
       deps.sendAction("pi-put-credential", input);
@@ -757,6 +817,36 @@ export function createBackendManagerController(
         configurationId,
         requestId: lastPiTestRequestId,
       });
+    },
+    connectPiCodex(configurationId, credentialId) {
+      if (state.codexAuth) return;
+      state.codexAuth = {
+        requestId: String(++piTestSequence),
+        stage: "pending",
+      };
+      renderCurrent();
+      deps.sendAction("pi-codex-connect", {
+        configurationId,
+        credentialId: credentialId || "",
+        requestId: state.codexAuth.requestId,
+      });
+    },
+    cancelPiCodex() {
+      if (!state.codexAuth) return;
+      deps.sendAction("pi-codex-cancel", {
+        requestId: state.codexAuth.requestId,
+      });
+      state.codexAuth = null;
+      renderCurrent();
+    },
+    openPiCodexVerification() {
+      if (state.codexAuth?.stage !== "code") return;
+      deps.sendAction("pi-codex-open-verification", {
+        requestId: state.codexAuth.requestId,
+      });
+    },
+    disconnectPiCodex(credentialId) {
+      deps.sendAction("pi-codex-disconnect", { credentialId });
     },
     upsertMcpSource(source) {
       delete mcpDiscovered[source.id];
