@@ -20,7 +20,18 @@ import {
   isPureAcpChatBackgroundChange,
 } from "../../acp/chat/acpChatWorkspaceSurface";
 import { AssistantWorkspacePublicationRuntime } from "../publication/assistantWorkspacePublicationRuntime";
-import { buildAssistantWorkspacePublicationLabels } from "../publication/assistantWorkspacePublicationLabels";
+import {
+  buildAssistantWorkspaceNavigationLabels,
+  buildAssistantWorkspacePublicationLabels,
+} from "../publication/assistantWorkspacePublicationLabels";
+import { PI_CONVERSATIONS_WORKSPACE_ADAPTER } from "../../piConversationWorkspaceSurface";
+import { getPiConversationCoordinator } from "../../piConversation";
+import {
+  ASSISTANT_WORKSPACE_SOURCE_REGISTRY,
+  DEFAULT_ASSISTANT_WORKSPACE_SOURCE_ID,
+  isAssistantWorkspaceSourceId,
+  type AssistantWorkspaceSourceId,
+} from "../../../shared/assistantWorkspaceSourceRegistry";
 import {
   getActiveAcpChatOwner,
   subscribeAcpChatWorkspaceChanges,
@@ -255,12 +266,11 @@ const hosts = new WeakMap<
 >();
 const FRAME_WINDOW_WAIT_TIMEOUT_MS = 2000;
 const SHELL_HANDSHAKE_INTERVAL_MS = 500;
-const DEFAULT_TAB: AssistantWorkspaceTab = "acp-chat";
-const ASSISTANT_WORKSPACE_TABS: AssistantWorkspaceTab[] = [
-  "acp-chat",
-  "acp-skills",
-  "skillrunner",
-];
+const DEFAULT_TAB: AssistantWorkspaceTab =
+  DEFAULT_ASSISTANT_WORKSPACE_SOURCE_ID;
+const ASSISTANT_WORKSPACE_TABS: AssistantWorkspaceTab[] = Object.keys(
+  ASSISTANT_WORKSPACE_SOURCE_REGISTRY,
+) as AssistantWorkspaceTab[];
 const ASSISTANT_WORKSPACE_BRIDGE_KEY = ASSISTANT_WORKSPACE_SHELL_BRIDGE_KEY;
 const localize = getStringOrFallback;
 
@@ -287,6 +297,11 @@ configureAssistantWorkspacePublicationShellHost({
   getWorkspaceHost: (win) => hosts.get(win),
 });
 configureAssistantWorkspaceActionRouterShellHost({
+  piConversationsSurface: () => ({
+    adapter: PI_CONVERSATIONS_WORKSPACE_ADAPTER,
+  }),
+  piConversationCoordinator: () => getPiConversationCoordinator(),
+  localizeString: (key, fallback) => localize(key as any, fallback),
   openBackendManager: openBackendManagerDialog,
   logAssistantWorkspaceDebug,
   closeActiveSidebarHost,
@@ -920,12 +935,25 @@ function postShellInit(
     activeTarget: host.activeTarget,
     scopeKey: host.scopeKey,
     surfaceConfiguration: assistantWorkspaceAcpRuntimeConfiguration(),
-    surfaceLabels: {
-      "acp-chat": buildAssistantWorkspacePublicationLabels("acp-chat"),
-      "acp-skills": buildAssistantWorkspacePublicationLabels("acp-skills"),
-      skillrunner: buildAssistantWorkspacePublicationLabels("skillrunner"),
-    },
+    surfaceLabels: buildAssistantWorkspacePublicationLabelsMap(),
+    navigationLabels: buildAssistantWorkspaceNavigationLabels(),
   });
+}
+
+function buildAssistantWorkspacePublicationLabelsMap(): Record<
+  AssistantWorkspaceSourceId,
+  ReturnType<typeof buildAssistantWorkspacePublicationLabels>
+> {
+  const labels = {} as Record<
+    AssistantWorkspaceSourceId,
+    ReturnType<typeof buildAssistantWorkspacePublicationLabels>
+  >;
+  for (const sourceId of Object.keys(
+    ASSISTANT_WORKSPACE_SOURCE_REGISTRY,
+  ) as AssistantWorkspaceSourceId[]) {
+    labels[sourceId] = buildAssistantWorkspacePublicationLabels(sourceId);
+  }
+  return labels;
 }
 
 function installMessageBridge(host: AssistantWorkspaceHostRuntime) {
@@ -1228,10 +1256,7 @@ async function handleShellAction(
 
 function normalizeTab(value: unknown): AssistantWorkspaceTab {
   const text = String(value || "").trim();
-  if (text === "skillrunner" || text === "acp-skills" || text === "acp-chat") {
-    return text;
-  }
-  return DEFAULT_TAB;
+  return isAssistantWorkspaceSourceId(text) ? text : DEFAULT_TAB;
 }
 
 function attachSkillRunnerToShell(

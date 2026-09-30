@@ -5,10 +5,28 @@ import {
   ASSISTANT_WORKSPACE_SHELL_ACTIONS,
   ASSISTANT_WORKSPACE_SHELL_BRIDGE_KEY,
 } from "../shared/assistantWireContract.js";
+import {
+  ASSISTANT_WORKSPACE_LANE_REGISTRY,
+  ASSISTANT_WORKSPACE_LANE_ORDER,
+  ASSISTANT_WORKSPACE_SOURCE_REGISTRY,
+  DEFAULT_ASSISTANT_WORKSPACE_LANE_ID,
+  DEFAULT_ASSISTANT_WORKSPACE_SOURCE_ID,
+  listNavigableAssistantWorkspaceLaneSources,
+} from "../shared/assistantWorkspaceSourceRegistry.js";
 
-const tabs = ["acp-chat", "acp-skills", "skillrunner"];
+const tabs = Object.keys(ASSISTANT_WORKSPACE_SOURCE_REGISTRY);
+
+function emptySurfaceLabels() {
+  const labels = {};
+  tabs.forEach(function (sourceId) {
+    labels[sourceId] = {};
+  });
+  return labels;
+}
+
 const state = {
-  activeTab: "acp-chat",
+  activeTab: DEFAULT_ASSISTANT_WORKSPACE_SOURCE_ID,
+  activeLane: DEFAULT_ASSISTANT_WORKSPACE_LANE_ID,
   initializedFrames: new Set(),
   childDocumentGenerations: new Map(),
   loadedFrames: new Set(),
@@ -25,11 +43,13 @@ const state = {
     transcriptPaginationVirtualizationEnabled: true,
     actionRegistry: {},
   },
-  surfaceLabels: {
-    "acp-chat": {},
-    "acp-skills": {},
-    skillrunner: {},
-  },
+  surfaceLabels: emptySurfaceLabels(),
+  navigationLabels: { lanes: {}, sources: {} },
+  navigationSummaries: new Map(),
+  // Window-local memory of the source chosen per lane. Lives in this page's
+  // module state only: another Workspace window is a separate document with
+  // its own shell instance and never sees this map.
+  selectedSourceByLane: {},
 };
 
 const hostReadyRetryDelayMs = 250;
@@ -614,6 +634,8 @@ function clearChildPayloadState(reason) {
   });
   state.pendingChildPublications.clear();
   state.deliveredChildPublications.clear();
+  state.navigationSummaries.clear();
+  updateNavigationSummaries();
   traceAction("child-payload-state-clear", { reason });
 }
 
@@ -645,7 +667,134 @@ function acceptChildReady(tab, payload) {
 function normalizeTab(tab, fallback) {
   if (tabs.indexOf(tab) >= 0) return tab;
   if (tabs.indexOf(fallback) >= 0) return fallback;
-  return "acp-chat";
+  return DEFAULT_ASSISTANT_WORKSPACE_SOURCE_ID;
+}
+
+function laneLabel(laneId) {
+  const resolved = state.navigationLabels.lanes[laneId];
+  if (resolved) return resolved;
+  const lane = ASSISTANT_WORKSPACE_LANE_REGISTRY[laneId];
+  return lane ? lane.label : laneId;
+}
+
+function sourceLabel(sourceId) {
+  const resolved = state.navigationLabels.sources[sourceId];
+  if (resolved) return resolved;
+  const descriptor = ASSISTANT_WORKSPACE_SOURCE_REGISTRY[sourceId];
+  return descriptor ? descriptor.label : sourceId;
+}
+
+function updateNavigationButton(button, label, count, attention) {
+  if (!button) return;
+  const badge = button.querySelector(".assistant-nav-count");
+  if (badge && badge.textContent !== String(count))
+    badge.textContent = String(count);
+  button.setAttribute("data-attention", String(attention));
+  button.setAttribute(
+    "aria-label",
+    label +
+      " (" +
+      count +
+      ")" +
+      (attention
+        ? ": " + (state.navigationLabels.attention || "Needs attention")
+        : ""),
+  );
+}
+
+function updateNavigationSummaries() {
+  ASSISTANT_WORKSPACE_LANE_ORDER.forEach(function (laneId) {
+    let count = 0;
+    let attention = false;
+    listNavigableAssistantWorkspaceLaneSources(laneId).forEach(
+      function (sourceId) {
+        const summary = state.navigationSummaries.get(sourceId);
+        const sourceCount = summary ? summary.count : 0;
+        const sourceAttention = !!(summary && summary.attention);
+        count += sourceCount;
+        attention = attention || sourceAttention;
+        updateNavigationButton(
+          $("assistant-tab-" + sourceId),
+          sourceLabel(sourceId),
+          sourceCount,
+          sourceAttention,
+        );
+      },
+    );
+    updateNavigationButton(
+      $("assistant-lane-" + laneId),
+      laneLabel(laneId),
+      count,
+      attention,
+    );
+  });
+}
+
+function appendNavigationCount(button) {
+  const count = document.createElement("span");
+  count.className = "assistant-nav-count";
+  count.setAttribute("aria-hidden", "true");
+  button.appendChild(count);
+}
+
+// Lane buttons plus the active lane's navigable source buttons. The registry
+// is the single source of truth: a source whose adapter has not shipped
+// (pi-skill-runs) is declared but rendered no entry.
+function renderNavigation() {
+  const lanesEl = $("assistant-workspace-lanes");
+  const sourcesEl = $("assistant-workspace-sources");
+  if (!lanesEl || !sourcesEl) return;
+  lanesEl.textContent = "";
+  ASSISTANT_WORKSPACE_LANE_ORDER.forEach(function (laneId) {
+    const button = document.createElement("button");
+    button.id = "assistant-lane-" + laneId;
+    button.className =
+      "assistant-tab" + (laneId === state.activeLane ? " is-active" : "");
+    button.type = "button";
+    button.setAttribute("data-lane", laneId);
+    button.textContent = laneLabel(laneId);
+    appendNavigationCount(button);
+    lanesEl.appendChild(button);
+  });
+  sourcesEl.textContent = "";
+  listNavigableAssistantWorkspaceLaneSources(state.activeLane).forEach(
+    function (sourceId) {
+      const button = document.createElement("button");
+      button.id = "assistant-tab-" + sourceId;
+      button.className =
+        "assistant-tab" + (sourceId === state.activeTab ? " is-active" : "");
+      button.type = "button";
+      button.setAttribute("data-tab", sourceId);
+      button.textContent = sourceLabel(sourceId);
+      appendNavigationCount(button);
+      sourcesEl.appendChild(button);
+    },
+  );
+  updateNavigationSummaries();
+}
+
+function setActiveLane(laneId, options) {
+  if (ASSISTANT_WORKSPACE_LANE_ORDER.indexOf(laneId) < 0) return;
+  state.activeLane = laneId;
+  const laneSources = listNavigableAssistantWorkspaceLaneSources(laneId);
+  if (laneSources.indexOf(state.activeTab) < 0) {
+    const remembered = state.selectedSourceByLane[laneId];
+    const preferred =
+      remembered && laneSources.indexOf(remembered) >= 0
+        ? remembered
+        : ASSISTANT_WORKSPACE_LANE_REGISTRY[laneId].defaultSourceId;
+    const target =
+      laneSources.indexOf(preferred) >= 0 ? preferred : laneSources[0];
+    // Render this lane's buttons before activating its source; setActiveTab
+    // only toggles the active class and skips its own lane render when the
+    // lane is already current.
+    renderNavigation();
+    if (target) {
+      setActiveTab(target, options);
+      return;
+    }
+  }
+  renderNavigation();
 }
 
 function setActiveTab(tab, options) {
@@ -654,6 +803,13 @@ function setActiveTab(tab, options) {
   const nextTab = normalizeTab(tab, fallback);
   const previousTab = state.activeTab;
   state.activeTab = nextTab;
+  const nextLane = ASSISTANT_WORKSPACE_SOURCE_REGISTRY[nextTab].lane;
+  // Remember the choice for its own lane so leaving and returning restores it.
+  state.selectedSourceByLane[nextLane] = nextTab;
+  if (nextLane !== state.activeLane) {
+    state.activeLane = nextLane;
+    renderNavigation();
+  }
   if (nextTab !== previousTab) {
     closeInactiveChildDrawers(nextTab);
   }
@@ -713,20 +869,30 @@ window.addEventListener("message", function (event) {
       typeof data.payload.surfaceLabels === "object"
         ? data.payload.surfaceLabels
         : {};
-    state.surfaceLabels = {
-      "acp-chat":
-        labels["acp-chat"] && typeof labels["acp-chat"] === "object"
-          ? labels["acp-chat"]
+    state.surfaceLabels = emptySurfaceLabels();
+    tabs.forEach(function (sourceId) {
+      const entry = labels[sourceId];
+      state.surfaceLabels[sourceId] =
+        entry && typeof entry === "object" ? entry : {};
+    });
+    const navigationLabels =
+      data.payload &&
+      data.payload.navigationLabels &&
+      typeof data.payload.navigationLabels === "object"
+        ? data.payload.navigationLabels
+        : {};
+    state.navigationLabels = {
+      attention: String(navigationLabels.attention || "Needs attention"),
+      lanes:
+        navigationLabels.lanes && typeof navigationLabels.lanes === "object"
+          ? navigationLabels.lanes
           : {},
-      "acp-skills":
-        labels["acp-skills"] && typeof labels["acp-skills"] === "object"
-          ? labels["acp-skills"]
-          : {},
-      skillrunner:
-        labels.skillrunner && typeof labels.skillrunner === "object"
-          ? labels.skillrunner
+      sources:
+        navigationLabels.sources && typeof navigationLabels.sources === "object"
+          ? navigationLabels.sources
           : {},
     };
+    renderNavigation();
     postSurfaceConfigurationToAcpChildren();
     setActiveTab(data.payload && data.payload.activeTab, {
       notify: false,
@@ -764,11 +930,7 @@ window.addEventListener("message", function (event) {
         ? publication.owner.source
         : "",
     );
-    if (
-      source !== "acp-chat" &&
-      source !== "acp-skills" &&
-      source !== "skillrunner"
-    ) {
+    if (tabs.indexOf(source) < 0) {
       traceAction("drop-child-publication", {
         reason: "invalid-source",
         publicationId: publication.publicationId,
@@ -782,25 +944,60 @@ window.addEventListener("message", function (event) {
       publicationId: publication.publicationId,
     });
     postPublicationToChild(tab, publication);
+    if (publication.publicationKind === "owner-navigation") {
+      const previous = state.navigationSummaries.get(source);
+      const sequence = Number(publication.deliverySequence || 0);
+      if (!previous || sequence > previous.sequence) {
+        const entries = Array.isArray(
+          publication.payload && publication.payload.entries,
+        )
+          ? publication.payload.entries
+          : [];
+        state.navigationSummaries.set(source, {
+          sequence,
+          count: entries.length,
+          attention: entries.some(function (entry) {
+            return !!entry.attention;
+          }),
+        });
+        updateNavigationSummaries();
+      }
+    }
     return;
   }
 });
 
 document.addEventListener("DOMContentLoaded", function () {
-  tabs.forEach(function (tab) {
-    const button = $("assistant-tab-" + tab);
-    if (button) {
-      button.addEventListener("click", function () {
-        setActiveTab(tab);
-      });
-    }
-  });
+  const lanesEl = $("assistant-workspace-lanes");
+  if (lanesEl) {
+    lanesEl.addEventListener("click", function (event) {
+      const laneId =
+        event.target && event.target.closest
+          ? event.target.closest("[data-lane]")?.getAttribute("data-lane")
+          : "";
+      if (laneId) setActiveLane(laneId);
+    });
+  }
+  const sourcesEl = $("assistant-workspace-sources");
+  if (sourcesEl) {
+    sourcesEl.addEventListener("click", function (event) {
+      const tab =
+        event.target && event.target.closest
+          ? event.target.closest("[data-tab]")?.getAttribute("data-tab")
+          : "";
+      if (tab) setActiveTab(tab);
+    });
+  }
   $("assistant-workspace-close")?.addEventListener("click", function () {
     void postToHost(ASSISTANT_WORKSPACE_MESSAGE_TYPES.ACTION, {
       action: ASSISTANT_WORKSPACE_SHELL_ACTIONS.CLOSE_SIDEBAR,
     });
   });
-  setActiveTab("acp-chat", { notify: false, fallback: "acp-chat" });
+  renderNavigation();
+  setActiveTab(DEFAULT_ASSISTANT_WORKSPACE_SOURCE_ID, {
+    notify: false,
+    fallback: DEFAULT_ASSISTANT_WORKSPACE_SOURCE_ID,
+  });
   updateLoadingState();
   ensureHostReady("dom-content-loaded");
 });

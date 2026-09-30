@@ -1195,6 +1195,9 @@ async function onShutdown(): Promise<void> {
     "acp-audit-drain",
     releaseAcpSkillRunAuditTrailWrites,
   );
+  await runShutdownStepWithTimeout("pi-conversations-shutdown", async () =>
+    (await import("./modules/piConversation")).shutdownPiConversations(),
+  );
   await runShutdownStepWithTimeout("pi-mcp-sources-shutdown", async () =>
     (await import("./modules/piMcpRuntimeOwner")).shutdownPiMcpToolSources(),
   );

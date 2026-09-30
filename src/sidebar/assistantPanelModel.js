@@ -160,7 +160,15 @@ function statusLabel(source, status) {
   if (token === "auth-required" || token === "waiting-auth") {
     return labelFrom(source, "status.authRequired", "Auth required");
   }
-  if (token === "permission-required") {
+  if (token === "cleanup-pending")
+    return labelFrom(source, "status.cleanupIncomplete", "Cleanup incomplete");
+  if (token === "deleting")
+    return labelFrom(source, "status.deleting", "Deleting");
+  if (token === "archived")
+    return labelFrom(source, "status.archived", "Archived");
+  if (token === "recovery-required")
+    return labelFrom(source, "status.recoveryRequired", "Needs recovery");
+  if (token === "permission-required" || token === "waiting-permission") {
     return labelFrom(
       source,
       "status.permissionRequired",
@@ -819,7 +827,8 @@ function exactWorkspaceTask(entry, selectedOwner, labelSource) {
   return {
     key,
     action:
-      owner && owner.source === "acp-chat"
+      owner &&
+      (owner.source === "acp-chat" || owner.source === "pi-conversations")
         ? "set-active-conversation"
         : owner && owner.source === "skillrunner"
           ? "select-task"
@@ -846,23 +855,98 @@ function exactWorkspaceTask(entry, selectedOwner, labelSource) {
     attention:
       attentionToken || safeText(entry && entry.description) ? "warning" : "",
     attentionLabel,
-    itemActions:
-      key && archiveEligible
-        ? [
-            {
-              action:
-                owner && owner.source === "acp-chat"
-                  ? "archive-conversation"
-                  : "archive-run",
-              label: labelFrom(labelSource, "actions.archive", "Archive"),
-              icon: "archive",
-              enabled: entry && entry.canArchive !== false,
-              payload: { owner },
-            },
-          ]
-        : [],
+    itemActions: (function () {
+      if (!key) return [];
+      const isPiConversation =
+        Boolean(owner) && owner.source === "pi-conversations";
+      const lifecycle = safeText(entry && entry.lifecycle);
+      if (
+        isPiConversation &&
+        (lifecycle === "archived" ||
+          lifecycle === "deleting" ||
+          lifecycle === "cleanup_pending")
+      ) {
+        const archivedActions = [];
+        if (lifecycle === "archived" && entry.canRestore !== false) {
+          archivedActions.push({
+            action: "restore-conversation",
+            label: labelFrom(labelSource, "actions.restore", "Restore"),
+            icon: "restore",
+            enabled: true,
+            payload: { owner },
+          });
+        }
+        if (lifecycle !== "deleting" && entry.canDelete !== false) {
+          archivedActions.push({
+            action: "delete-conversation",
+            label: labelFrom(
+              labelSource,
+              "actions.delete",
+              "Delete permanently",
+            ),
+            icon: "delete",
+            enabled: true,
+            tone: "danger",
+            confirm: labelFrom(
+              labelSource,
+              "actions.deleteConfirm",
+              "Permanently delete this conversation? This cannot be undone.",
+            ),
+            payload: { owner },
+          });
+        }
+        return archivedActions;
+      }
+      if (!archiveEligible) return [];
+      return [
+        {
+          action:
+            isPiConversation || (owner && owner.source === "acp-chat")
+              ? "archive-conversation"
+              : "archive-run",
+          label: labelFrom(labelSource, "actions.archive", "Archive"),
+          icon: "archive",
+          enabled: entry && entry.canArchive !== false,
+          payload: { owner },
+        },
+      ];
+    })(),
   };
 }
+
+// Owner-details action ids and the drawer button each renders. The host
+// runtime allowlist shares this vocabulary (ASSISTANT_WORKSPACE_DETAILS_ACTIONS).
+const DETAILS_DRAWER_ACTIONS = {
+  "copy-id": { action: "copy-request-id", labelPath: "actions.copyId" },
+  "copy-diagnostics": {
+    action: "copy-diagnostics",
+    labelPath: "actions.copyDiagnostics",
+  },
+  "open-workspace": {
+    action: "open-workspace",
+    labelPath: "actions.openWorkspace",
+  },
+  "compact-conversation": {
+    action: "compact-conversation",
+    labelPath: "actions.compactConversation",
+  },
+  "rename-conversation": {
+    action: "rename-conversation",
+    labelPath: "actions.rename",
+  },
+  "archive-conversation": {
+    action: "archive-conversation",
+    labelPath: "actions.archive",
+  },
+  "restore-conversation": {
+    action: "restore-conversation",
+    labelPath: "actions.restore",
+  },
+  "delete-conversation": {
+    action: "delete-conversation",
+    labelPath: "actions.delete",
+  },
+};
 
 function exactWorkspaceQueuedTask(entry, labelSource) {
   const queueId = safeText(entry && entry.queueId);
@@ -1033,6 +1117,32 @@ function exactWorkspaceDrawerSections(
     collapsed: !uiState || uiState.completedCollapsed !== false,
     groups: Array.from(completedGroups.values()),
   });
+  // Pi Conversations expose an archived list (restore / permanent delete)
+  // that the source count excludes; it renders in its own trailing section.
+  if (source === "pi-conversations") {
+    const archivedEntries = Array.isArray(navigation.archivedEntries)
+      ? navigation.archivedEntries
+      : [];
+    if (archivedEntries.length > 0) {
+      const archivedGroups = new Map();
+      archivedEntries.forEach(function (entry) {
+        appendTask(
+          "archived",
+          archivedGroups,
+          entry,
+          "finishedTasks",
+          exactWorkspaceTask(entry, selectedOwner, labelSource),
+        );
+      });
+      sections.push({
+        id: "archived",
+        title: labelFrom(labelSource, "drawer.archived", "Archived"),
+        collapsible: true,
+        collapsed: !uiState || uiState.archivedCollapsed !== false,
+        groups: Array.from(archivedGroups.values()),
+      });
+    }
+  }
   // Backend-unreachable groups carry no task entries (the adapter withholds
   // them); re-attach them as disabled groups in a dedicated trailing section
   // so the drawer still shows the group with its localized reason without
@@ -1825,6 +1935,7 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
     usage: presentation.usage || null,
     reply: (function () {
       const isSkillRunner = source.source === "skillrunner";
+      const isPiConversations = source.source === "pi-conversations";
       // SkillRunner waiting_auth: the auth suite rides the projected
       // interaction; the composer guidance (placeholder/submit label)
       // follows the legacy skillRunnerAuth* branch.
@@ -1892,15 +2003,19 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
               : labelFrom(labelSource, "actions.send", "Send"),
         sending: replyBusy || (auth && auth.actionPending === true),
         action: replyBusy
-          ? source.source === "acp-chat"
+          ? source.source === "acp-chat" || isPiConversations
             ? "cancel"
             : isSkillRunner
               ? "cancel-run"
               : "interrupt-run-turn"
-          : source.source === "acp-chat"
+          : source.source === "acp-chat" || isPiConversations
             ? "send-prompt"
             : "reply-run",
         payload: {},
+        // Pi Conversations clear the composer only once the host has admitted
+        // the turn (the child watches the busy transition); other sources keep
+        // the legacy clear-on-send behavior.
+        clearOnSend: !isPiConversations,
         tone: replyBusy ? "danger" : "primary",
         controls: isSkillRunner
           ? []
@@ -1939,6 +2054,89 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
               ),
             ],
         showUsageGauge: !isSkillRunner,
+        // Pi Conversations publish one-send composer resources and bounded
+        // local errors; other sources publish neither and render no chips.
+        resources: isPiConversations
+          ? (Array.isArray(composer.resources)
+              ? composer.resources.slice(0, 20)
+              : []
+            ).map(function (resource) {
+              return {
+                resourceId: safeText(resource && resource.resourceId),
+                kind: safeText(resource && resource.kind),
+                label: safeText(resource && resource.label),
+                detail: safeText(resource && resource.detail),
+                status:
+                  safeText(resource && resource.status) === "unavailable"
+                    ? "unavailable"
+                    : "ready",
+                removeLabel: labelFrom(
+                  labelSource,
+                  "reply.removeResource",
+                  "Remove resource",
+                ),
+              };
+            })
+          : [],
+        resourceMenu:
+          isPiConversations && replyEnabled && !replyBusy
+            ? {
+                selectionAction: "add-resource",
+                filesAction: "add-resource",
+                selectionLabel: labelFrom(
+                  labelSource,
+                  "reply.addResourceSelection",
+                  "Current selection",
+                ),
+                filesLabel: labelFrom(
+                  labelSource,
+                  "reply.addResourceFiles",
+                  "Files...",
+                ),
+                addLabel: labelFrom(
+                  labelSource,
+                  "reply.addResources",
+                  "Add resources",
+                ),
+                full:
+                  (Array.isArray(composer.resources)
+                    ? composer.resources.length
+                    : 0) >= 20,
+                fullLabel: labelFrom(
+                  labelSource,
+                  "reply.resourcesFull",
+                  "Resource limit reached",
+                ),
+              }
+            : null,
+        errors: Array.isArray(composer.errors)
+          ? composer.errors.slice(0, 3).map(function (error) {
+              const code = safeText(error && error.code);
+              return {
+                code,
+                message:
+                  safeText(error && error.message) ||
+                  (code === "pi_resource_add_failed"
+                    ? labelFrom(
+                        labelSource,
+                        "reply.resourceError",
+                        "Could not add the resource.",
+                      )
+                    : labelFrom(
+                        labelSource,
+                        "reply.actionError",
+                        "The action could not be completed.",
+                      )),
+              };
+            })
+          : [],
+        // Monotonic durable-admission counter for the selected owner; the
+        // child clears the draft only when it increases.
+        sendAdmissionRevision:
+          typeof composer.sendAdmissionRevision === "number" &&
+          Number.isFinite(composer.sendAdmissionRevision)
+            ? composer.sendAdmissionRevision
+            : null,
         value: safeText(local.replyDraft),
       };
     })(),
@@ -2040,21 +2238,12 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
         ? detailsState.actions
         : []
       ).map(function (actionId) {
-        const action =
-          actionId === "copy-id"
-            ? "copy-request-id"
-            : actionId === "open-workspace"
-              ? "open-workspace"
-              : "copy-diagnostics";
-        const labelPath =
-          actionId === "copy-id"
-            ? "actions.copyId"
-            : actionId === "open-workspace"
-              ? "actions.openWorkspace"
-              : "actions.copyDiagnostics";
+        const entry =
+          DETAILS_DRAWER_ACTIONS[actionId] ||
+          DETAILS_DRAWER_ACTIONS["copy-diagnostics"];
         return {
-          action,
-          label: labelFrom(labelSource, labelPath, actionId),
+          action: entry.action,
+          label: labelFrom(labelSource, entry.labelPath, actionId),
           enabled: Boolean(owner),
           payload: {},
         };

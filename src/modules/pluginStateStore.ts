@@ -34,6 +34,19 @@ import {
   createPiOwnerRegistryTable,
   ensurePiOwnerRegistrySchema,
 } from "./pluginStateStore/piOwnerTable";
+import {
+  createPiConversationMetadataTables,
+  ensurePiConversationMetadataSchema,
+} from "./pluginStateStore/piOwnerTable";
+export type {
+  PiConversationCleanupReceipt,
+  PiConversationLifecycle,
+  PiConversationMetadata,
+  PiConversationProjection,
+  PiConversationReadFacts,
+  PiConversationTitleSource,
+  PiConversationUsage,
+} from "./pluginStateStore/piOwnerTable";
 
 export const PLUGIN_TASK_DOMAIN_SKILLRUNNER = "skillrunner";
 export const PLUGIN_TASK_DOMAIN_ACP = "acp";
@@ -612,6 +625,7 @@ function ensureSchema(db: SqlAdapter) {
   ensureMutationAuthorityTableSchema(db);
   ensureLiteratureMigrationTablesSchema(db);
   ensurePiOwnerRegistrySchema(db);
+  ensurePiConversationMetadataSchema(db);
 }
 
 function parseLegacyDocument(rawValue: string) {
@@ -790,8 +804,23 @@ function getAdapter() {
   return adapter;
 }
 
-export const { upsertPiOwnerRegistry, getPiOwnerRegistry } =
-  createPiOwnerRegistryTable(getAdapter);
+export const {
+  upsertPiOwnerRegistry,
+  getPiOwnerRegistry,
+  deletePiOwnerRegistry,
+} = createPiOwnerRegistryTable(getAdapter);
+
+export const {
+  insertPiConversationMetadata,
+  getPiConversationMetadata,
+  listPiConversations,
+  updatePiConversationMetadata: writePiConversationMetadata,
+  updatePiConversationProjection,
+  getPiConversationReadFacts,
+  deletePiConversationMetadata,
+  getPiConversationCleanupReceipt,
+  upsertPiConversationCleanupReceipt,
+} = createPiConversationMetadataTables(getAdapter);
 
 const {
   listPluginRunStoreEntries,
@@ -961,6 +990,8 @@ export function resetPluginStateStoreForTests() {
     db.run("DELETE FROM plugin_literature_artifact_migration_sets");
     db.run("DELETE FROM plugin_literature_artifact_migration_runs");
     db.run("DELETE FROM pi_owner_registry");
+    db.run("DELETE FROM pi_conversation_metadata");
+    db.run("DELETE FROM pi_conversation_cleanup_receipts");
     db.run("DELETE FROM plugin_meta");
   }
   configurePluginMutationAuthorityStorageFaultForTests(undefined);

@@ -2566,6 +2566,10 @@ function buildBackendManagerLabels() {
       "backend-manager-pi-skill-run",
       "Skill Run",
     ),
+    piAuxiliary: localizeBackendManager(
+      "backend-manager-pi-auxiliary",
+      "Conversation titles",
+    ),
     piNoDefault: localizeBackendManager(
       "backend-manager-pi-no-default",
       "No default",

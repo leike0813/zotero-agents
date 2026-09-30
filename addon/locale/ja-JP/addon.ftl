@@ -601,6 +601,7 @@ backend-manager-pi-status-unavailable = カタログを利用できません
 backend-manager-pi-credentials = 保存済みの認証情報
 backend-manager-pi-conversation = 会話
 backend-manager-pi-skill-run = Skill 実行
+backend-manager-pi-auxiliary = 会話のタイトル
 backend-manager-provider-acp = ACP
 backend-manager-provider-profiles-title = { $provider } プロファイル
 backend-manager-provider-add = { $provider } プロファイルを追加

@@ -173,6 +173,65 @@ describe("Pi provider configuration", function () {
     );
   });
 
+  it("validates and invalidates the optional auxiliary title configuration", function () {
+    const upsert = (id: string, modelId: string) =>
+      upsertPiProviderConfiguration({
+        id,
+        label: id,
+        provider: "openai",
+        modelId,
+        authVariant: "api-key",
+        credentialRef: `key-${id}`,
+        enabled: true,
+      });
+    upsert("a", "gpt-test");
+    upsert("b", "gpt-test");
+    setPiProviderDefaults(
+      {
+        conversation: { configurationId: "a" },
+        auxiliary: { configurationId: "b" },
+      },
+      credentials,
+      { models: [model] },
+    );
+    const saved = loadPiProviderConfigurationState().defaults;
+    assert.equal(saved.conversation?.configurationId, "a");
+    assert.equal(saved.auxiliary?.configurationId, "b");
+    assert.equal(
+      resolvePiModelSelection({
+        kind: "conversation",
+        catalog: { revision: "rev-1", models: [model] },
+        credentials,
+        explicit: saved.auxiliary,
+      }).configurationId,
+      "b",
+    );
+    deletePiProviderConfiguration("b");
+    const afterDelete = loadPiProviderConfigurationState().defaults;
+    assert.isUndefined(afterDelete.auxiliary);
+    assert.equal(afterDelete.conversation?.configurationId, "a");
+    upsert("b", "gpt-test");
+    setPiProviderDefaults(
+      {
+        conversation: { configurationId: "a" },
+        auxiliary: { configurationId: "b" },
+      },
+      credentials,
+      { models: [model] },
+    );
+    upsert("b", "gpt-changed");
+    const afterChange = loadPiProviderConfigurationState().defaults;
+    assert.isUndefined(afterChange.auxiliary);
+    assert.equal(afterChange.conversation?.configurationId, "a");
+    assert.throws(() =>
+      setPiProviderDefaults(
+        { auxiliary: { configurationId: "missing" } },
+        credentials,
+        { models: [model] },
+      ),
+    );
+  });
+
   it("does not select a credential with the wrong authentication kind", function () {
     upsertPiProviderConfiguration({
       id: "a",

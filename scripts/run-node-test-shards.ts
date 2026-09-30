@@ -189,7 +189,7 @@ const SHARDS: ShardDefinition[] = [
     label: "Runtime provider execution",
     select: (filePath) =>
       inDirectory(filePath, "runtime") &&
-      /^(?:34-generic-http|37-pass-through|38-generic-http|240-pi-runtime|245-pi-tool-gateway|246-pi-api-key-provider-execution|247-pi-turn-preparation|248-pi-trusted-native-execution|249-pi-mcp-tool-sources|250-pi-zotero-tool-catalog|251-pi-openai-codex-auth)/.test(
+      /^(?:34-generic-http|37-pass-through|38-generic-http|240-pi-runtime|245-pi-tool-gateway|246-pi-api-key-provider-execution|247-pi-turn-preparation|248-pi-trusted-native-execution|249-pi-mcp-tool-sources|250-pi-zotero-tool-catalog|251-pi-openai-codex-auth|256-pi-conversation|257-pi-conversation)/.test(
         path.basename(filePath),
       ),
   },

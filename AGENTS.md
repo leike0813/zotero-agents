@@ -288,6 +288,13 @@ This is a single-context repository using a root `CONTEXT.md` and root `docs/adr
 - Native Shell 使用 Mozilla Subprocess 的替换环境、固定的安全 PATH、owner HOME/TEMP 和有界输出/超时；无法证明停止时报告 `unknown`，不得自动重放。不得用继承宿主环境的通用长时进程适配器执行 Agent Shell。
 - owner managed-file manifest 原子提交，只持久化源身份摘要、revision 摘要、大小、复制时 SHA-256 与受管文件名，不持久化源路径；同源同指纹复用受管副本，源改变时保留旧代。生成输出按文件、调用和 owner 配额提交。
 
+# Pi Conversation 接线约束
+
+- `src/modules/piConversation.ts` 组合 owner、Provider、Preparation、Gateway 与受管资源；canonical JSONL 持有完整历史，SQLite 只投影可重建的标量。每次模型调用从已选路径准备，同一 turn 的模型、工具和资源冻结。
+- 共享 composer 以 owner 的 `sendAdmissionRevision` 增长确认持久化接纳；发送前检查、取消或失败必须保留未接纳草稿。取消抑制迟到模型文本，同时保留已结算的工具结果与 receipt；无法提交历史或证明工具效应时进入 `recovery_required`，不能自动重放。
+- Conversation 用户文件经有界分块读取形成不可变 managed ref，原路径留在暂态输入；配额计算不能在扫描不完整时报告成功。标题独立调用仅使用有界首条输入与资源显示事实，归档允许结果写回，手动 rename 与删除通过 revision/generation 拒绝迟到结果。
+- `src/shared/assistantWorkspaceSourceRegistry.ts` 是 lane/source 描述符事实源；每个 Workspace 窗口在内存中记住 lane 及各 lane 的 source。Pi UI 使用现有 publication 与区域 renderer，owner-first/page-first 和非 transcript DOM identity 约束保持有效。
+
 # Workflow Host Runtime Adaptation硬约束
 
 - `src/modules/runtimePersistence.ts` 是跨运行时文件系统 adapter 选择的唯一事实源；Workflow Host、输入物化、图片准备、附件导入等模块不得自行选择 `IOUtils`、`OS.File`、Node filesystem 或 Components stream。

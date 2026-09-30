@@ -1,7 +1,7 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 import { memo } from "preact/compat";
-import { useLayoutEffect, useRef } from "preact/hooks";
+import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import {
   equalBySignature,
@@ -133,6 +133,17 @@ export const ReplyRegion = memo(
     const controls = Array.isArray(reply.controls)
       ? (reply.controls as Array<Record<string, unknown>>)
       : [];
+    const resources = Array.isArray(reply.resources)
+      ? (reply.resources as Array<Record<string, unknown>>)
+      : [];
+    const resourceMenu =
+      reply.resourceMenu && typeof reply.resourceMenu === "object"
+        ? (reply.resourceMenu as Record<string, unknown>)
+        : null;
+    const errors = Array.isArray(reply.errors)
+      ? (reply.errors as Array<Record<string, unknown>>)
+      : [];
+    const [resourceMenuOpen, setResourceMenuOpen] = useState(false);
 
     const inputRef = useRef<HTMLTextAreaElement | null>(null);
     const previousStructure = useRef<string | null>(null);
@@ -200,6 +211,104 @@ export const ReplyRegion = memo(
 
     return (
       <>
+        {resources.length > 0 || resourceMenu || errors.length > 0 ? (
+          <div class="assistant-panel-reply-resources">
+            {resources.length > 0 ? (
+              <ul class="assistant-panel-reply-resource-list">
+                {resources.map((resource, index) => (
+                  <li
+                    key={safeText(resource.resourceId) || index}
+                    class={
+                      "assistant-panel-reply-resource" +
+                      (safeText(resource.status) === "unavailable"
+                        ? " is-unavailable"
+                        : "")
+                    }
+                    title={safeText(resource.detail)}
+                    data-resource-kind={safeText(resource.kind)}
+                  >
+                    <span class="assistant-panel-reply-resource-label">
+                      {safeText(resource.label)}
+                    </span>
+                    <button
+                      type="button"
+                      class="asst-button-compact assistant-panel-reply-resource-remove"
+                      aria-label={safeText(resource.removeLabel)}
+                      disabled={inputDisabled}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        onAction("remove-resource", {
+                          resourceId: safeText(resource.resourceId),
+                        });
+                      }}
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {resourceMenu ? (
+              <div class="assistant-panel-reply-resource-menu">
+                <button
+                  type="button"
+                  class="asst-button-compact assistant-panel-reply-resource-add"
+                  aria-expanded={resourceMenuOpen ? "true" : "false"}
+                  disabled={inputDisabled || resourceMenu.full === true}
+                  title={safeText(resourceMenu.fullLabel)}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setResourceMenuOpen((open) => !open);
+                  }}
+                >
+                  {safeText(resourceMenu.addLabel)}
+                </button>
+                {resourceMenuOpen ? (
+                  <div
+                    class="assistant-panel-reply-resource-options"
+                    role="menu"
+                  >
+                    <button
+                      type="button"
+                      role="menuitem"
+                      class="asst-button-compact"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setResourceMenuOpen(false);
+                        onAction(
+                          safeText(resourceMenu.selectionAction) ||
+                            "add-resource",
+                          { kind: "selection" },
+                        );
+                      }}
+                    >
+                      {safeText(resourceMenu.selectionLabel)}
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      class="asst-button-compact"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setResourceMenuOpen(false);
+                        onAction(
+                          safeText(resourceMenu.filesAction) || "add-resource",
+                          { kind: "files" },
+                        );
+                      }}
+                    >
+                      {safeText(resourceMenu.filesLabel)}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         <textarea
           ref={inputRef}
           class="assistant-panel-reply-input"
@@ -276,6 +385,19 @@ export const ReplyRegion = memo(
             ) : null}
           </div>
         </div>
+        {errors.length > 0 ? (
+          <ul class="assistant-panel-reply-errors" role="status">
+            {errors.map((error, index) => (
+              <li
+                key={safeText(error.code) || index}
+                class="assistant-panel-reply-error"
+                data-error-code={safeText(error.code)}
+              >
+                {safeText(error.message)}
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </>
     );
   },

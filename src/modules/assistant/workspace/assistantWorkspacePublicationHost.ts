@@ -10,6 +10,7 @@ import {
 } from "../../acp/chat/acpChatWorkspaceSurface";
 import { ACP_SKILLS_WORKSPACE_ADAPTER } from "../../acp/skillRun/acpSkillsWorkspaceSurface";
 import { SKILLRUNNER_WORKSPACE_ADAPTER } from "../../skillRunner/surface/skillRunnerWorkspaceSurface";
+import { PI_CONVERSATIONS_WORKSPACE_ADAPTER } from "../../piConversationWorkspaceSurface";
 import type { AssistantWorkspacePublicationRuntimeConfiguration } from "../publication/assistantWorkspacePublicationRuntime";
 import type { AssistantWorkspaceServiceStatus } from "../publication/assistantWorkspacePublication";
 import { getHostBridgeServerStatus } from "../../hostBridge/server/hostBridgeServer";
@@ -86,7 +87,14 @@ export type AssistantWorkspacePublicationShellHost = {
 
 const MAX_WORKSPACE_PUBLICATION_LIFECYCLES = 256;
 
-let shellHost: AssistantWorkspacePublicationShellHost;
+// Declared with var on purpose: the Workspace composition is cyclic
+// (this module -> sidebar -> this module), so the sidebar's module-top
+// configureAssistantWorkspacePublicationShellHost can run before this module
+// body. var hoists an initialized binding and keeps that call
+// order-independent; a let/const binding would throw a temporal-dead-zone
+// error.
+// eslint-disable-next-line no-var -- initialized binding required by the composition cycle above
+var shellHost: AssistantWorkspacePublicationShellHost;
 
 export function readAssistantWorkspaceServiceStatus(): AssistantWorkspaceServiceStatus {
   const hostBridge = getHostBridgeServerStatus();
@@ -403,6 +411,19 @@ async function initializeAcpSkillsWorkspaceSurface(
   return publicationIds?.at(-1);
 }
 
+async function initializePiConversationsWorkspaceSurface(
+  host: AssistantWorkspaceHostRuntime,
+  cause: "initialization" | "activation" | "owner-switch",
+) {
+  const publicationIds = await host.publicationRuntime?.initialize({
+    adapter: PI_CONVERSATIONS_WORKSPACE_ADAPTER,
+    context: {},
+    cause,
+    serviceStatus: readAssistantWorkspaceServiceStatus(),
+  });
+  return publicationIds?.at(-1);
+}
+
 export function scheduleAcpChatPublications(
   host: AssistantWorkspaceHostRuntime,
   change: AcpChatWorkspaceChange,
@@ -543,6 +564,18 @@ async function postSnapshotForTab(
   phase: "init" | "snapshot" = "snapshot",
   options?: { force?: boolean },
 ) {
+  if (tab === "pi-conversations") {
+    if (options?.force === true || phase === "init") {
+      return !!(await initializePiConversationsWorkspaceSurface(
+        host,
+        phase === "init" ? "initialization" : "activation",
+      ));
+    }
+    return !!(await initializePiConversationsWorkspaceSurface(
+      host,
+      "activation",
+    ));
+  }
   if (tab === "acp-chat") {
     if (options?.force === true || phase === "init") {
       return !!(await initializeAcpChatWorkspaceSurface(

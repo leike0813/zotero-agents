@@ -71,6 +71,7 @@ function WorkspaceTaskAction(props: {
   const label = safeText(action.label) || "Archive";
   const icon = safeText(action.icon);
   const disabled = action.enabled === false;
+  const confirmMessage = safeText(action.confirm);
   return (
     <button
       type="button"
@@ -87,12 +88,22 @@ function WorkspaceTaskAction(props: {
         event.preventDefault();
         event.stopPropagation();
         if (disabled) return;
+        if (confirmMessage) {
+          // Fail closed: a destructive action that requires confirmation must
+          // not run when no confirmation channel is available.
+          if (typeof window.confirm !== "function") return;
+          if (!window.confirm(confirmMessage)) return;
+        }
         onAction(action.action, action.payload || {});
       }}
     >
       {icon === "archive" ? (
         <span class="zs-icon zs-icon-sm zs-icon-archive" />
       ) : icon === "cancel" ? (
+        <span class="zs-icon zs-icon-sm zs-icon-close" />
+      ) : icon === "restore" ? (
+        <span class="zs-icon zs-icon-sm zs-icon-refresh" />
+      ) : icon === "delete" ? (
         <span class="zs-icon zs-icon-sm zs-icon-close" />
       ) : null}
     </button>

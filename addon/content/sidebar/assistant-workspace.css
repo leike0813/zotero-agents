@@ -67,6 +67,22 @@ button {
   height: 100%;
 }
 
+.assistant-workspace-lanes {
+  display: flex;
+  align-items: center;
+  align-self: end;
+  gap: 2px;
+  height: 100%;
+}
+
+.assistant-workspace-lane-sep {
+  flex: 0 0 auto;
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--assistant-line);
+}
+
 .assistant-workspace-close {
   flex: 0 0 auto;
   width: 24px;
@@ -114,6 +130,16 @@ button {
 
 .assistant-tab:hover {
   background: var(--zs-surface-hover);
+}
+
+.assistant-nav-count {
+  margin-inline-start: 0.5em;
+  font-weight: 400;
+}
+
+.assistant-tab[data-attention="true"]::after {
+  content: " •";
+  color: var(--assistant-accent-strong);
 }
 
 .assistant-workspace-body {

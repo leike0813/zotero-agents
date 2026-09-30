@@ -397,6 +397,7 @@ export function resetZoteroMockStateForTests() {
 }
 
 const BACKGROUND_RUNTIME_CLEANUP_TIMEOUT_MS = 5000;
+const BACKGROUND_RUNTIME_CLEANUP_PRELOAD_TIMEOUT_MS = 120000;
 
 async function cleanupBackgroundRuntimeForTests(stage: string) {
   const cleanupModule = await import("../../src/modules/testRuntimeCleanup");
@@ -3121,6 +3122,15 @@ if (!("OS" in globalThis)) {
 baselineRuntimeGlobalDescriptors = captureRuntimeGlobalDescriptors();
 
 export const mochaHooks = {
+  async beforeAll() {
+    // Preload the cleanup module graph (and the lazily imported Pi
+    // conversation singleton) so the per-test bounded cleanup never pays a
+    // cold transpile of that graph. Zotero globals are already installed by
+    // this module, so importing here cannot initialize prefs early.
+    this.timeout(BACKGROUND_RUNTIME_CLEANUP_PRELOAD_TIMEOUT_MS);
+    const cleanupModule = await import("../../src/modules/testRuntimeCleanup");
+    await cleanupModule.preloadBackgroundRuntimeCleanupForTests();
+  },
   async beforeEach() {
     this.timeout(BACKGROUND_RUNTIME_CLEANUP_TIMEOUT_MS);
     resetZoteroMockStateForTests();

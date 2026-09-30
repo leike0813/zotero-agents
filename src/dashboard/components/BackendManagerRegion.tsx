@@ -919,6 +919,7 @@ function PiConfigurationPanel(props: {
       <span>{label}</span>
       <BackendChoice
         label={label}
+        piField={`default-${key}`}
         value={defaults[key]?.configurationId || ""}
         onChange={(configurationId) => {
           setDefaults((current) => ({
@@ -1189,6 +1190,10 @@ function PiConfigurationPanel(props: {
           {selectDefault(
             "skillRun",
             labelText(labels, "piSkillRun", "Skill Run"),
+          )}
+          {selectDefault(
+            "auxiliary",
+            labelText(labels, "piAuxiliary", "Conversation titles"),
           )}
         </div>
         <button

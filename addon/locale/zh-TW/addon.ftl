@@ -601,6 +601,7 @@ backend-manager-pi-status-unavailable = 目錄無法使用
 backend-manager-pi-credentials = 已儲存的憑證
 backend-manager-pi-conversation = 對話
 backend-manager-pi-skill-run = Skill 執行
+backend-manager-pi-auxiliary = 對話標題
 backend-manager-provider-acp = ACP
 backend-manager-provider-profiles-title = { $provider } 設定檔
 backend-manager-provider-add = 新增 { $provider } 設定檔

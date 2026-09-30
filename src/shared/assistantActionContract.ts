@@ -35,6 +35,13 @@ import type {
 export type AssistantWorkspaceEmptyActionPayload = Record<never, never>;
 
 /**
+ * Composer resource kinds a Pi Conversation child may request. "selection"
+ * captures the current Zotero selection; "files" opens the native file
+ * picker. Both are resolved host-side by the Conversation coordinator.
+ */
+export type AssistantWorkspaceComposerResourceKind = "selection" | "files";
+
+/**
  * Payload shapes per ASSISTANT_WORKSPACE_ACTION_REGISTRY action. Keys must
  * match the registry one-for-one and each entry's keys must match the
  * registry payloadKeys exactly (guarded by type assertions in
@@ -57,6 +64,12 @@ export type AssistantWorkspaceActionPayloadMap = {
   // identifies the target conversation/run.
   "set-active-conversation": AssistantWorkspaceEmptyActionPayload;
   "archive-conversation": AssistantWorkspaceEmptyActionPayload;
+  "restore-conversation": AssistantWorkspaceEmptyActionPayload;
+  "delete-conversation": AssistantWorkspaceEmptyActionPayload;
+  "rename-conversation": { title: string };
+  "compact-conversation": AssistantWorkspaceEmptyActionPayload;
+  "add-resource": { kind: AssistantWorkspaceComposerResourceKind };
+  "remove-resource": { resourceId: string };
   "select-run": AssistantWorkspaceEmptyActionPayload;
   "archive-run": AssistantWorkspaceEmptyActionPayload;
   "select-task": AssistantWorkspaceEmptyActionPayload;
@@ -306,6 +319,56 @@ export type SkillrunnerOnlyAction =
 /** Registry actions a skillrunner child page may send. */
 export type SkillrunnerAction = SkillrunnerSharedAction | SkillrunnerOnlyAction;
 
+/**
+ * Actions a Pi Conversation child page shares with the ACP/skill-run pages:
+ * the drawer, diagnostics, permission and workspace actions. The Pi source
+ * composer has no runtime mode selector, so set-mode is intentionally absent.
+ */
+export type PiConversationsSharedAction =
+  | "open-context-drawer"
+  | "close-context-drawer"
+  | "open-details-drawer"
+  | "close-details-drawer"
+  | "request-owner-details"
+  | "open-permission-request"
+  | "close-permission-request"
+  | "toggle-drawer-section"
+  | "toggle-drawer-group"
+  | "open-backend-manager"
+  | "close-sidebar"
+  | "set-execution-display-mode"
+  | "load-transcript-page"
+  | "resolve-permission"
+  | "copy-diagnostics"
+  | "open-workspace";
+
+/** Registry actions limited to the pi-conversations source. */
+export type PiConversationsOnlyAction =
+  | "set-active-conversation"
+  | "archive-conversation"
+  | "restore-conversation"
+  | "delete-conversation"
+  | "rename-conversation"
+  | "compact-conversation"
+  | "new-conversation"
+  | "send-prompt"
+  | "cancel"
+  | "add-resource"
+  | "remove-resource"
+  | "set-model"
+  | "set-reasoning-effort";
+
+/** Registry actions a pi-conversations child page may send. */
+export type PiConversationsAction =
+  | PiConversationsSharedAction
+  | PiConversationsOnlyAction;
+
+/**
+ * Registry actions a pi-skill-runs child page may send. Pi Skill Runs mirror
+ * the ACP Skills skill-run surface exactly; the C17 adapter binds to them.
+ */
+export type PiSkillRunsAction = AcpSkillsAction;
+
 // ---------------------------------------------------------------------------
 // Out-of-band control-plane payloads (ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS)
 // ---------------------------------------------------------------------------
@@ -417,6 +480,45 @@ export type SkillrunnerActionEnvelope = {
   };
 }[SkillrunnerEnvelopeAction];
 
+/** Actions a pi-conversations child page may put on the wire. */
+export type PiConversationsEnvelopeAction =
+  | PiConversationsAction
+  | AssistantWorkspaceChildControlAction;
+
+/** Pi Conversation child -> host envelope from the pi-conversations page. */
+export type PiConversationsActionEnvelope = {
+  [Action in PiConversationsEnvelopeAction]: {
+    source: "pi-conversations";
+    owner: Extract<
+      AssistantWorkspaceOwner,
+      { source: "pi-conversations" }
+    > | null;
+    actionId?: string;
+    /** Pi child envelopes never carry a shell tab field. */
+    tab?: never;
+    action: Action;
+    payload: AssistantWorkspaceChildActionPayloadFor<Action>;
+  };
+}[PiConversationsEnvelopeAction];
+
+/** Actions a pi-skill-runs child page may put on the wire. */
+export type PiSkillRunsEnvelopeAction =
+  | PiSkillRunsAction
+  | AssistantWorkspaceChildControlAction;
+
+/** Pi Skill Run child -> host envelope from the pi-skill-runs page. */
+export type PiSkillRunsActionEnvelope = {
+  [Action in PiSkillRunsEnvelopeAction]: {
+    source: "pi-skill-runs";
+    owner: Extract<AssistantWorkspaceOwner, { source: "pi-skill-runs" }> | null;
+    actionId?: string;
+    /** Pi child envelopes never carry a shell tab field. */
+    tab?: never;
+    action: Action;
+    payload: AssistantWorkspaceChildActionPayloadFor<Action>;
+  };
+}[PiSkillRunsEnvelopeAction];
+
 /**
  * SkillRunner legacy child -> host envelope shape (pre-convergence child
  * pages carried no source/owner fields). Kept structurally loose so the host
@@ -438,6 +540,8 @@ export type AssistantWorkspaceChildActionEnvelope =
   | AcpChatActionEnvelope
   | AcpSkillsActionEnvelope
   | SkillrunnerActionEnvelope
+  | PiConversationsActionEnvelope
+  | PiSkillRunsActionEnvelope
   | AssistantWorkspaceLegacyChildActionEnvelope;
 
 /**
@@ -487,7 +591,8 @@ export type _AssistantActionSubsetCoverageGuard = AssistantActionContractAssert<
     | AcpChatOnlyAction
     | AcpSkillsOnlyAction
     | AcpSharedAction
-    | SkillrunnerOnlyAction,
+    | SkillrunnerOnlyAction
+    | PiConversationsOnlyAction,
     keyof AssistantWorkspaceActionPayloadMap
   >
 >;

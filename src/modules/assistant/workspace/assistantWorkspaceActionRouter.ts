@@ -11,6 +11,17 @@ import {
   readAcpSkillRunWorkspaceRegions,
 } from "../../acp/skillRun/acpSkillsWorkspaceSurface";
 import { SKILLRUNNER_WORKSPACE_ADAPTER } from "../../skillRunner/surface/skillRunnerWorkspaceSurface";
+// Type-only: the runtime coordinator is injected through the shell host so
+// this module keeps no runtime edge into the Pi Conversation graph.
+import type { createPiConversationCoordinator } from "../../piConversation";
+
+type PiConversationCoordinator = ReturnType<
+  typeof createPiConversationCoordinator
+>;
+import type {
+  PiReasoningLevel,
+  PiSelection,
+} from "../../../shared/piProviderContract";
 import { submitAcpSkillRunInteractionFiles } from "../../acp/skillRun/acpSkillRunInteractionFiles";
 import {
   dispatchSkillRunnerWorkspaceAction,
@@ -100,9 +111,24 @@ import { resolveAcpSkillRunPermissionRequest } from "../../acp/skillRun/acpSkill
 // load so this module never imports the sidebar shell at runtime (the
 // configureAcpChatTranscriptMirrorHost registration pattern).
 export type AssistantWorkspaceActionRouterShellHost = {
+  /**
+   * Pi Conversation surface adapter, injected by the sidebar shell host. It is
+   * resolved lazily (never imported here) so this module keeps no static edge
+   * to the Pi Conversation graph.
+   */
+  piConversationsSurface(): {
+    adapter: AssistantWorkspacePublicationAdapter<
+      "pi-conversations",
+      any,
+      any,
+      any
+    >;
+  };
+  /** Pi Conversation coordinator singleton, injected by the sidebar host. */
+  piConversationCoordinator(): PiConversationCoordinator;
   openBackendManager(args: {
     window: _ZoteroTypes.MainWindow;
-    initialProviderType: "acp" | "skillrunner";
+    initialProviderType: "acp" | "skillrunner" | "pi";
   }): Promise<void>;
   logAssistantWorkspaceDebug(
     host: AssistantWorkspaceHostRuntime,
@@ -112,10 +138,20 @@ export type AssistantWorkspaceActionRouterShellHost = {
   ): void;
   closeActiveSidebarHost(host: AssistantWorkspaceHostRuntime): boolean;
   normalizeTab(value: unknown): AssistantWorkspaceTab;
+  /**
+   * Localizer injected by the sidebar shell host. This module must not import
+   * src/utils/locale directly: that graph reaches the plugin bootstrap and
+   * would close an import cycle back into this module.
+   */
+  localizeString(key: string, fallback: string): string;
   resolveCurrentShellWindow(host: AssistantWorkspaceHostRuntime): Window | null;
 };
 
-let shellHost: AssistantWorkspaceActionRouterShellHost;
+// var for the same cycle-safety reason as assistantWorkspacePublicationHost:
+// the sidebar configures this host from its module top, which can run before
+// this module body.
+// eslint-disable-next-line no-var -- see the cycle-safety rationale above.
+var shellHost: AssistantWorkspaceActionRouterShellHost;
 
 export function configureAssistantWorkspaceActionRouterShellHost(
   nextHost: AssistantWorkspaceActionRouterShellHost,
@@ -163,6 +199,24 @@ function parseAssistantWorkspaceActionOwner(
     const runKey = String(owner.runKey || "").trim();
     return runKey && String(owner.ownerKey || "") === (requestId || runKey)
       ? createSkillRunnerWorkspaceOwner({ requestId, runKey })
+      : null;
+  }
+  if (
+    source === "pi-conversations" &&
+    Object.keys(owner).sort().join(",") === "conversationId,ownerKey,source"
+  ) {
+    const conversationId = String(owner.conversationId || "").trim();
+    return conversationId && String(owner.ownerKey || "") === conversationId
+      ? piConversationOwner(conversationId)
+      : null;
+  }
+  if (
+    source === "pi-skill-runs" &&
+    Object.keys(owner).sort().join(",") === "ownerKey,requestId,source"
+  ) {
+    const requestId = String(owner.requestId || "").trim();
+    return requestId && String(owner.ownerKey || "") === requestId
+      ? { source: "pi-skill-runs" as const, ownerKey: requestId, requestId }
       : null;
   }
   return null;
@@ -382,22 +436,42 @@ async function openBackendManagerForSource(
 // load-transcript-page and request-owner-details resolve their surface
 // adapter through this lookup; the only per-source difference is that ACP
 // Chat needs the surface context built from the host window target.
+//
+// Every adapter is read through a getter so this table never dereferences a
+// surface module at load time. The Workspace composition is cyclic
+// (host -> ACP surface -> ... -> sidebar -> this module -> ACP surface); an
+// eager read here re-enters a partially initialized module and throws a
+// temporal-dead-zone error under entry orders that start outside the sidebar.
 const WORKSPACE_SURFACE_DISPATCH: {
-  [Source in AssistantWorkspacePublicationSource]: {
+  [Source in AssistantWorkspacePublicationSource]?: {
     adapter: AssistantWorkspacePublicationAdapter<Source, any, any, any>;
     context(ctx: AssistantWorkspaceHostActionContext): unknown;
   };
 } = {
   "acp-chat": {
-    adapter: ACP_CHAT_WORKSPACE_ADAPTER,
+    get adapter() {
+      return ACP_CHAT_WORKSPACE_ADAPTER;
+    },
     context: ({ host, target }) => acpChatWorkspaceSurfaceContext(host, target),
   },
+  "pi-conversations": {
+    // Deferred: the Pi surface adapter is injected by the sidebar shell host
+    // after module load, avoiding a static import cycle.
+    get adapter() {
+      return shellHost.piConversationsSurface().adapter;
+    },
+    context: () => undefined,
+  },
   "acp-skills": {
-    adapter: ACP_SKILLS_WORKSPACE_ADAPTER,
+    get adapter() {
+      return ACP_SKILLS_WORKSPACE_ADAPTER;
+    },
     context: () => undefined,
   },
   skillrunner: {
-    adapter: SKILLRUNNER_WORKSPACE_ADAPTER,
+    get adapter() {
+      return SKILLRUNNER_WORKSPACE_ADAPTER;
+    },
     context: () => undefined,
   },
 };
@@ -456,6 +530,15 @@ async function loadTranscriptPageForSource<
     return;
   }
   const surface = WORKSPACE_SURFACE_DISPATCH[source];
+  if (!surface) {
+    shellHost.logAssistantWorkspaceDebug(
+      host,
+      "workspace-surface-unbound",
+      "Assistant Workspace transcript page request ignored because no surface adapter is bound to the source.",
+      { tab: source },
+    );
+    return;
+  }
   await host.publicationRuntime?.requestTranscriptPage({
     adapter: surface.adapter,
     owner: pageRequest.owner as Extract<
@@ -479,11 +562,361 @@ async function requestOwnerDetailsForSource<
     return;
   }
   const surface = WORKSPACE_SURFACE_DISPATCH[source];
+  if (!surface) {
+    shellHost.logAssistantWorkspaceDebug(
+      host,
+      "workspace-surface-unbound",
+      "Assistant Workspace owner-details request ignored because no surface adapter is bound to the source.",
+      { tab: source },
+    );
+    return;
+  }
   await host.publicationRuntime?.requestOwnerDetails({
     adapter: surface.adapter,
     owner: owner as Extract<AssistantWorkspaceOwner, { source: Source }>,
     context: surface.context(ctx),
   });
+}
+
+// Stable, project-owned Pi Conversation failure codes. A local action failure
+// crosses the log/UI boundary as one of these codes only; native error text
+// (file paths, provider payloads) never does.
+const PI_CONVERSATION_FAILURE_CODES: readonly string[] = [
+  "admission_failed",
+  "title_failed",
+  "record_failed",
+  "pi_attachment_reader_unavailable",
+  "pi_conversation_lifecycle_frozen",
+  "pi_conversation_missing",
+  "pi_conversation_not_replyable",
+  "pi_file_picker_unavailable",
+  "pi_gateway_required",
+  "pi_hash_unavailable",
+  "pi_message_empty",
+  "pi_permission_stale",
+  "pi_permission_unavailable",
+  "pi_resource_count_exceeded",
+  "pi_selection_empty",
+  "pi_signal_unavailable",
+  "pi_summary_too_large",
+  "pi_title_compaction_unavailable",
+];
+
+const PI_CONVERSATION_FAILURE_FALLBACK = "pi_conversation_action_failed";
+// Rename entry point for the details drawer. An empty payload title means the
+// child is asking the host to collect one; the native prompt is the only
+// rename affordance the UI can reach. A cancelled prompt leaves the title
+// unchanged (null), and a missing prompt fails closed.
+function promptPiConversationTitle(
+  host: AssistantWorkspaceHostRuntime,
+  currentTitle: string,
+): string | null {
+  const label = shellHost.localizeString(
+    "assistant-workspace-pi-rename-prompt",
+    "Rename conversation",
+  );
+  try {
+    const win = host.win as unknown as {
+      prompt?: (text: string, value?: string) => string | null;
+    };
+    if (typeof win?.prompt === "function") {
+      return win.prompt(label, currentTitle);
+    }
+  } catch {
+    // Fall through to the fail-closed result.
+  }
+  return null;
+}
+
+function piConversationOwner(
+  conversationId: string,
+): Extract<AssistantWorkspaceOwner, { source: "pi-conversations" }> {
+  return {
+    source: "pi-conversations",
+    ownerKey: conversationId,
+    conversationId,
+  };
+}
+
+function piConversationFailureCode(
+  error: unknown,
+  fallback: string = PI_CONVERSATION_FAILURE_FALLBACK,
+): string {
+  const message =
+    error && typeof error === "object" && "message" in error
+      ? String((error as { message?: unknown }).message || "")
+      : "";
+  return PI_CONVERSATION_FAILURE_CODES.includes(message) ? message : fallback;
+}
+// Pi Conversation host routing. Every handler dispatches to the Conversation
+// Local-network authorization crosses the host boundary as an operation-scoped
+// callback. The coordinator reuses the exact callback for the turn and for the
+// asynchronous title task, prompting again when the requested endpoint differs;
+// the granted boolean is per-invocation and is never persisted. The endpoint is
+// shown only inside the user dialog and never logged.
+type PiLocalNetworkAuthorizer = (endpoint: string) => Promise<boolean>;
+
+function buildPiLocalNetworkAuthorizer(
+  host: AssistantWorkspaceHostRuntime,
+): PiLocalNetworkAuthorizer {
+  return async (endpoint) => {
+    const target = String(endpoint || "").slice(0, 300);
+    const title = shellHost.localizeString(
+      "assistant-workspace-pi-local-network-title" as never,
+      "Allow local network access?",
+    );
+    const body = shellHost.localizeString(
+      "assistant-workspace-pi-local-network-prompt" as never,
+      "The built-in agent wants to contact this local endpoint:",
+    );
+    try {
+      const prompt = (Zotero as any)?.Prompt;
+      if (typeof prompt?.confirm === "function") {
+        return (
+          prompt.confirm({
+            window: host.win,
+            title,
+            text: target ? body + "\n\n" + target : body,
+            button0: shellHost.localizeString(
+              "assistant-workspace-pi-local-network-allow" as never,
+              "Allow",
+            ),
+            button1: shellHost.localizeString(
+              "assistant-workspace-pi-local-network-deny" as never,
+              "Deny",
+            ),
+            defaultButton: 1,
+          }) === 0
+        );
+      }
+    } catch {
+      // Fail closed: a local-network grant is never inferred.
+    }
+    return false;
+  };
+}
+
+// coordinator singleton; per-action local failures become bounded structured
+// state (composer errors and control status) instead of propagating to the
+// child. send() resolves the started turn handle, not the finished stream, so
+// the child acknowledges before streaming completes.
+async function handlePiConversationAction(
+  ctx: AssistantWorkspaceHostActionContext,
+  action: string,
+) {
+  const { host, owner, payload } = ctx;
+  const coordinator = shellHost.piConversationCoordinator();
+  const authorizeLocalNetwork = buildPiLocalNetworkAuthorizer(host);
+  const conversationId =
+    owner?.source === "pi-conversations"
+      ? owner.conversationId
+      : String(payload.conversationId || "").trim();
+  const refreshComposer = () => {
+    if (!conversationId) return;
+    void host.publicationRuntime?.publishRegions({
+      adapter: shellHost.piConversationsSurface().adapter,
+      owner: piConversationOwner(conversationId),
+      context: {},
+      kinds: ["composer", "owner-control"],
+      cause: "steady-state",
+    });
+  };
+  const setComposerError = (code: string) => {
+    if (!conversationId) return;
+    coordinator.setComposerError(conversationId, code);
+  };
+  const runLocal = async (
+    work: () => Promise<unknown> | unknown,
+    failureCode: string = PI_CONVERSATION_FAILURE_FALLBACK,
+  ) => {
+    try {
+      await work();
+      return true;
+    } catch (error) {
+      const code = piConversationFailureCode(error, failureCode);
+      // Only the stable project-owned code crosses the log/UI boundary; the
+      // raw error message never does.
+      shellHost.logAssistantWorkspaceDebug(
+        host,
+        "pi-conversation-action-failed",
+        "Pi Conversation action failed.",
+        { tab: "pi-conversations", action, code },
+      );
+      setComposerError(code);
+      refreshComposer();
+      return false;
+    }
+  };
+  if (action === "new-conversation") {
+    let status = "unavailable";
+    try {
+      status = (await coordinator.create()).status;
+    } catch (error) {
+      shellHost.logAssistantWorkspaceDebug(
+        host,
+        "pi-conversation-create-failed",
+        "Pi Conversation creation failed.",
+        {
+          tab: "pi-conversations",
+          code: piConversationFailureCode(error),
+        },
+      );
+      return;
+    }
+    if (status === "created") return;
+    const message = shellHost.localizeString(
+      "assistant-workspace-pi-new-unavailable" as never,
+      "No usable built-in agent configuration is available yet. Configure one now?",
+    );
+    let configure = false;
+    try {
+      const prompt = (Zotero as any)?.Prompt;
+      configure =
+        typeof prompt?.confirm === "function" &&
+        prompt.confirm({
+          window: host.win,
+          title: shellHost.localizeString(
+            "assistant-workspace-pi-new-unavailable-title" as never,
+            "Built-in agent unavailable",
+          ),
+          text: message,
+          button0: shellHost.localizeString(
+            "assistant-workspace-pi-configure" as never,
+            "Configure",
+          ),
+          button1: shellHost.localizeString(
+            "assistant-workspace-pi-cancel" as never,
+            "Cancel",
+          ),
+          defaultButton: 0,
+        }) === 0;
+    } catch {
+      configure =
+        typeof host.win.confirm === "function"
+          ? host.win.confirm(message)
+          : false;
+    }
+    if (configure) {
+      await shellHost.openBackendManager({
+        window: host.win,
+        initialProviderType: "pi",
+      });
+    }
+    return;
+  }
+  if (action === "set-active-conversation") {
+    if (conversationId) coordinator.select(conversationId);
+    return;
+  }
+  if (action === "send-prompt") {
+    const message = String(payload.message || "");
+    if (!conversationId) return;
+    void coordinator
+      .send(conversationId, message, authorizeLocalNetwork)
+      .catch(() => refreshComposer());
+    return;
+  }
+  if (action === "cancel") {
+    if (conversationId) coordinator.cancel(conversationId);
+    return;
+  }
+  if (action === "rename-conversation") {
+    if (!conversationId) return;
+    let title = String(payload.title || "").trim();
+    if (!title) {
+      const current = await coordinator.readModel(conversationId);
+      const entered = promptPiConversationTitle(
+        host,
+        String(current.title || ""),
+      );
+      if (entered === null) return;
+      title = String(entered).trim();
+      if (!title) return;
+    }
+    await runLocal(() => coordinator.rename(conversationId, title));
+    return;
+  }
+  if (action === "compact-conversation") {
+    if (conversationId)
+      await runLocal(() =>
+        coordinator.compact(conversationId, authorizeLocalNetwork),
+      );
+    return;
+  }
+  if (action === "archive-conversation") {
+    if (conversationId)
+      await runLocal(() => coordinator.archive(conversationId));
+    return;
+  }
+  if (action === "restore-conversation") {
+    if (conversationId)
+      await runLocal(() => coordinator.restore(conversationId));
+    return;
+  }
+  if (action === "delete-conversation") {
+    if (conversationId)
+      await runLocal(() => coordinator.delete(conversationId));
+    return;
+  }
+  if (action === "add-resource") {
+    if (!conversationId) return;
+    const kind = String(payload.kind || "");
+    await runLocal(
+      () =>
+        kind === "files"
+          ? coordinator.addFiles(conversationId, host.win)
+          : coordinator.addSelection(conversationId, host.win),
+      "pi_resource_add_failed",
+    );
+    return;
+  }
+  if (action === "remove-resource") {
+    const resourceId = String(payload.resourceId || "");
+    if (conversationId && resourceId)
+      await runLocal(
+        () => coordinator.removeResource(conversationId, resourceId),
+        "pi_resource_add_failed",
+      );
+    return;
+  }
+  if (action === "set-model") {
+    const modelId = String(payload.modelId || "").trim();
+    if (conversationId && modelId)
+      await runLocal(() =>
+        coordinator.setSelection(conversationId, { configurationId: modelId }),
+      );
+    return;
+  }
+  if (action === "set-reasoning-effort") {
+    const effortId = String(payload.effortId || "").trim();
+    if (!conversationId || !effortId) return;
+    const model = await coordinator.readModel(conversationId);
+    const configurationId = model.model?.configurationId;
+    if (!configurationId) return;
+    const selection: PiSelection = {
+      configurationId,
+      reasoning: effortId as PiReasoningLevel,
+    };
+    await runLocal(() => coordinator.setSelection(conversationId, selection));
+    return;
+  }
+  if (action === "resolve-permission") {
+    const requestId = String(payload.permissionRequestId || "").trim();
+    const outcome = String(payload.outcome || "").trim();
+    const optionId = String(payload.optionId || "").trim();
+    // Deny is the safe default: the shared permission model reports Deny as
+    // outcome=selected with optionId=deny, so only an explicit approve
+    // selection may run the pending tool call.
+    const decision =
+      outcome === "selected" && optionId === "approve" ? "approve" : "deny";
+    if (conversationId && requestId)
+      await runLocal(() =>
+        coordinator.permission(conversationId, requestId, decision),
+      );
+    return;
+  }
+  // Shared drawer/global chrome actions are local to the child and handled by
+  // the generic routes; nothing else routes here.
 }
 
 // Decision 4: one dispatch table keyed by action then owner source, with a
@@ -906,7 +1339,9 @@ export async function handleChildAction(
   payload: AssistantWorkspaceChildActionEnvelope,
 ) {
   const source =
+    payload.source === "pi-conversations" ||
     payload.source === "acp-chat" ||
+    payload.source === "pi-skill-runs" ||
     payload.source === "acp-skills" ||
     payload.source === "skillrunner"
       ? payload.source
@@ -939,7 +1374,11 @@ export async function handleChildAction(
         ? { requestId: owner.requestId }
         : owner?.source === "skillrunner"
           ? { requestId: owner.requestId, runKey: owner.runKey }
-          : {};
+          : owner?.source === "pi-conversations"
+            ? { conversationId: owner.conversationId }
+            : owner?.source === "pi-skill-runs"
+              ? { requestId: owner.requestId }
+              : {};
   const actionPayload = { ...childPayload, ...ownerPayload };
   if (action === "publication-ack") {
     recordWorkspacePublicationAck(host, childPayload);
@@ -1041,18 +1480,24 @@ export async function handleChildAction(
       "select-run",
       "select-task",
       "archive-conversation",
+      "restore-conversation",
+      "delete-conversation",
       "archive-run",
       "load-transcript-page",
     ].includes(action)
   ) {
     const selectedOwnerKey =
-      owner.source === "acp-chat"
-        ? getActiveAcpChatOwnerKey()
-        : owner.source === "skillrunner"
-          ? getSkillRunnerWorkspaceSelectedOwner()?.requestId ||
-            getSkillRunnerWorkspaceSelectedOwner()?.runKey ||
-            ""
-          : getSelectedAcpSkillRunRequestId();
+      owner.source === "pi-conversations"
+        ? shellHost.piConversationCoordinator().selectedId || ""
+        : owner.source === "acp-chat"
+          ? getActiveAcpChatOwnerKey()
+          : owner.source === "skillrunner"
+            ? getSkillRunnerWorkspaceSelectedOwner()?.requestId ||
+              getSkillRunnerWorkspaceSelectedOwner()?.runKey ||
+              ""
+            : owner.source === "pi-skill-runs"
+              ? ""
+              : getSelectedAcpSkillRunRequestId();
     if (owner.ownerKey !== selectedOwnerKey) return;
   }
   if (source === "acp-chat" && actionRoute?.scope === "navigation-group") {
@@ -1092,6 +1537,10 @@ export async function handleChildAction(
       action,
       payload: actionPayload,
     });
+    return;
+  }
+  if (tab === "pi-conversations") {
+    await handlePiConversationAction(ctx, action);
     return;
   }
   await handleAcpChatAction(ctx, action as AcpChatHostRoutedAction);

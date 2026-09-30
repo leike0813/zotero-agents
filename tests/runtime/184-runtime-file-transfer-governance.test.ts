@@ -5,7 +5,7 @@ import * as os from "os";
 import * as path from "path";
 import {
   RUNTIME_FILE_TRANSFER_POLICY,
-  collectRuntimeFileSourceBytesForTests,
+  collectRuntimeFileSourceBytes,
   digestRuntimeFileSource,
   inspectRuntimeFileSource,
   runtimeFileTransferInternalsForTests,
@@ -35,7 +35,7 @@ describe("runtime file transfer governance", function () {
     try {
       const source = await inspectRuntimeFileSource(filePath);
       const digest = await digestRuntimeFileSource(source);
-      const collected = await collectRuntimeFileSourceBytesForTests(source);
+      const collected = await collectRuntimeFileSourceBytes(source);
       const metrics = runtimeFileTransferInternalsForTests.getMetrics();
 
       assert.strictEqual(source.size, bytes.byteLength);
@@ -50,6 +50,26 @@ describe("runtime file transfer governance", function () {
         RUNTIME_FILE_TRANSFER_POLICY.chunkBytes,
       );
       assert.strictEqual(metrics.peakActiveTransfers, 1);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects collection that exceeds the declared source size", async function () {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-file-bounded-"));
+    try {
+      const file = path.join(root, "grown.bin");
+      await fs.writeFile(file, new Uint8Array(128));
+      let failure: unknown;
+      try {
+        await collectRuntimeFileSourceBytes({ path: file, size: 16 });
+      } catch (error) {
+        failure = error;
+      }
+      assert.equal(
+        (failure as { code?: string })?.code,
+        "runtime_file_changed",
+      );
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }

@@ -15,7 +15,7 @@ import {
   resetHostBridgeFileRegistryForTests,
   resolveHostBridgeFileDownload,
 } from "../../src/modules/hostBridge/server/hostBridgeFileRegistry";
-import { collectRuntimeFileSourceBytesForTests } from "../../src/modules/runtimeFileTransfer";
+import { collectRuntimeFileSourceBytes } from "../../src/modules/runtimeFileTransfer";
 import {
   createSynthesisHostExportDeliveryPort,
   createSynthesisHostRunWorkspaceMaterializationPort,
@@ -215,7 +215,7 @@ describe("Synthesis Host export delivery port", function () {
         result.delivery.bundle.fileId,
       );
       const zipText = Buffer.from(
-        await collectRuntimeFileSourceBytesForTests(download.source),
+        await collectRuntimeFileSourceBytes(download.source),
       ).toString("utf8");
       assert.include(zipText, "runtime/payloads/topic-context.semantic.json");
       assert.include(zipText, '{"ok":true}');

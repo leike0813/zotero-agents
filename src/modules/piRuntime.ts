@@ -1,23 +1,23 @@
 import { Agent } from "@earendil-works/pi-agent-core";
-import type { StreamFn } from "@earendil-works/pi-agent-core";
+import type {
+  AgentMessage,
+  AgentTool,
+  StreamFn,
+} from "@earendil-works/pi-agent-core";
 import {
   createAssistantMessageEventStream,
+  contentText,
   EventStream,
   type AssistantMessage,
+  type AssistantMessageEventStream,
   type Context,
+  type Message,
   type Model,
+  type TextContent,
+  type Tool,
+  type Usage,
 } from "@earendil-works/pi-ai";
-
-export type PiRuntimeModelInput = {
-  systemPrompt: string;
-  messages: readonly { role: "user" | "assistant"; text: string }[];
-  signal: AbortSignal;
-};
-
-/** Internal model-stream seam; the selected Provider source supplies text deltas. */
-export type PiRuntimeModelSource = (
-  input: PiRuntimeModelInput,
-) => AsyncIterable<string>;
+import type { JsonValue } from "../workflows/types";
 
 export type PiModelFailureCode =
   | "credential_missing"
@@ -31,7 +31,7 @@ export type PiModelFailureCode =
   | "provider_stream_error"
   | "aborted";
 
-const MODEL_FAILURE_CODES = new Set<string>([
+const KNOWN_FAILURE_CODES = new Set<string>([
   "credential_missing",
   "provider_auth_failed",
   "unsupported_provider",
@@ -41,6 +41,7 @@ const MODEL_FAILURE_CODES = new Set<string>([
   "provider_network_error",
   "provider_http_error",
   "provider_stream_error",
+  "preparation_failed",
   "aborted",
 ]);
 
@@ -51,15 +52,178 @@ export class PiModelStreamFailure extends Error {
   }
 }
 
+/**
+ * Legacy text-only model seam. Kept for deterministic callers and tests that
+ * need plain text deltas; the Agent path uses {@link PiRuntimeProviderSource}.
+ */
+export type PiRuntimeModelInput = {
+  systemPrompt: string;
+  messages: readonly { role: "user" | "assistant"; text: string }[];
+  signal: AbortSignal;
+};
+export type PiRuntimeModelSource = (
+  input: PiRuntimeModelInput,
+) => AsyncIterable<string>;
+
+export type PiRuntimeUsage = {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  totalTokens: number;
+  cost: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+    total: number;
+  };
+};
+
+export type PiRuntimeStopReason =
+  | "stop"
+  | "length"
+  | "toolUse"
+  | "error"
+  | "aborted"
+  | "deferred"
+  | "pending";
+
+export type PiRuntimeToolCall = {
+  callId: string;
+  name: string;
+  arguments: JsonValue;
+};
+
+/** Safe, model-visible resource reference already admitted for this owner. */
+export type PiRuntimeResource = {
+  kind: "snapshot" | "selection";
+  ref: string;
+  displayName?: string;
+};
+
+export type PiRuntimeMessage =
+  | { role: "user"; text: string; resources?: readonly PiRuntimeResource[] }
+  | {
+      role: "assistant";
+      text: string;
+      thinking?: string;
+      toolCalls?: readonly PiRuntimeToolCall[];
+    }
+  | {
+      role: "tool";
+      callId: string;
+      name: string;
+      text: string;
+      isError: boolean;
+    };
+
+export type PiRuntimeToolOutcome = { text: string; isError?: boolean };
+export type PiRuntimeTool = {
+  name: string;
+  description: string;
+  schema: Record<string, unknown>;
+  prepareArguments?(args: unknown): unknown;
+  execute(input: {
+    callId: string;
+    name: string;
+    arguments: unknown;
+    signal: AbortSignal;
+  }): Promise<PiRuntimeToolOutcome>;
+};
+
+export type PiRuntimeEffectCertainty =
+  | "not_applicable"
+  | "not_started"
+  | "confirmed_none"
+  | "confirmed_complete"
+  | "confirmed_partial"
+  | "unknown";
+
+export type PiRuntimeToolResult = {
+  callId: string;
+  name: string;
+  text: string;
+  isError: boolean;
+  effectCertainty?: PiRuntimeEffectCertainty;
+};
+
+export type PiRuntimeToolBatch = {
+  turnId: string;
+  assistantText: string;
+  calls: readonly PiRuntimeToolCall[];
+  signal: AbortSignal;
+};
+
+/**
+ * Whole-batch tool execution seam owned by the coordinator. Runs once per
+ * assistant tool batch. Calls absent from `results` (or listed in `pending`) are
+ * suspended: their result is withheld from events and the turn stops with
+ * `waiting_permission` before any further model invocation.
+ */
+export type PiRuntimeToolBatchOutcome = {
+  results: readonly PiRuntimeToolResult[];
+  suspended?: boolean;
+  pending?: readonly string[];
+  /** Call ids whose effect could not be verified; the turn halts as state_unknown. */
+  unknown?: readonly string[];
+};
+export type PiRuntimeExecuteTools = (
+  batch: PiRuntimeToolBatch,
+) => Promise<PiRuntimeToolBatchOutcome>;
+
+export type PiRuntimeToolBlockDecision = { block: true; reason?: string };
+export type PiRuntimeBeforeToolCall = (input: {
+  turnId: string;
+  assistantText: string;
+  callId: string;
+  name: string;
+  arguments: unknown;
+  signal: AbortSignal;
+}) =>
+  | Promise<PiRuntimeToolBlockDecision | void>
+  | PiRuntimeToolBlockDecision
+  | void;
+
+export type PiRuntimeInvocationInput = {
+  turnId: string;
+  invocationId: string;
+  invocationIndex: number;
+  messages: readonly PiRuntimeMessage[];
+  signal: AbortSignal;
+};
+export type PiRuntimeInvocationPlan = {
+  systemPrompt?: string;
+  messages?: readonly PiRuntimeMessage[];
+  tools?: readonly PiRuntimeTool[];
+};
+export type PiRuntimePrepareInvocation = (
+  input: PiRuntimeInvocationInput,
+) => Promise<PiRuntimeInvocationPlan | void> | PiRuntimeInvocationPlan | void;
+
+export type PiRuntimeProviderRequest = {
+  sessionId: string;
+  turnId: string;
+  invocationId: string;
+  model: Model<string>;
+  context: Context;
+  signal: AbortSignal;
+};
+export type PiRuntimeProviderSource = (
+  request: PiRuntimeProviderRequest,
+) => AssistantMessageEventStream | Promise<AssistantMessageEventStream>;
+
+export type PiTurnFailureCode =
+  | "model_failed"
+  | "runtime_failed"
+  | "preparation_failed"
+  | PiModelFailureCode;
+
 export type PiTurnResult =
   | { status: "completed"; text: string }
-  | {
-      status: "failed";
-      failure: {
-        code: "model_failed" | "runtime_failed" | PiModelFailureCode;
-        message: string;
-      };
-    }
+  | { status: "waiting_permission" }
+  | { status: "state_unknown" }
+  | { status: "failed"; failure: { code: PiTurnFailureCode; message: string } }
   | { status: "canceled" };
 
 export type PiRuntimeEvent = {
@@ -67,13 +231,84 @@ export type PiRuntimeEvent = {
   turnId: string;
   sequence: number;
 } & (
-  | { kind: "text_delta"; text: string }
+  | {
+      kind: "invocation_started";
+      invocationId: string;
+      invocationIndex: number;
+    }
+  | { kind: "text_delta"; invocationId: string; text: string }
+  | { kind: "thinking_delta"; invocationId: string; text: string }
+  | {
+      kind: "assistant_message";
+      invocationId: string;
+      text: string;
+      thinking: string;
+      toolCalls: readonly PiRuntimeToolCall[];
+      usage: PiRuntimeUsage;
+      stopReason: PiRuntimeStopReason;
+    }
+  | {
+      kind: "tool_result";
+      callId: string;
+      name: string;
+      text: string;
+      isError: boolean;
+    }
+  | {
+      kind: "invocation_terminal";
+      invocationId: string;
+      stopReason: PiRuntimeStopReason;
+    }
   | { kind: "terminal"; result: PiTurnResult }
 );
 
 type PiRuntimeEventPayload =
-  | { kind: "text_delta"; text: string }
+  | {
+      kind: "invocation_started";
+      invocationId: string;
+      invocationIndex: number;
+    }
+  | { kind: "text_delta"; invocationId: string; text: string }
+  | { kind: "thinking_delta"; invocationId: string; text: string }
+  | {
+      kind: "assistant_message";
+      invocationId: string;
+      text: string;
+      thinking: string;
+      toolCalls: readonly PiRuntimeToolCall[];
+      usage: PiRuntimeUsage;
+      stopReason: PiRuntimeStopReason;
+    }
+  | {
+      kind: "tool_result";
+      callId: string;
+      name: string;
+      text: string;
+      isError: boolean;
+    }
+  | {
+      kind: "invocation_terminal";
+      invocationId: string;
+      stopReason: PiRuntimeStopReason;
+    }
   | { kind: "terminal"; result: PiTurnResult };
+
+export type PiRuntimeTextTurnInput = {
+  turnId: string;
+  prompt: string;
+  systemPrompt?: string;
+};
+
+export type PiRuntimeTurnInput = {
+  turnId: string;
+  messages: readonly PiRuntimeMessage[];
+  systemPrompt?: string;
+  tools?: readonly PiRuntimeTool[];
+  prepareInvocation?: PiRuntimePrepareInvocation;
+  beforeToolCall?: PiRuntimeBeforeToolCall;
+  executeTools?: PiRuntimeExecuteTools;
+  onEvent?: (event: PiRuntimeEvent) => Promise<void> | void;
+};
 
 export type PiRuntimeTurn = {
   events: AsyncIterable<PiRuntimeEvent>;
@@ -81,16 +316,27 @@ export type PiRuntimeTurn = {
   abort(): void;
 };
 
-export type PiRuntimeSession = {
-  runTurn(input: {
-    turnId: string;
-    prompt: string;
-    systemPrompt?: string;
-  }): PiRuntimeTurn;
+export interface PiRuntimeSession {
+  runTurn(input: PiRuntimeTextTurnInput): PiRuntimeTurn;
+  runTurn(input: PiRuntimeTurnInput): PiRuntimeTurn;
   dispose(): void;
+}
+
+export type PiRuntimeSessionOptions =
+  | { sessionId: string; modelStream: PiRuntimeModelSource }
+  | {
+      sessionId: string;
+      model: Model<string>;
+      source: PiRuntimeProviderSource;
+    };
+
+export type PiRuntimeScriptedTurn = {
+  text?: string;
+  thinking?: string;
+  toolCalls?: readonly PiRuntimeToolCall[];
 };
 
-const EMPTY_USAGE: AssistantMessage["usage"] = {
+const EMPTY_USAGE: Usage = {
   input: 0,
   output: 0,
   cacheRead: 0,
@@ -99,10 +345,10 @@ const EMPTY_USAGE: AssistantMessage["usage"] = {
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 };
 
-const UNCONFIGURED_MODEL: Model<string> = {
-  id: "unconfigured",
-  name: "Unconfigured",
-  api: "unconfigured",
+const DEFAULT_TEXT_MODEL: Model<string> = {
+  id: "runtime-text",
+  name: "Runtime Text",
+  api: "runtime-text",
   provider: "builtin-pi",
   baseUrl: "",
   reasoning: false,
@@ -112,49 +358,15 @@ const UNCONFIGURED_MODEL: Model<string> = {
   maxTokens: 0,
 };
 
-function projectContext(
-  context: Context,
-  signal: AbortSignal,
-): PiRuntimeModelInput {
-  const messages: PiRuntimeModelInput["messages"][number][] = [];
-  for (const message of context.messages) {
-    if (message.role === "user") {
-      messages.push({
-        role: "user",
-        text:
-          typeof message.content === "string"
-            ? message.content
-            : message.content
-                .filter((part) => part.type === "text")
-                .map((part) => part.text)
-                .join(""),
-      });
-    } else if (message.role === "assistant") {
-      messages.push({
-        role: "assistant",
-        text: message.content
-          .filter((part) => part.type === "text")
-          .map((part) => part.text)
-          .join(""),
-      });
-    }
-  }
-  return {
-    systemPrompt: context.systemPrompt ?? "",
-    messages,
-    signal,
-  };
-}
-
-function modelMessage(
+function assistantMessage(
   model: Model<string>,
-  text: string,
+  content: AssistantMessage["content"],
   stopReason: AssistantMessage["stopReason"],
   errorMessage?: string,
 ): AssistantMessage {
   return {
     role: "assistant",
-    content: [{ type: "text", text }],
+    content,
     api: model.api,
     provider: model.provider,
     model: model.id,
@@ -165,6 +377,206 @@ function modelMessage(
   };
 }
 
+function failureStream(
+  model: Model<string>,
+  code: string,
+  aborted = false,
+): AssistantMessageEventStream {
+  const stream = createAssistantMessageEventStream();
+  stream.push({
+    type: "start",
+    partial: assistantMessage(model, [], "pending"),
+  });
+  stream.push({
+    type: "error",
+    reason: aborted ? "aborted" : "error",
+    error: assistantMessage(model, [], aborted ? "aborted" : "error", code),
+  });
+  return stream;
+}
+
+function normalizeUsage(usage: Usage): PiRuntimeUsage {
+  return {
+    input: usage.input,
+    output: usage.output,
+    cacheRead: usage.cacheRead,
+    cacheWrite: usage.cacheWrite,
+    totalTokens: usage.totalTokens,
+    cost: {
+      input: usage.cost.input,
+      output: usage.cost.output,
+      cacheRead: usage.cost.cacheRead,
+      cacheWrite: usage.cost.cacheWrite,
+      total: usage.cost.total,
+    },
+  };
+}
+
+function resourceText(resource: PiRuntimeResource): string {
+  return resource.displayName
+    ? resource.displayName + " (" + resource.ref + ")"
+    : resource.ref;
+}
+
+function argumentsRecord(value: JsonValue): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function toNativeUserContent(
+  message: Extract<PiRuntimeMessage, { role: "user" }>,
+): TextContent[] | string {
+  const parts: TextContent[] = [];
+  if (message.text) parts.push({ type: "text", text: message.text });
+  for (const resource of message.resources ?? [])
+    parts.push({ type: "text", text: resourceText(resource) });
+  if (parts.length === 1 && parts[0].text === message.text) return message.text;
+  return parts.length ? parts : "";
+}
+
+function toNativeMessage(
+  message: PiRuntimeMessage,
+  model: Model<string>,
+): Message {
+  if (message.role === "user")
+    return {
+      role: "user",
+      content: toNativeUserContent(message),
+      timestamp: Date.now(),
+    };
+  if (message.role === "tool")
+    return {
+      role: "toolResult",
+      toolCallId: message.callId,
+      toolName: message.name,
+      content: message.text ? [{ type: "text", text: message.text }] : [],
+      isError: message.isError,
+      timestamp: Date.now(),
+    };
+  const content: AssistantMessage["content"] = [];
+  if (message.thinking)
+    content.push({ type: "thinking", thinking: message.thinking });
+  if (message.text) content.push({ type: "text", text: message.text });
+  for (const call of message.toolCalls ?? [])
+    content.push({
+      type: "toolCall",
+      id: call.callId,
+      name: call.name,
+      arguments: argumentsRecord(call.arguments),
+    });
+  return assistantMessage(
+    model,
+    content,
+    message.toolCalls?.length ? "toolUse" : "stop",
+  );
+}
+
+function projectNativeMessage(
+  message: AgentMessage,
+): PiRuntimeMessage | undefined {
+  if (message.role === "user")
+    return { role: "user", text: contentText(message.content) };
+  if (message.role === "toolResult")
+    return {
+      role: "tool",
+      callId: message.toolCallId,
+      name: message.toolName,
+      text: contentText(message.content),
+      isError: message.isError,
+    };
+  if (message.role !== "assistant") return undefined;
+  const toolCalls: PiRuntimeToolCall[] = [];
+  for (const block of message.content) {
+    if (block.type !== "toolCall") continue;
+    toolCalls.push({
+      callId: block.id,
+      name: block.name,
+      arguments: (block.arguments ?? {}) as JsonValue,
+    });
+  }
+  return {
+    role: "assistant",
+    text: contentText(message.content),
+    ...(toolCalls.length ? { toolCalls } : {}),
+  };
+}
+
+function thinkingText(content: AssistantMessage["content"]): string {
+  return content
+    .filter((block) => block.type === "thinking")
+    .map((block) => block.thinking)
+    .join("");
+}
+
+function toolCallsOf(
+  content: AssistantMessage["content"],
+): PiRuntimeToolCall[] {
+  const calls: PiRuntimeToolCall[] = [];
+  for (const block of content) {
+    if (block.type !== "toolCall") continue;
+    calls.push({
+      callId: block.id,
+      name: block.name,
+      arguments: (block.arguments ?? {}) as JsonValue,
+    });
+  }
+  return calls;
+}
+
+function nativeTool(tool: PiRuntimeTool): Tool {
+  return {
+    name: tool.name,
+    description: tool.description,
+    parameters: tool.schema as unknown as Tool["parameters"],
+  };
+}
+
+function nativeToolDefinition(
+  tool: PiRuntimeTool,
+  execute: AgentTool["execute"],
+): AgentTool {
+  return {
+    name: tool.name,
+    description: tool.description,
+    label: tool.name,
+    parameters: tool.schema as unknown as Tool["parameters"],
+    ...(tool.prepareArguments
+      ? {
+          prepareArguments:
+            tool.prepareArguments as unknown as AgentTool["prepareArguments"],
+        }
+      : {}),
+    execute,
+  };
+}
+
+function buildContext(
+  plan: PiRuntimeInvocationPlan,
+  base: Context,
+  model: Model<string>,
+): Context {
+  return {
+    systemPrompt: plan.systemPrompt ?? base.systemPrompt,
+    messages: plan.messages
+      ? plan.messages.map((message) => toNativeMessage(message, model))
+      : base.messages,
+    tools: plan.tools ? plan.tools.map(nativeTool) : base.tools,
+  };
+}
+
+function projectContextInput(
+  context: Context,
+  signal: AbortSignal,
+): PiRuntimeModelInput {
+  const messages: PiRuntimeModelInput["messages"][number][] = [];
+  for (const message of context.messages) {
+    if (message.role === "user" || message.role === "assistant")
+      messages.push({ role: message.role, text: contentText(message.content) });
+  }
+  return { systemPrompt: context.systemPrompt ?? "", messages, signal };
+}
+
 function streamFrom(modelStream: PiRuntimeModelSource): StreamFn {
   return (model, context, options) => {
     const stream = createAssistantMessageEventStream();
@@ -173,7 +585,12 @@ function streamFrom(modelStream: PiRuntimeModelSource): StreamFn {
       stream.push({
         type: "error",
         reason: "error",
-        error: modelMessage(model, "", "error", "runtime_signal_unavailable"),
+        error: assistantMessage(
+          model,
+          [],
+          "error",
+          "runtime_signal_unavailable",
+        ),
       });
       return stream;
     }
@@ -181,11 +598,11 @@ function streamFrom(modelStream: PiRuntimeModelSource): StreamFn {
       let text = "";
       stream.push({
         type: "start",
-        partial: modelMessage(model, "", "pending"),
+        partial: assistantMessage(model, [], "pending"),
       });
       try {
         for await (const delta of modelStream(
-          projectContext(context, signal),
+          projectContextInput(context, signal),
         )) {
           if (signal.aborted) break;
           text += delta;
@@ -193,29 +610,32 @@ function streamFrom(modelStream: PiRuntimeModelSource): StreamFn {
             type: "text_delta",
             contentIndex: 0,
             delta,
-            partial: modelMessage(model, text, "pending"),
+            partial: assistantMessage(
+              model,
+              [{ type: "text", text }],
+              "pending",
+            ),
           });
         }
-        if (signal.aborted) {
+        if (signal.aborted)
           stream.push({
             type: "error",
             reason: "aborted",
-            error: modelMessage(model, text, "aborted"),
+            error: assistantMessage(model, [{ type: "text", text }], "aborted"),
           });
-        } else {
+        else
           stream.push({
             type: "done",
             reason: "stop",
-            message: modelMessage(model, text, "stop"),
+            message: assistantMessage(model, [{ type: "text", text }], "stop"),
           });
-        }
       } catch (error) {
         stream.push({
           type: "error",
           reason: "error",
-          error: modelMessage(
+          error: assistantMessage(
             model,
-            text,
+            [],
             "error",
             error instanceof PiModelStreamFailure ? error.code : "model_failed",
           ),
@@ -226,106 +646,542 @@ function streamFrom(modelStream: PiRuntimeModelSource): StreamFn {
   };
 }
 
+function invocationIndex(invocationId: string): number {
+  const value = Number(invocationId.slice(invocationId.lastIndexOf(":") + 1));
+  return Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+/**
+ * Deterministic structured source for tests: each invocation consumes one
+ * scripted step by index, emitting text/thinking deltas and/or tool calls.
+ */
+export function createPiTextProviderSource(options: {
+  steps: readonly PiRuntimeScriptedTurn[];
+  model?: Model<string>;
+}): { model: Model<string>; source: PiRuntimeProviderSource } {
+  const model = options.model ?? DEFAULT_TEXT_MODEL;
+  const source: PiRuntimeProviderSource = ({ invocationId: id }) => {
+    const index = invocationIndex(id);
+    const step =
+      options.steps[Math.min(index, Math.max(options.steps.length - 1, 0))] ??
+      {};
+    const content: AssistantMessage["content"] = [];
+    if (step.thinking)
+      content.push({ type: "thinking", thinking: step.thinking });
+    if (step.text) content.push({ type: "text", text: step.text });
+    for (const call of step.toolCalls ?? [])
+      content.push({
+        type: "toolCall",
+        id: call.callId,
+        name: call.name,
+        arguments: argumentsRecord(call.arguments),
+      });
+    const toolUse = (step.toolCalls?.length ?? 0) > 0;
+    const stopReason = toolUse ? ("toolUse" as const) : ("stop" as const);
+    const stream = createAssistantMessageEventStream();
+    stream.push({
+      type: "start",
+      partial: assistantMessage(model, [], "pending"),
+    });
+    if (step.text)
+      stream.push({
+        type: "text_delta",
+        contentIndex: 0,
+        delta: step.text,
+        partial: assistantMessage(model, content, "pending"),
+      });
+    stream.push({
+      type: "done",
+      reason: stopReason,
+      message: assistantMessage(model, content, stopReason),
+    });
+    return stream;
+  };
+  return { model, source };
+}
+
 export class PiRuntime {
-  openSession(input: {
-    sessionId: string;
-    modelStream: PiRuntimeModelSource;
-  }): PiRuntimeSession {
-    const { sessionId, modelStream } = input;
+  openSession(options: PiRuntimeSessionOptions): PiRuntimeSession {
+    const { sessionId } = options;
     if (!sessionId.trim()) throw new Error("session_id_required");
+    const textStream =
+      "modelStream" in options ? options.modelStream : undefined;
+    const model = "source" in options ? options.model : DEFAULT_TEXT_MODEL;
+    const source = "source" in options ? options.source : undefined;
+    const agentSource: PiRuntimeProviderSource | undefined = source
+      ? source
+      : textStream
+        ? (request) =>
+            streamFrom(textStream)(request.model, request.context, {
+              signal: request.signal,
+            })
+        : undefined;
     const agent = new Agent({
       sessionId,
-      initialState: { model: UNCONFIGURED_MODEL, tools: [], systemPrompt: "" },
-      streamFn: streamFrom(modelStream),
+      initialState: { model, tools: [], systemPrompt: "" },
+      streamFn: () => failureStream(model, "runtime_failed"),
     });
+    agent.toolExecution = "parallel";
     let disposed = false;
     let active = false;
     let activeAbort: (() => void) | null = null;
 
-    return {
-      runTurn({ turnId, prompt, systemPrompt = "" }) {
-        if (disposed) throw new Error("session_disposed");
-        if (active) throw new Error("owner_busy");
-        if (!turnId.trim()) throw new Error("turn_id_required");
-        active = true;
-        agent.state.systemPrompt = systemPrompt;
-        const events = new EventStream<PiRuntimeEvent, PiTurnResult>(
-          (event) => event.kind === "terminal",
-          (event) =>
-            event.kind === "terminal" ? event.result : { status: "canceled" },
-        );
-        let sequence = 0;
-        let terminal = false;
-        let text = "";
-        let nativeFailure = false;
-        let nativeFailureCode: PiModelFailureCode | "model_failed" =
-          "model_failed";
-        const publish = (event: PiRuntimeEventPayload) => {
-          events.push({ ...event, sessionId, turnId, sequence: ++sequence });
-        };
-        const finish = (result: PiTurnResult) => {
-          if (terminal) return;
-          terminal = true;
-          publish({ kind: "terminal", result });
-        };
-        const unsubscribe = agent.subscribe((event) => {
-          if (terminal) return;
+    const emitInto = async (
+      events: EventStream<PiRuntimeEvent, PiTurnResult>,
+      turnId: string,
+      counter: { sequence: number },
+      payload: PiRuntimeEventPayload,
+      onEvent?: (event: PiRuntimeEvent) => Promise<void> | void,
+    ) => {
+      const event = {
+        ...payload,
+        sessionId,
+        turnId,
+        sequence: ++counter.sequence,
+      } as PiRuntimeEvent;
+      if (onEvent) await Promise.resolve(onEvent(event)).catch(() => undefined);
+      events.push(event);
+      return event;
+    };
+
+    const textTurn = (input: PiRuntimeTextTurnInput): PiRuntimeTurn => {
+      if (disposed) throw new Error("session_disposed");
+      if (active) throw new Error("owner_busy");
+      if (!input.turnId.trim()) throw new Error("turn_id_required");
+      if (!textStream) throw new Error("session_mode_invalid");
+      active = true;
+      agent.state.model = DEFAULT_TEXT_MODEL;
+      agent.state.systemPrompt = input.systemPrompt ?? "";
+      agent.state.tools = [];
+      agent.streamFunction = streamFrom(textStream);
+      agent.transformContext = undefined;
+      agent.beforeToolCall = undefined;
+      agent.shouldStopAfterTurn = undefined;
+      const events = new EventStream<PiRuntimeEvent, PiTurnResult>(
+        (event) => event.kind === "terminal",
+        (event) =>
+          event.kind === "terminal" ? event.result : { status: "canceled" },
+      );
+      const counter = { sequence: 0 };
+      const invocationId = input.turnId + ":invocation:0";
+      let terminal = false;
+      let text = "";
+      let nativeFailure = false;
+      let nativeFailureCode: PiTurnFailureCode = "model_failed";
+      const emit = (payload: PiRuntimeEventPayload) =>
+        emitInto(events, input.turnId, counter, payload);
+      const finish = async (result: PiTurnResult) => {
+        if (terminal) return;
+        terminal = true;
+        await emit({ kind: "terminal", result });
+      };
+      const unsubscribe = agent.subscribe(async (event) => {
+        if (terminal) return;
+        if (
+          event.type === "message_update" &&
+          event.assistantMessageEvent.type === "text_delta"
+        ) {
+          const delta = event.assistantMessageEvent.delta;
+          text += delta;
+          await emit({ kind: "text_delta", invocationId, text: delta });
+        } else if (
+          event.type === "message_end" &&
+          event.message.role === "assistant"
+        ) {
+          nativeFailure = event.message.stopReason === "error";
           if (
-            event.type === "message_update" &&
-            event.assistantMessageEvent.type === "text_delta"
-          ) {
-            const delta = event.assistantMessageEvent.delta;
-            text += delta;
-            publish({ kind: "text_delta", text: delta });
-          } else if (
-            event.type === "message_end" &&
-            event.message.role === "assistant"
-          ) {
-            nativeFailure = event.message.stopReason === "error";
-            if (
-              nativeFailure &&
-              event.message.errorMessage &&
-              MODEL_FAILURE_CODES.has(event.message.errorMessage)
-            )
-              nativeFailureCode = event.message
-                .errorMessage as PiModelFailureCode;
+            nativeFailure &&
+            event.message.errorMessage &&
+            KNOWN_FAILURE_CODES.has(event.message.errorMessage)
+          )
+            nativeFailureCode = event.message.errorMessage as PiTurnFailureCode;
+        }
+      });
+      const abort = () => {
+        if (terminal) return;
+        finish({ status: "canceled" });
+        agent.abort();
+      };
+      activeAbort = abort;
+      const settle = (result: PiTurnResult) => {
+        unsubscribe();
+        active = false;
+        activeAbort = null;
+        finish(result);
+      };
+      void agent.prompt(input.prompt).then(
+        () =>
+          settle(
+            nativeFailure
+              ? {
+                  status: "failed",
+                  failure: {
+                    code: nativeFailureCode,
+                    message: "Model execution failed",
+                  },
+                }
+              : { status: "completed", text },
+          ),
+        () =>
+          settle({
+            status: "failed",
+            failure: {
+              code: "runtime_failed",
+              message: "Runtime execution failed",
+            },
+          }),
+      );
+      return { events, result: events.result(), abort };
+    };
+
+    const agentTurn = (input: PiRuntimeTurnInput): PiRuntimeTurn => {
+      if (disposed) throw new Error("session_disposed");
+      if (active) throw new Error("owner_busy");
+      if (!input.turnId.trim()) throw new Error("turn_id_required");
+      if (!agentSource) throw new Error("session_mode_invalid");
+      active = true;
+      const events = new EventStream<PiRuntimeEvent, PiTurnResult>(
+        (event) => event.kind === "terminal",
+        (event) =>
+          event.kind === "terminal" ? event.result : { status: "canceled" },
+      );
+      const counter = { sequence: 0 };
+      let terminal = false;
+      let nativeFailure = false;
+      let nativeFailureCode: PiTurnFailureCode = "model_failed";
+      let prepareFailed = false;
+      let invocationCount = 0;
+      let invocationId = "";
+      let pendingPlan: PiRuntimeInvocationPlan | undefined;
+      let finalText = "";
+      let batchAssistant: AssistantMessage | undefined;
+      let batchCalls: PiRuntimeToolCall[] = [];
+      let batchResults = new Map<string, PiRuntimeToolResult>();
+      let batchPromise: Promise<void> | undefined;
+      let batchSuspended = false;
+      let batchUnknown = false;
+      let batchText = "";
+      let suppressed = new Set<string>();
+      let invocationStarted = false;
+      let invocationSettled = false;
+      let invocationSuppressed = false;
+      let invocationIndexValue = 0;
+      let suppressing = false;
+      let failure: PiTurnFailureCode | undefined;
+      const emit = (payload: PiRuntimeEventPayload) =>
+        emitInto(events, input.turnId, counter, payload, input.onEvent);
+      const finish = async (result: PiTurnResult) => {
+        if (terminal) return;
+        terminal = true;
+        await emit({ kind: "terminal", result });
+      };
+      const beginBatch = (assistant: AssistantMessage) => {
+        if (batchAssistant === assistant) return;
+        batchAssistant = assistant;
+        batchCalls = [];
+        batchResults = new Map();
+        batchPromise = undefined;
+        batchSuspended = false;
+        batchUnknown = false;
+        suppressed = new Set();
+        batchText = contentText(assistant.content);
+      };
+      const ensureBatch = (signal: AbortSignal) =>
+        (batchPromise ??= (async () => {
+          const outcome = await input.executeTools!({
+            turnId: input.turnId,
+            assistantText: batchText,
+            calls: batchCalls.slice(),
+            signal,
+          });
+          for (const result of outcome.results)
+            batchResults.set(result.callId, result);
+          const outstanding =
+            (outcome.pending?.length ?? 0) > 0 ||
+            batchCalls.some((call) => !batchResults.has(call.callId));
+          batchSuspended = outcome.suspended === true || outstanding;
+          batchUnknown =
+            (outcome.unknown?.length ?? 0) > 0 ||
+            outcome.results.some(
+              (result) => result.effectCertainty === "unknown",
+            );
+        })());
+      const toolExecute =
+        (name: string): AgentTool["execute"] =>
+        async (callId, params, signal) => {
+          const abortSignal = signal ?? agent.signal!;
+          if (!input.executeTools) {
+            const tool = (input.tools ?? []).find((item) => item.name === name);
+            if (!tool) return { content: [], details: {}, isError: true };
+            const outcome = await tool.execute({
+              callId,
+              name,
+              arguments: params,
+              signal: abortSignal,
+            });
+            return {
+              content: outcome.text
+                ? [{ type: "text" as const, text: outcome.text }]
+                : [],
+              details: {},
+              isError: outcome.isError === true,
+            };
           }
+          await ensureBatch(abortSignal);
+          const result = batchResults.get(callId);
+          if (!result) {
+            suppressed.add(callId);
+            return { content: [], details: {}, isError: false };
+          }
+          return {
+            content: result.text
+              ? [{ type: "text" as const, text: result.text }]
+              : [],
+            details: {},
+            isError: result.isError,
+          };
+        };
+      agent.state.model = model;
+      agent.state.systemPrompt = input.systemPrompt ?? "";
+      agent.state.messages = input.messages.length
+        ? input.messages.map((message) => toNativeMessage(message, model))
+        : [{ role: "user", content: "", timestamp: Date.now() }];
+      agent.state.tools = (input.tools ?? []).map((tool) =>
+        nativeToolDefinition(tool, toolExecute(tool.name)),
+      );
+      agent.transformContext = async (messages, signal) => {
+        const index = invocationCount++;
+        invocationId = input.turnId + ":invocation:" + index;
+        invocationIndexValue = index;
+        invocationStarted = false;
+        invocationSettled = false;
+        invocationSuppressed = false;
+        prepareFailed = false;
+        pendingPlan = undefined;
+        if (suppressing) return messages;
+        if (!input.prepareInvocation) return messages;
+        try {
+          const plan = await input.prepareInvocation({
+            turnId: input.turnId,
+            invocationId,
+            invocationIndex: index,
+            messages: messages
+              .map(projectNativeMessage)
+              .filter((message): message is PiRuntimeMessage => !!message),
+            signal: signal ?? agent.signal!,
+          });
+          pendingPlan = plan ?? undefined;
+        } catch (error) {
+          prepareFailed = true;
+          invocationSuppressed = true;
+          failure = "preparation_failed";
+        }
+        return messages;
+      };
+      agent.streamFunction = async (streamModel, context, streamOptions) => {
+        const signal = streamOptions?.signal ?? agent.signal;
+        if (suppressing || signal?.aborted)
+          return failureStream(streamModel, "aborted", true);
+        if (prepareFailed)
+          return failureStream(streamModel, "preparation_failed");
+        if (!signal) {
+          invocationSuppressed = true;
+          failure = "provider_stream_error";
+          return failureStream(streamModel, "provider_stream_error");
+        }
+        const outbound = pendingPlan
+          ? buildContext(pendingPlan, context, streamModel)
+          : context;
+        if (pendingPlan?.tools)
+          agent.state.tools = pendingPlan.tools.map((tool) =>
+            nativeToolDefinition(tool, toolExecute(tool.name)),
+          );
+        invocationStarted = true;
+        invocationSettled = false;
+        await emit({
+          kind: "invocation_started",
+          invocationId,
+          invocationIndex: invocationIndexValue,
         });
-        const abort = () => {
-          if (terminal) return;
-          finish({ status: "canceled" });
-          agent.abort();
-        };
-        activeAbort = abort;
-        const settle = (result: PiTurnResult) => {
-          unsubscribe();
-          active = false;
-          activeAbort = null;
-          finish(result);
-        };
-        void agent.prompt(prompt).then(
-          () =>
-            settle(
-              nativeFailure
+        try {
+          return await agentSource!({
+            sessionId,
+            turnId: input.turnId,
+            invocationId,
+            model: streamModel,
+            context: outbound,
+            signal,
+          });
+        } catch (error) {
+          if (error instanceof PiModelStreamFailure)
+            return failureStream(streamModel, error.code, signal.aborted);
+          return failureStream(streamModel, "model_failed", signal.aborted);
+        }
+      };
+      agent.beforeToolCall = async (context) => {
+        beginBatch(context.assistantMessage);
+        const call = context.toolCall;
+        if (input.beforeToolCall) {
+          const decision = await input.beforeToolCall({
+            turnId: input.turnId,
+            assistantText: batchText,
+            callId: call.id,
+            name: call.name,
+            arguments: context.args,
+            signal: agent.signal!,
+          });
+          if (decision?.block) return { block: true, reason: decision.reason };
+        }
+        batchCalls.push({
+          callId: call.id,
+          name: call.name,
+          arguments: context.args as JsonValue,
+        });
+        return undefined;
+      };
+      agent.shouldStopAfterTurn = () =>
+        suppressing || batchSuspended || batchUnknown;
+      const unsubscribe = agent.subscribe(async (event) => {
+        if (terminal || (suppressing && event.type !== "tool_execution_end"))
+          return;
+        if (event.type === "message_update") {
+          const update = event.assistantMessageEvent;
+          if (update.type === "text_delta")
+            await emit({
+              kind: "text_delta",
+              invocationId,
+              text: update.delta,
+            });
+          else if (update.type === "thinking_delta")
+            await emit({
+              kind: "thinking_delta",
+              invocationId,
+              text: update.delta,
+            });
+        } else if (
+          event.type === "message_end" &&
+          event.message.role === "assistant"
+        ) {
+          if (invocationSuppressed) return;
+          const message = event.message;
+          nativeFailure = message.stopReason === "error";
+          if (
+            nativeFailure &&
+            message.errorMessage &&
+            KNOWN_FAILURE_CODES.has(message.errorMessage)
+          )
+            nativeFailureCode = message.errorMessage as PiTurnFailureCode;
+          if (nativeFailure) failure = nativeFailureCode;
+          const text = contentText(message.content);
+          if (text) finalText = text;
+          if (
+            message.stopReason !== "error" &&
+            message.stopReason !== "aborted"
+          )
+            await emit({
+              kind: "assistant_message",
+              invocationId,
+              text,
+              thinking: thinkingText(message.content),
+              toolCalls: toolCallsOf(message.content),
+              usage: normalizeUsage(message.usage),
+              stopReason: message.stopReason as PiRuntimeStopReason,
+            });
+          if (invocationStarted && !invocationSettled) {
+            invocationSettled = true;
+            await emit({
+              kind: "invocation_terminal",
+              invocationId,
+              stopReason: message.stopReason as PiRuntimeStopReason,
+            });
+          }
+        } else if (event.type === "tool_execution_end") {
+          if (suppressed.has(event.toolCallId)) return;
+          await emit({
+            kind: "tool_result",
+            callId: event.toolCallId,
+            name: event.toolName,
+            text: contentText(event.result?.content ?? []),
+            isError: event.isError,
+          });
+        }
+      });
+      const abort = () => {
+        if (terminal || suppressing) return;
+        suppressing = true;
+        agent.abort();
+      };
+      activeAbort = abort;
+      const settle = async (result: PiTurnResult) => {
+        unsubscribe();
+        active = false;
+        activeAbort = null;
+        if (invocationStarted && !invocationSettled) {
+          invocationSettled = true;
+          await emit({
+            kind: "invocation_terminal",
+            invocationId,
+            stopReason: "aborted",
+          });
+        }
+        await finish(result);
+      };
+      void agent.continue().then(
+        () =>
+          settle(
+            suppressing
+              ? { status: "canceled" }
+              : failure
                 ? {
                     status: "failed",
                     failure: {
-                      code: nativeFailureCode,
-                      message: "Model execution failed",
+                      code: failure,
+                      message: "Turn execution failed",
                     },
                   }
-                : { status: "completed", text },
-            ),
-          () =>
-            settle({
-              status: "failed",
-              failure: {
-                code: "runtime_failed",
-                message: "Runtime execution failed",
-              },
-            }),
-        );
-        return { events, result: events.result(), abort };
+                : nativeFailure
+                  ? {
+                      status: "failed",
+                      failure: {
+                        code: nativeFailureCode,
+                        message: "Model execution failed",
+                      },
+                    }
+                  : batchUnknown
+                    ? { status: "state_unknown" }
+                    : batchSuspended
+                      ? { status: "waiting_permission" }
+                      : { status: "completed", text: finalText },
+          ),
+        () =>
+          settle(
+            suppressing
+              ? { status: "canceled" }
+              : failure
+                ? {
+                    status: "failed",
+                    failure: {
+                      code: failure,
+                      message: "Turn execution failed",
+                    },
+                  }
+                : {
+                    status: "failed",
+                    failure: {
+                      code: "runtime_failed",
+                      message: "Runtime execution failed",
+                    },
+                  },
+          ),
+      );
+      return { events, result: events.result(), abort };
+    };
+
+    return {
+      runTurn(
+        input: PiRuntimeTextTurnInput | PiRuntimeTurnInput,
+      ): PiRuntimeTurn {
+        return "prompt" in input ? textTurn(input) : agentTurn(input);
       },
       dispose() {
         if (disposed) return;

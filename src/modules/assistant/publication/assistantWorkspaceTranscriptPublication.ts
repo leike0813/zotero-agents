@@ -130,6 +130,24 @@ export function parseAssistantWorkspaceTranscriptPageRequest(
     const runKey = String(owner.runKey || "").trim();
     if (!runKey || ownerKey !== (requestId || runKey)) return null;
     canonicalOwner = { source: "skillrunner", ownerKey, requestId, runKey };
+  } else if (owner.source === "pi-conversations") {
+    if (!hasExactKeys(owner, ["source", "ownerKey", "conversationId"])) {
+      return null;
+    }
+    const conversationId = String(owner.conversationId || "").trim();
+    if (!conversationId || ownerKey !== conversationId) return null;
+    canonicalOwner = {
+      source: "pi-conversations",
+      ownerKey,
+      conversationId,
+    };
+  } else if (owner.source === "pi-skill-runs") {
+    if (!hasExactKeys(owner, ["source", "ownerKey", "requestId"])) {
+      return null;
+    }
+    const requestId = String(owner.requestId || "").trim();
+    if (!requestId || ownerKey !== requestId) return null;
+    canonicalOwner = { source: "pi-skill-runs", ownerKey, requestId };
   } else {
     return null;
   }

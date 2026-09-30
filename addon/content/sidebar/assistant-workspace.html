@@ -12,34 +12,16 @@
     <main class="assistant-workspace-shell">
       <header class="assistant-workspace-tabbar">
         <nav
+          id="assistant-workspace-lanes"
+          class="assistant-workspace-lanes"
+          aria-label="Assistant workspace lanes"
+        ></nav>
+        <span class="assistant-workspace-lane-sep" aria-hidden="true"></span>
+        <nav
+          id="assistant-workspace-sources"
           class="assistant-workspace-tabs"
-          aria-label="Assistant workspace tabs"
-        >
-          <button
-            id="assistant-tab-acp-chat"
-            class="assistant-tab"
-            type="button"
-            data-tab="acp-chat"
-          >
-            ACP Chat
-          </button>
-          <button
-            id="assistant-tab-acp-skills"
-            class="assistant-tab"
-            type="button"
-            data-tab="acp-skills"
-          >
-            ACP Skills
-          </button>
-          <button
-            id="assistant-tab-skillrunner"
-            class="assistant-tab"
-            type="button"
-            data-tab="skillrunner"
-          >
-            SkillRunner
-          </button>
-        </nav>
+          aria-label="Assistant workspace sources"
+        ></nav>
         <button
           id="assistant-workspace-close"
           class="assistant-workspace-close"
@@ -65,15 +47,21 @@
           ></span>
         </div>
         <iframe
-          id="assistant-frame-acp-chat"
+          id="assistant-frame-pi-conversations"
           class="assistant-frame"
-          title="ACP Chat"
+          title="Zotero Agent"
+          src="./pi-conversations.html"
+        ></iframe>
+        <iframe
+          id="assistant-frame-acp-chat"
+          class="assistant-frame hidden"
+          title="External Agent"
           src="./acp-chat.html"
         ></iframe>
         <iframe
           id="assistant-frame-acp-skills"
           class="assistant-frame hidden"
-          title="ACP Skills"
+          title="External Agent"
           src="./acp-skill-run.html"
         ></iframe>
         <iframe

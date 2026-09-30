@@ -1,7 +1,13 @@
+import {
+  estimateContextTokens,
+  type AgentMessage,
+} from "@earendil-works/pi-agent-core";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { PiModelSelectionSnapshot } from "../shared/piProviderContract";
 import type { PiTranscriptEntry, PiOwnerRef } from "./piTranscriptStore";
 import type { PiGatewayTurn } from "./piToolGateway";
 import { sha256PrefixedHex } from "../utils/sha256";
+import type { JsonValue } from "../workflows/types";
 
 export type PiPreparationIntent =
   | "initial"
@@ -36,8 +42,23 @@ export type PiPreparedMessage = {
   entryIds: string[];
   callId?: string;
   name?: string;
-  toolCalls?: { callId: string; name: string; argumentsDigest: string }[];
+  /** Canonical failure semantics of a tool result (failed/canceled). */
+  isError?: boolean;
+  toolCalls?: {
+    callId: string;
+    name: string;
+    argumentsDigest: string;
+    arguments?: JsonValue;
+  }[];
   modality?: string;
+  resources?: PiPreparedResource[];
+};
+
+/** Safe, model-visible resource reference admitted for this owner. */
+export type PiPreparedResource = {
+  kind: "snapshot" | "selection";
+  ref: string;
+  displayName?: string;
 };
 
 export type PiContextBlock = {
@@ -124,7 +145,7 @@ export type PiTurnPreparationInput = {
           parentRef?: string;
         }[];
       };
-      attachments: { ref: string }[];
+      attachments: { ref: string; displayName?: string }[];
       userFiles: { pathRef: string; path: string; authorized: boolean }[];
       preparedSkillRun?: {
         ref: string;
@@ -222,6 +243,8 @@ export type TurnPreparationRecord = {
   blockDigest: string;
   contextDigest: string;
   stablePrefixDigest: string;
+  /** Set on minimal auxiliary invocations (Conversation title generation). */
+  purpose?: "title";
   compaction?: {
     inputDigest: string;
     coveredEntryIds: string[];
@@ -289,6 +312,61 @@ const COMPACTION_PROMPT_V1 =
   "Summarize the covered Pi transcript into schema v1. Preserve user goals, confirmed decisions, hard constraints, unfinished work, artifact refs, completed effects and receipt refs, unresolved issues, and source-backed facts. Do not summarize or replace current system instructions, tool schemas, or capability policy. Return only the structured summary.";
 const ZOTERO_REF = /^[^/\\:]+:[^/\\:]+$/;
 
+function safeResourceRef(ref: string): boolean {
+  if (!ref || ref.length > 1024) return false;
+  if (ref.startsWith("/") || ref.startsWith("\\")) return false;
+  if (ref.includes("\\")) return false;
+  if (ref.split("/").some((segment) => segment === "" || segment === ".."))
+    return false;
+  // eslint-disable-next-line no-control-regex -- reject raw control characters
+  return !/[\u0000-\u001f\u007f]/.test(ref);
+}
+
+function projectMessageResources(value: unknown): PiPreparedResource[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 20)
+    fail("preparation_contract_invalid");
+  const resources: PiPreparedResource[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry))
+      fail("preparation_contract_invalid");
+    const item = entry as Record<string, unknown>;
+    if (item.kind !== "snapshot" && item.kind !== "selection")
+      fail("preparation_contract_invalid");
+    if (!nonempty(item.ref) || !safeResourceRef(item.ref))
+      fail("preparation_contract_invalid");
+    if (item.displayName !== undefined && !nonempty(item.displayName))
+      fail("preparation_contract_invalid");
+    resources.push({
+      kind: item.kind,
+      ref: item.ref,
+      ...(nonempty(item.displayName) ? { displayName: item.displayName } : {}),
+    });
+  }
+  return resources;
+}
+
+/**
+ * Kinds that are durable but never enter model-visible history. The preparation
+ * basis counts only model-visible entries, so writing a preparation record, a
+ * model-invocation boundary, or a tool-call fact can never move the basis that a
+ * concurrent preparation (for example auxiliary title generation) is CAS-bound to.
+ */
+export const PI_TRANSCRIPT_NON_CONTEXT_KINDS: ReadonlySet<string> = new Set([
+  "turn_started",
+  "turn_terminal",
+  "thought",
+  "conversation_metadata",
+  "title_usage",
+  "turn_preparation",
+  "model_invocation_started",
+  "model_invocation_terminal",
+  "tool_call_started",
+  "tool_call_receipt",
+  "permission_pending",
+  "permission_resolved",
+]);
+
 class PreparationError extends Error {
   constructor(readonly code: PiPreparationFailureCode) {
     super(code);
@@ -328,6 +406,22 @@ function copyFrozen<T>(value: T): T {
   };
   freeze(copy);
   return copy;
+}
+
+/**
+ * Canonical preparation basis: durable non-context facts never advance the
+ * transcript revision or the active leaf used for preparation CAS.
+ */
+function transcriptBasis(
+  transcript: PiTurnTranscriptSnapshot,
+): PiTranscriptBasis {
+  const context = transcript.entries.filter(
+    (entry) => !PI_TRANSCRIPT_NON_CONTEXT_KINDS.has(entry.kind),
+  );
+  return {
+    revision: context.length,
+    activeLeaf: context.at(-1)?.entryId ?? null,
+  };
 }
 
 function selectedPath(snapshot: PiTurnTranscriptSnapshot): PiTranscriptEntry[] {
@@ -410,8 +504,46 @@ function summaryMessage(
   };
 }
 
+/**
+ * The published preparation basis ends at the latest model-context entry, but a
+ * turn appends durable non-context closure facts after it (model invocation
+ * terminal, turn terminal, tool receipts). Follow the sole non-context child
+ * chain from that leaf so closure validation sees them without changing model
+ * context or moving the context basis. A branch with more than one child is
+ * ambiguous and fails closed, and unselected siblings are never read.
+ */
+function extendSelectedPathTail(
+  snapshot: PiTurnTranscriptSnapshot,
+  path: PiTranscriptEntry[],
+): PiTranscriptEntry[] {
+  if (!path.length) return path;
+  const children = new Map<string, PiTranscriptEntry[]>();
+  for (const item of snapshot.entries) {
+    if (!nonempty(item.parentEntryId)) continue;
+    const siblings = children.get(item.parentEntryId);
+    if (siblings) siblings.push(item);
+    else children.set(item.parentEntryId, [item]);
+  }
+  const extended = [...path];
+  const seen = new Set(path.map((item) => item.entryId));
+  let current = extended[extended.length - 1];
+  for (;;) {
+    const kids = children.get(current.entryId) ?? [];
+    if (!kids.length) break;
+    if (kids.length > 1) fail("transcript_integrity_failed");
+    const next = kids[0];
+    if (seen.has(next.entryId)) fail("transcript_integrity_failed");
+    if (!PI_TRANSCRIPT_NON_CONTEXT_KINDS.has(next.kind)) break;
+    if (next.seq <= current.seq) fail("transcript_integrity_failed");
+    seen.add(next.entryId);
+    extended.push(next);
+    current = next;
+  }
+  return extended;
+}
+
 async function project(snapshot: PiTurnTranscriptSnapshot): Promise<Projected> {
-  const path = selectedPath(snapshot);
+  const path = extendSelectedPathTail(snapshot, selectedPath(snapshot));
   const units: Unit[] = [];
   const started = new Set<string>();
   const permissions = new Set<string>();
@@ -424,10 +556,17 @@ async function project(snapshot: PiTurnTranscriptSnapshot): Promise<Projected> {
       fail("transcript_integrity_failed");
     if (item.kind === "message") {
       if (pending) fail("preparation_waiting");
+      const messageResources = projectMessageResources(payload.resources);
+      const messageText = typeof payload.text === "string" ? payload.text : "";
+      const assistantCalls =
+        Array.isArray(payload.toolCalls) && payload.toolCalls.length > 0;
       if (
         (payload.role !== "user" && payload.role !== "assistant") ||
-        !nonempty(payload.text) ||
-        payload.status === "partial"
+        typeof payload.text !== "string" ||
+        payload.status === "partial" ||
+        (!nonempty(payload.text) &&
+          !(payload.role === "user" && messageResources.length > 0) &&
+          !(payload.role === "assistant" && assistantCalls))
       )
         fail("transcript_integrity_failed");
       const calls = payload.toolCalls;
@@ -446,10 +585,11 @@ async function project(snapshot: PiTurnTranscriptSnapshot): Promise<Projected> {
       const toolCalls = calls as PiPreparedMessage["toolCalls"] | undefined;
       const message: PiPreparedMessage = {
         role: payload.role,
-        text: payload.text,
+        text: messageText,
         entryIds: [item.entryId],
         ...(toolCalls?.length ? { toolCalls } : {}),
         ...(nonempty(payload.modality) ? { modality: payload.modality } : {}),
+        ...(messageResources.length ? { resources: messageResources } : {}),
       };
       const unit = { messages: [message], entryIds: [item.entryId] };
       if (toolCalls?.length) {
@@ -483,6 +623,7 @@ async function project(snapshot: PiTurnTranscriptSnapshot): Promise<Projected> {
         entryIds: [item.entryId],
         callId: payload.callId,
         name: payload.name,
+        isError: payload.status !== "completed",
       });
       pending.unit.entryIds.push(item.entryId);
       pending.calls.delete(payload.callId);
@@ -577,6 +718,10 @@ async function project(snapshot: PiTurnTranscriptSnapshot): Promise<Projected> {
         },
         ...retainedUnits,
       );
+    } else if (PI_TRANSCRIPT_NON_CONTEXT_KINDS.has(item.kind)) {
+      // Durable non-context facts (turn boundaries, conversation metadata,
+      // title usage) live in the canonical transcript but never enter model
+      // context.
     } else fail("transcript_integrity_failed");
   }
   if (started.size || modelInvocations.size) fail("recovery_required");
@@ -676,13 +821,20 @@ function assemble(input: PiTurnPreparationInput) {
     });
   }
   for (const attachment of resources.attachments) {
-    if (!nonempty(attachment.ref) || !ZOTERO_REF.test(attachment.ref))
+    if (
+      !nonempty(attachment.ref) ||
+      !(ZOTERO_REF.test(attachment.ref) || safeResourceRef(attachment.ref)) ||
+      (attachment.displayName !== undefined &&
+        !nonempty(attachment.displayName))
+    )
       fail("preparation_contract_invalid");
     blocks.push({
       kind: "attachment_ref",
       sourceRefs: [attachment.ref],
       digest: attachment.ref,
-      text: attachment.ref,
+      text: nonempty(attachment.displayName)
+        ? attachment.displayName + " (" + attachment.ref + ")"
+        : attachment.ref,
     });
   }
   if (resources.preparedSkillRun) {
@@ -706,6 +858,8 @@ function assemble(input: PiTurnPreparationInput) {
     });
   }
   const fileMessages: PiPreparedMessage[] = [];
+  if (input.owner.kind === "conversation" && resources.userFiles.length > 0)
+    fail("resource_untrusted");
   for (const file of resources.userFiles) {
     if (
       !file.authorized ||
@@ -810,10 +964,7 @@ function recordFor(
   sources: PiInstructionSource[],
   compaction?: TurnPreparationRecord["compaction"],
   attempt = 1,
-  basis: PiTranscriptBasis = {
-    revision: input.transcript.revision,
-    activeLeaf: input.transcript.activeLeaf,
-  },
+  basis: PiTranscriptBasis = transcriptBasis(input.transcript),
 ): TurnPreparationRecord {
   const { model, policy, resources, tools, capability } = input.frozen;
   const selectedCompaction = input.transcript.entries.find(
@@ -984,10 +1135,7 @@ async function run(
     context.budget.estimatedInputTokens <= baseBudget.inputBudget
   ) {
     const record = recordFor(input, "model", context, assembled.sources);
-    await durableRecord(ports, record, {
-      revision: input.transcript.revision,
-      activeLeaf: input.transcript.activeLeaf,
-    });
+    await durableRecord(ports, record, transcriptBasis(input.transcript));
     return { status: compacted ? "compacted" : "ready", context, record };
   }
   if (compacted) fail("context_budget_exceeded");
@@ -1047,10 +1195,7 @@ async function run(
   let compactionRecord: TurnPreparationRecord | undefined;
   let attempt = 0;
   let summarizedCount = 0;
-  let commitBasis: PiTranscriptBasis = {
-    revision: input.transcript.revision,
-    activeLeaf: input.transcript.activeLeaf,
-  };
+  let commitBasis: PiTranscriptBasis = transcriptBasis(input.transcript);
   const summarizerInput = input.manualCompactionModel
     ? {
         ...input,
@@ -1215,6 +1360,192 @@ async function run(
     ports,
     true,
   );
+}
+
+/**
+ * Token estimator aligned with the installed pi-agent-core compaction
+ * estimator. It delegates to the SDK estimate so budgets track the same
+ * per-message accounting the runtime uses, rather than re-deriving one.
+ */
+export function createPiNativeEstimator(): {
+  id: string;
+  version: string;
+  mode: "exact" | "estimated";
+  estimate: PiTurnPreparationPorts["estimate"];
+} {
+  const usage = {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 0,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  };
+  const assistant = (
+    content: AssistantMessage["content"],
+    stopReason: AssistantMessage["stopReason"],
+  ): AgentMessage => ({
+    role: "assistant",
+    content,
+    api: "estimator",
+    provider: "estimator",
+    model: "estimator",
+    usage,
+    stopReason,
+    timestamp: 0,
+  });
+  const toNative = (message: PiPreparedMessage): AgentMessage => {
+    if (message.role === "assistant") {
+      const content: AssistantMessage["content"] = [];
+      if (message.text) content.push({ type: "text", text: message.text });
+      for (const call of message.toolCalls ?? [])
+        content.push({
+          type: "toolCall",
+          id: call.callId,
+          name: call.name,
+          arguments: {},
+        });
+      return assistant(content, "stop");
+    }
+    if (message.role === "tool")
+      return {
+        role: "toolResult",
+        toolCallId: message.callId ?? "",
+        toolName: message.name ?? "",
+        content: message.text ? [{ type: "text", text: message.text }] : [],
+        isError: message.isError === true,
+        timestamp: 0,
+      };
+    return { role: "user", content: message.text, timestamp: 0 };
+  };
+  return {
+    id: "pi-agent-core:estimate-context-tokens",
+    version: "0.84.4",
+    mode: "estimated",
+    estimate: async ({ blocks, messages, tools }) => {
+      const list: AgentMessage[] = [];
+      const prefix = blocks.map((block) => block.text).join("\n\n");
+      if (prefix) list.push({ role: "user", content: prefix, timestamp: 0 });
+      if (tools.tools.length)
+        list.push(
+          assistant(
+            tools.tools.map((tool) => ({
+              type: "toolCall" as const,
+              id: "tool:" + tool.name,
+              name: tool.name,
+              arguments: tool.schema,
+            })),
+            "toolUse",
+          ),
+        );
+      for (const message of messages) list.push(toNative(message));
+      return estimateContextTokens(list).tokens;
+    },
+  };
+}
+
+export type PiTitleInvocationInput = {
+  owner: PiOwnerRef;
+  turnId: string;
+  invocationId: string;
+  runtimeGeneration: string;
+  generation: string;
+  model: PiModelSelectionSnapshot;
+  policy: PiTurnPreparationInput["frozen"]["policy"];
+  /**
+   * Canonical transcript snapshot. When present the context basis is derived
+   * from it, so durable non-context facts cannot shift the preparation CAS.
+   */
+  transcript?: PiTurnTranscriptSnapshot;
+  basis: PiTranscriptBasis;
+  text: string;
+  resources?: readonly PiPreparedResource[];
+};
+
+/**
+ * Durable preparation for the minimal auxiliary title invocation. It never
+ * receives canonical history; only the first bounded user text and resource
+ * display facts enter the record.
+ */
+export async function preparePiTitleInvocation(
+  input: PiTitleInvocationInput,
+  ports: PiTurnPreparationPorts,
+): Promise<PiTurnPreparationResult & { record?: TurnPreparationRecord }> {
+  try {
+    if (!nonempty(input.text) && !input.resources?.length)
+      fail("preparation_contract_invalid");
+    if (
+      !nonempty(input.turnId) ||
+      !nonempty(input.invocationId) ||
+      !nonempty(input.runtimeGeneration) ||
+      !nonempty(input.generation)
+    )
+      fail("preparation_contract_invalid");
+    const basis =
+      input.transcript === undefined
+        ? input.basis
+        : transcriptBasis(input.transcript);
+    const synthetic: PiTurnPreparationInput = {
+      intent: "initial",
+      owner: input.owner,
+      turnId: input.turnId,
+      invocationId: input.invocationId,
+      runtimeGeneration: input.runtimeGeneration,
+      transcript: {
+        generation: input.generation,
+        revision: basis.revision,
+        activeLeaf: basis.activeLeaf,
+        entries: [],
+      },
+      frozen: {
+        turnId: input.turnId,
+        model: input.model,
+        tools: { digest: await digest([]), tools: [] },
+        capability: {
+          envelopeDigest: await digest(["title"]),
+          receiptRef: "conversation-title",
+        },
+        policy: input.policy,
+        instructions: [],
+        resources: {
+          manifestDigest: await digest(["title"]),
+          skills: [],
+          attachments: [],
+          userFiles: [],
+        },
+      },
+    };
+    const base = budget(synthetic);
+    const messages: PiPreparedMessage[] = [
+      {
+        role: "user",
+        text: input.text,
+        entryIds: [],
+        ...(input.resources?.length ? { resources: [...input.resources] } : {}),
+      },
+    ];
+    const context = await makeContext(synthetic, ports, [], messages, base);
+    const record: TurnPreparationRecord = {
+      ...recordFor(synthetic, "model", context, [], undefined, 1, basis),
+      purpose: "title",
+    };
+    await durableRecord(ports, record, basis);
+    return { status: "ready", context, record };
+  } catch (error) {
+    const code =
+      error instanceof PreparationError
+        ? error.code
+        : "preparation_contract_invalid";
+    return {
+      status: "failed",
+      failure: {
+        origin: "turn_preparation",
+        category: code === "record_failed" ? "persistence" : "input",
+        code,
+        retryable: code === "record_failed",
+      },
+    };
+  }
 }
 
 export async function preparePiTurn(

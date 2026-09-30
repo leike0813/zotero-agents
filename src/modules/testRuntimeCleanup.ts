@@ -66,9 +66,31 @@ type CleanupDeps = {
   resetWorkflowRuntimeForTests: () => void;
   resetSynthesisSidecarRuntimeSupervisorForTests: () => void | Promise<void>;
   resetWorkflowSubmissionQueueForTests: () => void;
+  shutdownPiConversations: () => void | Promise<void>;
 };
 
+/**
+ * The Pi conversation singleton is production state that must not leak across
+ * files. It is imported lazily so shards that never touch Pi do not evaluate
+ * its graph, and the mocha root hook preloads it so a cold transpile never
+ * lands inside the bounded cleanup window.
+ */
+let piConversationModule:
+  | Promise<typeof import("./piConversation")>
+  | undefined;
+function loadPiConversationModule() {
+  return (piConversationModule ??= import("./piConversation"));
+}
+
+export async function preloadBackgroundRuntimeCleanupForTests() {
+  await loadPiConversationModule();
+}
+
 const defaultCleanupDeps: CleanupDeps = {
+  shutdownPiConversations: async () => {
+    const module = await loadPiConversationModule();
+    await module.shutdownPiConversations();
+  },
   setDefaultSynthesisClientCompositionFactoryForTests: () =>
     setDefaultSynthesisClientCompositionFactoryForTests(null),
   resetDefaultSynthesisClientForTests,
@@ -119,6 +141,7 @@ export function setBackgroundRuntimeCleanupDepsForTests(
 export async function cleanupBackgroundRuntimeForZoteroTests(
   options: { preserveRuntimeLogs?: boolean } = {},
 ) {
+  await Promise.resolve(cleanupDeps.shutdownPiConversations());
   cleanupDeps.setDefaultSynthesisClientCompositionFactoryForTests();
   await Promise.resolve(cleanupDeps.resetDefaultSynthesisClientForTests());
   await Promise.resolve(

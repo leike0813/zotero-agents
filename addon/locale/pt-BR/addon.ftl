@@ -601,6 +601,7 @@ backend-manager-pi-status-unavailable = Catálogo indisponível
 backend-manager-pi-credentials = Credenciais salvas
 backend-manager-pi-conversation = Conversa
 backend-manager-pi-skill-run = Execução de Skill
+backend-manager-pi-auxiliary = Títulos de conversa
 backend-manager-provider-acp = ACP
 backend-manager-provider-profiles-title = Perfis de { $provider }
 backend-manager-provider-add = Adicionar Perfil de { $provider }

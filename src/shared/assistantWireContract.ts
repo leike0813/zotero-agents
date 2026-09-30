@@ -114,6 +114,20 @@ export const ASSISTANT_WORKSPACE_PUBLICATION_PAYLOAD_KEYS: Record<
   ],
 };
 
+/**
+ * Payload keys a publication kind accepts on top of its required keys.
+ * Adapters that do not carry the optional field may omit it; the exact-key
+ * wire assertion admits the declared superset only. "composer.resources"
+ * carries Pi Conversation one-send composer resources.
+ */
+export const ASSISTANT_WORKSPACE_OPTIONAL_PUBLICATION_PAYLOAD_KEYS: Record<
+  string,
+  readonly string[]
+> = {
+  composer: ["resources", "errors", "sendAdmissionRevision"],
+  "owner-navigation": ["archivedEntries"],
+};
+
 export const ASSISTANT_WORKSPACE_PERMISSION_REQUEST_KEYS: readonly string[] = [
   "requestId",
   "approvalKind",
@@ -162,19 +176,36 @@ export type AssistantWorkspaceMessageType =
 // ---------------------------------------------------------------------------
 
 /** Tabs hosted by the Assistant Workspace shell. */
-export type AssistantWorkspaceTab = "skillrunner" | "acp-chat" | "acp-skills";
+export type AssistantWorkspaceTab =
+  | "pi-conversations"
+  | "acp-chat"
+  | "pi-skill-runs"
+  | "acp-skills"
+  | "skillrunner";
 
 export type AssistantWorkspacePublicationSource =
+  | "pi-conversations"
   | "acp-chat"
+  | "pi-skill-runs"
   | "acp-skills"
   | "skillrunner";
 
 export type AssistantWorkspaceOwner =
   | {
+      source: "pi-conversations";
+      ownerKey: string;
+      conversationId: string;
+    }
+  | {
       source: "acp-chat";
       ownerKey: string;
       backendId: string;
       conversationId: string;
+    }
+  | {
+      source: "pi-skill-runs";
+      ownerKey: string;
+      requestId: string;
     }
   | {
       source: "acp-skills";

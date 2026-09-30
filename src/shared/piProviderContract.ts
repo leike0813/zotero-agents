@@ -67,6 +67,7 @@ export type PiProviderDefaults = {
   global?: PiSelection;
   conversation?: PiSelection;
   skillRun?: PiSelection;
+  auxiliary?: PiSelection;
 };
 export type PiProviderConfigurationState = {
   version: 1;

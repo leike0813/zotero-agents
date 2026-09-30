@@ -30,6 +30,13 @@ export const PI_REASONING_LEVELS = [
   "max",
 ] as const;
 
+const PI_DEFAULT_KEYS = [
+  "global",
+  "conversation",
+  "skillRun",
+  "auxiliary",
+] as const;
+
 function emptyState(): PiProviderConfigurationState {
   return { version: 1, configurations: [], defaults: {}, overlayPath: "" };
 }
@@ -149,7 +156,7 @@ function parseState(): PiProviderConfigurationState {
   if (parsed.version !== 1 || !Array.isArray(parsed.configurations))
     throw new Error("Invalid Pi config version");
   const defaults: PiProviderDefaults = {};
-  for (const key of ["global", "conversation", "skillRun"] as const) {
+  for (const key of PI_DEFAULT_KEYS) {
     const selection = parsed.defaults?.[key];
     if (!selection) continue;
     if (selection.reasoning !== undefined && !isReasoning(selection.reasoning))
@@ -218,7 +225,7 @@ export function upsertPiProviderConfiguration(
           config.reasoning,
         ]))
   ) {
-    for (const key of ["global", "conversation", "skillRun"] as const) {
+    for (const key of PI_DEFAULT_KEYS) {
       if (state.defaults[key]?.configurationId === config.id)
         delete state.defaults[key];
     }
@@ -234,7 +241,7 @@ export function deletePiProviderConfiguration(
   state.configurations = state.configurations.filter(
     (entry) => entry.id !== id,
   );
-  for (const key of ["global", "conversation", "skillRun"] as const) {
+  for (const key of PI_DEFAULT_KEYS) {
     if (state.defaults[key]?.configurationId === id) delete state.defaults[key];
   }
   return save(state);
@@ -265,7 +272,7 @@ export function setPiProviderDefaults(
 ): PiProviderConfigurationState {
   const state = parseState();
   const next: PiProviderDefaults = {};
-  for (const key of ["global", "conversation", "skillRun"] as const) {
+  for (const key of PI_DEFAULT_KEYS) {
     const selection = defaults[key];
     if (!selection) continue;
     const config = state.configurations.find(

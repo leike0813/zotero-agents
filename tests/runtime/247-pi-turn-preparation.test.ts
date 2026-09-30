@@ -1,5 +1,6 @@
 import { assert } from "chai";
 import {
+  preparePiTitleInvocation,
   preparePiTurn,
   type PiTurnPreparationInput,
   type PiTurnPreparationPorts,
@@ -132,13 +133,7 @@ function fixture(): PiTurnPreparationInput {
           items: [{ ref: "1:ABC", kind: "book", title: "Book" }],
         },
         attachments: [{ ref: "1:FILE" }],
-        userFiles: [
-          {
-            pathRef: "file-1",
-            path: "/tmp/private/input.pdf",
-            authorized: true,
-          },
-        ],
+        userFiles: [],
       },
     },
   };
@@ -179,7 +174,12 @@ describe("Pi Turn Preparation shared behavior", function () {
   });
   it("reconstructs only the active path from frozen trusted facts", async function () {
     const records: unknown[] = [];
-    const result = await preparePiTurn(fixture(), ports(records));
+    const input = fixture();
+    input.owner = { kind: "skill_run", ownerId: "run-1" };
+    input.frozen.resources.userFiles = [
+      { pathRef: "file-1", path: "/tmp/private/input.pdf", authorized: true },
+    ];
+    const result = await preparePiTurn(input, ports(records));
     assert.equal(result.status, "ready");
     if (result.status !== "ready") return;
     assert.deepEqual(
@@ -244,18 +244,66 @@ describe("Pi Turn Preparation shared behavior", function () {
     input.transcript.activeLeaf = "result";
     const complete = await preparePiTurn(input, ports());
     assert.equal(complete.status, "ready");
-    if (complete.status === "ready")
+    if (complete.status === "ready") {
       assert.deepEqual(
         complete.context.messages.slice(0, 2).map((m) => m.role),
         ["assistant", "tool"],
       );
+      assert.equal(complete.context.messages[1].isError, false);
+    }
 
+    // A failed canonical tool result keeps its failure semantics.
+    input.transcript.entries[3].payload = {
+      callId: "c1",
+      name: "fixture_read",
+      text: "boom",
+      status: "failed",
+    };
+    const failed = await preparePiTurn(input, ports());
+    assert.equal(failed.status, "ready");
+    if (failed.status === "ready") {
+      assert.equal(failed.context.messages[1].isError, true);
+      assert.equal(failed.context.messages[1].text, "boom");
+    }
+
+    // Without the receipt/result the start is genuinely unsettled.
+    input.transcript.entries = [
+      entry(
+        "m1",
+        undefined,
+        "message",
+        {
+          role: "assistant",
+          text: "using tool",
+          toolCalls: [
+            { callId: "c1", name: "fixture_read", argumentsDigest: "args-1" },
+          ],
+        },
+        1,
+      ),
+      entry("started", "m1", "tool_call_started", { callId: "c1" }, 2),
+    ];
     input.transcript.activeLeaf = "started";
     const unknown = await preparePiTurn(input, ports());
     assert.equal(unknown.status, "failed");
     if (unknown.status === "failed")
       assert.equal(unknown.failure.code, "recovery_required");
 
+    input.transcript.entries = [
+      entry(
+        "m1",
+        undefined,
+        "message",
+        {
+          role: "assistant",
+          text: "using tool",
+          toolCalls: [
+            { callId: "c1", name: "fixture_read", argumentsDigest: "args-1" },
+          ],
+        },
+        1,
+      ),
+    ];
     input.transcript.activeLeaf = "m1";
     const incomplete = await preparePiTurn(input, ports());
     assert.equal(incomplete.status, "failed");
@@ -451,7 +499,9 @@ describe("Pi Turn Preparation shared behavior", function () {
     const result = await preparePiTurn(input, fake);
     assert.equal(result.status, "compacted");
     if (result.status === "compacted")
-      assert.equal(result.record.transcript.revision, 4);
+      // m1, m2 and the compaction entry are the model-visible context; the
+      // appended turn_preparation record is not.
+      assert.equal(result.record.transcript.revision, 3);
   });
 
   it("does not start summarization when durable evidence fails", async function () {
@@ -513,6 +563,52 @@ describe("Pi Turn Preparation shared behavior", function () {
     assert.notEqual(later.context.contextDigest, first.context.contextDigest);
     assert.deepEqual(
       later.context.messages.map((message) => message.text),
+      ["active", "answer", "more"],
+    );
+  });
+
+  it("ignores durable non-context facts and title usage", async function () {
+    const input = fixture();
+    input.frozen.resources.userFiles = [];
+    input.transcript.entries.push(
+      entry(
+        "started",
+        "m2",
+        "turn_started",
+        { schemaVersion: 1, turnId: "turn-1" },
+        4,
+      ),
+      entry("thought", "started", "thought", { text: "reasoning" }, 5),
+      entry(
+        "terminal",
+        "thought",
+        "turn_terminal",
+        { turnId: "turn-1", status: "completed" },
+        6,
+      ),
+      entry(
+        "conversation-metadata",
+        "terminal",
+        "conversation_metadata",
+        { title: "renamed" },
+        7,
+      ),
+      entry(
+        "title-usage",
+        "conversation-metadata",
+        "title_usage",
+        { titleRevision: 1 },
+        8,
+      ),
+      entry("m3", "title-usage", "message", { role: "user", text: "more" }, 9),
+    );
+    input.transcript.activeLeaf = "m3";
+    input.transcript.revision = 6;
+    const result = await preparePiTurn(input, ports());
+    assert.equal(result.status, "ready");
+    if (result.status !== "ready") return;
+    assert.deepEqual(
+      result.context.messages.map((message) => message.text),
       ["active", "answer", "more"],
     );
   });
@@ -629,6 +725,7 @@ describe("Pi Turn Preparation shared behavior", function () {
 
   it("rejects an indivisible mandatory context and never persists absolute path refs", async function () {
     const input = compactFixture();
+    input.owner = { kind: "skill_run", ownerId: "run-1" };
     input.frozen.resources.userFiles = [
       { pathRef: "file-1", path: "x".repeat(100), authorized: true },
     ];
@@ -727,6 +824,218 @@ describe("Pi Turn Preparation shared behavior", function () {
     assert.equal(invalid.status, "failed");
     if (invalid.status === "failed")
       assert.equal(invalid.failure.code, "preparation_contract_invalid");
+  });
+
+  it("follows trailing non-context closure facts after the context leaf", async function () {
+    const input = fixture();
+    input.frozen.resources.userFiles = [];
+    input.transcript.entries = [
+      entry("m1", undefined, "message", { role: "user", text: "ask" }, 1),
+      entry(
+        "inv-1",
+        "m1",
+        "model_invocation_started",
+        { invocationId: "i1" },
+        2,
+      ),
+      entry("m2", "inv-1", "message", { role: "assistant", text: "answer" }, 3),
+      entry(
+        "inv-term-1",
+        "m2",
+        "model_invocation_terminal",
+        { invocationId: "i1" },
+        4,
+      ),
+      entry(
+        "turn-term-1",
+        "inv-term-1",
+        "turn_terminal",
+        { turnId: "turn-1", status: "completed" },
+        5,
+      ),
+    ];
+    input.transcript.activeLeaf = "m2";
+    input.transcript.revision = 2;
+    const result = await preparePiTurn(input, ports());
+    assert.equal(result.status, "ready");
+    if (result.status !== "ready") return;
+    assert.deepEqual(
+      result.context.messages.map((message) => message.text),
+      ["ask", "answer"],
+    );
+  });
+
+  it("admits a pure-attachment user message and rejects unsafe resource refs", async function () {
+    const input = fixture();
+    input.frozen.resources.userFiles = [];
+    input.transcript.entries = [
+      entry(
+        "m1",
+        undefined,
+        "message",
+        {
+          role: "user",
+          text: "",
+          resources: [
+            {
+              kind: "snapshot",
+              ref: "attachments/a/b.bin",
+              displayName: "b.bin",
+            },
+          ],
+        },
+        1,
+      ),
+    ];
+    input.transcript.activeLeaf = "m1";
+    input.transcript.revision = 1;
+    const result = await preparePiTurn(input, ports());
+    assert.equal(result.status, "ready");
+    if (result.status !== "ready") return;
+    assert.equal(result.context.messages[0].text, "");
+    assert.equal(
+      result.context.messages[0].resources?.[0]?.ref,
+      "attachments/a/b.bin",
+    );
+
+    input.transcript.entries = [
+      entry(
+        "m1",
+        undefined,
+        "message",
+        {
+          role: "user",
+          text: "",
+          resources: [{ kind: "snapshot", ref: "/etc/passwd" }],
+        },
+        1,
+      ),
+    ];
+    const unsafe = await preparePiTurn(input, ports());
+    assert.equal(unsafe.status, "failed");
+  });
+
+  it("accepts a managed snapshot attachment with a display name", async function () {
+    const input = fixture();
+    input.frozen.resources.userFiles = [];
+    input.frozen.resources.attachments = [
+      { ref: "attachments/a/sha256.bin", displayName: "input.bin" },
+    ];
+    const result = await preparePiTurn(input, ports());
+    assert.equal(result.status, "ready");
+    if (result.status !== "ready") return;
+    const block = result.context.blocks.find(
+      (item) => item.kind === "attachment_ref",
+    );
+    assert.isOk(block);
+    assert.include(String(block?.text), "input.bin");
+  });
+
+  it("rejects live user-file paths for a Conversation owner", async function () {
+    const input = fixture();
+    assert.equal(input.owner.kind, "conversation");
+    input.frozen.resources.userFiles = [
+      { pathRef: "file-1", path: "/tmp/private/input.pdf", authorized: true },
+    ];
+    const result = await preparePiTurn(input, ports());
+    assert.equal(result.status, "failed");
+    if (result.status === "failed")
+      assert.equal(result.failure.code, "resource_untrusted");
+  });
+
+  it("prepares a minimal auxiliary title invocation without canonical history", async function () {
+    const records: unknown[] = [];
+    const result = await preparePiTitleInvocation(
+      {
+        owner: { kind: "conversation", ownerId: "conversation-1" },
+        turnId: "title-1",
+        invocationId: "title-1:invocation:0",
+        runtimeGeneration: "runtime-1",
+        generation: "1",
+        model,
+        policy: fixture().frozen.policy,
+        transcript: {
+          generation: "1",
+          revision: 2,
+          activeLeaf: "turn-started-1",
+          entries: [
+            entry(
+              "m1",
+              undefined,
+              "message",
+              { role: "user", text: "active" },
+              1,
+            ),
+            entry("turn-started-1", "m1", "turn_started", { turnId: "t" }, 2),
+            entry(
+              "prep-1",
+              "turn-started-1",
+              "turn_preparation",
+              { schema: "zotero-agents.pi-turn-preparation.v1" },
+              3,
+            ),
+            entry(
+              "inv-1",
+              "prep-1",
+              "model_invocation_started",
+              { invocationId: "i1" },
+              4,
+            ),
+            entry(
+              "inv-term-1",
+              "inv-1",
+              "model_invocation_terminal",
+              { invocationId: "i1" },
+              5,
+            ),
+            entry(
+              "perm-1",
+              "inv-term-1",
+              "permission_pending",
+              { id: "p1" },
+              6,
+            ),
+            entry("perm-2", "perm-1", "permission_resolved", { id: "p1" }, 7),
+            entry(
+              "started-1",
+              "perm-2",
+              "tool_call_started",
+              { callId: "c1" },
+              8,
+            ),
+            entry(
+              "receipt-1",
+              "started-1",
+              "tool_call_receipt",
+              {
+                callId: "c1",
+                status: "completed",
+                effectCertainty: "confirmed_complete",
+              },
+              9,
+            ),
+          ],
+        },
+        basis: { revision: 9, activeLeaf: "receipt-1" },
+        text: "First message",
+        resources: [
+          {
+            kind: "snapshot",
+            ref: "attachments/a/b.bin",
+            displayName: "b.bin",
+          },
+        ],
+      },
+      ports(records),
+    );
+    assert.equal(result.status, "ready");
+    if (result.status !== "ready") return;
+    assert.equal(result.record.purpose, "title");
+    assert.equal(result.record.transcript.revision, 1);
+    assert.equal(result.record.transcript.activeLeaf, "m1");
+    assert.lengthOf(result.record.instructions, 0);
+    assert.lengthOf(records, 1);
+    assert.notInclude(JSON.stringify(result.record), "other branch");
   });
 });
 

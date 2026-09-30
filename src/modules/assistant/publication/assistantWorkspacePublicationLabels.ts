@@ -1,12 +1,29 @@
 import { getStringOrFallback } from "../../../utils/locale";
 import { buildAssistantPanelLabels } from "../workspace/assistantPanelLabels";
 import type { AssistantWorkspacePublicationSource } from "./assistantWorkspacePublication";
+import {
+  ASSISTANT_WORKSPACE_LANE_ORDER,
+  ASSISTANT_WORKSPACE_LANE_REGISTRY,
+  ASSISTANT_WORKSPACE_SOURCE_REGISTRY,
+  type AssistantWorkspaceLaneId,
+  type AssistantWorkspaceSourceId,
+} from "../../../shared/assistantWorkspaceSourceRegistry";
 
 const localize = getStringOrFallback;
 
+/**
+ * Resolved label set for one source. Known fields are typed; the index
+ * signature admits the per-source extra keys the shared child reads.
+ */
+export type AssistantWorkspacePublicationLabelSet = {
+  assistantPanel: ReturnType<typeof buildAssistantPanelLabels>;
+  title: string;
+  [key: string]: unknown;
+};
+
 export function buildAssistantWorkspacePublicationLabels(
   source: AssistantWorkspacePublicationSource,
-) {
+): AssistantWorkspacePublicationLabelSet {
   if (source === "skillrunner") {
     return {
       assistantPanel: buildAssistantPanelLabels(),
@@ -76,6 +93,32 @@ export function buildAssistantWorkspacePublicationLabels(
       transcriptRendererUnavailable: localize(
         "task-dashboard-acp-transcript-renderer-unavailable" as any,
         "Transcript renderer unavailable.",
+      ),
+    };
+  }
+  if (source === "pi-conversations") {
+    return {
+      ...buildAssistantWorkspacePublicationLabels("acp-chat"),
+      title: localize(
+        "task-dashboard-pi-conversations-title" as any,
+        "Zotero Agent",
+      ),
+      composerPlaceholder: localize(
+        "task-dashboard-pi-conversations-composer-placeholder" as any,
+        "Ask the built-in agent about the current library or item...",
+      ),
+      emptySelection: localize(
+        "task-dashboard-pi-select-conversation" as any,
+        "Select a conversation to inspect its transcript.",
+      ),
+    };
+  }
+  if (source === "pi-skill-runs") {
+    return {
+      ...buildAssistantWorkspacePublicationLabels("acp-skills"),
+      title: localize(
+        "task-dashboard-pi-skill-runs-title" as any,
+        "Zotero Agent",
       ),
     };
   }
@@ -237,6 +280,38 @@ export function buildAssistantWorkspacePublicationLabels(
     permission: localize(
       "task-dashboard-acp-permission-title" as any,
       "Permission request",
+    ),
+  };
+}
+
+/**
+ * Localized lane/source navigation labels for the Workspace shell. Keys come
+ * from the shared source registry (SSOT); the locale supplies the value and
+ * the registry label is the English fallback.
+ */
+export function buildAssistantWorkspaceNavigationLabels(): {
+  lanes: Record<AssistantWorkspaceLaneId, string>;
+  sources: Record<AssistantWorkspaceSourceId, string>;
+  attention: string;
+} {
+  const lanes = {} as Record<AssistantWorkspaceLaneId, string>;
+  for (const laneId of ASSISTANT_WORKSPACE_LANE_ORDER) {
+    const lane = ASSISTANT_WORKSPACE_LANE_REGISTRY[laneId];
+    lanes[laneId] = localize(lane.labelKey as any, lane.label);
+  }
+  const sources = {} as Record<AssistantWorkspaceSourceId, string>;
+  for (const descriptor of Object.values(ASSISTANT_WORKSPACE_SOURCE_REGISTRY)) {
+    sources[descriptor.id] = localize(
+      descriptor.labelKey as any,
+      descriptor.label,
+    );
+  }
+  return {
+    lanes,
+    sources,
+    attention: localize(
+      "synthesis-action-needs-attention" as any,
+      "Needs attention",
     ),
   };
 }

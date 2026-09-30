@@ -1,3 +1,7 @@
+import {
+  ASSISTANT_WORKSPACE_SOURCE_REGISTRY,
+  type AssistantWorkspaceSourceId,
+} from "../../../shared/assistantWorkspaceSourceRegistry";
 import type { AssistantMessageCountsSnapshot } from "./assistantMessageCounts";
 import type { WorkflowSubmissionDisplayIdentity } from "../../../jobQueue/workflowSubmissionQueueContracts";
 import type {
@@ -12,6 +16,7 @@ import type {
 // re-exported here to keep existing import sites compatible.
 export {
   ASSISTANT_WORKSPACE_FORBIDDEN_WIRE_FIELDS,
+  ASSISTANT_WORKSPACE_OPTIONAL_PUBLICATION_PAYLOAD_KEYS,
   ASSISTANT_WORKSPACE_PERMISSION_REQUEST_KEYS,
   ASSISTANT_WORKSPACE_PUBLICATION_ENVELOPE_KEYS,
   ASSISTANT_WORKSPACE_PUBLICATION_PAYLOAD_KEYS,
@@ -36,6 +41,7 @@ export type {
 
 import {
   ASSISTANT_WORKSPACE_FORBIDDEN_WIRE_FIELDS,
+  ASSISTANT_WORKSPACE_OPTIONAL_PUBLICATION_PAYLOAD_KEYS,
   ASSISTANT_WORKSPACE_PERMISSION_REQUEST_KEYS,
   ASSISTANT_WORKSPACE_PUBLICATION_ENVELOPE_KEYS,
   ASSISTANT_WORKSPACE_PUBLICATION_PAYLOAD_KEYS,
@@ -53,6 +59,8 @@ import type {
 import type {
   AcpChatAction,
   AcpSkillsAction,
+  PiConversationsAction,
+  PiSkillRunsAction,
   SkillrunnerAction,
   AssistantWorkspaceActionPayloadMap,
 } from "../../../shared/assistantActionContract";
@@ -85,235 +93,244 @@ export type AssistantWorkspaceActionScope =
   | "navigation-group"
   | "global";
 
-export const ASSISTANT_WORKSPACE_ACTION_REGISTRY = {
+const ASSISTANT_WORKSPACE_ACTION_DEFINITIONS = {
   "open-context-drawer": {
     scope: "local",
-    sources: ["acp-chat", "acp-skills", "skillrunner"],
     payloadKeys: [],
   },
   "close-context-drawer": {
     scope: "local",
-    sources: ["acp-chat", "acp-skills", "skillrunner"],
     payloadKeys: [],
   },
   "open-details-drawer": {
     scope: "local",
-    sources: ["acp-chat", "acp-skills", "skillrunner"],
     payloadKeys: [],
   },
   "close-details-drawer": {
     scope: "local",
-    sources: ["acp-chat", "acp-skills", "skillrunner"],
     payloadKeys: [],
   },
   "request-owner-details": {
     scope: "selected-owner",
-    sources: ["acp-chat", "acp-skills", "skillrunner"],
     payloadKeys: [],
   },
   "open-permission-request": {
     scope: "local",
-    sources: ["acp-chat", "acp-skills", "skillrunner"],
     payloadKeys: [],
   },
   "close-permission-request": {
     scope: "local",
-    sources: ["acp-chat", "acp-skills", "skillrunner"],
     payloadKeys: [],
   },
   "toggle-drawer-section": {
     scope: "local",
-    sources: ["acp-chat", "acp-skills", "skillrunner"],
     payloadKeys: ["sectionId"],
   },
   "toggle-drawer-group": {
     scope: "local",
-    sources: ["acp-chat", "acp-skills", "skillrunner"],
     payloadKeys: ["groupKey"],
   },
   "set-chat-display-mode": {
     scope: "local",
-    sources: ["acp-chat", "skillrunner"],
     payloadKeys: ["mode"],
   },
   "set-active-conversation": {
     scope: "target-owner",
-    sources: ["acp-chat"],
     payloadKeys: [],
   },
   "archive-conversation": {
     scope: "target-owner",
-    sources: ["acp-chat"],
     payloadKeys: [],
+  },
+  "restore-conversation": {
+    scope: "target-owner",
+    payloadKeys: [],
+  },
+  "delete-conversation": {
+    scope: "target-owner",
+    payloadKeys: [],
+  },
+  "rename-conversation": {
+    scope: "selected-owner",
+    payloadKeys: ["title"],
+  },
+  "compact-conversation": {
+    scope: "selected-owner",
+    payloadKeys: [],
+  },
+  "add-resource": {
+    scope: "selected-owner",
+    payloadKeys: ["kind"],
+  },
+  "remove-resource": {
+    scope: "selected-owner",
+    payloadKeys: ["resourceId"],
   },
   "select-run": {
     scope: "target-owner",
-    sources: ["acp-skills"],
     payloadKeys: [],
   },
   "select-task": {
     scope: "target-owner",
-    sources: ["skillrunner"],
     payloadKeys: [],
   },
   "archive-run": {
     scope: "target-owner",
-    sources: ["acp-skills", "skillrunner"],
     payloadKeys: [],
   },
   "cancel-queued-workflow-unit": {
     scope: "global",
-    sources: ["acp-skills", "skillrunner"],
     payloadKeys: ["queueId"],
   },
   "set-active-backend": {
     scope: "navigation-group",
-    sources: ["acp-chat"],
     payloadKeys: ["groupId"],
   },
   "new-conversation": {
     scope: "navigation-group",
-    sources: ["acp-chat"],
     payloadKeys: ["groupId"],
   },
   "open-backend-manager": {
     scope: "global",
-    sources: ["acp-chat", "acp-skills", "skillrunner"],
     payloadKeys: [],
   },
   "open-auth-url": {
     scope: "global",
-    sources: ["skillrunner"],
     payloadKeys: ["url"],
   },
   "close-sidebar": {
     scope: "global",
-    sources: ["acp-chat", "acp-skills"],
     payloadKeys: [],
   },
   "set-execution-display-mode": {
     scope: "global",
-    sources: ["acp-chat", "acp-skills", "skillrunner"],
     payloadKeys: ["mode"],
   },
   "load-transcript-page": {
     scope: "selected-owner",
-    sources: ["acp-chat", "acp-skills", "skillrunner"],
     payloadKeys: ["request"],
   },
   connect: {
     scope: "navigation-group",
-    sources: ["acp-chat"],
     payloadKeys: ["groupId"],
   },
   disconnect: {
     scope: "selected-owner",
-    sources: ["acp-chat"],
     payloadKeys: [],
   },
   cancel: {
     scope: "selected-owner",
-    sources: ["acp-chat"],
     payloadKeys: [],
   },
   authenticate: {
     scope: "selected-owner",
-    sources: ["acp-chat"],
     payloadKeys: ["methodId"],
   },
   "set-auto-approve-permissions": {
     scope: "selected-owner",
-    sources: ["acp-chat"],
     payloadKeys: ["enabled"],
   },
   "send-prompt": {
     scope: "selected-owner",
-    sources: ["acp-chat"],
     payloadKeys: ["message"],
   },
   "connect-run": {
     scope: "selected-owner",
-    sources: ["acp-skills"],
     payloadKeys: [],
   },
   "disconnect-run": {
     scope: "selected-owner",
-    sources: ["acp-skills"],
     payloadKeys: [],
   },
   "interrupt-run-turn": {
     scope: "selected-owner",
-    sources: ["acp-skills"],
     payloadKeys: [],
   },
   "cancel-run": {
     scope: "selected-owner",
-    sources: ["acp-skills", "skillrunner"],
     payloadKeys: [],
   },
   "reply-run": {
     scope: "selected-owner",
-    sources: ["acp-skills", "skillrunner"],
     payloadKeys: ["message"],
   },
   "select-interaction-option": {
     scope: "selected-owner",
-    sources: ["acp-skills", "skillrunner"],
     payloadKeys: ["responseValue", "responseLabel"],
   },
   "submit-interaction-files": {
     scope: "selected-owner",
-    sources: ["acp-skills", "skillrunner"],
     payloadKeys: [],
   },
   "auth-import-run": {
     scope: "selected-owner",
-    sources: ["skillrunner"],
     payloadKeys: ["providerId", "files", "error"],
   },
   "resolve-permission": {
     scope: "selected-owner",
-    sources: ["acp-chat", "acp-skills", "skillrunner"],
     payloadKeys: ["permissionRequestId", "outcome", "optionId"],
   },
   "set-mode": {
     scope: "selected-owner",
-    sources: ["acp-chat", "acp-skills"],
     payloadKeys: ["modeId"],
   },
   "set-model": {
     scope: "selected-owner",
-    sources: ["acp-chat", "acp-skills"],
     payloadKeys: ["modelId"],
   },
   "set-reasoning-effort": {
     scope: "selected-owner",
-    sources: ["acp-chat", "acp-skills"],
     payloadKeys: ["effortId"],
   },
   "copy-request-id": {
     scope: "selected-owner",
-    sources: ["acp-skills", "skillrunner"],
     payloadKeys: [],
   },
   "copy-diagnostics": {
     scope: "selected-owner",
-    sources: ["acp-chat", "acp-skills", "skillrunner"],
     payloadKeys: [],
   },
   "open-workspace": {
     scope: "selected-owner",
-    sources: ["acp-chat", "acp-skills", "skillrunner"],
     payloadKeys: [],
   },
 } as const satisfies Record<
   string,
   {
     scope: AssistantWorkspaceActionScope;
-    sources: readonly AssistantWorkspacePublicationSource[];
     payloadKeys: readonly string[];
   }
 >;
+
+type AssistantWorkspaceSourcesForAction<
+  Action extends keyof typeof ASSISTANT_WORKSPACE_ACTION_DEFINITIONS,
+> = {
+  [Source in AssistantWorkspaceSourceId]: Action extends (typeof ASSISTANT_WORKSPACE_SOURCE_REGISTRY)[Source]["actions"][number]
+    ? Source
+    : never;
+}[AssistantWorkspaceSourceId];
+
+// Source support is owned by the browser-safe registry; this table adds only
+// action scope and payload contracts for the existing host/child protocol.
+export const ASSISTANT_WORKSPACE_ACTION_REGISTRY = Object.fromEntries(
+  Object.entries(ASSISTANT_WORKSPACE_ACTION_DEFINITIONS).map(
+    ([action, definition]) => [
+      action,
+      {
+        ...definition,
+        sources: Object.values(ASSISTANT_WORKSPACE_SOURCE_REGISTRY)
+          .filter((source) =>
+            (source.actions as readonly string[]).includes(action),
+          )
+          .map((source) => source.id),
+      },
+    ],
+  ),
+) as unknown as {
+  readonly [Action in keyof typeof ASSISTANT_WORKSPACE_ACTION_DEFINITIONS]: (typeof ASSISTANT_WORKSPACE_ACTION_DEFINITIONS)[Action] & {
+    readonly sources: readonly AssistantWorkspaceSourcesForAction<Action>[];
+  };
+};
 
 export type AssistantWorkspaceAction =
   keyof typeof ASSISTANT_WORKSPACE_ACTION_REGISTRY;
@@ -389,6 +406,22 @@ export type _AssistantWorkspaceSkillrunnerActionSubsetGuard =
     AssistantWorkspaceContractIsEqual<
       SkillrunnerAction,
       AssistantWorkspaceRegistryActionsForSource<"skillrunner">
+    >
+  >;
+
+export type _AssistantWorkspacePiConversationsActionSubsetGuard =
+  AssistantWorkspaceContractAssert<
+    AssistantWorkspaceContractIsEqual<
+      PiConversationsAction,
+      AssistantWorkspaceRegistryActionsForSource<"pi-conversations">
+    >
+  >;
+
+export type _AssistantWorkspacePiSkillRunsActionSubsetGuard =
+  AssistantWorkspaceContractAssert<
+    AssistantWorkspaceContractIsEqual<
+      PiSkillRunsAction,
+      AssistantWorkspaceRegistryActionsForSource<"pi-skill-runs">
     >
   >;
 
@@ -512,6 +545,35 @@ export type AssistantWorkspaceQueuedNavigationEntry = {
   resumptionPending: boolean;
 };
 
+/**
+ * One owner row in a source's navigation drawer. Shared by the active
+ * entries list and the optional archivedEntries list; the lifecycle and
+ * restore/delete flags are optional so existing sources stay valid.
+ */
+export type AssistantWorkspaceNavigationEntry = {
+  owner: AssistantWorkspaceOwner;
+  groupId: string | null;
+  label: string;
+  subtitle: string | null;
+  description: string | null;
+  groupLabel: string | null;
+  status: string;
+  backendStatus: string | null;
+  applyState: string | null;
+  attention: string | null;
+  updatedAt: string | null;
+  messageCount: number;
+  canArchive: boolean;
+  /** Whether an archived owner may be restored (Pi Conversations). */
+  canRestore?: boolean;
+  /** Whether an archived owner may be permanently deleted (Pi Conversations). */
+  canDelete?: boolean;
+  /** Owner lifecycle token (active | archived | deleting | cleanup_pending). */
+  lifecycle?: string | null;
+  submission: WorkflowSubmissionDisplayIdentity | null;
+  resumptionPending: boolean;
+};
+
 export type AssistantWorkspaceOwnerNavigation = {
   selectedOwner: AssistantWorkspaceOwner | null;
   selectedGroupId: string | null;
@@ -526,23 +588,12 @@ export type AssistantWorkspaceOwnerNavigation = {
      */
     disabledReason: string | null;
   }>;
-  entries: Array<{
-    owner: AssistantWorkspaceOwner;
-    groupId: string | null;
-    label: string;
-    subtitle: string | null;
-    description: string | null;
-    groupLabel: string | null;
-    status: string;
-    backendStatus: string | null;
-    applyState: string | null;
-    attention: string | null;
-    updatedAt: string | null;
-    messageCount: number;
-    canArchive: boolean;
-    submission: WorkflowSubmissionDisplayIdentity | null;
-    resumptionPending: boolean;
-  }>;
+  entries: AssistantWorkspaceNavigationEntry[];
+  /**
+   * Archived owners for sources that expose an archived list (Pi
+   * Conversations). The source owner count counts the active entries only.
+   */
+  archivedEntries?: AssistantWorkspaceNavigationEntry[];
   queuedEntries: AssistantWorkspaceQueuedNavigationEntry[];
   canCreateOwner: boolean;
   /**
@@ -565,7 +616,7 @@ export type AssistantWorkspacePlan = {
 
 export type AssistantWorkspacePermissionRequest = {
   requestId: string;
-  approvalKind: "acp-tool" | "zotero-write";
+  approvalKind: "acp-tool" | "zotero-write" | "pi-tool";
   title: string;
   summary: string;
   tool: {
@@ -676,6 +727,43 @@ export type AssistantWorkspaceComposer = {
     model: AssistantWorkspaceOptionGroup;
     reasoningEffort: AssistantWorkspaceOptionGroup;
   } | null;
+  /**
+   * One-send composer resources (Pi Conversations only). Absent or null for
+   * sources whose composer carries no explicit resources; the child then
+   * renders no resource chips and no Add resources menu.
+   */
+  resources?: AssistantWorkspaceComposerResource[] | null;
+  /**
+   * Bounded structured errors from a failed local resource add or send (Pi
+   * Conversations). The child renders these inline; raw thrown text never
+   * crosses the wire.
+   */
+  errors?: AssistantWorkspaceComposerError[] | null;
+  /**
+   * Monotonic admission counter for the selected owner (Pi Conversations):
+   * incremented once per durably admitted turn. The child clears the composer
+   * draft only when this increases, so a preflight "busy" state never clears a
+   * draft that was never admitted.
+   */
+  sendAdmissionRevision?: number | null;
+};
+
+/** A bounded, structured composer error surfaced in the shared composer. */
+export type AssistantWorkspaceComposerError = {
+  code: string;
+  message: string;
+};
+
+/**
+ * A single one-send composer resource chip. Only the owner-facing summary
+ * crosses the wire: materialized file paths and Zotero objects never do.
+ */
+export type AssistantWorkspaceComposerResource = {
+  resourceId: string;
+  kind: "selection" | "file";
+  label: string;
+  detail: string | null;
+  status: "ready" | "unavailable";
 };
 
 export type AssistantWorkspaceOption = {
@@ -731,6 +819,25 @@ export type AssistantWorkspaceOwnerPresentation = {
   } | null;
 };
 
+/**
+ * Canonical owner-details action vocabulary. The details drawer renders one
+ * button per listed action; the runtime allowlist and the type share this
+ * array so a source cannot publish an action the host will not route.
+ */
+export const ASSISTANT_WORKSPACE_DETAILS_ACTIONS = [
+  "copy-id",
+  "copy-diagnostics",
+  "open-workspace",
+  "compact-conversation",
+  "rename-conversation",
+  "archive-conversation",
+  "restore-conversation",
+  "delete-conversation",
+] as const;
+
+export type AssistantWorkspaceDetailsAction =
+  (typeof ASSISTANT_WORKSPACE_DETAILS_ACTIONS)[number];
+
 export const ASSISTANT_WORKSPACE_DETAILS_SECTION_REGISTRY = {
   session: { labelPath: "details.session" },
   paths: { labelPath: "details.paths" },
@@ -747,6 +854,7 @@ export const ASSISTANT_WORKSPACE_DETAILS_SECTION_REGISTRY = {
   pending: { labelPath: "details.pending" },
   "conversation-summary": { labelPath: "details.conversationSummary" },
   "revision-summary": { labelPath: "details.revisionSummary" },
+  usage: { labelPath: "details.usage" },
 } as const;
 
 export type AssistantWorkspaceDetailsSectionId =
@@ -797,6 +905,8 @@ export const ASSISTANT_WORKSPACE_DETAILS_FIELD_REGISTRY = {
   "result-json": { labelPath: "details.resultJson" },
   title: { labelPath: "fields.title" },
   "request-id": { labelPath: "fields.requestId" },
+  "usage-main": { labelPath: "fields.usageMain" },
+  "usage-title": { labelPath: "fields.usageTitle" },
   "task-key": { labelPath: "fields.taskKey" },
   status: { labelPath: "fields.status" },
   terminal: { labelPath: "fields.terminal" },
@@ -843,7 +953,7 @@ export type AssistantWorkspaceOwnerDetails = {
       format: "text" | "path" | "code" | "json";
     }>;
   }>;
-  actions: Array<"copy-id" | "copy-diagnostics" | "open-workspace">;
+  actions: AssistantWorkspaceDetailsAction[];
   error: { code: string; message: string } | null;
 };
 
@@ -896,70 +1006,118 @@ export const ASSISTANT_WORKSPACE_REGION_REGISTRY = {
     form: "region",
     browserStateKey: "navigation",
     managedRegions: ["navigation", "banner", "context-drawer"],
-    sources: ["acp-chat", "acp-skills", "skillrunner"],
+    sources: [
+      "pi-conversations",
+      "acp-chat",
+      "pi-skill-runs",
+      "acp-skills",
+      "skillrunner",
+    ],
   },
   "service-status": {
     scope: "source",
     form: "region",
     browserStateKey: "services",
     managedRegions: ["services", "banner"],
-    sources: ["acp-chat", "acp-skills"],
+    sources: ["pi-conversations", "acp-chat", "pi-skill-runs", "acp-skills"],
   },
   "owner-control": {
     scope: "owner",
     form: "region",
     browserStateKey: "control",
     managedRegions: ["toolbar", "banner", "hint", "composer"],
-    sources: ["acp-chat", "acp-skills", "skillrunner"],
+    sources: [
+      "pi-conversations",
+      "acp-chat",
+      "pi-skill-runs",
+      "acp-skills",
+      "skillrunner",
+    ],
   },
   "message-counts": {
     scope: "owner",
     form: "region",
     browserStateKey: "messageCounts",
     managedRegions: ["message-counts"],
-    sources: ["acp-chat", "acp-skills", "skillrunner"],
+    sources: [
+      "pi-conversations",
+      "acp-chat",
+      "pi-skill-runs",
+      "acp-skills",
+      "skillrunner",
+    ],
   },
   transcript: {
     scope: "owner",
     form: "transcript",
     browserStateKey: "transcript",
     managedRegions: ["transcript"],
-    sources: ["acp-chat", "acp-skills", "skillrunner"],
+    sources: [
+      "pi-conversations",
+      "acp-chat",
+      "pi-skill-runs",
+      "acp-skills",
+      "skillrunner",
+    ],
   },
   plan: {
     scope: "owner",
     form: "region",
     browserStateKey: "plan",
     managedRegions: ["plan"],
-    sources: ["acp-chat", "acp-skills"],
+    sources: ["pi-conversations", "acp-chat", "pi-skill-runs", "acp-skills"],
   },
   permission: {
     scope: "owner",
     form: "region",
     browserStateKey: "permission",
     managedRegions: ["hint", "permission", "composer"],
-    sources: ["acp-chat", "acp-skills", "skillrunner"],
+    sources: [
+      "pi-conversations",
+      "acp-chat",
+      "pi-skill-runs",
+      "acp-skills",
+      "skillrunner",
+    ],
   },
   composer: {
     scope: "owner",
     form: "region",
     browserStateKey: "composer",
     managedRegions: ["composer"],
-    sources: ["acp-chat", "acp-skills", "skillrunner"],
+    sources: [
+      "pi-conversations",
+      "acp-chat",
+      "pi-skill-runs",
+      "acp-skills",
+      "skillrunner",
+    ],
   },
   "owner-presentation": {
     scope: "owner",
     form: "region",
     browserStateKey: "presentation",
     managedRegions: ["banner"],
-    sources: ["acp-chat", "acp-skills", "skillrunner"],
+    sources: [
+      "pi-conversations",
+      "acp-chat",
+      "pi-skill-runs",
+      "acp-skills",
+      "skillrunner",
+    ],
   },
   "owner-details": {
     scope: "owner",
     form: "region",
     browserStateKey: "details",
     managedRegions: ["details-drawer"],
-    sources: ["acp-chat", "acp-skills", "skillrunner"],
+    sources: [
+      "pi-conversations",
+      "acp-chat",
+      "pi-skill-runs",
+      "acp-skills",
+      "skillrunner",
+    ],
   },
 } as const satisfies Record<
   AssistantWorkspacePublicationKind,
@@ -1273,7 +1431,9 @@ export function assertAssistantWorkspacePublication(
   }
   const owner = publication.owner;
   if (
+    owner.source !== "pi-conversations" &&
     owner.source !== "acp-chat" &&
+    owner.source !== "pi-skill-runs" &&
     owner.source !== "acp-skills" &&
     owner.source !== "skillrunner"
   ) {
@@ -1301,6 +1461,24 @@ export function assertAssistantWorkspacePublication(
       !owner.requestId ||
       owner.ownerKey !== owner.requestId
     ) {
+      throw new Error("assistant-workspace-publication-owner-invariant");
+    }
+  } else if (owner.source === "pi-conversations") {
+    assertExactObjectKeys(
+      owner,
+      ["source", "ownerKey", "conversationId"],
+      "assistant-workspace-publication-owner-invariant",
+    );
+    if (!owner.conversationId || owner.ownerKey !== owner.conversationId) {
+      throw new Error("assistant-workspace-publication-owner-invariant");
+    }
+  } else if (owner.source === "pi-skill-runs") {
+    assertExactObjectKeys(
+      owner,
+      ["source", "ownerKey", "requestId"],
+      "assistant-workspace-publication-owner-invariant",
+    );
+    if (!owner.requestId || owner.ownerKey !== owner.requestId) {
       throw new Error("assistant-workspace-publication-owner-invariant");
     }
   } else {
@@ -1429,6 +1607,7 @@ function assertPublicationPayloadInvariant(
     payload,
     ASSISTANT_WORKSPACE_PUBLICATION_PAYLOAD_KEYS[kind],
     `assistant-workspace-${kind}-payload`,
+    ASSISTANT_WORKSPACE_OPTIONAL_PUBLICATION_PAYLOAD_KEYS[kind],
   );
   if (kind === "owner-control") {
     const baseline = payload as AssistantWorkspaceOwnerControl;
@@ -1569,7 +1748,9 @@ function assertPublicationPayloadInvariant(
         ASSISTANT_WORKSPACE_PERMISSION_REQUEST_KEYS,
         "assistant-workspace-permission-request",
       );
-      if (!["acp-tool", "zotero-write"].includes(request.approvalKind)) {
+      if (
+        !["acp-tool", "zotero-write", "pi-tool"].includes(request.approvalKind)
+      ) {
         throw new Error("assistant-workspace-permission-kind");
       }
       assertExactObjectKeys(
@@ -1604,6 +1785,16 @@ function assertPublicationPayloadInvariant(
       )
     ) {
       throw new Error("assistant-workspace-composer-reply-status");
+    }
+    const admissionRevision = composer.sendAdmissionRevision;
+    if (
+      admissionRevision !== undefined &&
+      admissionRevision !== null &&
+      (typeof admissionRevision !== "number" ||
+        !Number.isInteger(admissionRevision) ||
+        admissionRevision < 0)
+    ) {
+      throw new Error("assistant-workspace-composer-admission-revision");
     }
     if (composer.runtimeOptions !== null) {
       assertExactObjectKeys(
@@ -1700,7 +1891,11 @@ function assertPublicationPayloadInvariant(
       }
     }
     for (const action of details.actions) {
-      if (!["copy-id", "copy-diagnostics", "open-workspace"].includes(action)) {
+      if (
+        !(ASSISTANT_WORKSPACE_DETAILS_ACTIONS as readonly string[]).includes(
+          action,
+        )
+      ) {
         throw new Error("assistant-workspace-owner-details-action");
       }
     }
@@ -1720,15 +1915,20 @@ function assertExactObjectKeys(
   value: unknown,
   expectedKeys: readonly string[],
   errorCode: string,
+  optionalKeys: readonly string[] = [],
 ) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(errorCode);
   }
   const actual = Object.keys(value).sort();
   const expected = [...expectedKeys].sort();
+  const allowed = [...expectedKeys, ...optionalKeys];
+  const allExpectedPresent = expected.every((key) => actual.includes(key));
+  const allActualAllowed = actual.every((key) => allowed.includes(key));
   if (
-    actual.length !== expected.length ||
-    actual.some((key, index) => key !== expected[index])
+    actual.length !== new Set(actual).size ||
+    !allExpectedPresent ||
+    !allActualAllowed
   ) {
     throw new Error(errorCode);
   }

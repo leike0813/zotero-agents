@@ -135,6 +135,13 @@ export function replyRegionEqualityInput(panel: ReplyPanelLike): unknown {
         ? String(reply.value == null ? "" : reply.value)
         : null,
       usage: reply.showUsageGauge === true ? (panel?.usage ?? null) : null,
+      resources: Array.isArray(reply.resources) ? reply.resources : [],
+      resourceMenu: reply.resourceMenu ?? null,
+      errors: Array.isArray(reply.errors) ? reply.errors : [],
+      sendAdmissionRevision:
+        typeof reply.sendAdmissionRevision === "number"
+          ? reply.sendAdmissionRevision
+          : null,
     },
   };
 }

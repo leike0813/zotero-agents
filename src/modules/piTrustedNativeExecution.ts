@@ -34,6 +34,8 @@ import {
 import {
   digestRuntimeFileSource,
   inspectRuntimeFileSource,
+  verifyRuntimeFileSource,
+  collectRuntimeFileSourceBytes,
 } from "./runtimeFileTransfer";
 import { sha256PrefixedHex } from "../utils/sha256";
 import { getRuntimeEnvironmentSnapshot } from "../platform/env";
@@ -41,16 +43,66 @@ import { getRuntimeEnvironmentSnapshot } from "../platform/env";
 const VISIBLE_BYTES = 50 * 1024;
 const VISIBLE_LINES = 2000;
 const MAX_EDIT_BYTES = 50 * 1024 * 1024;
+const OWNER_QUOTA_BYTES = 2 * 1024 * 1024 * 1024;
+const WORKSPACE_SCAN_MAX_DEPTH = 32;
+const WORKSPACE_SCAN_MAX_ENTRIES = 20000;
 const textEncoder = new TextEncoder();
 const ownerLocks = new Map<string, Promise<void>>();
+
+/** Combined Conversation user-file snapshot bounds (per send). */
+export const PI_USER_FILE_SNAPSHOT_LIMITS = Object.freeze({
+  maxResources: 20,
+  maxFileBytes: 20 * 1024 * 1024,
+  maxTotalBytes: 50 * 1024 * 1024,
+});
+
+export type PiConversationUserFileSource = {
+  path: string;
+  displayName: string;
+};
+
+export type PiConversationUserFileSnapshot = {
+  /** Stable content-addressed managed ref; safe for preparation/UI. */
+  ref: string;
+  /** Owner-managed snapshot path; readable only through the exact read route. */
+  path: string;
+  displayName: string;
+  size: number;
+  sha256: string;
+};
+
 type ManagedEntry = {
   sourceKey?: string;
   revisionKey?: string;
   size: number;
   sha256: string;
   name: string;
-  kind: "source" | "generated";
+  kind: "source" | "generated" | "snapshot";
+  displayName?: string;
 };
+
+function parentDirectory(pathRaw: string) {
+  const normalized = String(pathRaw || "").replace(/[\\/]+$/, "");
+  const index = Math.max(
+    normalized.lastIndexOf("/"),
+    normalized.lastIndexOf("\\"),
+  );
+  if (index < 0) return "";
+  if (index === 0) return normalized.slice(0, 1);
+  if (index === 2 && /^[A-Za-z]:/.test(normalized))
+    return normalized.slice(0, 3);
+  return normalized.slice(0, index);
+}
+
+function snapshotDisplayName(displayName: unknown, sourcePath: unknown) {
+  const fromInput = getBaseName(String(displayName || "").replace(/\\/g, "/"));
+  const name = fromInput || getBaseName(String(sourcePath || ""));
+  return name.slice(0, 512) || "user-file";
+}
+
+function snapshotRef(sha256: string) {
+  return `managed:${sha256}`;
+}
 
 async function withOwnerLock<T>(
   ownerRoot: string,
@@ -233,6 +285,21 @@ export async function createPiTrustedNativeExecution(args: {
       ) => {
         throw new Error("pi_path_inspection_unavailable");
       },
+      snapshotUserFiles: async (
+        _sources: readonly PiConversationUserFileSource[],
+      ): Promise<PiConversationUserFileSnapshot[]> => {
+        throw new Error("pi_path_inspection_unavailable");
+      },
+      listUserFileSnapshots: async (): Promise<
+        PiConversationUserFileSnapshot[]
+      > => {
+        throw new Error("pi_path_inspection_unavailable");
+      },
+      resolveUserFileSnapshot: async (
+        _ref: string,
+      ): Promise<PiConversationUserFileSnapshot | null> => {
+        throw new Error("pi_path_inspection_unavailable");
+      },
     };
   }
   const definitions: PiGatewayToolDefinition[] = [];
@@ -270,12 +337,17 @@ export async function createPiTrustedNativeExecution(args: {
         const row = entry as ManagedEntry;
         return (
           !row ||
-          !["source", "generated"].includes(row.kind) ||
+          !["source", "generated", "snapshot"].includes(row.kind) ||
           typeof row.name !== "string" ||
           !/^managed-[A-Za-z0-9.-]+$/.test(row.name) ||
           !Number.isSafeInteger(row.size) ||
           row.size < 0 ||
           typeof row.sha256 !== "string" ||
+          (row.kind === "snapshot" &&
+            (typeof row.displayName !== "string" ||
+              !row.displayName ||
+              row.displayName.length > 512 ||
+              /[\\/]/.test(row.displayName))) ||
           (row.kind === "source" &&
             (typeof row.sourceKey !== "string" ||
               typeof row.revisionKey !== "string"))
@@ -293,6 +365,81 @@ export async function createPiTrustedNativeExecution(args: {
       throw new Error("pi_manifest_limit");
     await ensureRuntimeDirectoryStrict(args.ownerRoot);
     await replaceRuntimeTextFileAtomically(manifestPath, content);
+  }
+
+  const ownerKey = (path: string) =>
+    path.replace(/\\/g, "/").replace(/\/+$/, "");
+  const caseInsensitiveOwner =
+    detectRuntimePlatform() === "win32" || detectRuntimePlatform() === "darwin";
+
+  function isOwnerPath(path: string) {
+    const normalized = ownerKey(path);
+    const owner = ownerKey(args.ownerRoot);
+    if (!owner) return false;
+    const left = caseInsensitiveOwner ? normalized.toLowerCase() : normalized;
+    const right = caseInsensitiveOwner ? owner.toLowerCase() : owner;
+    return left === right || left.startsWith(`${right}/`);
+  }
+
+  // Bounded recursive byte total of the agent workspace (listing and sizes
+  // only, no file bodies), excluding the owner tree that the manifest already
+  // accounts for. Symlinked entries are skipped so a cyclic or branching link
+  // layout cannot make the scan exponential; the entry and depth caps bound
+  // the work, and the total short-circuits once the quota is exceeded.
+  async function workspaceByteTotal() {
+    let total = 0;
+    let visited = 0;
+    const stack: { path: string; depth: number }[] = [{ path: root, depth: 0 }];
+    while (stack.length) {
+      if (visited >= WORKSPACE_SCAN_MAX_ENTRIES)
+        throw new Error("pi_owner_quota_unavailable");
+      const current = stack.pop()!;
+      if (current.depth >= WORKSPACE_SCAN_MAX_DEPTH)
+        throw new Error("pi_owner_quota_unavailable");
+      let children: string[];
+      try {
+        children = await listRuntimeChildrenStrict(current.path);
+      } catch {
+        throw new Error("pi_owner_quota_unavailable");
+      }
+      for (const child of children) {
+        visited += 1;
+        if (visited > WORKSPACE_SCAN_MAX_ENTRIES)
+          throw new Error("pi_owner_quota_unavailable");
+        if (isOwnerPath(child)) continue;
+        let identity: { path: string; exists: boolean; canonicalKey: string };
+        try {
+          // Rejects symlinks so a cyclic link layout cannot recurse, and keeps
+          // the walk inside the already-verified parent directory.
+          identity = await resolveRuntimePathIdentity({
+            root: current.path,
+            path: child,
+          });
+        } catch {
+          continue;
+        }
+        if (!identity.exists) continue;
+        const info = await statRuntimePathStrict(identity.path).catch(
+          () => null,
+        );
+        if (!info?.exists) throw new Error("pi_owner_quota_unavailable");
+        if (info.isDir) {
+          stack.push({ path: identity.path, depth: current.depth + 1 });
+          continue;
+        }
+        total += info.size;
+        if (total > OWNER_QUOTA_BYTES) return total;
+      }
+    }
+    return total;
+  }
+
+  // Shared owner 2 GiB quota: manifest-managed copies plus agent-written files.
+  async function ownerUsageBytes(entries: ManagedEntry[]) {
+    return (
+      entries.reduce((sum, entry) => sum + entry.size, 0) +
+      (await workspaceByteTotal())
+    );
   }
 
   async function nextManagedPath(sourcePath: string) {
@@ -375,8 +522,7 @@ export async function createPiTrustedNativeExecution(args: {
       }
       if (
         newBytes > 512 * 1024 * 1024 ||
-        entries.reduce((sum, entry) => sum + entry.size, 0) + newBytes >
-          2 * 1024 * 1024 * 1024
+        (await ownerUsageBytes(entries)) + newBytes > OWNER_QUOTA_BYTES
       )
         throw new Error("pi_owner_quota_exceeded");
       const created: string[] = [];
@@ -426,6 +572,292 @@ export async function createPiTrustedNativeExecution(args: {
     return (await materializeOrReuseMany([input]))[0];
   }
 
+  let snapshotReadMapCache: Map<string, true> | null = null;
+
+  // Exact read route: the agent may read only owner-managed snapshot files,
+  // matched by canonical identity, never their parent directory or other
+  // private owner metadata. The map is rebuilt from the manifest so historical
+  // snapshots stay readable across turns.
+  async function snapshotReadMap(): Promise<Map<string, true>> {
+    if (snapshotReadMapCache) return snapshotReadMapCache;
+    const map = new Map<string, true>();
+    try {
+      for (const entry of await readManifest()) {
+        if (entry.kind !== "snapshot") continue;
+        try {
+          const identity = await resolveRuntimePathIdentity({
+            root: args.ownerRoot,
+            path: joinPath(managedDir, entry.name),
+          });
+          map.set(identity.canonicalKey.replace(/\\/g, "/"), true);
+        } catch {
+          // Missing or unverifiable snapshot: not readable.
+        }
+      }
+    } catch {
+      // A corrupt or unreadable manifest exposes no snapshot reads.
+    }
+    snapshotReadMapCache = map;
+    return map;
+  }
+
+  async function matchSnapshotPath(inputPath: string) {
+    const map = await snapshotReadMap();
+    if (!map.size) return null;
+    let identity: { path: string; exists: boolean; canonicalKey: string };
+    try {
+      identity = await resolveRuntimePathIdentity({
+        root: args.ownerRoot,
+        path: inputPath,
+      });
+    } catch {
+      return null;
+    }
+    if (!map.has(identity.canonicalKey.replace(/\\/g, "/"))) return null;
+    return identity;
+  }
+
+  async function resolveSnapshotSourceIdentity(sourcePath: string) {
+    const parent = parentDirectory(sourcePath);
+    if (!parent) throw new Error("pi_snapshot_unavailable");
+    try {
+      return await resolveRuntimePathIdentity({
+        root: parent,
+        path: sourcePath,
+      });
+    } catch (error) {
+      const message = String(error);
+      if (message.includes("link") || message.includes("outside"))
+        throw new Error("pi_snapshot_not_regular");
+      throw new Error("pi_snapshot_unavailable");
+    }
+  }
+
+  // Never surface the transient source path in an error message: map any raw
+  // filesystem failure to a project code while re-throwing our own codes.
+  function sourceFailureCode(error: unknown) {
+    const message =
+      error instanceof Error ? error.message : String(error || "");
+    return message.startsWith("pi_") ? null : "pi_snapshot_unavailable";
+  }
+
+  async function inspectSnapshotSource(sourcePath: string) {
+    try {
+      const identity = await resolveSnapshotSourceIdentity(sourcePath);
+      const info = await statRuntimePathStrict(identity.path);
+      if (!info.exists || info.isDir)
+        throw new Error("pi_snapshot_not_regular");
+      if (info.size > PI_USER_FILE_SNAPSHOT_LIMITS.maxFileBytes)
+        throw new Error("pi_snapshot_file_too_large");
+      const digest = await digestRuntimeFileSource({
+        path: identity.path,
+        size: info.size,
+      });
+      if (digest.bytesRead !== info.size) throw new Error("pi_source_changed");
+      return { identity, info, digest };
+    } catch (error) {
+      const code = sourceFailureCode(error);
+      if (code) throw new Error(code);
+      throw error;
+    }
+  }
+
+  function toSnapshot(
+    entry: ManagedEntry,
+    path: string,
+  ): PiConversationUserFileSnapshot {
+    return {
+      ref: snapshotRef(entry.sha256),
+      path,
+      displayName: entry.displayName || getBaseName(entry.name),
+      size: entry.size,
+      sha256: entry.sha256,
+    };
+  }
+
+  async function listUserFileSnapshots(): Promise<
+    PiConversationUserFileSnapshot[]
+  > {
+    const entries = await readManifest();
+    const snapshots: PiConversationUserFileSnapshot[] = [];
+    for (const entry of entries) {
+      if (entry.kind !== "snapshot") continue;
+      const identity = await resolveRuntimePathIdentity({
+        root: args.ownerRoot,
+        path: joinPath(managedDir, entry.name),
+      }).catch(() => null);
+      if (!identity?.exists) continue;
+      snapshots.push(toSnapshot(entry, identity.path));
+    }
+    return snapshots;
+  }
+
+  async function resolveUserFileSnapshot(
+    ref: string,
+  ): Promise<PiConversationUserFileSnapshot | null> {
+    const value = String(ref || "");
+    if (!value.startsWith("managed:sha256:")) return null;
+    const entry = (await readManifest()).find(
+      (row) => row.kind === "snapshot" && snapshotRef(row.sha256) === value,
+    );
+    if (!entry) return null;
+    const identity = await resolveRuntimePathIdentity({
+      root: args.ownerRoot,
+      path: joinPath(managedDir, entry.name),
+    }).catch(() => null);
+    if (!identity?.exists) return null;
+    return toSnapshot(entry, identity.path);
+  }
+
+  async function snapshotUserFiles(
+    sources: readonly PiConversationUserFileSource[],
+  ): Promise<PiConversationUserFileSnapshot[]> {
+    const list = Array.isArray(sources) ? sources : [];
+    if (list.length > PI_USER_FILE_SNAPSHOT_LIMITS.maxResources)
+      throw new Error("pi_snapshot_resource_limit");
+    return withOwnerLock(args.ownerRoot, async () => {
+      const entries = await readManifest();
+      const planned: Array<{
+        sourcePath: string;
+        displayName: string;
+        size: number;
+        sha256: string;
+        entryName?: string;
+      }> = [];
+      const seen = new Set<string>();
+      let totalBytes = 0;
+      for (const source of list) {
+        const sourcePath = String(source?.path || "").trim();
+        if (!sourcePath) throw new Error("pi_snapshot_unavailable");
+        const displayName = snapshotDisplayName(
+          source?.displayName,
+          sourcePath,
+        );
+        const { identity, info, digest } =
+          await inspectSnapshotSource(sourcePath);
+        const revision = `${info.size}:${digest.sha256}`;
+        const dedupeKey = `${identity.canonicalKey.replace(/\\/g, "/")}\n${revision}`;
+        if (seen.has(dedupeKey)) continue;
+        seen.add(dedupeKey);
+        totalBytes += info.size;
+        const entryName = entries.find(
+          (entry) =>
+            entry.kind === "snapshot" &&
+            entry.size === info.size &&
+            entry.sha256 === digest.sha256,
+        )?.name;
+        planned.push({
+          sourcePath: identity.path,
+          displayName,
+          size: info.size,
+          sha256: digest.sha256,
+          entryName,
+        });
+      }
+      if (totalBytes > PI_USER_FILE_SNAPSHOT_LIMITS.maxTotalBytes)
+        throw new Error("pi_snapshot_total_too_large");
+      const newBytes = planned.reduce(
+        (sum, item) => (item.entryName ? sum : sum + item.size),
+        0,
+      );
+      if (
+        newBytes > PI_USER_FILE_SNAPSHOT_LIMITS.maxTotalBytes ||
+        (await ownerUsageBytes(entries)) + newBytes > OWNER_QUOTA_BYTES
+      )
+        throw new Error("pi_owner_quota_exceeded");
+      const created: string[] = [];
+      const snaps: PiConversationUserFileSnapshot[] = [];
+      try {
+        for (const item of planned) {
+          const entry = item.entryName
+            ? entries.find(
+                (row) => row.kind === "snapshot" && row.name === item.entryName,
+              )
+            : undefined;
+          let name = item.entryName;
+          let exists = false;
+          if (name) {
+            const identity = await resolveRuntimePathIdentity({
+              root: args.ownerRoot,
+              path: joinPath(managedDir, name),
+            }).catch(() => null);
+            if (identity?.exists) {
+              const info = await statRuntimePathStrict(identity.path);
+              exists = !info.isDir;
+            }
+          }
+          if (!exists) {
+            if (!name) name = (await nextManagedPath(item.displayName)).name;
+            const target = joinPath(managedDir, name);
+            try {
+              const bytes = await collectRuntimeFileSourceBytes({
+                path: item.sourcePath,
+                size: item.size,
+              });
+              created.push(target);
+              await writeRuntimeBytes(target, bytes);
+            } catch {
+              throw new Error("pi_snapshot_copy_failed");
+            }
+            try {
+              await verifyRuntimeFileSource({
+                path: target,
+                size: item.size,
+                sha256: item.sha256,
+              });
+            } catch {
+              throw new Error("pi_source_changed");
+            }
+            if (entry) {
+              entry.displayName = item.displayName;
+            } else {
+              entries.push({
+                kind: "snapshot",
+                size: item.size,
+                sha256: item.sha256,
+                name,
+                displayName: item.displayName,
+              });
+            }
+          }
+          const snapshot = entry
+            ? toSnapshot(entry, joinPath(managedDir, name!))
+            : {
+                ref: snapshotRef(item.sha256),
+                path: joinPath(managedDir, name!),
+                displayName: item.displayName,
+                size: item.size,
+                sha256: item.sha256,
+              };
+          snaps.push(snapshot);
+        }
+        if (created.length) {
+          await commitManifest(entries);
+          // Best-effort read-only marking; the exact read route already denies
+          // writes, so a platform without POSIX modes stays correct.
+          await Promise.all(
+            created.map((path) =>
+              setRuntimeFilePermissions(path, 0o444).catch(() => false),
+            ),
+          );
+        }
+        snapshotReadMapCache = null;
+        return snaps;
+      } catch (error) {
+        const removed = await Promise.all(
+          created.map(
+            async (path) =>
+              !(await runtimePathExists(path)) ||
+              (await removeRuntimePath(path).catch(() => false)),
+          ),
+        );
+        if (removed.some((ok) => !ok))
+          throw new Error("pi_managed_cleanup_pending");
+        throw error;
+      }
+    });
+  }
+
   async function commitGeneratedOutputs(files: { stagedPath: string }[]) {
     return withOwnerLock(args.ownerRoot, async () => {
       const entries = await readManifest();
@@ -451,8 +883,7 @@ export async function createPiTrustedNativeExecution(args: {
       }
       if (
         newBytes > 512 * 1024 * 1024 ||
-        entries.reduce((sum, entry) => sum + entry.size, 0) + newBytes >
-          2 * 1024 * 1024 * 1024
+        (await ownerUsageBytes(entries)) + newBytes > OWNER_QUOTA_BYTES
       )
         throw new Error("pi_owner_quota_exceeded");
       const promoted: string[] = [];
@@ -556,60 +987,86 @@ export async function createPiTrustedNativeExecution(args: {
     schema: Record<string, unknown>,
     effect: "bounded-read" | "workspace-mutation",
     executeFile: (input: FileArgs, path: string) => Promise<PiGatewayExecution>,
-  ): PiGatewayToolDefinition => ({
-    capabilityId: `pi.native.${name}`,
-    name,
-    description: `${name} a workspace file`,
-    schema,
-    minimumEffects: [effect],
-    maxResultBytes: name === "read" ? 1024 * 1024 : 256 * 1024,
-    classify: async (value): Promise<PiGatewayClassification> => {
-      const input = value as FileArgs;
+  ): PiGatewayToolDefinition => {
+    const resolvePath = async (inputPath: string) => {
+      if (name === "read") {
+        // The model is given a safe managed ref; the owner path stays out of
+        // durable conversation state. Resolve it to the exact snapshot only.
+        if (
+          String(inputPath || "")
+            .trim()
+            .startsWith("managed:")
+        ) {
+          const snapshot = await resolveUserFileSnapshot(inputPath);
+          if (!snapshot) throw new Error("pi_snapshot_ref_invalid");
+          return await resolveRuntimePathIdentity({
+            root: args.ownerRoot,
+            path: snapshot.path,
+          });
+        }
+        const matched = await matchSnapshotPath(inputPath);
+        if (matched) return matched;
+      }
       const identity = await resolveRuntimePathIdentity({
         root,
-        path: input.path,
+        path: inputPath,
         allowMissing: name === "write",
       });
       assertPublic(identity.canonicalKey);
-      return {
-        effects: [effect],
-        authorizationKeys: [`workspace:${root}`],
-        resourceKeys: [`file:${identity.canonicalKey}`],
-        cost: 1,
-      };
-    },
-    execute: async (value, context) => {
-      if (context.signal.aborted)
-        return { status: "canceled", effectCertainty: "not_started" };
-      let identity: { path: string; exists: boolean; canonicalKey: string };
-      try {
+      return identity;
+    };
+    return {
+      capabilityId: `pi.native.${name}`,
+      name,
+      description: `${name} a workspace file`,
+      schema,
+      minimumEffects: [effect],
+      maxResultBytes: name === "read" ? 1024 * 1024 : 256 * 1024,
+      classify: async (value): Promise<PiGatewayClassification> => {
         const input = value as FileArgs;
-        identity = await resolveRuntimePathIdentity({
-          root,
-          path: input.path,
-          allowMissing: name === "write",
-        });
-        assertPublic(identity.canonicalKey);
-      } catch (error) {
-        return failure(
-          String(error).includes("pi_path_")
-            ? "pi_path_invalid"
-            : "pi_file_failed",
-        );
-      }
-      try {
-        return await executeFile(value as FileArgs, identity.path);
-      } catch {
-        return effect === "workspace-mutation"
-          ? {
-              status: "failed",
-              effectCertainty: "unknown",
-              code: "pi_file_state_unknown",
-            }
-          : failure("pi_file_failed");
-      }
-    },
-  });
+        const identity = await resolvePath(input.path);
+        return {
+          effects: [effect],
+          authorizationKeys: [`workspace:${root}`],
+          resourceKeys: [`file:${identity.canonicalKey}`],
+          cost: 1,
+        };
+      },
+      execute: async (value, context) => {
+        if (context.signal.aborted)
+          return { status: "canceled", effectCertainty: "not_started" };
+        let identity: { path: string; exists: boolean; canonicalKey: string };
+        try {
+          const input = value as FileArgs;
+          identity = await resolvePath(input.path);
+        } catch (error) {
+          const message = String(error);
+          return failure(
+            message.includes("pi_snapshot_ref_invalid")
+              ? "pi_snapshot_ref_invalid"
+              : message.includes("pi_path_")
+                ? "pi_path_invalid"
+                : "pi_file_failed",
+          );
+        }
+        try {
+          return effect === "workspace-mutation"
+            ? await withOwnerLock(args.ownerRoot, () =>
+                executeFile(value as FileArgs, identity.path),
+              )
+            : await executeFile(value as FileArgs, identity.path);
+        } catch {
+          return effect === "workspace-mutation"
+            ? {
+                status: "failed",
+                effectCertainty: "unknown",
+                code: "pi_file_state_unknown",
+              }
+            : failure("pi_file_failed");
+        }
+      },
+    };
+  };
 
   definitions.push(
     fileTool(
@@ -617,7 +1074,12 @@ export async function createPiTrustedNativeExecution(args: {
       {
         type: "object",
         properties: {
-          path: pathSchema,
+          path: {
+            type: "string",
+            minLength: 1,
+            description:
+              "Workspace file path, or a managed:sha256:<hex> reference for an attached Conversation snapshot.",
+          },
           offset: boundedLimit(Number.MAX_SAFE_INTEGER),
           limit: boundedLimit(VISIBLE_LINES),
         },
@@ -692,7 +1154,17 @@ export async function createPiTrustedNativeExecution(args: {
       },
       "workspace-mutation",
       async (input, path) => {
-        await replaceRuntimeTextFileAtomically(path, input.content || "");
+        const content = input.content || "";
+        const bytes = textEncoder.encode(content).length;
+        const existing = await statRuntimePathStrict(path).catch(() => null);
+        const existingBytes =
+          existing?.exists && !existing.isDir ? existing.size : 0;
+        const usage = await ownerUsageBytes(
+          await readManifest().catch(() => [] as ManagedEntry[]),
+        );
+        if (usage - existingBytes + bytes > OWNER_QUOTA_BYTES)
+          return failure("pi_owner_quota_exceeded");
+        await replaceRuntimeTextFileAtomically(path, content);
         return result({ written: true });
       },
     ),
@@ -755,6 +1227,16 @@ export async function createPiTrustedNativeExecution(args: {
             changed.slice(0, edit.at) +
             edit.newText +
             changed.slice(edit.at + edit.oldText.length);
+        const delta =
+          textEncoder.encode(changed).length -
+          textEncoder.encode(original).length;
+        if (delta > 0) {
+          const usage = await ownerUsageBytes(
+            await readManifest().catch(() => [] as ManagedEntry[]),
+          );
+          if (usage + delta > OWNER_QUOTA_BYTES)
+            return failure("pi_owner_quota_exceeded");
+        }
         await replaceRuntimeTextFileAtomically(path, changed);
         return result({ edits: positions.length });
       },
@@ -1308,6 +1790,9 @@ export async function createPiTrustedNativeExecution(args: {
     materializeOrReuseMany,
     commitGeneratedOutputs,
     beginGeneratedTextOutput,
+    snapshotUserFiles,
+    listUserFileSnapshots,
+    resolveUserFileSnapshot,
     runtimeCapability: {
       identity: `pi-native:${args.mode}:${root}`,
       availableCapabilityIds: definitions.map((item) => item.capabilityId),

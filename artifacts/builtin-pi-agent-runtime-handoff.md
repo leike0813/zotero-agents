@@ -4,7 +4,7 @@
 - 工作分支：`dev-agent-harness`
 - 实施路线：[地图 #10](https://github.com/leike0813/zotero-agents/issues/10)、[执行计划 #26](https://github.com/leike0813/zotero-agents/issues/26)
 - 已实现并归档：W0 C01（提交 `fbd297d4`）、W1 C02（`1da0cd84`）、W1 C03（`ef91407c`）、W1 C07（`f5ce9fe6`）、W1 C09（`5077c7b3`）、W2 C04（`f88e2825`）、W2 C06（`2bb22e90`）、W2 C08（实现 `fe6a5a51`，归档 `ad671f6f4`）、W2 C10（实现 `78023c716`、`a8602bc77`，归档 `2026-09-29`）、W2 C12（归档 `2026-09-29`）、C08 受管文件补齐与 W3 C13（均归档 `2026-09-29`）；见 [C08 补齐](../openspec/changes/archive/2026-09-29-complete-pi-managed-workspace-operations/)、[C12 OpenSpec 归档](../openspec/changes/archive/2026-09-29-establish-pi-zotero-tool-catalog/)与 [C13 OpenSpec 归档](../openspec/changes/archive/2026-09-29-add-pi-zotero-read-tools/)。
-- 最近完成：W3 C05 OpenAI Codex 认证，见 [归档 change](../openspec/changes/archive/2026-09-30-add-pi-openai-codex-auth/)。9/9 任务完成；真实登录、官方模型发现、`gpt-6-luna` SSE、过期记录刷新、本地断开与重连均通过。间歇性 start JSON 403 的原因仍未知，详见 [专项交接](builtin-pi-agent-c05-auth-handoff-2026-09-30.md)。下一切片为 C16 Conversation 接线。
+- 最近实现：W3 C16 Conversation 接线，见 [当前 change](../openspec/changes/integrate-pi-conversations/) 与 [验证记录](../openspec/changes/integrate-pi-conversations/verification.md)。源码与测试尚未提交，change 尚未同步、归档。C05 已归档；真实账号证据与间歇性 start JSON 403 的限制仍见 [专项交接](builtin-pi-agent-c05-auth-handoff-2026-09-30.md)。W3 收尾后按 wave 表进入 W4 的 C11/C14/C15。
 
 本文是持续更新的工作交接。**后续每个 Pi Runtime 相关 change 完成、归档或改变实施决定时，实施者须在交接前按实际进度更新本文**：核对已实现边界、下一步、验证结果、未解决风险及链接，并更新状态日期。拟议能力不得写成已交付能力；实现与规格冲突时先核对代码和正式决策。
 
@@ -12,7 +12,7 @@
 
 这份文档帮助后续 change 接续已确定的产品边界和实现进度。内置 Pi Agent Runtime 最终应成为完整 Agent：支持可持久化的多轮交互、经策略中介使用 Shell、文件和网络能力，并通过稳定的插件内边界操作 Zotero 文献库。
 
-W0 C01 已建立无 Node.js 依赖的瞬态 Pi 运行时骨架，W1 C02 已增加项目自有的 Pi owner 持久化基础，W1 C03 增加模型目录、配置、加密凭据和 Backend Manager 独立页面。W1 C07 已建立工具目录、策略和执行证据内核。W2 C04 已接入 API key Provider 模型流和手动连接测试；W3 C05 的设备码、官方模型发现和 Codex 流已通过受控宿主与真实账号 smoke，并完成归档。W2 C08 已实现原生文件、搜索和 Shell 工具目录。W2 C10 的 MCP 来源、发现和 Tool Gateway 接线已实现；W2 C12 建立首个 Broker-backed Zotero Native Tool，W3 C13 将目录扩展到 14 个经审阅的读工具。Agent 会话界面、写入与导航工具和自动恢复仍需依照 #26 分步实现。早期兼容性原型只保留为历史证据。
+W0 C01 已建立无 Node.js 依赖的瞬态 Pi 运行时骨架，W1 C02 已增加项目自有的 Pi owner 持久化基础，W1 C03 增加模型目录、配置、加密凭据和 Backend Manager 独立页面。W1 C07 已建立工具目录、策略和执行证据内核。W2 C04 已接入 API key Provider 模型流和手动连接测试；W3 C05 的设备码、官方模型发现和 Codex 流已通过受控宿主与真实账号 smoke，并完成归档。W2 C08 已实现原生文件、搜索和 Shell 工具目录。W2 C10 的 MCP 来源、发现和 Tool Gateway 接线已实现；W2 C12 建立首个 Broker-backed Zotero Native Tool，W3 C13 将目录扩展到 14 个经审阅的读工具。C16 已把多轮 Conversation 接入共享 Workspace；写入、导航工具、Skill Run 与自动恢复仍按 #26 后续 wave 实现。早期兼容性原型只保留为历史证据。
 
 ## 统一术语
 
@@ -175,9 +175,18 @@ git show research/pi-agent-sandbox-models:artifact/pi-agent-runtime/sandbox-and-
 
 该报告保留早期跨进程强沙箱方案的研究证据，其“MVP 无 Strong 即 fail closed”的结论已由 ADR 0002 取代。后续如选择 Strong 适配器，应读取[跨平台 Strong 研究](./pi-agent-runtime/cross-platform-sandbox-primary-research.md)及[架构原型](./pi-agent-runtime/cross-platform-sandbox-architecture-prototype.md)，按实际后端验证隔离、能力证明和故障路径。
 
+### W3 C16：Pi Conversation 与最终 Workspace shell
+
+- [`src/modules/piConversation.ts`](../src/modules/piConversation.ts) 组合 C02/C04/C06/C07/C08/C10/C13：持久化接纳后执行，每次调用重建上下文；支持多轮、工具 batch、审批、取消、手动压缩和安全 usage。工具未知效应或历史提交失败进入恢复待办，取消保留已结算工具事实并拒绝迟到文本。
+- [`src/modules/piConversationWorkspaceSurface.ts`](../src/modules/piConversationWorkspaceSurface.ts) 使用现有 publication、分页和区域组件；[`source registry`](../src/shared/assistantWorkspaceSourceRegistry.ts) 持有两 lane、五 source 描述符及唯一的 source/action 映射，旧 publication 表从 registry 派生。新窗口默认 Pi Conversations，各 lane 的 source 选择在该窗口内记忆；数量和 attention 从 owner-navigation 更新，transcript 更新保持导航 DOM；Pi Skill Runs 尚不可进入。
+- composer 显式添加当前选择与普通本地文件，捕获后重新校验；20 项、单文件 20 MiB、每发送 50 MiB，复用 2 GiB owner 配额。用户文件经分块读取复制为不可变 managed ref，原路径不进入 durable/model/UI。草稿只在 owner 的接纳 revision 增长后清空。
+- 可选辅助模型仅生成标题；最小输入、单行 48 字符、确定性 fallback、独立 usage 和 rename CAS 已接线。归档允许原 owner 标题完成，永久删除保留不可逆 deleting/cleanup_pending 与 receipt。
+- Node `256` 覆盖生产 Conversation 组合，`257` 覆盖标题，`258/260` 覆盖共享投影、owner-first 和 shell，`192` 锁定 Pi transcript-only/loading 更新的非 transcript DOM identity。真实 Zotero `286` 覆盖工具、续调用、第二 turn、owner 生命周期和有界快照。门禁结果及修复记录见 [C16 verification](../openspec/changes/integrate-pi-conversations/verification.md)。
+- 验证：全量 Node 最后一次 27/28 分片通过，既有 tooling-runtime 超时分片独立重跑通过；受影响 Pi 与 Workspace 分片通过。标准 Linux Zotero 9.0.4 core 为 107 passed、0 failed、1 平台限定 pending；最终浏览器组合另跑 Pi 定向 2 项通过，共享 Workspace 定向 144 项通过。build、lint、TypeScript、OpenSpec strict 通过，change 9/9 任务完成；完整受支持版本/OS 矩阵与真实账号仍由 C20 验证。
+
 ## 当前工作区状态
 
-本次 C05 实施前，HEAD 为 `54da70b7`，工作树清洁。当前 C05 源码、测试、文档与 OpenSpec change 是未提交工作区改动；C02 owner、Conversation/Skill Run 与普通用户交互仍未接线。以最新 `git status` 辨别所有权，不覆盖并行改动。
+本次 C16 的固定基线为 `4d95a25c`。Conversation 与共享 Workspace 源码、测试、文档及 OpenSpec change 是未提交工作区改动；Skill Run 接线和自动恢复尚未实现。以最新 `git status` 辨别所有权，不覆盖并行改动。
 
 ## 建议的系统边界
 
@@ -224,15 +233,12 @@ git show research/pi-agent-sandbox-models:artifact/pi-agent-runtime/sandbox-and-
 
 ### Pi Conversation 与现有 UI/工作流
 
-- C02 owner 与 Pi Conversation 如何映射现有 Assistant Workspace 的 backend、conversation owner、transcript store 和 snapshot contract；C02 目前只提供存储，不提供 UI 投影。
-- Built-in Pi 执行后端类型如何通过现有后端适配器边界接入。
-- 自由输入与工作流任务如何共用一个会话生命周期，同时保持任务状态和 transcript 边界清晰。
-- 已确定的 Pi Agent Transcript 如何通过现有 page-first、owner-first 投影契约接入 Assistant Workspace，以及模型选项和取消行为如何出现在公开接口中。
-- Pi 事件如何归一化到 ACP Chat / ACP Skills 已共享的 transcript boundary 分类，避免按 provider 名称做特判。
+- C16 已接入独立 Conversation owner、canonical transcript、模型选择、取消与共享 page-first/owner-first publication。C17 接入 `pi-skill-runs` adapter，保持工作流任务与 Conversation 的 owner 边界。
+- C18 接续完整 product owner 的审计与诊断；C19 负责重启待办、异常退出和未知效应的生命周期恢复。C16 恢复出未结算历史时保持 `recovery_required`，不自动重放工具。
 
 ### Trusted Native Execution 与可选 Strong
 
-- C08 已提供 Shell、文件和进程内搜索的 schema 与执行器；fetch、web search、宿主权限呈现和 Conversation/Skill Run 接线仍属后续 change。生产 owner 须把 C08 工具目录、Runtime Capability Receipt 和受管文件操作接入 C07/C02，不得把定向执行器测试当成端到端 Agent 交付。
+- C08 的 Shell、文件、搜索和受管快照已由 C16 接入 Conversation Gateway 与 Workspace 审批；fetch/web search 和 Skill Run 仍分别等待 C11、C17。Trusted Native Execution 的边界继续按 ADR 0002 表述。
 - Workspace Scope、命令和网络意图须遵守 ADR 0002；opaque executor 的潜在宿主访问必须在授权界面明确呈现。
 - 未来如引入 Strong Executor，再单独规定各平台适配器、能力证明、路径与网络隔离、资源限制和失败处理，不将研究原型视为已实现安全保证。
 
@@ -247,7 +253,7 @@ git show research/pi-agent-sandbox-models:artifact/pi-agent-runtime/sandbox-and-
 
 ## 下一步实施入口
 
-C13 已归档，其完整 Linux Zotero core 曾通过 89 项。按 [#26 最终 wave 表](https://github.com/leike0813/zotero-agents/issues/26#issuecomment-5552013273)，C05 已完成指定模型的完整真实账号 smoke 并归档，接续 C16 Conversation 接线；验证与已知限制见 [C05 专项交接](builtin-pi-agent-c05-auth-handoff-2026-09-30.md)。W3 gate 完成后进入 W4 的 C11 Web、C14 写入与 C15 导航工具。
+C13、C05 已归档，C16 已实现并保留为 active change。先按 [C16 verification](../openspec/changes/integrate-pi-conversations/verification.md) 收尾同步与归档，再依 [#26 最终 wave 表](https://github.com/leike0813/zotero-agents/issues/26#issuecomment-5552013273) 进入 W4 的 C11 Web、C14 写入与 C15 导航工具。真实账号限制仍见 [C05 专项交接](builtin-pi-agent-c05-auth-handoff-2026-09-30.md)。
 
 接续工作按 [C04 verification](../openspec/changes/archive/2026-09-28-add-pi-api-key-provider-execution/verification.md) 和 C06 的验证记录核对 Provider 与 context 边界。Assistant Workspace、具体工具和自动恢复分别遵守 ADR 0001/0003、区域级 DOM identity 约束和 ADR 0002。后续会话接线是 C16，Skill Run 接线是 C17，生命周期恢复是 C19。每项能力的完成证据应落在对应 OpenSpec change 与测试中，并回写本文状态。
 

@@ -289,6 +289,7 @@ describe("dashboard backend-manager page (src/dashboard)", function () {
     page.actions.length = 0;
     clickButton(tabs[tabs.length - 1]);
     assert.isOk(page.root.querySelector(".backend-pi-unavailable"));
+    assert.isOk(page.root.querySelector("[data-pi-field='default-auxiliary']"));
     clickButton(page.root.querySelector("[data-pi-action='add']"));
     assert.ok(page.root.querySelector("[data-pi-field='provider']"));
     clickButton(page.root.querySelector("[data-pi-action='save']"));

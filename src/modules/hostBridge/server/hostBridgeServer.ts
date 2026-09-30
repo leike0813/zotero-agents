@@ -69,7 +69,7 @@ import {
 } from "../workflow/hostBridgeWorkflowControl";
 import { getHostBridgeFileDownloadManifest } from "./hostBridgeFileRegistry";
 import {
-  collectRuntimeFileSourceBytesForTests,
+  collectRuntimeFileSourceBytes,
   type RuntimeFileResponseTransfer,
 } from "../../runtimeFileTransfer";
 import {
@@ -1959,7 +1959,7 @@ export async function handleHostBridgeHttpRequestForTests(args: {
     if (raw.kind === "memory") {
       return `${raw.headers}${new TextDecoder().decode(raw.bodyBytes)}`;
     }
-    const bytes = await collectRuntimeFileSourceBytesForTests(raw.source);
+    const bytes = await collectRuntimeFileSourceBytes(raw.source);
     return `${raw.headers}${bytesToBinaryString(bytes)}`;
   }
   const parsedPath = parseTestPath(args.path || "/");
@@ -1984,6 +1984,6 @@ export async function handleHostBridgeHttpRequestForTests(args: {
   if (raw.kind === "memory") {
     return `${raw.headers}${new TextDecoder().decode(raw.bodyBytes)}`;
   }
-  const bytes = await collectRuntimeFileSourceBytesForTests(raw.source);
+  const bytes = await collectRuntimeFileSourceBytes(raw.source);
   return `${raw.headers}${bytesToBinaryString(bytes)}`;
 }

@@ -539,14 +539,14 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
     );
     assert.deepInclude(ASSISTANT_WORKSPACE_ACTION_REGISTRY["select-run"], {
       scope: "target-owner",
-      sources: ["acp-skills"],
+      sources: ["pi-skill-runs", "acp-skills"],
       payloadKeys: [],
     });
     assert.deepInclude(
       ASSISTANT_WORKSPACE_ACTION_REGISTRY["new-conversation"],
       {
         scope: "navigation-group",
-        sources: ["acp-chat"],
+        sources: ["pi-conversations", "acp-chat"],
         payloadKeys: ["groupId"],
       },
     );
@@ -554,7 +554,13 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
       ASSISTANT_WORKSPACE_ACTION_REGISTRY["request-owner-details"],
       {
         scope: "selected-owner",
-        sources: ["acp-chat", "acp-skills", "skillrunner"],
+        sources: [
+          "pi-conversations",
+          "acp-chat",
+          "pi-skill-runs",
+          "acp-skills",
+          "skillrunner",
+        ],
         payloadKeys: [],
       },
     );
@@ -563,14 +569,14 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
     // Decision 4).
     assert.deepInclude(ASSISTANT_WORKSPACE_ACTION_REGISTRY["cancel-run"], {
       scope: "selected-owner",
-      sources: ["acp-skills", "skillrunner"],
+      sources: ["pi-skill-runs", "acp-skills", "skillrunner"],
       payloadKeys: [],
     });
     assert.deepInclude(
       ASSISTANT_WORKSPACE_ACTION_REGISTRY["cancel-queued-workflow-unit"],
       {
         scope: "global",
-        sources: ["acp-skills", "skillrunner"],
+        sources: ["pi-skill-runs", "acp-skills", "skillrunner"],
         payloadKeys: ["queueId"],
       },
     );

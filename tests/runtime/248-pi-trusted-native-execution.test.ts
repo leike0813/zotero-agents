@@ -1,5 +1,15 @@
 import { assert } from "chai";
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "fs/promises";
+import {
+  appendFile,
+  mkdtemp,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  symlink,
+  truncate,
+  writeFile,
+} from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import {
@@ -463,5 +473,304 @@ describe("Pi Trusted Native execution", function () {
     } catch (error) {
       assert.include(String(error), "pi_path_");
     }
+  });
+
+  it("snapshots explicit user files as immutable owner copies with exact read access", async function () {
+    const base = await mkdtemp(join(tmpdir(), "pi-native-snap-"));
+    const root = join(base, "workspace");
+    const ownerRoot = join(base, "owner");
+    await mkdir(root);
+    await mkdir(ownerRoot);
+    const source = join(base, "notes.txt");
+    await writeFile(source, "hello snapshot");
+    const native = await createPiTrustedNativeExecution({
+      workspaceRoot: root,
+      ownerRoot,
+      mode: "restricted",
+    });
+    const [snapshot] = await native.snapshotUserFiles([
+      { path: source, displayName: "notes.txt" },
+    ]);
+    assert.equal(snapshot.displayName, "notes.txt");
+    assert.equal(snapshot.size, "hello snapshot".length);
+    assert.match(snapshot.sha256, /^sha256:/);
+    assert.match(snapshot.ref, /^[\w.:-]+$/);
+    assert.include(snapshot.path, join(ownerRoot, "files"));
+    assert.equal(await readFile(snapshot.path, "utf8"), "hello snapshot");
+
+    const read = native.definitions.find((tool) => tool.name === "read")!;
+    await read.classify({ path: snapshot.path });
+    const readResult = await read.execute(
+      { path: snapshot.path },
+      { signal: new AbortController().signal, onUpdate: () => undefined },
+    );
+    assert.deepInclude(readResult.value as object, { text: "hello snapshot" });
+    await read.classify({ path: snapshot.ref });
+    const byRef = await read.execute(
+      { path: snapshot.ref },
+      { signal: new AbortController().signal, onUpdate: () => undefined },
+    );
+    assert.deepInclude(byRef.value as object, { text: "hello snapshot" });
+    const missingRef = await read.execute(
+      { path: "managed:sha256:deadbeef" },
+      { signal: new AbortController().signal, onUpdate: () => undefined },
+    );
+    assert.equal(missingRef.status, "failed");
+    assert.equal(missingRef.code, "pi_snapshot_ref_invalid");
+
+    const write = native.definitions.find((tool) => tool.name === "write")!;
+    for (const path of [snapshot.path, join(ownerRoot, "managed-files.json")]) {
+      try {
+        await write.classify({ path, content: "x" });
+        assert.fail("owner file writable");
+      } catch (error) {
+        assert.include(String(error), "pi_path_");
+      }
+    }
+    try {
+      await read.classify({ path: join(ownerRoot, "managed-files.json") });
+      assert.fail("owner metadata readable");
+    } catch (error) {
+      assert.include(String(error), "pi_path_");
+    }
+
+    const manifest = await readFile(
+      join(ownerRoot, "managed-files.json"),
+      "utf8",
+    );
+    assert.notInclude(manifest, source);
+    assert.include(manifest, "notes.txt");
+    assert.include(manifest, "snapshot");
+
+    await writeFile(source, "changed after send");
+    const again = await read.execute(
+      { path: snapshot.path },
+      { signal: new AbortController().signal, onUpdate: () => undefined },
+    );
+    assert.deepInclude(again.value as object, { text: "hello snapshot" });
+  });
+
+  it("enforces combined snapshot limits with all-or-nothing preflight", async function () {
+    this.timeout(30000);
+    const base = await mkdtemp(join(tmpdir(), "pi-native-snap-limit-"));
+    const root = join(base, "workspace");
+    const ownerRoot = join(base, "owner");
+    await mkdir(root);
+    await mkdir(ownerRoot);
+    const native = await createPiTrustedNativeExecution({
+      workspaceRoot: root,
+      ownerRoot,
+      mode: "restricted",
+    });
+    const small = join(base, "small.txt");
+    await writeFile(small, "small");
+    try {
+      await native.snapshotUserFiles(
+        Array.from({ length: 21 }, (_, index) => ({
+          path: small,
+          displayName: `f${index}.txt`,
+        })),
+      );
+      assert.fail("resources above limit accepted");
+    } catch (error) {
+      assert.include(String(error), "pi_snapshot_resource_limit");
+    }
+    const big = join(base, "big.bin");
+    await writeFile(big, Buffer.alloc(20 * 1024 * 1024 + 1, 7));
+    try {
+      await native.snapshotUserFiles([{ path: big, displayName: "big.bin" }]);
+      assert.fail("oversize file accepted");
+    } catch (error) {
+      assert.include(String(error), "pi_snapshot_file_too_large");
+    }
+    const parts: { path: string; displayName: string }[] = [];
+    for (let index = 0; index < 3; index += 1) {
+      const path = join(base, `part-${index}.bin`);
+      await writeFile(path, Buffer.alloc(18 * 1024 * 1024, 65 + index));
+      parts.push({ path, displayName: `part-${index}.bin` });
+    }
+    try {
+      await native.snapshotUserFiles(parts);
+      assert.fail("total above limit accepted");
+    } catch (error) {
+      assert.include(String(error), "pi_snapshot_total_too_large");
+    }
+    try {
+      await native.snapshotUserFiles([{ path: base, displayName: "dir" }]);
+      assert.fail("directory accepted");
+    } catch (error) {
+      assert.include(String(error), "pi_snapshot_not_regular");
+    }
+    if (process.platform !== "win32") {
+      const link = join(base, "link.txt");
+      await symlink(small, link);
+      try {
+        await native.snapshotUserFiles([
+          { path: link, displayName: "link.txt" },
+        ]);
+        assert.fail("link accepted");
+      } catch (error) {
+        assert.include(String(error), "pi_snapshot_");
+      }
+    }
+    assert.deepEqual(await native.listUserFileSnapshots(), []);
+    assert.deepEqual(
+      await readdir(join(ownerRoot, "files")).catch(() => []),
+      [],
+    );
+  });
+
+  it("reuses snapshots by digest and exposes historical refs", async function () {
+    const base = await mkdtemp(join(tmpdir(), "pi-native-snap-reuse-"));
+    const root = join(base, "workspace");
+    const ownerRoot = join(base, "owner");
+    await mkdir(root);
+    await mkdir(ownerRoot);
+    const source = join(base, "doc.txt");
+    await writeFile(source, "content-v1");
+    const native = await createPiTrustedNativeExecution({
+      workspaceRoot: root,
+      ownerRoot,
+      mode: "restricted",
+    });
+    const first = (
+      await native.snapshotUserFiles([{ path: source, displayName: "doc.txt" }])
+    )[0];
+    const reused = (
+      await native.snapshotUserFiles([{ path: source, displayName: "doc.txt" }])
+    )[0];
+    assert.equal(reused.ref, first.ref);
+    assert.equal(reused.path, first.path);
+    const listed = await native.listUserFileSnapshots();
+    assert.lengthOf(listed, 1);
+    assert.equal(listed[0].ref, first.ref);
+    assert.equal(
+      (await native.resolveUserFileSnapshot(first.ref))?.path,
+      first.path,
+    );
+    assert.isNull(
+      await native.resolveUserFileSnapshot("managed:sha256:deadbeef"),
+    );
+    await writeFile(source, "content-v2");
+    const next = (
+      await native.snapshotUserFiles([{ path: source, displayName: "doc.txt" }])
+    )[0];
+    assert.notEqual(next.ref, first.ref);
+    assert.lengthOf(await native.listUserFileSnapshots(), 2);
+    assert.lengthOf(
+      await native.snapshotUserFiles([
+        { path: source, displayName: "a.txt" },
+        { path: source, displayName: "b.txt" },
+      ]),
+      1,
+    );
+  });
+
+  it("counts agent-written workspace files against the shared owner quota", async function () {
+    const base = await mkdtemp(join(tmpdir(), "pi-native-quota-"));
+    const root = join(base, "workspace");
+    const ownerRoot = join(base, "owner");
+    await mkdir(root);
+    await mkdir(ownerRoot);
+    const written = join(root, "agent-output.bin");
+    await writeFile(written, "");
+    await truncate(written, 200 * 1024 * 1024);
+    await writeFile(
+      join(ownerRoot, "managed-files.json"),
+      JSON.stringify({
+        version: 1,
+        entries: [
+          {
+            kind: "generated",
+            size: 1900 * 1024 * 1024,
+            sha256: "sha256:deadbeef",
+            name: "managed-old.bin",
+          },
+        ],
+      }),
+    );
+    const native = await createPiTrustedNativeExecution({
+      workspaceRoot: root,
+      ownerRoot,
+      mode: "restricted",
+    });
+    const source = join(base, "small.txt");
+    await writeFile(source, "small");
+    try {
+      await native.snapshotUserFiles([
+        { path: source, displayName: "small.txt" },
+      ]);
+      assert.fail("agent-written workspace bytes ignored");
+    } catch (error) {
+      assert.include(String(error), "pi_owner_quota_exceeded");
+    }
+    const write = native.definitions.find((tool) => tool.name === "write")!;
+    const outcome = await write.execute(
+      { path: join(root, "another.txt"), content: "x" },
+      { signal: new AbortController().signal, onUpdate: () => undefined },
+    );
+    assert.equal(outcome.status, "failed");
+    assert.equal(outcome.code, "pi_owner_quota_exceeded");
+  });
+
+  it("fails closed when workspace quota cannot be counted within its scan bound", async function () {
+    const base = await mkdtemp(join(tmpdir(), "pi-native-quota-depth-"));
+    const root = join(base, "workspace");
+    const ownerRoot = join(base, "owner");
+    const deep = join(root, ...Array.from({ length: 33 }, (_, i) => `d${i}`));
+    await mkdir(deep, { recursive: true });
+    const source = join(base, "small.txt");
+    await writeFile(source, "small");
+    const native = await createPiTrustedNativeExecution({
+      workspaceRoot: root,
+      ownerRoot,
+      mode: "restricted",
+    });
+    let error: unknown;
+    try {
+      await native.snapshotUserFiles([{ path: source }]);
+    } catch (failure) {
+      error = failure;
+    }
+    assert.include(String(error), "pi_owner_quota_unavailable");
+    assert.deepEqual(await native.listUserFileSnapshots(), []);
+    await rm(base, { recursive: true, force: true });
+  });
+
+  it("rolls back a source that grows beyond its admitted size during snapshotting", async function () {
+    this.timeout(30000);
+    const base = await mkdtemp(join(tmpdir(), "pi-native-snap-grow-"));
+    const root = join(base, "workspace");
+    const ownerRoot = join(base, "owner");
+    await mkdir(root);
+    await mkdir(ownerRoot);
+    const source = join(base, "grow.bin");
+    await writeFile(source, Buffer.alloc(8 * 1024 * 1024, 1));
+    const native = await createPiTrustedNativeExecution({
+      workspaceRoot: root,
+      ownerRoot,
+      mode: "restricted",
+    });
+    const grow = (async () => {
+      for (let index = 0; index < 8; index += 1) {
+        await appendFile(source, Buffer.alloc(2 * 1024 * 1024, 2));
+      }
+    })();
+    let failure: unknown;
+    try {
+      await native.snapshotUserFiles([
+        { path: source, displayName: "grow.bin" },
+      ]);
+    } catch (error) {
+      failure = error;
+    }
+    await grow;
+    assert.isDefined(failure, "growth during snapshot was not detected");
+    assert.match(String(failure), /pi_snapshot|pi_source_changed/);
+    assert.deepEqual(await native.listUserFileSnapshots(), []);
+    assert.deepEqual(
+      await readdir(join(ownerRoot, "files")).catch(() => []),
+      [],
+    );
   });
 });

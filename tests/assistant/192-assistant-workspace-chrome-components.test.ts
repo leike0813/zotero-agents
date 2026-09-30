@@ -2,11 +2,24 @@ import { assert } from "chai";
 import { h, render } from "preact";
 
 import {
+  assertRegionSubtreesPreserved,
+  captureRegionSubtrees,
   createSidebarDomEnvironment,
   installSidebarDomGlobals,
   restoreSidebarDomGlobals,
   subtreeNodes,
 } from "../helpers/sidebarDomEnv";
+import { createAssistantWorkspaceAcpChildHarness } from "../helpers/assistantWorkspaceAcpChildHarness";
+import { assistantWorkspaceTestPublication } from "../helpers/assistantWorkspacePublicationHarness";
+import {
+  createAssistantWorkspaceUnownedScope,
+  createLoadingTranscriptRegion,
+  createReadyTranscriptRegion,
+} from "../../src/modules/assistant/publication/assistantWorkspacePublication";
+import {
+  createAssistantWorkspaceTranscriptPage,
+  transcriptPageMetadata,
+} from "../../src/modules/assistant/publication/assistantWorkspaceTranscriptPublication";
 import { MessageCountsRegion } from "../../src/sidebar/components/MessageCountsRegion";
 import { ToolbarRegion } from "../../src/sidebar/components/ToolbarRegion";
 import { BannerRegion } from "../../src/sidebar/components/BannerRegion";
@@ -1676,6 +1689,80 @@ describe("Assistant Workspace chrome components", function () {
       );
     }
 
+    it("fails closed when a destructive action has no confirmation channel", function () {
+      const mount = environment.document.createElement("div");
+      const actions: string[] = [];
+      const selection = drawerSelection({
+        sections: [
+          {
+            id: "archived",
+            title: "Archived",
+            collapsible: true,
+            collapsed: false,
+            groups: [
+              {
+                backendId: "pi-conversations",
+                backendDisplayName: "Zotero Agent",
+                activeTasks: [],
+                finishedTasks: [
+                  {
+                    key: "conv-1",
+                    title: "Conversation",
+                    terminal: true,
+                    selectable: true,
+                    itemActions: [
+                      {
+                        action: "delete-conversation",
+                        icon: "delete",
+                        enabled: true,
+                        confirm: "Delete permanently?",
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+      const setConfirm = (value: unknown) => {
+        Object.defineProperty(environment.window, "confirm", {
+          value,
+          configurable: true,
+          writable: true,
+        });
+      };
+      const originalConfirm = environment.window.confirm;
+      try {
+        setConfirm(undefined);
+        renderContextDrawer(mount, selection, (action) => {
+          actions.push(action);
+        });
+        const button = mount.querySelector(
+          ".assistant-workspace-drawer-task-action",
+        ) as HTMLElement | null;
+        assert.ok(button, "expected the destructive action button");
+        button!.click();
+        assert.deepEqual(
+          actions,
+          [],
+          "no confirmation channel must not dispatch",
+        );
+        setConfirm(() => false);
+        button!.click();
+        assert.deepEqual(
+          actions,
+          [],
+          "declined confirmation must not dispatch",
+        );
+        setConfirm(() => true);
+        button!.click();
+        assert.deepEqual(actions, ["delete-conversation"]);
+      } finally {
+        setConfirm(originalConfirm);
+      }
+    });
+
     it("renders sections, groups, and task rows", function () {
       const mount = environment.document.createElement("div");
       renderContextDrawer(mount, drawerSelection());
@@ -2203,5 +2290,323 @@ describe("Assistant Workspace chrome components", function () {
       );
       assert.equal(container.textContent, "Select a conversation");
     });
+  });
+});
+
+// C16 source-specific DOM identity lock. Tests 97 (ACP and SkillRunner) drive
+// the production child through the shared shell harness; Pi Conversations ship
+// through the same shared child (data-source="pi-conversations") and must keep
+// the identical non-transcript identity invariant for a selected owner.
+describe("Pi Conversation managed chrome identity", function () {
+  const piOwner = {
+    source: "pi-conversations" as const,
+    ownerKey: "pi-conv-1",
+    conversationId: "pi-conv-1",
+  };
+
+  // The shared child runtime drives every source; the harness helper's source
+  // union predates the Pi sources, so widen it here instead of editing the
+  // helper or the production runtime.
+  function createPiChildHarness() {
+    return createAssistantWorkspaceAcpChildHarness(
+      piOwner.source as unknown as "acp-chat",
+    );
+  }
+
+  function regionElements(document: Document): Record<string, Node> {
+    return {
+      toolbar: document.querySelector('[data-role="toolbar"]')!,
+      banner: document.querySelector('[data-role="banner"]')!,
+      messageCounter: document.querySelector('[data-role="message-counts"]')!,
+      plan: document.querySelector('[data-role="plan"]')!,
+      hint: document.querySelector('[data-role="interaction"]')!,
+      reply: document.querySelector('[data-role="composer"]')!,
+      drawer: document.querySelector('[data-role="context-drawer"]')!,
+      details: document.querySelector('[data-role="details-drawer"]')!,
+    };
+  }
+
+  function navigationPayload() {
+    return {
+      selectedOwner: piOwner,
+      selectedGroupId: "pi-conversations",
+      groups: [
+        {
+          groupId: "pi-conversations",
+          label: "Zotero Agent",
+          status: "ready",
+          disabledReason: null,
+        },
+      ],
+      entries: [
+        {
+          owner: piOwner,
+          groupId: "pi-conversations",
+          label: "First question",
+          subtitle: null,
+          description: null,
+          groupLabel: "Zotero Agent",
+          status: "idle",
+          backendStatus: null,
+          applyState: null,
+          attention: null,
+          updatedAt: null,
+          messageCount: 0,
+          canArchive: true,
+          submission: null,
+          resumptionPending: false,
+        },
+      ],
+      queuedEntries: [],
+      canCreateOwner: true,
+      notice: null,
+    };
+  }
+
+  function ownerControlPayload() {
+    return {
+      status: "idle",
+      busy: false,
+      hint: { kind: "hidden", message: null },
+      interaction: null,
+      connection: {
+        status: "local",
+        sessionAvailable: true,
+        connected: false,
+        canConnect: false,
+        canDisconnect: false,
+      },
+      execution: { canCancel: false, canInterrupt: false },
+      authentication: {
+        required: false,
+        canAuthenticate: false,
+        methodId: null,
+      },
+      permissionPolicy: { autoApprove: false, canSetAutoApprove: false },
+      badges: null,
+    };
+  }
+
+  function composerPayload() {
+    return {
+      reply: { status: "enabled" },
+      runtimeOptions: null,
+      resources: [
+        {
+          resourceId: "zotero:1:KEY",
+          kind: "selection",
+          label: "Selected item",
+          detail: null,
+          status: "ready",
+        },
+      ],
+      errors: [],
+    };
+  }
+
+  function messageCountsPayload(revision: number) {
+    return {
+      counts: {
+        scopeKey: "pi-conv-1",
+        executionKey: "turn-1",
+        active: true,
+        current: { assistant: 2, thought: 0, tool: 1 },
+        cumulative: { assistant: 3, thought: 1, tool: 1 },
+        revision,
+        completeness: "complete",
+      },
+    };
+  }
+
+  function presentationPayload() {
+    return {
+      title: "First question",
+      subtitle: null,
+      description: null,
+      notice: null,
+      metadata: [],
+      usage: { used: 12, limit: 32000, costText: null },
+    };
+  }
+
+  function detailsPayload() {
+    return {
+      status: "ready",
+      title: "First question",
+      subtitle: null,
+      sections: [
+        {
+          sectionId: "session",
+          collapsed: false,
+          items: [{ fieldId: "status", value: "idle", format: "text" }],
+        },
+      ],
+      actions: ["compact-conversation"],
+      error: null,
+    };
+  }
+
+  function readyTranscript(revision: number, answer: string) {
+    const page = createAssistantWorkspaceTranscriptPage({
+      owner: piOwner,
+      anchor: "tail",
+      cursor: 2,
+      limit: 80,
+      totalVisibleItemCount: 2,
+      sourceEventSeq: revision,
+      items: [
+        {
+          itemId: "user-1",
+          itemKind: "message",
+          role: "user",
+          text: "First question",
+          status: "complete",
+        },
+        {
+          itemId: "assistant-1",
+          itemKind: "message",
+          role: "assistant",
+          text: answer,
+          status: "complete",
+        },
+      ],
+    });
+    return createReadyTranscriptRegion(piOwner, page, revision);
+  }
+
+  function streamingDelta(
+    baseRevision: number,
+    revision: number,
+    text: string,
+  ) {
+    return {
+      page: transcriptPageMetadata(
+        createAssistantWorkspaceTranscriptPage({
+          owner: piOwner,
+          anchor: "tail",
+          cursor: 2,
+          limit: 80,
+          totalVisibleItemCount: 2,
+          sourceEventSeq: revision,
+          items: [
+            {
+              itemId: "user-1",
+              itemKind: "message",
+              role: "user",
+              text: "First question",
+              status: "complete",
+            },
+            {
+              itemId: "assistant-1",
+              itemKind: "message",
+              role: "assistant",
+              text: "Answer" + text,
+              status: "streaming",
+            },
+          ],
+        }),
+      ),
+      baseTranscriptRevision: baseRevision,
+      transcriptRevision: revision,
+      mutations: [{ op: "append_text", itemId: "assistant-1", text }],
+    };
+  }
+
+  it("preserves non-transcript regions across a transcript stream and loading stream", function () {
+    const child = createPiChildHarness();
+    try {
+      let sequence = 0;
+      const publish = (args: {
+        owner: unknown;
+        kind: string;
+        payload: unknown;
+        form?: "snapshot" | "delta";
+      }) => {
+        sequence += 1;
+        child.runtime.applyPublication(
+          assistantWorkspaceTestPublication({
+            owner: args.owner as never,
+            kind: args.kind as never,
+            payload: args.payload as never,
+            form: args.form,
+            publicationId: "pi-" + sequence,
+            deliverySequence: sequence,
+          }),
+        );
+      };
+
+      publish({
+        owner: createAssistantWorkspaceUnownedScope("pi-conversations"),
+        kind: "owner-navigation",
+        payload: navigationPayload(),
+      });
+      publish({
+        owner: piOwner,
+        kind: "owner-control",
+        payload: ownerControlPayload(),
+      });
+      publish({
+        owner: piOwner,
+        kind: "message-counts",
+        payload: messageCountsPayload(1),
+      });
+      publish({ owner: piOwner, kind: "composer", payload: composerPayload() });
+      publish({
+        owner: piOwner,
+        kind: "owner-presentation",
+        payload: presentationPayload(),
+      });
+      publish({
+        owner: piOwner,
+        kind: "owner-details",
+        payload: detailsPayload(),
+      });
+      publish({ owner: piOwner, kind: "plan", payload: { items: [] } });
+      publish({
+        owner: piOwner,
+        kind: "permission",
+        payload: { request: null },
+      });
+      publish({
+        owner: piOwner,
+        kind: "transcript",
+        payload: readyTranscript(1, "Answer"),
+        form: "snapshot",
+      });
+
+      const regions = regionElements(child.document);
+      Object.entries(regions).forEach(([name, region]) => {
+        assert.ok(region, name + " region is missing");
+      });
+      const baseline = captureRegionSubtrees(regions);
+
+      // A streamed transcript chunk is transcript-only: every other managed
+      // region keeps its exact DOM subtree.
+      publish({
+        owner: piOwner,
+        kind: "transcript",
+        payload: streamingDelta(1, 2, " more"),
+        form: "delta",
+      });
+      assertRegionSubtreesPreserved(regions, baseline);
+
+      // An owner/page-first loading stream repaints only the transcript region
+      // before the ready page arrives.
+      publish({
+        owner: piOwner,
+        kind: "transcript",
+        payload: createLoadingTranscriptRegion(piOwner, 3),
+        form: "snapshot",
+      });
+      publish({
+        owner: piOwner,
+        kind: "transcript",
+        payload: readyTranscript(4, "Answer more"),
+        form: "snapshot",
+      });
+      assertRegionSubtreesPreserved(regions, baseline);
+    } finally {
+      child.dispose();
+    }
   });
 });

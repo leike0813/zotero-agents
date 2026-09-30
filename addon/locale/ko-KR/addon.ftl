@@ -601,6 +601,7 @@ backend-manager-pi-status-unavailable = 카탈로그를 사용할 수 없음
 backend-manager-pi-credentials = 저장된 자격 증명
 backend-manager-pi-conversation = 대화
 backend-manager-pi-skill-run = Skill 실행
+backend-manager-pi-auxiliary = 대화 제목
 backend-manager-provider-acp = ACP
 backend-manager-provider-profiles-title = { $provider } 프로필
 backend-manager-provider-add = { $provider } 프로필 추가

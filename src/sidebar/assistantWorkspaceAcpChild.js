@@ -22,6 +22,7 @@ import {
   ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS,
   ASSISTANT_WORKSPACE_FORBIDDEN_WIRE_FIELDS,
   ASSISTANT_WORKSPACE_MESSAGE_TYPES,
+  ASSISTANT_WORKSPACE_OPTIONAL_PUBLICATION_PAYLOAD_KEYS,
   ASSISTANT_WORKSPACE_PERMISSION_REQUEST_KEYS,
   ASSISTANT_WORKSPACE_PUBLICATION_ENVELOPE_KEYS,
   ASSISTANT_WORKSPACE_PUBLICATION_PAYLOAD_KEYS,
@@ -51,6 +52,9 @@ const transcriptDeltaKeys = ASSISTANT_WORKSPACE_TRANSCRIPT_DELTA_KEYS;
 
 const publicationPayloadKeys = ASSISTANT_WORKSPACE_PUBLICATION_PAYLOAD_KEYS;
 
+const optionalPublicationPayloadKeys =
+  ASSISTANT_WORKSPACE_OPTIONAL_PUBLICATION_PAYLOAD_KEYS;
+
 const permissionRequestKeys = ASSISTANT_WORKSPACE_PERMISSION_REQUEST_KEYS;
 
 // Re-exported aggregate kept for compatibility with existing consumers
@@ -78,6 +82,25 @@ function hasExactKeys(value, keys) {
   );
 }
 
+// Required keys must all be present; declared optional keys may be present.
+function hasPayloadKeys(value, kind) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const required = publicationPayloadKeys[kind] || [];
+  const optional = optionalPublicationPayloadKeys[kind] || [];
+  const allowed = required.concat(optional);
+  const actual = Object.keys(value);
+  return (
+    required.every(function (key) {
+      return actual.indexOf(key) >= 0;
+    }) &&
+    actual.every(function (key) {
+      return allowed.indexOf(key) >= 0;
+    })
+  );
+}
+
 function hasForbiddenWireField(value) {
   if (!value || typeof value !== "object") return false;
   if (Array.isArray(value)) return value.some(hasForbiddenWireField);
@@ -93,12 +116,7 @@ function validPublicationPayload(publication) {
       ? hasExactKeys(payload, transcriptSnapshotKeys)
       : hasExactKeys(payload, transcriptDeltaKeys);
   }
-  if (
-    !hasExactKeys(
-      payload,
-      publicationPayloadKeys[publication.publicationKind] || [],
-    )
-  ) {
+  if (!hasPayloadKeys(payload, publication.publicationKind)) {
     return false;
   }
   if (publication.publicationKind === "permission" && payload.request) {
@@ -106,7 +124,8 @@ function validPublicationPayload(publication) {
     return (
       hasExactKeys(request, permissionRequestKeys) &&
       (request.approvalKind === "acp-tool" ||
-        request.approvalKind === "zotero-write") &&
+        request.approvalKind === "zotero-write" ||
+        request.approvalKind === "pi-tool") &&
       hasExactKeys(request.tool, ["title", "callId"]) &&
       hasExactKeys(request.review, ["requestedAt", "command", "preview"]) &&
       Array.isArray(request.options) &&
@@ -237,6 +256,22 @@ function validPublicationEnvelope(publication, source) {
     (!hasExactKeys(owner, ["source", "ownerKey", "requestId", "runKey"]) ||
       !text(owner.runKey) ||
       owner.ownerKey !== (text(owner.requestId) || text(owner.runKey)))
+  ) {
+    return false;
+  }
+  if (
+    source === "pi-conversations" &&
+    (!hasExactKeys(owner, ["source", "ownerKey", "conversationId"]) ||
+      !text(owner.conversationId) ||
+      owner.ownerKey !== text(owner.conversationId))
+  ) {
+    return false;
+  }
+  if (
+    source === "pi-skill-runs" &&
+    (!hasExactKeys(owner, ["source", "ownerKey", "requestId"]) ||
+      !text(owner.requestId) ||
+      owner.ownerKey !== text(owner.requestId))
   ) {
     return false;
   }
@@ -1017,7 +1052,9 @@ function childSource() {
   );
   return source === "acp-chat" ||
     source === "acp-skills" ||
-    source === "skillrunner"
+    source === "skillrunner" ||
+    source === "pi-conversations" ||
+    source === "pi-skill-runs"
     ? source
     : "";
 }
@@ -1057,6 +1094,22 @@ function canonicalActionOwner(source, value) {
     hasExactKeys(owner, ["source", "ownerKey", "requestId", "runKey"]) &&
     text(owner.runKey) &&
     text(owner.ownerKey) === (text(owner.requestId) || text(owner.runKey))
+  ) {
+    return clone(owner);
+  }
+  if (
+    source === "pi-conversations" &&
+    hasExactKeys(owner, ["source", "ownerKey", "conversationId"]) &&
+    text(owner.conversationId) &&
+    text(owner.ownerKey) === text(owner.conversationId)
+  ) {
+    return clone(owner);
+  }
+  if (
+    source === "pi-skill-runs" &&
+    hasExactKeys(owner, ["source", "ownerKey", "requestId"]) &&
+    text(owner.requestId) &&
+    text(owner.ownerKey) === text(owner.requestId)
   ) {
     return clone(owner);
   }
@@ -1217,10 +1270,13 @@ function createAssistantWorkspaceAcpChildRuntime(source) {
     queuedCollapsed: true,
     runningCollapsed: false,
     unavailableCollapsed: false,
+    archivedCollapsed: true,
     drawerGroupCollapsed: new Map(),
     expandedTranscriptRows: new Set(),
     replyDraft: "",
     replyDraftByOwner: new Map(),
+    pendingReplyAdmissionOwnerKey: "",
+    pendingReplyAdmissionRevision: 0,
     executionDisplayMode: "live",
     transcriptPaginationVirtualizationEnabled: true,
   };
@@ -1469,6 +1525,36 @@ function createAssistantWorkspaceAcpChildRuntime(source) {
     return true;
   }
 
+  // Pi Conversations clear the composer only after the host durably admits
+  // the turn: the coordinator bumps composer.sendAdmissionRevision on
+  // admission, so a preflight/busy state never clears an unadmitted draft.
+  function applyPendingReplyAdmission() {
+    if (source !== "pi-conversations") return;
+    const ownerKey = text(ui.pendingReplyAdmissionOwnerKey);
+    if (!ownerKey) return;
+    const owner = selectedOwner(snapshot);
+    if (!owner || text(owner.ownerKey) !== ownerKey) {
+      ui.pendingReplyAdmissionOwnerKey = "";
+      ui.pendingReplyAdmissionRevision = 0;
+      return;
+    }
+    const composer =
+      snapshot && snapshot.selection ? snapshot.selection.composer : null;
+    const revision =
+      composer && typeof composer.sendAdmissionRevision === "number"
+        ? composer.sendAdmissionRevision
+        : 0;
+    if (!(revision > ui.pendingReplyAdmissionRevision)) return;
+    ui.pendingReplyAdmissionOwnerKey = "";
+    ui.pendingReplyAdmissionRevision = 0;
+    ui.replyDraft = "";
+    ui.replyDraftByOwner.set(ownerKey, "");
+    const input =
+      elements.composer &&
+      elements.composer.querySelector(".assistant-panel-reply-input");
+    if (input) input.value = "";
+  }
+
   function handlePanelAction(action, data) {
     const payload = data && typeof data === "object" ? data : {};
     if (action === "open-context-drawer") {
@@ -1568,6 +1654,18 @@ function createAssistantWorkspaceAcpChildRuntime(source) {
       return;
     }
     captureReplyDraft();
+    if (source === "pi-conversations" && action === "send-prompt") {
+      const pendingOwner = selectedOwner(snapshot);
+      const composer =
+        snapshot && snapshot.selection ? snapshot.selection.composer : null;
+      ui.pendingReplyAdmissionOwnerKey = pendingOwner
+        ? text(pendingOwner.ownerKey)
+        : "";
+      ui.pendingReplyAdmissionRevision =
+        composer && typeof composer.sendAdmissionRevision === "number"
+          ? composer.sendAdmissionRevision
+          : 0;
+    }
     const routed = resolvePanelActionEnvelope(
       action,
       payload,
@@ -1584,6 +1682,7 @@ function createAssistantWorkspaceAcpChildRuntime(source) {
 
   function renderPanel() {
     captureReplyDraft();
+    applyPendingReplyAdmission();
     const permission =
       snapshot.selection &&
       snapshot.selection.permission &&

@@ -37,7 +37,13 @@ type Header = {
   ownerId: string;
   createdAt: string;
 };
-type IndexRow = { seq: number; offset: number; length: number };
+type IndexRow = {
+  seq: number;
+  offset: number;
+  length: number;
+  kind: string;
+  visible: 0 | 1;
+};
 export type PiInspection = {
   status: "valid" | "torn_tail" | "corrupt";
   validBytes: number;
@@ -50,8 +56,21 @@ export type PiInspection = {
 
 const MAX_ENTRY_BYTES = 1024 * 1024;
 const MAX_PAGE_BYTES = 4 * 1024 * 1024;
+const VISIBLE_MESSAGE_ROLES = new Set(["user", "assistant", "thought"]);
 const queues = new Map<string, Promise<unknown>>();
 const utf8 = new TextEncoder();
+
+export function piTranscriptEntryVisible(entry: PiTranscriptEntry): boolean {
+  if (entry.kind === "message") {
+    const role = (entry.payload as { role?: unknown } | null)?.role;
+    return typeof role === "string" && VISIBLE_MESSAGE_ROLES.has(role);
+  }
+  if (entry.kind === "thought") return true;
+  if (entry.kind === "tool_result" || entry.kind === "compaction") return true;
+  if (entry.kind === "turn_terminal")
+    return (entry.payload as { status?: unknown } | null)?.status === "failed";
+  return false;
+}
 
 export function piOwnerPaths(ref: PiOwnerRef, root?: string) {
   if (ref.kind !== "conversation" && ref.kind !== "skill_run")
@@ -192,6 +211,8 @@ export async function inspectPiTranscript(
             seq: entry.seq,
             offset: line.offset,
             length: line.length,
+            kind: entry.kind,
+            visible: piTranscriptEntryVisible(entry) ? 1 : 0,
           });
         }
         result.validBytes = line.offset + line.length;
@@ -322,6 +343,8 @@ export async function appendPiTranscript(
     seq: entry.seq,
     offset: inspection.validBytes,
     length: utf8.encode(line).length,
+    kind: entry.kind,
+    visible: (piTranscriptEntryVisible(entry) ? 1 : 0) as 0 | 1,
   };
   inspection.entries.push(entry);
   inspection.index.push(row);
@@ -371,6 +394,9 @@ async function loadPiIndex(
         row.seq !== index + 1 ||
         row.length <= 0 ||
         row.length > MAX_ENTRY_BYTES ||
+        typeof row.kind !== "string" ||
+        !row.kind ||
+        (row.visible !== 0 && row.visible !== 1) ||
         (index > 0 &&
           row.offset !== rows[index - 1].offset + rows[index - 1].length),
     )
@@ -431,6 +457,137 @@ export async function readPiTranscriptPage(
   const nextCursor =
     cursor + selected.length < rows.length ? cursor + selected.length : null;
   return { entries, nextCursor, total: rows.length };
+}
+
+export async function appendPiTranscriptBatch(
+  ref: PiOwnerRef,
+  inputs: PiTranscriptInput[],
+  root?: string,
+) {
+  if (!Array.isArray(inputs) || inputs.length === 0)
+    throw new Error("pi_batch_empty");
+  for (const input of inputs) validatePiEntryInput(input);
+  const inspection = await inspectPiTranscript(ref, root);
+  if (inspection.status !== "valid")
+    throw new Error(`pi_transcript_${inspection.status}`);
+  const inBatch = new Set<string>();
+  const newEntries: PiTranscriptEntry[] = [];
+  const processed: PiTranscriptEntry[] = [];
+  let parent = inspection.entries.at(-1)?.entryId;
+  let seq = inspection.entries.length + 1;
+  let bytes = 0;
+  for (const input of inputs) {
+    if (inBatch.has(input.entryId)) throw new Error("pi_entry_duplicate");
+    inBatch.add(input.entryId);
+    const existing = inspection.entries.find(
+      (entry) => entry.entryId === input.entryId,
+    );
+    if (existing) {
+      if (!samePiInput(existing, input)) throw new Error("pi_entry_conflict");
+      processed.push(existing);
+      parent = existing.entryId;
+      continue;
+    }
+    const parentEntryId = input.parentEntryId ?? parent;
+    if (
+      parentEntryId &&
+      !inspection.entries.some((entry) => entry.entryId === parentEntryId) &&
+      !processed.some((entry) => entry.entryId === parentEntryId)
+    )
+      throw new Error("pi_parent_missing");
+    const entry: PiTranscriptEntry = {
+      entryId: input.entryId,
+      ...(input.turnId ? { turnId: input.turnId } : {}),
+      ...(parentEntryId ? { parentEntryId } : {}),
+      kind: input.kind,
+      payload: input.payload,
+      seq,
+      createdAt: new Date().toISOString(),
+    };
+    const length = utf8.encode(`${JSON.stringify(entry)}\n`).length;
+    if (length > MAX_ENTRY_BYTES) throw new Error("pi_entry_too_large");
+    bytes += length;
+    if (bytes > MAX_PAGE_BYTES) throw new Error("pi_batch_too_large");
+    newEntries.push(entry);
+    processed.push(entry);
+    parent = entry.entryId;
+    seq += 1;
+  }
+  if (newEntries.length) {
+    const buffer = newEntries
+      .map((entry) => `${JSON.stringify(entry)}\n`)
+      .join("");
+    await appendRuntimeTextFile(piOwnerPaths(ref, root).log, buffer);
+    for (const entry of newEntries) {
+      const length = utf8.encode(`${JSON.stringify(entry)}\n`).length;
+      inspection.index.push({
+        seq: entry.seq,
+        offset: inspection.validBytes,
+        length,
+        kind: entry.kind,
+        visible: piTranscriptEntryVisible(entry) ? 1 : 0,
+      });
+      inspection.entries.push(entry);
+      inspection.validBytes += length;
+    }
+    inspection.sourceBytes = inspection.validBytes;
+  }
+  return { entries: processed, inspection };
+}
+
+export async function readPiVisibleTranscriptPage(
+  ref: PiOwnerRef,
+  options: { cursor?: number; limit?: number } = {},
+  root?: string,
+) {
+  let rows: IndexRow[];
+  try {
+    rows = await loadPiIndex(ref, root);
+  } catch {
+    const inspection = await inspectPiTranscript(ref, root);
+    await rebuildPiIndex(ref, inspection, root);
+    rows = inspection.index;
+  }
+  const visible = rows.filter((row) => row.visible === 1);
+  const limit = options.limit ?? 80;
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 80)
+    throw new Error("pi_page_invalid");
+  // Page-first, tail-first: an unspecified cursor lands on the newest page,
+  // computed from the index alone (no bodies read) before one bounded read.
+  const cursor = options.cursor ?? Math.max(0, visible.length - limit);
+  if (!Number.isSafeInteger(cursor) || cursor < 0)
+    throw new Error("pi_page_invalid");
+  const selected: IndexRow[] = [];
+  let bytes = 0;
+  for (const row of visible.slice(cursor, cursor + limit)) {
+    if (bytes + row.length > MAX_PAGE_BYTES) break;
+    selected.push(row);
+    bytes += row.length;
+  }
+  if (cursor < visible.length && selected.length === 0)
+    throw new Error("pi_page_entry_too_large");
+  const text = await readRuntimeTextRanges(
+    piOwnerPaths(ref, root).log,
+    selected.map((row) => ({ offset: row.offset, length: row.length })),
+  );
+  const entries = text.map((line, index) => {
+    if (
+      !line.endsWith("\n") ||
+      utf8.encode(line).length !== selected[index].length
+    )
+      throw new Error("pi_index_corrupt");
+    return JSON.parse(line) as PiTranscriptEntry;
+  });
+  return {
+    entries,
+    cursor,
+    nextCursor:
+      cursor + selected.length < visible.length
+        ? cursor + selected.length
+        : null,
+    totalVisible: visible.length,
+    total: rows.length,
+  };
 }
 
 export async function repairPiTornTail(ref: PiOwnerRef, root?: string) {

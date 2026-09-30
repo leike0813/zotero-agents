@@ -13,6 +13,27 @@ export function buildAssistantPanelLabels() {
       cancelling: l("assistant-panel-action-cancelling", "Cancelling..."),
       cancelRun: l("assistant-panel-action-cancel-run", "Cancel Task"),
       archive: l("assistant-panel-action-archive", "Archive"),
+      restore: l("assistant-panel-action-restore", "Restore"),
+      delete: l("assistant-panel-action-delete", "Delete permanently"),
+      deleteConfirm: l(
+        "assistant-panel-action-delete-confirm",
+        "Permanently delete this conversation? This cannot be undone.",
+      ),
+      rename: l("assistant-panel-action-rename", "Rename"),
+      compactConversation: l(
+        "assistant-panel-action-compact-conversation",
+        "Compact",
+      ),
+      addResource: l("assistant-panel-action-add-resource", "Add resources"),
+      addResourceSelection: l(
+        "assistant-panel-action-add-resource-selection",
+        "Current selection",
+      ),
+      addResourceFiles: l(
+        "assistant-panel-action-add-resource-files",
+        "Files...",
+      ),
+      removeResource: l("assistant-panel-action-remove-resource", "Remove"),
       close: l("assistant-panel-action-close", "Close"),
       details: l("assistant-panel-action-details", "Details"),
       runs: l("assistant-panel-action-runs", "Runs"),
@@ -257,8 +278,11 @@ export function buildAssistantPanelLabels() {
         "Queued to resume",
       ),
       unavailable: l("assistant-panel-drawer-unavailable", "Unavailable"),
+      archived: l("assistant-panel-drawer-archived", "Archived"),
       emptyTasks: l("assistant-panel-drawer-empty-tasks", "No runs."),
       emptyContexts: l("assistant-panel-drawer-empty-contexts", "No entries."),
+      usageMain: l("assistant-panel-field-usage-main", "Main usage"),
+      usageTitle: l("assistant-panel-field-usage-title", "Title usage"),
     },
     details: {
       title: l("assistant-panel-details-title", "Details"),
@@ -296,6 +320,7 @@ export function buildAssistantPanelLabels() {
         "assistant-panel-details-section-revision-summary",
         "Revision Summary",
       ),
+      usage: l("assistant-panel-details-section-usage", "Usage"),
       diagnostics: l(
         "assistant-panel-details-section-diagnostics",
         "Diagnostics",
@@ -322,6 +347,32 @@ export function buildAssistantPanelLabels() {
       ),
     },
     reply: {
+      resources: l("assistant-panel-reply-resources", "Resources"),
+      addResources: l("assistant-panel-reply-add-resources", "Add resources"),
+      addResourceSelection: l(
+        "assistant-panel-reply-add-resource-selection",
+        "Current selection",
+      ),
+      addResourceFiles: l(
+        "assistant-panel-reply-add-resource-files",
+        "Files...",
+      ),
+      removeResource: l(
+        "assistant-panel-reply-remove-resource",
+        "Remove resource",
+      ),
+      resourcesFull: l(
+        "assistant-panel-reply-resources-full",
+        "Resource limit reached",
+      ),
+      resourceError: l(
+        "assistant-panel-reply-resource-error",
+        "Could not add the resource.",
+      ),
+      actionError: l(
+        "assistant-panel-reply-action-error",
+        "The action could not be completed.",
+      ),
       placeholderAcpSkill: l(
         "assistant-panel-reply-placeholder-acp-skill",
         "Reply to this ACP skill conversation...",
@@ -531,6 +582,16 @@ export function buildAssistantPanelLabels() {
       tokens: l("assistant-panel-usage-tokens", "tokens"),
     },
     status: {
+      cleanupIncomplete: l(
+        "assistant-panel-status-cleanup-incomplete",
+        "Cleanup incomplete",
+      ),
+      deleting: l("assistant-panel-status-deleting", "Deleting"),
+      archived: l("assistant-panel-status-archived", "Archived"),
+      recoveryRequired: l(
+        "assistant-panel-status-recovery-required",
+        "Needs recovery",
+      ),
       overall: l("assistant-panel-status-overall", "Overall"),
       backend: l("assistant-panel-status-backend", "Backend"),
       apply: l("assistant-panel-status-apply", "Apply"),

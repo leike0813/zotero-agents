@@ -13,6 +13,7 @@ import {
   type AcpChatWorkspaceChangeKind,
 } from "./acpSessionManager";
 import type { AcpSidebarTarget } from "../../acpTypes";
+import type { AssistantWorkspaceTab } from "../../../shared/assistantWireContract";
 import {
   createAcpChatWorkspaceOwner,
   createFailedTranscriptRegion,
@@ -47,7 +48,7 @@ export type AcpChatTranscriptPageRequest = {
 };
 
 export type AcpChatSnapshotRefreshState = {
-  activeTab: "skillrunner" | "acp-chat" | "acp-skills";
+  activeTab: AssistantWorkspaceTab;
   hasActiveTarget: boolean;
   transcriptPaginationVirtualizationEnabled: boolean;
   executionDisplayMode: AssistantExecutionDisplayMode;

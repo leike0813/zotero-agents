@@ -4,6 +4,7 @@ import {
   joinPath,
   readUtf8,
 } from "../zotero/workflow-test-utils";
+import { ASSISTANT_WORKSPACE_SOURCE_REGISTRY } from "../../src/shared/assistantWorkspaceSourceRegistry";
 
 async function readProjectFile(relativePath: string) {
   const targetPath = joinPath(getProjectRoot(), relativePath);
@@ -69,13 +70,18 @@ describe("skillrunner sidebar entrypoints", function () {
     assert.include(html, 'src="./acp-chat.html"');
     assert.include(html, 'src="./acp-skill-run.html"');
     assert.include(html, 'src="./skillrunner.html"');
-    assert.include(js, '"acp-chat"');
-    assert.include(js, '"acp-skills"');
-    assert.include(js, '"skillrunner"');
-    assert.include(
-      js,
-      'setActiveTab("acp-chat", { notify: false, fallback: "acp-chat" })',
-    );
+    assert.include(html, 'src="./pi-conversations.html"');
+    // The shell renders lanes/sources from the shared registry instead of
+    // hardcoding source ids; the registry is the observable contract
+    // (tests/assistant/260 covers its full shape).
+    assert.include(js, "assistantWorkspaceSourceRegistry");
+    assert.deepEqual(Object.keys(ASSISTANT_WORKSPACE_SOURCE_REGISTRY).sort(), [
+      "acp-chat",
+      "acp-skills",
+      "pi-conversations",
+      "pi-skill-runs",
+      "skillrunner",
+    ]);
     assert.notInclude(js, "localStorage");
   });
 

@@ -79,6 +79,24 @@ type HarnessTranscriptPageRequest = {
   limit?: number;
 };
 
+/**
+ * Sources the read-only harness renders. The harness mirrors the ACP Chat,
+ * ACP Skills and SkillRunner lanes; the Pi sources are exercised by the real
+ * Workspace, not this read-only page.
+ */
+type HarnessSource = Extract<
+  AssistantWorkspacePublicationSource,
+  "acp-chat" | "acp-skills" | "skillrunner"
+>;
+
+function isHarnessSource(
+  value: AssistantWorkspacePublicationSource,
+): value is HarnessSource {
+  return (
+    value === "acp-chat" || value === "acp-skills" || value === "skillrunner"
+  );
+}
+
 type HarnessAdapter = AssistantWorkspacePublicationAdapter<
   AssistantWorkspacePublicationSource,
   unknown,
@@ -91,10 +109,7 @@ type HarnessChannel = {
   runtime: AssistantWorkspacePublicationRuntime;
 };
 
-type HarnessChannels = Record<
-  AssistantWorkspacePublicationSource,
-  HarnessChannel
->;
+type HarnessChannels = Record<HarnessSource, HarnessChannel>;
 
 type HarnessSelection = {
   "acp-chat": Extract<AssistantWorkspaceOwner, { source: "acp-chat" }> | null;
@@ -112,7 +127,7 @@ export type AssistantReadonlyPublicationBootstrap = {
   scopeKey: string;
   configuration: AssistantWorkspacePublicationRuntimeConfiguration;
   surfaceLabels: Record<
-    AssistantWorkspacePublicationSource,
+    HarnessSource,
     ReturnType<typeof buildAssistantWorkspacePublicationLabels>
   >;
   publications: AssistantWorkspacePublication[];
@@ -1534,15 +1549,14 @@ export async function createAssistantReadonlyPublicationSession(args: {
     HarnessTranscriptPageRequest
   >);
 
-  const adapters: Record<AssistantWorkspacePublicationSource, HarnessAdapter> =
-    {
-      "acp-chat": acpChatAdapter as unknown as HarnessAdapter,
-      "acp-skills": acpSkillsAdapter as unknown as HarnessAdapter,
-      skillrunner: skillRunnerAdapter as unknown as HarnessAdapter,
-    };
+  const adapters: Record<HarnessSource, HarnessAdapter> = {
+    "acp-chat": acpChatAdapter as unknown as HarnessAdapter,
+    "acp-skills": acpSkillsAdapter as unknown as HarnessAdapter,
+    skillrunner: skillRunnerAdapter as unknown as HarnessAdapter,
+  };
 
   function createChannel(
-    source: AssistantWorkspacePublicationSource,
+    source: HarnessSource,
     nextScopeKey: string,
   ): HarnessChannel {
     const adapter = adapters[source];
@@ -1642,7 +1656,7 @@ export async function createAssistantReadonlyPublicationSession(args: {
   // -------------------------------------------------------------------------
 
   function parseActionOwner(
-    source: AssistantWorkspacePublicationSource,
+    source: HarnessSource,
     value: unknown,
   ): AssistantWorkspaceOwner | null {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -1773,6 +1787,7 @@ export async function createAssistantReadonlyPublicationSession(args: {
 
   async function requestOwnerDetails(owner: AssistantWorkspaceOwner) {
     if (!channels) return;
+    if (!isHarnessSource(owner.source)) return;
     const channel = channels[owner.source];
     await channel.runtime.requestOwnerDetails({
       adapter: channel.adapter,
@@ -1782,9 +1797,7 @@ export async function createAssistantReadonlyPublicationSession(args: {
     await channel.runtime.flush();
   }
 
-  async function reinitializeSource(
-    source: AssistantWorkspacePublicationSource,
-  ) {
+  async function reinitializeSource(source: HarnessSource) {
     if (!channels) return;
     const channel = channels[source];
     await channel.runtime.initialize({

@@ -349,7 +349,14 @@ export async function digestRuntimeFileSource(
         { path: source.path },
       );
     }
+    let observed = 0;
     const bytesRead = await readRuntimeFileChunks(source.path, (chunk) => {
+      observed += chunk.byteLength;
+      if (observed > source.size)
+        throw new RuntimeFileTransferError(
+          "runtime_file_changed",
+          "Runtime file exceeded its declared size",
+        );
       observeChunk(chunk.byteLength, "digest");
       accumulator.update(chunk);
     });
@@ -393,21 +400,27 @@ export async function verifyRuntimeFileSource(
   return inspected;
 }
 
-export async function collectRuntimeFileSourceBytesForTests(
+export async function collectRuntimeFileSourceBytes(
   source: RuntimeFileTransferSource,
 ) {
   return withTransferSlot(async () => {
-    const chunks: Uint8Array[] = [];
-    const bytesRead = await readRuntimeFileChunks(source.path, (chunk) => {
-      observeChunk(chunk.byteLength, "copy");
-      chunks.push(chunk.slice());
-    });
-    const bytes = new Uint8Array(bytesRead);
+    const bytes = new Uint8Array(source.size);
     let offset = 0;
-    for (const chunk of chunks) {
+    const bytesRead = await readRuntimeFileChunks(source.path, (chunk) => {
+      if (offset + chunk.byteLength > source.size)
+        throw new RuntimeFileTransferError(
+          "runtime_file_changed",
+          "Runtime file exceeded its declared size",
+        );
+      observeChunk(chunk.byteLength, "copy");
       bytes.set(chunk, offset);
       offset += chunk.byteLength;
-    }
+    });
+    if (bytesRead !== source.size)
+      throw new RuntimeFileTransferError(
+        "runtime_file_changed",
+        "Runtime file size changed",
+      );
     return bytes;
   });
 }
