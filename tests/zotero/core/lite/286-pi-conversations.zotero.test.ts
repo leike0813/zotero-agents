@@ -271,14 +271,41 @@ describe("Pi Conversations in real Zotero", function () {
                     ],
                   },
                 ]
-              : [{ text: "Renamed" }],
+              : [
+                  {
+                    text: "Reveal",
+                    toolCalls: [
+                      {
+                        callId: "reveal-item",
+                        name: "zotero_reveal_items",
+                        arguments: {
+                          items: [{ libraryId: item.libraryID, key: item.key }],
+                        },
+                      },
+                    ],
+                  },
+                  { text: "Renamed" },
+                ],
         }),
     });
     let ownerId: string | undefined;
     try {
       await coordinator.create();
       ownerId = coordinator.selectedId!;
-      const turn = await coordinator.send(ownerId, "Rename the item");
+      const originWindow = Zotero.getMainWindow();
+      // Start outside the library view so reveal must settle a native row change.
+      await originWindow.ZoteroPane.collectionsView.selectByID(
+        `P${item.libraryID}`,
+      );
+      await originWindow.ZoteroPane.itemsView.waitForLoad();
+      const turn = await coordinator.send(
+        ownerId,
+        "Rename the item",
+        undefined,
+        {
+          resolveAndValidate: () => (originWindow.closed ? null : originWindow),
+        },
+      );
       assert.equal((await turn.result).status, "waiting_permission");
       const pending = (await coordinator.readModel(ownerId)).pending;
       assert.lengthOf(pending, 1);
@@ -292,8 +319,10 @@ describe("Pi Conversations in real Zotero", function () {
         "approve",
       );
       assert.isOk(approval);
-      assert.equal((await approval!.result).status, "completed");
+      const result = await approval!.result;
+      assert.equal(result.status, "completed", JSON.stringify(result.failure));
       assert.equal(item.getField("title"), "Pi conversation renamed");
+      assert.include(originWindow.ZoteroPane.getSelectedItems(true), item.id);
 
       const history = await inspectPiOwner(
         { kind: "conversation", ownerId },
@@ -301,6 +330,19 @@ describe("Pi Conversations in real Zotero", function () {
       );
       const identities = history.entries.filter(
         (entry) => entry.kind === "zotero_mutation_identity",
+      );
+      const navigation = history.entries.find(
+        (entry) =>
+          entry.kind === "tool_result" &&
+          (entry.payload as { name?: string }).name === "zotero_reveal_items",
+      );
+      assert.equal(
+        (navigation?.payload as { status?: string })?.status,
+        "completed",
+      );
+      assert.equal(
+        (navigation?.payload as { effectCertainty?: string })?.effectCertainty,
+        "confirmed_complete",
       );
       const receipts = history.entries.filter(
         (entry) => entry.kind === "zotero_mutation_receipt",

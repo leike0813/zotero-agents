@@ -283,6 +283,7 @@ configureAssistantWorkspaceActionRouterShellHost({
   normalizeTab: (value) =>
     String(value || "acp-skills") as AssistantWorkspaceTab,
   resolveCurrentShellWindow: () => null,
+  isHostAlive: () => true,
 });
 
 function createAssistantWorkspaceDispatchHost() {

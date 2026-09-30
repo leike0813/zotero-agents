@@ -398,81 +398,267 @@ describe("Pi Conversation integration", function () {
     await coordinator.dispose();
   });
 
-  it("suspends a permission batch and resumes only the reviewed call in a new turn", async function () {
-    let writes = 0;
-    let executions = 0;
+  it("permanently revokes original navigation when Conversation selection changes away and back", async function () {
+    let effects = 0;
+    let original = "";
+    let other = "";
+    const sourceWindow = {} as _ZoteroTypes.MainWindow;
     const coordinator = createPiConversationCoordinator({
       root,
       resolveModel: async () => model,
-      execution: () =>
-        createPiTextProviderSource({
-          steps:
-            executions++ === 0
-              ? [
-                  {
-                    text: "Need permission",
-                    toolCalls: [
-                      { callId: "write-1", name: "write_fact", arguments: {} },
-                    ],
-                  },
-                ]
-              : [{ text: "Done" }],
-        }),
+      execution: () => {
+        const execution = createPiTextProviderSource({
+          steps: [
+            {
+              toolCalls: [
+                { callId: "navigate", name: "navigate", arguments: {} },
+              ],
+            },
+            { text: "Done" },
+          ],
+        });
+        return {
+          ...execution,
+          source: (input) => {
+            void coordinator.select(other);
+            void coordinator.select(original);
+            return execution.source(input);
+          },
+        };
+      },
       definitions: async () => [
         {
-          capabilityId: "test.write",
-          name: "write_fact",
-          description: "Write a deterministic fact",
+          capabilityId: "test.navigate",
+          name: "navigate",
+          description: "Navigate",
           schema: { type: "object", additionalProperties: false },
-          minimumEffects: ["workspace-mutation"],
+          minimumEffects: ["host-control"],
+          requiresForegroundConversation: true,
           maxResultBytes: 1024,
           classify: () => ({
-            effects: ["workspace-mutation"],
-            authorizationKeys: ["workspace:fixture"],
-            resourceKeys: ["workspace:fixture"],
+            effects: ["host-control"],
+            authorizationKeys: [],
+            resourceKeys: [],
             cost: 1,
           }),
           execute: async () => {
-            writes++;
+            effects++;
             return {
               status: "completed",
               effectCertainty: "confirmed_complete",
-              value: { changed: true },
             };
           },
         },
       ],
     });
     await coordinator.create();
-    const id = coordinator.selectedId!;
-    assert.equal(
-      (await (await coordinator.send(id, "Write fact")).result).status,
-      "waiting_permission",
+    original = coordinator.selectedId!;
+    await coordinator.create();
+    other = coordinator.selectedId!;
+    await coordinator.select(original);
+    await (
+      await coordinator.send(original, "Navigate", undefined, {
+        resolveAndValidate: () => sourceWindow,
+      })
+    ).result;
+    assert.equal(effects, 0);
+    const history = await inspectPiOwner(
+      { kind: "conversation", ownerId: original },
+      root,
     );
-    assert.equal(writes, 0);
-    assert.equal(
-      (await coordinator.readModel(id)).status,
-      "waiting_permission",
-    );
-    const resumed = await coordinator.permission(id, "write-1", "approve");
-    assert.exists(resumed);
-    assert.equal((await resumed!.result).status, "completed");
-    assert.equal(writes, 1);
-    const entries = (
-      await inspectPiOwner({ kind: "conversation", ownerId: id }, root)
-    ).entries;
-    const resumedTurnId = entries
-      .filter((entry) => entry.kind === "turn_terminal")
-      .at(-1)!.turnId;
-    assert.isTrue(
-      entries.some(
-        (entry) =>
-          entry.kind === "turn_started" && entry.turnId === resumedTurnId,
-      ),
-      "permission continuation has durable turn admission",
-    );
+    const result = history.entries.find((entry) => entry.kind === "tool_result")
+      ?.payload as { text: string };
+    assert.equal(JSON.parse(result.text).failure.code, "policy_denied");
     await coordinator.dispose();
   });
+
+  for (const validAtContinuation of [true, false]) {
+    it(`suspends a permission batch and resumes only the reviewed call in a new turn (source ${validAtContinuation})`, async function () {
+      let writes = 0;
+      let executions = 0;
+      let sourceValid = true;
+      let navigations = 0;
+      const sourceWindow = {} as _ZoteroTypes.MainWindow;
+      const coordinator = createPiConversationCoordinator({
+        root,
+        resolveModel: async () => model,
+        execution: () => {
+          const iteration = executions++;
+          const execution = createPiTextProviderSource({
+            steps:
+              iteration === 0
+                ? [
+                    {
+                      text: "Need permission",
+                      toolCalls: [
+                        {
+                          callId: "write-1",
+                          name: "write_fact",
+                          arguments: {},
+                        },
+                      ],
+                    },
+                  ]
+                : iteration === 2 || (iteration === 1 && !sourceValid)
+                  ? [{ text: "No navigation" }]
+                  : [
+                      {
+                        text: "Navigate",
+                        toolCalls: [
+                          { callId: "nav-1", name: "navigate", arguments: {} },
+                        ],
+                      },
+                      { text: "Done" },
+                    ],
+          });
+          return {
+            ...execution,
+            source: (input) => {
+              if (iteration === 2 || (iteration === 1 && !sourceValid))
+                assert.notInclude(
+                  input.context.tools?.map((tool) => tool.name) || [],
+                  "navigate",
+                  "model only sees the effective catalog",
+                );
+              return execution.source(input);
+            },
+          };
+        },
+        definitions: async () => [
+          {
+            capabilityId: "test.navigate",
+            name: "navigate",
+            description: "Navigate",
+            schema: { type: "object", additionalProperties: false },
+            minimumEffects: ["host-control"],
+            requiresForegroundConversation: true,
+            maxResultBytes: 1024,
+            classify: () => ({
+              effects: ["host-control"],
+              authorizationKeys: [],
+              resourceKeys: [],
+              cost: 1,
+            }),
+            execute: async () => {
+              navigations++;
+              return {
+                status: "completed",
+                effectCertainty: "confirmed_complete",
+              };
+            },
+          },
+          {
+            capabilityId: "test.write",
+            name: "write_fact",
+            description: "Write a deterministic fact",
+            schema: { type: "object", additionalProperties: false },
+            minimumEffects: ["workspace-mutation"],
+            maxResultBytes: 1024,
+            classify: () => ({
+              effects: ["workspace-mutation"],
+              authorizationKeys: ["workspace:fixture"],
+              resourceKeys: ["workspace:fixture"],
+              cost: 1,
+            }),
+            execute: async () => {
+              writes++;
+              return {
+                status: "completed",
+                effectCertainty: "confirmed_complete",
+                value: { changed: true },
+              };
+            },
+          },
+        ],
+      });
+      await coordinator.create();
+      const id = coordinator.selectedId!;
+      assert.equal(
+        (
+          await (
+            await coordinator.send(id, "Write fact", undefined, {
+              resolveAndValidate: () => (sourceValid ? sourceWindow : null),
+            })
+          ).result
+        ).status,
+        "waiting_permission",
+      );
+      assert.equal(writes, 0);
+      assert.equal(
+        (await coordinator.readModel(id)).status,
+        "waiting_permission",
+      );
+      sourceValid = validAtContinuation;
+      let resumed = await coordinator.permission(id, "write-1", "approve");
+      if (!validAtContinuation) {
+        assert.isUndefined(resumed);
+        assert.equal(
+          (await coordinator.readModel(id)).status,
+          "waiting_permission",
+        );
+        assert.equal(
+          executions,
+          1,
+          "a changed catalog renews review without model reissue",
+        );
+        resumed = await coordinator.permission(id, "write-1", "approve");
+      }
+      assert.exists(resumed);
+      assert.equal((await resumed!.result).status, "completed");
+      assert.equal(writes, 1);
+      assert.equal(
+        navigations,
+        validAtContinuation ? 1 : 0,
+        "original authority survives a permission continuation",
+      );
+      sourceValid = false;
+      assert.equal(
+        (
+          await (
+            await coordinator.send(id, "Later", undefined, {
+              resolveAndValidate: () => (sourceValid ? sourceWindow : null),
+            })
+          ).result
+        ).status,
+        "completed",
+      );
+      assert.equal(
+        navigations,
+        validAtContinuation ? 1 : 0,
+        "later turns cannot reuse previous authority",
+      );
+      const laterWindow = {} as _ZoteroTypes.MainWindow;
+      assert.equal(
+        (
+          await (
+            await coordinator.send(id, "New source", undefined, {
+              resolveAndValidate: () => laterWindow,
+            })
+          ).result
+        ).status,
+        "completed",
+      );
+      assert.equal(
+        navigations,
+        validAtContinuation ? 2 : 1,
+        "new prompt receives its own source authority",
+      );
+      const entries = (
+        await inspectPiOwner({ kind: "conversation", ownerId: id }, root)
+      ).entries;
+      const resumedTurnId = entries
+        .filter((entry) => entry.kind === "turn_terminal")
+        .at(-1)!.turnId;
+      assert.isTrue(
+        entries.some(
+          (entry) =>
+            entry.kind === "turn_started" && entry.turnId === resumedTurnId,
+        ),
+        "permission continuation has durable turn admission",
+      );
+      await coordinator.dispose();
+    });
+  }
 
   it("keeps a changed domain plan actionable without model reissue", async function () {
     let revision = 1;

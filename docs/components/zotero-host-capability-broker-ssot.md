@@ -16,8 +16,11 @@ The stable layering is:
 The architecture has one fact source and deliberately separate public surfaces. Adding a broker member does not implicitly expose it to workflows, Host Bridge, or MCP.
 
 Pi's `zoteroNativeToolCatalog.ts` is another explicit local projection. With
-trusted mutation identity and evidence callbacks it exposes fourteen reads and
-twenty-three business writes. Eleven default writes cover item creation,
+trusted mutation identity and evidence callbacks it exposes fifteen reads and
+twenty-three business writes; with a trusted navigation target it adds seven
+foreground-only navigation tools. The fifteenth read is Saved Search discovery,
+which returns portable refs and display names with default 25 and maximum 100.
+Eleven default writes cover item creation,
 metadata, tags and relations; ordinary note creation/content; collection
 creation, metadata and membership; and attachment metadata. Twelve enhanced
 writes cover item type, attachment import/replacement/move, Trash/restore,
@@ -63,8 +66,9 @@ Canonical mutations cover item metadata/type/tag/related changes, collections an
 
 It projects bounded library reads, canonical mutations, notes, attachments,
 status tags, and the other members declared by the single runtime manifest.
-Broker navigation members remain private to Host Bridge and MCP unless a future
-Workflow Host contract explicitly names them.
+Broker navigation members are exposed through the Host Bridge/MCP projections
+and through the Pi native tool catalog's foreground-only navigation tools; the
+`WorkflowHostApi` contract still does not name them.
 
 The main read, navigation and mutation entry points are:
 
@@ -209,9 +213,11 @@ UI/dialog/editor capabilities are host interactions, not agent defaults. They sh
 
 ## Navigation Boundary
 
-Navigation uses the request-admission window resolver, revalidated before UI effects. The seven interactive navigation capabilities require no per-call approval; automated and invalid scopes are rejected by the transport adapter. Results describe exact selection or native dispatch, never durable mutation completion or OS foreground placement. Cancellation after effects begin does not roll back UI state or convert a dispatched result to effect-free cancellation.
+Navigation uses the request-admission window resolver, revalidated before UI effects. The seven interactive navigation capabilities require no per-call approval; automated and invalid scopes are rejected by the transport adapter. Results describe exact selection or native dispatch, never durable mutation completion or OS foreground placement. Cancellation after effects begin does not roll back UI state or convert a dispatched result to effect-free cancellation. `ZoteroNavigationCallControl.onEffectStarted` is the trusted in-process notification issued synchronously after that final revalidation and immediately before the first UI effect, including a Reader tab reservation or loaded-Reader selection, so callers can separate a confirmed no-effect failure from an unknown one; it stays outside portable DTOs and durable evidence.
 
 Exact Reader locations reuse the captured window's built-in Reader tab or initialize a window-owned tab through the native existing-tab opening path. Private tab identity is checked across main windows before opening; native global reuse is disabled. Initialization and the normalized location command must complete before reporting dispatch. A focus change during native loading cannot authorize a replacement tab in another window. Precreating a tab is already a UI effect: subsequent failure can leave that tab present, does not establish location dispatch, and does not authorize automatic replay or UI rollback. This is an internal Zotero compatibility seam, verified against the pinned 7/9/10 hosts, not a public caller-supplied window or tab identifier.
+
+`revealItems` waits for the native item tree to finish loading before selecting items, including after a fallback Library or Trash row change. Collection-tree selection alone does not prove that the item tree is ready.
 
 ## Library Page Query Boundary
 
@@ -252,8 +258,6 @@ The canonical broker is process-local and may return an attachment DTO containin
 - Never infer that an MCP client shares the Zotero process's filesystem, even when the transport endpoint is loopback.
 
 The Host Bridge v2 output schemas explicitly reject attachment objects containing `path`. MCP mirrors the same handler result, so there is no separate MCP attachment policy.
-
-
 
 ## Workflow Host API v12 Portable Archive Boundary
 

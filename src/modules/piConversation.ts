@@ -2,7 +2,11 @@ import type {
   PiModelSelectionSnapshot,
   PiSelection,
 } from "../shared/piProviderContract";
-import type { JsonValue, SelectedItemSummaryDto } from "../workflows/types";
+import type {
+  JsonValue,
+  SelectedItemSummaryDto,
+  WorkflowCallControl,
+} from "../workflows/types";
 import { getBaseName, joinPath } from "../utils/path";
 import { sha256PrefixedHex } from "../utils/sha256";
 import { resolveNativeAbortControllerConstructor } from "../utils/wait";
@@ -160,6 +164,8 @@ export function createPiConversationCoordinator(options: Options = {}) {
       pending: PiGatewayPendingCall[];
       frozen?: PiTurnPreparationInput["frozen"];
       definitions: PiGatewayToolDefinition[];
+      navigationTarget?: WorkflowCallControl["target"];
+      invalidateNavigation?: () => void;
       usage: {
         main: number;
         title: number;
@@ -289,6 +295,8 @@ export function createPiConversationCoordinator(options: Options = {}) {
   }
   async function select(conversationId: string) {
     metadata(conversationId);
+    if (selectedId !== conversationId)
+      for (const current of states.values()) current.invalidateNavigation?.();
     selectedId = conversationId;
     state(conversationId).unread = false;
     emit(conversationId, ["navigation"]);
@@ -346,9 +354,14 @@ export function createPiConversationCoordinator(options: Options = {}) {
     } catch {
       /* Selection unavailability is represented by control state. */
     }
+    const {
+      navigationTarget: _target,
+      invalidateNavigation: _invalidate,
+      ...publicState
+    } = current;
     return {
       ...owner,
-      ...current,
+      ...publicState,
       counts: getPiConversationProjection(conversationId)?.counts,
       model,
       resources: resources(conversationId).map(
@@ -510,6 +523,7 @@ export function createPiConversationCoordinator(options: Options = {}) {
     conversationId: string,
     native: Awaited<ReturnType<typeof workspace>>,
     web: PiWebTurn,
+    navigationTarget?: WorkflowCallControl["target"],
   ) {
     if (options.definitions) return options.definitions(conversationId);
     const mcp = await getPiMcpToolSources();
@@ -537,6 +551,7 @@ export function createPiConversationCoordinator(options: Options = {}) {
       ...createZoteroNativeToolDefinitions({
         broker: resolveZoteroHostCapabilityBroker(),
         workspace: native,
+        navigationTarget,
         mutations: {
           identity: async (context) => {
             const entryId = await mutationEntryId(context, "identity");
@@ -612,6 +627,7 @@ export function createPiConversationCoordinator(options: Options = {}) {
     tools: PiGatewayToolDefinition[],
     signal: AbortSignal,
   ) {
+    const navigationTarget = state(conversationId).navigationTarget;
     return freezePiToolGatewayTurn({
       owner: ref(conversationId),
       turnId,
@@ -656,6 +672,8 @@ export function createPiConversationCoordinator(options: Options = {}) {
           ).then(() => {}),
       },
       signal,
+      foregroundConversation: () =>
+        !disposed && !!navigationTarget?.resolveAndValidate(),
     });
   }
   async function frozenFacts(
@@ -816,7 +834,7 @@ export function createPiConversationCoordinator(options: Options = {}) {
     const turn = session.runTurn({
       turnId,
       messages: [],
-      tools: current.definitions.map((tool) => ({
+      tools: toolGateway.catalog.tools.map((tool) => ({
         name: tool.name,
         description: tool.description,
         schema: tool.schema,
@@ -869,7 +887,7 @@ export function createPiConversationCoordinator(options: Options = {}) {
         return {
           systemPrompt: context.blocks.map((block) => block.text).join("\n\n"),
           messages,
-          tools: current.definitions.map((tool) => ({
+          tools: toolGateway.catalog.tools.map((tool) => ({
             name: tool.name,
             description: tool.description,
             schema: tool.schema,
@@ -1088,6 +1106,12 @@ export function createPiConversationCoordinator(options: Options = {}) {
       if (selectedId !== conversationId && result.status === "failed")
         current.unread = true;
       current.abort = undefined;
+      if (current.status !== "waiting_permission") {
+        current.invalidateNavigation?.();
+        current.invalidateNavigation = undefined;
+        current.navigationTarget = undefined;
+        current.definitions = [];
+      }
       session.dispose();
       emit(conversationId, [
         "control",
@@ -1104,8 +1128,37 @@ export function createPiConversationCoordinator(options: Options = {}) {
     conversationId: string,
     text: string,
     authorizeLocalNetwork?: LocalNetworkAuthorizer,
+    navigationTarget?: WorkflowCallControl["target"],
   ) {
     const current = idle(conversationId);
+    // Bind this interaction once; a validator can only retain its original window.
+    let sourceWindow: _ZoteroTypes.MainWindow | null | undefined;
+    try {
+      sourceWindow = navigationTarget?.resolveAndValidate();
+    } catch {
+      sourceWindow = null;
+    }
+    let sourceValid = !!sourceWindow;
+    current.invalidateNavigation?.();
+    current.invalidateNavigation = () => {
+      sourceValid = false;
+    };
+    current.navigationTarget = sourceValid
+      ? {
+          resolveAndValidate() {
+            try {
+              sourceValid =
+                sourceValid &&
+                !disposed &&
+                !sourceWindow?.closed &&
+                navigationTarget?.resolveAndValidate() === sourceWindow;
+            } catch {
+              sourceValid = false;
+            }
+            return sourceValid ? sourceWindow : null;
+          },
+        }
+      : undefined;
     const draft = [...resources(conversationId)];
     if (!text.trim() && !draft.length) throw new Error("pi_message_empty");
     const Controller = resolveNativeAbortControllerConstructor();
@@ -1168,7 +1221,12 @@ export function createPiConversationCoordinator(options: Options = {}) {
       );
       const web = await getPiBrokeredWebTools().freezeForTurn(model);
       current.definitions = model.policy.supportsTools
-        ? await definitions(conversationId, native, web)
+        ? await definitions(
+            conversationId,
+            native,
+            web,
+            current.navigationTarget,
+          )
         : [];
       checkPreflight();
       if (
@@ -1253,6 +1311,10 @@ export function createPiConversationCoordinator(options: Options = {}) {
       return started;
     } catch (error) {
       current.abort = undefined;
+      current.invalidateNavigation?.();
+      current.invalidateNavigation = undefined;
+      current.navigationTarget = undefined;
+      current.definitions = [];
       if (controller.signal.aborted || disposed) {
         if (admittedTurnId)
           await fact(
@@ -1392,6 +1454,10 @@ export function createPiConversationCoordinator(options: Options = {}) {
     } catch {
       current.status = "recovery_required";
       current.abort = undefined;
+      current.invalidateNavigation?.();
+      current.invalidateNavigation = undefined;
+      current.navigationTarget = undefined;
+      current.definitions = [];
       emit(conversationId, ["control", "permission", "navigation"]);
       return;
     }
@@ -1439,6 +1505,12 @@ export function createPiConversationCoordinator(options: Options = {}) {
         turnId,
       );
       current.abort = undefined;
+      if (current.status !== "waiting_permission") {
+        current.invalidateNavigation?.();
+        current.invalidateNavigation = undefined;
+        current.navigationTarget = undefined;
+        current.definitions = [];
+      }
       emit(conversationId, ["permission", "control", "navigation"]);
       return;
     }
@@ -1793,6 +1865,12 @@ export function createPiConversationCoordinator(options: Options = {}) {
         ...[...titleTasks.values()].map((task) => task.result),
       ]);
       listeners.clear();
+      for (const current of states.values()) {
+        current.invalidateNavigation?.();
+        current.invalidateNavigation = undefined;
+        current.navigationTarget = undefined;
+        current.definitions = [];
+      }
       states.clear();
       drafts.clear();
     },

@@ -5,7 +5,10 @@ import {
   type PiGatewayPolicy,
 } from "../../src/modules/piToolGateway";
 import { createZoteroNativeToolDefinitions } from "../../src/modules/zoteroNativeToolCatalog";
-import { ZoteroHostCapabilityError } from "../../src/modules/zoteroHostCapabilityBroker";
+import {
+  ZoteroHostCapabilityError,
+  type ZoteroHostCapabilityBroker,
+} from "../../src/modules/zoteroHostCapabilityBroker";
 import type { JsonObject } from "../../src/workflows/types";
 import { createFailClosedZoteroHostCapabilityBroker } from "../helpers/zoteroHostCapabilityBrokerHarness";
 import sourceReferenceArtifactSchema from "../../packages/synthesis-contracts/contract-set/canonical-literature-artifacts-v1/schemas/source-reference-artifact.schema.json";
@@ -102,6 +105,14 @@ describe("Pi Zotero Native Tool Catalog", function () {
         ["bounded-read"],
       ],
       [
+        "library.list_saved_searches",
+        "zotero_library_list_saved_searches",
+        "library",
+        "listSavedSearches",
+        { libraryId: 1 },
+        ["bounded-read"],
+      ],
+      [
         "library.get_item_detail",
         "zotero_library_get_item_detail",
         "library",
@@ -186,9 +197,9 @@ describe("Pi Zotero Native Tool Catalog", function () {
       broker: createFailClosedZoteroHostCapabilityBroker(),
       workspace,
     });
-    assert.lengthOf(catalog, 14);
-    assert.equal(new Set(catalog.map((item) => item.capabilityId)).size, 14);
-    assert.equal(new Set(catalog.map((item) => item.name)).size, 14);
+    assert.lengthOf(catalog, 15);
+    assert.equal(new Set(catalog.map((item) => item.capabilityId)).size, 15);
+    assert.equal(new Set(catalog.map((item) => item.name)).size, 15);
     assert.notInclude(
       catalog.map((item) => item.name),
       "zotero_library_get_note_payload",
@@ -796,7 +807,7 @@ function mutationTool(
 }
 
 describe("Pi Zotero Native Mutation Tool Catalog", function () {
-  it("registers all thirty-seven schemas through the real Gateway catalog", async function () {
+  it("registers the reviewed read and mutation schemas through the real Gateway catalog", async function () {
     const { dependencies } = mutationDependencies();
     const definitions = [...mutationCatalog(dependencies)];
     const gateway = await freezePiToolGatewayTurn({
@@ -824,7 +835,7 @@ describe("Pi Zotero Native Mutation Tool Catalog", function () {
         recordPermission: async () => undefined,
       },
     });
-    assert.lengthOf(gateway.catalog.tools, 37);
+    assert.lengthOf(gateway.catalog.tools, 38);
   });
 
   it("keeps every mutation schema self-contained and small enough for one model catalog", function () {
@@ -886,7 +897,7 @@ describe("Pi Zotero Native Mutation Tool Catalog", function () {
   });
   it("exposes the twenty-three reviewed mutation mappings with unique static identities", function () {
     const catalog = mutationCatalog(mutationDependencies().dependencies);
-    assert.lengthOf(catalog, 37);
+    assert.lengthOf(catalog, 38);
     for (const [capabilityId, name] of MUTATION_MAPPINGS) {
       const tool = catalog.find(
         (definition) => definition.capabilityId === capabilityId,
@@ -897,11 +908,11 @@ describe("Pi Zotero Native Mutation Tool Catalog", function () {
     }
     assert.equal(
       new Set(catalog.map((definition) => definition.capabilityId)).size,
-      37,
+      38,
     );
     assert.equal(
       new Set(catalog.map((definition) => definition.name)).size,
-      37,
+      38,
     );
     assert.notInclude(
       catalog.map((definition) => definition.name),
@@ -915,12 +926,12 @@ describe("Pi Zotero Native Mutation Tool Catalog", function () {
     );
   });
 
-  it("keeps the reviewed read-only composition at fourteen tools", function () {
+  it("keeps the reviewed read-only composition at fifteen tools", function () {
     const reads = createZoteroNativeToolDefinitions({
       broker: createFailClosedZoteroHostCapabilityBroker(),
       workspace,
     });
-    assert.lengthOf(reads, 14);
+    assert.lengthOf(reads, 15);
     assert.notInclude(
       reads.map((definition) => definition.capabilityId),
       "item.create",
@@ -1148,5 +1159,347 @@ describe("Pi Zotero Native Mutation Tool Catalog", function () {
     assert.equal(result.status, "failed");
     assert.equal((result as { code: string }).code, "unavailable");
     assert.equal(calls.identity, 0);
+  });
+});
+const NAVIGATION_MAPPINGS = [
+  ["navigation.focus_zotero", "zotero_focus_zotero", "focusZotero", {}],
+  [
+    "navigation.select_library_view",
+    "zotero_select_library_view",
+    "selectLibraryView",
+    { libraryId: 1, view: "library" },
+  ],
+  [
+    "navigation.select_collection",
+    "zotero_select_collection",
+    "selectCollection",
+    { libraryId: 1, key: "COLL0001" },
+  ],
+  [
+    "navigation.select_saved_search",
+    "zotero_select_saved_search",
+    "selectSavedSearch",
+    { libraryId: 1, key: "SEAR0001" },
+  ],
+  [
+    "navigation.reveal_items",
+    "zotero_reveal_items",
+    "revealItems",
+    { items: [{ libraryId: 1, key: "ITEM0001" }] },
+  ],
+  [
+    "navigation.open_item",
+    "zotero_open_item",
+    "openItem",
+    { libraryId: 1, key: "ITEM0001" },
+  ],
+  [
+    "navigation.open_reader_location",
+    "zotero_open_reader_location",
+    "openReaderLocation",
+    {
+      kind: "page",
+      attachment: { libraryId: 1, key: "ATTACH01" },
+      pageIndex: 0,
+    },
+  ],
+] as const;
+
+const navigationTarget = {
+  resolveAndValidate: () => null,
+};
+
+function navigationCatalog(
+  broker: ZoteroHostCapabilityBroker = createFailClosedZoteroHostCapabilityBroker(),
+) {
+  return createZoteroNativeToolDefinitions({
+    broker,
+    workspace,
+    navigationTarget,
+  });
+}
+
+function navigationTool(
+  broker: ZoteroHostCapabilityBroker,
+  capabilityId: string,
+) {
+  const tool = navigationCatalog(broker).find(
+    (definition) => definition.capabilityId === capabilityId,
+  );
+  assert.isDefined(tool, capabilityId);
+  return tool!;
+}
+
+describe("Pi Zotero Native Navigation Tool Catalog", function () {
+  it("projects the seven navigation tools only with trusted foreground authority", function () {
+    const without = createZoteroNativeToolDefinitions({
+      broker: createFailClosedZoteroHostCapabilityBroker(),
+      workspace,
+    });
+    assert.lengthOf(without, 15);
+    assert.notInclude(
+      without.map((definition) => definition.capabilityId),
+      "navigation.focus_zotero",
+    );
+    const catalog = navigationCatalog();
+    assert.lengthOf(catalog, 22);
+    const navigation = catalog.filter((definition) =>
+      definition.capabilityId.startsWith("navigation."),
+    );
+    assert.lengthOf(navigation, 7);
+    assert.sameMembers(
+      navigation.map((definition) => definition.name),
+      NAVIGATION_MAPPINGS.map(([, name]) => name),
+    );
+    for (const definition of navigation) {
+      assert.deepEqual(definition.minimumEffects, ["host-control"]);
+      assert.isTrue(definition.requiresForegroundConversation);
+      assert.equal(definition.batchMode, "single-per-batch");
+      assert.include(definition.description.toLowerCase(), "foreground");
+      const schema = definition.schema as Record<string, unknown>;
+      assert.isTrue(
+        schema.additionalProperties === false || Array.isArray(schema.anyOf),
+        definition.capabilityId,
+      );
+    }
+  });
+
+  it("dispatches each navigation mapping through only its canonical Broker member", async function () {
+    for (const [capabilityId, , member, args] of NAVIGATION_MAPPINGS) {
+      const seen: unknown[] = [];
+      const broker = createFailClosedZoteroHostCapabilityBroker({
+        navigation: {
+          [member]: async (...rest: unknown[]) => {
+            seen.push(rest.at(-1));
+            return { outcome: "dispatched" };
+          },
+        },
+      } as never);
+      const tool = navigationTool(broker, capabilityId);
+      assert.deepEqual(await tool.classify(args as never), {
+        effects: ["host-control"],
+        authorizationKeys: [],
+        resourceKeys: [],
+        cost: 1,
+      });
+      const execution = await tool.execute(args as never, {
+        signal: new AbortController().signal,
+        onUpdate: () => undefined,
+      });
+      assert.equal(execution.status, "completed", capabilityId);
+      assert.equal(execution.effectCertainty, "confirmed_complete");
+      assert.lengthOf(seen, 1, capabilityId);
+      const control = seen[0] as {
+        target?: unknown;
+        signal?: unknown;
+        onEffectStarted?: unknown;
+      };
+      assert.equal(control.target, navigationTarget, capabilityId);
+      assert.isOk(control.signal, capabilityId);
+      assert.isFunction(control.onEffectStarted, capabilityId);
+    }
+  });
+
+  it("conservatively reports effect certainty at the Broker first-effect boundary", async function () {
+    const runOpenItem = async (
+      member: (
+        ref: unknown,
+        control: { onEffectStarted?: () => void },
+      ) => Promise<unknown>,
+    ) => {
+      const broker = createFailClosedZoteroHostCapabilityBroker({
+        navigation: { openItem: member },
+      } as never);
+      return navigationTool(broker, "navigation.open_item").execute(
+        { libraryId: 1, key: "ITEM0001" } as never,
+        { signal: new AbortController().signal, onUpdate: () => undefined },
+      );
+    };
+    const preEffect = await runOpenItem(async () => {
+      throw new ZoteroHostCapabilityError(
+        "unavailable",
+        "private navigation prose",
+        { reason: "navigation", kind: "library" },
+        true,
+      );
+    });
+    assert.equal(preEffect.status, "failed");
+    assert.equal(preEffect.code, "unavailable");
+    assert.equal(preEffect.effectCertainty, "confirmed_none");
+    assert.equal(preEffect.retryable, true);
+    assert.deepEqual(preEffect.details, {
+      reason: "navigation",
+      kind: "library",
+    });
+    assert.notInclude(JSON.stringify(preEffect), "private navigation prose");
+
+    const postEffect = await runOpenItem(async (_ref, control) => {
+      control.onEffectStarted?.();
+      throw new ZoteroHostCapabilityError("execution_failed", "private", {
+        phase: "adapter",
+        recovery: "none",
+      });
+    });
+    assert.equal(postEffect.status, "failed");
+    assert.equal(postEffect.effectCertainty, "unknown");
+    assert.equal(postEffect.code, "execution_failed");
+
+    const nativeUnknown = await runOpenItem(async (_ref, control) => {
+      control.onEffectStarted?.();
+      throw new Error("private native cause");
+    });
+    assert.equal(nativeUnknown.status, "failed");
+    assert.equal(nativeUnknown.effectCertainty, "unknown");
+    assert.equal(nativeUnknown.code, "internal_error");
+    assert.notProperty(nativeUnknown, "details");
+    assert.notInclude(JSON.stringify(nativeUnknown), "private native cause");
+
+    const settled = await runOpenItem(async (_ref, control) => {
+      control.onEffectStarted?.();
+      return { outcome: "dispatched" };
+    });
+    assert.equal(settled.status, "completed");
+    assert.equal(settled.effectCertainty, "confirmed_complete");
+  });
+
+  it("rejects a raw Reader field before dispatch and admits foreground navigation without permission", async function () {
+    let calls = 0;
+    const broker = createFailClosedZoteroHostCapabilityBroker({
+      navigation: {
+        openReaderLocation: async () => {
+          calls += 1;
+          return { outcome: "reader_location_dispatched" };
+        },
+      },
+    } as never);
+    const definitions = [
+      ...createZoteroNativeToolDefinitions({
+        broker,
+        workspace,
+        navigationTarget,
+      }),
+    ];
+    const gateway = await freezePiToolGatewayTurn({
+      owner: { kind: "conversation", ownerId: "owner" },
+      turnId: "navigation",
+      definitions,
+      policy: {
+        mode: "interactive",
+        systemAllowedEffects: ["host-control"],
+        authorizedEffects: [],
+        authorizedKeys: [],
+        maxCalls: 4,
+        maxConcurrent: 1,
+        maxCost: 4,
+      },
+      runtimeCapability: {
+        identity: "navigation",
+        availableCapabilityIds: definitions.map(
+          (definition) => definition.capabilityId,
+        ),
+      },
+      foregroundConversation: () => true,
+      hooks: {
+        recordStarted: async () => undefined,
+        recordReceipt: async () => undefined,
+        recordPermission: async () => undefined,
+      },
+    });
+    const page = {
+      kind: "page",
+      attachment: { libraryId: 1, key: "ATTACH01" },
+      pageIndex: 0,
+    };
+    const admitted = await gateway.executeBatch([
+      {
+        callId: "navigation-1",
+        name: "zotero_open_reader_location",
+        arguments: page,
+      },
+    ]);
+    assert.equal(admitted.results[0].status, "completed");
+    assert.lengthOf(admitted.pending, 0);
+    const malformed = await gateway.executeBatch([
+      {
+        callId: "navigation-2",
+        name: "zotero_open_reader_location",
+        arguments: { ...page, rawNative: true },
+      },
+    ]);
+    assert.equal(malformed.results[0].failure?.code, "invalid_request");
+    assert.equal(calls, 1);
+    const conflicting = await gateway.executeBatch([
+      {
+        callId: "navigation-3",
+        name: "zotero_open_reader_location",
+        arguments: page,
+      },
+      {
+        callId: "navigation-4",
+        name: "zotero_open_reader_location",
+        arguments: page,
+      },
+    ]);
+    assert.equal(conflicting.results[0].failure?.code, "invalid_request");
+    assert.equal(conflicting.results[1].failure?.code, "invalid_request");
+    assert.equal(calls, 1);
+  });
+
+  it("omits foreground navigation from a catalog without trusted conversation context", async function () {
+    const definitions = navigationCatalog();
+    const gateway = await freezePiToolGatewayTurn({
+      owner: { kind: "conversation", ownerId: "owner" },
+      turnId: "hidden-navigation",
+      definitions: [...definitions],
+      policy: {
+        mode: "interactive",
+        systemAllowedEffects: ["host-control"],
+        authorizedEffects: [],
+        authorizedKeys: [],
+        maxCalls: 1,
+        maxConcurrent: 1,
+        maxCost: 1,
+      },
+      runtimeCapability: {
+        identity: "hidden-navigation",
+        availableCapabilityIds: definitions.map(
+          (definition) => definition.capabilityId,
+        ),
+      },
+      hooks: {
+        recordStarted: async () => undefined,
+        recordReceipt: async () => undefined,
+        recordPermission: async () => undefined,
+      },
+    });
+    assert.lengthOf(gateway.catalog.tools, 15);
+    assert.notInclude(
+      gateway.catalog.tools.map((tool) => tool.capabilityId),
+      "navigation.focus_zotero",
+    );
+  });
+
+  it("exposes fifteen reads, twenty-three mutations and seven navigation tools together", function () {
+    const catalog = createZoteroNativeToolDefinitions({
+      broker: createFailClosedZoteroHostCapabilityBroker(),
+      workspace,
+      mutations: mutationDependencies().dependencies as never,
+      navigationTarget,
+    });
+    assert.lengthOf(catalog, 45);
+    assert.lengthOf(
+      catalog.filter((definition) =>
+        definition.capabilityId.startsWith("navigation."),
+      ),
+      7,
+    );
+    assert.lengthOf(
+      catalog.filter((definition) =>
+        MUTATION_MAPPINGS.some(
+          ([capabilityId]) => capabilityId === definition.capabilityId,
+        ),
+      ),
+      23,
+    );
   });
 });

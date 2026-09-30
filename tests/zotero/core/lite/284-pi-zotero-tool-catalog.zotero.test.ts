@@ -35,6 +35,7 @@ const READ_TOOL_NAMES = [
   "zotero_context_get_selected_items",
   "zotero_library_list_items",
   "zotero_library_list_collections",
+  "zotero_library_list_saved_searches",
   "zotero_library_get_item_detail",
   "zotero_library_get_item_notes",
   "zotero_library_get_note_detail",
@@ -71,6 +72,16 @@ const MUTATION_TOOL_NAMES = [
   "zotero_literature_references_upsert",
   "zotero_literature_citation_analysis_upsert",
   "zotero_literature_score_upsert",
+];
+
+const NAVIGATION_TOOL_NAMES = [
+  "zotero_focus_zotero",
+  "zotero_select_library_view",
+  "zotero_select_collection",
+  "zotero_select_saved_search",
+  "zotero_reveal_items",
+  "zotero_open_item",
+  "zotero_open_reader_location",
 ];
 
 /**
@@ -371,7 +382,7 @@ describe("Pi Zotero Native Tool Catalog in real Zotero", function () {
         turnId: "catalog",
       });
       const names = gateway.catalog.tools.map((tool) => tool.name);
-      assert.lengthOf(names, 37);
+      assert.lengthOf(names, 38);
       assert.sameMembers(
         [...names],
         [...READ_TOOL_NAMES, ...MUTATION_TOOL_NAMES],
@@ -382,6 +393,80 @@ describe("Pi Zotero Native Tool Catalog in real Zotero", function () {
     } finally {
       await removeRuntimePath(workspaceRoot).catch(() => false);
     }
+  });
+
+  it("projects and dispatches foreground navigation through the real Broker", async function () {
+    this.timeout(30000);
+    assert.isUndefined(
+      (globalThis as { process?: { versions?: { node?: string } } }).process
+        ?.versions?.node,
+    );
+    const mainWindow = Zotero.getMainWindow();
+    const workspace = {
+      materializeOrReuseMany: async () => {
+        throw new Error("unused");
+      },
+      beginGeneratedTextOutput: async () => {
+        throw new Error("unused");
+      },
+    };
+    const definitions = [
+      ...createZoteroNativeToolDefinitions({
+        broker: createZoteroHostCapabilityBroker(() => mainWindow),
+        workspace,
+        navigationTarget: {
+          resolveAndValidate: () => (mainWindow?.closed ? null : mainWindow),
+        },
+      }),
+    ];
+    const gateway = await freezePiToolGatewayTurn({
+      owner: { kind: "conversation", ownerId: "real-zotero-navigation" },
+      turnId: "navigation",
+      definitions,
+      policy: {
+        mode: "interactive",
+        systemAllowedEffects: ["bounded-read", "host-control"],
+        authorizedEffects: ["bounded-read"],
+        authorizedKeys: [],
+        maxCalls: 2,
+        maxConcurrent: 1,
+        maxCost: 2,
+      },
+      runtimeCapability: {
+        identity: "real-zotero-navigation",
+        availableCapabilityIds: definitions.map(
+          (definition) => definition.capabilityId,
+        ),
+      },
+      foregroundConversation: () => true,
+      hooks: {
+        recordStarted: async () => undefined,
+        recordReceipt: async () => undefined,
+        recordPermission: async () => undefined,
+      },
+    });
+    const names = gateway.catalog.tools.map((tool) => tool.name);
+    assert.lengthOf(names, 22);
+    assert.sameMembers(
+      [...names],
+      [...READ_TOOL_NAMES, ...NAVIGATION_TOOL_NAMES],
+    );
+    const [focus, searches] = (
+      await gateway.executeBatch([
+        { callId: "focus", name: "zotero_focus_zotero", arguments: {} },
+        {
+          callId: "searches",
+          name: "zotero_library_list_saved_searches",
+          arguments: { libraryId: Zotero.Libraries.userLibraryID, limit: 5 },
+        },
+      ])
+    ).results;
+    assert.equal(focus.status, "completed", focus.failure?.code);
+    assert.deepEqual(focus.value, { outcome: "focus_dispatched" });
+    assert.equal(searches.status, "completed", searches.failure?.code);
+    assert.isArray(
+      (searches.value as { savedSearches?: unknown }).savedSearches,
+    );
   });
 
   it("executes representative ordinary mutations with effect-free previews", async function () {
@@ -845,7 +930,7 @@ describe("Pi Zotero Native Tool Catalog in real Zotero", function () {
         JSON.stringify(result.failure),
       );
       assert.equal(result.effectCertainty, "unknown");
-      assert.equal(result.failure?.code, "state_unknown");
+      assert.equal(result.failure?.code, "effect_unknown");
       assert.deepEqual(result.failure?.details, { recovery: "reconcile" });
       assert.isUndefined(result.value);
       // The effect runs once: the failure is not silently replayed.

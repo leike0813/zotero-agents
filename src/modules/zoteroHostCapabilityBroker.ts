@@ -530,6 +530,21 @@ export type ZoteroHostArtifactReadinessItemDto = Pick<
   ref: ZoteroHostItemRefInput;
 };
 
+/**
+ * Trusted in-process control for the seven navigation capabilities.
+ *
+ * `onEffectStarted` is notified synchronously immediately before the Broker's
+ * first UI effect (including a Reader tab reservation or loaded-Reader
+ * selection) and only after the captured window and caller signal are
+ * revalidated. Callers use it to distinguish a confirmed no-effect failure
+ * from an unknown one, because a late cancellation must not roll back, replay
+ * or negate an effect that already started. It never enters portable DTOs,
+ * durable evidence or model-visible schemas.
+ */
+export type ZoteroNavigationCallControl = WorkflowCallControl & {
+  onEffectStarted?: () => void;
+};
+
 export interface ZoteroHostCapabilityBroker {
   readonly context: {
     getCurrentView(): CurrentViewDto;
@@ -539,30 +554,32 @@ export interface ZoteroHostCapabilityBroker {
     ): Promise<SelectedItemsPageDto>;
   };
   readonly navigation: {
-    focusZotero(control?: WorkflowCallControl): Promise<NavigationResult>;
+    focusZotero(
+      control?: ZoteroNavigationCallControl,
+    ): Promise<NavigationResult>;
     selectLibraryView(
       view: NavigationLibraryViewRef,
-      control?: WorkflowCallControl,
+      control?: ZoteroNavigationCallControl,
     ): Promise<NavigationResult>;
     selectCollection(
       ref: ZoteroHostCollectionRefInput,
-      control?: WorkflowCallControl,
+      control?: ZoteroNavigationCallControl,
     ): Promise<NavigationResult>;
     selectSavedSearch(
       ref: PortableSavedSearchRef,
-      control?: WorkflowCallControl,
+      control?: ZoteroNavigationCallControl,
     ): Promise<NavigationResult>;
     revealItems(
       input: NavigationSelectionInputDto,
-      control?: WorkflowCallControl,
+      control?: ZoteroNavigationCallControl,
     ): Promise<NavigationResult>;
     openItem(
       ref: ZoteroHostItemRefInput,
-      control?: WorkflowCallControl,
+      control?: ZoteroNavigationCallControl,
     ): Promise<NavigationResult>;
     openReaderLocation(
       input: ReaderLocation,
-      control?: WorkflowCallControl,
+      control?: ZoteroNavigationCallControl,
     ): Promise<NavigationResult>;
   };
   readonly library: {
@@ -16909,11 +16926,29 @@ function navigationWindow(control: WorkflowCallControl = {}) {
   return resolveNavigationPane(control);
 }
 
+/**
+ * Final synchronous boundary before the first UI effect: re-resolve the
+ * captured window and caller signal (both may have been invalidated by
+ * getters or await points already crossed) and require the same window before
+ * notifying the trusted observer and dispatching the effect.
+ */
+function notifyNavigationEffectStarted(
+  control: ZoteroNavigationCallControl,
+  win: unknown,
+) {
+  const resolved = resolveNavigationPane(control);
+  if (resolved.win !== win) {
+    throw navigationUnavailableError("Zotero pane navigation is unavailable");
+  }
+  control.onEffectStarted?.();
+}
+
 async function focusZotero(
-  control: WorkflowCallControl = {},
+  control: ZoteroNavigationCallControl = {},
 ): Promise<NavigationResult> {
   throwIfWorkflowCallCanceled(control);
   const { win } = navigationWindow(control);
+  notifyNavigationEffectStarted(control, win);
   win.restore?.();
   win.focus?.();
   return { outcome: "focus_dispatched" };
@@ -17012,7 +17047,7 @@ function viewUnsupportedError() {
 
 async function selectLibraryView(
   view: NavigationLibraryViewRef,
-  control: WorkflowCallControl = {},
+  control: ZoteroNavigationCallControl = {},
 ): Promise<NavigationResult> {
   assertLibraryViewRef(view);
   throwIfWorkflowCallCanceled(control);
@@ -17033,6 +17068,7 @@ async function selectLibraryView(
   ) {
     throw viewUnsupportedError();
   }
+  notifyNavigationEffectStarted(control, win);
   await activateNavigationLibraryPane(win);
   if (
     ["retracted", "publications"].includes(view.view) &&
@@ -17048,7 +17084,7 @@ async function selectLibraryView(
 
 async function selectSavedSearch(
   ref: PortableSavedSearchRef,
-  control: WorkflowCallControl = {},
+  control: ZoteroNavigationCallControl = {},
 ): Promise<NavigationResult> {
   assertSavedSearchRef(ref);
   throwIfWorkflowCallCanceled(control);
@@ -17063,6 +17099,7 @@ async function selectSavedSearch(
     throw navigationUnavailableError(
       "Zotero pane cannot select saved searches",
     );
+  notifyNavigationEffectStarted(control, win);
   await activateNavigationLibraryPane(win);
   await selectNavigationTreeRow(tree, `S${id}`, true);
   assertNavigationTreeSelection(win, (row) => {
@@ -17079,7 +17116,7 @@ async function selectSavedSearch(
 
 async function selectCollectionCanonical(
   ref: ZoteroHostCollectionRefInput,
-  control: WorkflowCallControl = {},
+  control: ZoteroNavigationCallControl = {},
 ): Promise<NavigationResult> {
   assertPortableRef(ref, "collection");
   throwIfWorkflowCallCanceled(control);
@@ -17090,6 +17127,7 @@ async function selectCollectionCanonical(
   const collectionId = parsePositiveInteger((collection as any).id);
   if (!collectionId || typeof tree?.selectByID !== "function")
     throw navigationUnavailableError("Zotero collection has no native id");
+  notifyNavigationEffectStarted(control, win);
   await activateNavigationLibraryPane(win);
   await selectNavigationTreeRow(tree, `C${collectionId}`, true);
   const target = canonicalCollectionRef(collection);
@@ -17107,7 +17145,7 @@ async function selectCollectionCanonical(
 
 async function revealItems(
   input: NavigationSelectionInputDto,
-  control: WorkflowCallControl = {},
+  control: ZoteroNavigationCallControl = {},
 ): Promise<NavigationResult> {
   assertNavigationObject(input, ["items"]);
   if (
@@ -17180,8 +17218,10 @@ async function revealItems(
   if (itemIds.some((id) => !id)) {
     throw navigationUnavailableError("Zotero item has no native id");
   }
+  notifyNavigationEffectStarted(control, win);
   await activateNavigationLibraryPane(win);
   let itemTree: any = pane.itemsView || tree.itemTreeView;
+  await itemTree.waitForLoad?.();
   let selected = await itemTree.selectItems(itemIds);
   if (selected !== itemIds.length) {
     if (typeof itemTree?.setFilter === "function") {
@@ -17203,6 +17243,7 @@ async function revealItems(
     if (typeof itemTree?.selectItems !== "function") {
       throw navigationUnavailableError("Zotero pane cannot select items");
     }
+    await itemTree.waitForLoad?.();
     selected = await itemTree.selectItems(itemIds);
   }
   if (selected !== itemIds.length) {
@@ -17228,13 +17269,14 @@ async function revealItems(
 
 async function openCanonicalItem(
   ref: ZoteroHostItemRefInput,
-  control: WorkflowCallControl = {},
+  control: ZoteroNavigationCallControl = {},
 ): Promise<NavigationResult> {
   throwIfWorkflowCallCanceled(control);
   const item = requireItem(ref);
   const { win, pane } = navigationWindow(control);
   if (typeof pane.viewItems !== "function")
     throw navigationUnavailableError("Zotero pane cannot open items");
+  notifyNavigationEffectStarted(control, win);
   await activateNavigationLibraryPane(win);
   await pane.viewItems([item]);
   await restoreAndFocusNavigationWindow(win);
@@ -17243,7 +17285,7 @@ async function openCanonicalItem(
 
 async function openReaderLocation(
   location: ReaderLocation,
-  control: WorkflowCallControl = {},
+  control: ZoteroNavigationCallControl = {},
 ): Promise<NavigationResult> {
   if (!location || typeof location !== "object")
     throw capabilityError("invalid_request", "reader location is invalid", {
@@ -17439,6 +17481,7 @@ async function openReaderLocation(
       if (navigationWindow(control).win !== win) {
         throw readerLocationUnsupported();
       }
+      notifyNavigationEffectStarted(control, win);
       effectStarted = true;
       win.restore?.();
       win.focus?.();
@@ -17495,6 +17538,7 @@ async function openReaderLocation(
   if (!effectStarted) {
     const exact = navigationWindow(control);
     if (exact.win !== win) throw readerLocationUnsupported();
+    notifyNavigationEffectStarted(control, win);
   } else if (win.closed || control.target?.resolveAndValidate?.() !== win) {
     throw readerLocationUnsupported();
   }

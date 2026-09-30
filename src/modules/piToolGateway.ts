@@ -62,7 +62,8 @@ export type PiGatewayToolDefinition = {
   minimumEffects: PiGatewayEffect[];
   maxResultBytes: number;
   identityDigest?: string;
-  batchMode?: "ordinary" | "exclusive" | "deferred";
+  batchMode?: "ordinary" | "exclusive" | "deferred" | "single-per-batch";
+  requiresForegroundConversation?: boolean;
   classify(
     args: JsonValue,
   ): PiGatewayClassification | Promise<PiGatewayClassification>;
@@ -184,6 +185,7 @@ export type PiGatewayTurnInput = {
     recordPermission: (pending: PiGatewayPendingCall) => Promise<void>;
   };
   signal?: AbortSignal;
+  foregroundConversation?: () => boolean;
   onUpdate?: (callId: string, update: JsonValue) => void;
 };
 
@@ -373,9 +375,11 @@ export async function freezePiToolGatewayTurn(
       !definition.minimumEffects.length ||
       definition.minimumEffects.some((effect) => !EFFECTS.has(effect)) ||
       (definition.batchMode !== undefined &&
-        !["ordinary", "exclusive", "deferred"].includes(
+        !["ordinary", "exclusive", "deferred", "single-per-batch"].includes(
           definition.batchMode,
         )) ||
+      (definition.requiresForegroundConversation !== undefined &&
+        typeof definition.requiresForegroundConversation !== "boolean") ||
       typeof definition.classify !== "function" ||
       (definition.preflight !== undefined &&
         typeof definition.preflight !== "function") ||
@@ -402,6 +406,8 @@ export async function freezePiToolGatewayTurn(
       minimumEffects: [...definition.minimumEffects].sort(),
       maxResultBytes: definition.maxResultBytes,
       batchMode: definition.batchMode || "ordinary",
+      requiresForegroundConversation:
+        !!definition.requiresForegroundConversation,
       ...(definition.identityDigest
         ? { identityDigest: definition.identityDigest }
         : {}),
@@ -427,9 +433,6 @@ export async function freezePiToolGatewayTurn(
     throw new Error("pi_gateway_capability_invalid");
   }
   const available = new Set(input.runtimeCapability.availableCapabilityIds);
-  const visible = frozen.filter((definition) =>
-    available.has(definition.capabilityId),
-  );
   const policy = copyJson(
     input.policy as unknown as JsonValue,
   ) as unknown as PiGatewayPolicy;
@@ -447,6 +450,24 @@ export async function freezePiToolGatewayTurn(
   ) {
     throw new Error("pi_gateway_policy_invalid");
   }
+  const owner = Object.freeze({ ...input.owner });
+  const foregroundConversation = input.foregroundConversation;
+  function foregroundAvailable() {
+    try {
+      return (
+        owner.kind === "conversation" &&
+        policy.mode === "interactive" &&
+        foregroundConversation?.() === true
+      );
+    } catch {
+      return false;
+    }
+  }
+  const visible = frozen.filter(
+    (definition) =>
+      available.has(definition.capabilityId) &&
+      (!definition.requiresForegroundConversation || foregroundAvailable()),
+  );
   const tools = deepFreeze(
     visible.map(({ capabilityId, name, description, schema }) => ({
       capabilityId,
@@ -471,7 +492,6 @@ export async function freezePiToolGatewayTurn(
     identity: input.runtimeCapability.identity,
     availableCapabilityIds: [...available].sort(),
   });
-  const owner = Object.freeze({ ...input.owner });
   const hooks = { ...input.hooks };
   const usedCallIds = new Set<string>();
   const AbortControllerCtor = resolveNativeAbortControllerConstructor();
@@ -535,6 +555,8 @@ export async function freezePiToolGatewayTurn(
     }
     const definition = visible.find((item) => item.name === call.name);
     if (!definition) return fail(call, "capability_unavailable");
+    if (definition.requiresForegroundConversation && !foregroundAvailable())
+      return fail(call, "policy_denied");
     try {
       assertWorkflowHostStrictJsonValue(call.arguments);
     } catch {
@@ -564,8 +586,11 @@ export async function freezePiToolGatewayTurn(
       return fail(call, "policy_denied");
     }
     const authorized =
-      claims.effects.every((effect) =>
-        policy.authorizedEffects.includes(effect),
+      claims.effects.every(
+        (effect) =>
+          policy.authorizedEffects.includes(effect) ||
+          (effect === "host-control" &&
+            !!definition.requiresForegroundConversation),
       ) &&
       claims.authorizationKeys.every((key) =>
         policy.authorizedKeys.includes(key),
@@ -760,6 +785,16 @@ export async function freezePiToolGatewayTurn(
     };
     if (signal.aborted) {
       execution = { status: "canceled", effectCertainty: "confirmed_none" };
+    } else if (
+      definition.requiresForegroundConversation &&
+      !foregroundAvailable()
+    ) {
+      execution = {
+        status: "failed",
+        effectCertainty: "confirmed_none",
+        code: "policy_denied",
+        retryable: false,
+      };
     } else {
       try {
         execution = plan
@@ -844,7 +879,14 @@ export async function freezePiToolGatewayTurn(
         status: "state_unknown",
         effectCertainty: "unknown",
         failure: {
-          ...failure("state_unknown"),
+          ...failure(
+            typeof execution.code === "string" &&
+              execution.code &&
+              execution.code.length <= 128
+              ? execution.code
+              : "state_unknown",
+          ),
+          retryable: execution.retryable ?? false,
           ...(recoveryDetails !== undefined
             ? { details: copyJson(recoveryDetails) }
             : {}),
@@ -1035,7 +1077,18 @@ export async function freezePiToolGatewayTurn(
           pending: [],
         };
       for (const id of ids) usedCallIds.add(id);
-      const prepared = await Promise.all(calls.map(prepare));
+      const singleCalls = calls.filter(
+        (call) =>
+          visible.find((item) => item.name === call?.name)?.batchMode ===
+          "single-per-batch",
+      );
+      const prepared = await Promise.all(
+        calls.map((call) =>
+          singleCalls.length > 1 && singleCalls.includes(call)
+            ? fail(call, "invalid_request")
+            : prepare(call),
+        ),
+      );
       const eligible = prepared.filter(
         (item): item is PreparedCall => "definition" in item,
       );

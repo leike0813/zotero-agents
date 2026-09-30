@@ -22,6 +22,7 @@ import type {
   PiReasoningLevel,
   PiSelection,
 } from "../../../shared/piProviderContract";
+import type { WorkflowCallControl } from "../../../workflows/types";
 import { submitAcpSkillRunInteractionFiles } from "../../acp/skillRun/acpSkillRunInteractionFiles";
 import {
   dispatchSkillRunnerWorkspaceAction,
@@ -145,6 +146,11 @@ export type AssistantWorkspaceActionRouterShellHost = {
    */
   localizeString(key: string, fallback: string): string;
   resolveCurrentShellWindow(host: AssistantWorkspaceHostRuntime): Window | null;
+  /**
+   * Liveness of the Workspace host: the sidebar keeps the window-keyed host
+   * registry, so it owns this predicate (`hosts.get(host.win) === host`).
+   */
+  isHostAlive(host: AssistantWorkspaceHostRuntime): boolean;
 };
 
 // var for the same cycle-safety reason as assistantWorkspacePublicationHost:
@@ -638,6 +644,78 @@ function piConversationOwner(
   };
 }
 
+// A trusted navigation target is bound to one Workspace presentation for the
+// whole turn. `resolveAndValidate()` returns the exact source MainWindow only
+// while that window still presents the same Pi Conversation, in the same shell
+// document and sidebar target; otherwise it returns null and never falls back
+// to another window. The window travels as the transient fourth send argument
+// and is never serialized into a payload, schema, transcript or receipt. Every
+// observed source/owner transition marks the interaction permanently stale, so
+// switching away and back cannot revive an old interaction.
+type PiNavigationTarget = NonNullable<WorkflowCallControl["target"]>;
+
+/**
+ * Permanently invalidates the Pi navigation target bound to this host. The
+ * sidebar calls it on a source switch and the router calls it on an owner
+ * switch; invalidation is sticky for the bound interaction.
+ */
+export function invalidateAssistantWorkspacePiNavigationTargets(
+  host: AssistantWorkspaceHostRuntime,
+) {
+  host.invalidatePiNavigation?.();
+}
+
+function buildPiNavigationTarget(
+  host: AssistantWorkspaceHostRuntime,
+  conversationId: string,
+): PiNavigationTarget | undefined {
+  const sourceWindow = host.win;
+  const shellWindow = shellHost.resolveCurrentShellWindow(host);
+  const activeTarget = host.activeTarget;
+  const documentGeneration = host.readyTabGenerations.get("pi-conversations");
+  // A source interaction without a presented shell document or target has no
+  // authority to bind; a missing generation must never be admitted (an absent
+  // captured and absent presented value would otherwise compare equal).
+  if (!shellWindow || !activeTarget || !documentGeneration) return undefined;
+  const coordinator = shellHost.piConversationCoordinator();
+  // A host presents at most one source interaction, so a new send replaces the
+  // previous binding: the earlier interaction is permanently stale.
+  host.invalidatePiNavigation?.();
+  let invalidated = false;
+  const invalidate = () => {
+    invalidated = true;
+  };
+  host.invalidatePiNavigation = invalidate;
+  return {
+    resolveAndValidate() {
+      try {
+        const presented =
+          !invalidated &&
+          shellHost.isHostAlive(host) &&
+          !sourceWindow.closed &&
+          host.activeTab === "pi-conversations" &&
+          host.activeTarget === activeTarget &&
+          host.readyTabGenerations.get("pi-conversations") ===
+            documentGeneration &&
+          coordinator.selectedId === conversationId &&
+          shellHost.resolveCurrentShellWindow(host) === shellWindow;
+        if (!presented) {
+          invalidated = true;
+          if (host.invalidatePiNavigation === invalidate)
+            host.invalidatePiNavigation = undefined;
+          return null;
+        }
+        return sourceWindow;
+      } catch {
+        // Any resolution failure is a lost presentation: fail closed and stay
+        // stale rather than returning a window on an unexpected error.
+        invalidated = true;
+        return null;
+      }
+    },
+  };
+}
+
 function piConversationFailureCode(
   error: unknown,
   fallback: string = PI_CONVERSATION_FAILURE_FALLBACK,
@@ -805,6 +883,10 @@ async function handlePiConversationAction(
     return;
   }
   if (action === "set-active-conversation") {
+    // Selecting a different owner is a presentation transition; re-selecting
+    // the current owner is a no-op and must keep a live binding valid.
+    if (conversationId && coordinator.selectedId !== conversationId)
+      invalidateAssistantWorkspacePiNavigationTargets(host);
     if (conversationId) coordinator.select(conversationId);
     return;
   }
@@ -812,7 +894,12 @@ async function handlePiConversationAction(
     const message = String(payload.message || "");
     if (!conversationId) return;
     void coordinator
-      .send(conversationId, message, authorizeLocalNetwork)
+      .send(
+        conversationId,
+        message,
+        authorizeLocalNetwork,
+        buildPiNavigationTarget(host, conversationId),
+      )
       .catch(() => refreshComposer());
     return;
   }

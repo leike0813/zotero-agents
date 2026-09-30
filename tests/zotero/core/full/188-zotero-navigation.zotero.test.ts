@@ -379,4 +379,93 @@ describeZotero("canonical navigation in Zotero runtime", function () {
       await search.eraseTx();
     }
   });
+  it("notifies the first-effect boundary only after revalidating and never negates a settled navigation", async function () {
+    this.timeout(120000);
+    const broker = createZoteroHostCapabilityBroker();
+    const libraryId = Zotero.Libraries.userLibraryID;
+    const projectRoot =
+      readDiagnosticsEnv("ZOTERO_COMPAT_PROJECT_ROOT") ||
+      getParentPath(readDiagnosticsEnv("ZOTERO_TEST_WORKFLOW_DIR"));
+    const attachmentPath = joinNativePath(
+      projectRoot,
+      "tests",
+      "fixtures",
+      "selection-context",
+      "attachments",
+      "8BVUFWMZ",
+      "Zhang 等 - 2024 - Enhancing DETRs Variants through Improved Content Query and Similar Query Aggregation.pdf",
+    );
+    const item = new Zotero.Item("journalArticle");
+    item.setField("title", `Navigation first effect ${Date.now()}`);
+    await item.saveTx();
+    const attachment = await Zotero.Attachments.importFromFile({
+      file: attachmentPath,
+      parentItemID: item.id,
+      title: "Navigation first-effect PDF",
+      contentType: "application/pdf",
+    });
+    const mainWindow = (Zotero as any).getMainWindow?.();
+    const pageLocation = {
+      kind: "page" as const,
+      attachment: { libraryId, key: attachment.key },
+      pageIndex: 0,
+    };
+    const notified: string[] = [];
+    const capturedWindow = {
+      resolveAndValidate: () => (mainWindow?.closed ? null : mainWindow),
+    };
+    try {
+      const aborted = new AbortController();
+      aborted.abort();
+      const canceled = await attempt(() =>
+        broker.navigation.openReaderLocation(pageLocation, {
+          signal: aborted.signal,
+          target: capturedWindow,
+          onEffectStarted: () => {
+            notified.push("canceled");
+          },
+        }),
+      );
+      assert.isFalse(canceled.ok);
+      if (!canceled.ok) assert.equal(canceled.code, "canceled");
+
+      const stale = await attempt(() =>
+        broker.navigation.openReaderLocation(pageLocation, {
+          target: { resolveAndValidate: () => null },
+          onEffectStarted: () => {
+            notified.push("stale");
+          },
+        }),
+      );
+      assert.isFalse(stale.ok);
+      if (!stale.ok) {
+        assert.oneOf(stale.code, ["unavailable", "unsupported_operation"]);
+      }
+      assert.lengthOf(notified, 0);
+
+      const dispatch = await broker.navigation.openReaderLocation(
+        pageLocation,
+        {
+          target: capturedWindow,
+          onEffectStarted: () => {
+            notified.push("reader");
+          },
+        },
+      );
+      assert.strictEqual(dispatch.outcome, "reader_location_dispatched");
+      assert.deepEqual(notified, ["reader"]);
+
+      const late = new AbortController();
+      const settled = await broker.navigation.openReaderLocation(pageLocation, {
+        signal: late.signal,
+        target: capturedWindow,
+        onEffectStarted: () => late.abort(),
+      });
+      assert.strictEqual(settled.outcome, "reader_location_dispatched");
+    } finally {
+      const tabID = mainWindow?.Zotero_Tabs?.getTabIDByItemID?.(attachment.id);
+      if (tabID) mainWindow.Zotero_Tabs.close(tabID);
+      await Zotero.Items.trashTx([item.id, attachment.id]);
+    }
+  });
 });

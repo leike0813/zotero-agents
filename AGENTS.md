@@ -305,6 +305,7 @@ This is a single-context repository using a root `CONTEXT.md` and root `docs/adr
 # Pi Conversation 接线约束
 
 - `src/modules/piConversation.ts` 组合 owner、Provider、Preparation、Gateway 与受管资源；canonical JSONL 持有完整历史，SQLite 只投影可重建的标量。每次模型调用从已选路径准备，同一 turn 的模型、工具和资源冻结。
+- Pi 导航仅向前台 interactive Conversation 投影，经 Gateway 的 foreground descriptor 与 single-per-batch 约束准入；同批多个导航全部拒绝，独立读调用仍可执行。来源窗口授权由 Workspace router 捕获并随原 turn 保留至续审批，窗口、文档、source 或 owner 切换后永久失效；新 turn 重新绑定，授权不进入模型或持久化事实。
 - 共享 composer 以 owner 的 `sendAdmissionRevision` 增长确认持久化接纳；发送前检查、取消或失败必须保留未接纳草稿。取消抑制迟到模型文本，同时保留已结算的工具结果与 receipt；无法提交历史或证明工具效应时进入 `recovery_required`，不能自动重放。
 - Conversation 用户文件经有界分块读取形成不可变 managed ref，原路径留在暂态输入；配额计算不能在扫描不完整时报告成功。标题独立调用仅使用有界首条输入与资源显示事实，归档允许结果写回，手动 rename 与删除通过 revision/generation 拒绝迟到结果。
 - `src/shared/assistantWorkspaceSourceRegistry.ts` 是 lane/source 描述符事实源；每个 Workspace 窗口在内存中记住 lane 及各 lane 的 source。Pi UI 使用现有 publication 与区域 renderer，owner-first/page-first 和非 transcript DOM identity 约束保持有效。
@@ -319,6 +320,7 @@ This is a single-context repository using a root `CONTEXT.md` and root `docs/adr
 # Zotero Host Capability Broker硬约束
 
 - 七项 navigation 必须使用 request admission 捕获的可信窗口，effect 前重新验证；缺失/失效即失败，不能退回 ambient window。Library selection 验证 exact target，Reader location 只向 captured window 的 built-in tab 提交。effect 开始后的取消不回滚、不报告无副作用取消、不自动重放；interactive scope 免逐次审批，automated/invalid scope 在审批路由前拒绝。
+- `ZoteroNavigationCallControl.onEffectStarted` 是 Broker 首次 UI effect 前的同步可信通知，通知前必须再次核验取消与同一窗口。Pi catalog 只据此区分 pre-effect 与 unknown，成功依 Broker 声明的完成边界；不得复制树选择、Reader 或原生打开语义。
 - Reader 冷初始化使用 captured window 自有 tab 与原生 existing-tab 路径；tab identity 仅属私有兼容实现，打开前跨主窗口校验唯一性并禁用全局 Reader 复用。预建 tab 已是 UI effect，初始化失败不得自动重试或关闭别窗 tab 来补偿。
 - Ingest identity 候选由原生 Search 编译 SQL 合并去重后在源端 LIMIT 26，超过 25 整体拒绝。最终 identity/revision 检查与 metadata create 共用一个 Host slice 和原生 transaction；已审批 identity 变化必须 stale/conflict，不能隐式改成复用。网络、文件准备与审批保持槽外，事务内不得嵌套 saveTx；该保证不覆盖绕过 Broker/原生事务的裸宿主 writer。
 - Canonical mutation 的 scope/operationId/kind/semantic digest admission 与终态证据由 `zoteroHostMutationAuthority.ts` 和 `pluginStateStore.ts` 的 SQLite 记录持有；仅 durable insert winner 执行。重放先于资源准备，重启遗留 started 归 unknown，普通终态证据保留 30 天后只清 evidence，永久保留 identity binding；unknown/repair_required 不按龄删除。

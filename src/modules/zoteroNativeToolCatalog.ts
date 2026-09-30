@@ -5,6 +5,7 @@ import {
   type ZoteroHostCanonicalMutationControl,
   type ZoteroHostManagedAuthoringOperation,
   type ZoteroHostLibraryReadinessAuditArgs,
+  type ZoteroNavigationCallControl,
 } from "./zoteroHostCapabilityBroker";
 import {
   MUTATION_EXECUTE_INPUT_SCHEMA,
@@ -25,12 +26,18 @@ import type { ZoteroHostMutationCallerScope } from "./zoteroHostMutationAuthorit
 import type {
   JsonObject,
   JsonValue,
+  LibraryListSavedSearchesRequestDto,
   LibraryListItemsRequestDto,
   LibraryTraversalRequestDto,
   MutationExecutionResult,
   MutationOperation,
   MutationRequestByOperation,
+  NavigationLibraryViewRef,
+  NavigationSelectionInputDto,
+  PortableCollectionRef,
   PortableItemRef,
+  PortableSavedSearchRef,
+  ReaderLocation,
   WorkflowCallControl,
 } from "../workflows/types";
 
@@ -175,12 +182,241 @@ function readDefinition(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Reviewed foreground navigation tools (C15)
+// ---------------------------------------------------------------------------
+
+const NAVIGATION_KEY_PATTERN = "^[A-Z0-9]{8}$";
+
+const navigationRefSchema = {
+  type: "object",
+  properties: {
+    libraryId: { type: "integer", minimum: 1 },
+    key: { type: "string", pattern: NAVIGATION_KEY_PATTERN },
+  },
+  required: ["libraryId", "key"],
+  additionalProperties: false,
+};
+
+const readerLocationSchema = {
+  type: "object",
+  anyOf: [
+    objectSchema(
+      {
+        kind: { const: "page" },
+        attachment: navigationRefSchema,
+        pageIndex: { type: "integer", minimum: 0 },
+      },
+      ["kind", "attachment", "pageIndex"],
+    ),
+    objectSchema(
+      {
+        kind: { const: "annotation" },
+        annotation: navigationRefSchema,
+      },
+      ["kind", "annotation"],
+    ),
+    objectSchema(
+      {
+        kind: { const: "epub" },
+        attachment: navigationRefSchema,
+        cfi: { type: "string", minLength: 1, maxLength: 4096 },
+      },
+      ["kind", "attachment", "cfi"],
+    ),
+  ],
+};
+
+const NAVIGATION_LIBRARY_VIEWS = [
+  "library",
+  "trash",
+  "duplicates",
+  "unfiled",
+  "retracted",
+  "publications",
+];
+
+function defineNavigationTool(args: {
+  capabilityId: string;
+  name: string;
+  description: string;
+  schema: Record<string, unknown>;
+  target: NonNullable<WorkflowCallControl["target"]>;
+  invoke(
+    input: JsonObject,
+    control: ZoteroNavigationCallControl,
+  ): Promise<JsonValue>;
+}): PiGatewayToolDefinition {
+  return {
+    capabilityId: args.capabilityId,
+    name: args.name,
+    description: args.description,
+    schema: args.schema,
+    minimumEffects: ["host-control"],
+    maxResultBytes: BYTE_LIMIT,
+    batchMode: "single-per-batch",
+    requiresForegroundConversation: true,
+    classify: () => ({
+      effects: ["host-control"],
+      authorizationKeys: [],
+      resourceKeys: [],
+      cost: 1,
+    }),
+    execute: async (value, { signal }) => {
+      let effectStarted = false;
+      try {
+        const result = await args.invoke(value as JsonObject, {
+          signal,
+          target: args.target,
+          onEffectStarted: () => {
+            effectStarted = true;
+          },
+        });
+        return {
+          status: "completed",
+          effectCertainty: "confirmed_complete",
+          value: result,
+        };
+      } catch (error) {
+        if (error instanceof ZoteroHostCapabilityError) {
+          return {
+            status: "failed",
+            effectCertainty: effectStarted ? "unknown" : "confirmed_none",
+            code: error.code,
+            retryable: error.retryable,
+            details: error.details,
+          };
+        }
+        return {
+          status: "failed",
+          effectCertainty: "unknown",
+          code: "internal_error",
+        };
+      }
+    },
+  };
+}
+
+function createZoteroNativeNavigationDefinitions(args: {
+  broker: ZoteroHostCapabilityBroker;
+  target: NonNullable<WorkflowCallControl["target"]>;
+}): readonly PiGatewayToolDefinition[] {
+  const { broker, target } = args;
+  return [
+    defineNavigationTool({
+      capabilityId: "navigation.focus_zotero",
+      name: "zotero_focus_zotero",
+      description: "Bring the user's foreground Zotero main window forward.",
+      schema: objectSchema({}),
+      target,
+      invoke: (_input, control) =>
+        broker.navigation.focusZotero(control) as Promise<JsonValue>,
+    }),
+    defineNavigationTool({
+      capabilityId: "navigation.select_library_view",
+      name: "zotero_select_library_view",
+      description:
+        "Select one of the six Zotero library views in the submitting foreground Zotero window and bring it forward; no separate focus call is needed.",
+      schema: objectSchema(
+        {
+          libraryId: { type: "integer", minimum: 1 },
+          view: { type: "string", enum: NAVIGATION_LIBRARY_VIEWS },
+        },
+        ["libraryId", "view"],
+      ),
+      target,
+      invoke: (input, control) =>
+        broker.navigation.selectLibraryView(
+          input as unknown as NavigationLibraryViewRef,
+          control,
+        ) as Promise<JsonValue>,
+    }),
+    defineNavigationTool({
+      capabilityId: "navigation.select_collection",
+      name: "zotero_select_collection",
+      description:
+        "Select a Zotero collection in the submitting foreground Zotero window and bring it forward; no separate focus call is needed.",
+      schema: navigationRefSchema,
+      target,
+      invoke: (input, control) =>
+        broker.navigation.selectCollection(
+          input as unknown as PortableCollectionRef,
+          control,
+        ) as Promise<JsonValue>,
+    }),
+    defineNavigationTool({
+      capabilityId: "navigation.select_saved_search",
+      name: "zotero_select_saved_search",
+      description:
+        "Select a Saved Search returned by zotero_library_list_saved_searches in the submitting foreground Zotero window; no separate focus call is needed.",
+      schema: navigationRefSchema,
+      target,
+      invoke: (input, control) =>
+        broker.navigation.selectSavedSearch(
+          input as unknown as PortableSavedSearchRef,
+          control,
+        ) as Promise<JsonValue>,
+    }),
+    defineNavigationTool({
+      capabilityId: "navigation.reveal_items",
+      name: "zotero_reveal_items",
+      description:
+        "Reveal 1 to 100 distinct items in the submitting foreground Zotero window and bring it forward; no separate focus call is needed.",
+      schema: objectSchema(
+        {
+          items: {
+            type: "array",
+            items: navigationRefSchema,
+            minItems: 1,
+            maxItems: 100,
+            uniqueItems: true,
+          },
+        },
+        ["items"],
+      ),
+      target,
+      invoke: (input, control) =>
+        broker.navigation.revealItems(
+          input as unknown as NavigationSelectionInputDto,
+          control,
+        ) as Promise<JsonValue>,
+    }),
+    defineNavigationTool({
+      capabilityId: "navigation.open_item",
+      name: "zotero_open_item",
+      description:
+        "Open an item in the submitting foreground Zotero window and bring it forward; no separate focus call is needed.",
+      schema: navigationRefSchema,
+      target,
+      invoke: (input, control) =>
+        broker.navigation.openItem(
+          input as unknown as PortableItemRef,
+          control,
+        ) as Promise<JsonValue>,
+    }),
+    defineNavigationTool({
+      capabilityId: "navigation.open_reader_location",
+      name: "zotero_open_reader_location",
+      description:
+        "Open a PDF page, annotation or EPUB location in the submitting foreground Zotero window's Reader and bring it forward; no separate focus call is needed.",
+      schema: readerLocationSchema,
+      target,
+      invoke: (input, control) =>
+        broker.navigation.openReaderLocation(
+          input as unknown as ReaderLocation,
+          control,
+        ) as Promise<JsonValue>,
+    }),
+  ];
+}
+
 export function createZoteroNativeToolDefinitions(args: {
   broker: ZoteroHostCapabilityBroker;
   workspace: Workspace;
   mutations?: PiZoteroMutationDependencies;
+  navigationTarget?: WorkflowCallControl["target"];
 }): readonly PiGatewayToolDefinition[] {
-  const { broker, workspace, mutations } = args || {};
+  const { broker, workspace, mutations, navigationTarget } = args || {};
   if (typeof broker?.context?.getCurrentView !== "function")
     throw new Error("pi_zotero_broker_incomplete");
   if (
@@ -226,6 +462,18 @@ export function createZoteroNativeToolDefinitions(args: {
       (input, signal) =>
         broker.library.listCollections(
           input,
+          control(signal),
+        ) as Promise<JsonValue>,
+    ),
+    readDefinition(
+      "library.list_saved_searches",
+      "zotero_library_list_saved_searches",
+      objectSchema({ libraryId: listProperties.libraryId, ...pageProperties }, [
+        "libraryId",
+      ]),
+      (input, signal) =>
+        broker.library.listSavedSearches(
+          input as LibraryListSavedSearchesRequestDto,
           control(signal),
         ) as Promise<JsonValue>,
     ),
@@ -471,9 +719,16 @@ export function createZoteroNativeToolDefinitions(args: {
       fileEffects,
     ),
   ];
-  if (!mutations) return reads;
+  const navigation = navigationTarget
+    ? createZoteroNativeNavigationDefinitions({
+        broker,
+        target: navigationTarget,
+      })
+    : [];
+  if (!mutations) return [...reads, ...navigation];
   return [
     ...reads,
+    ...navigation,
     ...createZoteroNativeMutationDefinitions({ broker, workspace, mutations }),
   ];
 }

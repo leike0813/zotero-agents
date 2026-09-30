@@ -53,9 +53,30 @@ Titles SHALL be asynchronously generated only with the optional auxiliary model,
 Conversation SHALL persist trusted operation and generated source identities before mutation dispatch, keyed by owner, original source turn and call. It SHALL record the full domain receipt once and keep Gateway evidence as a reference. Approval continuation SHALL retain a renewed pending call and safe actual plan in Workspace, remain waiting without model reissue, and preserve original source identity. Permission rendering SHALL use its own stable signature and SHALL NOT rebuild unrelated transcript or chrome regions.
 
 #### Scenario: Approval finds a changed item revision
+
 - **WHEN** renewed preflight produces a different domain plan
 - **THEN** Workspace displays the new pending plan and Conversation waits for its decision
 
 #### Scenario: Domain outcome is unknown
+
 - **WHEN** Broker evidence reports unknown or repair required
 - **THEN** canonical history and model projection preserve bounded recovery facts without replay
+
+### Requirement: Navigation remains bound to the original Workspace interaction
+
+A foreground Conversation turn SHALL receive transient trusted authority for the exact Workspace host window that submitted its prompt. Before effects, that window SHALL still exist, present the relevant Pi Conversation and retain its source interaction context. Closure, document replacement, source/owner switching SHALL invalidate that interaction permanently. Permission continuation SHALL preserve the original source-window authority, even if approved elsewhere. A new submitted turn SHALL bind its own source. Authority SHALL NOT enter model schemas, catalog identity, transcript, receipts or owner persistence.
+
+#### Scenario: Same owner is presented in two windows
+
+- **WHEN** a turn is submitted in one window while another shows the same owner
+- **THEN** navigation targets only the submitting window
+
+#### Scenario: Original Workspace changes while awaiting approval
+
+- **WHEN** the original document, source or owner changes before continuation
+- **THEN** its navigation authority fails closed and the approval window is not substituted
+
+#### Scenario: Later prompt is submitted elsewhere
+
+- **WHEN** a new turn is submitted from a different Workspace window
+- **THEN** navigation binds to that later source without reusing old authority

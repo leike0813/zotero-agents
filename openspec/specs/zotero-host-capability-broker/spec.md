@@ -85,11 +85,13 @@ The system SHALL maintain `docs/components/zotero-host-capability-broker-ssot.md
 The prepared-image owner SHALL accept only the declared file, managed-resource, and base64 portable source variants and SHALL return an opaque workflow-run-scoped prepared-image ref plus bounded JPEG or PNG metadata. It MUST own conversion, registry admission, ref validation, and terminal cleanup without writing the Zotero library or exposing paths, blobs, buffers, or streams.
 
 #### Scenario: Host API exposes image preparation
+
 - **WHEN** a workflow run supplies a valid bounded image source and options
 - **THEN** preparation returns an opaque ref, MIME type, dimensions, byte count, and SHA-256 digest
 - **AND** the ref resolves only inside the same workflow run
 
 #### Scenario: Prepared-image ref is forged or expired
+
 - **WHEN** a caller supplies a foreign-run or forged ref, or uses a ref after its run terminates
 - **THEN** the owner fails with stable `invalid_ref` or `not_found` data identifying only the `prepared_image` target kind
 - **AND** no path or prepared bytes are exposed
@@ -99,6 +101,7 @@ The prepared-image owner SHALL accept only the declared file, managed-resource, 
 `WorkflowHostApi` SHALL expose a note-level embedded image import operation backed by Zotero embedded-image attachments.
 
 #### Scenario: Workflow imports an embedded note image
+
 - **WHEN** a workflow calls `hostApi.notes.importEmbeddedImage` with a note item and prepared JPEG data
 - **THEN** the Host SHALL create an embedded-image attachment under that note
 - **AND** the returned value SHALL include the attachment key needed for `<img data-attachment-key="...">`.
@@ -131,6 +134,7 @@ the default ACP host access path.
 that need to round-trip sidecar artifacts without embedding bytes in JSON.
 
 #### Scenario: Workflow writes binary sidecar artifact
+
 - **WHEN** a workflow package receives the current Workflow Host API
 - **THEN** `hostApi.file.readBytes`, `hostApi.file.writeBytes`, and `hostApi.file.copy` SHALL be available
 - **AND** those operations SHALL support local workflow sidecar files such as representative note images.
@@ -140,6 +144,7 @@ that need to round-trip sidecar artifacts without embedding bytes in JSON.
 `WorkflowHostApi.file` SHALL expose a save-file operation accepting a title, filters, initial directory, and suggested filename, backed by Zotero's file picker save mode.
 
 #### Scenario: Workflow requests a ZIP destination
+
 - **WHEN** a workflow calls the save-file operation with a `.zip` suggestion and filter
 - **THEN** the Host SHALL return the confirmed target path, including replacement confirmation handled by the native picker
 - **AND** cancellation SHALL return `null`.
@@ -149,16 +154,19 @@ that need to round-trip sidecar artifacts without embedding bytes in JSON.
 The Host SHALL expose workflow-agnostic ZIP writing and scoped extraction operations implemented with Zotero/Gecko facilities and SHALL NOT require Node.js archive or filesystem modules in the plugin environment.
 
 #### Scenario: Workflow writes file-backed archive entries
+
 - **WHEN** a workflow supplies normalized entry names backed by local file paths, text, or bytes
 - **THEN** the Host SHALL stream entries to a temporary archive and replace the target only after the archive closes successfully
 - **AND** large attachments SHALL NOT require assembling the complete ZIP in JavaScript memory.
 
 #### Scenario: Workflow opens a ZIP in an extraction scope
+
 - **WHEN** a workflow requests scoped ZIP extraction
 - **THEN** the Host SHALL reject absolute, parent-traversing, empty, duplicate, and otherwise unsafe entry names before exposing extracted files
 - **AND** the Host SHALL remove the temporary extraction directory after the scoped callback settles.
 
 #### Scenario: Workflow measures extracted archive entries
+
 - **WHEN** a workflow requests integrity metadata for enumerated entry names inside an extraction scope
 - **THEN** the Host SHALL read and hash those files without exposing host paths or transferring file bytes through the package boundary
 - **AND** it SHALL reject unsafe, duplicate, or non-enumerated entry names.
@@ -168,26 +176,31 @@ The Host SHALL expose workflow-agnostic ZIP writing and scoped extraction operat
 The Host SHALL expose generic operations to export complete Zotero item JSON, create a new item from sanitized Zotero JSON in an explicit library, remove a created item, import a local path and sidecars as a stored-file attachment under a parent, and create a URL attachment with caller-controlled deduplication.
 
 #### Scenario: Workflow exports complete item JSON
+
 - **WHEN** a workflow requests portable JSON for a regular item
 - **THEN** the Host SHALL serialize all Zotero item fields, creators, and tags rather than the summary-only broker DTO
 - **AND** it SHALL remove source identity, collection, and raw relation fields according to the portable item contract.
 
 #### Scenario: Workflow creates a portable parent item
+
 - **WHEN** a workflow supplies an item type and sanitized Zotero JSON without source identity fields
 - **THEN** the Host SHALL create a new item in the requested library using Zotero item JSON normalization
 - **AND** it SHALL return the new item with its target id and key.
 
 #### Scenario: Workflow imports a source path as stored content
+
 - **WHEN** a workflow supplies a readable local path, optional companion files, parent ref, title, content type, charset, and optional URL metadata
 - **THEN** the Host SHALL create a stored-file attachment using Zotero attachment import APIs
 - **AND** companion files SHALL be materialized inside that attachment's Zotero storage directory at safe relative paths
 - **AND** it SHALL NOT create a linked-file attachment to the supplied temporary path.
 
 #### Scenario: Workflow creates duplicate URL attachments intentionally
+
 - **WHEN** a workflow requests URL attachment creation with deduplication disabled
 - **THEN** the Host SHALL create a new URL attachment even when the parent already has an attachment with the same URL.
 
 #### Scenario: Workflow cleans up a failed parent
+
 - **WHEN** a workflow asks the Host to remove a parent created during the current operation
 - **THEN** the Host SHALL erase that parent and its newly created children through Zotero's transactional item APIs.
 
@@ -196,23 +209,27 @@ The Host SHALL expose generic operations to export complete Zotero item JSON, cr
 The current-view DTO SHALL include ordered JSON-safe source refs for the selected library-tree rows and all distinct selected library ids. It SHALL include the scalar library id only when exactly one library is represented, and the optional normalized current collection only when the entire selection represents one real Zotero collection. Zotero host-version differences SHALL be contained inside the broker. Sources SHALL use libraryIds/selectedSources in the canonical small current-view DTO, Saved Search identity SHALL be a portable libraryId/key ref, and item selection arrays SHALL NOT be embedded.
 
 #### Scenario: One real collection row is selected
+
 - **WHEN** the current Zotero library view contains exactly one selected real collection
 - **THEN** `context.getCurrentView()` SHALL include one collection source with its portable ref, name, and library id
 - **AND** it SHALL include that collection as the current collection
 - **AND** it SHALL report the unique library id
 
 #### Scenario: Multiple rows are selected in Zotero 10
+
 - **WHEN** Zotero reports multiple selected library-tree rows
 - **THEN** `context.getCurrentView()` SHALL preserve their host-visible order as portable source refs
 - **AND** it SHALL omit the current collection
 - **AND** it SHALL omit the scalar library id when more than one library is represented
 
 #### Scenario: Legacy host exposes only one selected row
+
 - **WHEN** Zotero 7 or Zotero 9 provides only the legacy single-row selection shape
 - **THEN** the broker SHALL project that row through the same plural DTO
 - **AND** downstream Workflow Host, Host Bridge, and MCP projections SHALL NOT branch on the Zotero major version
 
 #### Scenario: Non-collection row is selected
+
 - **WHEN** a selected row represents a library root, saved search, feed, trash, reader, or another non-collection view
 - **THEN** the source list SHALL identify its supported portable source kind or a bounded special-view ref
 - **AND** the current-view DTO SHALL omit the current collection
@@ -393,24 +410,30 @@ Workflow Host projections SHALL select Broker members through member-level decla
 - **THEN** recursive Workflow Host conformance still reports the previously declared surface and does not inherit the member
 
 ### Requirement: Broker SHALL own canonical bounded library reads
+
 The Broker SHALL own item, collection, note, payload, attachment, annotation, and portable-export reads, including validation, serialization, fixed ordering, resource limits, and coded failure behavior. Workflow callers MUST NOT enumerate raw Zotero objects or reconstruct these DTOs.
 
 #### Scenario: Item detail is requested
+
 - **WHEN** a portable item reference identifies a current regular item, note, attachment, or annotation
 - **THEN** the Broker returns the matching discriminated detail variant with one canonical revision and no raw host object
 
 #### Scenario: Read cannot prove complete tags
+
 - **WHEN** tag loading fails or exceeds the contract bound
 - **THEN** the Broker fails closed rather than returning an empty or truncated complete tag set
 
 ### Requirement: Broker SHALL own live traversal completion evidence
+
 The Broker SHALL enumerate live library pages, apply fixed criteria and budgets, invoke one serial batch callback at a time, and issue completion evidence only after the cursor is proven exhausted.
 
 #### Scenario: Traversal exhausts the cursor
+
 - **WHEN** every matching item has been delivered successfully
 - **THEN** the result is `completed` and includes criteria and coverage digests bound to the delivered item revisions and tags
 
 #### Scenario: Traversal stops at a budget
+
 - **WHEN** max items, pages, or duration is reached before exhaustion
 - **THEN** the result is `resource_limited`, includes a criteria-bound resume cursor, and contains no completion evidence
 
@@ -448,11 +471,13 @@ Invalid or unaccepted requests MAY fail through the shared error contract. After
 The Broker SHALL provide one bibliography deep-module owner for format availability and native Zotero export rendering. Workflow composition and Research Bundle generation MUST project or consume that owner explicitly and MUST NOT copy translator selection, fallback, option validation, or native error normalization.
 
 #### Scenario: Another Broker capability is added
+
 - **WHEN** the Broker gains a capability unrelated to bibliography
 - **THEN** the bibliography surface remains unchanged until explicitly projected
 - **AND** no whole-Broker alias or inferred registry widens Workflow Host
 
 #### Scenario: Research Bundle needs a bibliography artifact
+
 - **WHEN** Research Bundle generation requests bibliography content
 - **THEN** it consumes the bibliography owner result
 - **AND** it retains ownership only of artifact naming and bundle layout
@@ -462,11 +487,13 @@ The Broker SHALL provide one bibliography deep-module owner for format availabil
 The system SHALL not expose, document, or retain handlers as a public write-oriented DSL. The Broker SHALL own canonical mutation semantics and may use narrowly scoped private native-effect helpers internally. Private helpers SHALL not define public operation names, request/result DTOs, Workflow Host members, Bridge capabilities, MCP tools, or result-apply contracts.
 
 #### Scenario: A canonical mutation needs native work
+
 - **WHEN** the Broker performs a canonical mutation
 - **THEN** it MAY call private native-effect helpers within the Broker implementation
 - **AND** callers SHALL enter only through the named canonical Broker operation.
 
 #### Scenario: A former handler-shaped entry point is requested
+
 - **WHEN** a workflow, Bridge, MCP, CLI, or result-apply consumer requests a former handlers operation
 - **THEN** the public boundary SHALL reject it as unsupported
 - **AND** it SHALL not adapt the request to a private helper.
@@ -476,6 +503,7 @@ The system SHALL not expose, document, or retain handlers as a public write-orie
 The system SHALL treat ZoteroHostCapabilityBroker as the canonical owner of JSON-safe Zotero context, navigation, library, metadata, controlled mutation, durable mutation evidence, and read-only mutation observation. WorkflowHostApi SHALL expose broker capabilities only through explicit projection. Host Bridge SHALL consume the canonical broker directly, and MCP SHALL consume the Host Bridge capability mirror.
 
 #### Scenario: A caller observes a mutation
+
 - **WHEN** a trusted adapter needs the state of a canonical operation identity
 - **THEN** it SHALL call the Broker read-only mutation observation
 - **AND** it SHALL not use generic HTTP operation history or re-execute a mutation.
@@ -485,21 +513,25 @@ The system SHALL treat ZoteroHostCapabilityBroker as the canonical owner of JSON
 The Zotero Host Capability Broker SHALL be the sole public semantic owner for custom, conversation-note, digest, references, citation-analysis, and literature-score note reads and writes. It SHALL expose the six named operations and SHALL keep storage wrappers, payload attachments, derived images, singleton resolution, compensation, verification, and receipts inside that owner. Workflow, Bundle, Bridge, MCP, and migration callers SHALL consume the projection rather than reimplementing note orchestration.
 
 #### Scenario: A caller requests managed note detail
+
 - **WHEN** the Broker resolves an ordinary or managed note
 - **THEN** it SHALL return the closed discriminated semantic result
 - **AND** it SHALL not expose raw Zotero objects, local paths, storage wrappers, or native payload exceptions.
 
 #### Scenario: A caller writes a References/Citation pair
+
 - **WHEN** a trusted caller submits a validated pair for one parent
 - **THEN** the Broker SHALL verify the parent and current note facts and commit the pair in one Zotero transaction
 - **AND** one operation identity and one durable receipt SHALL cover the parent-set result.
 
 #### Scenario: A legacy payload reaches an ordinary Broker reader
+
 - **WHEN** a note contains a recognized legacy artifact shape
 - **THEN** the Broker SHALL return `legacy_artifact_requires_migration`
 - **AND** it SHALL not silently parse, normalize, or write the legacy shape.
 
 #### Scenario: Ordinary note content update targets a managed note
+
 - **WHEN** `notes.updateContent` receives a managed-note reference
 - **THEN** the Broker SHALL reject the update before changing note content or attachments
 - **AND** the caller SHALL use the matching managed semantic operation.
@@ -509,16 +541,19 @@ The Zotero Host Capability Broker SHALL be the sole public semantic owner for cu
 Broker artifact inputs SHALL be strict JSON and SHALL accept only the versioned closed Source Reference/Citation contract. The Broker SHALL preserve explicit opaque source IDs on intentional editing/import, allocate IDs for new extraction or approved recovery, compute References basis from the complete canonical set, and derive Citation staleness from basis comparison. Caller-supplied IDs derived from position, content, DOI, title, or Synthesis identity SHALL not be accepted as authority. Matching facts SHALL remain the single declared DOI, URL, ISBN, ISSN, and citekey fields; aliases and duplicate representations SHALL be rejected.
 
 #### Scenario: Canonical references are rewritten
+
 - **WHEN** an authorized rewrite explicitly retains a sourceReferenceId
 - **THEN** the Broker SHALL retain that opaque ID and recompute the current basis
 - **AND** it SHALL not assign a new ID merely because the note revision changed.
 
 #### Scenario: A Citation uses an unknown source ID
+
 - **WHEN** a Citation write references an ID absent from the current complete References set
 - **THEN** Broker preflight SHALL fail before any note or attachment mutation
 - **AND** the error SHALL contain stable code/retryability and strict-JSON details only.
 
 #### Scenario: An alias or unknown artifact field is supplied
+
 - **WHEN** a caller submits a legacy alias, open-ended field, positional reference number, or duplicate representation
 - **THEN** the Broker SHALL reject the payload
 - **AND** it SHALL not delegate to a legacy handler or native fallback.
@@ -528,16 +563,19 @@ Broker artifact inputs SHALL be strict JSON and SHALL accept only the versioned 
 Broker managed detail SHALL report complete normalized semantic content and serialized byte facts within the existing 1 MiB Broker domain budget. A downstream ToolResult adapter MAY apply its separate 50 KiB gate. If the complete Broker result exceeds 1 MiB, the Broker SHALL return typed `resource_limited` without truncation, pagination, implicit file export, or ordinary-note fallback.
 
 #### Scenario: Managed detail is within the result bound
+
 - **WHEN** a valid managed note is read and its semantic result fits the bound
 - **THEN** the Broker SHALL return the complete declared payload and health facts
 - **AND** it SHALL not return storage HTML as a substitute.
 
 #### Scenario: Managed detail exceeds a downstream ToolResult gate only
+
 - **WHEN** a complete managed detail result exceeds 50 KiB but remains within the 1 MiB Broker budget
 - **THEN** the Broker SHALL return the complete semantic result with exact byte facts
 - **AND** a downstream ToolResult adapter SHALL enforce its own gate without changing Broker semantics.
 
 #### Scenario: Managed detail exceeds the Broker budget
+
 - **WHEN** a complete managed detail result exceeds 1 MiB
 - **THEN** the Broker SHALL return `resource_limited`
 - **AND** it SHALL not drop fields or expose a path to bypass the budget.
@@ -547,11 +585,13 @@ Broker managed detail SHALL report complete normalized semantic content and seri
 Broker-private workflow, migration, and paired-import seams MAY compose References and Citation input, but the canonical effect SHALL be one parent-set admission, one Zotero transaction, one operation identity, and one durable receipt. Public operations SHALL not permit callers to observe a half-pair or chain independent note receipts as a substitute.
 
 #### Scenario: Parent-set preflight fails
+
 - **WHEN** either artifact, parent, revision, source ID, permission, or computed basis fails validation
 - **THEN** the Broker SHALL perform no note or attachment write
 - **AND** it SHALL return one failed attempt for the parent-set operation.
 
 #### Scenario: Parent-set commit succeeds
+
 - **WHEN** all artifacts pass preflight and the transaction commits
 - **THEN** the Broker SHALL publish one confirmed parent-set result and receipt
 - **AND** downstream readers SHALL observe both artifacts and the resulting basis coherently.
@@ -566,20 +606,24 @@ resolve and validate every target before changing UI state, and SHALL use the
 trusted caller control to bind the effect to one captured Zotero window.
 
 #### Scenario: Caller reads context
+
 - **WHEN** a caller requests current view or selected items
 - **THEN** no navigation or focus effect SHALL occur.
 
 #### Scenario: Adapter invokes canonical navigation
+
 - **WHEN** an authorized and exposed adapter invokes one of the seven operations
 - **THEN** the broker SHALL return a JSON-safe operation-specific result
 - **AND** interaction, caller-scope, and exposure policy SHALL remain owned by the adapter.
 
 #### Scenario: Adapter invokes navigation
+
 - **WHEN** an authorized and exposed adapter invokes a navigation operation
 - **THEN** the broker SHALL return a JSON-safe navigation result
 - **AND** interaction and exposure policy SHALL remain owned by the adapter.
 
 #### Scenario: Target validation fails
+
 - **WHEN** any requested ref, view, location, duplicate, library, or window target is invalid
 - **THEN** the broker SHALL fail before the first UI effect
 - **AND** it SHALL not fall back to another window, context route, or live selection.
@@ -595,19 +639,23 @@ location. Results SHALL contain only the minimal dispatch or selection evidence;
 all navigation errors SHALL be non-retryable.
 
 #### Scenario: Selection is revealed
+
 - **WHEN** an interactive caller supplies a bounded ordered set of valid unique item references
 - **THEN** the Host opens exactly those targets in the supplied order
 - **AND** the result preserves the same normalized reference order.
 
 #### Scenario: Selection is opened
+
 - **WHEN** an interactive caller supplies a bounded ordered set of valid unique item references
 - **THEN** the Host opens that selection and returns the same normalized reference order.
 
 #### Scenario: Reader location is accepted
+
 - **WHEN** the built-in Reader in the captured window initializes and accepts the normalized location
 - **THEN** the broker returns `reader_location_dispatched` with the target and location.
 
 #### Scenario: Exact Reader targeting is unavailable
+
 - **WHEN** the native runtime cannot prove that the requested location belongs to the captured window
 - **THEN** the broker returns `unsupported_operation` with `details.reason = location_unsupported`
 - **AND** it does not open a location-free or different-window Reader.
@@ -617,9 +665,30 @@ all navigation errors SHALL be non-retryable.
 Canonical preparation SHALL bind caller scope, operation identity, normalized semantic input, observed revisions, actual plan and immutable prepared-file fingerprint into one domain plan digest. A declared import manifest SHALL match the staged snapshot before admission. Execution SHALL retain effect-time revalidation and fail closed on stale facts. Semantic managed-artifact authoring SHALL normalize through existing canonical validators and storage owners, generate new opaque reference IDs, and verify retained IDs against the current parent artifact.
 
 #### Scenario: Declared file differs from snapshot
+
 - **WHEN** staged bytes do not match the request's declared file facts
 - **THEN** preparation fails without reserving or performing a write
 
 #### Scenario: Same input observes a changed revision
+
 - **WHEN** the semantic request is unchanged but observed domain facts differ
 - **THEN** its domain plan digest changes and prior approval cannot authorize it
+
+### Requirement: Navigation exposes its first effect through trusted call control
+
+The Broker SHALL revalidate the captured window and cancellation immediately before its first UI effect, including Reader tab reservation or loaded-Reader selection. It SHALL notify an optional trusted in-process first-effect observer synchronously before dispatch. The observer and window SHALL remain outside portable DTOs and durable evidence. Cancellation before effects SHALL have no effect; cancellation after the first effect SHALL NOT cause rollback, replay or a false no-effect canceled result.
+
+#### Scenario: Origin expires during Reader initialization
+
+- **WHEN** Reader initialization settles after the original context became invalid
+- **THEN** no new first effect occurs and no other window is used
+
+#### Scenario: Cancellation follows Reader reservation
+
+- **WHEN** cancellation arrives after a target-window Reader tab was reserved
+- **THEN** the first-effect fact remains observable and later failure cannot claim no effect
+
+#### Scenario: Navigation settles despite late cancellation
+
+- **WHEN** a started navigation reaches its defined success boundary after cancellation
+- **THEN** it returns its normal dispatch or selection result

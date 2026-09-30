@@ -13,6 +13,7 @@ import { projectAssistantWorkspacePanel } from "../../src/sidebar/assistantPanel
 import {
   configureAssistantWorkspaceActionRouterShellHost,
   handleChildAction,
+  invalidateAssistantWorkspacePiNavigationTargets,
 } from "../../src/modules/assistant/workspace/assistantWorkspaceActionRouter.js";
 import {
   createSidebarDomEnvironment,
@@ -656,5 +657,252 @@ describe("assistant workspace Pi owner validation", function () {
         request: { cursor: null, limit: 50 },
       }),
     );
+  });
+});
+
+// C15 trusted source binding: the router hands the Pi coordinator a transient
+// navigation target object whose resolveAndValidate() returns the exact source
+// MainWindow only while that window still presents the bound conversation, and
+// which fails closed (stickily) on any presentation transition. The window is
+// never serialized into a payload, schema, transcript or receipt.
+describe("pi conversation navigation target binding", function () {
+  type CapturedTarget = { resolveAndValidate(): unknown } | undefined;
+  const sent: Array<{
+    conversationId: string;
+    message: string;
+    target: CapturedTarget;
+  }> = [];
+  let hostAlive = true;
+  let selectedId = "conv-1";
+  let shellWindow: Record<string, unknown> | null = { id: "shell-1" };
+  const coordinator = {
+    get selectedId() {
+      return selectedId;
+    },
+    select: async (conversationId: string) => {
+      selectedId = conversationId;
+    },
+    send: async (
+      conversationId: string,
+      message: string,
+      _authorize: unknown,
+      target: CapturedTarget,
+    ) => {
+      sent.push({ conversationId, message, target });
+    },
+    setComposerError: () => undefined,
+  };
+
+  function piOwnerOf(conversationId: string) {
+    return {
+      source: "pi-conversations" as const,
+      ownerKey: conversationId,
+      conversationId,
+    };
+  }
+
+  function createHost(win: Record<string, unknown>, generation = "gen-1") {
+    return {
+      activeTab: "pi-conversations",
+      activeTarget: "library",
+      win,
+      readyTabs: new Set<string>(),
+      readyTabGenerations: new Map<string, string>(
+        generation ? [["pi-conversations", generation]] : [],
+      ),
+      childInitInFlight: new Map(),
+    };
+  }
+
+  const sendEnvelope = (conversationId = "conv-1") => ({
+    source: "pi-conversations",
+    owner: piOwnerOf(conversationId),
+    actionId: "action-send",
+    action: "send-prompt",
+    payload: { message: "Hello" },
+  });
+  const selectEnvelope = (conversationId: string) => ({
+    source: "pi-conversations",
+    owner: piOwnerOf(conversationId),
+    actionId: "action-select",
+    action: "set-active-conversation",
+    payload: {},
+  });
+
+  before(function () {
+    configureAssistantWorkspaceActionRouterShellHost({
+      piConversationsSurface: () => ({ adapter: {} as never }),
+      piConversationCoordinator: () => coordinator as never,
+      localizeString: (_key, fallback) => fallback,
+      openBackendManager: async () => undefined,
+      logAssistantWorkspaceDebug: () => undefined,
+      closeActiveSidebarHost: () => false,
+      normalizeTab: (value) => String(value || "pi-conversations") as never,
+      resolveCurrentShellWindow: () => shellWindow as never,
+      isHostAlive: () => hostAlive,
+    });
+  });
+
+  beforeEach(function () {
+    sent.length = 0;
+    hostAlive = true;
+    selectedId = "conv-1";
+    shellWindow = { id: "shell-1" };
+  });
+
+  it("passes a non-serializable fourth target returning only the source window", async function () {
+    const win = { id: "win-a" };
+    const host = createHost(win);
+    await handleChildAction(
+      host as never,
+      "library" as never,
+      sendEnvelope() as never,
+    );
+    assert.lengthOf(sent, 1);
+    const target = sent[0].target!;
+    assert.isFunction(target.resolveAndValidate);
+    assert.deepEqual(Object.keys(target), ["resolveAndValidate"]);
+    // The trusted authority never serializes: no window, path or identity.
+    assert.equal(JSON.stringify(target), "{}");
+    assert.strictEqual(target.resolveAndValidate(), win);
+  });
+
+  it("binds each window to its own presented owner without cross-window fallback", async function () {
+    const winA = { id: "win-a" };
+    const winB = { id: "win-b" };
+    await handleChildAction(
+      createHost(winA) as never,
+      "library" as never,
+      sendEnvelope() as never,
+    );
+    await handleChildAction(
+      createHost(winB) as never,
+      "library" as never,
+      sendEnvelope() as never,
+    );
+    assert.lengthOf(sent, 2);
+    assert.strictEqual(sent[0].target!.resolveAndValidate(), winA);
+    assert.strictEqual(sent[1].target!.resolveAndValidate(), winB);
+  });
+
+  it("fails closed and stays stale after the source document is replaced", async function () {
+    const win = { id: "win-a" };
+    const host = createHost(win);
+    await handleChildAction(
+      host as never,
+      "library" as never,
+      sendEnvelope() as never,
+    );
+    const target = sent[0].target!;
+    assert.strictEqual(target.resolveAndValidate(), win);
+    host.readyTabGenerations.set("pi-conversations", "gen-2");
+    assert.isNull(target.resolveAndValidate());
+    // Sticky: restoring the original document cannot revive the interaction.
+    host.readyTabGenerations.set("pi-conversations", "gen-1");
+    assert.isNull(target.resolveAndValidate());
+  });
+
+  it("invalidates stickily across a source switch away and back", async function () {
+    const win = { id: "win-a" };
+    const host = createHost(win);
+    await handleChildAction(
+      host as never,
+      "library" as never,
+      sendEnvelope() as never,
+    );
+    const target = sent[0].target!;
+    assert.strictEqual(target.resolveAndValidate(), win);
+    // The sidebar invalidates on the real source transition...
+    invalidateAssistantWorkspacePiNavigationTargets(host as never);
+    host.activeTab = "acp-chat";
+    assert.isNull(target.resolveAndValidate());
+    // ...and switching back does not revive it.
+    host.activeTab = "pi-conversations";
+    assert.isNull(target.resolveAndValidate());
+  });
+
+  it("invalidates stickily across an owner switch away and back", async function () {
+    const win = { id: "win-a" };
+    const host = createHost(win);
+    await handleChildAction(
+      host as never,
+      "library" as never,
+      sendEnvelope() as never,
+    );
+    const target = sent[0].target!;
+    await handleChildAction(
+      host as never,
+      "library" as never,
+      selectEnvelope("conv-2") as never,
+    );
+    await handleChildAction(
+      host as never,
+      "library" as never,
+      selectEnvelope("conv-1") as never,
+    );
+    assert.equal(selectedId, "conv-1");
+    assert.isNull(target.resolveAndValidate());
+  });
+
+  it("replaces the previous binding when the same host sends again", async function () {
+    const win = { id: "win-a" };
+    const host = createHost(win);
+    await handleChildAction(
+      host as never,
+      "library" as never,
+      sendEnvelope() as never,
+    );
+    const first = sent[0].target!;
+    await handleChildAction(
+      host as never,
+      "library" as never,
+      sendEnvelope() as never,
+    );
+    const second = sent[1].target!;
+    assert.isNull(first.resolveAndValidate());
+    assert.strictEqual(second.resolveAndValidate(), win);
+  });
+
+  it("keeps the binding valid when the same owner is re-selected", async function () {
+    const win = { id: "win-a" };
+    const host = createHost(win);
+    await handleChildAction(
+      host as never,
+      "library" as never,
+      sendEnvelope() as never,
+    );
+    const target = sent[0].target!;
+    await handleChildAction(
+      host as never,
+      "library" as never,
+      selectEnvelope("conv-1") as never,
+    );
+    assert.strictEqual(target.resolveAndValidate(), win);
+  });
+
+  it("fails closed when the presented document, target or shell is missing", async function () {
+    const host = createHost({ id: "win-a" }, "");
+    await handleChildAction(
+      host as never,
+      "library" as never,
+      sendEnvelope() as never,
+    );
+    assert.isUndefined(sent[0].target);
+  });
+
+  it("fails closed when the host is disposed or the source window is closed", async function () {
+    const win: Record<string, unknown> = { id: "win-a" };
+    const host = createHost(win);
+    await handleChildAction(
+      host as never,
+      "library" as never,
+      sendEnvelope() as never,
+    );
+    const target = sent[0].target!;
+    hostAlive = false;
+    assert.isNull(target.resolveAndValidate());
+    hostAlive = true;
+    win.closed = true;
+    assert.isNull(target.resolveAndValidate());
   });
 });

@@ -105,6 +105,7 @@ import type {
 import {
   configureAssistantWorkspaceActionRouterShellHost,
   handleChildAction,
+  invalidateAssistantWorkspacePiNavigationTargets,
 } from "./assistantWorkspaceActionRouter";
 import {
   acpChatWorkspaceSurfaceContext,
@@ -207,6 +208,8 @@ export type AssistantWorkspaceHostRuntime = {
     target: AcpSidebarTarget;
     promise: Promise<boolean>;
   } | null;
+  /** Sticky-stale flag of the host's current Pi navigation binding. */
+  invalidatePiNavigation?: () => void;
   childInitDeliveries: Map<
     AssistantWorkspaceTab,
     { documentGeneration: string; target: AcpSidebarTarget }
@@ -307,6 +310,7 @@ configureAssistantWorkspaceActionRouterShellHost({
   closeActiveSidebarHost,
   normalizeTab,
   resolveCurrentShellWindow,
+  isHostAlive: (host) => hosts.get(host.win) === host,
 });
 
 function logAssistantWorkspaceDebug(
@@ -542,6 +546,7 @@ function deactivateTarget(
   }
   if (host.activeTarget === target) {
     deactivateWorkspacePublicationRuntime(host);
+    invalidateAssistantWorkspacePiNavigationTargets(host);
     host.activeTarget = null;
     setShellActiveTarget(host, null);
   }
@@ -1238,6 +1243,11 @@ async function handleShellAction(
   }
   if (action === "set-tab") {
     const tab = normalizeTab(payload.tab);
+    if (host.activeTab !== tab) {
+      // Leaving the presented source permanently invalidates any Pi navigation
+      // target bound to the previous Workspace interaction.
+      invalidateAssistantWorkspacePiNavigationTargets(host);
+    }
     host.activeTab = tab;
     if (tab !== "skillrunner") {
       clearSkillRunnerSidebarRefresh(host);
@@ -1404,6 +1414,8 @@ function commitAssistantWorkspaceTarget(
     "Assistant Workspace target commit started.",
     { target },
   );
+  if (host.activeTarget !== target)
+    invalidateAssistantWorkspacePiNavigationTargets(host);
   host.activeTarget = target;
   clearAssistantWorkspaceInitPublicationState(host, "target-commit");
   setShellActiveTarget(host, target);
@@ -1554,6 +1566,8 @@ async function activateTarget(
       deactivateTarget(host, "library");
       return false;
     }
+    if (host.activeTarget !== "library")
+      invalidateAssistantWorkspacePiNavigationTargets(host);
     host.activeTarget = "library";
     logAssistantWorkspaceDebug(
       host,
@@ -1594,6 +1608,8 @@ async function activateTarget(
     deactivateTarget(host, "reader");
     return false;
   }
+  if (host.activeTarget !== "reader")
+    invalidateAssistantWorkspacePiNavigationTargets(host);
   host.activeTarget = "reader";
   logAssistantWorkspaceDebug(
     host,
@@ -1988,7 +2004,10 @@ export async function openAssistantWorkspaceSidebar(args?: {
   const host = installAssistantWorkspaceSidebarShell(win);
   const hasExplicitTab = Boolean(args && "tab" in args && args.tab);
   if (hasExplicitTab) {
-    host.activeTab = normalizeTab(args?.tab);
+    const explicitTab = normalizeTab(args?.tab);
+    if (host.activeTab !== explicitTab)
+      invalidateAssistantWorkspacePiNavigationTargets(host);
+    host.activeTab = explicitTab;
     if (host.activeTab !== "skillrunner") {
       clearSkillRunnerSidebarRefresh(host);
       detachSkillRunnerFromShell(host, "open-non-skillrunner-tab");
@@ -2065,6 +2084,7 @@ export async function toggleAssistantWorkspaceSidebar(args?: {
     if (args?.tab) {
       const requestedTab = normalizeTab(args.tab);
       if (requestedTab !== host.activeTab) {
+        invalidateAssistantWorkspacePiNavigationTargets(host);
         host.activeTab = requestedTab;
         if (host.activeTab !== "skillrunner") {
           clearSkillRunnerSidebarRefresh(host);

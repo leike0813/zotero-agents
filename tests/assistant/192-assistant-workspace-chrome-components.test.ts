@@ -2479,14 +2479,29 @@ describe("Pi Conversation managed chrome identity", function () {
     revision: number,
     text: string,
   ) {
+    // A representative C15 navigation receipt: all seven navigation tools
+    // return the same transcript-only tool-call shape, so one stands in for the
+    // non-transcript DOM identity invariant without duplicating the fixture.
+    const navigationReceipt = {
+      itemId: "tool-zotero_open_item",
+      itemKind: "tool-call",
+      toolCallId: "call-zotero_open_item",
+      title: "zotero_open_item",
+      toolKind: null,
+      toolName: "zotero_open_item",
+      inputSummary: '{"ref":"1:KEY"}',
+      resultSummary: "ok",
+      summary: null,
+      status: "completed",
+    };
     return {
       page: transcriptPageMetadata(
         createAssistantWorkspaceTranscriptPage({
           owner: piOwner,
           anchor: "tail",
-          cursor: 2,
+          cursor: 3,
           limit: 80,
-          totalVisibleItemCount: 2,
+          totalVisibleItemCount: 3,
           sourceEventSeq: revision,
           items: [
             {
@@ -2503,12 +2518,16 @@ describe("Pi Conversation managed chrome identity", function () {
               text: "Answer" + text,
               status: "streaming",
             },
+            navigationReceipt,
           ],
         }),
       ),
       baseTranscriptRevision: baseRevision,
       transcriptRevision: revision,
-      mutations: [{ op: "append_text", itemId: "assistant-1", text }],
+      mutations: [
+        { op: "append_text", itemId: "assistant-1", text },
+        { op: "upsert_item", item: navigationReceipt },
+      ],
     };
   }
 

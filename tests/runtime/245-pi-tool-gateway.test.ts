@@ -88,6 +88,197 @@ async function rejects(work: () => Promise<unknown>, code: string) {
   assert.include(String(caught), code);
 }
 
+describe("Pi Tool Gateway foreground admission", function () {
+  it("rejects conflicting single-per-batch calls while preserving independent reads", async function () {
+    const navigation = fixture({ batchMode: "single-per-batch" });
+    const read = fixture({
+      capabilityId: "fixture.other",
+      name: "fixture_other",
+    });
+    const gateway = await turn([navigation.definition, read.definition]);
+    const result = await gateway.executeBatch([
+      { callId: "n1", name: "fixture_read", arguments: { path: "p" } },
+      { callId: "r", name: "fixture_other", arguments: { path: "p" } },
+      { callId: "n2", name: "fixture_read", arguments: { path: "p" } },
+    ]);
+    assert.deepEqual(
+      result.results.map((r) => r.failure?.code || r.status),
+      ["invalid_request", "completed", "invalid_request"],
+    );
+    assert.equal(navigation.executions(), 0);
+    assert.equal(read.executions(), 1);
+  });
+  it("retains a typed cause when executor evidence is uncertain", async function () {
+    const item = fixture({
+      execute: async () => ({
+        status: "failed",
+        effectCertainty: "unknown",
+        code: "navigation_failed",
+        retryable: false,
+        details: { stage: "dispatch" },
+      }),
+    });
+    const result = (
+      await (
+        await turn([item.definition])
+      ).executeBatch([
+        { callId: "one", name: "fixture_read", arguments: { path: "p" } },
+      ])
+    ).results[0];
+    assert.equal(result.status, "state_unknown");
+    assert.equal(result.failure?.code, "navigation_failed");
+    assert.isFalse(result.failure?.retryable);
+    assert.deepEqual(result.failure?.details, { stage: "dispatch" });
+  });
+  const navigation = () =>
+    fixture({
+      capabilityId: "fixture.navigate",
+      name: "fixture_navigate",
+      requiresForegroundConversation: true,
+      minimumEffects: ["host-control"],
+      classify: () => ({
+        effects: ["host-control"],
+        authorizationKeys: [],
+        resourceKeys: [],
+        cost: 1,
+      }),
+      execute: async () => ({
+        status: "completed",
+        effectCertainty: "confirmed_complete",
+      }),
+    });
+  const policy = {
+    systemAllowedEffects: ["bounded-read", "host-control"] as const,
+  };
+  for (const scenario of [
+    { kind: "skill_run" as const, mode: "interactive" as const, valid: true },
+    { kind: "conversation" as const, mode: "automatic" as const, valid: true },
+    {
+      kind: "conversation" as const,
+      mode: "interactive" as const,
+      valid: false,
+    },
+  ]) {
+    it(`omits foreground tools for ${scenario.kind}/${scenario.mode}/${scenario.valid}`, async function () {
+      const item = navigation();
+      const gateway = await turn([item.definition], {
+        owner: { kind: scenario.kind, ownerId: "one" },
+        foregroundConversation: () => scenario.valid,
+        policy: {
+          mode: scenario.mode,
+          systemAllowedEffects: [...policy.systemAllowedEffects],
+          authorizedEffects: ["host-control"],
+        },
+      });
+      assert.isEmpty(gateway.catalog.tools);
+      const result = (
+        await gateway.executeBatch([
+          { callId: "n", name: "fixture_navigate", arguments: { path: "p" } },
+        ])
+      ).results[0];
+      assert.equal(result.failure?.code, "capability_unavailable");
+      assert.equal(item.executions(), 0);
+    });
+  }
+  it("admits foreground navigation without granting other host-control tools", async function () {
+    const nav = navigation();
+    const other = fixture({
+      capabilityId: "fixture.shell",
+      name: "fixture_shell",
+      minimumEffects: ["host-control"],
+      classify: () => ({
+        effects: ["host-control"],
+        authorizationKeys: [],
+        resourceKeys: [],
+        cost: 1,
+      }),
+    });
+    const gateway = await turn([nav.definition, other.definition], {
+      foregroundConversation: () => true,
+      policy: {
+        systemAllowedEffects: [...policy.systemAllowedEffects],
+        authorizedEffects: ["bounded-read"],
+      },
+    });
+    const result = await gateway.executeBatch([
+      { callId: "n", name: "fixture_navigate", arguments: { path: "p" } },
+      { callId: "s", name: "fixture_shell", arguments: { path: "p" } },
+    ]);
+    assert.equal(result.results[0].status, "completed");
+    assert.equal(result.results[1].status, "permission_required");
+  });
+  it("revalidates foreground authority after durable started publication", async function () {
+    let valid = true;
+    let executed = false;
+    const item = navigation();
+    item.definition.execute = async () => {
+      executed = true;
+      return { status: "completed", effectCertainty: "confirmed_complete" };
+    };
+    const gateway = await turn([item.definition], {
+      foregroundConversation: () => valid,
+      policy: {
+        systemAllowedEffects: [...policy.systemAllowedEffects],
+        authorizedEffects: ["host-control"],
+      },
+      hooks: {
+        recordStarted: async () => {
+          valid = false;
+        },
+        recordReceipt: async () => undefined,
+        recordPermission: async () => undefined,
+      },
+    });
+    const result = (
+      await gateway.executeBatch([
+        { callId: "n", name: "fixture_navigate", arguments: { path: "p" } },
+      ])
+    ).results[0];
+    assert.equal(result.failure?.code, "policy_denied");
+    assert.equal(result.effectCertainty, "confirmed_none");
+    assert.isFalse(executed);
+  });
+  it("denies a stale foreground continuation despite standing effect grants", async function () {
+    let valid = true;
+    let effects = 0;
+    const item = navigation();
+    item.definition.classify = () => ({
+      effects: ["host-control"],
+      authorizationKeys: ["fixture"],
+      resourceKeys: [],
+      cost: 1,
+    });
+    item.definition.execute = async () => {
+      effects++;
+      return { status: "completed", effectCertainty: "confirmed_complete" };
+    };
+    const gateway = await turn([item.definition], {
+      foregroundConversation: () => valid,
+      policy: { systemAllowedEffects: [...policy.systemAllowedEffects] },
+    });
+    const pending = (
+      await gateway.executeBatch([
+        { callId: "n", name: "fixture_navigate", arguments: { path: "p" } },
+      ])
+    ).pending[0];
+    const continuation = await turn([item.definition], {
+      turnId: "continuation",
+      foregroundConversation: () => valid,
+      policy: {
+        systemAllowedEffects: [...policy.systemAllowedEffects],
+        authorizedEffects: ["host-control"],
+      },
+    });
+    valid = false;
+    assert.equal(
+      (await continuation.continueCall(pending, "approve")).result.failure
+        ?.code,
+      "policy_denied",
+    );
+    assert.equal(effects, 0);
+  });
+});
+
 // Domain preflight fixture: classify claims workspace mutation behind an
 // authorization key, the preflight stage owns its own execute/dispose, and the
 // plain execute is a tripwire that must never be reached once preflight exists.
