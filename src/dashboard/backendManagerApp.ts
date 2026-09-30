@@ -35,6 +35,7 @@ import type {
   BackendManagerActionName,
   BackendManagerActionPayload,
 } from "../shared/dashboardWireContract";
+import type { PiWebSourceTestResult } from "../shared/piWebSourceContract";
 import {
   createBackendManagerRenderer,
   type BackendManagerRenderOptions,
@@ -222,6 +223,9 @@ export function createBackendManagerController(
   let piTestSequence = 0;
   const mcpDiscovered: BackendManagerBuiltinAgentSnapshot["mcpDiscovered"] = {};
   const mcpTestRequestIds: Record<string, string> = {};
+  const webTestResults: BackendManagerBuiltinAgentSnapshot["webTestResults"] =
+    {};
+  const webTestRequestIds: Record<string, string> = {};
   let lastPiTestRequestId = "";
   let lastPiCatalogRequestId = "";
   let disposed = false;
@@ -411,6 +415,7 @@ export function createBackendManagerController(
     state.snapshot = payload || ({} as BackendManagerSnapshot);
     if (state.snapshot.builtinAgent) {
       state.snapshot.builtinAgent.mcpDiscovered = { ...mcpDiscovered };
+      state.snapshot.builtinAgent.webTestResults = { ...webTestResults };
       if (
         priorCatalog?.catalog.revision ===
         state.snapshot.builtinAgent.catalog.revision
@@ -478,6 +483,46 @@ export function createBackendManagerController(
       if (action === "pi-mcp-test-source") {
         const id = String(payload.id || "");
         if (String(payload.requestId || "") !== mcpTestRequestIds[id]) return;
+      }
+      if (action === "pi-web-test-source") {
+        const id = String(payload.sourceId || payload.id || "");
+        if (String(payload.requestId || "") !== webTestRequestIds[id]) return;
+        if (payload.ok === true) {
+          const status = String(payload.status || "failed");
+          webTestResults[id] = {
+            sourceId: id,
+            requestId: String(payload.requestId || ""),
+            status: (["available", "unavailable", "failed"].includes(status)
+              ? status
+              : "failed") as PiWebSourceTestResult["status"],
+            ...(typeof payload.toolDigest === "string" &&
+            /^sha256:[a-f0-9]{64}$/.test(payload.toolDigest)
+              ? { toolDigest: payload.toolDigest }
+              : {}),
+            ...(typeof payload.code === "string" &&
+            /^[a-z0-9_]{1,40}$/.test(payload.code)
+              ? { code: payload.code }
+              : {}),
+          };
+          if (state.snapshot?.builtinAgent) {
+            state.snapshot.builtinAgent = {
+              ...state.snapshot.builtinAgent,
+              webTestResults: { ...webTestResults },
+            };
+            renderCurrent();
+          }
+          showStatusMessage(
+            status === "available"
+              ? state.snapshot?.labels.webAvailable || "Available"
+              : status === "unavailable"
+                ? state.snapshot?.labels.webUnavailable || "Unavailable"
+                : state.snapshot?.labels.webFailed || "Test failed",
+            status === "available" ? "success" : "error",
+          );
+        } else {
+          showStatusMessage(String(payload.error || "Test failed"), "error");
+        }
+        return;
       }
       if (
         action === "pi-mcp-test-source" &&
@@ -897,6 +942,22 @@ export function createBackendManagerController(
     },
     resetMcpRegistry() {
       deps.sendAction("pi-mcp-reset-registry", {});
+    },
+    saveWebSources(sources) {
+      deps.sendAction("pi-web-save-sources", { sources });
+    },
+    testWebSource(id) {
+      webTestRequestIds[id] = String(++piTestSequence);
+      deps.sendAction("pi-web-test-source", {
+        id,
+        requestId: webTestRequestIds[id],
+      });
+    },
+    putWebSecret(id, label, secret) {
+      deps.sendAction("pi-web-put-secret", { id, label, secret });
+    },
+    deleteWebSecret(id) {
+      deps.sendAction("pi-web-delete-secret", { id });
     },
   };
 

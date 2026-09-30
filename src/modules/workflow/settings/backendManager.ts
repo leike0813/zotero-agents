@@ -76,6 +76,11 @@ import {
   upsertPiMcpSource,
   type PiMcpSource,
 } from "../../piMcpSourceRegistry";
+import { getPiBrokeredWebTools } from "../../piBrokeredWebTools";
+import {
+  defaultPiWebSources,
+  type PiWebSource,
+} from "../../../shared/piWebSourceContract";
 import {
   deletePiProviderConfiguration,
   findPiCatalogModel,
@@ -2505,6 +2510,106 @@ function buildBackendManagerLabels() {
       "backend-manager-mcp-export",
       "Export template",
     ),
+    webSources: localizeBackendManager(
+      "backend-manager-web-sources",
+      "Web Search Sources",
+    ),
+    webError: localizeBackendManager(
+      "backend-manager-web-error",
+      "Web source settings are damaged.",
+    ),
+    webPaidNotice: localizeBackendManager(
+      "backend-manager-web-paid-notice",
+      "Enabling a paid source is your consent to its billing.",
+    ),
+    webPaid: localizeBackendManager(
+      "backend-manager-web-paid",
+      "May incur cost",
+    ),
+    webMoveUp: localizeBackendManager("backend-manager-web-move-up", "Move up"),
+    webMoveDown: localizeBackendManager(
+      "backend-manager-web-move-down",
+      "Move down",
+    ),
+    webEnabled: localizeBackendManager(
+      "backend-manager-web-enabled",
+      "Enabled",
+    ),
+    webCredential: localizeBackendManager(
+      "backend-manager-web-credential",
+      "Credential",
+    ),
+    webNoCredential: localizeBackendManager(
+      "backend-manager-web-no-credential",
+      "No credential",
+    ),
+    webModel: localizeBackendManager(
+      "backend-manager-web-model",
+      "Model configuration",
+    ),
+    webSearchModel: localizeBackendManager(
+      "backend-manager-web-search-model",
+      "Search model (explicit)",
+    ),
+    webNoModel: localizeBackendManager(
+      "backend-manager-web-no-model",
+      "No configuration",
+    ),
+    webEndpoint: localizeBackendManager(
+      "backend-manager-web-endpoint",
+      "Endpoint",
+    ),
+    webLocalNetwork: localizeBackendManager(
+      "backend-manager-web-local-network",
+      "Allow local network origin",
+    ),
+    webExecutable: localizeBackendManager(
+      "backend-manager-web-executable",
+      "Executable",
+    ),
+    webArguments: localizeBackendManager(
+      "backend-manager-web-arguments",
+      "Arguments (one per line)",
+    ),
+    webCodeExecution: localizeBackendManager(
+      "backend-manager-web-code-execution",
+      "Allow running the package",
+    ),
+    webBravePackage: localizeBackendManager(
+      "backend-manager-web-brave-package",
+      "Brave MCP runs the user-installed package version 2.1.4.",
+    ),
+    webTest: localizeBackendManager("backend-manager-web-test", "Test source"),
+    webReview: localizeBackendManager(
+      "backend-manager-web-review",
+      "Approve discovered search tool",
+    ),
+    webAvailable: localizeBackendManager(
+      "backend-manager-web-available",
+      "Available",
+    ),
+    webUnavailable: localizeBackendManager(
+      "backend-manager-web-unavailable",
+      "Unavailable",
+    ),
+    webFailed: localizeBackendManager(
+      "backend-manager-web-failed",
+      "Test failed",
+    ),
+    webSecretId: localizeBackendManager(
+      "backend-manager-web-secret-id",
+      "Secret ID",
+    ),
+    webSecretLabel: localizeBackendManager(
+      "backend-manager-web-secret-label",
+      "Secret label",
+    ),
+    webSecret: localizeBackendManager("backend-manager-web-secret", "Secret"),
+    webSaveSecret: localizeBackendManager(
+      "backend-manager-web-save-secret",
+      "Save secret",
+    ),
+    webClear: localizeBackendManager("backend-manager-web-clear", "Clear"),
     piCredentialLabel: localizeBackendManager(
       "backend-manager-pi-credential-label",
       "Key label",
@@ -2815,6 +2920,14 @@ function buildBackendManagerSnapshot(
   } catch {
     mcpError = "mcp_source_registry_corrupt";
   }
+  let webSources: PiWebSource[] = [];
+  let webError = "";
+  try {
+    webSources = getPiBrokeredWebTools().listSources();
+  } catch {
+    webSources = defaultPiWebSources();
+    webError = "web_source_registry_corrupt";
+  }
   const configurationStatus: BackendManagerBuiltinAgentSnapshot["configurationStatus"] =
     {};
   for (const entry of piState.configurations) {
@@ -2876,6 +2989,10 @@ function buildBackendManagerSnapshot(
       ...(mcpError ? { mcpError } : {}),
       mcpCredentials: listPiCredentials("mcp-source"),
       mcpDiscovered: {},
+      webSources,
+      ...(webError ? { webError } : {}),
+      webCredentials: listPiCredentials("web-source"),
+      webTestResults: {},
       defaults: piState.defaults,
       overlayPath: piState.overlayPath,
       catalog: {
@@ -3447,6 +3564,44 @@ export async function openBackendManagerDialog(
                 await (
                   await import("../../piMcpRuntimeOwner")
                 ).shutdownPiMcpToolSources();
+              } else if (action === "pi-web-save-sources") {
+                getPiBrokeredWebTools().saveSources(
+                  (payload.sources as PiWebSource[]) || [],
+                );
+              } else if (action === "pi-web-test-source") {
+                const id = String(payload.id || "");
+                const requestId = String(payload.requestId || "");
+                const result = await getPiBrokeredWebTools().testSource(
+                  id,
+                  requestId,
+                );
+                postToFrame("backend-manager-dialog:action-result", {
+                  action,
+                  ok: true,
+                  sourceId: id,
+                  requestId,
+                  status: result.status,
+                  ...(result.toolDigest
+                    ? { toolDigest: result.toolDigest }
+                    : {}),
+                  ...(result.code ? { code: result.code } : {}),
+                });
+                return;
+              } else if (action === "pi-web-put-secret") {
+                await putPiCredential({
+                  id: String(payload.id || ""),
+                  label: String(payload.label || ""),
+                  namespace: "web-source",
+                  material: {
+                    kind: "web-secret",
+                    secret: String(payload.secret || ""),
+                  },
+                });
+              } else if (action === "pi-web-delete-secret") {
+                await deletePiCredential(
+                  String(payload.id || ""),
+                  "web-source",
+                );
               } else if (action === "pi-test-connection") {
                 if (!activePiCatalog) throw new Error("Provider unavailable");
                 const selection = resolvePiModelSelection({
@@ -3493,6 +3648,7 @@ export async function openBackendManagerDialog(
             } catch (error) {
               const sensitive =
                 action.startsWith("pi-mcp-") ||
+                action.startsWith("pi-web-") ||
                 action.startsWith("pi-codex-") ||
                 action === "pi-put-credential" ||
                 action === "pi-delete-credential" ||
@@ -3524,6 +3680,12 @@ export async function openBackendManagerDialog(
                 ...(action === "pi-mcp-test-source"
                   ? {
                       id: String(payload.id || ""),
+                      requestId: String(payload.requestId || ""),
+                    }
+                  : {}),
+                ...(action === "pi-web-test-source"
+                  ? {
+                      sourceId: String(payload.id || ""),
                       requestId: String(payload.requestId || ""),
                     }
                   : {}),

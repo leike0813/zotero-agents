@@ -41,3 +41,11 @@ The system SHALL execute a frozen `openai-codex` selection through the native br
 #### Scenario: Codex request is denied
 - **WHEN** the Provider returns 401 or 403
 - **THEN** only a redacted authentication failure is returned and API-key configurations remain executable
+
+### Requirement: Official grounded search reuses selected Codex authentication
+
+Eligible OpenAI grounded search SHALL obtain short-lived authentication from the selected Codex credential through the existing refresh boundary. Search SHALL NOT own OAuth lifecycle or disclose access, refresh, headers or native responses.
+
+#### Scenario: Grounded search uses Codex
+- **WHEN** the selected eligible source uses a connected Codex configuration
+- **THEN** only that credential is resolved and specialized forced-search output is normalized

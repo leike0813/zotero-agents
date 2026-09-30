@@ -424,7 +424,11 @@ export type BackendManagerActionName =
   | "pi-mcp-import"
   | "pi-mcp-preview-import"
   | "pi-mcp-export"
-  | "pi-mcp-reset-registry";
+  | "pi-mcp-reset-registry"
+  | "pi-web-save-sources"
+  | "pi-web-test-source"
+  | "pi-web-put-secret"
+  | "pi-web-delete-secret";
 
 export type BackendManagerBuiltinAgentSnapshot = {
   configurations: import("./piProviderContract").PiProviderConfiguration[];
@@ -440,6 +444,13 @@ export type BackendManagerBuiltinAgentSnapshot = {
   credentials: import("./piProviderContract").PiCredentialMetadata[];
   mcpSources: import("./piMcpSourceContract").PiMcpSource[];
   mcpError?: string;
+  webSources: import("./piWebSourceContract").PiWebSource[];
+  webError?: string;
+  webCredentials: import("./piProviderContract").PiCredentialMetadata[];
+  webTestResults: Record<
+    string,
+    import("./piWebSourceContract").PiWebSourceTestResult
+  >;
   mcpCredentials: import("./piProviderContract").PiCredentialMetadata[];
   mcpDiscovered: Record<
     string,
@@ -575,6 +586,19 @@ export type BackendManagerActionPayloadMap = {
   "pi-mcp-preview-import": DashboardActionPayloadShape<{ json: string }>;
   "pi-mcp-export": DashboardEmptyActionPayload;
   "pi-mcp-reset-registry": DashboardEmptyActionPayload;
+  "pi-web-save-sources": DashboardActionPayloadShape<{
+    sources: import("./piWebSourceContract").PiWebSource[];
+  }>;
+  "pi-web-test-source": DashboardActionPayloadShape<{
+    id: string;
+    requestId: string;
+  }>;
+  "pi-web-put-secret": DashboardActionPayloadShape<{
+    id: string;
+    label: string;
+    secret: string;
+  }>;
+  "pi-web-delete-secret": DashboardActionPayloadShape<{ id: string }>;
 };
 
 export type BackendManagerActionPayload<

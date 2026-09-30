@@ -20,6 +20,7 @@ export type PiCatalog = {
 export type PiCredentialMaterial =
   | { kind: "api-key"; secret: string }
   | { kind: "mcp-secret"; secret: string }
+  | { kind: "web-secret"; secret: string }
   | {
       kind: "openai-codex";
       access: string;
@@ -31,7 +32,7 @@ export type PiCredentialMetadata = {
   id: string;
   label: string;
   kind: PiCredentialMaterial["kind"];
-  namespace: "model-provider" | "mcp-source";
+  namespace: "model-provider" | "mcp-source" | "web-source";
   masked: string;
   updatedAt: string;
 };

@@ -52,6 +52,7 @@ import {
   createZoteroHostCapabilityBroker,
 } from "./zoteroHostCapabilityBroker";
 import { getPiMcpToolSources } from "./piMcpRuntimeOwner";
+import { getPiBrokeredWebTools, type PiWebTurn } from "./piBrokeredWebTools";
 import {
   createPiConversationOwner,
   getPiConversationMetadata,
@@ -504,6 +505,7 @@ export function createPiConversationCoordinator(options: Options = {}) {
   async function definitions(
     conversationId: string,
     native: Awaited<ReturnType<typeof workspace>>,
+    web: PiWebTurn,
   ) {
     if (options.definitions) return options.definitions(conversationId);
     const mcp = await getPiMcpToolSources();
@@ -516,6 +518,14 @@ export function createPiConversationCoordinator(options: Options = {}) {
         workspace: native,
       }),
       ...piMcpGatewayDefinitions(catalog, mcp),
+      ...getPiBrokeredWebTools().definitions(web, (attempt, callId) =>
+        fact(
+          conversationId,
+          "web_source_attempt",
+          { ...attempt, callId },
+          state(conversationId).turnId,
+        ).then(() => {}),
+      ),
     ];
   }
   async function gateway(
@@ -544,7 +554,7 @@ export function createPiConversationCoordinator(options: Options = {}) {
           "zotero-mutation",
           "host-control",
         ],
-        authorizedEffects: ["bounded-read"],
+        authorizedEffects: ["bounded-read", "external-egress"],
         authorizedKeys: [],
         maxCalls: 100,
         maxConcurrent: 4,
@@ -1078,8 +1088,9 @@ export function createPiConversationCoordinator(options: Options = {}) {
           displayName: snapshot.displayName,
         })),
       );
+      const web = await getPiBrokeredWebTools().freezeForTurn(model);
       current.definitions = model.policy.supportsTools
-        ? await definitions(conversationId, native)
+        ? await definitions(conversationId, native, web)
         : [];
       checkPreflight();
       if (
@@ -1101,6 +1112,10 @@ export function createPiConversationCoordinator(options: Options = {}) {
         tools.catalog,
         accepted,
       );
+      current.frozen.webSources = {
+        digest: web.digest,
+        sourceRefs: web.sources.map((s) => `web:${s.source.id}`),
+      };
       const snapshot = await readPiConversationTranscriptSnapshot(
         ref(conversationId),
         options.root,

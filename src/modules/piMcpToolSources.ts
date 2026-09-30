@@ -12,6 +12,7 @@ import {
   loadPiMcpSourceRegistry,
   type PiMcpSource,
 } from "./piMcpSourceRegistry";
+import { createPiBrokeredMcpFetch } from "./piBrokeredWebHttp";
 import { PiMcpStdioTransport } from "./piMcpStdioTransport";
 import type {
   PiGatewayEffect,
@@ -38,6 +39,7 @@ type Connection = {
   ) => Promise<unknown>;
   close: () => Promise<void>;
 };
+export type PiMcpConnection = Connection;
 export type PiMcpCatalogTool = Tool & {
   sourceId: string;
   alias: string;
@@ -133,11 +135,22 @@ async function digest(value: unknown): Promise<string> {
   return hash;
 }
 
+/**
+ * Resolve the configured slots to secret values. An explicit override supplies
+ * values for already-declared slots without writing them to the credential
+ * store; slots without a usable override fall back to the stored record.
+ */
 async function credentials(
   source: PiMcpSource,
+  override?: Record<string, string>,
 ): Promise<Record<string, string>> {
   const values: Record<string, string> = {};
   for (const [slot, ref] of Object.entries(source.credentialSlots)) {
+    const provided = override?.[slot];
+    if (typeof provided === "string" && provided) {
+      values[slot] = provided;
+      continue;
+    }
     const result = await readPiCredential(ref, "mcp-source");
     if (!result.ok || result.material.kind !== "mcp-secret")
       throw new Error("mcp_credential_unavailable");
@@ -149,7 +162,10 @@ async function credentials(
 async function openSource(
   source: PiMcpSource,
   invalidate: () => void,
+  credentialsOverride?: Record<string, string>,
+  signal?: AbortSignal,
 ): Promise<Connection> {
+  if (signal?.aborted) throw new Error("mcp_canceled");
   const client = new Client(
     { name: "zotero-agents", version: "0.9.0" },
     { listMaxPages: 16 },
@@ -160,6 +176,10 @@ async function openSource(
       invalidate();
     },
   );
+  const canceled = () => {
+    void client.close().catch(() => undefined);
+  };
+  signal?.addEventListener("abort", canceled, { once: true });
   try {
     if (source.transport === "http") {
       const endpoint = classifyPiMcpHttpUrl(source.url!);
@@ -168,32 +188,18 @@ async function openSource(
         source.localNetworkApproval !== endpoint.origin
       )
         throw new Error("mcp_local_network_denied");
-      const headers = await credentials(source);
-      const guardedFetch: typeof fetch = async (input, init) => {
-        const requested = new URL(
-          typeof input === "string"
-            ? input
-            : input instanceof URL
-              ? input.href
-              : input.url,
-        );
-        if (requested.origin !== endpoint.origin)
-          throw new Error("mcp_redirect_denied");
-        const response = await fetch(input, {
-          ...init,
-          credentials: "omit",
-          referrerPolicy: "no-referrer",
-          redirect: "manual",
-        });
-        if (response.status >= 300 && response.status < 400)
-          throw new Error("mcp_redirect_denied");
-        if (response.status === 401) throw new Error("oauth_not_supported");
-        return response;
-      };
+      const headers = await credentials(source, credentialsOverride);
+      if (signal?.aborted) throw new Error("mcp_canceled");
       await client.connect(
         new StreamableHTTPClientTransport(new URL(endpoint.url), {
           requestInit: { headers },
-          fetch: guardedFetch,
+          fetch: createPiBrokeredMcpFetch({
+            origin: endpoint.origin,
+            ...(source.localNetworkApproval
+              ? { localNetworkApprovedOrigin: source.localNetworkApproval }
+              : {}),
+            credentialed: Object.keys(headers).length > 0,
+          }),
         }),
       );
     } else {
@@ -213,7 +219,11 @@ async function openSource(
       ]) {
         if (ambient[key]) environment[key] = ambient[key];
       }
-      Object.assign(environment, await credentials(source));
+      Object.assign(
+        environment,
+        await credentials(source, credentialsOverride),
+      );
+      if (signal?.aborted) throw new Error("mcp_canceled");
       await client.connect(
         new PiMcpStdioTransport({
           executable: source.executable!,
@@ -227,7 +237,39 @@ async function openSource(
   } catch (error) {
     await client.close().catch(() => undefined);
     throw error;
+  } finally {
+    signal?.removeEventListener("abort", canceled);
   }
+}
+
+/**
+ * Production entry point for opening one MCP source connection. The caller may
+ * supply explicit values for already-declared credential slots so an admitted
+ * source can be opened without persisting additional credentials.
+ */
+export function openPiMcpSource(
+  source: PiMcpSource,
+  invalidate: () => void = () => undefined,
+  credentialsOverride?: Record<string, string>,
+  signal?: AbortSignal,
+): Promise<PiMcpConnection> {
+  return openSource(source, invalidate, credentialsOverride, signal);
+}
+
+const LOCAL_DENIAL_CODE = /^(?:pi_network_|mcp_)/;
+
+/** Typed local denial code buried anywhere in an MCP transport failure. */
+function localDenialCode(error: unknown): string | undefined {
+  let current = error as { code?: unknown; cause?: unknown } | undefined;
+  for (let depth = 0; current && depth < 6; depth += 1) {
+    if (
+      typeof current.code === "string" &&
+      LOCAL_DENIAL_CODE.test(current.code)
+    )
+      return current.code;
+    current = current.cause as { code?: unknown; cause?: unknown } | undefined;
+  }
+  return undefined;
 }
 
 export function createPiMcpToolSources(
@@ -402,6 +444,8 @@ export function createPiMcpToolSources(
     } catch (error) {
       if (error instanceof Error && error.message === "oauth_not_supported")
         return failed("oauth_not_supported", "unknown");
+      const denial = localDenialCode(error);
+      if (denial) return failed(denial, "confirmed_none");
       return failed("mcp_outcome_unknown", "unknown");
     }
   }

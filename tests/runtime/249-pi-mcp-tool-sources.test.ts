@@ -521,6 +521,18 @@ describe("Pi MCP Tool Sources runtime", function () {
 
 describe("Pi MCP stdio transport", function () {
   this.timeout(15_000);
+  it("rejects a late startup after the transport was closed", async function () {
+    const transport = new PiMcpStdioTransport({
+      executable: process.execPath,
+      argv: ["-e", "setTimeout(() => {}, 200)"],
+      cwd: process.cwd(),
+      environment: { PATH: process.env.PATH || "" },
+    });
+    const starting = transport.start();
+    await transport.close();
+    const [result] = await Promise.allSettled([starting]);
+    assert.equal(result.status, "rejected");
+  });
   it("passes JSON-RPC through the protocol-neutral process bridge", async function () {
     const transport = new PiMcpStdioTransport({
       executable: process.execPath,

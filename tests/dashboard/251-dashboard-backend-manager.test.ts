@@ -1183,4 +1183,264 @@ describe("dashboard backend-manager page (src/dashboard)", function () {
       "SkillRunner Profiles",
     );
   });
+  it("manages Web Search Sources without touching Backend Profile rows", async function () {
+    const page = createPage();
+    initPage(page, {
+      builtinAgent: {
+        configurations: [
+          {
+            id: "pi-config",
+            label: "Pi",
+            provider: "openai",
+            modelId: "gpt-search",
+            authVariant: "api-key",
+            enabled: true,
+          },
+        ],
+        configurationStatus: { "pi-config": "configured" },
+        credentials: [],
+        mcpSources: [],
+        mcpCredentials: [],
+        mcpDiscovered: {},
+        defaults: {},
+        overlayPath: "",
+        catalog: {
+          status: "ready",
+          revision: "r1",
+          modelCount: 1,
+          providers: ["openai"],
+        },
+        models: [],
+        webSources: [
+          { id: "exa", kind: "exa-mcp", label: "Exa", enabled: true },
+          { id: "tavily", kind: "tavily-mcp", label: "Tavily", enabled: false },
+          {
+            id: "searxng",
+            kind: "searxng",
+            label: "SearXNG",
+            enabled: false,
+            endpoint: "https://searx.example",
+          },
+          {
+            id: "brave-mcp",
+            kind: "brave-mcp",
+            label: "Brave (MCP)",
+            enabled: false,
+          },
+          {
+            id: "openai-native",
+            kind: "openai-native",
+            label: "OpenAI Web Search",
+            enabled: false,
+          },
+          {
+            id: "anthropic-native",
+            kind: "anthropic-native",
+            label: "Anthropic Web Search",
+            enabled: false,
+          },
+        ],
+        webCredentials: [
+          {
+            id: "web-key",
+            label: "Web key",
+            kind: "web-secret",
+            namespace: "web-source",
+            masked: "••••",
+            updatedAt: "2026-09-30T00:00:00.000Z",
+          },
+        ],
+        webTestResults: {},
+      },
+    } as Partial<BackendManagerSnapshot>);
+    const tabs = Array.from(
+      page.root.querySelectorAll(".backend-provider-tab"),
+    );
+    clickButton(tabs[tabs.length - 1]);
+    page.actions.length = 0;
+
+    assert.equal(page.root.querySelectorAll("[data-web-source]").length, 6);
+    assert.isOk(
+      page.root.querySelector(
+        "[data-web-source='tavily'] [data-web-badge='paid']",
+      ),
+    );
+    assert.notOk(
+      page.root.querySelector(
+        "[data-web-source='exa'] [data-web-badge='paid']",
+      ),
+    );
+    assert.include(
+      page.root.querySelector("[data-pi-web-sources]")?.textContent || "",
+      "2.1.4",
+    );
+
+    const saved = () =>
+      page.actions
+        .filter((entry) => entry.action === "pi-web-save-sources")
+        .at(-1)!.payload.sources as Array<Record<string, unknown>>;
+    const savedById = (id: string) =>
+      saved().find((source) => source.id === id) as Record<string, unknown>;
+
+    const tavilyEnabled = page.root.querySelector(
+      "[data-web-source='tavily'] .backend-checkbox-field input",
+    )!;
+    (tavilyEnabled as HTMLInputElement).checked = true;
+    fireChange(tavilyEnabled);
+    assert.isTrue(savedById("tavily").enabled);
+
+    clickButton(
+      page.root.querySelector(
+        "[data-web-source='tavily'] [data-web-action='up']",
+      ),
+    );
+    assert.deepEqual(
+      saved().map((source) => source.id),
+      [
+        "tavily",
+        "exa",
+        "searxng",
+        "brave-mcp",
+        "openai-native",
+        "anthropic-native",
+      ],
+    );
+
+    fireInput(
+      page.root.querySelector("[data-web-field='endpoint:searxng']")!,
+      "https://searx.internal",
+    );
+    assert.equal(savedById("searxng").endpoint, "https://searx.internal");
+
+    clickButton(
+      page.root.querySelector("[data-web-field='model:openai-native']"),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    clickButton(page.root.querySelector("[data-choice-value='pi-config']"));
+    assert.equal(savedById("openai-native").modelConfigurationId, "pi-config");
+    fireInput(
+      page.root.querySelector("[data-web-field='search-model:openai-native']")!,
+      "gpt-5-search",
+    );
+    assert.equal(savedById("openai-native").searchModelId, "gpt-5-search");
+
+    const codeExecution = page.root.querySelector(
+      "[data-web-field='code-execution:brave-mcp']",
+    )!;
+    (codeExecution as HTMLInputElement).checked = true;
+    fireChange(codeExecution);
+    assert.isTrue(savedById("brave-mcp").codeExecutionApproved);
+
+    clickButton(
+      page.root.querySelector(
+        "[data-web-source='exa'] [data-web-action='test']",
+      ),
+    );
+    const request = page.actions
+      .filter((entry) => entry.action === "pi-web-test-source")
+      .at(-1)!;
+    assert.isString(request.payload.requestId);
+    page.controller.handleMessage({
+      type: "backend-manager-dialog:action-result",
+      payload: {
+        action: "pi-web-test-source",
+        ok: true,
+        sourceId: "exa",
+        requestId: "stale-request",
+        status: "available",
+      },
+    });
+    assert.notOk(
+      page.root.querySelector("[data-web-source='exa'] [data-web-status]"),
+    );
+    page.controller.handleMessage({
+      type: "backend-manager-dialog:action-result",
+      payload: {
+        action: "pi-web-test-source",
+        ok: true,
+        sourceId: "exa",
+        requestId: request.payload.requestId,
+        status: "unavailable",
+        code: "provider_unavailable",
+      },
+    });
+    const status = page.root.querySelector(
+      "[data-web-source='exa'] [data-web-status]",
+    )!;
+    assert.equal(
+      page.controller.state.snapshot!.builtinAgent!.webTestResults["exa"]
+        ?.status,
+      "unavailable",
+    );
+    assert.equal(status.getAttribute("data-web-status"), "unavailable");
+    assert.include(status.textContent || "", "provider_unavailable");
+    page.controller.handleMessage({
+      type: "backend-manager-dialog:action-result",
+      payload: {
+        action: "pi-web-test-source",
+        ok: true,
+        sourceId: "exa",
+        requestId: request.payload.requestId,
+        status: "available",
+        toolDigest: `sha256:${"a".repeat(64)}`,
+      },
+    });
+    clickButton(
+      page.root.querySelector(
+        "[data-web-source='exa'] [data-web-action='review']",
+      ),
+    );
+    assert.equal(
+      savedById("exa").reviewedToolDigest,
+      `sha256:${"a".repeat(64)}`,
+    );
+
+    page.controller.handleMessage({
+      type: "backend-manager-dialog:snapshot",
+      payload: {
+        ...page.controller.state.snapshot!,
+        builtinAgent: {
+          ...page.controller.state.snapshot!.builtinAgent!,
+          webTestResults: {},
+        },
+      },
+    });
+    assert.isOk(
+      page.root.querySelector("[data-web-source='exa'] [data-web-status]"),
+    );
+
+    fireInput(
+      page.root.querySelector("[data-web-field='secret-id']")!,
+      "web-key",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fireInput(
+      page.root.querySelector("[data-web-field='secret-label']")!,
+      "Web key",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fireInput(
+      page.root.querySelector("[data-web-field='secret']")!,
+      "web-secret-value",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    clickButton(page.root.querySelector("[data-web-action='save-secret']"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const secretAction = page.actions.find(
+      (entry) => entry.action === "pi-web-put-secret",
+    );
+    assert.isOk(secretAction);
+    assert.equal(secretAction?.payload.id, "web-key");
+    assert.equal(secretAction?.payload.secret, "web-secret-value");
+    assert.notInclude(
+      JSON.stringify(page.controller.state.snapshot),
+      "web-secret-value",
+    );
+    assert.equal(
+      (page.root.querySelector("[data-web-field='secret']") as HTMLInputElement)
+        .value,
+      "",
+    );
+    assert.isFalse(page.actions.some((entry) => entry.action === "save"));
+  });
 });

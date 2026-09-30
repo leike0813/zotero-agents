@@ -23,7 +23,12 @@ export class PiMcpStdioTransport implements Transport {
   async start(): Promise<void> {
     if (this.process || this.closed)
       throw new Error("mcp_stdio_already_started");
-    this.process = await startLongLivedProcess(this.request);
+    const process = await startLongLivedProcess(this.request);
+    if (this.closed) {
+      await process.terminate();
+      throw new Error("mcp_stdio_closed");
+    }
+    this.process = process;
     void this.readStdout(this.process);
     void this.drainStderr(this.process);
     void this.process.wait().then(

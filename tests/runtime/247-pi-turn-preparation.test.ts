@@ -139,6 +139,40 @@ function fixture(): PiTurnPreparationInput {
   };
 }
 
+describe("Pi Web external trust preparation", function () {
+  it("keeps search chain provenance and an external-data instruction", async function () {
+    const input = fixture();
+    input.frozen.webSources = { digest: "chain", sourceRefs: ["web:exa"] };
+    input.frozen.tools.tools.push({
+      capabilityId: "web.search",
+      name: "web_search",
+      description: "Search",
+      schema: { type: "object" },
+    });
+    const ports: PiTurnPreparationPorts = {
+      estimator: input.frozen.policy.estimator,
+      estimate: async () => 10,
+      summarize: async () => {
+        throw new Error("unused");
+      },
+      record: async (_, basis) => basis,
+      commitCompaction: async () => ({ status: "stale" }),
+    };
+    const result = await preparePiTurn(input, ports);
+    assert.notEqual(result.status, "failed");
+    if (result.status !== "failed") {
+      assert.include(
+        result.context.blocks.map((b) => b.text).join("\n"),
+        "external_untrusted",
+      );
+      assert.deepEqual(result.record.webSources, {
+        digest: "chain",
+        sourceRefs: ["web:exa"],
+      });
+    }
+  });
+});
+
 function ports(records: unknown[] = []): PiTurnPreparationPorts {
   return {
     estimator: { id: "fixture-estimator", version: "1", mode: "exact" },

@@ -624,6 +624,70 @@
 .backend-pi-overlay .backend-input {
   width: 100%;
 }
+.backend-pi-web {
+  display: grid;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--zs-border);
+}
+
+.backend-web-paid-notice {
+  margin: 0;
+  color: var(--zs-muted);
+}
+
+.backend-web-error {
+  margin: 0;
+  color: var(--zs-danger);
+}
+
+.backend-web-list {
+  display: grid;
+  gap: 10px;
+}
+
+.backend-web-row {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--zs-border);
+  border-radius: 6px;
+}
+
+.backend-web-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.backend-web-kind {
+  color: var(--zs-muted);
+  font-size: 12px;
+}
+
+.backend-web-paid-badge {
+  padding: 1px 6px;
+  border: 1px solid var(--zs-danger-border);
+  border-radius: 999px;
+  color: var(--zs-danger);
+  font-size: 11px;
+}
+
+.backend-web-package-note {
+  margin: 0;
+  color: var(--zs-muted);
+  font-size: 12px;
+}
+
+.backend-web-row-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.backend-web-status {
+  color: var(--zs-muted);
+}
 
 @media (max-width: 1100px) {
   .backend-pi-grid {

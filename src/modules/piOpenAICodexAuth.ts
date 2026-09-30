@@ -1,5 +1,6 @@
 import {
   getPiCredentialRevision,
+  getPiCredentialIdentityRevision,
   listPiCredentials,
   putPiCredential,
   readPiCredential,
@@ -322,12 +323,25 @@ export async function resolvePiOpenAICodexAccess(
   credentialId: string,
   signal: AbortSignal,
   fetcher: AuthFetch = defaultAuthFetch(),
+  expected?: { identityRevision: string; accountId: string },
 ): Promise<string> {
   aborted(signal);
+  const checkIdentity = () => {
+    if (
+      expected &&
+      getPiCredentialIdentityRevision(credentialId, "model-provider") !==
+        expected.identityRevision
+    )
+      throw new PiCodexAuthFailure("credential_missing");
+  };
+  checkIdentity();
   const active = refreshes.get(credentialId);
   if (active) {
     const access = await active;
     aborted(signal);
+    checkIdentity();
+    if (expected && accountId(access) !== expected.accountId)
+      throw new PiCodexAuthFailure("account_missing");
     return access;
   }
   const work = (async () => {
@@ -341,6 +355,9 @@ export async function resolvePiOpenAICodexAccess(
     )
       throw new PiCodexAuthFailure("credential_missing");
     const current = resolved.material;
+    checkIdentity();
+    if (expected && current.accountId !== expected.accountId)
+      throw new PiCodexAuthFailure("account_missing");
     if (current.expiresAt > Date.now() + 60_000) return current.access;
     const response = await request(
       `${AUTH}/oauth/token`,
@@ -369,6 +386,7 @@ export async function resolvePiOpenAICodexAccess(
           listPiCredentials().find((item) => item.id === credentialId)?.label ||
           "OpenAI Codex",
         expectedRevision: revision,
+        preserveIdentity: true,
         signal,
         material: {
           kind: "openai-codex",
@@ -389,6 +407,7 @@ export async function resolvePiOpenAICodexAccess(
   try {
     const access = await work;
     aborted(signal);
+    checkIdentity();
     return access;
   } finally {
     if (refreshes.get(credentialId) === work) refreshes.delete(credentialId);

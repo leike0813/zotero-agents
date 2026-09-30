@@ -11,6 +11,7 @@ import {
 import { installPluginStateNodeSqliteAdapter } from "../helpers/pluginStateNodeSqliteAdapter";
 import {
   deletePiCredential,
+  getPiCredentialIdentityRevision,
   getPiCredentialRevision,
   listPiCredentials,
   putPiCredential,
@@ -65,6 +66,26 @@ describe("Pi credential store", function () {
     await deletePiCredential("a");
     assert.equal((await readPiCredential("a")).ok, false);
     assert.equal((await readPiCredential("b")).ok, true);
+  });
+
+  it("isolates Web secrets from model and MCP credentials", async function () {
+    await putPiCredential({
+      id: "web",
+      label: "Search",
+      namespace: "web-source",
+      material: { kind: "web-secret", secret: "web-private" },
+    });
+    assert.isFalse((await readPiCredential("web")).ok);
+    assert.isFalse((await readPiCredential("web", "mcp-source")).ok);
+    assert.isTrue((await readPiCredential("web", "web-source")).ok);
+    assert.notInclude(
+      JSON.stringify(listPiCredentials("web-source")),
+      "web-private",
+    );
+    assert.notInclude(
+      String(getPref("piCredentialEncryptedJson")),
+      "web-private",
+    );
   });
 
   it("keeps legacy model credentials usable while isolating MCP secrets", async function () {
@@ -125,6 +146,47 @@ describe("Pi credential store", function () {
     await deletePiCredential(input.id, "mcp-source");
     await putPiCredential(input);
     assert.notEqual(getPiCredentialRevision(input.id, "mcp-source"), first);
+  });
+
+  it("keeps frozen account identity during refresh but changes it on user replacement", async function () {
+    const material = {
+      kind: "openai-codex" as const,
+      access: "a",
+      refresh: "r",
+      expiresAt: 1,
+      accountId: "account",
+    };
+    await putPiCredential({ id: "refresh", label: "Refresh", material });
+    const identity = getPiCredentialIdentityRevision(
+      "refresh",
+      "model-provider",
+    );
+    const revision = getPiCredentialRevision("refresh", "model-provider");
+    await putPiCredential({
+      id: "refresh",
+      label: "Refresh",
+      material: { ...material, access: "new" },
+      expectedRevision: revision,
+      preserveIdentity: true,
+    });
+    assert.equal(
+      getPiCredentialIdentityRevision("refresh", "model-provider"),
+      identity,
+    );
+    assert.notEqual(
+      getPiCredentialRevision("refresh", "model-provider"),
+      revision,
+    );
+    await putPiCredential({
+      id: "refresh",
+      label: "Refresh",
+      material,
+      expectedRevision: getPiCredentialRevision("refresh", "model-provider"),
+    });
+    assert.notEqual(
+      getPiCredentialIdentityRevision("refresh", "model-provider"),
+      identity,
+    );
   });
 
   it("fails closed on tampering or a lost profile key", async function () {

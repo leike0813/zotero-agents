@@ -281,6 +281,13 @@ This is a single-context repository using a root `CONTEXT.md` and root `docs/adr
 - HTTP 源使用官方 MCP v2 浏览器客户端，stdio 仅经 `PiMcpStdioTransport` 与 C09 长驻进程适配器；不得把 Node MCP stdio 客户端或旧版 SDK 导入插件包。Local Network 和明文私网端点先完成源级审批，跨 origin 重定向拒绝。
 - 每个 Pi turn 的 MCP 工具必须经 C07 Gateway 冻结、分类、授权、调度和记录。已发送的工具调用不得自动重放；失联或超时只能报告未知效果。结果先归一化并有界化，再进入 transcript 或 receipt。
 
+# Pi Brokered Web 硬约束
+
+- `piOutboundNetworkPolicy.ts` 是 Web/MCP 出站地址分类的事实源；每次 DNS 的全部 A/AAAA、元数据、Local Network origin 和每次重定向都必须校验，实际 peer 证据缺失时失败关闭。匿名 fetch 不携带凭据、Cookie 或 Referer。
+- `piBrokeredWebTools.ts` 只提供固定的 `web_search` / `web_fetch`；来源顺序、模型配置与凭据 revision 按 turn 冻结。每个来源只发送一次搜索；取消、策略/合同失败或未知效果停止 fallback，逐来源 started/terminal 事实由 canonical transcript 持久化。
+- 原生 grounded search 只使用官方 OpenAI（含 C05 Codex）与 Anthropic API-key 配置；Anthropic 固定官方 Messages API 和基础服务器搜索。没有实际搜索证据不得报告成功，不得从答案猜测引用。
+- curated MCP 调用前校验所选工具的 schema 和审阅摘要；Brave 启动前读取实际安装包 name/version。保存来源保持离线；主动测试和描述符批准是用户动作。Web 结果始终是 `external_untrusted` 数据，正文和投影有界，密钥、头与原生异常不得进入回执。
+
 # Pi Trusted Native Execution 硬约束
 
 - `src/modules/piTrustedNativeExecution.ts` 持有内置 Pi 文件、搜索、Shell 与 owner managed-file 语义；工具定义经 C07 Gateway 冻结，异步 canonical 路径分类必须在策略判定和调度前完成，执行前重新核验。路径身份无法证明时隐藏受影响工具。

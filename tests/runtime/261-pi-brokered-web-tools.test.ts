@@ -1,0 +1,1002 @@
+import { assert } from "chai";
+import { getPref, setPref } from "../../src/utils/prefs";
+import { createPiBrokeredWebTools } from "../../src/modules/piBrokeredWebTools";
+import { upsertPiProviderConfiguration } from "../../src/modules/piProviderConfiguration";
+import { JSDOM } from "jsdom";
+import { freezePiToolGatewayTurn } from "../../src/modules/piToolGateway";
+import {
+  installRuntimeBridgeOverrideForTests,
+  resetRuntimeBridgeOverrideForTests,
+} from "../../src/utils/runtimeBridge";
+
+describe("Pi Brokered Web Tools", function () {
+  it("uses a host window controller when the plugin global has none", async function () {
+    const Controller = globalThis.AbortController;
+    const service = createPiBrokeredWebTools({
+      credential: async () => ({ kind: "web-secret", secret: "k" }),
+      credentialRevision: () => "r",
+      request: async (input) => ({
+        requestedUrl: input.url,
+        finalUrl: input.url,
+        status: 200,
+        headers: {},
+        body: new TextEncoder().encode(
+          JSON.stringify({
+            results: [
+              { title: "Page", url: "https://example.org", content: "Found" },
+            ],
+          }),
+        ),
+      }),
+    });
+    const previous = getPref("piWebSourcesJson");
+    service.saveSources(
+      service.listSources().map((s) => ({
+        ...s,
+        enabled: s.kind === "perplexity",
+        credentialId: "key",
+      })),
+    );
+    installRuntimeBridgeOverrideForTests({
+      windows: [{ AbortController: Controller }],
+    });
+    (globalThis as any).AbortController = undefined;
+    try {
+      const result = await service.search(
+        await service.freezeForTurn(),
+        { query: "q" },
+        new Controller().signal,
+        async () => {},
+      );
+      assert.equal(result.resultKind, "raw_results");
+    } finally {
+      globalThis.AbortController = Controller;
+      resetRuntimeBridgeOverrideForTests();
+      setPref("piWebSourcesJson", previous as string);
+    }
+  });
+  let prior: unknown;
+  beforeEach(function () {
+    prior = getPref("piWebSourcesJson");
+    setPref("piWebSourcesJson", "");
+  });
+  afterEach(function () {
+    setPref("piWebSourcesJson", prior as string);
+  });
+
+  it("loads offline with only Exa enabled and preserves frozen explicit ordering", async function () {
+    let requests = 0;
+    const service = createPiBrokeredWebTools({
+      request: async () => {
+        requests++;
+        throw new Error("offline");
+      },
+    });
+    const sources = service.listSources();
+    assert.lengthOf(sources, 8);
+    assert.deepEqual(
+      sources.filter((s) => s.enabled).map((s) => s.kind),
+      ["exa-mcp"],
+    );
+    const frozen = await service.freezeForTurn();
+    service.saveSources([...sources].reverse());
+    assert.equal(frozen.sources[0].source.kind, "exa-mcp");
+    assert.equal(requests, 0);
+    assert.throws(() =>
+      service.saveSources([{ ...sources[0], secret: "unsafe" } as any]),
+    );
+  });
+
+  it("boosts only enabled exact-configuration native search without changing saved order", async function () {
+    const priorModel = getPref("piProviderConfigurationJson");
+    try {
+      setPref("piProviderConfigurationJson", "");
+      upsertPiProviderConfiguration({
+        id: "same",
+        label: "Same",
+        provider: "openai",
+        modelId: "gpt-4.1",
+        authVariant: "api-key",
+        credentialRef: "key",
+        enabled: true,
+      });
+      const service = createPiBrokeredWebTools();
+      const sources = service
+        .listSources()
+        .map((s) =>
+          s.kind === "openai-native"
+            ? { ...s, enabled: true, modelConfigurationId: "same" }
+            : s,
+        );
+      service.saveSources(sources);
+      const turn = await service.freezeForTurn({
+        configurationId: "same",
+      } as any);
+      assert.deepEqual(
+        turn.sources.map((s) => s.source.kind),
+        ["openai-native", "exa-mcp"],
+      );
+      assert.equal(service.listSources()[0].kind, "exa-mcp");
+      const other = await service.freezeForTurn({
+        configurationId: "other",
+      } as any);
+      assert.deepEqual(
+        other.sources.map((s) => s.source.kind),
+        ["exa-mcp", "openai-native"],
+      );
+    } finally {
+      setPref("piProviderConfigurationJson", priorModel as string);
+    }
+  });
+
+  it("fetches anonymous HTML into bounded untrusted readable text", async function () {
+    const service = createPiBrokeredWebTools({
+      parseHtml: (html) => new JSDOM(html).window.document,
+      request: async (input) => {
+        assert.equal(input.kind, "fetch");
+        assert.isUndefined(input.headers);
+        return {
+          requestedUrl: input.url,
+          finalUrl: "https://example.org/end",
+          status: 200,
+          headers: { "content-type": "text/html" },
+          body: new TextEncoder().encode(
+            '<title>Page</title><script>bad()</script><main><h1>Heading</h1><p>Read <a href="/target">link</a></p><form>hidden control</form></main>',
+          ),
+        };
+      },
+    });
+    const result = await service.fetch(
+      { url: "https://example.org/start" },
+      new AbortController().signal,
+    );
+    assert.equal(result.contentTrust, "external_untrusted");
+    assert.equal(result.title, "Page");
+    assert.include(result.text, "https://example.org/target");
+    assert.notInclude(result.text, "bad()");
+    assert.notInclude(result.text, "hidden control");
+  });
+
+  it("tries a terminal source once, records safe attempts, and stops on unknown", async function () {
+    const attempts: any[] = [];
+    let calls = 0;
+    const service = createPiBrokeredWebTools({
+      credential: async () => ({
+        kind: "web-secret",
+        secret: "private-fixture",
+      }),
+      credentialRevision: () => "revision",
+      request: async (input) => {
+        calls++;
+        if (input.kind === "brave")
+          return {
+            requestedUrl: input.url,
+            finalUrl: input.url,
+            status: 503,
+            headers: {},
+            body: new TextEncoder().encode("private-error"),
+          };
+        return {
+          requestedUrl: input.url,
+          finalUrl: input.url,
+          status: 200,
+          headers: {},
+          body: new TextEncoder().encode(
+            JSON.stringify({
+              results: [
+                {
+                  url: "https://example.org/p",
+                  title: "Found",
+                  snippet: "Snippet",
+                  private: "hidden",
+                },
+              ],
+            }),
+          ),
+        };
+      },
+    });
+    service.saveSources(
+      service.listSources().map((s) => ({
+        ...s,
+        enabled: ["brave-http", "perplexity"].includes(s.kind),
+        credentialId: "key",
+      })),
+    );
+    const turn = await service.freezeForTurn();
+    const result = await service.search(
+      turn,
+      { query: "query" },
+      new AbortController().signal,
+      async (a) => {
+        attempts.push(a);
+      },
+    );
+    assert.equal(result.resultKind, "raw_results");
+    assert.equal(result.source.id, "perplexity");
+    assert.equal(calls, 2);
+    assert.equal(attempts.filter((a) => a.phase === "terminal").length, 2);
+    assert.notInclude(JSON.stringify(attempts), "private-fixture");
+    assert.notInclude(JSON.stringify(attempts), "private-error");
+    assert.notInclude(JSON.stringify(result), "hidden");
+    const unknown = createPiBrokeredWebTools({
+      credential: async () => ({ kind: "web-secret", secret: "fixture" }),
+      credentialRevision: () => "revision",
+      request: async () => {
+        throw new Error("lost connection");
+      },
+    });
+    const receipts: any[] = [];
+    try {
+      await unknown.search(
+        turn,
+        { query: "q" },
+        new AbortController().signal,
+        async (a) => {
+          receipts.push(a);
+        },
+      );
+      assert.fail("expected unknown");
+    } catch (error) {
+      assert.equal((error as any).code, "outcome_unknown");
+    }
+    assert.equal(receipts.filter((a) => a.phase === "started").length, 1);
+  });
+
+  it("requires real server-side search evidence and preserves absent citations", async function () {
+    const priorModel = getPref("piProviderConfigurationJson");
+    try {
+      setPref("piProviderConfigurationJson", "");
+      for (const provider of ["openai", "anthropic"])
+        upsertPiProviderConfiguration({
+          id: provider,
+          label: provider,
+          provider,
+          modelId:
+            provider === "openai" ? "gpt-4.1" : "claude-sonnet-4-20250514",
+          authVariant: "api-key",
+          credentialRef: "key",
+          enabled: true,
+        });
+      let performed = true;
+      const service = createPiBrokeredWebTools({
+        credential: async () => ({ kind: "api-key", secret: "private" }),
+        credentialRevision: () => "revision",
+        request: async (input) => {
+          const body = JSON.parse(input.body!);
+          if (input.kind === "anthropic") {
+            assert.equal(input.url, "https://api.anthropic.com/v1/messages");
+            assert.equal(input.headers?.["x-api-key"], "private");
+            assert.equal(body.tools[0].type, "web_search_20250305");
+            assert.equal(body.tool_choice.name, "web_search");
+            return {
+              requestedUrl: input.url,
+              finalUrl: input.url,
+              status: 200,
+              headers: {},
+              body: new TextEncoder().encode(
+                JSON.stringify({
+                  stop_reason: "end_turn",
+                  content: [
+                    {
+                      type: "server_tool_use",
+                      id: "search1",
+                      name: "web_search",
+                      input: { query: "actual" },
+                    },
+                    {
+                      type: "web_search_tool_result",
+                      tool_use_id: "search1",
+                      content: performed
+                        ? []
+                        : {
+                            type: "web_search_tool_result_error",
+                            error_code: "too_many_requests",
+                          },
+                    },
+                    { type: "text", text: "Answer" },
+                  ],
+                  usage: { input_tokens: 5, output_tokens: 4 },
+                }),
+              ),
+            };
+          }
+          assert.equal(body.tools[0].type, "web_search");
+          assert.equal(body.tool_choice.type, "web_search");
+          return {
+            requestedUrl: input.url,
+            finalUrl: input.url,
+            status: 200,
+            headers: {},
+            body: new TextEncoder().encode(
+              JSON.stringify({
+                status: "completed",
+                output: [
+                  ...(performed
+                    ? [
+                        {
+                          type: "web_search_call",
+                          status: "completed",
+                          action: { type: "search", queries: ["actual"] },
+                        },
+                      ]
+                    : []),
+                  {
+                    type: "message",
+                    content: [
+                      { type: "output_text", text: "Answer", annotations: [] },
+                    ],
+                  },
+                ],
+              }),
+            ),
+          };
+        },
+      });
+      for (const kind of ["openai-native", "anthropic-native"]) {
+        service.saveSources(
+          service.listSources().map((s) => ({
+            ...s,
+            enabled: s.kind === kind,
+            modelConfigurationId: kind.split("-")[0],
+          })),
+        );
+        const turn = await service.freezeForTurn();
+        const receipts: any[] = [];
+        const result = await service.search(
+          turn,
+          { query: "q" },
+          new AbortController().signal,
+          async (a) => {
+            receipts.push(a);
+          },
+        );
+        assert.equal(result.resultKind, "grounded_answer");
+        if (result.resultKind === "grounded_answer") {
+          assert.equal(result.sourceEvidence, "unavailable");
+          assert.deepEqual(result.citations, []);
+          assert.deepEqual(result.actualQueries, ["actual"]);
+        }
+        assert.notInclude(JSON.stringify(receipts), "Answer");
+      }
+      performed = false;
+      service.saveSources(
+        service.listSources().map((s) => ({
+          ...s,
+          enabled: s.kind === "openai-native",
+          modelConfigurationId: "openai",
+        })),
+      );
+      const receipts: any[] = [];
+      try {
+        await service.search(
+          await service.freezeForTurn(),
+          { query: "q" },
+          new AbortController().signal,
+          async (a) => {
+            receipts.push(a);
+          },
+        );
+        assert.fail();
+      } catch (error) {
+        assert.equal((error as any).code, "search_unavailable");
+      }
+      assert.equal(receipts.at(-1).code, "search_not_performed");
+      service.saveSources(
+        service.listSources().map((s) => ({
+          ...s,
+          enabled: s.kind === "anthropic-native",
+          modelConfigurationId: "anthropic",
+        })),
+      );
+      const errors: any[] = [];
+      try {
+        await service.search(
+          await service.freezeForTurn(),
+          { query: "q" },
+          new AbortController().signal,
+          async (a) => {
+            errors.push(a);
+          },
+        );
+        assert.fail();
+      } catch (error) {
+        assert.equal((error as any).code, "search_unavailable");
+      }
+      assert.equal(errors.at(-1).code, "source_tool_error");
+    } finally {
+      setPref("piProviderConfigurationJson", priorModel as string);
+    }
+  });
+
+  it("calls only curated MCP search descriptors and normalizes official text/JSON formats", async function () {
+    const called: string[] = [];
+    const service = createPiBrokeredWebTools({
+      credential: async () => ({ kind: "web-secret", secret: "private" }),
+      credentialRevision: () => "revision",
+      readPackage: async () =>
+        JSON.stringify({
+          name: "@brave/brave-search-mcp-server",
+          version: "2.1.4",
+        }),
+      openMcp: async () => ({
+        listTools: async () => ({
+          tools: [
+            {
+              name: "web_search_exa",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  query: { type: "string" },
+                  objective: { type: "string" },
+                  numResults: { type: "number" },
+                },
+                required: ["query", "objective"],
+              },
+            },
+            {
+              name: "tavily-search",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  query: { type: "string" },
+                  max_results: { type: "number" },
+                },
+                required: ["query"],
+              },
+            },
+            {
+              name: "brave_web_search",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  query: { type: "string" },
+                  count: { type: "number" },
+                },
+                required: ["query"],
+              },
+            },
+          ],
+        }),
+        callTool: async (call) => {
+          called.push(call.name);
+          return call.name === "web_search_exa"
+            ? {
+                content: [
+                  {
+                    type: "text",
+                    text: "Title: Example\nURL: https://example.org\nPublished: N/A\nAuthor: N/A\nHighlights:\nSnippet",
+                  },
+                ],
+              }
+            : call.name === "brave_web_search"
+              ? {
+                  content: [
+                    {
+                      type: "text",
+                      text: JSON.stringify({
+                        title: "Example",
+                        url: "https://example.org",
+                        description: "Snippet",
+                      }),
+                    },
+                    {
+                      type: "text",
+                      text: JSON.stringify({
+                        title: "Second",
+                        url: "https://example.org/second",
+                        description: "More",
+                      }),
+                    },
+                  ],
+                }
+              : {
+                  content: [
+                    {
+                      type: "text",
+                      text: JSON.stringify({
+                        results: [
+                          {
+                            title: "Example",
+                            url: "https://example.org",
+                            content: "Snippet",
+                          },
+                        ],
+                      }),
+                    },
+                  ],
+                };
+        },
+        close: async () => undefined,
+      }),
+    });
+    for (const kind of ["exa-mcp", "tavily-mcp", "brave-mcp"]) {
+      service.saveSources(
+        service.listSources().map((s) => ({
+          ...s,
+          enabled: s.kind === kind,
+          credentialId: "key",
+          ...(s.kind === "brave-mcp"
+            ? {
+                codeExecutionApproved: true,
+                executable: "/usr/bin/node",
+                args: [
+                  "/installed/@brave/brave-search-mcp-server/2.1.4/dist/index.js",
+                ],
+              }
+            : {}),
+        })),
+      );
+      const probe = await service.testSource(
+        service.listSources().find((s) => s.kind === kind)!.id,
+        "test",
+      );
+      assert.isString(probe.toolDigest);
+      service.saveSources(
+        service
+          .listSources()
+          .map((s) =>
+            s.kind === kind
+              ? { ...s, reviewedToolDigest: probe.toolDigest }
+              : s,
+          ),
+      );
+      const result = await service.search(
+        await service.freezeForTurn(),
+        { query: "q" },
+        new AbortController().signal,
+        async () => {},
+      );
+      assert.equal(result.resultKind, "raw_results");
+    }
+    assert.deepEqual(called, [
+      "web_search_exa",
+      "tavily-search",
+      "brave_web_search",
+    ]);
+  });
+
+  it("binds source identity to Gateway approval and blocks dispatch if domain evidence fails", async function () {
+    let dispatched = 0;
+    const service = createPiBrokeredWebTools({
+      credential: async () => ({ kind: "web-secret", secret: "fixture" }),
+      credentialRevision: () => "r",
+      inspect: async (url) => ({
+        origin: new URL(url).origin,
+        location: "public",
+      }),
+      request: async (input) => {
+        dispatched++;
+        return {
+          requestedUrl: input.url,
+          finalUrl: input.url,
+          status: 200,
+          headers: {},
+          body: new TextEncoder().encode(
+            '{"results":[{"url":"https://example.org","title":"T","snippet":"S"}]}',
+          ),
+        };
+      },
+    });
+    service.saveSources(
+      service.listSources().map((s) => ({
+        ...s,
+        enabled: s.kind === "perplexity",
+        credentialId: "key",
+      })),
+    );
+    const chain = await service.freezeForTurn();
+    const definitions = service.definitions(chain, async () => {
+      throw new Error("disk");
+    });
+    const turn = await freezePiToolGatewayTurn({
+      owner: { kind: "conversation", ownerId: "owner" },
+      turnId: "turn",
+      definitions,
+      runtimeCapability: {
+        identity: "fixture",
+        availableCapabilityIds: definitions.map((d) => d.capabilityId),
+      },
+      policy: {
+        mode: "automatic",
+        systemAllowedEffects: ["external-egress"],
+        authorizedEffects: ["external-egress"],
+        authorizedKeys: ["web:perplexity"],
+        maxCalls: 5,
+        maxConcurrent: 1,
+        maxCost: 10,
+      },
+      hooks: {
+        recordStarted: async () => {},
+        recordReceipt: async () => {},
+        recordPermission: async () => {},
+      },
+    });
+    const result = await turn.executeBatch([
+      { callId: "call", name: "web_search", arguments: { query: "q" } },
+    ]);
+    assert.equal(result.results[0].status, "failed");
+    assert.equal(dispatched, 0);
+  });
+
+  it("settles cancellation while a dispatched source is silent without starting fallback", async function () {
+    const controller = new AbortController();
+    const attempts: any[] = [];
+    const service = createPiBrokeredWebTools({
+      credential: async () => ({ kind: "web-secret", secret: "fixture" }),
+      credentialRevision: () => "r",
+      request: async () => {
+        controller.abort();
+        return new Promise(() => {});
+      },
+    });
+    service.saveSources(
+      service.listSources().map((s) => ({
+        ...s,
+        enabled: ["brave-http", "perplexity"].includes(s.kind),
+        credentialId: "key",
+      })),
+    );
+    try {
+      await service.search(
+        await service.freezeForTurn(),
+        { query: "q" },
+        controller.signal,
+        async (a) => {
+          attempts.push(a);
+        },
+      );
+      assert.fail();
+    } catch (error) {
+      assert.equal((error as any).code, "canceled");
+    }
+    assert.equal(attempts.filter((a) => a.phase === "started").length, 1);
+    assert.equal(attempts.at(-1).code, "canceled");
+  });
+
+  it("does not dispatch a replaced credential or a changed reviewed MCP descriptor", async function () {
+    let current = "old",
+      calls = 0,
+      changed = false;
+    const service = createPiBrokeredWebTools({
+      credentialRevision: () => current,
+      credential: async () => {
+        current = "replacement";
+        return { kind: "web-secret", secret: "new-account" };
+      },
+      request: async () => {
+        calls++;
+        throw new Error("should not dispatch");
+      },
+      openMcp: async () => ({
+        listTools: async () => ({
+          tools: [
+            {
+              name: "web_search_exa",
+              description: changed ? "changed" : "reviewed",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  query: { type: "string" },
+                  objective: { type: "string" },
+                  numResults: { type: "number" },
+                },
+                required: ["query", "objective"],
+              },
+            },
+          ],
+        }),
+        callTool: async () => {
+          calls++;
+          throw new Error("should not dispatch");
+        },
+        close: async () => undefined,
+      }),
+    });
+    service.saveSources(
+      service.listSources().map((s) => ({
+        ...s,
+        enabled: s.kind === "brave-http",
+        credentialId: "key",
+      })),
+    );
+    const attempts: any[] = [];
+    try {
+      await service.search(
+        await service.freezeForTurn(),
+        { query: "q" },
+        new AbortController().signal,
+        async (a) => {
+          attempts.push(a);
+        },
+      );
+      assert.fail();
+    } catch (error) {
+      assert.equal((error as any).code, "search_unavailable");
+    }
+    assert.equal(calls, 0);
+    assert.equal(attempts.at(-1).code, "source_unavailable");
+    service.saveSources(
+      service
+        .listSources()
+        .map((s) => ({ ...s, enabled: s.kind === "exa-mcp" })),
+    );
+    const probe = await service.testSource("exa", "probe");
+    service.saveSources(
+      service
+        .listSources()
+        .map((s) =>
+          s.id === "exa" ? { ...s, reviewedToolDigest: probe.toolDigest } : s,
+        ),
+    );
+    changed = true;
+    try {
+      await service.search(
+        await service.freezeForTurn(),
+        { query: "q" },
+        new AbortController().signal,
+        async () => {},
+      );
+      assert.fail();
+    } catch (error) {
+      assert.equal((error as any).code, "source_descriptor_changed");
+    }
+    assert.equal(calls, 0);
+  });
+
+  it("bounds multibyte extraction and uses only the selected SearXNG authorization", async function () {
+    const text = '界"\n'.repeat(20_000);
+    const service = createPiBrokeredWebTools({
+      credential: async () => ({
+        kind: "web-secret",
+        secret: "Bearer selected-key",
+      }),
+      credentialRevision: () => "r",
+      request: async (input) => {
+        if (input.kind === "fetch")
+          return {
+            requestedUrl: input.url,
+            finalUrl: input.url,
+            status: 200,
+            headers: { "content-type": "text/plain" },
+            body: new TextEncoder().encode(text),
+          };
+        assert.equal(input.kind, "searxng");
+        assert.equal(input.headers?.Authorization, "Bearer selected-key");
+        assert.equal(input.localNetworkApprovedOrigin, "http://127.0.0.1:8888");
+        return {
+          requestedUrl: input.url,
+          finalUrl: input.url,
+          status: 200,
+          headers: {},
+          body: new TextEncoder().encode(
+            JSON.stringify({
+              results: [
+                {
+                  title: "Page",
+                  url: "https://example.org",
+                  content: "Snippet",
+                },
+              ],
+            }),
+          ),
+        };
+      },
+    });
+    const fetched = await service.fetch(
+      { url: "https://example.org" },
+      new AbortController().signal,
+    );
+    assert.isTrue(fetched.truncated);
+    assert.isAtMost(new TextEncoder().encode(fetched.text).length, 50 * 1024);
+    assert.isAtMost(
+      new TextEncoder().encode(
+        JSON.stringify({
+          callId: "id",
+          name: "web_fetch",
+          status: "completed",
+          effectCertainty: "confirmed_complete",
+          value: fetched,
+        }),
+      ).length,
+      50 * 1024,
+    );
+    assert.notInclude(fetched.text, "�");
+    service.saveSources(
+      service.listSources().map((s) => ({
+        ...s,
+        enabled: s.kind === "searxng",
+        ...(s.kind === "searxng"
+          ? {
+              endpoint: "http://127.0.0.1:8888/search",
+              localNetworkApprovedOrigin: "http://127.0.0.1:8888",
+              credentialId: "key",
+            }
+          : {}),
+      })),
+    );
+    const result = await service.search(
+      await service.freezeForTurn(),
+      { query: "q" },
+      new AbortController().signal,
+      async () => {},
+    );
+    assert.equal(result.source.kind, "searxng");
+    assert.notInclude(JSON.stringify(result), "selected-key");
+    assert.throws(() =>
+      service.saveSources([
+        {
+          id: "local",
+          label: "Local",
+          kind: "searxng",
+          enabled: true,
+          endpoint: "http://192.168.1.1/search",
+          localNetworkApprovedOrigin: "http://192.168.1.1",
+          credentialId: "key",
+        },
+      ]),
+    );
+  });
+
+  it("uses selected Codex refresh authentication and normalizes terminal SSE without guessing citations", async function () {
+    const priorModel = getPref("piProviderConfigurationJson");
+    try {
+      setPref("piProviderConfigurationJson", "");
+      upsertPiProviderConfiguration({
+        id: "codex",
+        label: "Codex",
+        provider: "openai-codex",
+        modelId: "gpt-5",
+        authVariant: "openai-codex",
+        credentialRef: "selected",
+        enabled: true,
+      });
+      const service = createPiBrokeredWebTools({
+        credentialRevision: () => "r",
+        credential: async (id) => {
+          assert.equal(id, "selected");
+          return {
+            kind: "openai-codex",
+            access: "old",
+            refresh: "private-refresh",
+            expiresAt: 1,
+            accountId: "account",
+          };
+        },
+        codexAccess: async (id) => {
+          assert.equal(id, "selected");
+          return "fresh-access";
+        },
+        request: async (input) => {
+          assert.equal(input.kind, "codex");
+          assert.equal(input.headers?.Authorization, "Bearer fresh-access");
+          assert.equal(input.headers?.["ChatGPT-Account-Id"], "account");
+          assert.isTrue(JSON.parse(input.body!).stream);
+          return {
+            requestedUrl: input.url,
+            finalUrl: input.url,
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+            body: new TextEncoder().encode(
+              'data: {"type":"response.completed","response":{"status":"completed","output":[{"type":"web_search_call","status":"completed"},{"type":"message","content":[{"type":"output_text","text":"Answer https://example.org"}]}],"usage":{"input_tokens":9,"output_tokens":4}}}\n\n',
+            ),
+          };
+        },
+      });
+      service.saveSources(
+        service.listSources().map((s) => ({
+          ...s,
+          enabled: s.kind === "openai-native",
+          modelConfigurationId: "codex",
+        })),
+      );
+      const attempts: any[] = [];
+      const result = await service.search(
+        await service.freezeForTurn(),
+        { query: "q" },
+        new AbortController().signal,
+        async (a) => {
+          attempts.push(a);
+        },
+      );
+      assert.equal(result.resultKind, "grounded_answer");
+      if (result.resultKind === "grounded_answer") {
+        assert.deepEqual(result.citations, []);
+        assert.equal(result.sourceEvidence, "unavailable");
+      }
+      assert.deepEqual(attempts.at(-1).usage, {
+        input_tokens: 9,
+        output_tokens: 4,
+      });
+      assert.notInclude(JSON.stringify(attempts), "access");
+      assert.notInclude(JSON.stringify(result), "private-refresh");
+    } finally {
+      setPref("piProviderConfigurationJson", priorModel as string);
+    }
+  });
+
+  it("limits the complete normalized search DTO", async function () {
+    const service = createPiBrokeredWebTools({
+      credentialRevision: () => "r",
+      credential: async () => ({ kind: "web-secret", secret: "k" }),
+      request: async (input) => ({
+        requestedUrl: input.url,
+        finalUrl: input.url,
+        status: 200,
+        headers: {},
+        body: new TextEncoder().encode(
+          JSON.stringify({
+            results: Array.from({ length: 10 }, (_, i) => ({
+              title: "T".repeat(1024),
+              url: `https://example.org/${i}/` + "x".repeat(6000),
+              snippet: "界".repeat(2000),
+            })),
+          }),
+        ),
+      }),
+    });
+    service.saveSources(
+      service.listSources().map((s) => ({
+        ...s,
+        enabled: s.kind === "perplexity",
+        credentialId: "key",
+      })),
+    );
+    for (const query of ["q".repeat(8192), "\u0001".repeat(8191) + "q"]) {
+      const result = await service.search(
+        await service.freezeForTurn(),
+        { query, maxResults: 10 },
+        new AbortController().signal,
+        async () => {},
+      );
+      assert.isAtMost(
+        new TextEncoder().encode(JSON.stringify(result)).length,
+        50 * 1024,
+      );
+      assert.isTrue(result.truncated);
+    }
+  });
+
+  it("never launches curated stdio after cancellation during package validation", async function () {
+    const controller = new AbortController();
+    let opens = 0;
+    const service = createPiBrokeredWebTools({
+      credential: async () => ({ kind: "web-secret", secret: "k" }),
+      credentialRevision: () => "r",
+      readPackage: async () => {
+        controller.abort();
+        return JSON.stringify({
+          name: "@brave/brave-search-mcp-server",
+          version: "2.1.4",
+        });
+      },
+      openMcp: async () => {
+        opens++;
+        throw new Error("late spawn");
+      },
+    });
+    service.saveSources(
+      service.listSources().map((s) => ({
+        ...s,
+        enabled: s.kind === "brave-mcp",
+        credentialId: "key",
+        codeExecutionApproved: true,
+        executable: "/usr/bin/node",
+        args: ["/installed/brave/dist/index.js"],
+      })),
+    );
+    try {
+      await service.search(
+        await service.freezeForTurn(),
+        { query: "q" },
+        controller.signal,
+        async () => {},
+      );
+      assert.fail();
+    } catch (error) {
+      assert.equal((error as any).code, "canceled");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(opens, 0);
+  });
+});

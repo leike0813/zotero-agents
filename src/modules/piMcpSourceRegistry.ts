@@ -1,5 +1,9 @@
 import { getPref, setPref } from "../utils/prefs";
 import {
+  PiOutboundNetworkError,
+  classifyPiOutboundUrl,
+} from "./piOutboundNetworkPolicy";
+import {
   deletePiCredential,
   listPiCredentials,
   putPiCredential,
@@ -41,65 +45,32 @@ function plainRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+/**
+ * MCP-source projection of the shared outbound-network URL classification.
+ * The policy module owns the facts; this wrapper keeps the MCP source error
+ * code stable for registry validation and import previews.
+ */
 export function classifyPiMcpHttpUrl(raw: string): {
   url: string;
   origin: string;
   location: "public" | "private" | "loopback";
 } {
-  let url: URL;
   try {
-    url = new URL(raw);
-  } catch {
+    const facts = classifyPiOutboundUrl(raw);
+    return {
+      url: facts.url,
+      origin: facts.origin,
+      location: facts.location,
+    };
+  } catch (error) {
+    if (error instanceof PiOutboundNetworkError) {
+      if (error.code === "pi_network_url_too_long")
+        throw new Error("mcp_source_url_too_long");
+      if (error.code === "pi_network_userinfo_denied")
+        throw new Error("mcp_source_invalid_url");
+    }
     throw new Error("mcp_source_invalid_url");
   }
-  if (
-    !["https:", "http:"].includes(url.protocol) ||
-    url.username ||
-    url.password ||
-    url.hash ||
-    !url.hostname
-  )
-    throw new Error("mcp_source_invalid_url");
-  const ipv6 = url.hostname.startsWith("[");
-  const host = url.hostname
-    .toLowerCase()
-    .replace(/^\[|\]$/g, "")
-    .replace(/\.$/, "");
-  if (host === "::" || host.startsWith("::ffff:"))
-    throw new Error("mcp_source_invalid_url");
-  const octets = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/
-    .exec(host)
-    ?.slice(1)
-    .map(Number);
-  if (octets && octets.some((part) => part > 255))
-    throw new Error("mcp_source_invalid_url");
-  const loopback =
-    host === "localhost" ||
-    host.endsWith(".localhost") ||
-    host === "::1" ||
-    octets?.[0] === 127;
-  const privateAddress =
-    host.endsWith(".local") ||
-    host.endsWith(".internal") ||
-    (ipv6 &&
-      (/^fe[89ab][0-9a-f]:/.test(host) ||
-        host.startsWith("fc") ||
-        host.startsWith("fd"))) ||
-    !!(
-      octets &&
-      (octets[0] === 10 ||
-        octets[0] === 0 ||
-        (octets[0] === 169 && octets[1] === 254) ||
-        (octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127) ||
-        (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
-        (octets[0] === 198 && (octets[1] === 18 || octets[1] === 19)) ||
-        (octets[0] === 192 && octets[1] === 168))
-    );
-  return {
-    url: url.href,
-    origin: url.origin,
-    location: loopback ? "loopback" : privateAddress ? "private" : "public",
-  };
 }
 
 export function validatePiMcpSource(source: PiMcpSource): PiMcpSource {

@@ -1,3 +1,5 @@
+import { resolveRuntimeWindowCandidates } from "./runtimeBridge";
+
 export type PromiseSettlementWatchdog = {
   clear: () => void;
 };
@@ -28,7 +30,15 @@ export function resolveNativeAbortControllerConstructor(owner?: object | null) {
   const AbortControllerCtor =
     (owner as Record<string, unknown> | null | undefined)?.[
       "AbortController"
-    ] ?? (globalThis as Record<string, unknown>)["AbortController"];
+    ] ??
+    (globalThis as Record<string, unknown>)["AbortController"] ??
+    (
+      resolveRuntimeWindowCandidates().find(
+        (candidate) =>
+          typeof (candidate as typeof globalThis).AbortController ===
+          "function",
+      ) as typeof globalThis | undefined
+    )?.AbortController;
   return typeof AbortControllerCtor === "function"
     ? (AbortControllerCtor as NativeAbortControllerConstructor)
     : undefined;

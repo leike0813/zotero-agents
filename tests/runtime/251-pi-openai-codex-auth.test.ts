@@ -8,6 +8,7 @@ import {
 } from "../../src/modules/piOpenAICodexAuth";
 import {
   deletePiCredential,
+  getPiCredentialIdentityRevision,
   putPiCredential,
   readPiCredential,
 } from "../../src/modules/piCredentialStore";
@@ -238,6 +239,10 @@ describe("Pi OpenAI Codex authorization", function () {
         accountId: "account-1234",
       },
     });
+    const identityRevision = getPiCredentialIdentityRevision(
+      "codex-fixture",
+      "model-provider",
+    )!;
     let seen: Request | undefined;
     const resolved = await resolvePiOpenAICodexAccess(
       "codex-fixture",
@@ -250,6 +255,7 @@ describe("Pi OpenAI Codex authorization", function () {
           expires_in: 3600,
         });
       },
+      { identityRevision, accountId: "account-1234" },
     );
     assert.equal(seen?.url, "https://auth.openai.com/oauth/token");
     assert.equal(seen?.method, "POST");
@@ -260,6 +266,10 @@ describe("Pi OpenAI Codex authorization", function () {
       refresh_token: "old-refresh",
     });
     assert.equal(resolved, access);
+    assert.equal(
+      getPiCredentialIdentityRevision("codex-fixture", "model-provider"),
+      identityRevision,
+    );
     const saved = await readPiCredential("codex-fixture");
     assert.isTrue(saved.ok);
     if (saved.ok && saved.material.kind === "openai-codex")

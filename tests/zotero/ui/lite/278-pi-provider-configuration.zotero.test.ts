@@ -57,6 +57,10 @@ describe("Built-in Agent Backend Manager page in real Zotero", function () {
           ".backend-provider-tab",
         )[3] as HTMLElement
       ).click();
+      assert.lengthOf(
+        frame!.contentDocument!.querySelectorAll("[data-web-source]"),
+        8,
+      );
       const select = frame!.contentDocument!.querySelector(
         "[data-pi-field='configuration']",
       ) as HTMLButtonElement;

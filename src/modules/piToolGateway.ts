@@ -40,13 +40,18 @@ export type PiGatewayToolDefinition = {
   schema: Record<string, unknown>;
   minimumEffects: PiGatewayEffect[];
   maxResultBytes: number;
+  identityDigest?: string;
   batchMode?: "ordinary" | "exclusive" | "deferred";
   classify(
     args: JsonValue,
   ): PiGatewayClassification | Promise<PiGatewayClassification>;
   execute(
     args: JsonValue,
-    context: { signal: AbortSignal; onUpdate: (update: JsonValue) => void },
+    context: {
+      signal: AbortSignal;
+      onUpdate: (update: JsonValue) => void;
+      callId?: string;
+    },
   ): Promise<PiGatewayExecution>;
 };
 
@@ -353,6 +358,9 @@ export async function freezePiToolGatewayTurn(
       minimumEffects: [...definition.minimumEffects].sort(),
       maxResultBytes: definition.maxResultBytes,
       batchMode: definition.batchMode || "ordinary",
+      ...(definition.identityDigest
+        ? { identityDigest: definition.identityDigest }
+        : {}),
     });
     frozen.push({
       ...definition,
@@ -552,6 +560,7 @@ export async function freezePiToolGatewayTurn(
       try {
         execution = await definition.execute(call.arguments, {
           signal,
+          callId: call.callId,
           onUpdate: (update) => {
             if (!updatesOpen || signal.aborted) return;
             try {

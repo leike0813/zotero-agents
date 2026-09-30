@@ -17,6 +17,12 @@ import type {
   PiProviderDefaults,
 } from "../../shared/piProviderContract";
 import { CustomSelect } from "../../shared/customSelect";
+import {
+  BRAVE_MCP_PACKAGE_VERSION,
+  PI_WEB_SOURCE_BILLABLE,
+  type PiWebSource,
+  type PiWebSourceTestResult,
+} from "../../shared/piWebSourceContract";
 import { equalBySignature } from "../../shared/regionEquality";
 
 // ---------------------------------------------------------------------------
@@ -274,6 +280,10 @@ export type BackendManagerRegionHandlers = {
   previewMcpJson(json: string): void;
   exportMcpJson(): void;
   resetMcpRegistry(): void;
+  saveWebSources(sources: PiWebSource[]): void;
+  testWebSource(id: string): void;
+  putWebSecret(id: string, label: string, secret: string): void;
+  deleteWebSecret(id: string): void;
 };
 
 // ---------------------------------------------------------------------------
@@ -784,6 +794,7 @@ function BackendChoice(props: {
   onChange: (value: string) => void;
   piField?: string;
   mcpField?: string;
+  webField?: string;
 }) {
   const [open, setOpen] = useState(false);
   const selected = props.options.find((option) => option.value === props.value);
@@ -799,6 +810,7 @@ function BackendChoice(props: {
         class="backend-input backend-choice-trigger"
         data-pi-field={props.piField}
         data-mcp-field={props.mcpField}
+        data-web-field={props.webField}
         aria-label={`${props.label}: ${selected?.label || ""}`}
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
@@ -825,6 +837,378 @@ function BackendChoice(props: {
         </div>
       ) : null}
     </div>
+  );
+}
+
+function PiWebSourcesPanel(props: {
+  value: BackendManagerBuiltinAgentSnapshot;
+  labels: BackendManagerLabels;
+  handlers: BackendManagerRegionHandlers;
+}) {
+  const { value, labels, handlers } = props;
+  const label = (key: string, fallback: string) =>
+    labelText(labels, `web${key}`, fallback);
+  const sources = value.webSources || [];
+  const credentials = value.webCredentials || [];
+  const results = value.webTestResults || {};
+  const [secretId, setSecretId] = useState("");
+  const [secretLabel, setSecretLabel] = useState("");
+  const [secret, setSecret] = useState("");
+  const patch = (id: string, changes: Partial<PiWebSource>) =>
+    handlers.saveWebSources(
+      sources.map((source) =>
+        source.id === id ? { ...source, ...changes } : source,
+      ),
+    );
+  const move = (id: string, delta: number) => {
+    const index = sources.findIndex((source) => source.id === id);
+    const target = index + delta;
+    if (index < 0 || target < 0 || target >= sources.length) return;
+    const next = sources.slice();
+    const [moved] = next.splice(index, 1);
+    next.splice(target, 0, moved);
+    handlers.saveWebSources(next);
+  };
+  const originOf = (raw: string) => {
+    try {
+      return new URL(raw).origin;
+    } catch {
+      return undefined;
+    }
+  };
+  const credentialOptions = [
+    { value: "", label: label("NoCredential", "No credential") },
+    ...credentials.map((entry) => ({
+      value: entry.id,
+      label: `${entry.label} (${entry.masked})`,
+    })),
+  ];
+  const modelOptions = [
+    { value: "", label: label("NoModel", "No configuration") },
+    ...value.configurations.map((entry) => ({
+      value: entry.id,
+      label: entry.label || entry.id,
+    })),
+  ];
+  const modelDefault = (source: PiWebSource) =>
+    value.configurations.find(
+      (entry) => entry.id === source.modelConfigurationId,
+    )?.modelId || "";
+  const statusLabel = (result: PiWebSourceTestResult) =>
+    result.status === "available"
+      ? label("Available", "Available")
+      : result.status === "unavailable"
+        ? label("Unavailable", "Unavailable")
+        : label("Failed", "Test failed");
+  return (
+    <section class="backend-pi-web" data-pi-web-sources>
+      <h3>{label("Sources", "Web Search Sources")}</h3>
+      {value.webError ? (
+        <p role="alert" class="backend-web-error">
+          {label("Error", "Web source settings are damaged.")}
+        </p>
+      ) : null}
+      <p class="backend-web-paid-notice">
+        {label(
+          "PaidNotice",
+          "Enabling a paid source is your consent to its billing.",
+        )}
+      </p>
+      <div class="backend-web-list">
+        {sources.map((source, index) => (
+          <div
+            class="backend-web-row"
+            data-web-source={source.id}
+            key={source.id}
+          >
+            <div class="backend-web-row-head">
+              <strong>{source.label}</strong>
+              <span class="backend-web-kind">{source.kind}</span>
+              {PI_WEB_SOURCE_BILLABLE.has(source.kind) ? (
+                <span class="backend-web-paid-badge" data-web-badge="paid">
+                  {label("Paid", "May incur cost")}
+                </span>
+              ) : null}
+              <button
+                type="button"
+                class="backend-button icon"
+                data-web-action="up"
+                aria-label={label("MoveUp", "Move up")}
+                disabled={index === 0}
+                onClick={() => move(source.id, -1)}
+              >
+                ↑
+              </button>
+              <button
+                type="button"
+                class="backend-button icon"
+                data-web-action="down"
+                aria-label={label("MoveDown", "Move down")}
+                disabled={index === sources.length - 1}
+                onClick={() => move(source.id, 1)}
+              >
+                ↓
+              </button>
+            </div>
+            <div class="backend-pi-grid">
+              <CheckboxField
+                label={label("Enabled", "Enabled")}
+                checked={source.enabled}
+                onChange={(checked) => patch(source.id, { enabled: checked })}
+              />
+              {source.kind !== "openai-native" &&
+              source.kind !== "anthropic-native" ? (
+                <div class="backend-field">
+                  <label>{label("Credential", "Credential")}</label>
+                  <BackendChoice
+                    label={label("Credential", "Credential")}
+                    webField={`credential:${source.id}`}
+                    value={source.credentialId || ""}
+                    options={credentialOptions}
+                    onChange={(next) =>
+                      patch(source.id, { credentialId: next || undefined })
+                    }
+                  />
+                </div>
+              ) : null}
+              {source.kind === "openai-native" ||
+              source.kind === "anthropic-native" ? (
+                <>
+                  <div class="backend-field">
+                    <label>{label("Model", "Model configuration")}</label>
+                    <BackendChoice
+                      label={label("Model", "Model configuration")}
+                      webField={`model:${source.id}`}
+                      value={source.modelConfigurationId || ""}
+                      options={modelOptions}
+                      onChange={(next) =>
+                        patch(source.id, {
+                          modelConfigurationId: next || undefined,
+                        })
+                      }
+                    />
+                  </div>
+                  <label class="backend-field">
+                    <span>
+                      {label("SearchModel", "Search model (explicit)")}
+                    </span>
+                    <input
+                      class="backend-input"
+                      data-web-field={`search-model:${source.id}`}
+                      value={source.searchModelId || ""}
+                      placeholder={modelDefault(source)}
+                      onInput={(event) =>
+                        patch(source.id, {
+                          searchModelId:
+                            (event.target as HTMLInputElement).value.trim() ||
+                            undefined,
+                        })
+                      }
+                    />
+                  </label>
+                </>
+              ) : null}
+              {source.kind === "searxng" ? (
+                <label class="backend-field">
+                  <span>{label("Endpoint", "Endpoint")}</span>
+                  <input
+                    class="backend-input"
+                    data-web-field={`endpoint:${source.id}`}
+                    value={source.endpoint || ""}
+                    onInput={(event) =>
+                      patch(source.id, {
+                        endpoint:
+                          (event.target as HTMLInputElement).value.trim() ||
+                          undefined,
+                        localNetworkApprovedOrigin: undefined,
+                      })
+                    }
+                  />
+                </label>
+              ) : null}
+              {source.kind === "searxng" && source.endpoint ? (
+                <label class="backend-field">
+                  <span>
+                    <input
+                      type="checkbox"
+                      data-web-field={`local-network:${source.id}`}
+                      checked={!!source.localNetworkApprovedOrigin}
+                      onChange={(event) =>
+                        patch(source.id, {
+                          localNetworkApprovedOrigin: (
+                            event.target as HTMLInputElement
+                          ).checked
+                            ? originOf(source.endpoint || "")
+                            : undefined,
+                        })
+                      }
+                    />{" "}
+                    {label("LocalNetwork", "Allow local network origin")}
+                  </span>
+                </label>
+              ) : null}
+              {source.kind === "brave-mcp" ? (
+                <>
+                  <label class="backend-field">
+                    <span>{label("Executable", "Executable")}</span>
+                    <input
+                      class="backend-input"
+                      data-web-field={`executable:${source.id}`}
+                      value={source.executable || ""}
+                      onInput={(event) =>
+                        patch(source.id, {
+                          executable:
+                            (event.target as HTMLInputElement).value.trim() ||
+                            undefined,
+                        })
+                      }
+                    />
+                  </label>
+                  <label class="backend-field">
+                    <span>
+                      {label("Arguments", "Arguments (one per line)")}
+                    </span>
+                    <textarea
+                      class="backend-input"
+                      data-web-field={`args:${source.id}`}
+                      value={(source.args || []).join("\n")}
+                      onInput={(event) =>
+                        patch(source.id, {
+                          args: (event.target as HTMLTextAreaElement).value
+                            .split("\n")
+                            .filter((arg) => arg.length > 0),
+                        })
+                      }
+                    />
+                  </label>
+                  <label class="backend-field">
+                    <span>
+                      <input
+                        type="checkbox"
+                        data-web-field={`code-execution:${source.id}`}
+                        checked={!!source.codeExecutionApproved}
+                        onChange={(event) =>
+                          patch(source.id, {
+                            codeExecutionApproved: (
+                              event.target as HTMLInputElement
+                            ).checked,
+                          })
+                        }
+                      />{" "}
+                      {label("CodeExecution", "Allow running the package")}
+                    </span>
+                  </label>
+                  <p class="backend-web-package-note">
+                    {label(
+                      "BravePackage",
+                      "Brave MCP runs the user-installed package version " +
+                        BRAVE_MCP_PACKAGE_VERSION +
+                        ".",
+                    )}
+                  </p>
+                </>
+              ) : null}
+            </div>
+            <div class="backend-web-row-foot">
+              {results[source.id]?.toolDigest ? (
+                <button
+                  class="backend-btn"
+                  data-web-action="review"
+                  onClick={() =>
+                    patch(source.id, {
+                      reviewedToolDigest: results[source.id].toolDigest,
+                    })
+                  }
+                >
+                  {label("Review", "Approve discovered search tool")}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                class="backend-button"
+                data-web-action="test"
+                onClick={() => handlers.testWebSource(source.id)}
+              >
+                {label("Test", "Test source")}
+              </button>
+              {results[source.id] ? (
+                <span
+                  class="backend-web-status"
+                  data-web-status={results[source.id].status}
+                >
+                  {statusLabel(results[source.id])}
+                  {results[source.id].code
+                    ? ` (${results[source.id].code})`
+                    : ""}
+                </span>
+              ) : null}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div class="backend-pi-grid">
+        <label class="backend-field">
+          <span>{label("SecretId", "Secret ID")}</span>
+          <input
+            class="backend-input"
+            data-web-field="secret-id"
+            value={secretId}
+            onInput={(event) =>
+              setSecretId((event.target as HTMLInputElement).value)
+            }
+          />
+        </label>
+        <label class="backend-field">
+          <span>{label("SecretLabel", "Secret label")}</span>
+          <input
+            class="backend-input"
+            data-web-field="secret-label"
+            value={secretLabel}
+            onInput={(event) =>
+              setSecretLabel((event.target as HTMLInputElement).value)
+            }
+          />
+        </label>
+        <label class="backend-field">
+          <span>{label("Secret", "Secret")}</span>
+          <input
+            class="backend-input"
+            type="password"
+            autocomplete="off"
+            data-web-field="secret"
+            value={secret}
+            onInput={(event) =>
+              setSecret((event.target as HTMLInputElement).value)
+            }
+          />
+        </label>
+      </div>
+      <button
+        type="button"
+        class="backend-button"
+        data-web-action="save-secret"
+        onClick={() => {
+          handlers.putWebSecret(secretId, secretLabel, secret);
+          setSecret("");
+        }}
+      >
+        {label("SaveSecret", "Save secret")}
+      </button>
+      {credentials.map((entry) => (
+        <div class="backend-pi-credential-row" key={entry.id}>
+          <span>
+            {entry.label} ({entry.masked})
+          </span>
+          <button
+            type="button"
+            class="backend-button danger"
+            onClick={() => handlers.deleteWebSecret(entry.id)}
+          >
+            {label("Clear", "Clear")}
+          </button>
+        </div>
+      ))}
+    </section>
   );
 }
 
@@ -1350,6 +1734,7 @@ function PiConfigurationPanel(props: {
         </button>
       </section>
       <PiMcpSourcesPanel value={value} labels={labels} handlers={handlers} />
+      <PiWebSourcesPanel value={value} labels={labels} handlers={handlers} />
     </section>
   );
 }

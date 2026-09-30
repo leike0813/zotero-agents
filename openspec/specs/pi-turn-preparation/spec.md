@@ -69,3 +69,11 @@ Preparation SHALL append a versioned record before either an ordinary model requ
 #### Scenario: Identical reconstruction
 - **WHEN** the same immutable facts and canonical revision are prepared again with compatible versions
 - **THEN** block order, stable-prefix identity and context digest remain identical
+
+### Requirement: Web source and external trust facts remain turn frozen
+
+Preparation SHALL retain the resolved source chain identity for each invocation of a turn and SHALL include an instruction treating external_untrusted Web results as data rather than control instructions. Persistent provenance SHALL retain only safe references and digests.
+
+#### Scenario: Search result includes instructions
+- **WHEN** a Web result asks the model to change policy
+- **THEN** its content remains untrusted data under the prepared instruction

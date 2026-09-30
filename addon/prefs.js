@@ -3,6 +3,7 @@ pref("backendsConfigJson", "");
 pref("piProviderConfigurationJson", "");
 pref("piCredentialEncryptedJson", "");
 pref("piMcpSourceRegistryJson", "");
+pref("piWebSourcesJson", "");
 pref("workflowSettingsJson", "");
 pref("skillRunnerModelCacheJson", "");
 pref("skillRunnerDeferredTasksJson", "");
