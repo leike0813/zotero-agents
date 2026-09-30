@@ -139,6 +139,9 @@ import type {
 import {
   attachReferencesBasis,
   compactCitationAnalysisSnippets,
+  generateSourceReferenceId,
+  SOURCE_REFERENCE_ARTIFACT_SCHEMA,
+  CITATION_ANALYSIS_ARTIFACT_SCHEMA,
   validateCitationAgainstReferences,
   validateCitationAnalysisArtifact,
   validateSourceReferenceArtifact,
@@ -147,6 +150,7 @@ import {
 } from "../../packages/synthesis-contracts/src/sourceReferenceArtifact";
 import { renderCitationAnalysisMarkdown } from "../../packages/synthesis-application/src/referenceProjection";
 import {
+  LITERATURE_SCORE_SCHEMA,
   validateLiteratureScoreArtifact,
   type LiteratureScoreArtifact,
 } from "../../packages/synthesis-contracts/src/literatureArtifacts";
@@ -818,6 +822,30 @@ export type ZoteroHostCanonicalMutationControl = Readonly<{
     control?: WorkflowCallControl;
     onPreparedFileOwnershipTransferred?: () => void;
   }): Promise<MutationExecutionResult<MutationResultByOperation[K]>>;
+  /**
+   * Normalize a semantic managed-artifact authoring value against the parent's
+   * current canonical artifact. New Source Reference IDs are Broker-generated
+   * once per logical call and returned so the caller can persist them and reuse
+   * them on approval continuations. No storage operation or parallel writer is
+   * exposed; the returned value is the only canonical projection.
+   */
+  normalizeManagedAuthoring(args: {
+    operation: ZoteroHostManagedAuthoringOperation;
+    parentRef: ZoteroHostItemRefInput;
+    value: JsonValue;
+    generatedSourceReferenceIds?: readonly string[];
+    control?: WorkflowCallControl;
+  }): Promise<ZoteroHostManagedAuthoringResult>;
+}>;
+
+export type ZoteroHostManagedAuthoringOperation =
+  | "literature_artifact.upsert_references"
+  | "literature_artifact.upsert_citation_analysis"
+  | "literature_artifact.upsert_score";
+
+export type ZoteroHostManagedAuthoringResult = Readonly<{
+  value: JsonValue;
+  generatedSourceReferenceIds: string[];
 }>;
 
 type PreparedCanonicalMutationRecord = Readonly<{
@@ -7693,6 +7721,176 @@ function normalizeManagedSemanticRequest(
   };
 }
 
+function managedAuthoringValueObject(
+  value: JsonValue,
+): Record<string, JsonValue> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, JsonValue>)
+    : null;
+}
+
+/**
+ * Broker-owned normalization for the reviewed semantic managed-artifact
+ * authoring tools. The caller passes the current canonical artifact fields
+ * without an artifact schema or stored basis; this returns the complete
+ * versioned canonical artifact plus the Source Reference IDs the Broker
+ * generated for entries that arrived without one. Generated IDs are supplied
+ * back on approval continuations and reused in missing-entry order; explicit
+ * IDs must already belong to the parent's current References artifact.
+ */
+async function normalizeManagedArtifactAuthoring(args: {
+  operation: ZoteroHostManagedAuthoringOperation;
+  parentRef: ZoteroHostItemRefInput;
+  value: JsonValue;
+  generatedSourceReferenceIds?: readonly string[];
+  control?: WorkflowCallControl;
+}): Promise<ZoteroHostManagedAuthoringResult> {
+  const operation = args.operation;
+  const parentRef = canonicalItemRef(args.parentRef);
+  const invalid = (field: string): never => {
+    throw capabilityError(
+      "invalid_request",
+      "managed artifact authoring value is invalid",
+      { reason: "invalid_value", field, operation },
+    );
+  };
+  if (operation === "literature_artifact.upsert_references") {
+    const value = managedAuthoringValueObject(args.value);
+    const rawReferences = value?.references;
+    if (!Array.isArray(rawReferences) || rawReferences.length === 0) {
+      return invalid("references");
+    }
+    const current = await managedSingleton(
+      parentRef,
+      "references",
+      args.control,
+    );
+    const retained = new Set<string>();
+    if (current.inspection?.kind === "managed") {
+      const stored = validateSourceReferenceArtifact(
+        current.inspection.payload,
+      );
+      if (stored.ok) {
+        for (const reference of stored.value.references) {
+          retained.add(reference.sourceReferenceId);
+        }
+      }
+    }
+    const supplied = (args.generatedSourceReferenceIds || []).filter(
+      (id): id is string => typeof id === "string" && id.length > 0,
+    );
+    let suppliedCursor = 0;
+    const generatedSourceReferenceIds: string[] = [];
+    const seen = new Set<string>();
+    const references = rawReferences.map((rawReference) => {
+      const reference = managedAuthoringValueObject(rawReference);
+      if (!reference) return invalid("references");
+      const explicit = reference.sourceReferenceId;
+      let sourceReferenceId: string;
+      if (typeof explicit === "string" && explicit.length > 0) {
+        sourceReferenceId = explicit;
+        if (!retained.has(sourceReferenceId)) {
+          throw capabilityError(
+            "invalid_request",
+            "retained source reference is unknown to the parent artifact",
+            {
+              reason: "invalid_value",
+              field: "references.sourceReferenceId",
+              operation,
+            },
+          );
+        }
+      } else if (explicit === undefined || explicit === null) {
+        sourceReferenceId =
+          supplied[suppliedCursor] ?? generateSourceReferenceId();
+        suppliedCursor += 1;
+        generatedSourceReferenceIds.push(sourceReferenceId);
+      } else {
+        return invalid("references.sourceReferenceId");
+      }
+      if (seen.has(sourceReferenceId)) {
+        throw capabilityError(
+          "invalid_request",
+          "source reference IDs must be unique",
+          {
+            reason: "duplicate_value",
+            field: "references.sourceReferenceId",
+            operation,
+          },
+        );
+      }
+      seen.add(sourceReferenceId);
+      return { ...reference, sourceReferenceId } as JsonValue;
+    });
+    const validated = validateSourceReferenceArtifact({
+      schema: SOURCE_REFERENCE_ARTIFACT_SCHEMA,
+      references,
+    } as unknown as JsonValue);
+    if (!validated.ok) return invalid("references");
+    return {
+      value: validated.value as unknown as JsonValue,
+      generatedSourceReferenceIds,
+    };
+  }
+  if (operation === "literature_artifact.upsert_citation_analysis") {
+    const value = managedAuthoringValueObject(args.value);
+    if (!value) return invalid("citationAnalysis");
+    const { schema: _schema, referencesBasis: _basis, ...canonical } = value;
+    const validated = validateCitationAnalysisArtifact({
+      schema: CITATION_ANALYSIS_ARTIFACT_SCHEMA,
+      ...canonical,
+    });
+    if (!validated.ok) return invalid("citationAnalysis");
+    const current = await managedSingleton(
+      parentRef,
+      "references",
+      args.control,
+    );
+    if (current.inspection?.kind !== "managed") {
+      throw capabilityError(
+        "conflict",
+        "citation analysis requires references",
+        { reason: "basis_mismatch", kind: "note" },
+      );
+    }
+    const stored = validateSourceReferenceArtifact(current.inspection.payload);
+    if (!stored.ok) {
+      throw capabilityError(
+        "invalid_request",
+        "stored references artifact is invalid",
+        { reason: "invalid_schema", field: "references", operation },
+      );
+    }
+    const against = validateCitationAgainstReferences(
+      validated.value,
+      stored.value,
+    );
+    if (!against.ok) {
+      throw capabilityError(
+        "conflict",
+        "citation analysis references are stale",
+        { reason: "basis_mismatch", kind: "note" },
+      );
+    }
+    return {
+      value: validated.value as unknown as JsonValue,
+      generatedSourceReferenceIds: [],
+    };
+  }
+  const value = managedAuthoringValueObject(args.value);
+  if (!value) return invalid("score");
+  const { schema: _schema, ...canonical } = value;
+  const validated = validateLiteratureScoreArtifact({
+    schema: LITERATURE_SCORE_SCHEMA,
+    ...canonical,
+  });
+  if (!validated.ok) return invalid("score");
+  return {
+    value: validated.value as unknown as JsonValue,
+    generatedSourceReferenceIds: [],
+  };
+}
+
 async function managedChildNotes(
   parent: Zotero.Item,
   kind: ManagedNoteKind,
@@ -8587,6 +8785,58 @@ function preparedPreviewInput(
   return preview as MutationPreviewRequestByOperation[MutationPreviewOperation];
 }
 
+type DeclaredStoredAttachmentContent = Extract<
+  MutationRequestByOperation["attachments.create"]["source"],
+  { kind: "stored_file" }
+>["content"];
+
+function declaredStoredAttachmentManifest(
+  input: MutationRequestByOperation[MutationOperation],
+): DeclaredStoredAttachmentContent | undefined {
+  if (
+    (input.operation === "attachments.create" ||
+      input.operation === "attachments.replaceFile") &&
+    input.source.kind === "stored_file"
+  ) {
+    return input.source.content;
+  }
+  return undefined;
+}
+
+// The declared manifest follows the canonical contract shape (prefixed
+// sha256), while a staged snapshot reports bare hex. Compare the exact bytes
+// facts, not a blanket object hash, so a matching declaration is admitted and
+// a changed declaration fails before any effect.
+function assertPreparedStoredAttachmentMatches(
+  declared: DeclaredStoredAttachmentContent,
+  snapshot: PreparedStoredAttachment["snapshot"],
+): void {
+  const canonicalSha = (value: string) => value.replace(/^sha256:/, "");
+  const sameFile = (
+    left: { relativePath: string; sizeBytes: number; sha256: string },
+    right: { relativePath: string; sizeBytes: number; sha256: string },
+  ) =>
+    left.relativePath === right.relativePath &&
+    left.sizeBytes === right.sizeBytes &&
+    canonicalSha(left.sha256) === canonicalSha(right.sha256);
+  const declaredCompanions = [...declared.companions].sort((left, right) =>
+    left.relativePath.localeCompare(right.relativePath),
+  );
+  const matches =
+    sameFile(declared.main, snapshot.main) &&
+    declaredCompanions.length === snapshot.companions.length &&
+    declaredCompanions.every((companion, index) =>
+      sameFile(companion, snapshot.companions[index]),
+    );
+  if (!matches) {
+    throw capabilityError(
+      "invalid_request",
+      "declared attachment content does not match the staged file snapshot",
+      { reason: "invalid_value", field: "source.content" },
+    );
+  }
+}
+
 function isDestructivePreviewRequest(
   input: MutationRequestByOperation[MutationOperation],
 ): input is
@@ -9423,20 +9673,34 @@ function createCanonicalMutationControl(): ZoteroHostCanonicalMutationControl {
               args.control,
             )
           : undefined;
+      const declaredAttachmentManifest = declaredStoredAttachmentManifest(
+        args.input,
+      );
+      if (declaredAttachmentManifest && preparedStoredAttachment) {
+        assertPreparedStoredAttachmentMatches(
+          declaredAttachmentManifest,
+          preparedStoredAttachment.snapshot,
+        );
+      }
+      const scope = canonicalMutationScope(args.scope);
+      const semanticDigest = hashSynthesisContractCanonicalJson(input);
+      const observationDigest =
+        hashSynthesisContractCanonicalJson(observations);
+      const planDigest = destructivePrepared
+        ? destructivePrepared.planDigest
+        : trashPrepared
+          ? hashSynthesisContractCanonicalJson(trashPrepared.result)
+          : hashSynthesisContractCanonicalJson(preview.plan);
       const prepared = Object.freeze({}) as PreparedCanonicalMutation<
         typeof args.input.operation
       >;
       records.set(prepared, {
         operation: args.input.operation,
-        scope: canonicalMutationScope(args.scope),
-        semanticDigest: hashSynthesisContractCanonicalJson(input),
+        scope,
+        semanticDigest,
         observations,
-        observationDigest: hashSynthesisContractCanonicalJson(observations),
-        planDigest: destructivePrepared
-          ? destructivePrepared.planDigest
-          : trashPrepared
-            ? hashSynthesisContractCanonicalJson(trashPrepared.result)
-            : hashSynthesisContractCanonicalJson(preview.plan),
+        observationDigest,
+        planDigest,
         ...(destructivePrepared ? { destructivePrepared } : {}),
         ...(trashPrepared ? { trashPrepared } : {}),
         ...(ingestPrepared ? { ingestPrepared } : {}),
@@ -9458,7 +9722,19 @@ function createCanonicalMutationControl(): ZoteroHostCanonicalMutationControl {
       });
       return {
         state: "prepared",
-        preview: preview as MutationPreviewResult<
+        preview: {
+          ...preview,
+          domainPlanDigest: hashSynthesisContractCanonicalJson({
+            scope,
+            operationId: args.input.operationId,
+            semanticDigest,
+            observationDigest,
+            planDigest,
+            ...(preparedStoredAttachment
+              ? { preparedFileSnapshot: preparedStoredAttachment.snapshot }
+              : {}),
+          }),
+        } as MutationPreviewResult<
           MutationPlanByOperation[typeof args.input.operation]
         >,
         prepared,
@@ -9737,6 +10013,9 @@ function createCanonicalMutationControl(): ZoteroHostCanonicalMutationControl {
         }
       });
     },
+
+    normalizeManagedAuthoring: (args) =>
+      normalizeManagedArtifactAuthoring(args),
   }) as ZoteroHostCanonicalMutationControl;
 }
 

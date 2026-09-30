@@ -8,6 +8,7 @@ import { createZoteroNativeToolDefinitions } from "../../src/modules/zoteroNativ
 import { ZoteroHostCapabilityError } from "../../src/modules/zoteroHostCapabilityBroker";
 import type { JsonObject } from "../../src/workflows/types";
 import { createFailClosedZoteroHostCapabilityBroker } from "../helpers/zoteroHostCapabilityBrokerHarness";
+import sourceReferenceArtifactSchema from "../../packages/synthesis-contracts/contract-set/canonical-literature-artifacts-v1/schemas/source-reference-artifact.schema.json";
 
 const capabilityId = "context.get_current_view";
 const name = "zotero_context_get_current_view";
@@ -692,5 +693,460 @@ describe("Pi Zotero Native Tool Catalog", function () {
     assert.throws(() => createZoteroNativeToolDefinitions({} as any));
     const { call } = await turn(createFailClosedZoteroHostCapabilityBroker());
     assert.equal((await call()).results[0].failure?.code, "unavailable");
+  });
+});
+const MUTATION_MAPPINGS = [
+  ["item.create", "zotero_item_create", false],
+  ["item.update_metadata", "zotero_item_update_metadata", false],
+  ["item.update_tags", "zotero_item_update_tags", false],
+  ["item.add_related_items", "zotero_item_add_related_items", false],
+  ["item.remove_related_items", "zotero_item_remove_related_items", false],
+  ["note.create", "zotero_note_create", false],
+  ["note.update_content", "zotero_note_update_content", false],
+  ["collection.create", "zotero_collection_create", false],
+  ["collection.update", "zotero_collection_update", false],
+  [
+    "collection.update_membership",
+    "zotero_collection_update_membership",
+    false,
+  ],
+  ["attachment.update_metadata", "zotero_attachment_update_metadata", false],
+  ["item.change_type", "zotero_item_change_type", true],
+  ["attachment.import", "zotero_attachment_import", true],
+  ["attachment.replace_file", "zotero_attachment_replace_file", true],
+  ["attachment.move", "zotero_attachment_move", true],
+  ["trash.move_items", "zotero_trash_move_items", true],
+  ["trash.restore_items", "zotero_trash_restore_items", true],
+  ["managed_note.write_custom", "zotero_custom_note_write", true],
+  ["managed_note.write_conversation", "zotero_conversation_note_write", true],
+  [
+    "literature_artifact.upsert_digest",
+    "zotero_literature_digest_upsert",
+    true,
+  ],
+  [
+    "literature_artifact.upsert_references",
+    "zotero_literature_references_upsert",
+    true,
+  ],
+  [
+    "literature_artifact.upsert_citation_analysis",
+    "zotero_literature_citation_analysis_upsert",
+    true,
+  ],
+  ["literature_artifact.upsert_score", "zotero_literature_score_upsert", true],
+] as const;
+
+function mutationDependencies() {
+  const calls = {
+    identity: 0,
+    sourceIds: [] as string[][],
+    results: [] as unknown[],
+  };
+  const dependencies = {
+    identity: async () => {
+      calls.identity += 1;
+      return {
+        operationId: "op-1",
+        generatedSourceReferenceIds: [] as string[],
+      };
+    },
+    recordSourceIds: async (_context: unknown, ids: string[]) => {
+      calls.sourceIds.push(ids);
+    },
+    recordDomainResult: async (_context: unknown, result: unknown) => {
+      calls.results.push(result);
+      return "zotero-receipt-1";
+    },
+  };
+  return { calls, dependencies };
+}
+
+function mutationCatalog(
+  dependencies: ReturnType<typeof mutationDependencies>["dependencies"],
+  ownerWorkspace: Record<string, unknown> = workspace,
+) {
+  return createZoteroNativeToolDefinitions({
+    broker: createFailClosedZoteroHostCapabilityBroker(),
+    workspace: ownerWorkspace as never,
+    mutations: dependencies as never,
+  });
+}
+
+function preflightContext() {
+  return {
+    owner: { kind: "conversation" as const, ownerId: "owner" },
+    turnId: "turn",
+    sourceTurnId: "source",
+    callId: "call",
+    signal: new AbortController().signal,
+  };
+}
+
+function mutationTool(
+  dependencies: ReturnType<typeof mutationDependencies>["dependencies"],
+  capabilityId: string,
+  ownerWorkspace: Record<string, unknown> = workspace,
+) {
+  const tool = mutationCatalog(dependencies, ownerWorkspace).find(
+    (definition) => definition.capabilityId === capabilityId,
+  )!;
+  assert.isDefined(tool, capabilityId);
+  return tool;
+}
+
+describe("Pi Zotero Native Mutation Tool Catalog", function () {
+  it("registers all thirty-seven schemas through the real Gateway catalog", async function () {
+    const { dependencies } = mutationDependencies();
+    const definitions = [...mutationCatalog(dependencies)];
+    const gateway = await freezePiToolGatewayTurn({
+      owner: { kind: "conversation", ownerId: "owner" },
+      turnId: "mutation-catalog",
+      definitions,
+      policy: {
+        mode: "interactive",
+        systemAllowedEffects: ["bounded-read", "zotero-mutation"],
+        authorizedEffects: ["bounded-read", "zotero-mutation"],
+        authorizedKeys: ["zotero-mutation:enhanced"],
+        maxCalls: 1,
+        maxConcurrent: 1,
+        maxCost: 1,
+      },
+      runtimeCapability: {
+        identity: "mutation-catalog",
+        availableCapabilityIds: definitions.map(
+          (definition) => definition.capabilityId,
+        ),
+      },
+      hooks: {
+        recordStarted: async () => undefined,
+        recordReceipt: async () => undefined,
+        recordPermission: async () => undefined,
+      },
+    });
+    assert.lengthOf(gateway.catalog.tools, 37);
+  });
+
+  it("keeps every mutation schema self-contained and small enough for one model catalog", function () {
+    const encoder = new TextEncoder();
+    const catalog = mutationCatalog(mutationDependencies().dependencies);
+    const mutations = catalog.filter((definition) =>
+      MUTATION_MAPPINGS.some(
+        ([capabilityId]) => capabilityId === definition.capabilityId,
+      ),
+    );
+    assert.lengthOf(mutations, 23);
+    let total = 0;
+    for (const definition of mutations) {
+      const schema = definition.schema as Record<string, unknown>;
+      const defs = schema.$defs as Record<string, unknown>;
+      const bytes = encoder.encode(JSON.stringify(schema)).byteLength;
+      total += bytes;
+      assert.isBelow(bytes, 8 * 1024, definition.capabilityId);
+      const referenced = new Set<string>();
+      const visit = (value: unknown): void => {
+        if (Array.isArray(value)) {
+          for (const entry of value) visit(entry);
+          return;
+        }
+        if (!value || typeof value !== "object") return;
+        const node = value as Record<string, unknown>;
+        if (typeof node.$ref === "string" && node.$ref.startsWith("#/$defs/")) {
+          referenced.add(node.$ref.slice("#/$defs/".length));
+        }
+        for (const key of Object.keys(node)) {
+          if (key === "$defs") continue;
+          visit(node[key]);
+        }
+      };
+      visit(schema);
+      for (const name of referenced) {
+        assert.property(defs, name, definition.capabilityId + " " + name);
+        visit(defs[name]);
+      }
+    }
+    assert.isBelow(total, 32 * 1024);
+  });
+
+  it("lets the model omit new source reference identities without rewriting the imported contract", function () {
+    const schema = mutationTool(
+      mutationDependencies().dependencies,
+      "literature_artifact.upsert_references",
+    ).schema as Record<string, any>;
+    const sourceReference = schema.$defs.SourceReference;
+    assert.property(sourceReference.properties, "sourceReferenceId");
+    assert.notInclude(sourceReference.required, "sourceReferenceId");
+    const imported = sourceReferenceArtifactSchema as Record<string, any>;
+    assert.include(
+      imported.$defs.SourceReference.required,
+      "sourceReferenceId",
+      "schema projection must not rewrite the imported contract",
+    );
+    assert.isString(imported.$id);
+  });
+  it("exposes the twenty-three reviewed mutation mappings with unique static identities", function () {
+    const catalog = mutationCatalog(mutationDependencies().dependencies);
+    assert.lengthOf(catalog, 37);
+    for (const [capabilityId, name] of MUTATION_MAPPINGS) {
+      const tool = catalog.find(
+        (definition) => definition.capabilityId === capabilityId,
+      );
+      assert.isDefined(tool, capabilityId);
+      assert.equal(tool!.name, name);
+      assert.deepEqual(tool!.minimumEffects, ["bounded-read"]);
+    }
+    assert.equal(
+      new Set(catalog.map((definition) => definition.capabilityId)).size,
+      37,
+    );
+    assert.equal(
+      new Set(catalog.map((definition) => definition.name)).size,
+      37,
+    );
+    assert.notInclude(
+      catalog.map((definition) => definition.name),
+      "zotero_note_upsert_payload",
+    );
+    // Both trash tools share one canonical operation but stay distinct tools.
+    assert.equal(
+      mutationTool(mutationDependencies().dependencies, "trash.move_items")
+        .capabilityId,
+      "trash.move_items",
+    );
+  });
+
+  it("keeps the reviewed read-only composition at fourteen tools", function () {
+    const reads = createZoteroNativeToolDefinitions({
+      broker: createFailClosedZoteroHostCapabilityBroker(),
+      workspace,
+    });
+    assert.lengthOf(reads, 14);
+    assert.notInclude(
+      reads.map((definition) => definition.capabilityId),
+      "item.create",
+    );
+  });
+
+  it("routes dry runs through bounded reads and ordinary runs through the domain write tier", async function () {
+    const dependencies = mutationDependencies().dependencies;
+    const itemRef = { libraryId: 5, key: "ITEM0001" };
+    const cases: Array<[string, boolean]> = MUTATION_MAPPINGS.map(
+      ([capabilityId, , enhanced]) => [capabilityId, enhanced],
+    );
+    for (const [capabilityId, enhanced] of cases) {
+      const tool = mutationTool(dependencies, capabilityId);
+      const args = {
+        itemRef,
+        ref: itemRef,
+        collectionRef: itemRef,
+        parentRef: itemRef,
+        attachmentRef: itemRef,
+        noteRef: itemRef,
+      };
+      const ordinary = await tool.classify(args as never);
+      assert.deepEqual(
+        [...ordinary.effects].sort(),
+        ["bounded-read", "zotero-mutation"],
+        capabilityId,
+      );
+      assert.deepEqual(
+        ordinary.authorizationKeys,
+        enhanced ? ["zotero-mutation:enhanced"] : [],
+        capabilityId,
+      );
+      assert.deepEqual(ordinary.resourceKeys, ["library:5"], capabilityId);
+      const preview = await tool.classify({ ...args, dryRun: true } as never);
+      assert.deepEqual(preview.effects, ["bounded-read"], capabilityId);
+      assert.deepEqual(preview.authorizationKeys, [], capabilityId);
+      assert.deepEqual(preview.resourceKeys, [], capabilityId);
+    }
+  });
+
+  it("reports pending staging cleanup instead of silently completing", async function () {
+    const { dependencies } = mutationDependencies();
+    const owner = {
+      ...workspace,
+      prepareStoredAttachment: async () => ({
+        prepared: {},
+        preparedFiles: {},
+        manifest: { identity: "i", main: {}, companions: [] },
+        dispose: async () => {
+          throw new Error("pi_managed_cleanup_pending");
+        },
+      }),
+    };
+    const tool = mutationTool(dependencies, "attachment.import", owner);
+    const result = await tool.preflight!(
+      {
+        placement: { kind: "child", parentRef: { libraryId: 1, key: "P" } },
+        path: "imports/paper.pdf",
+      } as never,
+      preflightContext() as never,
+    );
+    assert.equal(result.status, "failed");
+    assert.equal(
+      (result as { details: { cleanupPending?: boolean } }).details
+        .cleanupPending,
+      true,
+    );
+  });
+  it("closes mutation schemas and applies the shared logical list bound", function () {
+    const catalog = mutationCatalog(mutationDependencies().dependencies);
+    for (const [capabilityId] of MUTATION_MAPPINGS) {
+      const tool = catalog.find(
+        (definition) => definition.capabilityId === capabilityId,
+      )!;
+      const schema = tool.schema as Record<string, unknown>;
+      const properties = schema.properties as Record<string, unknown>;
+      assert.equal(schema.additionalProperties, false, capabilityId);
+      assert.notProperty(properties, "operationId", capabilityId);
+      assert.notProperty(properties, "expectedRevision", capabilityId);
+      assert.property(properties, "dryRun", capabilityId);
+      assert.notInclude(
+        (schema.required as string[]) || [],
+        "operationId",
+        capabilityId,
+      );
+      assert.property(schema, "$defs", capabilityId);
+    }
+    const propertiesOf = (capabilityId: string) =>
+      (
+        mutationTool(mutationDependencies().dependencies, capabilityId)
+          .schema as {
+          properties: Record<string, never>;
+        }
+      ).properties;
+    assert.equal(
+      (propertiesOf("item.create").initialTags as { maxItems: number })
+        .maxItems,
+      100,
+    );
+    assert.equal(
+      (
+        propertiesOf("collection.update_membership").add as {
+          maxItems: number;
+        }
+      ).maxItems,
+      100,
+    );
+    assert.equal(
+      (propertiesOf("trash.move_items").itemRefs as { maxItems: number })
+        .maxItems,
+      100,
+    );
+    assert.notProperty(propertiesOf("trash.move_items"), "state");
+    assert.notProperty(
+      propertiesOf("note.update_content").content as never,
+      "embeddedImages",
+    );
+    assert.notProperty(propertiesOf("attachment.import"), "source");
+    assert.equal(
+      (propertiesOf("attachment.import").path as { type: string }).type,
+      "string",
+    );
+    const references = mutationTool(
+      mutationDependencies().dependencies,
+      "literature_artifact.upsert_references",
+    ).schema as Record<string, any>;
+    assert.equal(
+      references.$defs.sourceReferenceArtifact.properties.references.maxItems,
+      100,
+    );
+    const score = mutationTool(
+      mutationDependencies().dependencies,
+      "literature_artifact.upsert_score",
+    ).schema as Record<string, any>;
+    assert.equal(
+      score.$defs.literatureScoreArtifact.properties.dimensions.maxItems,
+      6,
+    );
+    assert.notProperty(
+      score.$defs.literatureScoreArtifact.properties,
+      "schema",
+    );
+  });
+
+  it("fails closed when a mutation is dispatched without a preflight", async function () {
+    const tool = mutationTool(
+      mutationDependencies().dependencies,
+      "item.update_tags",
+    );
+    const execution = await tool.execute({} as never, {
+      signal: new AbortController().signal,
+      onUpdate: () => undefined,
+    });
+    assert.equal(execution.status, "failed");
+    assert.equal(execution.code, "preflight_required");
+    assert.equal(execution.effectCertainty, "confirmed_none");
+  });
+
+  it("rejects a combined logical list beyond the shared bound before any effect", async function () {
+    const { calls, dependencies } = mutationDependencies();
+    const tool = mutationTool(dependencies, "collection.update_membership");
+    const refs = (offset: number) =>
+      Array.from({ length: 60 }, (_, index) => ({
+        libraryId: 1,
+        key: "ITEM" + String(offset + index).padStart(4, "0"),
+      }));
+    const result = await tool.preflight!(
+      {
+        collectionRef: { libraryId: 1, key: "COLL0001" },
+        add: refs(0),
+        remove: refs(60),
+      } as never,
+      preflightContext() as never,
+    );
+    assert.equal(result.status, "failed");
+    assert.equal((result as { code: string }).code, "resource_limited");
+    assert.equal(calls.identity, 0);
+    assert.lengthOf(calls.results, 0);
+  });
+
+  it("records the durable mutation identity before dispatch and never publishes success on failure", async function () {
+    const recorded: string[][] = [];
+    const { calls, dependencies } = mutationDependencies();
+    const tool = mutationTool(
+      {
+        ...dependencies,
+        identity: async () => {
+          calls.identity += 1;
+          return {
+            operationId: "zotero-op",
+            generatedSourceReferenceIds: ["source-ref-1"],
+          };
+        },
+        recordSourceIds: async (_context, ids) => {
+          recorded.push([...ids]);
+        },
+      },
+      "item.update_tags",
+    );
+    const result = await tool.preflight!(
+      {
+        itemRef: { libraryId: 1, key: "ITEM0001" },
+        add: [],
+        remove: [],
+      } as never,
+      preflightContext() as never,
+    );
+    assert.equal(calls.identity, 1);
+    assert.deepEqual(recorded, [["source-ref-1"]]);
+    assert.equal(result.status, "failed");
+    assert.equal(calls.results.length, 0);
+  });
+
+  it("refuses attachment staging when the owner workspace cannot prepare a stored attachment", async function () {
+    const { calls, dependencies } = mutationDependencies();
+    const tool = mutationTool(dependencies, "attachment.import");
+    const result = await tool.preflight!(
+      {
+        placement: { kind: "child", parentRef: { libraryId: 1, key: "P" } },
+        path: "imports/paper.pdf",
+      } as never,
+      preflightContext() as never,
+    );
+    assert.equal(result.status, "failed");
+    assert.equal((result as { code: string }).code, "unavailable");
+    assert.equal(calls.identity, 0);
   });
 });

@@ -9,6 +9,10 @@ import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStor
 import { installPluginStateNodeSqliteAdapter } from "../helpers/pluginStateNodeSqliteAdapter";
 import type { PiModelSelectionSnapshot } from "../../src/shared/piProviderContract";
 import { createPiTextProviderSource } from "../../src/modules/piRuntime";
+import {
+  createPiConversationWorkspaceSurfaceAdapter,
+  createPiConversationWorkspaceOwner,
+} from "../../src/modules/piConversationWorkspaceSurface";
 
 const model: PiModelSelectionSnapshot = {
   configurationId: "deterministic",
@@ -109,10 +113,8 @@ describe("Pi Conversation integration", function () {
     await coordinator.addFiles(id, [{ path: file, displayName: "input.bin" }]);
     await coordinator.addFiles(id, [{ path: file, displayName: "input.bin" }]);
     assert.lengthOf((await coordinator.readModel(id)).resources, 1);
-    assert.equal(
-      (await (await coordinator.send(id, "")).result).status,
-      "completed",
-    );
+    const result = await (await coordinator.send(id, "")).result;
+    assert.equal(result.status, "completed", JSON.stringify(result));
     assert.lengthOf((await coordinator.readModel(id)).resources, 0);
     const log = JSON.stringify(
       (await inspectPiOwner({ kind: "conversation", ownerId: id }, root))
@@ -469,6 +471,109 @@ describe("Pi Conversation integration", function () {
       ),
       "permission continuation has durable turn admission",
     );
+    await coordinator.dispose();
+  });
+
+  it("keeps a changed domain plan actionable without model reissue", async function () {
+    let revision = 1;
+    let writes = 0;
+    let invocations = 0;
+    const sources: string[] = [];
+    const coordinator = createPiConversationCoordinator({
+      root,
+      resolveModel: async () => model,
+      execution: () =>
+        createPiTextProviderSource({
+          steps:
+            invocations++ === 0
+              ? [
+                  {
+                    text: "Review write",
+                    toolCalls: [
+                      {
+                        callId: "domain-write",
+                        name: "write_domain",
+                        arguments: {},
+                      },
+                    ],
+                  },
+                ]
+              : [{ text: "Done" }],
+        }),
+      definitions: async () => [
+        {
+          capabilityId: "test.domain-write",
+          name: "write_domain",
+          description: "Write with current domain facts",
+          schema: { type: "object", additionalProperties: false },
+          minimumEffects: ["zotero-mutation"],
+          maxResultBytes: 1024,
+          classify: () => ({
+            effects: ["zotero-mutation"],
+            authorizationKeys: [],
+            resourceKeys: ["library:1"],
+            cost: 1,
+          }),
+          execute: async () => {
+            throw new Error("preflight required");
+          },
+          preflight: async (_args, context) => {
+            sources.push(context.sourceTurnId);
+            return {
+              status: "prepared",
+              domainPlanDigest: `sha256:${String(revision).repeat(64)}`,
+              admissionFacts: { plan: { revision } },
+              dispose: async () => {},
+              execute: async () => {
+                writes++;
+                return {
+                  status: "completed",
+                  effectCertainty: "confirmed_complete",
+                  value: { changed: true },
+                };
+              },
+            };
+          },
+        },
+      ],
+    });
+    await coordinator.create();
+    const ownerId = coordinator.selectedId!;
+    assert.equal(
+      (await (await coordinator.send(ownerId, "Write")).result).status,
+      "waiting_permission",
+    );
+    const original = (await coordinator.readModel(ownerId)).pending[0];
+    revision++;
+    assert.isUndefined(
+      await coordinator.permission(ownerId, "domain-write", "approve"),
+    );
+    const renewed = await coordinator.readModel(ownerId);
+    assert.equal(renewed.status, "waiting_permission");
+    assert.lengthOf(renewed.pending, 1);
+    assert.deepEqual(renewed.pending[0].admissionFacts, {
+      plan: { revision: 2 },
+    });
+    assert.equal(
+      renewed.pending[0].binding.sourceTurnId,
+      original.binding.sourceTurnId,
+    );
+    const surface = createPiConversationWorkspaceSurfaceAdapter(coordinator);
+    const regions = await surface.readOwnerRegions({
+      owner: createPiConversationWorkspaceOwner(ownerId),
+      kinds: ["permission"],
+    });
+    assert.include(JSON.stringify(regions), '\\"revision\\":2');
+    assert.equal(writes, 0);
+    assert.equal(invocations, 1);
+    const continued = await coordinator.permission(
+      ownerId,
+      "domain-write",
+      "approve",
+    );
+    assert.equal((await continued!.result).status, "completed");
+    assert.equal(writes, 1);
+    assert.equal(new Set(sources).size, 1);
     await coordinator.dispose();
   });
 

@@ -1861,6 +1861,284 @@ describe("zotero host broker capability api", function () {
     }
   });
 
+  it("binds prepared domain plan digests to scope, operation identity and staged file facts", async function () {
+    const parent = await createParentItem("Prepared File Digest Parent");
+    const root = await mkTempDir("prepared-file-digest");
+    const sourcePath = joinPath(root, "paper.pdf");
+    await writeUtf8(sourcePath, "first revision");
+    const files = createWorkflowPreparedStoredFiles();
+    const broker = createZoteroHostCapabilityBroker();
+    const trusted = getZoteroHostCanonicalMutationControl(broker);
+    const scope = { ownerId: "prepared-file-digest" };
+    const source = {
+      main: {
+        source: { kind: "local_path" as const, path: sourcePath },
+        targetFilename: "paper.pdf",
+      },
+    };
+    const prepareOnce = async () => {
+      const file = await files.prepareStoredAttachment(source);
+      const input = {
+        operation: "attachments.create" as const,
+        operationId: "prepared-file-digest",
+        placement: {
+          kind: "child" as const,
+          parentRef: { libraryId: parent.libraryID, key: parent.key },
+        },
+        source: createCanonicalStoredAttachmentSource(source, file.snapshot),
+      };
+      const prepared = await trusted.prepare({
+        input,
+        scope,
+        resources: {
+          deferredStoredAttachment: { prepare: async () => file },
+          preparedFiles: files.preparedFiles,
+        },
+      });
+      if (prepared.state !== "prepared") assert.fail("expected preparation");
+      return prepared.preview.domainPlanDigest;
+    };
+    try {
+      const first = await prepareOnce();
+      assert.match(first, /^sha256:/);
+      assert.strictEqual(await prepareOnce(), first);
+      await writeUtf8(sourcePath, "other revision");
+      assert.notStrictEqual(await prepareOnce(), first);
+    } finally {
+      await files.preparedFiles.dispose();
+      await removeRuntimePath(root);
+    }
+  });
+
+  it("changes the prepared domain plan digest when observed revisions move", async function () {
+    const item = await createParentItem("Prepared Digest Observation");
+    const trusted = getZoteroHostCanonicalMutationControl(
+      createZoteroHostCapabilityBroker(),
+    );
+    const scope = { ownerId: "prepared-digest-observation" };
+    const input = {
+      operation: "item.updateMetadata" as const,
+      operationId: "prepared-digest-observation",
+      itemRef: { libraryId: item.libraryID, key: item.key },
+      patch: { fields: { title: "Prepared Digest Intended" } },
+    };
+    const first = await trusted.prepare({ input, scope });
+    if (first.state !== "prepared") assert.fail("expected preparation");
+    item.setField("title", "Prepared Digest Moved");
+    await item.saveTx();
+    const second = await trusted.prepare({ input, scope });
+    if (second.state !== "prepared") assert.fail("expected preparation");
+    assert.notStrictEqual(
+      second.preview.domainPlanDigest,
+      first.preview.domainPlanDigest,
+    );
+  });
+
+  it("rejects a declared import manifest that does not match the staged snapshot", async function () {
+    const parent = await createParentItem("Declared Manifest Parent");
+    const root = await mkTempDir("declared-manifest");
+    const declaredPath = joinPath(root, "declared.pdf");
+    const stagedPath = joinPath(root, "staged.pdf");
+    await writeUtf8(declaredPath, "declared bytes");
+    await writeUtf8(stagedPath, "staged bytes");
+    const files = createWorkflowPreparedStoredFiles();
+    const trusted = getZoteroHostCanonicalMutationControl(
+      createZoteroHostCapabilityBroker(),
+    );
+    const scope = { ownerId: "declared-manifest" };
+    const declaredSource = {
+      main: {
+        source: { kind: "local_path" as const, path: declaredPath },
+        targetFilename: "declared.pdf",
+      },
+    };
+    const stagedSource = {
+      main: {
+        source: { kind: "local_path" as const, path: stagedPath },
+        targetFilename: "staged.pdf",
+      },
+    };
+    try {
+      const declaredFile = await files.prepareStoredAttachment(declaredSource);
+      const stagedFile = await files.prepareStoredAttachment(stagedSource);
+      const input = {
+        operation: "attachments.create" as const,
+        operationId: "declared-manifest-mismatch",
+        placement: {
+          kind: "child" as const,
+          parentRef: { libraryId: parent.libraryID, key: parent.key },
+        },
+        source: createCanonicalStoredAttachmentSource(
+          declaredSource,
+          declaredFile.snapshot,
+        ),
+      };
+      const error = await expectBrokerError(
+        trusted.prepare({
+          input,
+          scope,
+          resources: {
+            deferredStoredAttachment: { prepare: async () => stagedFile },
+            preparedFiles: files.preparedFiles,
+          },
+        }),
+        "invalid_request",
+      );
+      assert.strictEqual(error.details.reason, "invalid_value");
+      assert.strictEqual(error.details.field, "source.content");
+    } finally {
+      await files.preparedFiles.dispose();
+      await removeRuntimePath(root);
+    }
+  });
+
+  it("normalizes semantic references authoring with generated and retained source identity", async function () {
+    const parent = await createParentItem("Semantic Authoring Parent");
+    const broker = createZoteroHostCapabilityBroker();
+    const trusted = getZoteroHostCanonicalMutationControl(broker);
+    const scope = { ownerId: "semantic-authoring" };
+    const parentRef = { libraryId: parent.libraryID, key: parent.key };
+    const semanticReferences = {
+      references: [
+        {
+          extraction: null,
+          bibliography: { title: "Generated", authors: [], year: null },
+          matching: {},
+        },
+        {
+          extraction: null,
+          bibliography: { title: "Also generated", authors: [], year: null },
+          matching: {},
+        },
+      ],
+    };
+    const first = await trusted.normalizeManagedAuthoring({
+      operation: "literature_artifact.upsert_references",
+      parentRef,
+      value: semanticReferences,
+    });
+    const firstValue = first.value as SourceReferenceArtifact;
+    assert.strictEqual(firstValue.schema, "source_reference_artifact.v1");
+    assert.lengthOf(first.generatedSourceReferenceIds, 2);
+    assert.deepEqual(
+      firstValue.references.map((reference) => reference.sourceReferenceId),
+      first.generatedSourceReferenceIds,
+    );
+    const continuation = await trusted.normalizeManagedAuthoring({
+      operation: "literature_artifact.upsert_references",
+      parentRef,
+      value: semanticReferences,
+      generatedSourceReferenceIds: first.generatedSourceReferenceIds,
+    });
+    assert.deepEqual(
+      continuation.generatedSourceReferenceIds,
+      first.generatedSourceReferenceIds,
+    );
+    assert.deepEqual(continuation.value, first.value);
+    await expectBrokerError(
+      trusted.normalizeManagedAuthoring({
+        operation: "literature_artifact.upsert_references",
+        parentRef,
+        value: {
+          references: [
+            {
+              sourceReferenceId: "not-in-parent",
+              extraction: null,
+              bibliography: { title: "Unknown", authors: [], year: null },
+              matching: {},
+            },
+          ],
+        },
+      }),
+      "invalid_request",
+    );
+    const committed = await broker.literatureArtifacts.upsertReferences(
+      {
+        operationId: "semantic-authoring-references",
+        parentRef,
+        references: firstValue,
+      },
+      scope,
+    );
+    assert.strictEqual(committed.outcome, "committed");
+    const retained = await trusted.normalizeManagedAuthoring({
+      operation: "literature_artifact.upsert_references",
+      parentRef,
+      value: {
+        references: [
+          { ...firstValue.references[0] },
+          {
+            extraction: null,
+            bibliography: { title: "Fresh", authors: [], year: null },
+            matching: {},
+          },
+        ],
+      },
+    });
+    const retainedValue = retained.value as SourceReferenceArtifact;
+    assert.strictEqual(
+      retainedValue.references[0].sourceReferenceId,
+      firstValue.references[0].sourceReferenceId,
+    );
+    assert.lengthOf(retained.generatedSourceReferenceIds, 1);
+  });
+
+  it("validates semantic citation authoring against the current references basis", async function () {
+    const parent = await createParentItem("Citation Authoring Parent");
+    const broker = createZoteroHostCapabilityBroker();
+    const trusted = getZoteroHostCanonicalMutationControl(broker);
+    const scope = { ownerId: "citation-authoring" };
+    const parentRef = { libraryId: parent.libraryID, key: parent.key };
+    await broker.literatureArtifacts.upsertReferences(
+      {
+        operationId: "citation-authoring-references",
+        parentRef,
+        references: sourceReferences(),
+      },
+      scope,
+    );
+    const { schema: _schema, ...semanticCitation } = citationAnalysis();
+    const unknown = await expectBrokerError(
+      trusted.normalizeManagedAuthoring({
+        operation: "literature_artifact.upsert_citation_analysis",
+        parentRef,
+        value: {
+          ...semanticCitation,
+          items: citationAnalysis("unknown-reference").items,
+        },
+      }),
+      "conflict",
+    );
+    assert.strictEqual(unknown.details.reason, "basis_mismatch");
+    const normalized = await trusted.normalizeManagedAuthoring({
+      operation: "literature_artifact.upsert_citation_analysis",
+      parentRef,
+      value: semanticCitation,
+    });
+    const value = normalized.value as CitationAnalysisArtifact;
+    assert.strictEqual(value.schema, "citation_analysis_artifact.v1");
+    assert.notProperty(value, "referencesBasis");
+    assert.deepEqual(normalized.generatedSourceReferenceIds, []);
+  });
+
+  it("normalizes semantic score authoring to the canonical versioned artifact", async function () {
+    const parent = await createParentItem("Score Authoring Parent");
+    const trusted = getZoteroHostCanonicalMutationControl(
+      createZoteroHostCapabilityBroker(),
+    );
+    const { schema: _schema, ...semanticScore } = literatureScore();
+    const normalized = await trusted.normalizeManagedAuthoring({
+      operation: "literature_artifact.upsert_score",
+      parentRef: { libraryId: parent.libraryID, key: parent.key },
+      value: semanticScore,
+    });
+    assert.strictEqual(
+      (normalized.value as LiteratureScoreArtifact).schema,
+      "literature_score.v1",
+    );
+    assert.deepEqual(normalized.generatedSourceReferenceIds, []);
+  });
+
   it("keeps managed details above the downstream budget complete and enforces the UTF-8 Broker limit", async function () {
     const parent = await createParentItem("Managed UTF-8 budget");
     const broker = createZoteroHostCapabilityBroker();

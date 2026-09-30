@@ -634,7 +634,34 @@ describe("Pi Turn Preparation shared behavior", function () {
         { titleRevision: 1 },
         8,
       ),
-      entry("m3", "title-usage", "message", { role: "user", text: "more" }, 9),
+      entry(
+        "mutation-identity",
+        "title-usage",
+        "zotero_mutation_identity",
+        { operationId: "op" },
+        9,
+      ),
+      entry(
+        "mutation-source-ids",
+        "mutation-identity",
+        "zotero_mutation_source_ids",
+        { generatedSourceReferenceIds: ["source-1"] },
+        10,
+      ),
+      entry(
+        "mutation-receipt",
+        "mutation-source-ids",
+        "zotero_mutation_receipt",
+        { receiptId: "receipt-1" },
+        11,
+      ),
+      entry(
+        "m3",
+        "mutation-receipt",
+        "message",
+        { role: "user", text: "more" },
+        12,
+      ),
     );
     input.transcript.activeLeaf = "m3";
     input.transcript.revision = 6;

@@ -136,6 +136,55 @@ describe("Workflow Stored Attachment Preparation", function () {
     assert.equal(cleaned, 1);
   });
 
+  it("retries staged residue after a failed cleanup instead of dropping it", async function () {
+    let attempts = 0;
+    const preparedFiles = createZoteroHostPreparedFiles({
+      async stageStoredAttachmentSources() {
+        return {
+          stagingDirectory: "/stage",
+          mainFilename: "main.pdf",
+          stagedMainPath: "/stage/main.pdf",
+          entries: [],
+          async cleanup() {
+            attempts += 1;
+            if (attempts === 1) throw new Error("staging cleanup failed");
+          },
+        };
+      },
+      async readBytes() {
+        return new TextEncoder().encode("main");
+      },
+    });
+    const prepared = await preparedFiles.prepareStoredAttachment({
+      path: "/source/main.pdf",
+    });
+    try {
+      await preparedFiles.dispose();
+      assert.fail("expected the first cleanup to fail");
+    } catch (error) {
+      assert.match(String(error), /staging cleanup failed/);
+    }
+    assert.equal(attempts, 1);
+    // Dispose is irreversible for the capability even when cleanup failed, but
+    // every dispose call still retries the residue it could not release.
+    try {
+      await preparedFiles.resolveStoredAttachment(prepared);
+      assert.fail("expected a disposed scope to reject prepared files");
+    } catch (error) {
+      assert.match(String(error), /disposed/);
+    }
+    await preparedFiles.dispose();
+    assert.equal(attempts, 2);
+    await preparedFiles.dispose();
+    assert.equal(attempts, 2);
+    try {
+      await preparedFiles.resolveStoredAttachment(prepared);
+      assert.fail("expected the released scope to reject prepared files");
+    } catch (error) {
+      assert.match(String(error), /disposed/);
+    }
+  });
+
   it("validates all sources before exposing staged files", async function () {
     const events: string[] = [];
     const stage = createWorkflowStoredAttachmentStager({

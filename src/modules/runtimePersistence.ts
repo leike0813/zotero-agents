@@ -1815,6 +1815,7 @@ export async function replaceRuntimeTextFileAtomically(
 type RuntimePathStat = {
   exists: boolean;
   isDir: boolean;
+  isFile: boolean;
   size: number;
   lastModified?: number;
 };
@@ -1843,7 +1844,7 @@ async function statRuntimePathInternal(
 ): Promise<RuntimePathStat> {
   const path = normalizeString(pathRaw);
   if (!path) {
-    return { exists: false, isDir: false, size: 0 };
+    return { exists: false, isDir: false, isFile: false, size: 0 };
   }
   const runtime = globalThis as {
     IOUtils?: {
@@ -1861,6 +1862,7 @@ async function statRuntimePathInternal(
       return {
         exists: true,
         isDir: String(stat.type || "").toLowerCase() === "directory",
+        isFile: String(stat.type || "").toLowerCase() === "regular",
         size: Math.max(0, Number(stat.size || 0) || 0),
         lastModified:
           Math.max(
@@ -1870,7 +1872,7 @@ async function statRuntimePathInternal(
       };
     } catch (error) {
       if (surfaceErrors) throw error;
-      return { exists: false, isDir: false, size: 0 };
+      return { exists: false, isDir: false, isFile: false, size: 0 };
     }
   }
   if (isNonNativeAbsolutePath(path)) {
@@ -1879,7 +1881,7 @@ async function statRuntimePathInternal(
         "Runtime path cannot be inspected on this platform",
       );
     }
-    return { exists: false, isDir: false, size: 0 };
+    return { exists: false, isDir: false, isFile: false, size: 0 };
   }
   const fs = await tryNodeFs();
   if (fs) {
@@ -1889,12 +1891,13 @@ async function statRuntimePathInternal(
         exists: true,
         isDir:
           typeof stat.isDirectory === "function" ? stat.isDirectory() : false,
+        isFile: typeof stat.isFile === "function" ? stat.isFile() : false,
         size: Math.max(0, Number(stat.size || 0) || 0),
         lastModified: Math.max(0, Number(stat.mtimeMs || 0) || 0) || undefined,
       };
     } catch (error) {
       if (surfaceErrors) throw error;
-      return { exists: false, isDir: false, size: 0 };
+      return { exists: false, isDir: false, isFile: false, size: 0 };
     }
   }
   if (surfaceErrors) {
@@ -1902,7 +1905,12 @@ async function statRuntimePathInternal(
       "No runtime path stat API is available",
     );
   }
-  return { exists: await runtimePathExists(path), isDir: false, size: 0 };
+  return {
+    exists: await runtimePathExists(path),
+    isDir: false,
+    isFile: false,
+    size: 0,
+  };
 }
 
 export function statRuntimePath(pathRaw: string): Promise<RuntimePathStat> {

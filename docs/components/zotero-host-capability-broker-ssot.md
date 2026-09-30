@@ -15,6 +15,34 @@ The stable layering is:
 
 The architecture has one fact source and deliberately separate public surfaces. Adding a broker member does not implicitly expose it to workflows, Host Bridge, or MCP.
 
+Pi's `zoteroNativeToolCatalog.ts` is another explicit local projection. With
+trusted mutation identity and evidence callbacks it exposes fourteen reads and
+twenty-three business writes. Eleven default writes cover item creation,
+metadata, tags and relations; ordinary note creation/content; collection
+creation, metadata and membership; and attachment metadata. Twelve enhanced
+writes cover item type, attachment import/replacement/move, Trash/restore,
+custom/conversation notes and Digest/References/Citation Analysis/Score.
+Enhanced is an additional Gateway authorization key, using the same
+`zotero-mutation` effect and canonical execution owner.
+
+Each business schema removes caller operation identity and accepts `dryRun`.
+Dry runs prepare the real domain plan without writes; ordinary calls prepare
+before approval and revalidate before execution. Logical lists and expanded
+writes share a limit of 100. Nested artifact payloads keep their own canonical
+bounds. Ordinary note content excludes embedded images. Stored-file inputs
+use regular owner Workspace paths; managed authoring accepts semantic fields
+without storage schema or computed basis wrappers. Custom/conversation note
+targets explicitly select parent creation or existing-note replacement.
+
+The Gateway settles every call's domain preflight before batch effects. A
+prepared call supplies bounded public admission facts and a domain digest,
+plus private execute/dispose closures. Waiting releases staged resources;
+continuation prepares again, and changed facts require a replacement approval
+with the original source turn and call. Operation identity, generated reference
+IDs and complete domain receipts are durable canonical transcript facts.
+Gateway evidence references the domain receipt; model results contain bounded
+semantic outcomes and recovery facts. Unknown effects stop automatic replay.
+
 `src/workflows/workflowHostContract.ts` owns the Workflow Host Contract
 Identity: the current version, declared top-level capability identities,
 diagnostic availability probes, version resolution, and contract-variant
@@ -158,6 +186,14 @@ Managed-note singleton discovery is scoped to the requested kind. A child whose 
 Identity lookup compiles the existing native Search conditions and UNIONs their results with a source-side LIMIT of 26. The ceiling is 25 unique candidates across all conditions; the 26th is an overflow sentinel, not a truncated match set. Candidate hydration must be complete. SQL compilation and preparation yield through short Host slices; the final bounded query, prepared identity/revision check and metadata creation share one Host admission and native transaction. A newly appeared or changed match invalidates the prepared plan rather than silently changing creation into reuse. Collection membership and optional enrichment retain their existing lifecycle. This serializes Broker callers and native transaction owners, not unrelated bare writes on Zotero's shared database connection; it does not claim to exclude all native, Sync or user writers.
 
 Every write has effect-free preparation with private revision/state and file evidence. Public preview exposes safe plan facts and `domainPlanDigest`. Approval wait triggers preparation again; changed digests require renewed approval. Execute revalidates inside the admitted native slice before effects, without silently refreshing a stale plan.
+
+Prepared mutation identity is one domain plan digest over caller scope, operationId, normalized semantic digest, observation digest, plan digest and, for file operations, the immutable staged-file fingerprint. The private prepared token and its TTL are deliberately excluded, so a continuation of the same domain re-prepares the same digest. A `stored_file` request declares its content manifest, and preparation verifies that declaration against the staged snapshot (relative path, byte size and SHA-256) before admission, so a changed declaration fails without reserving or performing a write.
+
+`piTrustedNativeExecution.ts` owns the C08 trusted native owner-file capability that produces that declared manifest. `prepareStoredAttachment(path, signal)` accepts only regular public Workspace paths through the shared lexical/resolved verifier and rejects managed snapshot aliases, private owner paths, external paths, links and missing files. It copies through the shared attachment stager into private owner staging and returns the immutable prepared reference, the private prepared-files capability that resolves and disposes staging, the safe snapshot facts (`identity`, `main`, `companions`, each file carrying relative path, byte size and bare SHA-256) and a cleanup callback. Source and staging paths never appear in that manifest; the catalog prefixes `sha256:` when it assembles the attachment-content wire shape.
+
+Per-file size is 256 MiB, and staging shares the 2 GiB owner quota with manifest-managed copies and agent-written Workspace bytes. Preparation reserves in-flight staging against that quota before copying, rebinds the reservation to the real staged size afterwards, and rechecks the quota, so concurrent preparations cannot each pass the same check and a source that grows during the copy is rejected rather than silently staged. Every exit path disposes private staging; a failed cleanup reports `pi_managed_cleanup_pending` and retains the reservation until cleanup is confirmed, so private residue keeps counting against the quota. Cancellation is observed at the copy boundaries, the reservation follows the prepared-files lifetime, and ownership transfer without removal does not release it.
+
+Semantic managed-artifact authoring goes through the trusted `normalizeManagedAuthoring` control rather than a storage operation. It reuses the canonical Source Reference, Citation and Score validators, returns the complete versioned artifact plus the Source Reference IDs the Broker generated once for entries that arrived without one, reuses supplied IDs for missing entries in order on approval continuations, accepts an explicit ID only when it already belongs to the parent's current References artifact, and fails closed on duplicate IDs, an unrelated retained ID or an ambiguous parent singleton. The public canonical mutations never expose the private expected binding or a parallel artifact writer.
 
 `zoteroHostMutationAuthority.ts` owns durable admission through pluginStateStore SQLite. Caller scope plus operationId binds operation kind and normalized semantic digest; only the insert winner executes. Replay checks stored identity before resource acquisition or preflight. Success is returned only after terminal evidence is durable. Interrupted started records and post-effect evidence failures become unknown. Known terminal evidence remains for 30 days; unknown/repair_required is retained. Expiry removes evidence but retains an identity tombstone permanently. Observation returns running, settled or unavailable and propagates storage failure.
 

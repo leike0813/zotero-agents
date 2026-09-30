@@ -33,6 +33,27 @@ export type PiGatewayExecution = {
   domainReceiptRef?: string;
 };
 
+export type PiGatewayPreflightContext = {
+  signal: AbortSignal;
+  onUpdate: (update: JsonValue) => void;
+  callId?: string;
+};
+
+export type PiGatewayPreflight =
+  | {
+      status: "prepared";
+      domainPlanDigest: string;
+      admissionFacts: JsonValue;
+      execute(context: PiGatewayPreflightContext): Promise<PiGatewayExecution>;
+      dispose(): Promise<void>;
+    }
+  | {
+      status: "failed";
+      code: string;
+      retryable?: boolean;
+      details?: JsonValue;
+    };
+
 export type PiGatewayToolDefinition = {
   capabilityId: string;
   name: string;
@@ -45,6 +66,16 @@ export type PiGatewayToolDefinition = {
   classify(
     args: JsonValue,
   ): PiGatewayClassification | Promise<PiGatewayClassification>;
+  preflight?(
+    args: JsonValue,
+    context: {
+      owner: PiGatewayAttemptReceipt["owner"];
+      turnId: string;
+      sourceTurnId: string;
+      callId: string;
+      signal: AbortSignal;
+    },
+  ): Promise<PiGatewayPreflight>;
   execute(
     args: JsonValue,
     context: {
@@ -125,6 +156,7 @@ export type PiGatewayPolicy = {
 
 export type PiGatewayPendingCall = {
   call: PiGatewayCall;
+  admissionFacts?: JsonValue;
   binding: {
     owner: PiGatewayAttemptReceipt["owner"];
     sourceTurnId: string;
@@ -135,6 +167,7 @@ export type PiGatewayPendingCall = {
     descriptorDigest: string;
     envelopeDigest: string;
     runtimeCapabilityDigest: string;
+    domainPlanDigest?: string;
   };
 };
 
@@ -171,12 +204,18 @@ export type PiGatewayTurn = {
   continueCall(
     pending: PiGatewayPendingCall,
     decision: "approve" | "deny",
-  ): Promise<PiGatewayCallResult>;
+  ): Promise<{ result: PiGatewayCallResult; pending?: PiGatewayPendingCall }>;
 };
 
 type FrozenDefinition = PiGatewayToolDefinition & {
   descriptorDigest: string;
   validate: ValidateFunction;
+};
+type PreparedPlan = {
+  domainPlanDigest: string;
+  admissionFacts: JsonValue;
+  execute(context: PiGatewayPreflightContext): Promise<PiGatewayExecution>;
+  dispose(): Promise<void>;
 };
 type PreparedCall = {
   call: PiGatewayCall;
@@ -184,6 +223,7 @@ type PreparedCall = {
   claims: PiGatewayClassification;
   argumentDigest: string;
   authorization: "ready" | "permission";
+  plan?: PreparedPlan;
 };
 
 const EFFECTS = new Set<PiGatewayEffect>([
@@ -254,7 +294,9 @@ function failure(code: string): PiGatewayFailure {
               ? "persistence"
               : code === "owner_busy"
                 ? "lifecycle"
-                : "execution";
+                : code === "cleanup_pending"
+                  ? "resource"
+                  : "execution";
   return {
     origin: "tool_gateway",
     category,
@@ -335,6 +377,8 @@ export async function freezePiToolGatewayTurn(
           definition.batchMode,
         )) ||
       typeof definition.classify !== "function" ||
+      (definition.preflight !== undefined &&
+        typeof definition.preflight !== "function") ||
       typeof definition.execute !== "function"
     )
       throw new Error("pi_gateway_definition_invalid");
@@ -497,7 +541,14 @@ export async function freezePiToolGatewayTurn(
       return fail(call, "invalid_request");
     }
     if (!definition.validate(call.arguments))
-      return fail(call, "invalid_request");
+      return fail(
+        call,
+        definition.validate.errors?.some(
+          (error) => error.keyword === "maxItems",
+        )
+          ? "resource_limited"
+          : "invalid_request",
+      );
     const args = deepFreeze(copyJson(call.arguments));
     if (utf8.encode(canonical(args)).byteLength > MAX_ARGUMENT_BYTES) {
       return fail(call, "resource_limited");
@@ -530,8 +581,148 @@ export async function freezePiToolGatewayTurn(
     };
   }
 
-  async function run(prepared: PreparedCall): Promise<PiGatewayCallResult> {
-    const { call, definition, claims, argumentDigest } = prepared;
+  function cleanupPendingResult(
+    result: PiGatewayCallResult,
+  ): PiGatewayCallResult {
+    const existing = result.failure;
+    const prior = existing?.details;
+    const details: JsonValue =
+      prior !== undefined &&
+      prior !== null &&
+      typeof prior === "object" &&
+      !Array.isArray(prior)
+        ? { ...(prior as Record<string, JsonValue>), cleanup: "pending" }
+        : prior === undefined
+          ? { cleanup: "pending" }
+          : { cleanup: "pending", recovery: prior };
+    return {
+      ...result,
+      failure: { ...(existing ?? failure("cleanup_pending")), details },
+    };
+  }
+
+  async function disposePrepared(
+    prepared: PreparedCall,
+    result: PiGatewayCallResult,
+  ): Promise<PiGatewayCallResult> {
+    const plan = prepared.plan;
+    if (!plan) return result;
+    prepared.plan = undefined;
+    try {
+      await plan.dispose();
+      return result;
+    } catch {
+      return cleanupPendingResult(result);
+    }
+  }
+
+  async function preflightCall(
+    prepared: PreparedCall,
+    sourceTurnId: string,
+  ): Promise<PiGatewayCallResult | null> {
+    const { call, definition } = prepared;
+    if (typeof definition.preflight !== "function") return null;
+    let outcome: PiGatewayPreflight;
+    try {
+      outcome = await definition.preflight(call.arguments, {
+        owner: { ...owner },
+        turnId: input.turnId,
+        sourceTurnId,
+        callId: call.callId,
+        signal,
+      });
+    } catch {
+      return fail(call, "execution_failed");
+    }
+    if (!outcome || typeof outcome !== "object")
+      return fail(call, "execution_failed");
+    if (outcome.status === "failed") {
+      if (
+        outcome.retryable !== undefined &&
+        typeof outcome.retryable !== "boolean"
+      )
+        return fail(call, "execution_failed");
+      const base = failure(
+        typeof outcome.code === "string" &&
+          outcome.code &&
+          outcome.code.length <= 128
+          ? outcome.code
+          : "execution_failed",
+      );
+      let details: JsonValue | undefined;
+      if (outcome.details !== undefined) {
+        try {
+          assertWorkflowHostStrictJsonValue(outcome.details);
+          if (
+            utf8.encode(canonical(outcome.details)).byteLength >
+            definition.maxResultBytes
+          )
+            throw new Error("preflight_details_too_large");
+          details = copyJson(outcome.details);
+        } catch {
+          details = undefined;
+        }
+      }
+      return {
+        callId: call.callId,
+        name: call.name,
+        status: "failed",
+        effectCertainty: "not_started",
+        failure: {
+          ...base,
+          retryable: outcome.retryable ?? base.retryable,
+          ...(details !== undefined ? { details } : {}),
+        },
+      };
+    }
+    if (outcome.status !== "prepared") return fail(call, "execution_failed");
+    const stage = outcome;
+    const reject = async (code: string): Promise<PiGatewayCallResult> => {
+      let cleaned = true;
+      if (typeof stage.dispose === "function") {
+        try {
+          await stage.dispose();
+        } catch {
+          cleaned = false;
+        }
+      }
+      const result = fail(call, code);
+      return cleaned ? result : cleanupPendingResult(result);
+    };
+    if (
+      typeof stage.domainPlanDigest !== "string" ||
+      !stage.domainPlanDigest ||
+      stage.domainPlanDigest.length > 256 ||
+      typeof stage.execute !== "function" ||
+      typeof stage.dispose !== "function"
+    )
+      return await reject("execution_failed");
+    let tooLarge = false;
+    try {
+      assertWorkflowHostStrictJsonValue(stage.admissionFacts);
+      // ponytail: admission facts share the definition's own result envelope
+      // (50 KiB for catalog tools) instead of the smaller claim bound, so a
+      // legitimate 100-target plan preview is not rejected as resource_limited.
+      tooLarge =
+        utf8.encode(canonical(stage.admissionFacts)).byteLength >
+        definition.maxResultBytes;
+    } catch {
+      return await reject("execution_failed");
+    }
+    if (tooLarge) return await reject("resource_limited");
+    prepared.plan = {
+      domainPlanDigest: stage.domainPlanDigest,
+      admissionFacts: copyJson(stage.admissionFacts),
+      execute: stage.execute.bind(stage),
+      dispose: stage.dispose.bind(stage),
+    };
+    return null;
+  }
+
+  async function runPrepared(
+    prepared: PreparedCall,
+  ): Promise<PiGatewayCallResult> {
+    const { call, definition, claims, argumentDigest, plan } = prepared;
     if (signal.aborted) return canceled(call);
     const startedAt = new Date().toISOString();
     const started: PiGatewayStartedFact = {
@@ -554,28 +745,30 @@ export async function freezePiToolGatewayTurn(
     }
     let execution: PiGatewayExecution;
     let updatesOpen = true;
+    const onUpdate = (update: JsonValue) => {
+      if (!updatesOpen || signal.aborted) return;
+      try {
+        assertWorkflowHostStrictJsonValue(update);
+        if (
+          utf8.encode(canonical(update)).byteLength <= definition.maxResultBytes
+        ) {
+          input.onUpdate?.(call.callId, copyJson(update));
+        }
+      } catch {
+        /* Updates are non-authoritative. */
+      }
+    };
     if (signal.aborted) {
       execution = { status: "canceled", effectCertainty: "confirmed_none" };
     } else {
       try {
-        execution = await definition.execute(call.arguments, {
-          signal,
-          callId: call.callId,
-          onUpdate: (update) => {
-            if (!updatesOpen || signal.aborted) return;
-            try {
-              assertWorkflowHostStrictJsonValue(update);
-              if (
-                utf8.encode(canonical(update)).byteLength <=
-                definition.maxResultBytes
-              ) {
-                input.onUpdate?.(call.callId, copyJson(update));
-              }
-            } catch {
-              /* Updates are non-authoritative. */
-            }
-          },
-        });
+        execution = plan
+          ? await plan.execute({ signal, callId: call.callId, onUpdate })
+          : await definition.execute(call.arguments, {
+              signal,
+              callId: call.callId,
+              onUpdate,
+            });
       } catch {
         execution = {
           status: "failed",
@@ -599,28 +792,37 @@ export async function freezePiToolGatewayTurn(
         code: "execution_failed",
       };
     }
-    if (execution.status === "failed") {
+    let recoveryDetails: JsonValue | undefined;
+    if (execution.details !== undefined) {
       try {
+        assertWorkflowHostStrictJsonValue(execution.details);
         if (
-          execution.retryable !== undefined &&
-          typeof execution.retryable !== "boolean"
+          utf8.encode(canonical(execution.details)).byteLength >
+          definition.maxResultBytes
         )
-          throw new Error("invalid_retryability");
-        if (execution.details !== undefined) {
-          assertWorkflowHostStrictJsonValue(execution.details);
-          if (
-            utf8.encode(canonical(execution.details)).byteLength >
-            definition.maxResultBytes
-          )
-            throw new Error("failure_details_too_large");
-        }
+          throw new Error("failure_details_too_large");
+        recoveryDetails = copyJson(execution.details);
       } catch {
-        execution = {
-          status: "failed",
-          effectCertainty: execution.effectCertainty,
-          code: "execution_failed",
-        };
+        recoveryDetails = undefined;
+        if (execution.status === "failed")
+          execution = {
+            status: "failed",
+            effectCertainty: execution.effectCertainty,
+            code: "execution_failed",
+          };
       }
+    }
+    if (
+      execution.status === "failed" &&
+      execution.retryable !== undefined &&
+      typeof execution.retryable !== "boolean"
+    ) {
+      execution = {
+        status: "failed",
+        effectCertainty: execution.effectCertainty,
+        code: "execution_failed",
+      };
+      recoveryDetails = undefined;
     }
     const effectful = claims.effects.some(
       (effect) => effect !== "bounded-read",
@@ -641,7 +843,12 @@ export async function freezePiToolGatewayTurn(
         name: call.name,
         status: "state_unknown",
         effectCertainty: "unknown",
-        failure: failure("state_unknown"),
+        failure: {
+          ...failure("state_unknown"),
+          ...(recoveryDetails !== undefined
+            ? { details: copyJson(recoveryDetails) }
+            : {}),
+        },
       };
     } else if (execution.status === "completed") {
       try {
@@ -686,8 +893,8 @@ export async function freezePiToolGatewayTurn(
         failure: {
           ...baseFailure,
           retryable: execution.retryable ?? baseFailure.retryable,
-          ...(execution.details !== undefined
-            ? { details: copyJson(execution.details) }
+          ...(recoveryDetails !== undefined
+            ? { details: copyJson(recoveryDetails) }
             : {}),
         },
       };
@@ -715,6 +922,10 @@ export async function freezePiToolGatewayTurn(
     return result;
   }
 
+  async function run(prepared: PreparedCall): Promise<PiGatewayCallResult> {
+    return await disposePrepared(prepared, await runPrepared(prepared));
+  }
+
   async function runGroup(
     group: PreparedCall[],
     results: Map<string, PiGatewayCallResult>,
@@ -725,7 +936,10 @@ export async function freezePiToolGatewayTurn(
     while (queue.length || running.size) {
       if (signal.aborted) {
         for (const pending of queue)
-          results.set(pending.call.callId, canceled(pending.call));
+          results.set(
+            pending.call.callId,
+            await disposePrepared(pending, canceled(pending.call)),
+          );
         queue.length = 0;
       }
       for (
@@ -753,16 +967,22 @@ export async function freezePiToolGatewayTurn(
     }
   }
 
-  async function defer(prepared: PreparedCall): Promise<{
+  async function defer(
+    prepared: PreparedCall,
+    sourceTurnId: string,
+  ): Promise<{
     result: PiGatewayCallResult;
     pending?: PiGatewayPendingCall;
   }> {
-    const { call, definition, argumentDigest } = prepared;
+    const { call, definition, argumentDigest, plan } = prepared;
+    if (signal.aborted)
+      return { result: await disposePrepared(prepared, canceled(call)) };
     const request: PiGatewayPendingCall = {
       call,
+      ...(plan ? { admissionFacts: plan.admissionFacts } : {}),
       binding: {
         owner: { ...owner },
-        sourceTurnId: input.turnId,
+        sourceTurnId,
         callId: call.callId,
         name: call.name,
         argumentDigest,
@@ -770,19 +990,20 @@ export async function freezePiToolGatewayTurn(
         descriptorDigest: definition.descriptorDigest,
         envelopeDigest,
         runtimeCapabilityDigest,
+        ...(plan ? { domainPlanDigest: plan.domainPlanDigest } : {}),
       },
     };
+    const result = await disposePrepared(prepared, {
+      callId: call.callId,
+      name: call.name,
+      status: "permission_required",
+      effectCertainty: "not_started",
+    });
+    if (result.failure) return { result: { ...result, status: "failed" } };
+    if (signal.aborted) return { result: canceled(call) };
     try {
       await hooks.recordPermission(request);
-      return {
-        pending: request,
-        result: {
-          callId: call.callId,
-          name: call.name,
-          status: "permission_required",
-          effectCertainty: "not_started",
-        },
-      };
+      return { pending: request, result };
     } catch {
       return { result: fail(call, "persistence_failed") };
     }
@@ -815,11 +1036,13 @@ export async function freezePiToolGatewayTurn(
         };
       for (const id of ids) usedCallIds.add(id);
       const prepared = await Promise.all(calls.map(prepare));
-      const ready = prepared.filter(
+      const eligible = prepared.filter(
         (item): item is PreparedCall => "definition" in item,
       );
       if (
-        ready.reduce((sum, item) => sum + item.claims.cost, 0) > policy.maxCost
+        eligible
+          .filter((item) => item.authorization === "ready")
+          .reduce((sum, item) => sum + item.claims.cost, 0) > policy.maxCost
       ) {
         return {
           results: calls.map((call) => fail(call, "resource_limited")),
@@ -829,8 +1052,16 @@ export async function freezePiToolGatewayTurn(
       const results = new Map<string, PiGatewayCallResult>();
       for (const item of prepared)
         if (!("definition" in item)) results.set(item.callId, item);
+      const preflights = await Promise.all(
+        eligible.map((item) => preflightCall(item, input.turnId)),
+      );
+      eligible.forEach((item, index) => {
+        const rejected = preflights[index];
+        if (rejected) results.set(item.call.callId, rejected);
+      });
+      const planned = eligible.filter((item) => !results.has(item.call.callId));
       await runGroup(
-        ready.filter(
+        planned.filter(
           (item) =>
             item.authorization === "ready" &&
             item.definition.batchMode !== "deferred",
@@ -838,7 +1069,7 @@ export async function freezePiToolGatewayTurn(
         results,
       );
       await runGroup(
-        ready.filter(
+        planned.filter(
           (item) =>
             item.authorization === "ready" &&
             item.definition.batchMode === "deferred",
@@ -846,10 +1077,10 @@ export async function freezePiToolGatewayTurn(
         results,
       );
       const pending: PiGatewayPendingCall[] = [];
-      for (const item of ready.filter(
+      for (const item of planned.filter(
         (entry) => entry.authorization === "permission",
       )) {
-        const deferred = await defer(item);
+        const deferred = await defer(item, input.turnId);
         if (deferred.pending) pending.push(deferred.pending);
         results.set(item.call.callId, deferred.result);
       }
@@ -870,23 +1101,29 @@ export async function freezePiToolGatewayTurn(
         !binding.sourceTurnId ||
         (decision !== "approve" && decision !== "deny")
       ) {
-        return fail(
-          call || { callId: "", name: "", arguments: null },
-          "invalid_request",
-        );
+        return {
+          result: fail(
+            call || { callId: "", name: "", arguments: null },
+            "invalid_request",
+          ),
+        };
       }
       if (
         !binding.owner ||
         binding.owner.kind !== owner.kind ||
         binding.owner.ownerId !== owner.ownerId
       ) {
-        return fail(call, "policy_denied");
+        return { result: fail(call, "policy_denied") };
       }
       usedCallIds.add(call.callId);
+      if (decision === "deny") return { result: fail(call, "policy_denied") };
       const prepared = await prepare(call);
-      if (!("definition" in prepared)) return prepared;
+      if (!("definition" in prepared)) return { result: prepared };
       if (prepared.claims.cost > policy.maxCost)
-        return fail(call, "resource_limited");
+        return { result: fail(call, "resource_limited") };
+      const sourceTurnId = binding.sourceTurnId;
+      const rejected = await preflightCall(prepared, sourceTurnId);
+      if (rejected) return { result: rejected };
       const matches =
         binding.callId === call.callId &&
         binding.name === call.name &&
@@ -894,14 +1131,16 @@ export async function freezePiToolGatewayTurn(
         binding.catalogDigest === catalogDigest &&
         binding.descriptorDigest === prepared.definition.descriptorDigest &&
         binding.envelopeDigest === envelopeDigest &&
-        binding.runtimeCapabilityDigest === runtimeCapabilityDigest;
+        binding.runtimeCapabilityDigest === runtimeCapabilityDigest &&
+        binding.domainPlanDigest === prepared.plan?.domainPlanDigest;
       if (!matches) {
-        return prepared.authorization === "permission"
-          ? (await defer(prepared)).result
-          : run(prepared);
+        const deferred = await defer(prepared, sourceTurnId);
+        return {
+          result: deferred.result,
+          ...(deferred.pending ? { pending: deferred.pending } : {}),
+        };
       }
-      if (decision === "deny") return fail(call, "policy_denied");
-      return run(prepared);
+      return { result: await run(prepared) };
     },
   };
   let active = false;
@@ -925,7 +1164,7 @@ export async function freezePiToolGatewayTurn(
     },
     continueCall(pending, decision) {
       return active
-        ? Promise.resolve(fail(pending?.call, "owner_busy"))
+        ? Promise.resolve({ result: fail(pending?.call, "owner_busy") })
         : exclusive(() => turn.continueCall(pending, decision));
     },
   };

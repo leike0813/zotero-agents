@@ -2565,7 +2565,23 @@ describe("Pi Conversation managed chrome identity", function () {
       publish({
         owner: piOwner,
         kind: "permission",
-        payload: { request: null },
+        payload: {
+          request: {
+            requestId: "mutation-1",
+            approvalKind: "pi-tool",
+            title: "zotero_item_update_metadata",
+            summary: "Update item",
+            tool: { title: "Update item", callId: "mutation-1" },
+            review: {
+              requestedAt: null,
+              command: null,
+              preview: '{"plan":{"revision":1}}',
+            },
+            options: [
+              { optionId: "approve", label: "Allow", description: null },
+            ],
+          },
+        },
       });
       publish({
         owner: piOwner,

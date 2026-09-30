@@ -126,9 +126,11 @@ export function createZoteroHostPreparedFiles(
   const release = async (prepared: PreparedStoredAttachment) => {
     const record = records.get(prepared);
     if (!record) return;
+    // Clean up first: when it fails the record must stay owned so a later
+    // dispose() can retry the residue instead of dropping it silently.
+    await record.staged.cleanup();
     active.delete(prepared);
     records.delete(prepared);
-    await record.staged.cleanup();
   };
 
   return {
@@ -176,10 +178,15 @@ export function createZoteroHostPreparedFiles(
       });
     },
     async dispose() {
-      if (disposed) return;
+      // Requesting dispose closes prepare/resolve immediately, but every call
+      // still retries whatever release has not been confirmed, and the scope
+      // keeps the failed records until their cleanup succeeds.
       disposed = true;
-      const prepared = [...active];
-      await Promise.all(prepared.map((entry) => release(entry)));
+      const results = await Promise.allSettled(
+        [...active].map((entry) => release(entry)),
+      );
+      const failed = results.find((result) => result.status === "rejected");
+      if (failed && failed.status === "rejected") throw failed.reason;
     },
   };
 }

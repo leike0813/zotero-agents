@@ -7,6 +7,7 @@ import type {
   TrashSetItemsStateResultDto,
 } from "../../workflows/types";
 import { MutationAuthorityExecutionError } from "../zoteroHostMutationAuthority";
+import { ZOTERO_NATIVE_MUTATION_LIST_LIMIT } from "../../schemas/zoteroHostMutationSchemas";
 
 type HostTrashFacts = {
   resolve(ref: PortableItemRef): Zotero.Item | null | undefined;
@@ -38,13 +39,17 @@ function invalid(
   );
 }
 function bounded(count: number) {
-  if (count > 100)
+  if (count > ZOTERO_NATIVE_MUTATION_LIST_LIMIT)
     throw new MutationAuthorityExecutionError(
       "failed",
       "resource_limited",
       "validation",
       "refresh_and_retry_new_operation",
-      { resource: "items", limit: 100, observed: count },
+      {
+        resource: "items",
+        limit: ZOTERO_NATIVE_MUTATION_LIST_LIMIT,
+        observed: count,
+      },
       "Trash target scope exceeds its limit",
     );
 }

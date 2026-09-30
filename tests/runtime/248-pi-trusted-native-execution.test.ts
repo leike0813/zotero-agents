@@ -12,12 +12,25 @@ import {
 } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
+import { execFileSync } from "node:child_process";
+import { createServer } from "node:net";
 import {
   resetRuntimeEnvironmentSnapshotForTests,
   seedRuntimeEnvironmentSnapshotForTests,
 } from "../../src/platform/env";
 import { resolveRuntimePathIdentity } from "../../src/modules/runtimePersistence";
 import { createPiTrustedNativeExecution } from "../../src/modules/piTrustedNativeExecution";
+
+async function expectFailure(work: () => Promise<unknown>, pattern: RegExp) {
+  let error: unknown;
+  try {
+    await work();
+  } catch (failure) {
+    error = failure;
+  }
+  assert.isDefined(error, `expected a rejection matching ${pattern}`);
+  assert.match(String(error), pattern);
+}
 
 describe("Pi Trusted Native execution", function () {
   const shellName = process.platform === "win32" ? "powershell" : "bash";
@@ -772,5 +785,299 @@ describe("Pi Trusted Native execution", function () {
       await readdir(join(ownerRoot, "files")).catch(() => []),
       [],
     );
+  });
+
+  it("stages a contained immutable stored attachment and cleans private staging", async function () {
+    const base = await mkdtemp(join(tmpdir(), "pi-native-stored-"));
+    const root = join(base, "workspace");
+    const ownerRoot = join(base, "owner");
+    await mkdir(root);
+    await mkdir(ownerRoot);
+    const source = join(root, "paper.pdf");
+    await writeFile(source, "attachment-bytes");
+    const native = await createPiTrustedNativeExecution({
+      workspaceRoot: root,
+      ownerRoot,
+      mode: "restricted",
+    });
+    const prepared = await native.prepareStoredAttachment(source);
+    assert.equal(prepared.manifest.main.relativePath, "paper.pdf");
+    assert.equal(prepared.manifest.main.sizeBytes, "attachment-bytes".length);
+    assert.match(prepared.manifest.main.sha256, /^[0-9a-f]{64}$/);
+    assert.deepEqual(prepared.manifest.companions, []);
+    assert.notInclude(JSON.stringify(prepared.manifest), root);
+    const resolved = await prepared.preparedFiles.resolveStoredAttachment(
+      prepared.prepared,
+    );
+    assert.include(resolved.stagingDirectory, join(ownerRoot, "staging"));
+    assert.equal(await readFile(resolved.mainPath, "utf8"), "attachment-bytes");
+    await writeFile(source, "changed-after-prepare");
+    assert.equal(await readFile(resolved.mainPath, "utf8"), "attachment-bytes");
+    await prepared.dispose();
+    await prepared.dispose();
+    assert.deepEqual(
+      await readdir(join(ownerRoot, "staging")).catch(() => []),
+      [],
+    );
+  });
+
+  it("rejects external, private-owner, aliased and linked stored attachment sources", async function () {
+    const base = await mkdtemp(join(tmpdir(), "pi-native-stored-reject-"));
+    const root = join(base, "workspace");
+    const ownerRoot = join(root, ".owner");
+    await mkdir(root);
+    await mkdir(ownerRoot, { recursive: true });
+    await writeFile(
+      join(ownerRoot, "managed-files.json"),
+      JSON.stringify({ version: 1, entries: [] }),
+    );
+    const outside = join(base, "outside.pdf");
+    await writeFile(outside, "outside");
+    const native = await createPiTrustedNativeExecution({
+      workspaceRoot: root,
+      ownerRoot,
+      mode: "restricted",
+    });
+    await expectFailure(
+      () => native.prepareStoredAttachment(outside),
+      /pi_path_/,
+    );
+    await expectFailure(
+      () =>
+        native.prepareStoredAttachment(join(ownerRoot, "managed-files.json")),
+      /pi_path_private_owner/,
+    );
+    await expectFailure(
+      () => native.prepareStoredAttachment("managed:sha256:deadbeef"),
+      /pi_path_/,
+    );
+    await expectFailure(
+      () => native.prepareStoredAttachment(root),
+      /pi_managed_file_not_regular/,
+    );
+    if (process.platform !== "win32") {
+      const link = join(root, "link.pdf");
+      await symlink(outside, link);
+      await expectFailure(
+        () => native.prepareStoredAttachment(link),
+        /pi_path_/,
+      );
+    }
+    assert.deepEqual(
+      await readdir(join(ownerRoot, "staging")).catch(() => []),
+      [],
+    );
+  });
+
+  it("rejects stored attachments past the owner quota and retains it across failed cleanup", async function () {
+    const base = await mkdtemp(join(tmpdir(), "pi-native-stored-quota-"));
+    const root = join(base, "workspace");
+    const ownerRoot = join(base, "owner");
+    await mkdir(root);
+    await mkdir(ownerRoot);
+    await writeFile(
+      join(ownerRoot, "managed-files.json"),
+      JSON.stringify({
+        version: 1,
+        entries: [
+          {
+            kind: "generated",
+            size: 2147483647,
+            sha256: "sha256:deadbeef",
+            name: "managed-old.bin",
+          },
+        ],
+      }),
+    );
+    const source = join(root, "small.pdf");
+    await writeFile(source, "small");
+    const native = await createPiTrustedNativeExecution({
+      workspaceRoot: root,
+      ownerRoot,
+      mode: "restricted",
+    });
+    await expectFailure(
+      () => native.prepareStoredAttachment(source),
+      /pi_owner_quota_exceeded/,
+    );
+    assert.deepEqual(
+      await readdir(join(ownerRoot, "staging")).catch(() => []),
+      [],
+    );
+
+    const cleanRoot = join(base, "clean-workspace");
+    const cleanOwner = join(base, "clean-owner");
+    await mkdir(cleanRoot);
+    await mkdir(cleanOwner);
+    await writeFile(
+      join(cleanOwner, "managed-files.json"),
+      JSON.stringify({
+        version: 1,
+        entries: [
+          {
+            kind: "generated",
+            size: 2147483628,
+            sha256: "sha256:deadbeef",
+            name: "managed-old.bin",
+          },
+        ],
+      }),
+    );
+    const held = join(cleanRoot, "held.pdf");
+    const other = join(cleanRoot, "other.pdf");
+    await writeFile(held, "held!!");
+    await writeFile(other, "other!");
+    const clean = await createPiTrustedNativeExecution({
+      workspaceRoot: cleanRoot,
+      ownerRoot: cleanOwner,
+      mode: "restricted",
+    });
+    const prepared = await clean.prepareStoredAttachment(held);
+    await expectFailure(
+      () => clean.prepareStoredAttachment(other),
+      /pi_owner_quota_exceeded/,
+    );
+    const resolved = await prepared.preparedFiles.resolveStoredAttachment(
+      prepared.prepared,
+    );
+    await rm(resolved.stagingDirectory, { recursive: true, force: true });
+    await expectFailure(() => prepared.dispose(), /pi_managed_cleanup_pending/);
+    // A failed cleanup keeps both the residue and its quota reservation: the
+    // second dispose must retry instead of reporting success, and the quota
+    // must stay held meanwhile.
+    await expectFailure(() => prepared.dispose(), /pi_managed_cleanup_pending/);
+    await expectFailure(
+      () => clean.prepareStoredAttachment(other),
+      /pi_owner_quota_exceeded/,
+    );
+  });
+
+  it("counts in-flight staging against the owner quota until it is released", async function () {
+    const base = await mkdtemp(join(tmpdir(), "pi-native-stored-race-"));
+    const root = join(base, "workspace");
+    const ownerRoot = join(base, "owner");
+    await mkdir(root);
+    await mkdir(ownerRoot);
+    await writeFile(
+      join(ownerRoot, "managed-files.json"),
+      JSON.stringify({
+        version: 1,
+        entries: [
+          {
+            kind: "generated",
+            size: 2147483628,
+            sha256: "sha256:deadbeef",
+            name: "managed-old.bin",
+          },
+        ],
+      }),
+    );
+    const first = join(root, "first.pdf");
+    const second = join(root, "second.pdf");
+    await writeFile(first, "first!");
+    await writeFile(second, "second");
+    const native = await createPiTrustedNativeExecution({
+      workspaceRoot: root,
+      ownerRoot,
+      mode: "restricted",
+    });
+    const held = await native.prepareStoredAttachment(first);
+    await expectFailure(
+      () => native.prepareStoredAttachment(second),
+      /pi_owner_quota_exceeded/,
+    );
+    await held.dispose();
+    const released = await native.prepareStoredAttachment(second);
+    await released.dispose();
+    assert.deepEqual(
+      await readdir(join(ownerRoot, "staging")).catch(() => []),
+      [],
+    );
+  });
+
+  it("admits only one of two concurrent preparations that cannot both fit", async function () {
+    // Pins concurrent admission: a regression that sampled the reserved total
+    // before the quota check would admit both and fail the count below.
+    const base = await mkdtemp(join(tmpdir(), "pi-native-stored-race2-"));
+    const root = join(base, "workspace");
+    const ownerRoot = join(base, "owner");
+    await mkdir(root);
+    await mkdir(ownerRoot);
+    await writeFile(
+      join(ownerRoot, "managed-files.json"),
+      JSON.stringify({
+        version: 1,
+        entries: [
+          {
+            kind: "generated",
+            size: 2147483628,
+            sha256: "sha256:deadbeef",
+            name: "managed-old.bin",
+          },
+        ],
+      }),
+    );
+    const first = join(root, "first.pdf");
+    const second = join(root, "second.pdf");
+    await writeFile(first, "first!");
+    await writeFile(second, "second");
+    const native = await createPiTrustedNativeExecution({
+      workspaceRoot: root,
+      ownerRoot,
+      mode: "restricted",
+    });
+    const outcomes = await Promise.allSettled([
+      native.prepareStoredAttachment(first),
+      native.prepareStoredAttachment(second),
+    ]);
+    assert.lengthOf(
+      outcomes.filter((outcome) => outcome.status === "fulfilled"),
+      1,
+    );
+    const rejected = outcomes.find((outcome) => outcome.status === "rejected");
+    assert.isDefined(rejected, "both concurrent preparations were admitted");
+    if (rejected?.status === "rejected")
+      assert.match(String(rejected.reason), /pi_owner_quota_exceeded/);
+    const admitted = outcomes.find((outcome) => outcome.status === "fulfilled");
+    if (admitted?.status === "fulfilled") {
+      await admitted.value.dispose();
+      const released = await native.prepareStoredAttachment(second);
+      await released.dispose();
+    }
+    assert.deepEqual(
+      await readdir(join(ownerRoot, "staging")).catch(() => []),
+      [],
+    );
+  });
+
+  it("rejects special files that a copy would block on", async function () {
+    if (process.platform === "win32") return;
+    const base = await mkdtemp(join(tmpdir(), "pi-native-special-"));
+    const root = join(base, "workspace");
+    const ownerRoot = join(base, "owner");
+    await mkdir(root);
+    await mkdir(ownerRoot);
+    const native = await createPiTrustedNativeExecution({
+      workspaceRoot: root,
+      ownerRoot,
+      mode: "restricted",
+    });
+    const socketPath = join(root, "socket.bin");
+    const server = createServer();
+    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+    try {
+      await expectFailure(
+        () => native.prepareStoredAttachment(socketPath),
+        /pi_managed_file_not_regular/,
+      );
+      const fifo = join(root, "pipe.bin");
+      execFileSync("mkfifo", [fifo]);
+      await expectFailure(
+        () => native.prepareStoredAttachment(fifo),
+        /pi_managed_file_not_regular/,
+      );
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 });

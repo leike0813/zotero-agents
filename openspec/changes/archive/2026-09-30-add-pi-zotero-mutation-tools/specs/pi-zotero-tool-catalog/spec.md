@@ -1,10 +1,4 @@
-# pi-zotero-tool-catalog Specification
-
-## Purpose
-
-Zotero Native Tools expose reviewed canonical broker capabilities to the Built-in Pi Agent Runtime through its Tool Gateway without transferring Zotero host objects or duplicating broker semantics.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Native catalog exposes only reviewed broker capabilities
 
@@ -30,61 +24,7 @@ The catalog SHALL bind to an explicitly supplied complete Zotero capability brok
 - **WHEN** only the complete read dependencies are supplied
 - **THEN** only the fourteen read tools are available
 
-### Requirement: Canonical reads retain Broker ownership
-
-Selected items, library listing and details, annotation listing, readiness and audit state, and identifier translation SHALL call their matching canonical Broker members. Ordinary read results SHALL retain canonical DTOs and pagination. Identifier translation SHALL claim both `bounded-read` and `external-egress`; other ordinary reads SHALL claim `bounded-read`. Trusted cancellation SHALL be forwarded to the Broker.
-
-#### Scenario: Paged library read
-- **WHEN** a caller supplies a legal limit and opaque cursor
-- **THEN** the catalog forwards them without constructing a second cursor or reading the whole library
-
-### Requirement: Native file reads use owner-managed delivery
-
-Available attachments in a requested attachment page SHALL be materialized as one owner-scoped batch before the result is published. The result SHALL contain working-copy paths and SHALL NOT contain Zotero source paths. An attachment returned by item detail SHALL expose path-free metadata with `bounded-read` effect; its file SHALL be retrieved through the attachment-page tool. Annotation export SHALL publish one managed file instead of inlining the export. Traversal SHALL append canonical item DTOs to managed NDJSON and publish completed coverage only on completion; resource-limited traversal MAY publish a valid incomplete artifact with resume cursor. Cancellation and other failures SHALL discard partial output or report pending cleanup.
-
-#### Scenario: Attachment page cannot materialize
-- **WHEN** one available file in a page fails materialization
-- **THEN** the call publishes no attachment page and previously managed files remain intact
-
-#### Scenario: Attachment item detail
-- **WHEN** an item-detail request resolves to an attachment with a source file
-- **THEN** its result contains metadata and no source or staging path
-
-#### Scenario: Traversal reaches resource limit
-- **WHEN** a canonical traversal ends with `resource_limited`
-- **THEN** its managed NDJSON is marked incomplete and its result retains the Broker resume cursor without completion evidence
-
-### Requirement: Managed note detail is semantic and bounded
-
-The note-detail tool SHALL return the Broker's complete managed semantic payload in its result when it fits the Tool Gateway limit. It SHALL NOT expose separate note-payload tools, truncate a payload, or change to file delivery. An oversized managed result SHALL fail with typed `resource_limited` and safe size and note-kind facts.
-
-#### Scenario: Oversized managed note
-- **WHEN** a managed note detail exceeds the 50 KiB model-visible limit
-- **THEN** the tool returns `resource_limited` without a partial payload or automatic file fallback
-
-### Requirement: Native tool errors remain structured and safe
-
-The current-view tool SHALL preserve `code`, `retryable`, and strict-JSON `details` from a Zotero capability error as a bounded structured tool failure. Unknown exceptions SHALL become `internal_error` without exposing a native cause, stack, raw reference, or host object.
-
-#### Scenario: Canonical broker error
-- **WHEN** the injected broker raises a Zotero capability error
-- **THEN** the Pi tool failure retains its stable code, retryability, and details
-
-#### Scenario: Unknown broker exception
-- **WHEN** the injected broker raises an unknown exception
-- **THEN** the tool returns a safe `internal_error` failure with no native diagnostic payload
-
-### Requirement: Gateway controls native capability admission and evidence
-
-The Gateway SHALL select the native definition by the turn's available canonical capability IDs, freeze its catalog identity, and retain both the canonical capability ID and Pi tool name in durable attempt evidence. The catalog SHALL NOT own separate authorization, digest, receipt, or lifecycle state.
-
-#### Scenario: Current-view capability unavailable
-- **WHEN** a turn's runtime capability receipt omits `context.get_current_view`
-- **THEN** the current-view Pi tool is absent and cannot be executed
-
-#### Scenario: Current-view capability admitted
-- **WHEN** a turn admits and executes the current-view tool
-- **THEN** its attempt evidence contains `context.get_current_view` and `zotero_context_get_current_view`
+## ADDED Requirements
 
 ### Requirement: Business mutation tools have reviewed tiers and preview semantics
 

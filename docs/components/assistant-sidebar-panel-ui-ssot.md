@@ -203,6 +203,26 @@ details drawer body.
 
 ### Conversation Window
 
+Pi Conversation uses `piConversation.ts` to compose the canonical owner,
+Provider, turn preparation and Tool Gateway. Its Zotero catalog retains fourteen
+read tools and adds twenty-three reviewed business writes (eleven default,
+twelve enhanced). Each write supports an effect-free `dryRun` preview; normal
+execution preflights the current Broker plan before permission or effects.
+Enhanced writes require the Gateway's additional authorization key.
+
+The permission region projects the bounded actual admission plan. If approval
+finds changed domain or file facts, the coordinator retains the replacement
+pending call with the original source turn and waits again. Waiting does not
+publish a terminal tool result or invoke the model. Transcript-only updates
+continue to preserve permission and other chrome DOM identity.
+
+Mutation operation identity, generated source IDs and full domain receipts live
+once in the owner's canonical transcript. `piTurnPreparation.ts` excludes these
+facts from model context; successful tool results contain the bounded semantic
+result and receipt ID, while Gateway receipts reference domain evidence. An
+unknown effect stops continuation for reconciliation. Restart recovery remains
+the lifecycle owner's responsibility.
+
 The conversation window is the main scrollable surface and SHALL display only
 conversation or execution-flow messages.
 

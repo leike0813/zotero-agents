@@ -1,11 +1,14 @@
 import { assert } from "chai";
 import {
   freezePiToolGatewayTurn,
+  type PiGatewayExecution,
+  type PiGatewayPendingCall,
   type PiGatewayAttemptReceipt,
   type PiGatewayToolDefinition,
   type PiGatewayPolicy,
   type PiGatewayTurnInput,
 } from "../../src/modules/piToolGateway";
+import type { JsonValue } from "../../src/workflows/types";
 
 function fixture(overrides: Partial<PiGatewayToolDefinition> = {}) {
   let executions = 0;
@@ -83,6 +86,70 @@ async function rejects(work: () => Promise<unknown>, code: string) {
   }
   assert.isDefined(caught);
   assert.include(String(caught), code);
+}
+
+// Domain preflight fixture: classify claims workspace mutation behind an
+// authorization key, the preflight stage owns its own execute/dispose, and the
+// plain execute is a tripwire that must never be reached once preflight exists.
+function plannedFixture(overrides: Partial<PiGatewayToolDefinition> = {}) {
+  const state = {
+    executions: 0,
+    disposals: 0,
+    sources: [] as string[],
+    disposeThrows: false,
+    digest: "sha256:plan-one",
+    facts: { plan: { revision: 1 } } as JsonValue,
+    execution: {
+      status: "completed",
+      effectCertainty: "confirmed_complete",
+      value: { ok: true },
+    } as PiGatewayExecution,
+  };
+  const definition: PiGatewayToolDefinition = {
+    capabilityId: "fixture.mutate",
+    name: "fixture_mutate",
+    description: "Mutate a fixture with domain preflight",
+    schema: {
+      type: "object",
+      properties: { path: { type: "string" } },
+      required: ["path"],
+      additionalProperties: false,
+    },
+    minimumEffects: ["workspace-mutation"],
+    maxResultBytes: 1024,
+    classify: () => ({
+      effects: ["workspace-mutation"],
+      authorizationKeys: ["outside"],
+      resourceKeys: ["fixture:resource"],
+      cost: 1,
+    }),
+    preflight: async (_args, context) => {
+      state.sources.push(context.sourceTurnId);
+      return {
+        status: "prepared",
+        domainPlanDigest: state.digest,
+        admissionFacts: state.facts,
+        execute: async () => {
+          state.executions += 1;
+          return state.execution;
+        },
+        dispose: async () => {
+          if (state.disposeThrows) throw new Error("cleanup failure");
+          state.disposals += 1;
+        },
+      };
+    },
+    execute: async () => {
+      throw new Error("preflight required");
+    },
+    ...overrides,
+  };
+  return {
+    definition,
+    state,
+    executions: () => state.executions,
+    disposals: () => state.disposals,
+  };
 }
 
 describe("Pi Tool Gateway shared behavior", function () {
@@ -763,11 +830,11 @@ describe("Pi Tool Gateway shared behavior", function () {
     const pending = (await first.executeBatch([call])).pending[0];
     assert.isOk(pending);
     const next = await turn([item.definition], { turnId: "turn-two" });
-    const result = await next.continueCall(pending, "approve");
+    const result = (await next.continueCall(pending, "approve")).result;
     assert.equal(result.status, "completed");
     assert.equal(item.executions(), 1);
     assert.equal(
-      (await next.continueCall(pending, "approve")).failure?.code,
+      (await next.continueCall(pending, "approve")).result.failure?.code,
       "invalid_request",
     );
 
@@ -798,7 +865,7 @@ describe("Pi Tool Gateway shared behavior", function () {
     const pending = (await first.executeBatch([call])).pending[0];
     const denied = await turn([item.definition], { turnId: "turn-deny" });
     assert.equal(
-      (await denied.continueCall(pending, "deny")).failure?.code,
+      (await denied.continueCall(pending, "deny")).result.failure?.code,
       "policy_denied",
     );
 
@@ -808,11 +875,12 @@ describe("Pi Tool Gateway shared behavior", function () {
       call: { ...pending.call, arguments: { path: "changed" } },
     };
     const result = await stale.continueCall(altered, "approve");
-    assert.equal(result.status, "permission_required");
+    assert.equal(result.result.status, "permission_required");
+    assert.isOk(result.pending);
     assert.equal(item.executions(), 0);
 
     const sameTurn = await first.continueCall(pending, "approve");
-    assert.equal(sameTurn.failure?.code, "invalid_request");
+    assert.equal(sameTurn.result.failure?.code, "invalid_request");
   });
 
   it("treats malformed executor evidence as unknown and suppresses late updates", async function () {
@@ -910,7 +978,422 @@ describe("Pi Tool Gateway shared behavior", function () {
       policy: { maxCost: 8 },
     });
     const result = await next.continueCall(pending, "approve");
-    assert.equal(result.failure?.code, "resource_limited");
+    assert.equal(result.result.failure?.code, "resource_limited");
     assert.equal(expensive.executions(), 0);
+  });
+
+  it("settles every domain preflight before any executor starts", async function () {
+    let release!: () => void;
+    const hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered!: () => void;
+    const slowPreflight = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const order: string[] = [];
+    const planned = (tag: string, wait: Promise<void>, notify?: () => void) =>
+      plannedFixture({
+        capabilityId: `fixture.${tag}`,
+        name: `fixture_${tag}`,
+        classify: () => ({
+          effects: ["workspace-mutation"],
+          authorizationKeys: [],
+          resourceKeys: [`fixture:${tag}`],
+          cost: 1,
+        }),
+        preflight: async () => {
+          order.push(`preflight:${tag}`);
+          notify?.();
+          await wait;
+          return {
+            status: "prepared",
+            domainPlanDigest: `sha256:${tag}`,
+            admissionFacts: { tag },
+            execute: async () => {
+              order.push(`execute:${tag}`);
+              return {
+                status: "completed",
+                effectCertainty: "confirmed_complete",
+                value: null,
+              };
+            },
+            dispose: async () => {
+              order.push(`dispose:${tag}`);
+            },
+          };
+        },
+      });
+    const slow = planned("slow", hold, entered);
+    const fast = planned("fast", Promise.resolve());
+    const gateway = await turn([slow.definition, fast.definition]);
+    const batch = gateway.executeBatch([
+      { callId: "slow", name: "fixture_slow", arguments: { path: "p" } },
+      { callId: "fast", name: "fixture_fast", arguments: { path: "p" } },
+    ]);
+    await slowPreflight;
+    assert.isFalse(order.some((entry) => entry.startsWith("execute")));
+    release();
+    const outcome = await batch;
+    assert.lengthOf(
+      outcome.results.filter((result) => result.status === "completed"),
+      2,
+    );
+    const firstExecute = order.findIndex((entry) =>
+      entry.startsWith("execute"),
+    );
+    assert.isTrue(
+      order
+        .slice(0, firstExecute)
+        .every((entry) => entry.startsWith("preflight")),
+    );
+  });
+
+  it("defers a prepared call, disposes its stage, and binds safe admission facts", async function () {
+    const item = plannedFixture();
+    const recorded: PiGatewayPendingCall[] = [];
+    const gateway = await turn([item.definition], {
+      hooks: {
+        recordStarted: async () => undefined,
+        recordReceipt: async () => undefined,
+        recordPermission: async (value) => {
+          recorded.push(value);
+        },
+      },
+    });
+    const outcome = await gateway.executeBatch([
+      { callId: "m", name: "fixture_mutate", arguments: { path: "p" } },
+    ]);
+    assert.equal(outcome.results[0].status, "permission_required");
+    assert.lengthOf(outcome.pending, 1);
+    assert.deepEqual(outcome.pending[0].admissionFacts, {
+      plan: { revision: 1 },
+    });
+    assert.equal(
+      outcome.pending[0].binding.domainPlanDigest,
+      "sha256:plan-one",
+    );
+    assert.lengthOf(recorded, 1);
+    assert.equal(item.executions(), 0);
+    assert.equal(item.disposals(), 1);
+  });
+
+  it("cancels an approval-bound call interrupted during preflight without publishing permission", async function () {
+    const controller = new AbortController();
+    const item = plannedFixture();
+    const preflight = item.definition.preflight!;
+    item.definition.preflight = async (args, context) => {
+      const stage = await preflight(args, context);
+      controller.abort();
+      return stage;
+    };
+    let permissions = 0;
+    const gateway = await turn([item.definition], {
+      signal: controller.signal,
+      hooks: {
+        recordStarted: async () => undefined,
+        recordReceipt: async () => undefined,
+        recordPermission: async () => {
+          permissions += 1;
+        },
+      },
+    });
+    const outcome = await gateway.executeBatch([
+      { callId: "m", name: "fixture_mutate", arguments: { path: "p" } },
+    ]);
+    assert.equal(outcome.results[0].status, "canceled");
+    assert.isEmpty(outcome.pending);
+    assert.equal(permissions, 0);
+    assert.equal(item.executions(), 0);
+    assert.equal(item.disposals(), 1);
+  });
+
+  it("renews a changed domain plan while keeping the original source turn", async function () {
+    const item = plannedFixture();
+    const first = await turn([item.definition]);
+    const pending = (
+      await first.executeBatch([
+        { callId: "m", name: "fixture_mutate", arguments: { path: "p" } },
+      ])
+    ).pending[0];
+    assert.deepEqual(item.state.sources, ["turn-one"]);
+    item.state.digest = "sha256:plan-two";
+    item.state.facts = { plan: { revision: 2 } };
+
+    const next = await turn([item.definition], { turnId: "turn-two" });
+    const continuation = await next.continueCall(pending, "approve");
+    assert.equal(continuation.result.status, "permission_required");
+    assert.isOk(continuation.pending);
+    assert.equal(continuation.pending!.binding.sourceTurnId, "turn-one");
+    assert.equal(
+      continuation.pending!.binding.domainPlanDigest,
+      "sha256:plan-two",
+    );
+    assert.deepEqual(continuation.pending!.admissionFacts, {
+      plan: { revision: 2 },
+    });
+    assert.equal(item.executions(), 0);
+    assert.deepEqual(item.state.sources, ["turn-one", "turn-one"]);
+
+    const later = await turn([item.definition], { turnId: "turn-three" });
+    const approved = await later.continueCall(continuation.pending!, "approve");
+    assert.equal(approved.result.status, "completed");
+    assert.isUndefined(approved.pending);
+    assert.equal(item.executions(), 1);
+    assert.equal(new Set(item.state.sources).size, 1);
+  });
+
+  it("denies a pending call without preparing another domain stage", async function () {
+    const item = plannedFixture();
+    const first = await turn([item.definition]);
+    const pending = (
+      await first.executeBatch([
+        { callId: "m", name: "fixture_mutate", arguments: { path: "p" } },
+      ])
+    ).pending[0];
+    const denied = await turn([item.definition], { turnId: "turn-deny" });
+    const outcome = await denied.continueCall(pending, "deny");
+    assert.equal(outcome.result.failure?.code, "policy_denied");
+    assert.isUndefined(outcome.pending);
+    assert.deepEqual(item.state.sources, ["turn-one"]);
+    assert.equal(item.executions(), 0);
+    assert.equal(item.disposals(), 1);
+  });
+
+  it("maps structured domain preflight failures to bounded safe codes", async function () {
+    const structured = await turn(
+      [
+        plannedFixture({
+          preflight: async () => ({
+            status: "failed",
+            code: "domain_missing",
+            retryable: true,
+            details: { kind: "item" },
+          }),
+        }).definition,
+      ],
+      { policy: { authorizedKeys: ["outside"] } },
+    );
+    const result = (
+      await structured.executeBatch([
+        { callId: "m", name: "fixture_mutate", arguments: { path: "p" } },
+      ])
+    ).results[0];
+    assert.equal(result.status, "failed");
+    assert.equal(result.failure?.code, "domain_missing");
+    assert.equal(result.failure?.retryable, true);
+    assert.deepEqual(result.failure?.details, { kind: "item" });
+    assert.equal(result.effectCertainty, "not_started");
+
+    const malformed = await turn(
+      [
+        plannedFixture({
+          preflight: async () =>
+            ({
+              status: "failed",
+              code: "",
+              details: { big: "x".repeat(4096) },
+            }) as never,
+        }).definition,
+      ],
+      { policy: { authorizedKeys: ["outside"] } },
+    );
+    const safe = (
+      await malformed.executeBatch([
+        { callId: "m", name: "fixture_mutate", arguments: { path: "p" } },
+      ])
+    ).results[0];
+    assert.equal(safe.failure?.code, "execution_failed");
+    assert.notProperty(safe.failure || {}, "details");
+  });
+
+  it("maps schema list bounds and oversized admission facts to resource_limited", async function () {
+    const bounded = fixture({
+      schema: {
+        type: "object",
+        properties: {
+          items: { type: "array", maxItems: 1, items: { type: "string" } },
+        },
+        required: ["items"],
+        additionalProperties: false,
+      },
+    });
+    const gateway = await turn([bounded.definition]);
+    const outcome = await gateway.executeBatch([
+      { callId: "m", name: "fixture_read", arguments: { items: ["a", "b"] } },
+    ]);
+    assert.equal(outcome.results[0].failure?.code, "resource_limited");
+    assert.equal(bounded.executions(), 0);
+
+    const oversized = plannedFixture();
+    oversized.state.facts = { plan: "x".repeat(20_000) };
+    const wide = await turn([oversized.definition]);
+    const limited = await wide.executeBatch([
+      { callId: "m", name: "fixture_mutate", arguments: { path: "p" } },
+    ]);
+    assert.equal(limited.results[0].failure?.code, "resource_limited");
+    assert.equal(oversized.disposals(), 1);
+    assert.equal(oversized.executions(), 0);
+  });
+
+  it("disposes a rejected prepared stage instead of leaking it", async function () {
+    let disposals = 0;
+    const stage = (plan: Record<string, unknown>) =>
+      plannedFixture({
+        preflight: async () =>
+          ({
+            status: "prepared",
+            admissionFacts: {},
+            execute: async () => ({
+              status: "completed",
+              effectCertainty: "confirmed_complete",
+              value: null,
+            }),
+            dispose: async () => {
+              disposals += 1;
+            },
+            ...plan,
+          }) as never,
+      });
+    for (const plan of [
+      { domainPlanDigest: "sha256:plan", admissionFacts: { bad: () => {} } },
+      { domainPlanDigest: "" },
+      { domainPlanDigest: "sha256:plan", execute: 42 },
+    ]) {
+      const gateway = await turn([stage(plan).definition], {
+        policy: { authorizedKeys: ["outside"] },
+      });
+      const result = (
+        await gateway.executeBatch([
+          { callId: "m", name: "fixture_mutate", arguments: { path: "p" } },
+        ])
+      ).results[0];
+      assert.equal(result.failure?.code, "execution_failed");
+    }
+    assert.equal(disposals, 3);
+  });
+
+  it("keeps bounded recovery facts for an unknown domain outcome and receipts only the reference", async function () {
+    const item = plannedFixture();
+    item.state.execution = {
+      status: "failed",
+      effectCertainty: "unknown",
+      code: "domain_unknown",
+      details: { recovery: "reconcile" },
+      domainReceiptRef: "domain:receipt:1",
+    };
+    const receipts: PiGatewayAttemptReceipt[] = [];
+    const gateway = await turn([item.definition], {
+      policy: { authorizedKeys: ["outside"] },
+      hooks: {
+        recordStarted: async () => undefined,
+        recordReceipt: async (receipt) => {
+          receipts.push(receipt);
+        },
+        recordPermission: async () => undefined,
+      },
+    });
+    const result = (
+      await gateway.executeBatch([
+        { callId: "m", name: "fixture_mutate", arguments: { path: "p" } },
+      ])
+    ).results[0];
+    assert.equal(result.status, "state_unknown");
+    assert.deepEqual(result.failure?.details, { recovery: "reconcile" });
+    assert.lengthOf(receipts, 1);
+    assert.equal(receipts[0].domainReceiptRef, "domain:receipt:1");
+    assert.notProperty(receipts[0], "details");
+    assert.notProperty(receipts[0], "value");
+    assert.equal(item.disposals(), 1);
+  });
+
+  it("reports cleanup pending instead of silent success when disposal fails", async function () {
+    const completed = plannedFixture();
+    completed.state.disposeThrows = true;
+    const gateway = await turn([completed.definition], {
+      policy: { authorizedKeys: ["outside"] },
+    });
+    const result = (
+      await gateway.executeBatch([
+        { callId: "m", name: "fixture_mutate", arguments: { path: "p" } },
+      ])
+    ).results[0];
+    assert.equal(result.status, "completed");
+    assert.equal(result.failure?.code, "cleanup_pending");
+    assert.deepEqual(result.failure?.details, { cleanup: "pending" });
+    assert.deepEqual(result.value, { ok: true });
+
+    const deferred = plannedFixture();
+    deferred.state.disposeThrows = true;
+    let permissions = 0;
+    const guardedTurn = await turn([deferred.definition], {
+      hooks: {
+        recordStarted: async () => undefined,
+        recordReceipt: async () => undefined,
+        recordPermission: async () => {
+          permissions += 1;
+        },
+      },
+    });
+    const deferredOutcome = await guardedTurn.executeBatch([
+      { callId: "m", name: "fixture_mutate", arguments: { path: "p" } },
+    ]);
+    const deferredResult = deferredOutcome.results[0];
+    assert.equal(deferredResult.status, "failed");
+    assert.equal(deferredResult.failure?.code, "cleanup_pending");
+    assert.isEmpty(deferredOutcome.pending);
+    assert.equal(permissions, 0);
+  });
+
+  it("admits a domain plan up to the definition result envelope, not a smaller claim bound", async function () {
+    const item = plannedFixture({ maxResultBytes: 50 * 1024 });
+    item.state.facts = {
+      plan: {
+        targets: Array.from({ length: 100 }, (_, index) => ({
+          index,
+          itemKey: `ITEMKEY${String(index).padStart(8, "0")}`,
+          title: "t".repeat(150),
+        })),
+      },
+    };
+    const gateway = await turn([item.definition]);
+    const outcome = await gateway.executeBatch([
+      { callId: "m", name: "fixture_mutate", arguments: { path: "p" } },
+    ]);
+    assert.equal(outcome.results[0].status, "permission_required");
+    assert.lengthOf(outcome.pending, 1);
+    assert.equal(
+      (
+        outcome.pending[0].admissionFacts as {
+          plan: { targets: unknown[] };
+        }
+      ).plan.targets.length,
+      100,
+    );
+    assert.equal(item.disposals(), 1);
+  });
+
+  it("preserves existing recovery facts when disposal fails", async function () {
+    const item = plannedFixture();
+    item.state.execution = {
+      status: "failed",
+      effectCertainty: "unknown",
+      code: "domain_unknown",
+      details: [{ kind: "item" }],
+    };
+    item.state.disposeThrows = true;
+    const gateway = await turn([item.definition], {
+      policy: { authorizedKeys: ["outside"] },
+    });
+    const result = (
+      await gateway.executeBatch([
+        { callId: "m", name: "fixture_mutate", arguments: { path: "p" } },
+      ])
+    ).results[0];
+    assert.equal(result.status, "state_unknown");
+    assert.deepEqual(result.failure?.details, {
+      cleanup: "pending",
+      recovery: [{ kind: "item" }],
+    });
   });
 });

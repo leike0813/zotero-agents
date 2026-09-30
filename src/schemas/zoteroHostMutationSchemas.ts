@@ -5,6 +5,11 @@ import type {
   MutationResultByOperation,
 } from "../workflows/types";
 
+// Shared bound for top-level logical request lists and their expanded writes
+// across the reviewed Native mutation tools. Nested canonical artifact payload
+// data keeps its own domain bounds.
+export const ZOTERO_NATIVE_MUTATION_LIST_LIMIT = 100;
+
 type JsonSchema = Record<string, unknown>;
 
 const portableItemRef = {

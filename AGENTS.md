@@ -275,6 +275,13 @@ This is a single-context repository using a root `CONTEXT.md` and root `docs/adr
 - 压缩只在已结算的 durable 边界运行，保留完整语义单元和当前 turn 输入；摘要经 schema、覆盖范围、摘要输入和预算校验后，凭 revision 与 active leaf 提交。失败保留原路径。
 - 普通模型与压缩调用前先持久化版本化 preparation record，只记录安全引用、摘要、版本和 token 统计；完整消息、凭据、授权头和用户文件绝对路径留在各自事实源或暂态 context 中。
 
+# Pi Zotero Mutation 硬约束
+
+- `zoteroNativeToolCatalog.ts` 只投影审阅过的业务操作；`dryRun` 由 adapter 消费，模型不得提交 operation identity、revision、prepared resource 或 artifact storage wrapper。
+- Gateway 的 domain preflight 必须在整个 batch 的 effect 前完成。审批绑定实际计划、当前对象事实和不可变附件快照；事实变化返回可继续的新 pending 请求，并保持原 source turn/call identity。拒绝不得执行。
+- 附件 import/replace 只接受当前 owner 的普通 Workspace 文件，经 C08 私有 staging 和 canonical Broker 写入 managed storage。prepared 对象留在进程内，每个退出路径须清理或保留 cleanup pending。
+- operation identity、生成的 Source Reference IDs 和完整 domain receipt 各在 canonical transcript 中保存一次；这些事实由 `piTurnPreparation.ts` 的非 context 分类排除。模型接收有界语义结果与 receipt identity，Gateway receipt 只引用 domain evidence；未知效果不得自动重放。
+
 # Pi MCP Tool Sources 硬约束
 
 - 出站 MCP 源由 `piMcpSourceRegistry.ts` 保存 profile 配置和描述符审阅；加密密钥只放在 `piCredentialStore.ts` 的 `mcp-source` 命名空间。保存源不得连接，未审阅或描述符变化的工具不得进入 Pi turn。

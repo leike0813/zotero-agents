@@ -4,7 +4,7 @@
 - 工作分支：`dev-agent-harness`
 - 实施路线：[地图 #10](https://github.com/leike0813/zotero-agents/issues/10)、[执行计划 #26](https://github.com/leike0813/zotero-agents/issues/26)
 - 已实现并归档：W0 C01（提交 `fbd297d4`）、W1 C02（`1da0cd84`）、W1 C03（`ef91407c`）、W1 C07（`f5ce9fe6`）、W1 C09（`5077c7b3`）、W2 C04（`f88e2825`）、W2 C06（`2bb22e90`）、W2 C08（实现 `fe6a5a51`，归档 `ad671f6f4`）、W2 C10（实现 `78023c716`、`a8602bc77`，归档 `2026-09-29`）、W2 C12（归档 `2026-09-29`）、C08 受管文件补齐与 W3 C13（均归档 `2026-09-29`）；见 [C08 补齐](../openspec/changes/archive/2026-09-29-complete-pi-managed-workspace-operations/)、[C12 OpenSpec 归档](../openspec/changes/archive/2026-09-29-establish-pi-zotero-tool-catalog/)与 [C13 OpenSpec 归档](../openspec/changes/archive/2026-09-29-add-pi-zotero-read-tools/)。
-- W3 C16 Conversation 已提交并归档（`b6cc7f48`），见 [归档 change](../openspec/changes/archive/2026-09-30-integrate-pi-conversations/) 与 [验证记录](../openspec/changes/archive/2026-09-30-integrate-pi-conversations/verification.md)。W4 C11 Web Search/Fetch 已在 [add-pi-brokered-web-tools](../openspec/changes/add-pi-brokered-web-tools/) 实现，尚未提交或归档；用户已将 DeepSeek 搜索来源改为官方 Anthropic 搜索。C05 真实账号证据与间歇性 start JSON 403 的限制仍见 [专项交接](builtin-pi-agent-c05-auth-handoff-2026-09-30.md)。C14/C15 是本 wave 的后续项。
+- W3 C16 Conversation 已提交并归档（`b6cc7f48`），见 [归档 change](../openspec/changes/archive/2026-09-30-integrate-pi-conversations/) 与 [验证记录](../openspec/changes/archive/2026-09-30-integrate-pi-conversations/verification.md)。W4 C11 Web Search/Fetch 已提交（`2fa6bc0c`）并[归档](../openspec/changes/archive/2026-09-30-add-pi-brokered-web-tools/)；用户已将 DeepSeek 搜索来源改为官方 Anthropic 搜索。C14 已实现、验证并[归档](../openspec/changes/archive/2026-09-30-add-pi-zotero-mutation-tools/)，尚未提交。C05 真实账号证据与间歇性 start JSON 403 的限制仍见 [专项交接](builtin-pi-agent-c05-auth-handoff-2026-09-30.md)。本 wave 下一项为 C15。
 
 本文是持续更新的工作交接。**后续每个 Pi Runtime 相关 change 完成、归档或改变实施决定时，实施者须在交接前按实际进度更新本文**：核对已实现边界、下一步、验证结果、未解决风险及链接，并更新状态日期。拟议能力不得写成已交付能力；实现与规格冲突时先核对代码和正式决策。
 
@@ -12,7 +12,7 @@
 
 这份文档帮助后续 change 接续已确定的产品边界和实现进度。内置 Pi Agent Runtime 最终应成为完整 Agent：支持可持久化的多轮交互、经策略中介使用 Shell、文件和网络能力，并通过稳定的插件内边界操作 Zotero 文献库。
 
-W0 C01 已建立无 Node.js 依赖的瞬态 Pi 运行时骨架，W1 C02 已增加项目自有的 Pi owner 持久化基础，W1 C03 增加模型目录、配置、加密凭据和 Backend Manager 独立页面。W1 C07 已建立工具目录、策略和执行证据内核。W2 C04 已接入 API key Provider 模型流和手动连接测试；W3 C05 的设备码、官方模型发现和 Codex 流已通过受控宿主与真实账号 smoke，并完成归档。W2 C08 已实现原生文件、搜索和 Shell 工具目录。W2 C10 的 MCP 来源、发现和 Tool Gateway 接线已实现；W2 C12 建立首个 Broker-backed Zotero Native Tool，W3 C13 将目录扩展到 14 个经审阅的读工具。C16 已把多轮 Conversation 接入共享 Workspace；写入、导航工具、Skill Run 与自动恢复仍按 #26 后续 wave 实现。早期兼容性原型只保留为历史证据。
+W0 C01 已建立无 Node.js 依赖的瞬态 Pi 运行时骨架，W1 C02 已增加项目自有的 Pi owner 持久化基础，W1 C03 增加模型目录、配置、加密凭据和 Backend Manager 独立页面。W1 C07 已建立工具目录、策略和执行证据内核。W2 C04 已接入 API key Provider 模型流和手动连接测试；W3 C05 的设备码、官方模型发现和 Codex 流已通过受控宿主与真实账号 smoke，并完成归档。W2 C08 已实现原生文件、搜索和 Shell 工具目录。W2 C10 的 MCP 来源、发现和 Tool Gateway 接线已实现；W2 C12 建立首个 Broker-backed Zotero Native Tool，W3 C13 将目录扩展到 14 个经审阅的读工具。C16 已把多轮 Conversation 接入共享 Workspace；C11 已加入 Web，C14 已加入 23 个业务写入工具。导航工具、Skill Run 与自动恢复仍按 #26 后续 wave 实现。早期兼容性原型只保留为历史证据。
 
 ## 统一术语
 
@@ -186,15 +186,24 @@ git show research/pi-agent-sandbox-models:artifact/pi-agent-runtime/sandbox-and-
 
 ### W4 C11：Brokered Web Search / Fetch
 
-- [当前 change](../openspec/changes/add-pi-brokered-web-tools/) 增加 `web_search` 与匿名 `web_fetch`，已接入 C16 Conversation 的 Gateway 和 C06 preparation。搜索链、配置、审阅摘要与凭据身份按 turn 冻结；逐来源 started/terminal 写入 canonical transcript。所有网页和搜索内容标记为 `external_untrusted`，原始 Provider/MCP 正文不进入持久回执。
+- [归档 change](../openspec/changes/archive/2026-09-30-add-pi-brokered-web-tools/) 增加 `web_search` 与匿名 `web_fetch`，已接入 C16 Conversation 的 Gateway 和 C06 preparation。搜索链、配置、审阅摘要与凭据身份按 turn 冻结；逐来源 started/terminal 写入 canonical transcript。所有网页和搜索内容标记为 `external_untrusted`，原始 Provider/MCP 正文不进入持久回执。
 - [`piBrokeredWebTools.ts`](../src/modules/piBrokeredWebTools.ts) 提供八种有序来源，仅默认启用 Exa。其余为 Tavily/Brave curated MCP、Brave/SearXNG/Perplexity direct，以及 OpenAI API/Codex 和 Anthropic 原生搜索。用户于 2026-09-30 明确将原 DeepSeek 方案改为 [Anthropic 官方 Messages 搜索](https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool)，使用基础服务器搜索工具；成功必须有实际执行证据，缺失引用保持 unavailable。
 - [`piOutboundNetworkPolicy.ts`](../src/modules/piOutboundNetworkPolicy.ts) 是 Web/MCP URL、全部 DNS 地址、metadata、Local Network 和明文凭据规则的事实源；[`piBrokeredWebHttp.ts`](../src/modules/piBrokeredWebHttp.ts) 使用 anonymous Mozilla channel，channel redirect veto 阻止隐式下一跳，再逐跳审批。peer 在响应头后、正文发布前复核；读不到证据时失败关闭。正文 5 MiB、模型结果 50 KiB、五次重定向、30 秒 idle 与两分钟总预算，取消或未知效果不自动重放。
 - Backend Manager 的内置 Agent 页支持独立保存来源、排序、加密密钥、模型绑定、Local Network/code-execution 审批、描述符审阅与 request-bound 主动测试。保存保持离线；付费提示随可选来源显示。MCP 复用 C10 延迟 SDK 加载和 C09 stdio；同账号 Codex token 刷新保留身份，用户重新登录替换身份，迟到 stdio 启动会终止。
-- 定向 fixture、既有 Conversation/preparation、Dashboard/Workspace 与真实宿主验证结果见 [C11 verification](../openspec/changes/add-pi-brokered-web-tools/verification.md)。真实账号搜索、Windows/macOS 和完整兼容矩阵留在 C20；本次不以 fixture 冒充服务可用性证据。
+- 定向 fixture、既有 Conversation/preparation、Dashboard/Workspace 与真实宿主验证结果见 [C11 verification](../openspec/changes/archive/2026-09-30-add-pi-brokered-web-tools/verification.md)。真实账号搜索、Windows/macOS 和完整兼容矩阵留在 C20；本次不以 fixture 冒充服务可用性证据。
+
+### W4 C14：Zotero 业务写入工具
+
+- [`zoteroNativeToolCatalog.ts`](../src/modules/zoteroNativeToolCatalog.ts) 保留 14 个读工具，增加 23 个业务写入工具（11 个默认、12 个增强）。每个工具均支持 `dryRun`，经 canonical Broker 完整预检后返回无文献库副作用的实际计划；增强执行额外要求 `zotero-mutation:enhanced`。逻辑列表和展开写入上限均为 100，超限拒绝，不自动拆批。
+- C07 先完成整个 batch 的 domain preflight，再开始效果。审批绑定实际计划、观测 revision 与文件快照；变化时保留原 owner/source turn/call，发布新审批，不让模型重发。取消后的调用不再进入待审批状态；预审批暂存清理失败形成可持久化失败结果。
+- 六种 Managed Note 写入使用语义字段和 canonical 校验；References 新 ID 由 Broker 生成并保存一次，续审批沿用。完整 domain receipt 在 canonical transcript 中保存一次，Gateway 仅引用；模型成功结果限于 outcome、receiptId 与有界业务结果，未知或修复待办保留恢复事实，不自动重放。
+- import/replace 只接收普通 Workspace 文件，使用 C08 私有不可变暂存及 canonical stored attachment writer。单文件 256 MiB，共享 owner 2 GiB 配额；并发暂存计入配额，清理失败保持 reservation 并可重试。源路径和暂存路径不进入持久事实或模型结果。
+- 真实 core `284/286` 覆盖普通写入、六种 Managed Note、附件导入/替换、Trash 恢复、审批更新、References ID 连续性和写入后领域回执发布失败；`245/248/250/256/241/247/192` 与 Broker/暂存测试覆盖权限、配额、故障和 DOM identity。五个受影响 Node 分片共 56 文件通过，真实 Linux Zotero 9.0.6 完整 core 为 147 passed；最后改动后的定向用例为 57 passed。类型检查、lint、build、change 和五份受影响规格 strict 均通过；全仓规格普通校验 378 passed，strict 留有 154 份其它规格的既有 Purpose 占位警告。详见 [C14 verification](../openspec/changes/archive/2026-09-30-add-pi-zotero-mutation-tools/verification.md)。
+- 后续边界：导航为 C15，Skill Run 接线为 C17，诊断为 C18，异常退出后的暂存与未知效果对账为 C19，完整 Workspace E2E 与版本/OS 矩阵为 C20。C14 不增加自动副作用重放或启动恢复。
 
 ## 当前工作区状态
 
-C16 的固定基线为 `4d95a25c`，实现提交为 `b6cc7f48`，change 已同步并归档。C11 已实现并保留在未提交工作区，change 尚未归档；门禁结果见 verification，下一项接续 C14/C15。Skill Run 接线和自动恢复尚未实现。以最新 `git status` 辨别所有权，不覆盖并行改动。
+C16 的固定基线为 `4d95a25c`，实现提交为 `b6cc7f48`，change 已同步并归档。C11 实现提交为 `2fa6bc0c`，已归档；C14 以该提交为固定基线，14/14 任务完成，规格已同步并归档，当前实现尚未提交。Skill Run 接线和自动恢复尚未实现。以最新 `git status` 辨别所有权，不覆盖并行改动。
 
 ## 建议的系统边界
 
@@ -261,7 +270,7 @@ C16 的固定基线为 `4d95a25c`，实现提交为 `b6cc7f48`，change 已同�
 
 ## 下一步实施入口
 
-C13、C05、C16 已归档，W4 C11 Web 已实现；依 [#26 最终 wave 表](https://github.com/leike0813/zotero-agents/issues/26#issuecomment-5552013273)，接续 C14 写入与 C15 导航工具。C11 的实现与验证边界见 [当前 change](../openspec/changes/add-pi-brokered-web-tools/)。真实账号限制仍见 [C05 专项交接](builtin-pi-agent-c05-auth-handoff-2026-09-30.md)。
+C13、C05、C16、W4 C11/C14 已归档；依 [#26 最终 wave 表](https://github.com/leike0813/zotero-agents/issues/26#issuecomment-5552013273)，下一项接续 C15 导航工具。C14 的实现与验证边界见 [归档 change](../openspec/changes/archive/2026-09-30-add-pi-zotero-mutation-tools/)。真实账号限制仍见 [C05 专项交接](builtin-pi-agent-c05-auth-handoff-2026-09-30.md)。
 
 接续工作按 [C04 verification](../openspec/changes/archive/2026-09-28-add-pi-api-key-provider-execution/verification.md) 和 C06 的验证记录核对 Provider 与 context 边界。Assistant Workspace、具体工具和自动恢复分别遵守 ADR 0001/0003、区域级 DOM identity 约束和 ADR 0002。会话接线 C16 已完成；后续 Skill Run 接线是 C17，生命周期恢复是 C19。每项能力的完成证据应落在对应 OpenSpec change 与测试中，并回写本文状态。
 

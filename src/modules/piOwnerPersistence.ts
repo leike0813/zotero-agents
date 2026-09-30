@@ -751,7 +751,12 @@ export async function appendPiConversationFact(
       throw new Error("pi_conversation_lifecycle_frozen");
     const inspection = await inspectPiTranscript(ref, root);
     requireValidPiTranscript(inspection);
-    const parent = inspection.entries.at(-1)?.entryId;
+    const existing = fact.entryId
+      ? inspection.entries.find((entry) => entry.entryId === fact.entryId)
+      : undefined;
+    const parent = existing
+      ? existing.parentEntryId
+      : inspection.entries.at(-1)?.entryId;
     const seq = inspection.entries.length + 1;
     const { entry, inspection: after } = await appendPiTranscript(
       ref,

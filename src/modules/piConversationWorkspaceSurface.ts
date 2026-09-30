@@ -239,10 +239,13 @@ export function createPiConversationWorkspaceSurfaceAdapter(
                   review: {
                     requestedAt: null,
                     command: null,
-                    preview: JSON.stringify(pending.call.arguments).slice(
-                      0,
-                      12000,
-                    ),
+                    preview:
+                      pending.admissionFacts !== undefined
+                        ? JSON.stringify(pending.admissionFacts)
+                        : JSON.stringify(pending.call.arguments).slice(
+                            0,
+                            12000,
+                          ),
                   },
                   options: [
                     { optionId: "approve", label: "Allow", description: null },

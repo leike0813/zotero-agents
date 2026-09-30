@@ -39,6 +39,13 @@ import {
 } from "./runtimeFileTransfer";
 import { sha256PrefixedHex } from "../utils/sha256";
 import { getRuntimeEnvironmentSnapshot } from "../platform/env";
+import { createWorkflowStoredAttachmentStager } from "../workflows/workflowStoredAttachmentImport";
+import { createZoteroHostPreparedFiles } from "./zoteroHost/zoteroHostPreparedFiles";
+import type {
+  PreparedStoredAttachment,
+  PreparedStoredAttachmentSnapshot,
+  ZoteroHostPreparedFiles,
+} from "./zoteroHost/zoteroHostPreparedFiles";
 
 const VISIBLE_BYTES = 50 * 1024;
 const VISIBLE_LINES = 2000;
@@ -48,6 +55,61 @@ const WORKSPACE_SCAN_MAX_DEPTH = 32;
 const WORKSPACE_SCAN_MAX_ENTRIES = 20000;
 const textEncoder = new TextEncoder();
 const ownerLocks = new Map<string, Promise<void>>();
+const MANAGED_FILE_MAX_BYTES = 256 * 1024 * 1024;
+// In-flight private staging bytes per owner key. Concurrent stored-attachment
+// preparations reserve here so they cannot each pass the shared quota check
+// before any copy exists on disk; the reservation is released on every
+// dispose/cleanup path.
+const ownerStagedBytes = new Map<string, number>();
+
+function ownerStagedBytesFor(key: string) {
+  return ownerStagedBytes.get(key) || 0;
+}
+
+function adjustOwnerStagedBytes(key: string, delta: number) {
+  const next = Math.max(0, ownerStagedBytesFor(key) + delta);
+  if (next === 0) ownerStagedBytes.delete(key);
+  else ownerStagedBytes.set(key, next);
+}
+
+// Keeps a staging reservation tied to the prepared-files lifetime. It is only
+// released once private cleanup is confirmed: the private owner tree is
+// excluded from the workspace scan, so a retained reservation keeps accounting
+// for residue that a failed cleanup leaves on disk.
+function withStagingRelease(
+  files: ZoteroHostPreparedFiles,
+  release: () => void,
+): ZoteroHostPreparedFiles {
+  return Object.freeze({
+    prepareStoredAttachment: (
+      request: Parameters<
+        ZoteroHostPreparedFiles["prepareStoredAttachment"]
+      >[0],
+    ) => files.prepareStoredAttachment(request),
+    resolveStoredAttachment: async (prepared: PreparedStoredAttachment) => {
+      const resolved = await files.resolveStoredAttachment(prepared);
+      return {
+        ...resolved,
+        cleanup: async () => {
+          try {
+            await resolved.cleanup();
+          } catch {
+            throw new Error("pi_managed_cleanup_pending");
+          }
+          release();
+        },
+      };
+    },
+    dispose: async () => {
+      try {
+        await files.dispose();
+      } catch {
+        throw new Error("pi_managed_cleanup_pending");
+      }
+      release();
+    },
+  });
+}
 
 /** Combined Conversation user-file snapshot bounds (per send). */
 export const PI_USER_FILE_SNAPSHOT_LIMITS = Object.freeze({
@@ -70,6 +132,20 @@ export type PiConversationUserFileSnapshot = {
   size: number;
   sha256: string;
 };
+
+/**
+ * Trusted stored-attachment preparation result. Safe to hand to the Pi
+ * Gateway/catalog: it carries an opaque prepared reference, the private
+ * prepared-file capability that resolves and disposes staging, the immutable
+ * snapshot facts (the Broker's stored-attachment manifest), and a cleanup
+ * callback. Source and stage paths never appear here.
+ */
+export type PiPreparedStoredAttachment = Readonly<{
+  prepared: PreparedStoredAttachment;
+  preparedFiles: ZoteroHostPreparedFiles;
+  manifest: PreparedStoredAttachmentSnapshot;
+  dispose(): Promise<void>;
+}>;
 
 type ManagedEntry = {
   sourceKey?: string;
@@ -300,6 +376,12 @@ export async function createPiTrustedNativeExecution(args: {
       ): Promise<PiConversationUserFileSnapshot | null> => {
         throw new Error("pi_path_inspection_unavailable");
       },
+      prepareStoredAttachment: async (
+        _path: string,
+        _signal?: AbortSignal,
+      ): Promise<PiPreparedStoredAttachment> => {
+        throw new Error("pi_path_inspection_unavailable");
+      },
     };
   }
   const definitions: PiGatewayToolDefinition[] = [];
@@ -311,6 +393,8 @@ export async function createPiTrustedNativeExecution(args: {
     allowMissing: true,
   }).catch(() => null);
   const privateKey = ownerIdentity?.canonicalKey.replace(/\\/g, "/");
+  // Shared owner quota key for in-flight private staging reservations.
+  const stagedBytesKey = privateKey || args.ownerRoot.replace(/[\\/]+$/, "");
   function assertPublic(key: string) {
     const normalized = key.replace(/\\/g, "/");
     if (
@@ -434,11 +518,13 @@ export async function createPiTrustedNativeExecution(args: {
     return total;
   }
 
-  // Shared owner 2 GiB quota: manifest-managed copies plus agent-written files.
+  // Shared owner 2 GiB quota: manifest-managed copies, agent-written files and
+  // in-flight private staging reserved by stored-attachment preparation.
   async function ownerUsageBytes(entries: ManagedEntry[]) {
     return (
       entries.reduce((sum, entry) => sum + entry.size, 0) +
-      (await workspaceByteTotal())
+      (await workspaceByteTotal()) +
+      ownerStagedBytesFor(stagedBytesKey)
     );
   }
 
@@ -477,7 +563,7 @@ export async function createPiTrustedNativeExecution(args: {
         if (!input.sourceId || !input.revision)
           throw new Error("pi_source_identity_missing");
         const source = await inspectRuntimeFileSource(input.sourcePath);
-        if (source.size > 256 * 1024 * 1024)
+        if (source.size > MANAGED_FILE_MAX_BYTES)
           throw new Error("pi_managed_file_too_large");
         const digest = await digestRuntimeFileSource(source);
         if (digest.bytesRead !== source.size)
@@ -869,7 +955,7 @@ export async function createPiTrustedNativeExecution(args: {
           path: file.stagedPath,
         });
         const source = await inspectRuntimeFileSource(identity.path);
-        if (source.size > 256 * 1024 * 1024)
+        if (source.size > MANAGED_FILE_MAX_BYTES)
           throw new Error("pi_generated_file_too_large");
         const digest = await digestRuntimeFileSource(source);
         if (digest.bytesRead !== source.size)
@@ -959,7 +1045,7 @@ export async function createPiTrustedNativeExecution(args: {
       append: async (content: string) => {
         if (state !== "open") throw new Error("pi_generated_output_closed");
         const bytes = textEncoder.encode(content).byteLength;
-        if (sizeBytes + bytes > 256 * 1024 * 1024)
+        if (sizeBytes + bytes > MANAGED_FILE_MAX_BYTES)
           throw new Error("pi_generated_file_too_large");
         await appendRuntimeTextFile(stagedPath, content);
         sizeBytes += bytes;
@@ -980,6 +1066,129 @@ export async function createPiTrustedNativeExecution(args: {
       },
       discard,
     };
+  }
+
+  // Trusted stored-attachment staging lives under the private owner tree and
+  // reuses the shared attachment stager and prepared-files owner. Only regular
+  // public Workspace files pass the lexical/resolved verifier; managed snapshot
+  // aliases, private owner paths, external paths and links are rejected.
+  const storedAttachmentStagingRoot = joinPath(args.ownerRoot, "staging");
+
+  async function resolveStoredAttachmentSource(inputPath: string) {
+    const identity = await resolveRuntimePathIdentity({
+      root,
+      path: String(inputPath || ""),
+    });
+    assertPublic(identity.canonicalKey);
+    const info = await statRuntimePathStrict(identity.path);
+    if (!info.exists || !info.isFile)
+      throw new Error("pi_managed_file_not_regular");
+    if (info.size > MANAGED_FILE_MAX_BYTES)
+      throw new Error("pi_managed_file_too_large");
+    return { path: identity.path, size: info.size };
+  }
+
+  // `createZoteroHostPreparedFiles` buffers whole files for its digest, so cap
+  // the size before reading rather than after; it also bounds the post-copy
+  // verification of the real staged snapshot.
+  const readStoredAttachmentBytes = async (sourcePath: string) => {
+    const info = await statRuntimePathStrict(sourcePath);
+    if (!info.exists || !info.isFile)
+      throw new Error("pi_managed_file_not_regular");
+    if (info.size > MANAGED_FILE_MAX_BYTES)
+      throw new Error("pi_managed_file_too_large");
+    return readRuntimeBytes(sourcePath);
+  };
+
+  async function prepareStoredAttachment(
+    inputPath: string,
+    signal?: AbortSignal,
+  ): Promise<PiPreparedStoredAttachment> {
+    if (signal?.aborted) throw new Error("pi_stored_attachment_canceled");
+    const source = await resolveStoredAttachmentSource(inputPath);
+    // Measuring and reserving share the owner lock with the other quota
+    // consumers (write/edit/snapshot/materialize), so a concurrent workspace
+    // write cannot slip past this measurement before its own bytes are counted.
+    // The reserved total itself is sampled after `ownerUsageBytes`'s awaits,
+    // adjacent to the check, so a second preparation cannot observe it stale.
+    await withOwnerLock(args.ownerRoot, async () => {
+      const usage = await ownerUsageBytes(await readManifest());
+      if (usage + source.size > OWNER_QUOTA_BYTES)
+        throw new Error("pi_owner_quota_exceeded");
+      adjustOwnerStagedBytes(stagedBytesKey, source.size);
+    });
+    let held = source.size;
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      adjustOwnerStagedBytes(stagedBytesKey, -held);
+    };
+    const files = createZoteroHostPreparedFiles({
+      stageStoredAttachmentSources: createWorkflowStoredAttachmentStager({
+        getStagingRoot: () => storedAttachmentStagingRoot,
+        validateSource: async (sourcePath: string) => ({
+          sizeBytes: (await resolveStoredAttachmentSource(sourcePath)).size,
+        }),
+        ensureDirectory: ensureRuntimeDirectoryStrict,
+        copyFile: async (sourcePath, targetPath) => {
+          // Reuse the existing copy; the native single-call copy cannot be
+          // interrupted mid-flight, so cancellation is observed at the
+          // boundaries and the stager still cleans up on the throw.
+          if (signal?.aborted) throw new Error("pi_stored_attachment_canceled");
+          await copyRuntimeFile({ sourcePath, targetPath });
+          if (signal?.aborted) throw new Error("pi_stored_attachment_canceled");
+        },
+        removePath: removeRuntimePath,
+      }),
+      readBytes: readStoredAttachmentBytes,
+    });
+    const preparedFiles = withStagingRelease(files, release);
+    const abandon = async (error: unknown): Promise<never> => {
+      try {
+        await files.dispose();
+      } catch {
+        throw new Error("pi_managed_cleanup_pending");
+      }
+      release();
+      throw error;
+    };
+    let prepared: PreparedStoredAttachment;
+    try {
+      prepared = await files.prepareStoredAttachment({ path: source.path });
+    } catch (error) {
+      return abandon(error);
+    }
+    // Bind the reservation to the real staged size, then recheck the quota so a
+    // source that grew during the copy cannot slip past it.
+    const actual = prepared.snapshot.main.sizeBytes;
+    if (actual > MANAGED_FILE_MAX_BYTES)
+      return abandon(new Error("pi_managed_file_too_large"));
+    adjustOwnerStagedBytes(stagedBytesKey, actual - held);
+    held = actual;
+    const withinQuota = await withOwnerLock(
+      args.ownerRoot,
+      async () =>
+        // Fresh measurement: it includes this file's real staged size and any
+        // reservation another preparation made while the copy was running.
+        (await ownerUsageBytes(await readManifest())) <= OWNER_QUOTA_BYTES,
+    );
+    if (!withinQuota) return abandon(new Error("pi_owner_quota_exceeded"));
+    if (signal?.aborted)
+      return abandon(new Error("pi_stored_attachment_canceled"));
+    return Object.freeze({
+      prepared,
+      preparedFiles,
+      manifest: prepared.snapshot,
+      dispose: async () => {
+        try {
+          await files.dispose();
+        } catch {
+          throw new Error("pi_managed_cleanup_pending");
+        }
+        release();
+      },
+    });
   }
 
   const fileTool = (
@@ -1793,6 +2002,7 @@ export async function createPiTrustedNativeExecution(args: {
     snapshotUserFiles,
     listUserFileSnapshots,
     resolveUserFileSnapshot,
+    prepareStoredAttachment,
     runtimeCapability: {
       identity: `pi-native:${args.mode}:${root}`,
       availableCapabilityIds: definitions.map((item) => item.capabilityId),

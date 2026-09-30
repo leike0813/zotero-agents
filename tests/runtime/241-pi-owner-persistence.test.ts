@@ -396,6 +396,40 @@ describe("Pi owner persistence in Node", function () {
     assert.equal(snapshot.activeLeaf, tail);
   });
 
+  it("retains one receipt identity when it is published again after later facts", async function () {
+    const created = await createPiConversationOwner(
+      { conversationId: "receipt-dedup" },
+      root,
+    );
+    const receipt = {
+      entryId: "domain-receipt",
+      turnId: "original",
+      kind: "zotero_mutation_receipt",
+      payload: { receiptId: "r1" },
+    };
+    await appendPiConversationFact(created.ref, receipt, root);
+    await appendPiConversationFact(
+      created.ref,
+      { kind: "tool_result", payload: { status: "completed" } },
+      root,
+    );
+    await appendPiConversationFact(created.ref, receipt, root);
+    assert.lengthOf(
+      (await inspectPiOwner(created.ref, root)).entries.filter(
+        (entry) => entry.entryId === receipt.entryId,
+      ),
+      1,
+    );
+    await rejectsWith(
+      appendPiConversationFact(
+        created.ref,
+        { ...receipt, payload: { receiptId: "r2" } },
+        root,
+      ),
+      /pi_entry_conflict/,
+    );
+  });
+
   it("allows only a title preparation record on an archived Conversation", async function () {
     const created = await createPiConversationOwner(
       { conversationId: "archived-title" },

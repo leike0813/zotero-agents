@@ -3,6 +3,7 @@ import {
   executeHostTrashMutation,
   prepareHostTrashMutation,
 } from "../../src/modules/zoteroHost/zoteroHostTrash";
+import { ZOTERO_NATIVE_MUTATION_LIST_LIMIT } from "../../src/schemas/zoteroHostMutationSchemas";
 import type {
   PortableItemRef,
   ItemMutationVersionDto,
@@ -62,7 +63,42 @@ describe("canonical Host Trash planning", function () {
     });
   }
 
+  it("rejects a parent restore that expands beyond the write bound without restoring any item", async function () {
+    const parent = new Zotero.Item("journalArticle");
+    await parent.saveTx();
+    const children: Zotero.Item[] = [];
+    for (let index = 0; index < ZOTERO_NATIVE_MUTATION_LIST_LIMIT; index += 1) {
+      const child = new Zotero.Item("note");
+      child.parentID = parent.id;
+      await child.saveTx();
+      children.push(child);
+    }
+    await Zotero.Items.trashTx([
+      parent.id,
+      ...children.map((child) => child.id),
+    ]);
+    let error: unknown;
+    try {
+      prepareHostTrashMutation(
+        {
+          operation: "trash.setItemsState",
+          operationId: "restore-expanded-bound",
+          state: "active",
+          itemRefs: [ref(parent)],
+        },
+        facts,
+      );
+    } catch (failure) {
+      error = failure;
+    }
+    assert.isDefined(error);
+    assert.equal((error as { code: string }).code, "resource_limited");
+    assert.isTrue(parent.deleted);
+    assert.isTrue(children.every((child) => child.deleted));
+  });
+
   it("rejects duplicate and oversized input before resolving targets", function () {
+    assert.strictEqual(ZOTERO_NATIVE_MUTATION_LIST_LIMIT, 100);
     let resolved = 0;
     const failClosed = {
       ...facts,
@@ -76,10 +112,13 @@ describe("canonical Host Trash planning", function () {
         { libraryId: 1, key: "TARGET01" },
         { libraryId: 1, key: "TARGET01" },
       ],
-      Array.from({ length: 101 }, (_, index) => ({
-        libraryId: 1,
-        key: `T${String(index).padStart(7, "0")}`,
-      })),
+      Array.from(
+        { length: ZOTERO_NATIVE_MUTATION_LIST_LIMIT + 1 },
+        (_, index) => ({
+          libraryId: 1,
+          key: `T${String(index).padStart(7, "0")}`,
+        }),
+      ),
     ]) {
       assert.throws(() =>
         prepareHostTrashMutation(

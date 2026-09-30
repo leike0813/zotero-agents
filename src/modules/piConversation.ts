@@ -46,7 +46,11 @@ import {
   ensureRuntimeDirectoryStrict,
   resolveRuntimePathIdentity,
 } from "./runtimePersistence";
-import { createZoteroNativeToolDefinitions } from "./zoteroNativeToolCatalog";
+import {
+  createZoteroNativeToolDefinitions,
+  type PiZoteroMutationContext,
+  type PiZoteroMutationIdentity,
+} from "./zoteroNativeToolCatalog";
 import {
   resolveZoteroHostCapabilityBroker,
   createZoteroHostCapabilityBroker,
@@ -511,11 +515,85 @@ export function createPiConversationCoordinator(options: Options = {}) {
     const mcp = await getPiMcpToolSources();
     const { piMcpGatewayDefinitions } = await import("./piMcpToolSources");
     const catalog = await mcp.getCatalogForTurn();
+    const mutationEntryId = (
+      context: PiZoteroMutationContext,
+      suffix: string,
+    ) =>
+      digest([
+        context.owner,
+        context.sourceTurnId,
+        context.callId,
+        suffix,
+      ]).then((value) => `zotero-${suffix}-${value.slice(7)}`);
+    const storedMutationFact = async (entryId: string) => {
+      const snapshot = await readPiConversationTranscriptSnapshot(
+        ref(conversationId),
+        options.root,
+      );
+      return snapshot.entries.find((entry) => entry.entryId === entryId);
+    };
     return [
       ...native.definitions,
       ...createZoteroNativeToolDefinitions({
         broker: resolveZoteroHostCapabilityBroker(),
         workspace: native,
+        mutations: {
+          identity: async (context) => {
+            const entryId = await mutationEntryId(context, "identity");
+            const existing = await storedMutationFact(entryId);
+            const identity = existing?.payload as
+              | PiZoteroMutationIdentity
+              | undefined;
+            if (identity) {
+              const sources = await storedMutationFact(
+                await mutationEntryId(context, "source-ids"),
+              );
+              return {
+                ...identity,
+                ...(sources?.payload as
+                  | { generatedSourceReferenceIds: string[] }
+                  | undefined),
+              };
+            }
+            const value = {
+              operationId: entryId,
+              generatedSourceReferenceIds: [],
+            };
+            await fact(
+              conversationId,
+              "zotero_mutation_identity",
+              value,
+              context.sourceTurnId,
+              entryId,
+            );
+            return value;
+          },
+          recordSourceIds: async (context, ids) => {
+            const entryId = await mutationEntryId(context, "source-ids");
+            await fact(
+              conversationId,
+              "zotero_mutation_source_ids",
+              { generatedSourceReferenceIds: ids },
+              context.sourceTurnId,
+              entryId,
+            );
+          },
+          recordDomainResult: async (context, result) => {
+            const entryId = await mutationEntryId(context, "receipt");
+            const evidence =
+              "receipt" in result
+                ? { outcome: result.outcome, receipt: result.receipt }
+                : { outcome: result.outcome, attempt: result.attempt };
+            await fact(
+              conversationId,
+              "zotero_mutation_receipt",
+              evidence,
+              context.sourceTurnId,
+              entryId,
+            );
+            return entryId;
+          },
+        },
       }),
       ...piMcpGatewayDefinitions(catalog, mcp),
       ...getPiBrokeredWebTools().definitions(web, (attempt, callId) =>
@@ -1278,6 +1356,7 @@ export function createPiConversationCoordinator(options: Options = {}) {
     emit(conversationId, ["control", "permission"]);
     let tools: PiGatewayTurn;
     let result: PiGatewayCallResult;
+    let renewed: PiGatewayPendingCall | undefined;
     try {
       tools = await gateway(
         conversationId,
@@ -1307,27 +1386,33 @@ export function createPiConversationCoordinator(options: Options = {}) {
         },
         options.root,
       );
-      result = await tools.continueCall(pending, decision);
+      const continuation = await tools.continueCall(pending, decision);
+      result = continuation.result;
+      renewed = continuation.pending;
     } catch {
       current.status = "recovery_required";
       current.abort = undefined;
       emit(conversationId, ["control", "permission", "navigation"]);
       return;
     }
-    const entry = await fact(
-      conversationId,
-      "tool_result",
-      {
-        callId: result.callId,
-        name: result.name,
-        text: JSON.stringify(result),
-        status: result.status,
-        effectCertainty: result.effectCertainty,
-      },
-      turnId,
+    if (result.status !== "permission_required") {
+      const entry = await fact(
+        conversationId,
+        "tool_result",
+        {
+          callId: result.callId,
+          name: result.name,
+          text: JSON.stringify(result),
+          status: result.status,
+          effectCertainty: result.effectCertainty,
+        },
+        turnId,
+      );
+      publishItem(conversationId, messageItem(entry.entry)!);
+    }
+    current.pending = current.pending.flatMap((item) =>
+      item === pending ? (renewed ? [renewed] : []) : [item],
     );
-    publishItem(conversationId, messageItem(entry.entry)!);
-    current.pending = current.pending.filter((item) => item !== pending);
     if (
       result.effectCertainty === "unknown" ||
       current.pending.length ||

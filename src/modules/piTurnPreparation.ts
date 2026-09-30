@@ -366,6 +366,9 @@ export const PI_TRANSCRIPT_NON_CONTEXT_KINDS: ReadonlySet<string> = new Set([
   "tool_call_started",
   "tool_call_receipt",
   "web_source_attempt",
+  "zotero_mutation_identity",
+  "zotero_mutation_source_ids",
+  "zotero_mutation_receipt",
   "permission_pending",
   "permission_resolved",
 ]);
