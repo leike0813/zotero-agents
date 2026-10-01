@@ -2,6 +2,7 @@ import {
   ACP_BACKEND_TYPE,
   ACP_PROMPT_REQUEST_KIND,
   ACP_SKILL_RUN_REQUEST_KIND,
+  BUILTIN_PI_BACKEND_TYPE,
   DEFAULT_BACKEND_TYPE,
   GENERIC_HTTP_BACKEND_TYPE,
   PASS_THROUGH_BACKEND_TYPE,
@@ -13,7 +14,7 @@ type ProviderRequestContractDefinition = {
   providerType: string;
   backendType: string;
   compatiblePairs?: Array<{ providerType: string; backendType: string }>;
-  validatePayload: (request: unknown) => string | null;
+  validatePayload: (request: unknown, providerType?: string) => string | null;
 };
 
 const PROVIDER_REQUEST_CONTRACTS: Record<
@@ -23,6 +24,16 @@ const PROVIDER_REQUEST_CONTRACTS: Record<
   "skillrunner.job.v1": {
     providerType: DEFAULT_BACKEND_TYPE,
     backendType: DEFAULT_BACKEND_TYPE,
+    compatiblePairs: [
+      {
+        providerType: DEFAULT_BACKEND_TYPE,
+        backendType: DEFAULT_BACKEND_TYPE,
+      },
+      {
+        providerType: BUILTIN_PI_BACKEND_TYPE,
+        backendType: BUILTIN_PI_BACKEND_TYPE,
+      },
+    ],
     validatePayload: validateSkillRunnerJobPayload,
   },
   [SKILLRUNNER_SEQUENCE_REQUEST_KIND]: {
@@ -104,7 +115,10 @@ function getCompatiblePairs(contract: ProviderRequestContractDefinition) {
       ];
 }
 
-function validateSkillRunnerJobPayload(request: unknown) {
+function validateSkillRunnerJobPayload(
+  request: unknown,
+  providerType?: string,
+) {
   if (!isObject(request)) {
     return "payload must be object";
   }
@@ -128,7 +142,10 @@ function validateSkillRunnerJobPayload(request: unknown) {
   if (workspaceDetail) {
     return workspaceDetail;
   }
-  const executionModeDetail = validateRuntimeExecutionMode(request);
+  const executionModeDetail = validateRuntimeExecutionMode(
+    request,
+    providerType,
+  );
   if (executionModeDetail) {
     return executionModeDetail;
   }
@@ -246,15 +263,24 @@ function validateSkillRunnerRuntimeWorkspace(request: Record<string, unknown>) {
   return null;
 }
 
-function validateRuntimeExecutionMode(request: Record<string, unknown>) {
+function validateRuntimeExecutionMode(
+  request: Record<string, unknown>,
+  providerType?: string,
+) {
   if (Object.prototype.hasOwnProperty.call(request, "mode")) {
     return "payload.mode must be normalized to runtime_options.execution_mode before provider dispatch";
+  }
+  if (String(providerType || "").trim() === BUILTIN_PI_BACKEND_TYPE) {
+    // The Built-in Pi owner performs strict mode admission and seals a
+    // structured failure on the early durable owner; the shared dispatch
+    // contract must not reject the request before that owner exists.
+    return null;
   }
   const runtimeOptions = isObject(request.runtime_options)
     ? request.runtime_options
     : null;
   const mode = String(runtimeOptions?.execution_mode || "").trim();
-  if (mode !== "auto" && mode !== "interactive") {
+  if (mode && mode !== "auto" && mode !== "interactive") {
     return "payload.runtime_options.execution_mode must be auto or interactive";
   }
   return null;
@@ -744,9 +770,13 @@ export function assertRequestKindProviderCompatible(args: {
 export function assertRequestPayloadContract(args: {
   requestKind: unknown;
   request: unknown;
+  providerId?: unknown;
 }) {
   const resolved = assertRequestKindSupported(args.requestKind);
-  const detail = resolved.contract.validatePayload(args.request);
+  const detail = resolved.contract.validatePayload(
+    args.request,
+    String(args.providerId || "").trim() || undefined,
+  );
   if (detail) {
     throw new ProviderRequestContractError({
       category: "request_payload_invalid",
@@ -792,6 +822,7 @@ export function assertProviderRequestDispatchContract(args: {
   assertRequestPayloadContract({
     requestKind: byProvider.requestKind,
     request: args.request,
+    providerId: normalizedProviderId,
   });
   return byProvider;
 }

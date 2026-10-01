@@ -426,6 +426,9 @@ describe("literature artifact migration", function () {
   });
 
   it("shrinks a recoverable legacy Citation below the canonical byte limit", function () {
+    // Canonicalizing 1_600 mentions is CPU-bound; the default 2s budget is not
+    // enough on slower hosts.
+    this.timeout(10_000);
     const parentRef = { libraryId: 1, key: "PARENT" };
     const references = convertLegacyArtifactSet({
       libraryId: 1,

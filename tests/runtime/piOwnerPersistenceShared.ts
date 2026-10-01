@@ -11,6 +11,7 @@ import {
   getPiConversationReadFacts,
   inspectPiOwner,
   listPiConversations,
+  listPiSkillRunRegistry,
   markPiConversationDeleting,
   readPiConversationPage,
   readPiConversationTranscriptSnapshot,
@@ -417,6 +418,109 @@ export function piOwnerPersistenceSharedTests(getRoot: () => string) {
       );
       const again = await cleanupPiConversation(created.ref, root);
       assert.equal(again.status, "deleted");
+    });
+
+    it("projects bounded Skill Run list scalars that survive a rebuild", async function () {
+      const root = getRoot();
+      const ref = { kind: "skill_run" as const, ownerId: "skill-scalars-1" };
+      await createPiOwner(ref, root);
+      await appendPiConversationFact(
+        ref,
+        {
+          kind: "skill_run_admitted",
+          payload: {
+            taskName: "Demo Task",
+            skillId: "demo-skill",
+            mode: "auto",
+            workflow: {},
+          },
+        },
+        root,
+      );
+      await appendPiConversationFact(
+        ref,
+        { kind: "message", payload: { role: "user", text: "hello" } },
+        root,
+      );
+      await appendPiConversationFact(
+        ref,
+        { kind: "message", payload: { role: "assistant", text: "hi" } },
+        root,
+      );
+      await appendPiConversationFact(
+        ref,
+        { kind: "tool_result", payload: { callId: "c1", status: "completed" } },
+        root,
+      );
+      await appendPiConversationFact(
+        ref,
+        { kind: "thought", payload: { text: "thinking" } },
+        root,
+      );
+      await appendPiConversationFact(
+        ref,
+        { kind: "skill_run_status", payload: { status: "running" } },
+        root,
+      );
+
+      const row = listPiSkillRunRegistry().find(
+        (entry) => entry.requestId === "skill-scalars-1",
+      );
+      assert.isOk(row);
+      assert.equal(row?.taskName, "Demo Task");
+      assert.equal(row?.skillId, "demo-skill");
+      assert.equal(row?.status, "running");
+      assert.isFalse(row?.archived);
+      assert.deepEqual(row?.counts, {
+        user: 1,
+        assistant: 1,
+        tool: 1,
+        thought: 1,
+      });
+      assert.isString(row?.updatedAt);
+
+      await appendPiConversationFact(
+        ref,
+        {
+          kind: "skill_run_outcome",
+          payload: {
+            result: {
+              status: "succeeded",
+              requestId: "skill-scalars-1",
+              fetchType: "result",
+            },
+          },
+        },
+        root,
+      );
+      await appendPiConversationFact(
+        ref,
+        {
+          kind: "skill_run_archive",
+          payload: { archivedAt: new Date().toISOString() },
+        },
+        root,
+      );
+      const terminal = listPiSkillRunRegistry().find(
+        (entry) => entry.requestId === "skill-scalars-1",
+      );
+      assert.equal(terminal?.status, "succeeded");
+      assert.isTrue(terminal?.archived);
+
+      // The scalars are rebuildable projections, not a second fact source.
+      await rebuildPiOwnerProjections(ref, root);
+      const rebuilt = listPiSkillRunRegistry().find(
+        (entry) => entry.requestId === "skill-scalars-1",
+      );
+      assert.equal(rebuilt?.taskName, "Demo Task");
+      assert.equal(rebuilt?.status, "succeeded");
+      assert.isTrue(rebuilt?.archived);
+      assert.deepEqual(rebuilt?.counts, {
+        user: 1,
+        assistant: 1,
+        tool: 1,
+        thought: 1,
+      });
     });
   });
 }

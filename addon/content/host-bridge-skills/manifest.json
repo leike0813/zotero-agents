@@ -772,8 +772,8 @@
     },
     {
       "path": "zotero-library-agent/references/workflow-catalog.md",
-      "bytes": 42598,
-      "sha256": "7f1fab3eaf9cf355c534dd21645226529323e57b5aeef5485386cf59e836fc10"
+      "bytes": 42728,
+      "sha256": "1ab3084ec319787e778a073c50fbe7aeee66110b09a64d0073cffc22ed239cb1"
     },
     {
       "path": "zotero-library-agent/SKILL.md",
@@ -881,5 +881,5 @@
       "sha256": "48d26f5b33fa8b53f29a67f7c5104917bf4c4d0bbad0e3b6b383c89852956a0b"
     }
   ],
-  "aggregateSha256": "3c60034337655209316abda6e9edbbbb0fbaf6da8d4aad2e78b27a5f1a68dab9"
+  "aggregateSha256": "74b83a17a657d35f23be5e71d9128fa281ebf34eb1ec5b1e3e18286808ba0729"
 }

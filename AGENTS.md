@@ -275,6 +275,13 @@ This is a single-context repository using a root `CONTEXT.md` and root `docs/adr
 - 压缩只在已结算的 durable 边界运行，保留完整语义单元和当前 turn 输入；摘要经 schema、覆盖范围、摘要输入和预算校验后，凭 revision 与 active leaf 提交。失败保留原路径。
 - 普通模型与压缩调用前先持久化版本化 preparation record，只记录安全引用、摘要、版本和 token 统计；完整消息、凭据、授权头和用户文件绝对路径留在各自事实源或暂态 context 中。
 
+# Pi Skill Run 执行硬约束
+
+- `piSkillRun.ts` 只由 Workflow 的 `builtin-pi` / `skillrunner.job.v1` admission 创建 owner。模式在 admission 固定；新 ACP 与 Pi 请求共享 `skillRunPreparation.ts` / `skillRunFinalizer.ts` v1，缺少版本的既有 ACP owner 保持 legacy。
+- 成功必须通过独占、schema 有效的 `submit_skill_result` 单次封存；provider outcome、Workflow ApplyReceipt 与 terminal ack 各自持久化。取消不能覆盖封存结果，未知或未结算效果不得重放。
+- `ask_user` 仅用于 Interactive，由共享 `userInteractionContract.ts` 定义多问题、owner 文件引用与 revision CAS；普通工具结算后才能发布等待。Interrupt 保持原 request 并暂停，继续仅接受文本。
+- LoopGuard 按整个 run 累积，在完整批次预检后、首次效果前持久化实际 dispatch 数；被拒、待审批与更新审批不消耗执行额度。known-owner recovery 不调度 model/tool；启动发现与进程清理由后续生命周期 owner 持有。
+
 # Pi Zotero Mutation 硬约束
 
 - `zoteroNativeToolCatalog.ts` 只投影审阅过的业务操作；`dryRun` 由 adapter 消费，模型不得提交 operation identity、revision、prepared resource 或 artifact storage wrapper。

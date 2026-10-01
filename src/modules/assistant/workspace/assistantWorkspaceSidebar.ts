@@ -26,6 +26,8 @@ import {
 } from "../publication/assistantWorkspacePublicationLabels";
 import { PI_CONVERSATIONS_WORKSPACE_ADAPTER } from "../../piConversationWorkspaceSurface";
 import { getPiConversationCoordinator } from "../../piConversation";
+import { PI_SKILL_RUNS_WORKSPACE_ADAPTER } from "../../piSkillRunWorkspaceSurface";
+import { getPiSkillRunCoordinator } from "../../piSkillRun";
 import {
   ASSISTANT_WORKSPACE_SOURCE_REGISTRY,
   DEFAULT_ASSISTANT_WORKSPACE_SOURCE_ID,
@@ -103,6 +105,7 @@ import type {
   AssistantWorkspaceShellActionEnvelope,
 } from "../../../shared/assistantActionContract";
 import {
+  buildPiLocalNetworkAuthorizer,
   configureAssistantWorkspaceActionRouterShellHost,
   handleChildAction,
   invalidateAssistantWorkspacePiNavigationTargets,
@@ -127,6 +130,7 @@ import {
   registerWorkspacePublication,
   scheduleAcpChatPublications,
   scheduleAcpSkillRunPublications,
+  schedulePiSkillRunPublications,
   schedulePostSnapshot,
   scheduleSkillRunnerPublications,
   transcriptRebasePageRequest,
@@ -186,6 +190,7 @@ export type AssistantWorkspaceHostRuntime = {
   removeMessageListener?: () => void;
   removeAcpChatPanelSubscription?: () => void;
   removeAcpSkillRunSubscription?: () => void;
+  removePiSkillRunSubscription?: () => void;
   removeSkillRunnerWorkspaceSubscription?: () => void;
   removeTaskSubscription?: () => void;
   removeWorkflowQueueSubscription?: () => void;
@@ -234,7 +239,7 @@ export type AssistantWorkspaceHostRuntime = {
   >;
   publicationCoordinator?: AssistantWorkspacePublicationCoordinator;
   publicationRuntime?: AssistantWorkspacePublicationRuntime;
-  lastAcpSkillWaitingToastKeys: Set<string>;
+  skillRunWaitingToastKeys: Map<string, Set<string>>;
   readyTabs: Set<AssistantWorkspaceTab>;
 };
 type SkillRunnerSidebarRefreshRequest = {
@@ -304,6 +309,10 @@ configureAssistantWorkspaceActionRouterShellHost({
     adapter: PI_CONVERSATIONS_WORKSPACE_ADAPTER,
   }),
   piConversationCoordinator: () => getPiConversationCoordinator(),
+  piSkillRunsSurface: () => ({
+    adapter: PI_SKILL_RUNS_WORKSPACE_ADAPTER,
+  }),
+  piSkillRunCoordinator: () => getPiSkillRunCoordinator(),
   localizeString: (key, fallback) => localize(key as any, fallback),
   openBackendManager: openBackendManagerDialog,
   logAssistantWorkspaceDebug,
@@ -312,6 +321,27 @@ configureAssistantWorkspaceActionRouterShellHost({
   resolveCurrentShellWindow,
   isHostAlive: (host) => hosts.get(host.win) === host,
 });
+// Interactive Pi Skill Run admission focuses once through the coordinator's
+// launch hook; the snapshot window main captured at admission wins, and only
+// a missing snapshot falls back to the current main window.
+getPiSkillRunCoordinator().setLaunchFocus(async (requestId, window) => {
+  await focusPiSkillRunWorkspace(
+    requestId,
+    (window as _ZoteroTypes.MainWindow | undefined) || undefined,
+  );
+});
+// Local-network approval reuses the same window-scoped dialog ACP uses, so a
+// local endpoint never becomes an unapproved implicit grant. The coordinator
+// passes the turn's transient origin window; only a missing one falls back to
+// the current main window, resolved per request rather than at module load.
+getPiSkillRunCoordinator().setLocalNetworkAuthorizer(
+  async (endpoint, window) => {
+    const win =
+      (window as _ZoteroTypes.MainWindow | undefined) ||
+      (Zotero.getMainWindow?.() as _ZoteroTypes.MainWindow | undefined);
+    return win ? buildPiLocalNetworkAuthorizer({ win })(endpoint) : false;
+  },
+);
 
 function logAssistantWorkspaceDebug(
   host: AssistantWorkspaceHostRuntime,
@@ -479,39 +509,84 @@ function countWaitingTasks() {
   });
 }
 
-function maybeShowAcpSkillWaitingToasts(host: AssistantWorkspaceHostRuntime) {
-  const waitingRuns = listAcpSkillRunSummaries({ activeOnly: true }).filter(
-    (run) => {
-      const normalized = normalizeStatus(run.status, "running");
-      return (
-        normalized === "waiting_user" ||
-        normalized === "waiting_auth" ||
-        !!run.pendingPermission
-      );
-    },
-  );
+type SkillRunWaitingToastEntry = {
+  requestId: string;
+  status: string;
+  pendingPermission: boolean;
+  label: string;
+  relatedHandles?: Record<string, unknown>;
+};
+
+/**
+ * Q204: Pi and ACP Skill Runs share one waiting-notification policy and the
+ * same toast/Hub pipeline. Only the owner-state projection differs per source,
+ * and each source keeps its own deduplication key set.
+ */
+function maybeShowSkillRunWaitingToasts(
+  host: AssistantWorkspaceHostRuntime,
+  source: "acp-skill-run" | "pi-skill-run",
+  entries: SkillRunWaitingToastEntry[],
+) {
+  const previousKeys =
+    host.skillRunWaitingToastKeys.get(source) || new Set<string>();
   const nextKeys = new Set<string>();
-  for (const run of waitingRuns) {
-    const normalized = normalizeStatus(run.status, "running");
-    const key = `${run.requestId}:${run.pendingPermission ? "permission" : normalized}`;
+  for (const entry of entries) {
+    const normalized = normalizeStatus(entry.status, "running");
+    const waiting =
+      normalized === "waiting_user" ||
+      normalized === "waiting_auth" ||
+      entry.pendingPermission;
+    if (!waiting) continue;
+    const key = `${entry.requestId}:${entry.pendingPermission ? "permission" : normalized}`;
     nextKeys.add(key);
-    if (host.lastAcpSkillWaitingToastKeys.has(key)) {
+    if (previousKeys.has(key)) {
       continue;
     }
     showWorkflowToast({
-      text: `${run.workflowLabel || run.taskName || run.skillId || "ACP Skill"} needs your input.`,
+      text: `${entry.label} needs your input.`,
       type: "default",
       semantic: "waiting",
       owner: "acp-sidebar",
-      scope: "acp-skill-run",
-      displayGroupKey: `acp-skill-run:${key}:waiting`,
+      scope: source,
+      displayGroupKey: `${source}:${key}:waiting`,
+      relatedHandles: entry.relatedHandles,
+    });
+  }
+  host.skillRunWaitingToastKeys.set(source, nextKeys);
+}
+
+function maybeShowAcpSkillWaitingToasts(host: AssistantWorkspaceHostRuntime) {
+  maybeShowSkillRunWaitingToasts(
+    host,
+    "acp-skill-run",
+    listAcpSkillRunSummaries({ activeOnly: true }).map((run) => ({
+      requestId: run.requestId,
+      status: String(run.status || ""),
+      pendingPermission: !!run.pendingPermission,
+      label: run.workflowLabel || run.taskName || run.skillId || "ACP Skill",
       relatedHandles: {
         skillRunId: run.requestId,
         workflowRunId: run.runId,
       },
-    });
-  }
-  host.lastAcpSkillWaitingToastKeys = nextKeys;
+    })),
+  );
+}
+
+async function maybeShowPiSkillRunWaitingToasts(
+  host: AssistantWorkspaceHostRuntime,
+) {
+  const owners = await getPiSkillRunCoordinator().list();
+  maybeShowSkillRunWaitingToasts(
+    host,
+    "pi-skill-run",
+    owners.map((owner) => ({
+      requestId: owner.requestId,
+      status: String(owner.status || ""),
+      pendingPermission: owner.status === "waiting_permission",
+      label: owner.taskName || owner.skillId || "Pi Skill Run",
+      relatedHandles: { skillRunId: owner.requestId },
+    })),
+  );
 }
 
 function updateAssistantAttentionIndicator(
@@ -1656,7 +1731,7 @@ export function installAssistantWorkspaceSidebarShell(
       loaded: false,
       ready: false,
     },
-    lastAcpSkillWaitingToastKeys: new Set<string>(),
+    skillRunWaitingToastKeys: new Map<string, Set<string>>(),
     readyTabs: new Set<AssistantWorkspaceTab>(),
   };
   host.publicationCoordinator = new AssistantWorkspacePublicationCoordinator({
@@ -1877,6 +1952,18 @@ export function installAssistantWorkspaceSidebarShell(
       scheduleAcpSkillRunPublications(host, change);
     },
   );
+  host.removePiSkillRunSubscription = getPiSkillRunCoordinator().subscribe(
+    (change) => {
+      const backgroundOnly = change.kinds.every(
+        (kind) => kind === "transcript" || kind === "resources",
+      );
+      if (!backgroundOnly) {
+        void maybeShowPiSkillRunWaitingToasts(host);
+        updateAssistantAttentionIndicator(host);
+      }
+      schedulePiSkillRunPublications(host, change);
+    },
+  );
   host.removeSkillRunnerWorkspaceSubscription =
     subscribeSkillRunnerWorkspaceChanges((change) => {
       scheduleSkillRunnerPublications(host, change);
@@ -1964,6 +2051,7 @@ export function removeAssistantWorkspaceSidebarShell(
   host.removeMessageListener?.();
   host.removeAcpChatPanelSubscription?.();
   host.removeAcpSkillRunSubscription?.();
+  host.removePiSkillRunSubscription?.();
   host.removeSkillRunnerWorkspaceSubscription?.();
   host.removeTaskSubscription?.();
   host.removeWorkflowQueueSubscription?.();
@@ -2023,6 +2111,9 @@ export async function openAssistantWorkspaceSidebar(args?: {
   if (host.activeTab === "acp-skills" && args?.requestId) {
     await selectAcpSkillRun(args.requestId);
   }
+  if (host.activeTab === "pi-skill-runs" && args?.requestId) {
+    await getPiSkillRunCoordinator().select(args.requestId);
+  }
   const target = args?.target || resolvePreferredTarget(win);
   const activated = await activateTarget(host, target);
   if (activated && host.activeTab === "skillrunner") {
@@ -2032,6 +2123,29 @@ export async function openAssistantWorkspaceSidebar(args?: {
     });
   }
   return activated;
+}
+
+// A Pi Skill Run focuses Assistant Workspace at most once, at Interactive
+// admission. Later state changes (waiting, permission, recovery, terminal)
+// only publish; they never focus.
+// ponytail: process-lifetime set, one short id per admitted run.
+const focusedPiSkillRunRequests = new Set<string>();
+
+export async function focusPiSkillRunWorkspace(
+  requestId: string,
+  window?: _ZoteroTypes.MainWindow,
+) {
+  const id = String(requestId || "").trim();
+  if (!id || focusedPiSkillRunRequests.has(id)) return false;
+  focusedPiSkillRunRequests.add(id);
+  const win =
+    window || (Zotero.getMainWindow?.() as _ZoteroTypes.MainWindow | undefined);
+  if (!win) return false;
+  return openAssistantWorkspaceSidebar({
+    window: win,
+    tab: "pi-skill-runs",
+    requestId: id,
+  });
 }
 
 export function closeAssistantWorkspaceSidebar(args?: {

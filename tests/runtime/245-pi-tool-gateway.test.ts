@@ -1074,6 +1074,64 @@ describe("Pi Tool Gateway shared behavior", function () {
     assert.equal(sameTurn.result.failure?.code, "invalid_request");
   });
 
+  it("books one attempt only for the approved continuation, never for a renewal", async function () {
+    const item = fixture({
+      classify: () => ({
+        effects: ["bounded-read"],
+        authorizationKeys: ["outside"],
+        resourceKeys: [],
+        cost: 1,
+      }),
+    });
+    const call = {
+      callId: "exact",
+      name: "fixture_read",
+      arguments: { path: "p" },
+    };
+    const reported: number[] = [];
+    const hooks = {
+      recordStarted: async () => undefined,
+      recordReceipt: async () => undefined,
+      recordPermission: async () => undefined,
+      beforeExecuteBatch: async (attempts: number) => {
+        reported.push(attempts);
+      },
+    };
+    const first = await turn([item.definition], { hooks });
+    const pending = (await first.executeBatch([call])).pending[0];
+    assert.isOk(pending);
+    // The first batch dispatches nothing, so it books zero attempts.
+    assert.deepEqual(reported, [0]);
+
+    const denied = await turn([item.definition], {
+      turnId: "turn-deny",
+      hooks,
+    });
+    await denied.continueCall(pending, "deny");
+    assert.deepEqual(reported, [0]);
+
+    const renewed = await turn([item.definition], {
+      turnId: "turn-renew",
+      hooks,
+    });
+    const altered = {
+      ...pending,
+      call: { ...pending.call, arguments: { path: "changed" } },
+    };
+    const renewal = await renewed.continueCall(altered, "approve");
+    assert.equal(renewal.result.status, "permission_required");
+    assert.deepEqual(reported, [0]);
+
+    const approved = await turn([item.definition], {
+      turnId: "turn-approve",
+      hooks,
+    });
+    const result = (await approved.continueCall(pending, "approve")).result;
+    assert.equal(result.status, "completed");
+    assert.deepEqual(reported, [0, 1]);
+    assert.equal(item.executions(), 1);
+  });
+
   it("treats malformed executor evidence as unknown and suppresses late updates", async function () {
     const call = {
       callId: "a",
@@ -1586,5 +1644,176 @@ describe("Pi Tool Gateway shared behavior", function () {
       cleanup: "pending",
       recovery: [{ kind: "item" }],
     });
+  });
+
+  it("reports the dispatched attempt count once, before any effect", async function () {
+    const item = fixture();
+    const reported: number[] = [];
+    const started: string[] = [];
+    const gateway = await turn([item.definition], {
+      hooks: {
+        recordStarted: async (fact) => {
+          started.push(fact.callId);
+        },
+        recordReceipt: async () => undefined,
+        recordPermission: async () => undefined,
+        beforeExecuteBatch: async (attempts) => {
+          reported.push(attempts);
+        },
+      },
+    });
+    const outcome = await gateway.executeBatch([
+      { callId: "ok", name: "fixture_read", arguments: { path: "a" } },
+      { callId: "bad", name: "fixture_read", arguments: { nope: true } },
+    ]);
+    assert.deepEqual(reported, [1]);
+    assert.deepEqual(started, ["ok"]);
+    assert.equal(item.executions(), 1);
+    assert.equal(
+      outcome.results.find((entry) => entry.callId === "bad")?.status,
+      "failed",
+    );
+  });
+
+  it("excludes pending approvals from the dispatched attempt count", async function () {
+    const item = fixture({
+      classify: () => ({
+        effects: ["bounded-read"],
+        authorizationKeys: ["grant"],
+        resourceKeys: [],
+        cost: 1,
+      }),
+    });
+    const reported: number[] = [];
+    const gateway = await turn([item.definition], {
+      policy: { authorizedKeys: [] },
+      hooks: {
+        recordStarted: async () => undefined,
+        recordReceipt: async () => undefined,
+        recordPermission: async () => undefined,
+        beforeExecuteBatch: async (attempts) => {
+          reported.push(attempts);
+        },
+      },
+    });
+    const outcome = await gateway.executeBatch([
+      { callId: "p", name: "fixture_read", arguments: { path: "a" } },
+    ]);
+    assert.deepEqual(reported, [0]);
+    assert.lengthOf(outcome.pending, 1);
+    assert.equal(item.executions(), 0);
+  });
+
+  it("refuses the whole batch when the booking hook rejects it", async function () {
+    const item = fixture();
+    const gateway = await turn([item.definition], {
+      hooks: {
+        recordStarted: async () => undefined,
+        recordReceipt: async () => undefined,
+        recordPermission: async () => undefined,
+        beforeExecuteBatch: async () => {
+          throw new Error("agent_loop_limit_exceeded");
+        },
+      },
+    });
+    let caught: unknown;
+    try {
+      await gateway.executeBatch([
+        { callId: "ok", name: "fixture_read", arguments: { path: "a" } },
+      ]);
+    } catch (error) {
+      caught = error;
+    }
+    assert.include(String(caught), "agent_loop_limit_exceeded");
+    assert.equal(item.executions(), 0);
+  });
+
+  it("disposes staged plans when the booking hook refuses the batch", async function () {
+    const item = plannedFixture();
+    const gateway = await turn([item.definition], {
+      policy: { authorizedKeys: ["outside"] },
+      hooks: {
+        recordStarted: async () => undefined,
+        recordReceipt: async () => undefined,
+        recordPermission: async () => undefined,
+        beforeExecuteBatch: async () => {
+          throw new Error("agent_loop_limit_exceeded");
+        },
+      },
+    });
+    let caught: unknown;
+    try {
+      await gateway.executeBatch([
+        { callId: "m", name: "fixture_mutate", arguments: { path: "p" } },
+      ]);
+    } catch (error) {
+      caught = error;
+    }
+    assert.include(String(caught), "agent_loop_limit_exceeded");
+    assert.equal(item.executions(), 0);
+    assert.equal(item.disposals(), 1);
+  });
+
+  it("keeps cleanup pending evidence on the refused batch error", async function () {
+    const item = plannedFixture();
+    item.state.disposeThrows = true;
+    const gateway = await turn([item.definition], {
+      policy: { authorizedKeys: ["outside"] },
+      hooks: {
+        recordStarted: async () => undefined,
+        recordReceipt: async () => undefined,
+        recordPermission: async () => undefined,
+        beforeExecuteBatch: async () => {
+          throw new Error("agent_loop_limit_exceeded");
+        },
+      },
+    });
+    let caught: unknown;
+    try {
+      await gateway.executeBatch([
+        { callId: "m", name: "fixture_mutate", arguments: { path: "p" } },
+      ]);
+    } catch (error) {
+      caught = error;
+    }
+    assert.include(String(caught), "agent_loop_limit_exceeded");
+    assert.deepEqual(
+      (caught as { cleanupPendingCallIds?: string[] }).cleanupPendingCallIds,
+      ["m"],
+    );
+    assert.equal(item.executions(), 0);
+  });
+
+  it("disposes a staged plan when the booking hook refuses an approval", async function () {
+    const item = plannedFixture();
+    const first = await turn([item.definition]);
+    const pending = (
+      await first.executeBatch([
+        { callId: "m", name: "fixture_mutate", arguments: { path: "p" } },
+      ])
+    ).pending[0];
+    assert.isOk(pending);
+    const before = item.disposals();
+
+    const next = await turn([item.definition], {
+      turnId: "turn-two",
+      hooks: {
+        recordStarted: async () => undefined,
+        recordReceipt: async () => undefined,
+        recordPermission: async () => undefined,
+        beforeExecuteBatch: async () => {
+          throw new Error("agent_loop_limit_exceeded");
+        },
+      },
+    });
+    let caught: unknown;
+    try {
+      await next.continueCall(pending, "approve");
+    } catch (error) {
+      caught = error;
+    }
+    assert.include(String(caught), "agent_loop_limit_exceeded");
+    assert.equal(item.executions(), 0);
+    assert.equal(item.disposals(), before + 1);
   });
 });

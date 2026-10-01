@@ -26,11 +26,20 @@ export const PASS_THROUGH_BACKEND_TYPE = "pass-through";
 
 export const PASS_THROUGH_REQUEST_KIND = "pass-through.run.v1";
 
+export const BUILTIN_PI_BACKEND_TYPE = "builtin-pi";
+
+export const BUILTIN_PI_BACKEND_ID = "builtin-pi";
+
+export const BUILTIN_PI_BACKEND_DISPLAY_NAME = "Built-in Pi Agent";
+
+export const BUILTIN_PI_REQUEST_KIND = "skillrunner.job.v1";
+
 export const BACKEND_TYPES = [
   DEFAULT_BACKEND_TYPE,
   ACP_BACKEND_TYPE,
   GENERIC_HTTP_BACKEND_TYPE,
   PASS_THROUGH_BACKEND_TYPE,
+  BUILTIN_PI_BACKEND_TYPE,
 ] as const;
 
 export type BackendType = (typeof BACKEND_TYPES)[number];
@@ -41,4 +50,5 @@ export const DEFAULT_REQUEST_KIND_BY_BACKEND_TYPE: Record<BackendType, string> =
     [ACP_BACKEND_TYPE]: ACP_PROMPT_REQUEST_KIND,
     [GENERIC_HTTP_BACKEND_TYPE]: "generic-http.request.v1",
     [PASS_THROUGH_BACKEND_TYPE]: PASS_THROUGH_REQUEST_KIND,
+    [BUILTIN_PI_BACKEND_TYPE]: BUILTIN_PI_REQUEST_KIND,
   };

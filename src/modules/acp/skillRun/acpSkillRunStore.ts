@@ -139,6 +139,8 @@ export type AcpSkillRunStatus =
   | "failed"
   | "canceled";
 
+export type AcpSkillRunPipelineVersion = "legacy" | "v1";
+
 export type AcpSkillRunStatusTransitionReason =
   | "create"
   | "start"
@@ -318,6 +320,7 @@ export type AcpSkillRunRecord = {
   requestPayload?: unknown;
   providerOptions?: Record<string, unknown>;
   executionMode?: "auto" | "interactive";
+  skillRunPipelineVersion?: AcpSkillRunPipelineVersion;
   workspaceDir?: string;
   runtimeDir?: string;
   inputManifestPath?: string;
@@ -1199,6 +1202,7 @@ export function upsertAcpSkillRun(update: {
   requestPayload?: unknown;
   providerOptions?: Record<string, unknown>;
   executionMode?: "auto" | "interactive";
+  skillRunPipelineVersion?: AcpSkillRunPipelineVersion;
   workspaceDir?: string;
   runtimeDir?: string;
   inputManifestPath?: string;
@@ -1274,6 +1278,7 @@ export function upsertAcpSkillRun(update: {
       conversationRecoveryState: "unavailable" as AcpSkillRunRecoveryState,
       replyState: "idle" as AcpSkillRunReplyState,
       connectionActionState: "idle" as AcpSkillRunConnectionActionState,
+      skillRunPipelineVersion: "legacy" as AcpSkillRunPipelineVersion,
       repairRounds: 0,
       createdAt: now,
       updatedAt: now,
@@ -1347,6 +1352,12 @@ export function upsertAcpSkillRun(update: {
     update.executionMode === "interactive"
   ) {
     next.executionMode = update.executionMode;
+  }
+  if (
+    update.skillRunPipelineVersion === "legacy" ||
+    update.skillRunPipelineVersion === "v1"
+  ) {
+    next.skillRunPipelineVersion = update.skillRunPipelineVersion;
   }
   assignString("workspaceDir", update.workspaceDir);
   assignString("runtimeDir", update.runtimeDir);

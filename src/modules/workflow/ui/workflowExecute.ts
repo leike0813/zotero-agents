@@ -259,7 +259,10 @@ export async function executeWorkflowFromCurrentSelection(args: {
       win: args.win,
       workflow: args.workflow,
       messageFormatter,
-      executionOptionsOverride,
+      executionOptionsOverride: {
+        ...(executionOptionsOverride || {}),
+        sourceWindow: args.win,
+      },
       selectionContextOverride: selectionContextSnapshot,
     },
     workflowPreparationProductionDeps,

@@ -78,6 +78,7 @@ type WorkflowExecutionContext = {
   runOptions: WorkflowRunOptions;
   hostOptions: WorkflowExecutionOptions["hostOptions"];
   providerId: string;
+  sourceWindow?: unknown;
 };
 
 type WorkflowSettingsSchemaEntry = DashboardWorkflowSchemaEntry;
@@ -1130,6 +1131,7 @@ export async function resolveWorkflowExecutionContext(args: {
       ? { queue: { ...merged.hostOptions.queue } }
       : {},
     providerId,
+    sourceWindow: args.executionOptionsOverride?.sourceWindow,
   };
 }
 

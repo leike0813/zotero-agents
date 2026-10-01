@@ -1,5 +1,6 @@
 import { assert } from "chai";
 import {
+  createPiRuntimeLoopGuard,
   createPiTextProviderSource,
   PiRuntime,
   type PiRuntimeEvent,
@@ -428,6 +429,688 @@ describe("PiRuntime halt and cancellation boundaries", function () {
       false,
     );
     assert.equal(events.at(-1)?.kind, "terminal");
+    session.dispose();
+  });
+});
+
+describe("PiRuntime whole-run LoopGuard", function () {
+  function executedResults(request: {
+    calls: readonly { callId: string; name: string }[];
+  }) {
+    return {
+      results: request.calls.map((call) => ({
+        callId: call.callId,
+        name: call.name,
+        text: "{}",
+        isError: false,
+      })),
+    };
+  }
+
+  it("stops a repeated single-call cycle before the sixth identical batch", async function () {
+    const { model, source } = createPiTextProviderSource({
+      steps: [
+        { toolCalls: [{ callId: "c", name: "noop", arguments: { a: 1 } }] },
+      ],
+    });
+    const session = new PiRuntime().openSession({
+      sessionId: "s-cycle",
+      model,
+      source,
+    });
+    let invocations = 0;
+    let toolResults = 0;
+    const turn = session.runTurn({
+      turnId: "t-cycle",
+      messages: [{ role: "user", text: "go" }],
+      tools: [
+        {
+          name: "noop",
+          description: "noop",
+          schema: { type: "object" },
+          execute: async () => ({ text: "x" }),
+        },
+      ],
+      executeTools: executedResults,
+      onEvent: (event) => {
+        if (event.kind === "invocation_started") invocations += 1;
+        if (event.kind === "tool_result") toolResults += 1;
+      },
+    });
+    const result = await turn.result;
+    assert.equal(result.status, "failed");
+    if (result.status === "failed")
+      assert.equal(result.failure.code, "agent_loop_limit_exceeded");
+    assert.equal(invocations, 5);
+    assert.equal(toolResults, 5);
+    session.dispose();
+  });
+
+  it("stops a repeated two-batch cycle before the sixth repetition", async function () {
+    const steps = Array.from({ length: 12 }, (_, index) => ({
+      toolCalls: [
+        {
+          callId: "c" + index,
+          name: index % 2 === 0 ? "alpha" : "beta",
+          arguments: { slot: 0 },
+        },
+      ],
+    }));
+    const { model, source } = createPiTextProviderSource({ steps });
+    const session = new PiRuntime().openSession({
+      sessionId: "s-cycle-two",
+      model,
+      source,
+    });
+    let invocations = 0;
+    const turn = session.runTurn({
+      turnId: "t-cycle-two",
+      messages: [{ role: "user", text: "go" }],
+      tools: [
+        {
+          name: "alpha",
+          description: "alpha",
+          schema: { type: "object" },
+          execute: async () => ({ text: "x" }),
+        },
+        {
+          name: "beta",
+          description: "beta",
+          schema: { type: "object" },
+          execute: async () => ({ text: "x" }),
+        },
+      ],
+      executeTools: executedResults,
+      onEvent: (event) => {
+        if (event.kind === "invocation_started") invocations += 1;
+      },
+    });
+    const result = await turn.result;
+    assert.equal(result.status, "failed");
+    assert.equal(invocations, 10);
+    session.dispose();
+  });
+
+  it("defaults to twenty model invocations before failing structurally", async function () {
+    const steps = Array.from({ length: 26 }, (_, index) => ({
+      toolCalls: [{ callId: "c" + index, name: "noop", arguments: { index } }],
+    }));
+    const { model, source } = createPiTextProviderSource({ steps });
+    const session = new PiRuntime().openSession({
+      sessionId: "s-limit",
+      model,
+      source,
+    });
+    let invocations = 0;
+    const turn = session.runTurn({
+      turnId: "t-limit",
+      messages: [{ role: "user", text: "go" }],
+      tools: [
+        {
+          name: "noop",
+          description: "noop",
+          schema: { type: "object" },
+          execute: async () => ({ text: "x" }),
+        },
+      ],
+      executeTools: executedResults,
+      onEvent: (event) => {
+        if (event.kind === "invocation_started") invocations += 1;
+      },
+    });
+    const result = await turn.result;
+    assert.equal(result.status, "failed");
+    if (result.status === "failed")
+      assert.equal(result.failure.code, "agent_loop_limit_exceeded");
+    assert.equal(invocations, 20);
+    session.dispose();
+  });
+
+  it("fails a resumed run that already spent its invocation allowance", async function () {
+    const { model, source } = createPiTextProviderSource({
+      steps: [{ text: "unused" }],
+    });
+    const session = new PiRuntime().openSession({
+      sessionId: "s-resume",
+      model,
+      source,
+    });
+    let invocations = 0;
+    const turn = session.runTurn({
+      turnId: "t-resume",
+      messages: [{ role: "user", text: "go" }],
+      loopGuard: { state: { invocations: 20, toolAttempts: 0, cycles: [] } },
+      onEvent: (event) => {
+        if (event.kind === "invocation_started") invocations += 1;
+      },
+    });
+    const result = await turn.result;
+    assert.equal(result.status, "failed");
+    if (result.status === "failed")
+      assert.equal(result.failure.code, "agent_loop_limit_exceeded");
+    assert.equal(invocations, 0);
+    session.dispose();
+  });
+
+  it("executes none of a batch that exceeds the remaining tool budget", async function () {
+    const { model, source } = createPiTextProviderSource({
+      steps: [
+        {
+          toolCalls: [
+            { callId: "a", name: "noop", arguments: { n: 1 } },
+            { callId: "b", name: "noop", arguments: { n: 2 } },
+            { callId: "c", name: "noop", arguments: { n: 3 } },
+          ],
+        },
+      ],
+    });
+    const session = new PiRuntime().openSession({
+      sessionId: "s-budget",
+      model,
+      source,
+    });
+    let batches = 0;
+    let attempts = 0;
+    const turn = session.runTurn({
+      turnId: "t-budget",
+      messages: [{ role: "user", text: "go" }],
+      tools: [
+        {
+          name: "noop",
+          description: "noop",
+          schema: { type: "object" },
+          execute: async () => ({ text: "x" }),
+        },
+      ],
+      loopGuard: {
+        state: { invocations: 0, toolAttempts: 0, cycles: [] },
+        trustedLimits: { toolAttempts: 5 },
+      },
+      executeTools: async (request) => {
+        batches += 1;
+        attempts += request.calls.length;
+        return executedResults(request);
+      },
+    });
+    const result = await turn.result;
+    assert.equal(result.status, "failed");
+    if (result.status === "failed")
+      assert.equal(result.failure.code, "agent_loop_limit_exceeded");
+    assert.equal(batches, 1);
+    assert.equal(attempts, 3);
+    session.dispose();
+  });
+
+  it("reconciles the reserved batch attempts to what the owner dispatches", async function () {
+    const { model, source } = createPiTextProviderSource({
+      steps: [
+        {
+          toolCalls: [
+            { callId: "a", name: "noop", arguments: { n: 1 } },
+            { callId: "b", name: "noop", arguments: { n: 2 } },
+            { callId: "c", name: "noop", arguments: { n: 3 } },
+          ],
+        },
+        { text: "done" },
+      ],
+    });
+    const session = new PiRuntime().openSession({
+      sessionId: "s-reserve",
+      model,
+      source,
+    });
+    const committed: number[] = [];
+    const guardState = {
+      invocations: 0,
+      toolAttempts: 0,
+      cycles: [] as string[],
+    };
+    const turn = session.runTurn({
+      turnId: "t-reserve",
+      messages: [{ role: "user", text: "go" }],
+      tools: [
+        {
+          name: "noop",
+          description: "noop",
+          schema: { type: "object" },
+          execute: async () => ({ text: "x" }),
+        },
+      ],
+      loopGuard: {
+        state: guardState,
+        trustedLimits: { toolAttempts: 5 },
+        persist: (state) => {
+          committed.push(state.toolAttempts);
+        },
+      },
+      async executeTools(request) {
+        await request.reserveAttempts?.(1);
+        return executedResults(request);
+      },
+    });
+    const result = await turn.result;
+    assert.equal(result.status, "completed");
+    // The whole batch is reserved before dispatch, then reconciled down to the
+    // single call the owner reports as actually dispatched.
+    assert.equal(guardState.toolAttempts, 1);
+    assert.include(committed, 3);
+    assert.equal(committed.at(-1), 1);
+    session.dispose();
+  });
+
+  it("charges only the calls a mediated owner reports before dispatch", async function () {
+    const { model, source } = createPiTextProviderSource({
+      steps: [
+        {
+          toolCalls: [
+            { callId: "a", name: "noop", arguments: { n: 1 } },
+            { callId: "b", name: "noop", arguments: { n: 2 } },
+            { callId: "c", name: "noop", arguments: { n: 3 } },
+          ],
+        },
+        { text: "done" },
+      ],
+    });
+    const session = new PiRuntime().openSession({
+      sessionId: "s-mediated",
+      model,
+      source,
+    });
+    // One attempt left: the eager charge would refuse the batch of three, but
+    // the owner admits a single call, so the run must continue.
+    const guardState = {
+      invocations: 0,
+      toolAttempts: 99,
+      cycles: [] as string[],
+    };
+    let dispatched = 0;
+    const turn = session.runTurn({
+      turnId: "t-mediated",
+      messages: [{ role: "user", text: "go" }],
+      tools: [
+        {
+          name: "noop",
+          description: "noop",
+          schema: { type: "object" },
+          execute: async () => ({ text: "x" }),
+        },
+      ],
+      toolAttemptAccounting: "gateway",
+      loopGuard: { state: guardState },
+      async executeTools(request) {
+        await request.reserveAttempts?.(1);
+        dispatched += 1;
+        return executedResults(request);
+      },
+    });
+    const result = await turn.result;
+    assert.equal(result.status, "completed");
+    assert.equal(dispatched, 1);
+    assert.equal(guardState.toolAttempts, 100);
+    session.dispose();
+  });
+
+  it("refuses a mediated batch that cannot fit before dispatching it", async function () {
+    const { model, source } = createPiTextProviderSource({
+      steps: [
+        {
+          toolCalls: [
+            { callId: "a", name: "noop", arguments: { n: 1 } },
+            { callId: "b", name: "noop", arguments: { n: 2 } },
+            { callId: "c", name: "noop", arguments: { n: 3 } },
+          ],
+        },
+      ],
+    });
+    const session = new PiRuntime().openSession({
+      sessionId: "s-mediated-overflow",
+      model,
+      source,
+    });
+    const guardState = {
+      invocations: 0,
+      toolAttempts: 99,
+      cycles: [] as string[],
+    };
+    let dispatched = 0;
+    const turn = session.runTurn({
+      turnId: "t-mediated-overflow",
+      messages: [{ role: "user", text: "go" }],
+      tools: [
+        {
+          name: "noop",
+          description: "noop",
+          schema: { type: "object" },
+          execute: async () => ({ text: "x" }),
+        },
+      ],
+      toolAttemptAccounting: "gateway",
+      loopGuard: { state: guardState },
+      async executeTools(request) {
+        await request.reserveAttempts?.(request.calls.length);
+        dispatched += 1;
+        return executedResults(request);
+      },
+    });
+    const result = await turn.result;
+    assert.equal(result.status, "failed");
+    if (result.status === "failed")
+      assert.equal(result.failure.code, "agent_loop_limit_exceeded");
+    assert.equal(dispatched, 0);
+    assert.equal(guardState.toolAttempts, 99);
+    session.dispose();
+  });
+
+  it("fails closed when a mediated owner never reports its attempts", async function () {
+    const { model, source } = createPiTextProviderSource({
+      steps: [
+        {
+          toolCalls: [{ callId: "a", name: "noop", arguments: { n: 1 } }],
+        },
+      ],
+    });
+    const session = new PiRuntime().openSession({
+      sessionId: "s-mediated-silent",
+      model,
+      source,
+    });
+    const guardState = {
+      invocations: 0,
+      toolAttempts: 99,
+      cycles: [] as string[],
+    };
+    const turn = session.runTurn({
+      turnId: "t-mediated-silent",
+      messages: [{ role: "user", text: "go" }],
+      tools: [
+        {
+          name: "noop",
+          description: "noop",
+          schema: { type: "object" },
+          execute: async () => ({ text: "x" }),
+        },
+      ],
+      toolAttemptAccounting: "gateway",
+      loopGuard: { state: guardState },
+      executeTools: async (request) => executedResults(request),
+    });
+    const result = await turn.result;
+    assert.equal(result.status, "failed");
+    if (result.status === "failed")
+      assert.equal(result.failure.code, "runtime_failed");
+    assert.equal(guardState.toolAttempts, 99);
+    session.dispose();
+  });
+
+  it("treats a reported zero-attempt batch as accounted, not silent", async function () {
+    const { model, source } = createPiTextProviderSource({
+      steps: [
+        {
+          toolCalls: [{ callId: "a", name: "noop", arguments: { n: 1 } }],
+        },
+      ],
+    });
+    const session = new PiRuntime().openSession({
+      sessionId: "s-mediated-zero",
+      model,
+      source,
+    });
+    const guardState = {
+      invocations: 0,
+      toolAttempts: 99,
+      cycles: [] as string[],
+    };
+    const turn = session.runTurn({
+      turnId: "t-mediated-zero",
+      messages: [{ role: "user", text: "go" }],
+      tools: [
+        {
+          name: "noop",
+          description: "noop",
+          schema: { type: "object" },
+          execute: async () => ({ text: "x" }),
+        },
+      ],
+      toolAttemptAccounting: "gateway",
+      loopGuard: { state: guardState },
+      async executeTools(request) {
+        await request.reserveAttempts?.(0);
+        return { results: [] };
+      },
+    });
+    const result = await turn.result;
+    // The batch dispatched nothing and was reported as such, so the budget is
+    // untouched instead of being backfilled after the fact.
+    assert.equal(guardState.toolAttempts, 99);
+    assert.equal(result.status, "waiting_permission");
+    session.dispose();
+  });
+
+  it("lets a Workflow only lower trusted LoopGuard limits", function () {
+    const raised = createPiRuntimeLoopGuard({
+      state: { invocations: 0, toolAttempts: 0, cycles: [] },
+      trustedLimits: { invocations: 30 },
+    });
+    assert.equal(raised.limits.invocations, 30);
+    assert.equal(raised.limits.toolAttempts, 100);
+    const lowered = createPiRuntimeLoopGuard({
+      state: { invocations: 0, toolAttempts: 0, cycles: [] },
+      trustedLimits: { invocations: 30, toolAttempts: 40 },
+      requestedLimits: { invocations: 50, toolAttempts: 5 },
+    });
+    assert.equal(lowered.limits.invocations, 30);
+    assert.equal(lowered.limits.toolAttempts, 5);
+    assert.equal(createPiRuntimeLoopGuard().limits.invocations, 20);
+    assert.equal(createPiRuntimeLoopGuard().limits.toolAttempts, 100);
+  });
+
+  it("detects cycles of length one through five only at five repetitions", function () {
+    for (let length = 1; length <= 5; length += 1) {
+      const pattern = Array.from({ length }, (_, index) => "s" + index);
+      const four = Array.from({ length: 4 }, () => pattern).flat();
+      const five = Array.from({ length: 5 }, () => pattern).flat();
+      assert.isFalse(
+        createPiRuntimeLoopGuard({
+          state: { invocations: 0, toolAttempts: 0, cycles: four },
+        }).isCycleBlocked(),
+        "length " + length,
+      );
+      assert.isTrue(
+        createPiRuntimeLoopGuard({
+          state: { invocations: 0, toolAttempts: 0, cycles: five },
+        }).isCycleBlocked(),
+        "length " + length,
+      );
+    }
+  });
+
+  it("breaks repeated fingerprints on progress or result-category change", async function () {
+    const call = { callId: "c", name: "noop", arguments: { a: 1 } };
+    const ok = { callId: "c", name: "noop", text: "{}", isError: false };
+    const repeat = createPiRuntimeLoopGuard({
+      state: { invocations: 0, toolAttempts: 0, cycles: [] },
+    });
+    for (let round = 0; round < 4; round += 1)
+      await repeat.recordToolBatch({ calls: [call], results: [ok] });
+    assert.isFalse(repeat.isCycleBlocked());
+    await repeat.recordToolBatch({ calls: [call], results: [ok] });
+    assert.isTrue(repeat.isCycleBlocked());
+
+    const moved = createPiRuntimeLoopGuard({
+      state: { invocations: 0, toolAttempts: 0, cycles: [] },
+    });
+    for (let round = 0; round < 5; round += 1)
+      await moved.recordToolBatch({
+        calls: [call],
+        results: [ok],
+        progress: "p" + round,
+      });
+    assert.isFalse(moved.isCycleBlocked());
+
+    const errored = createPiRuntimeLoopGuard({
+      state: { invocations: 0, toolAttempts: 0, cycles: [] },
+    });
+    for (let round = 0; round < 6; round += 1)
+      await errored.recordToolBatch({
+        calls: [call],
+        results: [{ ...ok, isError: round % 2 === 1 }],
+      });
+    assert.isFalse(errored.isCycleBlocked());
+  });
+
+  it("commits counters through the injected hook and survives continuation", async function () {
+    const steps = Array.from({ length: 24 }, (_, index) => ({
+      toolCalls: [{ callId: "c" + index, name: "noop", arguments: { index } }],
+    }));
+    const { model, source } = createPiTextProviderSource({ steps });
+    const session = new PiRuntime().openSession({
+      sessionId: "s-persist",
+      model,
+      source,
+    });
+    const state: {
+      invocations: number;
+      toolAttempts: number;
+      cycles: string[];
+    } = {
+      invocations: 19,
+      toolAttempts: 0,
+      cycles: [],
+    };
+    const observed: number[] = [];
+    let invocations = 0;
+    const turn = session.runTurn({
+      turnId: "t-persist",
+      messages: [{ role: "user", text: "go" }],
+      tools: [
+        {
+          name: "noop",
+          description: "noop",
+          schema: { type: "object" },
+          execute: async () => ({ text: "x" }),
+        },
+      ],
+      loopGuard: {
+        state,
+        persist: (snapshot) => {
+          observed.push(snapshot.invocations);
+        },
+      },
+      executeTools: executedResults,
+      onEvent: (event) => {
+        if (event.kind === "invocation_started") invocations += 1;
+      },
+    });
+    const result = await turn.result;
+    assert.equal(invocations, 1);
+    assert.equal(state.invocations, 20);
+    assert.equal(result.status, "failed");
+    assert.isTrue(observed.includes(20));
+    session.dispose();
+  });
+
+  it("settles waiting_user without a further model request or fabricated tool result", async function () {
+    const { model, source } = createPiTextProviderSource({
+      steps: [
+        { toolCalls: [{ callId: "q", name: "ask_user", arguments: {} }] },
+        { text: "should not run" },
+      ],
+    });
+    const session = new PiRuntime().openSession({
+      sessionId: "s-user",
+      model,
+      source,
+    });
+    const events: PiRuntimeEvent[] = [];
+    const turn = session.runTurn({
+      turnId: "t-user",
+      messages: [{ role: "user", text: "go" }],
+      tools: [
+        {
+          name: "ask_user",
+          description: "ask",
+          schema: { type: "object" },
+          execute: async () => ({ text: "x" }),
+        },
+      ],
+      executeTools: async () => ({ results: [], waitingUser: true }),
+      onEvent: (event) => {
+        events.push(event);
+      },
+    });
+    const result = await turn.result;
+    assert.deepEqual(result, { status: "waiting_user" });
+    assert.lengthOf(
+      events.filter((event) => event.kind === "invocation_started"),
+      1,
+    );
+    assert.equal(
+      events.some((event) => event.kind === "tool_result"),
+      false,
+    );
+    assert.equal(
+      events.some(
+        (event) =>
+          event.kind === "assistant_message" && event.text === "should not run",
+      ),
+      false,
+    );
+    session.dispose();
+  });
+
+  it("settles suspended when the owner suspends the run from a batch", async function () {
+    const { model, source } = createPiTextProviderSource({
+      steps: [
+        { toolCalls: [{ callId: "c1", name: "noop", arguments: {} }] },
+        { text: "should not run" },
+      ],
+    });
+    const session = new PiRuntime().openSession({
+      sessionId: "s-batch-suspend",
+      model,
+      source,
+    });
+    const turn = session.runTurn({
+      turnId: "t-batch-suspend",
+      messages: [{ role: "user", text: "go" }],
+      tools: [
+        {
+          name: "noop",
+          description: "noop",
+          schema: { type: "object" },
+          execute: async () => ({ text: "x" }),
+        },
+      ],
+      executeTools: async () => ({ results: [], suspendedRun: true }),
+    });
+    assert.deepEqual(await turn.result, { status: "suspended" });
+    session.dispose();
+  });
+
+  it("settles suspended when the owner interrupts a live turn", async function () {
+    const base = createPiTextProviderSource({ steps: [{ text: "late" }] });
+    let started!: () => void;
+    const entered = new Promise<void>((resolve) => (started = resolve));
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const source: typeof base.source = async (request) => {
+      started();
+      await gate;
+      return base.source(request);
+    };
+    const session = new PiRuntime().openSession({
+      sessionId: "s-suspend",
+      model: base.model,
+      source,
+    });
+    const turn = session.runTurn({
+      turnId: "t-suspend",
+      messages: [{ role: "user", text: "go" }],
+    });
+    await entered;
+    turn.suspend();
+    release();
+    assert.deepEqual(await turn.result, { status: "suspended" });
     session.dispose();
   });
 });

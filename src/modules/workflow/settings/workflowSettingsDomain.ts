@@ -11,6 +11,11 @@ export type WorkflowExecutionOptions = {
   providerOptions?: Record<string, unknown>;
   runOptions?: WorkflowRunOptions;
   hostOptions?: WorkflowHostOptions;
+  /**
+   * Transient invocation origin. Not persisted by the settings record
+   * parser; it carries the user-action Zotero window to provider dispatch.
+   */
+  sourceWindow?: unknown;
 };
 
 export type WorkflowHostQueueOptions = {

@@ -54,8 +54,12 @@ import {
   writeAcpSkillRunnerResultEnvelope,
   type AcpSkillOutputConvergenceResult,
 } from "./acpSkillOutputConvergence";
-import { validateAcpSkillRunRequestAgainstSchemas } from "./acpSkillSchemaAssets";
 import { resolveAcpSkillResultFileFallback } from "./acpSkillResultFileFallback";
+import {
+  prepareSkillRun,
+  type SkillRunExecutionMode,
+} from "../../skillRunPreparation";
+import { finalizeSkillRun } from "../../skillRunFinalizer";
 import {
   createAcpConnectionAdapter,
   type AcpConnectionAdapter,
@@ -650,6 +654,7 @@ export async function executeAcpSkillRunnerJob(args: {
     sequenceFinalStepId: args.orchestrationContext?.finalStepId,
     taskName,
     skillId: request.skill_id,
+    skillRunPipelineVersion: "v1",
     requestPayload: request,
     providerOptions: args.providerOptions || {},
     workspaceDir: workspace.workspaceDir,
@@ -909,10 +914,25 @@ export async function executeAcpSkillRunnerJob(args: {
   if (canceledAfterRunnerJson) {
     return canceledAfterRunnerJson;
   }
-  const executionMode = resolveExecutionMode(
-    request,
-    runnerJsonForExecutionMode,
-  );
+  let executionMode: SkillRunExecutionMode;
+  try {
+    executionMode = resolveExecutionMode(request);
+  } catch (error) {
+    const message = errorMessage(error);
+    upsertAcpSkillRun({
+      requestId: workspace.requestId,
+      status: "failed",
+      statusReason: "prompt_failed_terminal",
+      activePrompt: false,
+      error: message,
+      event: {
+        stage: "skill-run-preparation-failed",
+        message,
+        level: "error",
+      },
+    });
+    throw error;
+  }
   const materialization = await materializeAcpSkill({
     registry,
     requestedSkillId: skill.skillId,
@@ -973,12 +993,28 @@ export async function executeAcpSkillRunnerJob(args: {
     runnerJson: materialization.runnerJson,
     providerOptions: args.providerOptions,
   });
-  const requestValidation = await validateAcpSkillRunRequestAgainstSchemas({
+  const prepared = await prepareSkillRun({
     request,
+    workspace,
+    backendId: args.backend.id,
+    skillEntry: skill,
     runnerJson: materialization.runnerJson,
-    skillDir: materialization.primarySkillDir,
-    workspaceDir: workspace.workspaceDir,
+    executionMode,
+    materialization: {
+      primarySkillDir: materialization.primarySkillDir,
+      skillRoots: injectionPlan.skillRoots,
+      sharedSkillCatalogPath: materialization.sharedSkillCatalogPath,
+      proxySkillRoots: materialization.proxySkillRoots,
+      requestedSkillProxyPath: materialization.requestedSkillProxyPath,
+      proxySkillCount: materialization.proxySkillCount,
+      resourceRewriteWarnings: materialization.resourceRewriteWarnings,
+      sharedSkillCatalogId: materialization.sharedSkillCatalog.catalogId,
+      outputContractText: materialization.outputContractDetailsMarkdown,
+    },
+    workflowId,
+    jobId,
   });
+  const requestValidation = prepared.requestValidation;
   const canceledAfterValidation = await settleIfSetupCanceled();
   if (canceledAfterValidation) {
     return canceledAfterValidation;
@@ -2153,8 +2189,8 @@ export async function executeAcpSkillRunnerJob(args: {
       workspace,
       materialization,
       injectionPlan,
-      inputContext: requestValidation.inputContext,
-      parameterContext: requestValidation.parameterContext,
+      inputContext: prepared.inputs.input,
+      parameterContext: prepared.inputs.parameter,
     };
     const runExecutionInstructionsPath =
       await materializeAcpRunExecutionInstructions({
@@ -3010,6 +3046,18 @@ export async function executeAcpSkillRunnerJob(args: {
     }
     const finalResultJson =
       convergence?.kind === "final" ? convergence.resultJson : {};
+    const finalized = await finalizeSkillRun({
+      prepared,
+      payload: finalResultJson,
+      backend: { id: args.backend.id, type: args.backend.type },
+      fetchType: "result",
+      repairRounds: repairRound,
+    });
+    if (!finalized.ok) {
+      throw new Error(
+        `ACP SkillRunner-compatible output finalization failed: ${finalized.errors.join("; ")}`,
+      );
+    }
     appendRuntimeLog({
       level: "info",
       scope: "provider",
@@ -3081,23 +3129,12 @@ export async function executeAcpSkillRunnerJob(args: {
       requestId: workspace.requestId,
       fetchType: "result",
       resultJson: finalResultJson,
+      resultJsonPath: finalized.resultJsonPath,
+      workspaceDir: finalized.workspaceDir,
       responseJson: {
+        ...finalized.responseJson,
         kind: ACP_SKILL_RUN_REQUEST_KIND,
         provider: "acp",
-        workspaceDir: workspace.workspaceDir,
-        resultJsonPath: workspace.resultJsonPath,
-        resultResolution: "workflow-result-context",
-        repairRounds: repairRound,
-        agentFamily: injectionPlan.family,
-        skillRoots: injectionPlan.skillRoots,
-        runtimeDependencies: dependencyPlan.dependencies,
-        effectiveRuntimeOptions: effectiveRuntimeOptions.runtimeOptions,
-        sharedSkillCatalogPath: materialization.sharedSkillCatalogPath,
-        runExecutionInstructionsPath,
-        proxySkillCount: materialization.proxySkillCount,
-        proxySkillRoots: materialization.proxySkillRoots,
-        requestedSkillProxyPath: materialization.requestedSkillProxyPath,
-        resourceRewriteWarnings: materialization.resourceRewriteWarnings,
       },
     };
   } catch (error) {

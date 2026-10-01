@@ -1,4 +1,8 @@
 import { assert } from "chai";
+import {
+  Client,
+  StreamableHTTPClientTransport,
+} from "@modelcontextprotocol/client";
 import { withMockCanonicalIngestIdentityDatabase } from "../helpers/canonicalIngestIdentityDatabase";
 import {
   clearRuntimeLogs,
@@ -2678,7 +2682,28 @@ describe("embedded Zotero MCP server protocol", function () {
     const address = server.address();
     assert.isObject(address);
     const url = `http://127.0.0.1:${(address as { port: number }).port}/mcp`;
-    const runtime = createPiMcpToolSources();
+    // The Node shard has no Mozilla HTTP transport, so this integration test
+    // drives the official client over Node fetch. Brokered HTTP policy is
+    // covered by tests/runtime/262-pi-brokered-web-network.test.ts.
+    const runtime = createPiMcpToolSources({
+      openClient: async (source, invalidate) => {
+        const client = new Client(
+          { name: "zotero-agents", version: "0.9.0" },
+          { listMaxPages: 16 },
+        );
+        client.setNotificationHandler(
+          "notifications/tools/list_changed",
+          async () => invalidate(),
+        );
+        await client.connect(
+          new StreamableHTTPClientTransport(new URL(String(source.url)), {
+            requestInit: { headers: { Authorization: `Bearer ${token}` } },
+            fetch: globalThis.fetch,
+          }),
+        );
+        return client;
+      },
+    });
     try {
       await putPiCredential({
         id: "mcp-http-fixture",

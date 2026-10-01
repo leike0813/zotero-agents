@@ -8,11 +8,7 @@ import {
   writeAcpSkillRunAuditPrompt,
 } from "./acpSkillRunAuditTrail";
 import type { AcpDiagnosticsEntry } from "../../acpTypes";
-import {
-  listRuntimeChildren,
-  readRuntimeTextFile,
-  statRuntimePath,
-} from "../../runtimePersistence";
+import { listRuntimeChildren, statRuntimePath } from "../../runtimePersistence";
 import { buildAcpSkillRunPrompt } from "./acpSkillRunPromptBuilder";
 import {
   buildAcpStartupPromptPreamble,
@@ -531,40 +527,12 @@ export async function buildRunPrompt(args: {
   return prompt;
 }
 
-export function resolveExecutionMode(
-  request: AcpSkillRunRequestV1,
-  runnerJson: Record<string, unknown>,
-) {
-  const explicit = normalizeString(
-    request.runtime_options?.execution_mode,
-  ).toLowerCase();
-  if (explicit === "interactive" || explicit === "auto") {
-    return explicit;
-  }
-  const modes = Array.isArray(runnerJson.execution_modes)
-    ? runnerJson.execution_modes.map((entry) =>
-        normalizeString(entry).toLowerCase(),
-      )
-    : [];
-  if (modes.includes("auto")) {
-    return "auto";
-  }
-  if (modes.includes("interactive")) {
-    return "interactive";
-  }
-  return "auto";
-}
-
-export async function readRunnerJsonForExecutionMode(path: string) {
-  try {
-    return JSON.parse(await readRuntimeTextFile(path)) as Record<
-      string,
-      unknown
-    >;
-  } catch {
-    return {};
-  }
-}
+// The backend-neutral Skill Run preparation module owns execution-mode
+// resolution; ACP keeps these names for its existing call sites.
+export {
+  readSkillRunRunnerJson as readRunnerJsonForExecutionMode,
+  resolveSkillRunExecutionMode as resolveExecutionMode,
+} from "../../skillRunPreparation";
 
 export function resolveRunnerRequiredMcpTools(
   runnerJson: Record<string, unknown>,

@@ -183,6 +183,12 @@ export type PiGatewayTurnInput = {
     recordStarted: (fact: PiGatewayStartedFact) => Promise<void>;
     recordReceipt: (receipt: PiGatewayAttemptReceipt) => Promise<void>;
     recordPermission: (pending: PiGatewayPendingCall) => Promise<void>;
+    /**
+     * Reports how many calls this batch will actually dispatch, once, after the
+     * whole-batch preflight and before the first effect. Pending approvals and
+     * rejected calls are excluded; a failure aborts the batch before any effect.
+     */
+    beforeExecuteBatch?: (attempts: number) => Promise<void>;
   };
   signal?: AbortSignal;
   foregroundConversation?: () => boolean;
@@ -639,6 +645,39 @@ export async function freezePiToolGatewayTurn(
     } catch {
       return cleanupPendingResult(result);
     }
+  }
+
+  /**
+   * Disposes staging produced by the whole-batch preflight when the batch is
+   * refused before any call runs. A cleanup failure is still canonical evidence,
+   * so the affected call ids travel on the original refusal error.
+   */
+  async function disposeUnstarted(
+    items: readonly PreparedCall[],
+  ): Promise<string[]> {
+    const cleanupPending: string[] = [];
+    for (const item of items) {
+      const plan = item.plan;
+      if (!plan) continue;
+      item.plan = undefined;
+      try {
+        await plan.dispose();
+      } catch {
+        cleanupPending.push(item.call.callId);
+      }
+    }
+    return cleanupPending;
+  }
+
+  /** Preserves the owner's refusal (e.g. the LoopGuard limit) while carrying
+   * cleanup-pending evidence, so nothing dispatches and nothing is lost. */
+  function rethrowRefusal(error: unknown, cleanupPending: string[]): never {
+    if (cleanupPending.length && error && typeof error === "object") {
+      (error as { cleanupPendingCallIds?: string[] }).cleanupPendingCallIds = [
+        ...cleanupPending,
+      ];
+    }
+    throw error;
   }
 
   async function preflightCall(
@@ -1113,6 +1152,19 @@ export async function freezePiToolGatewayTurn(
         if (rejected) results.set(item.call.callId, rejected);
       });
       const planned = eligible.filter((item) => !results.has(item.call.callId));
+      const dispatched = planned.filter(
+        (item) => item.authorization === "ready",
+      );
+      // A booking failure means the batch cannot run, so it is surfaced to the
+      // owner (which owns the accounting semantics) rather than dispatching any
+      // call; nothing has started at this point.
+      if (hooks.beforeExecuteBatch) {
+        try {
+          await hooks.beforeExecuteBatch(dispatched.length);
+        } catch (error) {
+          rethrowRefusal(error, await disposeUnstarted(planned));
+        }
+      }
       await runGroup(
         planned.filter(
           (item) =>
@@ -1192,6 +1244,15 @@ export async function freezePiToolGatewayTurn(
           result: deferred.result,
           ...(deferred.pending ? { pending: deferred.pending } : {}),
         };
+      }
+      // Only a binding-preserving approval dispatches, so only it books one
+      // attempt; denials, rejections and renewals return above untouched.
+      if (hooks.beforeExecuteBatch) {
+        try {
+          await hooks.beforeExecuteBatch(1);
+        } catch (error) {
+          rethrowRefusal(error, await disposeUnstarted([prepared]));
+        }
       }
       return { result: await run(prepared) };
     },

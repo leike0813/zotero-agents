@@ -28,6 +28,10 @@ import {
   parseAssistantPendingInteraction,
   type AssistantPendingInteraction,
 } from "../../../shared/assistantInteractionContract";
+import {
+  parseUserInteractionBatchV1,
+  type UserInteractionBatchV1,
+} from "../../../shared/userInteractionContract";
 
 // Shared wire identity types (AssistantWorkspaceOwner,
 // AssistantWorkspacePublicationAck, ...) also live in the shared wire
@@ -260,7 +264,13 @@ const ASSISTANT_WORKSPACE_ACTION_DEFINITIONS = {
   },
   "submit-interaction-files": {
     scope: "selected-owner",
-    payloadKeys: [],
+    payloadKeys: [
+      "batchId",
+      "questionId",
+      "slotId",
+      "baseRevision",
+      "mutationId",
+    ],
   },
   "auth-import-run": {
     scope: "selected-owner",
@@ -281,6 +291,24 @@ const ASSISTANT_WORKSPACE_ACTION_DEFINITIONS = {
   "set-reasoning-effort": {
     scope: "selected-owner",
     payloadKeys: ["effortId"],
+  },
+  draft: {
+    scope: "selected-owner",
+    payloadKeys: [
+      "batchId",
+      "questionId",
+      "baseRevision",
+      "mutationId",
+      "answer",
+    ],
+  },
+  submit: {
+    scope: "selected-owner",
+    payloadKeys: ["batchId", "baseRevision", "mutationId", "answers"],
+  },
+  decline: {
+    scope: "selected-owner",
+    payloadKeys: ["batchId", "baseRevision", "mutationId"],
   },
   "copy-request-id": {
     scope: "selected-owner",
@@ -746,6 +774,13 @@ export type AssistantWorkspaceComposer = {
    * draft that was never admitted.
    */
   sendAdmissionRevision?: number | null;
+  /**
+   * Versioned multi-question interaction batch (Pi Skill Runs). Present while
+   * the Reply region replaces the ordinary composer with the one-question-at-
+   * a-time flow; absent or null for every other composer state. The singular
+   * owner-control \`interaction\` DTO is unchanged.
+   */
+  interactionBatch?: UserInteractionBatchV1 | null;
 };
 
 /** A bounded, structured composer error surfaced in the shared composer. */
@@ -1795,6 +1830,14 @@ function assertPublicationPayloadInvariant(
         admissionRevision < 0)
     ) {
       throw new Error("assistant-workspace-composer-admission-revision");
+    }
+    const interactionBatch = composer.interactionBatch;
+    if (
+      interactionBatch !== undefined &&
+      interactionBatch !== null &&
+      !parseUserInteractionBatchV1(interactionBatch)
+    ) {
+      throw new Error("assistant-workspace-composer-interaction-batch");
     }
     if (composer.runtimeOptions !== null) {
       assertExactObjectKeys(

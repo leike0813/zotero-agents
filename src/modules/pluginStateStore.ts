@@ -46,6 +46,8 @@ export type {
   PiConversationReadFacts,
   PiConversationTitleSource,
   PiConversationUsage,
+  PiSkillRunRegistryEntry,
+  PiSkillRunRegistryScalars,
 } from "./pluginStateStore/piOwnerTable";
 
 export const PLUGIN_TASK_DOMAIN_SKILLRUNNER = "skillrunner";
@@ -807,6 +809,8 @@ function getAdapter() {
 export const {
   upsertPiOwnerRegistry,
   getPiOwnerRegistry,
+  listPiOwnerRegistry,
+  listPiSkillRunRegistry,
   deletePiOwnerRegistry,
 } = createPiOwnerRegistryTable(getAdapter);
 

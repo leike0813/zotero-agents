@@ -355,6 +355,7 @@ function projectMessageResources(value: unknown): PiPreparedResource[] {
  * concurrent preparation (for example auxiliary title generation) is CAS-bound to.
  */
 export const PI_TRANSCRIPT_NON_CONTEXT_KINDS: ReadonlySet<string> = new Set([
+  "tool_preflight_cleanup_pending",
   "turn_started",
   "turn_terminal",
   "thought",
@@ -371,6 +372,18 @@ export const PI_TRANSCRIPT_NON_CONTEXT_KINDS: ReadonlySet<string> = new Set([
   "zotero_mutation_receipt",
   "permission_pending",
   "permission_resolved",
+  "skill_run_admitted",
+  "skill_run_prepared",
+  "skill_run_status",
+  "skill_run_outcome",
+  "skill_run_finalized",
+  "skill_run_apply_receipt",
+  "skill_run_terminal_ack",
+  "skill_run_archive",
+  "skill_run_selection",
+  "skill_run_guard",
+  "skill_run_result_sealed",
+  "skill_run_interaction_draft",
 ]);
 
 class PreparationError extends Error {

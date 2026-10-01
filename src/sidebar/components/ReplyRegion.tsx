@@ -19,6 +19,14 @@ import {
   resetReplyHistoryNavigation,
   shouldHandleReplyHistoryKey,
 } from "./replyHistory";
+import {
+  isUserInteractionQuestionSatisfied,
+  projectUserInteractionBatchV1,
+  userInteractionAnswerFitsQuestionV1,
+  type UserInteractionAnswerV1,
+  type UserInteractionDraftAnswersV1,
+  type UserInteractionQuestionV1,
+} from "../../shared/userInteractionContract";
 
 // Preact port of the imperative renderAssistantReply region
 // (src/sidebar/assistantPanelRenderer.js), including the two-tier
@@ -106,6 +114,43 @@ function UsageGauge(props: { usage: unknown; labelOf: LabelOfFn }) {
 
 type ReplyPanel = Record<string, unknown>;
 
+// Human-readable answer summary for the interaction Review step. Purely
+// presentational; the structured answer stays the source of truth.
+function describeInteractionAnswer(
+  question: UserInteractionQuestionV1,
+  answer: UserInteractionAnswerV1 | undefined,
+  labelOf: LabelOfFn,
+): string {
+  const unanswered = labelOf("interaction.unanswered", "No answer");
+  if (!answer || answer.kind === "unanswered") return unanswered;
+  if (answer.kind === "text") return answer.text.trim() || unanswered;
+  if (answer.kind === "single_select") {
+    return (
+      question.options.find((option) => option.optionId === answer.optionId)
+        ?.label || unanswered
+    );
+  }
+  if (answer.kind === "multi_select") {
+    const labels = answer.selections
+      .map(
+        (selection) =>
+          question.options.find(
+            (option) => option.optionId === selection.optionId,
+          )?.label,
+      )
+      .filter((label): label is string => !!label);
+    return labels.join(", ") || unanswered;
+  }
+  if (answer.kind === "confirm") {
+    return answer.confirmed
+      ? labelOf("interaction.confirmYes", "Yes")
+      : labelOf("interaction.confirmNo", "No");
+  }
+  return String(
+    answer.slots.reduce((total, slot) => total + slot.files.length, 0),
+  );
+}
+
 export const ReplyRegion = memo(
   function ReplyRegion(props: {
     container: HTMLElement;
@@ -151,6 +196,61 @@ export const ReplyRegion = memo(
     const structureSignature = stableRegionSignature(
       replyStructuralSignature(panel),
     );
+    // Versioned multi-question interaction flow (Pi Skill Runs). While a
+    // collecting batch is present the Reply region replaces the ordinary
+    // composer with a one-question-at-a-time form; navigation/review state is
+    // local (never part of the region signature), and answers live in the
+    // host-persisted batch via the draft/submit/decline actions.
+    // The child is the production boundary for the composer batch: the host
+    // wire assertion is debug-gated, so a present-but-unparseable batch fails
+    // closed into a structured read-only state instead of falling back to the
+    // live composer of a run that is actually waiting.
+    const hasInteractionBatch =
+      reply.interactionBatch != null &&
+      typeof reply.interactionBatch === "object";
+    const interactionBatch = hasInteractionBatch
+      ? projectUserInteractionBatchV1(reply.interactionBatch)
+      : null;
+    const interactionBatchInvalid =
+      hasInteractionBatch && interactionBatch === null;
+    const [interactionAnswers, setInteractionAnswers] =
+      useState<UserInteractionDraftAnswersV1>({});
+    const [interactionIndex, setInteractionIndex] = useState(0);
+    const [interactionReviewing, setInteractionReviewing] = useState(false);
+    const interactionSeed = useRef<string | null>(null);
+    const interactionBatchId = useRef<string | null>(null);
+    const interactionMutationSeq = useRef(0);
+    // Q202 rebase: local answers follow the accepted batch revision. A stale
+    // CAS is resolved by the host republishing the canonical draft, and this
+    // region replaces its local answers with that canonical draft; there is no
+    // last-write-wins and no per-field/text merge.
+    const interactionSeedKey = interactionBatch
+      ? interactionBatch.batchId + ":" + String(interactionBatch.revision)
+      : null;
+
+    useLayoutEffect(() => {
+      container.setAttribute(
+        "data-assistant-reply-interaction-status",
+        interactionBatch
+          ? interactionBatch.status
+          : interactionBatchInvalid
+            ? "invalid"
+            : "",
+      );
+    }, [container, interactionBatch, interactionBatchInvalid]);
+
+    useLayoutEffect(() => {
+      if (!interactionBatch || interactionSeedKey === null) return;
+      if (interactionSeed.current === interactionSeedKey) return;
+      interactionSeed.current = interactionSeedKey;
+      setInteractionAnswers({ ...interactionBatch.draftAnswers });
+      // Navigation resets only for a new batch, never for a revision bump.
+      if (interactionBatchId.current !== interactionBatch.batchId) {
+        interactionBatchId.current = interactionBatch.batchId;
+        setInteractionIndex(0);
+        setInteractionReviewing(false);
+      }
+    }, [interactionBatch, interactionSeedKey]);
 
     useLayoutEffect(() => {
       container.setAttribute(
@@ -208,6 +308,464 @@ export const ReplyRegion = memo(
       resetReplyHistoryNavigation(historyKey);
       if (reply.clearOnSend !== false && !interruptAction) input.value = "";
     };
+
+    if (interactionBatchInvalid) {
+      return (
+        <div
+          class="assistant-panel-reply-interaction is-invalid"
+          data-assistant-interaction-flow="invalid"
+          data-assistant-interaction-error="malformed-batch"
+        >
+          <div class="assistant-panel-interaction-error" role="status">
+            {labelOf(
+              "interaction.invalidBatch",
+              "This interaction request could not be displayed. Cancel the run or reopen the workspace.",
+            )}
+          </div>
+          <div class="assistant-panel-interaction-actions">
+            <button
+              type="button"
+              class="asst-button-compact assistant-panel-interaction-cancel"
+              onClick={() => onAction("cancel-run", {})}
+            >
+              {labelOf("interaction.cancelRun", "Cancel run")}
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    if (interactionBatch) {
+      const questions = interactionBatch.questions;
+      const total = questions.length;
+      const index = Math.min(interactionIndex, Math.max(0, total - 1));
+      const question = questions[index];
+      const readOnly = interactionBatch.status !== "collecting";
+      const answerFor = (entry: UserInteractionQuestionV1) =>
+        interactionAnswers[entry.questionId];
+      const nextMutationId = () => {
+        interactionMutationSeq.current += 1;
+        return (
+          interactionBatch.batchId +
+          ":" +
+          String(interactionMutationSeq.current) +
+          ":" +
+          String(Date.now())
+        );
+      };
+      // Every edit persists immediately so the mutation always carries the
+      // revision it was made against; there is no deferred/debounced send to
+      // turn into a stale CAS later.
+      const setAnswer = (
+        entry: UserInteractionQuestionV1,
+        answer: UserInteractionAnswerV1,
+      ) => {
+        // Structured boundary: never persist or emit an answer that does not
+        // fit its question (wrong kind, undeclared optionId/value, foreign
+        // file slot, or a required question marked unanswered).
+        if (!userInteractionAnswerFitsQuestionV1(entry, answer)) return;
+        setInteractionAnswers((previous) => ({
+          ...previous,
+          [entry.questionId]: answer,
+        }));
+        if (!readOnly) {
+          onAction("draft", {
+            batchId: interactionBatch.batchId,
+            questionId: entry.questionId,
+            baseRevision: interactionBatch.revision,
+            mutationId: nextMutationId(),
+            answer,
+          });
+        }
+      };
+      const canSubmit =
+        !readOnly &&
+        questions.every((entry) =>
+          isUserInteractionQuestionSatisfied(entry, answerFor(entry)),
+        );
+      // Submit carries only answers that fit their batch question, so an
+      // unknown or malformed questionId can never reach the host.
+      const submissionAnswers: UserInteractionDraftAnswersV1 = {};
+      for (const entry of questions) {
+        const answer = answerFor(entry);
+        if (answer && userInteractionAnswerFitsQuestionV1(entry, answer)) {
+          submissionAnswers[entry.questionId] = answer;
+        }
+      }
+      // Cancel is the run/turn cancellation action, never a declined result.
+      // While waiting_user the owner rejects interrupt-run-turn, so cancel
+      // always sends cancel-run directly; decline stays the whole-batch
+      // "skip this question set" action.
+      const cancelAction = "cancel-run";
+      const renderInput = (entry: UserInteractionQuestionV1) => {
+        const answer = answerFor(entry);
+        if (entry.kind === "text") {
+          const text = answer && answer.kind === "text" ? answer.text : "";
+          return (
+            <textarea
+              class="assistant-panel-interaction-input"
+              data-interaction-question={entry.questionId}
+              disabled={readOnly}
+              value={text}
+              onInput={(event) =>
+                setAnswer(entry, {
+                  kind: "text",
+                  text: (event.currentTarget as HTMLTextAreaElement).value,
+                })
+              }
+            />
+          );
+        }
+        if (entry.kind === "single_select") {
+          const selected =
+            answer && answer.kind === "single_select" ? answer.optionId : null;
+          return (
+            <div class="assistant-panel-interaction-options" role="radiogroup">
+              {entry.options.map((option) => (
+                <label
+                  class="assistant-panel-interaction-option"
+                  key={option.optionId}
+                >
+                  <input
+                    type="radio"
+                    class="assistant-panel-interaction-radio"
+                    name={"interaction-" + entry.questionId}
+                    data-interaction-option={option.optionId}
+                    checked={selected === option.optionId}
+                    disabled={readOnly}
+                    onChange={() =>
+                      setAnswer(entry, {
+                        kind: "single_select",
+                        optionId: option.optionId,
+                        value: option.value ?? null,
+                      })
+                    }
+                  />
+                  <span class="assistant-panel-interaction-option-label">
+                    {option.label}
+                  </span>
+                  {option.description ? (
+                    <small class="assistant-panel-interaction-option-description">
+                      {option.description}
+                    </small>
+                  ) : null}
+                </label>
+              ))}
+            </div>
+          );
+        }
+        if (entry.kind === "multi_select") {
+          const selected =
+            answer && answer.kind === "multi_select" ? answer.selections : [];
+          const isSelected = (optionId: string) =>
+            selected.some((selection) => selection.optionId === optionId);
+          return (
+            <div class="assistant-panel-interaction-options" role="group">
+              {entry.options.map((option) => (
+                <label
+                  class="assistant-panel-interaction-option"
+                  key={option.optionId}
+                >
+                  <input
+                    type="checkbox"
+                    class="assistant-panel-interaction-checkbox"
+                    data-interaction-option={option.optionId}
+                    checked={isSelected(option.optionId)}
+                    disabled={readOnly}
+                    onChange={(event) => {
+                      const next = event.currentTarget.checked
+                        ? [
+                            ...selected,
+                            {
+                              optionId: option.optionId,
+                              value: option.value ?? null,
+                            },
+                          ]
+                        : selected.filter(
+                            (selection) =>
+                              selection.optionId !== option.optionId,
+                          );
+                      setAnswer(entry, {
+                        kind: "multi_select",
+                        selections: next,
+                      });
+                    }}
+                  />
+                  <span class="assistant-panel-interaction-option-label">
+                    {option.label}
+                  </span>
+                  {option.description ? (
+                    <small class="assistant-panel-interaction-option-description">
+                      {option.description}
+                    </small>
+                  ) : null}
+                </label>
+              ))}
+            </div>
+          );
+        }
+        if (entry.kind === "confirm") {
+          const confirmed =
+            answer && answer.kind === "confirm" ? answer.confirmed : null;
+          return (
+            <div class="assistant-panel-interaction-confirm">
+              <button
+                type="button"
+                class="asst-button-compact assistant-panel-interaction-confirm-yes"
+                data-interaction-confirm="true"
+                disabled={readOnly}
+                onClick={() =>
+                  setAnswer(entry, { kind: "confirm", confirmed: true })
+                }
+              >
+                {labelOf("interaction.confirmYes", "Yes")}
+              </button>
+              <button
+                type="button"
+                class="asst-button-compact assistant-panel-interaction-confirm-no"
+                data-interaction-confirm="false"
+                disabled={readOnly}
+                onClick={() =>
+                  setAnswer(entry, { kind: "confirm", confirmed: false })
+                }
+              >
+                {labelOf("interaction.confirmNo", "No")}
+              </button>
+              {confirmed !== null ? (
+                <span
+                  class="assistant-panel-interaction-confirm-state"
+                  data-interaction-confirmed={confirmed ? "true" : "false"}
+                >
+                  {describeInteractionAnswer(entry, answer, labelOf)}
+                </span>
+              ) : null}
+            </div>
+          );
+        }
+        const files = answer && answer.kind === "files" ? answer.slots : [];
+        const countFor = (slotId: string) =>
+          files.find((slot) => slot.slotId === slotId)?.files.length ?? 0;
+        return (
+          <div class="assistant-panel-interaction-files">
+            {entry.files.map((slot) => (
+              <div
+                class="assistant-panel-interaction-file"
+                data-interaction-slot={slot.slotId}
+                key={slot.slotId}
+              >
+                <span class="assistant-panel-interaction-file-label">
+                  {slot.name}
+                </span>
+                <small class="assistant-panel-interaction-file-state">
+                  {slot.required
+                    ? labelOf("interaction.fileRequired", "Required")
+                    : labelOf("interaction.fileOptional", "Optional")}
+                </small>
+                <small
+                  class="assistant-panel-interaction-file-count"
+                  data-interaction-slot-count={String(countFor(slot.slotId))}
+                >
+                  {String(countFor(slot.slotId))}
+                </small>
+                <button
+                  type="button"
+                  class="asst-button-compact assistant-panel-interaction-choose-files"
+                  data-interaction-slot-pick={slot.slotId}
+                  disabled={readOnly}
+                  onClick={() =>
+                    onAction("submit-interaction-files", {
+                      batchId: interactionBatch.batchId,
+                      questionId: entry.questionId,
+                      slotId: slot.slotId,
+                      baseRevision: interactionBatch.revision,
+                      mutationId: nextMutationId(),
+                    })
+                  }
+                >
+                  {labelOf("interaction.chooseFiles", "Choose files")}
+                </button>
+              </div>
+            ))}
+            {entry.files.length === 0 ? (
+              <button
+                type="button"
+                class="asst-button-compact assistant-panel-interaction-choose-files"
+                data-interaction-slot-pick=""
+                disabled={readOnly}
+                onClick={() =>
+                  onAction("submit-interaction-files", {
+                    batchId: interactionBatch.batchId,
+                    questionId: entry.questionId,
+                    slotId: null,
+                    baseRevision: interactionBatch.revision,
+                    mutationId: nextMutationId(),
+                  })
+                }
+              >
+                {labelOf("interaction.chooseFiles", "Choose files")}
+              </button>
+            ) : null}
+          </div>
+        );
+      };
+      return (
+        <div
+          class="assistant-panel-reply-interaction"
+          data-assistant-interaction-flow="true"
+          data-assistant-interaction-batch={interactionBatch.batchId}
+          data-assistant-interaction-status={interactionBatch.status}
+        >
+          <div class="assistant-panel-interaction-progress">
+            <span
+              class="assistant-panel-interaction-progress-label"
+              data-interaction-progress={
+                String(index + 1) + "/" + String(total)
+              }
+            >
+              {labelOf("interaction.progress", "Question") +
+                " " +
+                String(index + 1) +
+                " / " +
+                String(total)}
+            </span>
+          </div>
+          {interactionReviewing ? (
+            <ol class="assistant-panel-interaction-review">
+              {questions.map((entry, position) => (
+                <li
+                  class="assistant-panel-interaction-review-item"
+                  data-interaction-review-question={entry.questionId}
+                  key={entry.questionId}
+                >
+                  <span class="assistant-panel-interaction-review-prompt">
+                    {entry.prompt}
+                  </span>
+                  <span
+                    class="assistant-panel-interaction-review-answer"
+                    data-interaction-review-answer-kind={
+                      answerFor(entry)?.kind ?? "unanswered"
+                    }
+                  >
+                    {describeInteractionAnswer(
+                      entry,
+                      answerFor(entry),
+                      labelOf,
+                    )}
+                  </span>
+                  <button
+                    type="button"
+                    class="asst-button-compact assistant-panel-interaction-review-edit"
+                    onClick={() => {
+                      setInteractionReviewing(false);
+                      setInteractionIndex(position);
+                    }}
+                  >
+                    {labelOf("interaction.editAnswer", "Edit")}
+                  </button>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <div
+              class="assistant-panel-interaction-question"
+              data-interaction-question-kind={question.kind}
+            >
+              {question.header ? (
+                <div class="assistant-panel-interaction-header">
+                  {question.header}
+                </div>
+              ) : null}
+              <div class="assistant-panel-interaction-prompt">
+                {question.prompt}
+              </div>
+              {question.hint ? (
+                <div class="assistant-panel-interaction-hint">
+                  {question.hint}
+                </div>
+              ) : null}
+              {renderInput(question)}
+            </div>
+          )}
+          <div class="assistant-panel-interaction-nav">
+            <button
+              type="button"
+              class="asst-button-compact assistant-panel-interaction-prev"
+              disabled={readOnly || interactionReviewing || index === 0}
+              onClick={() => setInteractionIndex(Math.max(0, index - 1))}
+            >
+              {labelOf("interaction.previous", "Previous")}
+            </button>
+            <button
+              type="button"
+              class="asst-button-compact assistant-panel-interaction-next"
+              disabled={readOnly}
+              onClick={() => {
+                if (index >= total - 1) {
+                  setInteractionReviewing(true);
+                } else {
+                  setInteractionIndex(index + 1);
+                }
+              }}
+            >
+              {index >= total - 1
+                ? labelOf("interaction.review", "Review")
+                : labelOf("interaction.next", "Next")}
+            </button>
+          </div>
+          <div class="assistant-panel-interaction-actions">
+            <button
+              type="button"
+              class="asst-button assistant-panel-interaction-submit"
+              disabled={!canSubmit}
+              onClick={() =>
+                onAction("submit", {
+                  batchId: interactionBatch.batchId,
+                  baseRevision: interactionBatch.revision,
+                  mutationId: nextMutationId(),
+                  answers: submissionAnswers,
+                })
+              }
+            >
+              {labelOf("interaction.submit", "Submit")}
+            </button>
+            <button
+              type="button"
+              class="asst-button-compact assistant-panel-interaction-decline"
+              disabled={readOnly}
+              onClick={() =>
+                onAction("decline", {
+                  batchId: interactionBatch.batchId,
+                  baseRevision: interactionBatch.revision,
+                  mutationId: nextMutationId(),
+                })
+              }
+            >
+              {labelOf("interaction.decline", "Skip")}
+            </button>
+            <button
+              type="button"
+              class="asst-button-compact assistant-panel-interaction-cancel"
+              onClick={() => onAction(cancelAction, {})}
+            >
+              {labelOf("interaction.cancelRun", "Cancel run")}
+            </button>
+          </div>
+          {errors.length > 0 ? (
+            <ul class="assistant-panel-reply-errors" role="status">
+              {errors.map((error, position) => (
+                <li
+                  key={safeText(error.code) || position}
+                  class="assistant-panel-reply-error"
+                  data-error-code={safeText(error.code)}
+                >
+                  {safeText(error.message)}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      );
+    }
 
     return (
       <>

@@ -6,6 +6,11 @@ import {
 } from "../skillRunner/run/skillRunnerRunStore";
 import type { WorkflowRunState } from "./contracts";
 import { getSequenceRunState } from "./sequenceStateStore";
+import { BUILTIN_PI_BACKEND_TYPE } from "../../config/defaults";
+import {
+  readPiSkillRunProviderProjection,
+  type PiSkillRunProviderProjection,
+} from "../../providers/builtin-pi/provider";
 
 export type WorkflowJobSlotStatus =
   | "missing"
@@ -35,6 +40,34 @@ export type WorkflowJobTerminalResolution =
     }>;
 
 type SequenceRunState = ReturnType<typeof getSequenceRunState>;
+
+function normalizeBuiltinPiSlotStatus(
+  status: PiSkillRunProviderProjection["status"] | undefined,
+): WorkflowJobSlotStatus {
+  switch (status) {
+    case "queued":
+      return "queued";
+    case "running":
+      return "running";
+    case "waiting_user":
+      return "waiting_user";
+    case "waiting_permission":
+      return "waiting_user";
+    case "suspended":
+      return "running";
+    case "succeeded":
+      return "succeeded";
+    case "failed":
+      return "failed";
+    case "canceled":
+      return "canceled";
+    case "recovery_required":
+    case "state_unknown":
+      return "failed_retriable";
+    default:
+      return "unobserved";
+  }
+}
 
 function normalizeJobState(state: unknown): WorkflowJobSlotStatus {
   const normalized = String(state || "").trim();
@@ -159,6 +192,9 @@ export function resolveWorkflowJobTerminalResolution(args: {
   queue: WorkflowRunState["queue"];
   workflowRunId: string;
   jobId: string;
+  resolvePiProviderProjection?: (
+    requestId: string,
+  ) => PiSkillRunProviderProjection | undefined;
 }): WorkflowJobTerminalResolution {
   const job = args.queue.getJob(args.jobId);
   if (!job) {
@@ -302,6 +338,67 @@ export function resolveWorkflowJobTerminalResolution(args: {
         return resolution;
       }
     }
+  }
+  if (backendType === BUILTIN_PI_BACKEND_TYPE) {
+    const projection = (
+      args.resolvePiProviderProjection ?? readPiSkillRunProviderProjection
+    )(requestId);
+    canonicalSlotStatus = normalizeBuiltinPiSlotStatus(projection?.status);
+    if (!requestId || !projection) {
+      return { kind: "pending", slotStatus: canonicalSlotStatus };
+    }
+    if (projection.status === "failed" || projection.status === "canceled") {
+      return {
+        kind: "canonical-ready",
+        slotStatus: projection.status,
+        outcome: {
+          terminalState: projection.status,
+          requestId,
+          reason: projection.error || "provider " + projection.status,
+        },
+      };
+    }
+    if (
+      projection.status === "recovery_required" ||
+      projection.status === "state_unknown"
+    ) {
+      return {
+        kind: "canonical-ready",
+        slotStatus: "failed",
+        outcome: {
+          terminalState: "failed",
+          requestId,
+          reason: projection.error || "skill_run_recovery_required",
+        },
+      };
+    }
+    if (projection.status === "succeeded") {
+      if (
+        projection.applyState === "succeeded" ||
+        projection.applyState === "skipped"
+      ) {
+        return {
+          kind: "canonical-ready",
+          slotStatus: "succeeded",
+          outcome: { terminalState: "succeeded", requestId },
+        };
+      }
+      if (projection.applyState === "failed") {
+        return {
+          kind: "canonical-ready",
+          slotStatus: "failed",
+          outcome: {
+            terminalState: "failed",
+            requestId,
+            reason: projection.applyError || "workflow apply failed",
+          },
+        };
+      }
+      return localSucceededReady
+        ? { kind: "local-ready", slotStatus: "succeeded" }
+        : { kind: "pending", slotStatus: "succeeded" };
+    }
+    return { kind: "pending", slotStatus: canonicalSlotStatus };
   }
   if (isSequenceRequest) {
     return {

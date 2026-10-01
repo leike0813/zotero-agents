@@ -815,4 +815,144 @@ describe("workflow apply seam risk regression", function () {
       "uploads/inputs/source_path/artifacts/digest.md",
     );
   });
+
+  it("applies and acknowledges a sealed built-in Pi Skill Run after it waits", async function () {
+    const runtimeStages: string[] = [];
+    let applyCalls = 0;
+    const claims: string[] = [];
+    const receipts: Array<{ status: string; code?: string }> = [];
+    const acks: string[] = [];
+
+    const summary = await runWorkflowApplySeam(
+      {
+        runState: createRunState({
+          requests: [
+            {
+              taskName: "pi-auto.md",
+              targetParentRef: { libraryId: 1, key: "PARENTPI" },
+            },
+          ],
+          jobIds: ["job-pi"],
+          jobsById: {
+            "job-pi": {
+              id: "job-pi",
+              state: "running",
+              meta: {
+                backendType: "builtin-pi",
+                backendId: "builtin-pi",
+                providerId: "builtin-pi",
+                requestId: "pi-req-1",
+                targetParentRef: { libraryId: 1, key: "PARENTPI" },
+              },
+              result: {
+                status: "deferred",
+                requestId: "pi-req-1",
+                backendStatus: "running",
+              },
+            },
+          },
+        }),
+        messageFormatter: createMessageFormatter(),
+      },
+      {
+        appendRuntimeLog: (entry) => {
+          runtimeStages.push(entry.stage);
+        },
+        resolveWorkflowJobTerminalResolution: () =>
+          ({ kind: "pending", slotStatus: "running" }) as any,
+        executeApplyResult: async () => {
+          applyCalls += 1;
+          return { ok: true };
+        },
+        openRunResultBundleReader: async () =>
+          ({
+            bundleReader: { dispose: async () => {} },
+            dispose: async () => {},
+          }) as any,
+        createWorkflowResultContext: async () =>
+          ({ resultJson: { ok: true }, responseJson: {}, artifacts: [] }) as any,
+        collectSkillRunFeedback: async () => {},
+        loadPiSkillRunApplyModule: async () => ({
+          claimPiSkillRunApply: async (requestId: string) => {
+            claims.push(requestId);
+            return { status: "claimed", applyKey: "apply-key-1" };
+          },
+          readProviderResult: async () =>
+            ({
+              status: "succeeded",
+              requestId: "pi-req-1",
+              resultJson: { ok: true },
+              responseJson: {},
+            }) as any,
+          recordPiSkillRunApplyReceipt: async (
+            _requestId: string,
+            receipt: { status: string; code?: string },
+          ) => {
+            receipts.push(receipt);
+          },
+          acknowledgePiSkillRunTerminal: async (
+            _requestId: string,
+            ackId: string,
+          ) => {
+            acks.push(ackId);
+          },
+        }),
+      },
+    );
+
+    assert.deepEqual(claims, ["pi-req-1"]);
+    assert.equal(applyCalls, 1);
+    assert.equal(summary.succeeded, 1);
+    assert.equal(summary.failed, 0);
+    assert.equal(summary.pending, 0);
+    assert.deepEqual(receipts, [{ status: "succeeded" }]);
+    assert.lengthOf(acks, 1);
+    assert.include(runtimeStages, "apply-succeeded");
+  });
+
+  it("never re-runs apply when a built-in Pi claim is already terminal", async function () {
+    const runtimeStages: string[] = [];
+    let applyCalls = 0;
+
+    const summary = await runWorkflowApplySeam(
+      {
+        runState: createRunState({
+          requests: [{ taskName: "pi-replay.md" }],
+          jobIds: ["job-pi-terminal"],
+          jobsById: {
+            "job-pi-terminal": {
+              id: "job-pi-terminal",
+              state: "running",
+              meta: {
+                backendType: "builtin-pi",
+                requestId: "pi-req-2",
+              },
+              result: { status: "deferred", requestId: "pi-req-2" },
+            },
+          },
+        }),
+        messageFormatter: createMessageFormatter(),
+      },
+      {
+        appendRuntimeLog: (entry) => {
+          runtimeStages.push(entry.stage);
+        },
+        executeApplyResult: async () => {
+          applyCalls += 1;
+          return { ok: true };
+        },
+        loadPiSkillRunApplyModule: async () => ({
+          claimPiSkillRunApply: async () => ({
+            status: "terminal",
+            applyKey: "apply-key-2",
+            receipt: { status: "succeeded" },
+          }),
+        }),
+      },
+    );
+
+    assert.equal(applyCalls, 0);
+    assert.equal(summary.succeeded, 1);
+    assert.equal(summary.pending, 0);
+  });
 });

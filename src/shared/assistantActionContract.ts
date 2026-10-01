@@ -26,6 +26,12 @@ import type {
   AssistantWorkspacePublicationSource,
   AssistantWorkspaceTab,
 } from "./assistantWireContract";
+import type {
+  AssistantInteractionDeclinePayloadV1,
+  AssistantInteractionDraftPayloadV1,
+  AssistantInteractionFilePickPayloadV1,
+  AssistantInteractionSubmitPayloadV1,
+} from "./userInteractionContract";
 
 // ---------------------------------------------------------------------------
 // Registry action payloads (ASSISTANT_WORKSPACE_ACTION_REGISTRY mirror)
@@ -101,7 +107,9 @@ export type AssistantWorkspaceActionPayloadMap = {
     responseValue: unknown;
     responseLabel: string;
   };
-  "submit-interaction-files": AssistantWorkspaceEmptyActionPayload;
+  // One batch file pick for the currently selected question/slot, committed
+  // with CAS against the revision the picker was opened from.
+  "submit-interaction-files": AssistantInteractionFilePickPayloadV1;
   "auth-import-run": {
     providerId: string;
     files: SkillRunnerAuthImportFilePayload[];
@@ -117,6 +125,12 @@ export type AssistantWorkspaceActionPayloadMap = {
   "set-mode": { modeId: string };
   "set-model": { modelId: string };
   "set-reasoning-effort": { effortId: string };
+  // Versioned multi-question interaction flow (Pi Skill Runs): one draft
+  // mutation (CAS), one atomic whole-batch submit, one whole-batch decline.
+  // File picking reuses the existing "submit-interaction-files" action.
+  draft: AssistantInteractionDraftPayloadV1;
+  submit: AssistantInteractionSubmitPayloadV1;
+  decline: AssistantInteractionDeclinePayloadV1;
   "copy-request-id": AssistantWorkspaceEmptyActionPayload;
   "copy-diagnostics": AssistantWorkspaceEmptyActionPayload;
   "open-workspace": AssistantWorkspaceEmptyActionPayload;
@@ -363,11 +377,18 @@ export type PiConversationsAction =
   | PiConversationsSharedAction
   | PiConversationsOnlyAction;
 
+/** Registry actions limited to the pi-skill-runs source. */
+export type PiSkillRunsOnlyAction = "draft" | "submit" | "decline";
+
 /**
  * Registry actions a pi-skill-runs child page may send. Pi Skill Runs mirror
- * the ACP Skills skill-run surface exactly; the C17 adapter binds to them.
+ * the ACP Skills skill-run surface, minus the runtime mode selector: a Pi
+ * Skill Run's execution mode is immutable after admission. The versioned
+ * multi-question interaction flow adds draft/submit/decline.
  */
-export type PiSkillRunsAction = AcpSkillsAction;
+export type PiSkillRunsAction =
+  | Exclude<AcpSkillsAction, "set-mode">
+  | PiSkillRunsOnlyAction;
 
 // ---------------------------------------------------------------------------
 // Out-of-band control-plane payloads (ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS)
@@ -592,7 +613,8 @@ export type _AssistantActionSubsetCoverageGuard = AssistantActionContractAssert<
     | AcpSkillsOnlyAction
     | AcpSharedAction
     | SkillrunnerOnlyAction
-    | PiConversationsOnlyAction,
+    | PiConversationsOnlyAction
+    | PiSkillRunsOnlyAction,
     keyof AssistantWorkspaceActionPayloadMap
   >
 >;

@@ -536,6 +536,61 @@ describe("workflow execution seams", function () {
     });
   });
 
+  it("Workflow Job Terminal Resolution reads built-in Pi owner projections", function () {
+    const requestId = "resolution-pi-request";
+    const job = {
+      id: "job-pi",
+      state: "running",
+      request: { kind: "skillrunner.job.v1" },
+      result: { status: "deferred", requestId },
+      meta: { backendId: "builtin-pi", backendType: "builtin-pi", requestId },
+    };
+    const resolve = (projection?: {
+      status: string;
+      error?: string;
+      applyState?: string;
+      applyError?: string;
+    }) =>
+      resolveWorkflowJobTerminalResolution({
+        queue: { getJob: () => job } as any,
+        workflowRunId: "run-pi",
+        jobId: job.id,
+        resolvePiProviderProjection: () => projection as never,
+      });
+
+    assert.deepEqual(resolve(undefined), {
+      kind: "pending",
+      slotStatus: "unobserved",
+    });
+    assert.deepEqual(resolve({ status: "waiting_user" }), {
+      kind: "pending",
+      slotStatus: "waiting_user",
+    });
+    assert.deepEqual(resolve({ status: "failed", error: "boom" }), {
+      kind: "canonical-ready",
+      slotStatus: "failed",
+      outcome: { terminalState: "failed", requestId, reason: "boom" },
+    });
+    assert.deepEqual(resolve({ status: "recovery_required" }), {
+      kind: "canonical-ready",
+      slotStatus: "failed",
+      outcome: {
+        terminalState: "failed",
+        requestId,
+        reason: "skill_run_recovery_required",
+      },
+    });
+    assert.deepEqual(resolve({ status: "succeeded", applyState: "succeeded" }), {
+      kind: "canonical-ready",
+      slotStatus: "succeeded",
+      outcome: { terminalState: "succeeded", requestId },
+    });
+    assert.deepEqual(resolve({ status: "succeeded" }), {
+      kind: "pending",
+      slotStatus: "succeeded",
+    });
+  });
+
   it("Workflow Job Terminal Resolution reads SkillRunner request and run-key evidence", function () {
     const backendId = "resolution-skillrunner-backend";
     const workflowRunId = "run-skillrunner";
@@ -5841,5 +5896,53 @@ describe("workflow execution seams", function () {
       await discardAcpRuntimeSemanticTracePartialForTests();
       setDebugModeOverrideForTests();
     }
+  });
+
+  it("carries the invocation source window to built-in Pi provider dispatch", async function () {
+    const sourceWindow = { id: "invocation-window" };
+    let captured: Record<string, unknown> | undefined;
+    const runState = runWorkflowExecutionSeam(
+      {
+        prepared: {
+          workflow: {
+            manifest: {
+              id: "seam-builtin-pi-origin-window",
+              label: "Seam Built-in Pi Origin Window",
+              provider: "skillrunner",
+            },
+          } as any,
+          requests: [{ kind: "skillrunner.job.v1", skill_id: "deterministic" }],
+          skillDisplayById: {},
+          candidateSkipped: 0,
+          executionContext: {
+            providerId: "builtin-pi",
+            requestKind: "skillrunner.job.v1",
+            providerOptions: { engine: "deterministic" },
+            backend: {
+              id: "builtin-pi",
+              type: "builtin-pi",
+              baseUrl: "local://builtin-pi",
+            },
+            sourceWindow,
+          },
+        },
+      },
+      {
+        executeWithProvider: async ({ providerOptions }) => {
+          captured = providerOptions as Record<string, unknown>;
+          return {
+            status: "succeeded",
+            requestId: "pi-origin-window",
+            fetchType: "result",
+            resultJson: {},
+            responseJson: {},
+          };
+        },
+      },
+    );
+    await runState.idlePromise;
+    assert.isOk(captured, "provider dispatch should have run");
+    assert.equal(captured?.originWindow, sourceWindow);
+    assert.equal(captured?.engine, "deterministic");
   });
 });

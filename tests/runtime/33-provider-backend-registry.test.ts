@@ -21,6 +21,7 @@ import { workflowsPath } from "../zotero/workflow-test-utils";
 import {
   ACP_PROMPT_REQUEST_KIND,
   ACP_SKILL_RUN_REQUEST_KIND,
+  BUILTIN_PI_BACKEND_ID,
   GENERIC_HTTP_BACKEND_TYPE,
   PASS_THROUGH_BACKEND_TYPE,
   PASS_THROUGH_REQUEST_KIND,
@@ -59,6 +60,9 @@ describe("provider/backend registry", function () {
   let prevBackendsConfigPref: unknown;
   let prevEndpointPref: unknown;
   let prevWorkflowSettingsPref: unknown;
+
+  const userBackends = (backends: Array<{ id: string }>) =>
+    backends.filter((entry) => entry.id !== BUILTIN_PI_BACKEND_ID);
 
   function setBackendsConfig(configValue: unknown) {
     Zotero.Prefs.set(backendsConfigPrefKey, JSON.stringify(configValue), true);
@@ -156,7 +160,7 @@ describe("provider/backend registry", function () {
 
     const loaded = await loadBackendsRegistry();
     assert.isUndefined(loaded.fatalError);
-    assert.lengthOf(loaded.backends, 1);
+    assert.lengthOf(userBackends(loaded.backends), 1);
     const matched = loaded.backends.find(
       (entry) => entry.id === "skillrunner-primary",
     );
@@ -241,7 +245,7 @@ describe("provider/backend registry", function () {
 
     const loaded = await loadBackendsRegistry();
     assert.isUndefined(loaded.fatalError);
-    assert.lengthOf(loaded.backends, 1);
+    assert.lengthOf(userBackends(loaded.backends), 1);
     const matched = loaded.backends.find(
       (entry) => entry.id === "acp-opencode-dev",
     );
@@ -331,7 +335,7 @@ describe("provider/backend registry", function () {
     const loaded = await loadBackendsRegistry();
 
     assert.isUndefined(loaded.fatalError);
-    assert.lengthOf(loaded.backends, 1);
+    assert.lengthOf(userBackends(loaded.backends), 1);
     assert.equal(loaded.backends[0].id, "acp-opencode");
     assert.equal(loaded.backends[0].command, "npx");
     assert.deepEqual(loaded.backends[0].args, ["opencode-ai@latest", "acp"]);
@@ -1335,7 +1339,7 @@ describe("provider/backend registry", function () {
     const backends = await listBackendsForWorkflow(workflow);
     assert.sameMembers(
       Array.from(new Set(backends.map((entry) => entry.type))),
-      ["skillrunner", "acp"],
+      ["skillrunner", "acp", "builtin-pi"],
     );
 
     const skillrunnerBackend = await resolveBackendForWorkflow(workflow, {
@@ -1499,17 +1503,211 @@ describe("provider/backend registry", function () {
     assert.match(String(thrown), /is invalid|Unknown backendId/);
   });
 
-  it("does not auto-create default backends when backend prefs are empty", async function () {
+  it("does not persist default backends when backend prefs are empty", async function () {
     Zotero.Prefs.clear(backendsConfigPrefKey, true);
     Zotero.Prefs.set(endpointPrefKey, "http://127.0.0.1:18030", true);
 
     const loaded = await loadBackendsRegistry();
     assert.isUndefined(loaded.fatalError);
-    assert.deepEqual(loaded.backends, []);
+    assert.deepEqual(
+      loaded.backends.map((entry) => entry.id),
+      [BUILTIN_PI_BACKEND_ID],
+    );
 
     const persisted = readPersistedBackendsConfig();
     assert.equal(persisted.schemaVersion, 2);
     assert.deepEqual(persisted.backends || [], []);
+  });
+
+  it("exposes the canonical synthetic built-in Pi backend without credentials", async function () {
+    Zotero.Prefs.clear(backendsConfigPrefKey, true);
+
+    const loaded = await loadBackendsRegistry();
+    const builtinPi = loaded.backends.find(
+      (entry) => entry.id === BUILTIN_PI_BACKEND_ID,
+    );
+    assert.isOk(builtinPi);
+    assert.equal(builtinPi?.type, "builtin-pi");
+    assert.equal(builtinPi?.baseUrl, "local://builtin-pi");
+    assert.isUndefined(builtinPi?.auth);
+    assert.isUndefined(builtinPi?.management_auth);
+    assert.isUndefined(builtinPi?.env);
+
+    const persisted = readPersistedBackendsConfig();
+    assert.notInclude(
+      (persisted.backends || []).map((entry) => String(entry.id || "")),
+      BUILTIN_PI_BACKEND_ID,
+    );
+  });
+
+  it("canonicalizes a persisted built-in Pi entry instead of trusting its fields", async function () {
+    setBackendsConfig({
+      schemaVersion: 2,
+      backends: [
+        {
+          id: BUILTIN_PI_BACKEND_ID,
+          type: "builtin-pi",
+          baseUrl: "https://example.invalid",
+          auth: { kind: "bearer", token: "secret" },
+        },
+      ],
+    });
+
+    const loaded = await loadBackendsRegistry();
+    const builtinPi = loaded.backends.filter(
+      (entry) => entry.id === BUILTIN_PI_BACKEND_ID,
+    );
+    assert.lengthOf(builtinPi, 1);
+    assert.equal(builtinPi[0].baseUrl, "local://builtin-pi");
+    assert.isUndefined(builtinPi[0].auth);
+  });
+
+  it("resolves the built-in Pi provider for skillrunner.job.v1 only", function () {
+    const backend = {
+      id: BUILTIN_PI_BACKEND_ID,
+      type: "builtin-pi" as const,
+      baseUrl: "local://builtin-pi",
+    };
+    const provider = resolveProvider({
+      requestKind: "skillrunner.job.v1",
+      backend,
+    });
+    assert.equal(provider.id, "builtin-pi");
+    assert.throws(
+      () =>
+        resolveProvider({ requestKind: "skillrunner.sequence.v1", backend }),
+      /backend_type_mismatch|provider_backend_mismatch/i,
+    );
+  });
+
+  it("delegates built-in Pi mode admission to the owner but rejects malformed SkillRunner mode", async function () {
+    const originalProvider = resolveProviderById("builtin-pi");
+    let builtinPiCalls = 0;
+    const stubProvider: Provider = {
+      id: "builtin-pi",
+      supports: ({ requestKind, backend }) =>
+        backend.type === "builtin-pi" && requestKind === "skillrunner.job.v1",
+      execute: async () => {
+        builtinPiCalls += 1;
+        return {
+          status: "failed" as const,
+          requestId: "stub-builtin-pi",
+          fetchType: "result" as const,
+          error: "invalid_execution_mode",
+        };
+      },
+    };
+    const backend = {
+      id: BUILTIN_PI_BACKEND_ID,
+      type: "builtin-pi" as const,
+      baseUrl: "local://builtin-pi",
+    };
+    registerProvider(stubProvider);
+    try {
+      const missingMode = await executeWithProvider({
+        requestKind: "skillrunner.job.v1",
+        request: { kind: "skillrunner.job.v1", skill_id: "deterministic" },
+        backend,
+      });
+      assert.equal(missingMode.status, "failed");
+      assert.equal(builtinPiCalls, 1);
+
+      // A malformed explicit mode must still reach the owner so it can create
+      // the early durable owner and seal a structured failure.
+      const malformed = await executeWithProvider({
+        requestKind: "skillrunner.job.v1",
+        request: {
+          kind: "skillrunner.job.v1",
+          skill_id: "deterministic",
+          runtime_options: { execution_mode: "manual" },
+        },
+        backend,
+      });
+      assert.equal(malformed.status, "failed");
+      assert.equal(builtinPiCalls, 2);
+    } finally {
+      registerProvider(originalProvider);
+    }
+
+    // External SkillRunner keeps rejecting a malformed mode before dispatch.
+    const originalSkillRunner = resolveProviderById("skillrunner");
+    let skillRunnerCalls = 0;
+    registerProvider({
+      id: "skillrunner",
+      supports: ({ requestKind, backend }) =>
+        backend.type === "skillrunner" && requestKind === "skillrunner.job.v1",
+      execute: async () => {
+        skillRunnerCalls += 1;
+        return {
+          status: "succeeded" as const,
+          requestId: "stub-skillrunner",
+          fetchType: "result" as const,
+          resultJson: {},
+          responseJson: {},
+        };
+      },
+    });
+    try {
+      let thrown: unknown;
+      try {
+        await executeWithProvider({
+          requestKind: "skillrunner.job.v1",
+          request: {
+            kind: "skillrunner.job.v1",
+            skill_id: "deterministic",
+            runtime_options: { execution_mode: "manual" },
+          },
+          backend: {
+            id: "skillrunner-primary",
+            type: "skillrunner",
+            baseUrl: "http://127.0.0.1:8030",
+            auth: { kind: "none" },
+          },
+        });
+      } catch (error) {
+        thrown = error;
+      }
+      assert.instanceOf(thrown, ProviderRequestContractError);
+      assert.equal(
+        (thrown as ProviderRequestContractError).reason,
+        "invalid_request_payload",
+      );
+      assert.equal(
+        skillRunnerCalls,
+        0,
+        "provider.execute should not be called",
+      );
+    } finally {
+      registerProvider(originalSkillRunner);
+    }
+  });
+
+  it("offers the built-in Pi backend only to SkillRunner job workflows", async function () {
+    setBackendsConfig({ schemaVersion: 2, backends: [] });
+
+    const jobWorkflow = buildWorkflow({
+      id: "skillrunner-job-pi-compatible",
+      provider: "skillrunner",
+      requestKind: "skillrunner.job.v1",
+    });
+    const jobBackends = await listBackendsForWorkflow(jobWorkflow);
+    assert.include(
+      jobBackends.map((entry) => entry.type),
+      "builtin-pi",
+    );
+    const resolved = await resolveBackendForWorkflow(jobWorkflow);
+    assert.equal(resolved.id, BUILTIN_PI_BACKEND_ID);
+
+    const sequenceWorkflow = buildWorkflow({
+      id: "skillrunner-sequence-no-pi",
+      provider: "skillrunner",
+      requestKind: "skillrunner.sequence.v1",
+    });
+    const sequenceBackends = await listBackendsForWorkflow(sequenceWorkflow);
+    assert.notInclude(
+      sequenceBackends.map((entry) => entry.type),
+      "builtin-pi",
+    );
   });
 
   it("rejects ACP workflows from workflow execution context resolution", async function () {

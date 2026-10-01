@@ -4435,11 +4435,11 @@ describe("ACP SkillRunner-compatible runner", function () {
         sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
       },
     });
-    const response = result.responseJson as {
-      requestedSkillProxyPath?: string;
-    };
     const proxySkillMd = await fs.readFile(
-      path.join(response.requestedSkillProxyPath || "", "SKILL.md"),
+      path.join(
+        getAcpSkillRunRecord(result.requestId)?.requestedSkillProxyPath || "",
+        "SKILL.md",
+      ),
       "utf8",
     );
     assert.include(proxySkillMd, "Output schema path:");
@@ -5156,9 +5156,10 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.notInclude(promptMessages[0], "Do not search MCP configuration");
     assert.include(promptMessages[0], "demo-skill");
     assert.notInclude(promptMessages[0], "[Zotero Host Bridge CLI]");
-    const response = result.responseJson as {
-      workspaceDir?: string;
-      sharedSkillCatalogPath?: string;
+    const preparedRun = getAcpSkillRunRecord(result.requestId);
+    const response = {
+      workspaceDir: (result as { workspaceDir?: string }).workspaceDir,
+      sharedSkillCatalogPath: preparedRun?.sharedSkillCatalogPath,
     };
     const runInstructions = await fs.readFile(
       path.join(response.workspaceDir || "", "AGENTS.md"),
@@ -5296,7 +5297,9 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.isFalse(hostBridgeInjectionCalled);
     assert.notProperty(launchedBackend?.env || {}, "ZOTERO_BRIDGE_PROFILE");
     assert.notInclude(promptMessages[0] || "", "[Zotero Host Bridge CLI]");
-    const response = result.responseJson as { workspaceDir?: string };
+    const response = {
+      workspaceDir: (result as { workspaceDir?: string }).workspaceDir,
+    };
     let bridgeDirExists = true;
     try {
       await fs.stat(path.join(response.workspaceDir || "", ".zotero-bridge"));
@@ -12901,28 +12904,31 @@ describe("ACP SkillRunner-compatible runner", function () {
           launchedNestedArgs.includes("-Command"),
       );
     }
-    const response = result.responseJson as {
-      skillRoots?: string[];
-      runtimeDependencies?: string[];
-      resultResolution?: string;
-      resultJsonPath?: string;
-      workspaceDir?: string;
-      sharedSkillCatalogPath?: string;
-      proxySkillCount?: number;
-      proxySkillRoots?: string[];
-      requestedSkillProxyPath?: string;
-      runExecutionInstructionsPath?: string;
+    const preparedRun = getAcpSkillRunRecord(result.requestId);
+    const response = {
+      workspaceDir: (result as { workspaceDir?: string }).workspaceDir,
+      requestedSkillProxyPath: preparedRun?.requestedSkillProxyPath,
     };
-    assert.deepEqual(response.runtimeDependencies, ["pandas"]);
-    assert.equal(response.resultResolution, "workflow-result-context");
-    assert.isString(response.resultJsonPath);
-    assert.isString(response.workspaceDir);
-    assert.isAtLeast(response.skillRoots?.length || 0, 1);
-    assert.isString(response.sharedSkillCatalogPath);
-    assert.equal(response.proxySkillCount, 2);
-    assert.isAtLeast(response.proxySkillRoots?.length || 0, 1);
-    assert.isString(response.requestedSkillProxyPath);
-    assert.isString(response.runExecutionInstructionsPath);
+    assert.deepEqual(preparedRun?.runtimeDependencies, ["pandas"]);
+    assert.equal(
+      (result.responseJson as { result?: { resolution?: string } }).result
+        ?.resolution,
+      "workflow-result-context",
+    );
+    assert.isString((result as { resultJsonPath?: string }).resultJsonPath);
+    assert.isString((result as { workspaceDir?: string }).workspaceDir);
+    assert.isAtLeast(preparedRun?.skillRoots?.length || 0, 1);
+    assert.isString(preparedRun?.sharedSkillCatalogPath);
+    assert.equal(preparedRun?.proxySkillCount, 2);
+    assert.isAtLeast(preparedRun?.proxySkillRoots?.length || 0, 1);
+    assert.isString(preparedRun?.requestedSkillProxyPath);
+    assert.isString(
+      (
+        preparedRun?.events.find(
+          (entry) => entry.stage === "run-instructions-materialized",
+        )?.details as { path?: string } | undefined
+      )?.path,
+    );
     assert.include(
       promptMessages[0] || "",
       "[Zotero Agents ACP Skills startup context]",
@@ -13272,11 +13278,11 @@ describe("ACP SkillRunner-compatible runner", function () {
       hint: "Choose an option or type a reply.",
       options: ["Please finish."],
     });
-    const pendingResponse = result.responseJson as {
-      requestedSkillProxyPath?: string;
-    };
     const pendingProxySkillMd = await fs.readFile(
-      path.join(pendingResponse.requestedSkillProxyPath || "", "SKILL.md"),
+      path.join(
+        getAcpSkillRunRecord(result.requestId)?.requestedSkillProxyPath || "",
+        "SKILL.md",
+      ),
       "utf8",
     );
     assert.include(pendingProxySkillMd, "## Execution Mode: INTERACTIVE");

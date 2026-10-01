@@ -464,21 +464,24 @@ describe("assistant workspace lane/source registry", function () {
     );
   });
 
-  it("keeps pi-skill-runs navigation unavailable until its adapter lands", function () {
-    assert.isFalse(
-      ASSISTANT_WORKSPACE_SOURCE_REGISTRY["pi-skill-runs"].navigable,
-    );
+  it("navigates every source once its adapter has landed", function () {
+    // C17 enables the pi-skill-runs adapter; every declared source is now
+    // reachable from its lane.
     assert.deepEqual(listNavigableAssistantWorkspaceLaneSources("skill-runs"), [
+      "pi-skill-runs",
       "acp-skills",
       "skillrunner",
     ]);
     for (const sourceId of SOURCE_IDS) {
-      if (sourceId === "pi-skill-runs") continue;
       assert.isTrue(
         ASSISTANT_WORKSPACE_SOURCE_REGISTRY[sourceId].navigable,
         sourceId,
       );
     }
+    // Pi Skill Runs never expose a New action.
+    assert.isFalse(
+      ASSISTANT_WORKSPACE_SOURCE_REGISTRY["pi-skill-runs"].canCreateOwner,
+    );
   });
 
   it("binds every registry action list to the action registry sources", function () {

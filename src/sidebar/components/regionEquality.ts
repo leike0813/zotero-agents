@@ -116,6 +116,9 @@ export function replyStructuralSignature(panel: ReplyPanelLike): unknown {
     clearOnSend: reply.clearOnSend !== false,
     showUsageGauge: reply.showUsageGauge === true,
     controls: Array.isArray(reply.controls) ? reply.controls : [],
+    // Entering/leaving the versioned multi-question interaction flow swaps
+    // the composer shell, so it belongs to the structural tier.
+    interactionFlow: asRecord(reply.interactionBatch) !== null,
   };
 }
 
@@ -142,6 +145,9 @@ export function replyRegionEqualityInput(panel: ReplyPanelLike): unknown {
         typeof reply.sendAdmissionRevision === "number"
           ? reply.sendAdmissionRevision
           : null,
+      // The batch content drives the one-question flow; every draft/revision
+      // update must re-render the Reply region (and only that region).
+      interactionBatch: reply.interactionBatch ?? null,
     },
   };
 }

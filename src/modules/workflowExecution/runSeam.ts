@@ -404,10 +404,12 @@ function observeWorkflowRunTerminal(args: {
     let removeSkillRunnerSubscription: () => void = () => {};
     let removeAcpSubscription: () => void = () => {};
     let removeSequenceSubscription: () => void = () => {};
+    let removeBuiltinPiSubscription: () => void = () => {};
     const cleanup = () => {
       removeSkillRunnerSubscription();
       removeAcpSubscription();
       removeSequenceSubscription();
+      removeBuiltinPiSubscription();
     };
     const settle = () => {
       if (settled) {
@@ -465,6 +467,25 @@ function observeWorkflowRunTerminal(args: {
         }
       },
     );
+    // Built-in Pi Skill Runs seal in the owner; the Workflow owns apply, so a
+    // seal must re-drive terminal resolution instead of orphaning the run.
+    void import("../../modules/piSkillRun")
+      .then((module) => {
+        if (settled) {
+          return;
+        }
+        const subscribe = (
+          module as {
+            subscribePiSkillRunChanges?: (
+              listener: (change: unknown) => void,
+            ) => () => void;
+          }
+        ).subscribePiSkillRunChanges;
+        if (typeof subscribe === "function") {
+          removeBuiltinPiSubscription = subscribe(() => check());
+        }
+      })
+      .catch(() => undefined);
     void args.idlePromise.then(check, check);
     check();
   });
@@ -666,7 +687,12 @@ export function runWorkflowExecutionSeam(
         requestKind: args.prepared.executionContext.requestKind,
         request: job.request,
         backend: args.prepared.executionContext.backend,
-        providerOptions: args.prepared.executionContext.providerOptions,
+        providerOptions: {
+          ...(args.prepared.executionContext.providerOptions || {}),
+          ...(args.prepared.executionContext.sourceWindow
+            ? { originWindow: args.prepared.executionContext.sourceWindow }
+            : {}),
+        },
         orchestrationContext,
         onProgress: (event) => {
           runtime.reportProgress(event);

@@ -50,6 +50,7 @@ export type AcpSkillOutputValidationResult = {
   resultJson?: unknown;
   errors: string[];
   schemaPath?: string;
+  artifactPaths?: string[];
 };
 
 export async function validateAcpSkillFinalPayload(args: {
@@ -57,6 +58,9 @@ export async function validateAcpSkillFinalPayload(args: {
   runnerJson: Record<string, unknown>;
   primarySkillDir: string;
   workspaceDir?: string;
+  /** Frozen output Schema from a Prepared Skill Run snapshot; skips discovery. */
+  outputSchema?: unknown;
+  outputSchemaPath?: string;
   readArtifactText?: (path: string) => Promise<string> | string;
 }): Promise<AcpSkillOutputValidationResult> {
   const resultJson = args.payload;
@@ -71,42 +75,55 @@ export async function validateAcpSkillFinalPayload(args: {
       errors: ["final output must be a JSON object"],
     };
   }
-  const resolution = await resolveAcpSkillSchemaAsset({
-    runnerJson: args.runnerJson,
-    skillDir: args.primarySkillDir,
-    schemaKey: "output",
-  });
-  const schemaPath = resolution.path || "";
-  if (!schemaPath) {
-    return {
-      ok: false,
-      resultJson,
-      errors: [
-        `output schema is missing: ${
-          resolution.fallbackRelpath ||
-          resolution.declaredRelpath ||
-          "assets/output.schema.json"
-        }`,
-      ],
-    };
-  }
   let schema: unknown;
-  try {
-    schema = await loadResolvedAcpSkillJson(resolution);
+  let schemaPath: string;
+  if (typeof args.outputSchema !== "undefined") {
+    schema = args.outputSchema;
+    schemaPath = args.outputSchemaPath || "";
     if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
-      throw new Error("output schema must be a JSON object");
+      return {
+        ok: false,
+        resultJson,
+        errors: ["output schema must be a JSON object"],
+      };
     }
-  } catch (error) {
-    return {
-      ok: false,
-      resultJson,
-      schemaPath,
-      errors: [
-        `output schema is missing or invalid JSON: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      ],
-    };
+  } else {
+    const resolution = await resolveAcpSkillSchemaAsset({
+      runnerJson: args.runnerJson,
+      skillDir: args.primarySkillDir,
+      schemaKey: "output",
+    });
+    schemaPath = resolution.path || "";
+    if (!schemaPath) {
+      return {
+        ok: false,
+        resultJson,
+        errors: [
+          `output schema is missing: ${
+            resolution.fallbackRelpath ||
+            resolution.declaredRelpath ||
+            "assets/output.schema.json"
+          }`,
+        ],
+      };
+    }
+    try {
+      schema = await loadResolvedAcpSkillJson(resolution);
+      if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
+        throw new Error("output schema must be a JSON object");
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        resultJson,
+        schemaPath,
+        errors: [
+          `output schema is missing or invalid JSON: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        ],
+      };
+    }
   }
   const ajv = new Ajv({ allErrors: true, strict: false, logger: false });
   const validate = ajv.compile(schema as Parameters<typeof ajv.compile>[0]);
@@ -140,6 +157,7 @@ export async function validateAcpSkillFinalPayload(args: {
       resultJson,
       schemaPath,
       errors: [],
+      artifactPaths: artifactValidation.paths,
     };
   }
   return {

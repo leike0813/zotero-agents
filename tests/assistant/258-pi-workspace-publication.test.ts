@@ -4,10 +4,18 @@ import path from "node:path";
 import { assert } from "chai";
 
 import { createPiConversationCoordinator } from "../../src/modules/piConversation";
+import { createPiSkillRunCoordinator } from "../../src/modules/piSkillRun";
 import {
   createPiConversationWorkspaceOwner,
   createPiConversationWorkspaceSurfaceAdapter,
 } from "../../src/modules/piConversationWorkspaceSurface";
+import {
+  createPiSkillRunsWorkspaceOwner,
+  createPiSkillRunsWorkspaceSurfaceAdapter,
+  PI_SKILL_RUN_CHANGE_PUBLICATION_MAPPING,
+} from "../../src/modules/piSkillRunWorkspaceSurface";
+import { mapWorkspaceChangeKindsToPublicationKinds } from "../../src/modules/assistant/workspace/assistantWorkspaceSurfaceSkeleton";
+import type { ProviderExecuteArgs } from "../../src/providers/types";
 import {
   ASSISTANT_WORKSPACE_ACTION_REGISTRY,
   assertAssistantWorkspacePublication,
@@ -31,6 +39,8 @@ import {
   type AssistantWorkspaceSourceId,
 } from "../../src/shared/assistantWorkspaceSourceRegistry";
 import type { PiModelSelectionSnapshot } from "../../src/shared/piProviderContract";
+import { getPref, setPref } from "../../src/utils/prefs";
+import { upsertPiProviderConfiguration } from "../../src/modules/piProviderConfiguration";
 
 const SOURCE_IDS: AssistantWorkspaceSourceId[] = [
   "pi-conversations",
@@ -147,6 +157,7 @@ describe("Pi Conversation workspace publication", function () {
       "skillrunner",
     );
     assert.deepEqual(listNavigableAssistantWorkspaceLaneSources("skill-runs"), [
+      "pi-skill-runs",
       "acp-skills",
       "skillrunner",
     ]);
@@ -444,5 +455,399 @@ describe("Pi Conversation workspace publication", function () {
     assert.equal(byField.get("usage-title"), "20");
 
     await coordinator.dispose();
+  });
+});
+
+describe("Pi Skill Run workspace publication", function () {
+  this.timeout(30_000);
+
+  let root: string;
+  let prior: string | undefined;
+
+  beforeEach(async function () {
+    root = await fs.mkdtemp(path.join(os.tmpdir(), "pi-skill-run-surface-"));
+    prior = process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
+    process.env.ZOTERO_SKILLS_RUNTIME_ROOT = root;
+    resetPluginStateStoreForTests();
+    installPluginStateNodeSqliteAdapter();
+  });
+
+  afterEach(async function () {
+    resetPluginStateStoreForTests();
+    if (prior === undefined) delete process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
+    else process.env.ZOTERO_SKILLS_RUNTIME_ROOT = prior;
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
+  const request = (): ProviderExecuteArgs => ({
+    requestKind: "skillrunner.job.v1",
+    request: { kind: "skillrunner.job.v1", skill_id: "deterministic" },
+    backend: {
+      id: "builtin-pi",
+      type: "builtin-pi",
+      baseUrl: "local://builtin-pi",
+    },
+    orchestrationContext: { workflowId: "test-workflow", jobId: "test-job" },
+  });
+
+  it("publishes navigation, every region and a page-first transcript", async function () {
+    const coordinator = createPiSkillRunCoordinator({
+      root,
+      prepare: async () => {
+        throw new Error("preparation failed");
+      },
+      execution: () => {
+        throw new Error("must not dispatch");
+      },
+    });
+    const adapter = createPiSkillRunsWorkspaceSurfaceAdapter(coordinator);
+    const result = await coordinator.execute(request());
+    assert.equal(result.status, "failed");
+    await coordinator.select(result.requestId);
+    const owner = createPiSkillRunsWorkspaceOwner(result.requestId);
+    assert.deepEqual(adapter.selectedOwner(), owner);
+
+    const navigation = await adapter.readOwnerNavigation();
+    assert.equal(navigation.selectedOwner?.requestId, result.requestId);
+    assert.lengthOf(navigation.entries, 1);
+    assert.equal(navigation.entries[0].owner.requestId, result.requestId);
+    assert.isFalse(navigation.canCreateOwner);
+    assert.isTrue(navigation.entries[0].canArchive);
+    assert.equal(navigation.entries[0].attention, null);
+    assert.equal(publicationError(owner, "owner-navigation", navigation), null);
+
+    const regions = await adapter.readOwnerRegions({
+      owner,
+      kinds: REGION_KINDS,
+    });
+    const failures = REGION_KINDS.map((kind) => {
+      const payload = regions[kind];
+      if (!payload) return kind + ": missing region payload";
+      return publicationError(owner, kind, payload);
+    }).filter((value): value is string => value !== null);
+    assert.deepEqual(failures, []);
+    assert.deepEqual(regions["owner-details"]!.actions, ["copy-id"]);
+    // Execution mode is immutable after admission, so no mode selector ships.
+    assert.deepEqual(regions.composer!.runtimeOptions.mode, {
+      enabled: false,
+      selectedOptionId: null,
+      options: [],
+    });
+    assert.isNull(regions.composer!.interactionBatch ?? null);
+
+    const region = await adapter.readTranscriptPage({
+      owner,
+      request: { cursor: null, limit: 50 },
+    });
+    assert.equal(region.status, "ready");
+    assert.equal(region.owner.ownerKey, result.requestId);
+
+    await coordinator.archive(result.requestId);
+    assert.lengthOf((await adapter.readOwnerNavigation()).entries, 0);
+  });
+
+  it("maps change kinds so a draft-only update repaints the composer alone", function () {
+    assert.deepEqual(
+      mapWorkspaceChangeKindsToPublicationKinds(
+        PI_SKILL_RUN_CHANGE_PUBLICATION_MAPPING,
+        ["resources"],
+      ),
+      ["composer"],
+    );
+    assert.deepEqual(
+      mapWorkspaceChangeKindsToPublicationKinds(
+        PI_SKILL_RUN_CHANGE_PUBLICATION_MAPPING,
+        ["transcript"],
+      ),
+      ["transcript"],
+    );
+  });
+
+  it("maps select and terminal callbacks into owner-first publications", async function () {
+    const coordinator = createPiSkillRunCoordinator({
+      root,
+      prepare: async () => {
+        throw new Error("preparation failed");
+      },
+      execution: () => {
+        throw new Error("must not dispatch");
+      },
+    });
+    const adapter = createPiSkillRunsWorkspaceSurfaceAdapter(coordinator);
+    const changes: Parameters<typeof adapter.mapChange>[0][] = [];
+    coordinator.subscribe((change) => changes.push(change));
+    const result = await coordinator.execute(request());
+
+    await coordinator.select(result.requestId);
+    const selected = changes.find((change) =>
+      change.kinds.includes("navigation"),
+    )!;
+    const selectedMapping = adapter.mapChange(selected);
+    assert.isTrue(selectedMapping.targetsActiveOwner);
+    assert.include(selectedMapping.publicationKinds, "owner-navigation");
+
+    await coordinator.archive(result.requestId);
+    const archived = changes[changes.length - 1];
+    const archivedMapping = adapter.mapChange(archived);
+    assert.include(archivedMapping.publicationKinds, "owner-navigation");
+    assert.equal(adapter.selectedOwner(), null);
+  });
+
+  it("publishes the interaction only through the versioned composer batch", async function () {
+    const coordinator = createPiSkillRunCoordinator({
+      root,
+      prepare: async () => {
+        throw new Error("preparation failed");
+      },
+      execution: () => {
+        throw new Error("must not dispatch");
+      },
+    });
+    const adapter = createPiSkillRunsWorkspaceSurfaceAdapter(coordinator);
+    const result = await coordinator.execute(request());
+    const owner = createPiSkillRunsWorkspaceOwner(result.requestId);
+    const original = await coordinator.readModel(result.requestId);
+    const question = (over: Record<string, unknown> = {}) => ({
+      questionId: "q1",
+      toolCallId: "call-1",
+      callIndex: 0,
+      questionIndex: 0,
+      kind: "text",
+      prompt: "Which library?",
+      header: null,
+      hint: null,
+      required: true,
+      options: [],
+      files: [],
+      ...over,
+    });
+    const batchOf = (questions: ReturnType<typeof question>[]) => ({
+      schema: "zotero-agents.user-interaction-batch.v1",
+      batchId: "batch-1",
+      ownerKey: result.requestId,
+      turnId: "turn-1",
+      assistantMessageId: "message-1",
+      status: "collecting",
+      revision: 0,
+      calls: [
+        {
+          toolCallId: "call-1",
+          callIndex: 0,
+          questionIds: questions.map((entry) => entry.questionId),
+        },
+      ],
+      questions,
+      draftAnswers: {},
+    });
+    const mutable = coordinator as unknown as {
+      readModel: (requestId: string) => Promise<unknown>;
+    };
+    const readWithBatch = async (batch: unknown) => {
+      mutable.readModel = async () => ({
+        ...original,
+        status: "waiting_user",
+        interactionBatch: batch,
+      });
+      const regions = await adapter.readOwnerRegions({
+        owner,
+        kinds: ["owner-control", "composer"],
+      });
+      return {
+        interaction: regions["owner-control"]!.interaction,
+        composerBatch: regions.composer!.interactionBatch ?? null,
+      };
+    };
+
+    // The versioned batch is the single source of truth: no shape (single
+    // question, several questions, multi-select) is downgraded into the
+    // singular legacy DTO, so the Reply region is the only presenter.
+    const single = await readWithBatch(batchOf([question()]));
+    assert.isNull(single.interaction);
+    assert.isNotNull(single.composerBatch);
+
+    const multi = await readWithBatch(
+      batchOf([
+        question(),
+        question({ questionId: "q2", questionIndex: 1, kind: "confirm" }),
+      ]),
+    );
+    assert.isNull(multi.interaction);
+    assert.isNotNull(multi.composerBatch);
+
+    const multiSelect = await readWithBatch(
+      batchOf([
+        question({
+          kind: "multi_select",
+          options: [
+            { optionId: "o1", label: "A", value: "a", description: null },
+            { optionId: "o2", label: "B", value: "b", description: null },
+          ],
+        }),
+      ]),
+    );
+    assert.isNull(multiSelect.interaction);
+    assert.isNotNull(multiSelect.composerBatch);
+  });
+
+  it("keeps model controls available while waiting or suspended, never running", async function () {
+    const coordinator = createPiSkillRunCoordinator({
+      root,
+      prepare: async () => {
+        throw new Error("preparation failed");
+      },
+      execution: () => {
+        throw new Error("must not dispatch");
+      },
+    });
+    const adapter = createPiSkillRunsWorkspaceSurfaceAdapter(coordinator);
+    const result = await coordinator.execute(request());
+    const owner = createPiSkillRunsWorkspaceOwner(result.requestId);
+    const original = await coordinator.readModel(result.requestId);
+    const mutable = coordinator as unknown as {
+      readModel: (requestId: string) => Promise<unknown>;
+    };
+    const composerFor = async (status: string) => {
+      mutable.readModel = async () => ({ ...original, status });
+      const regions = await adapter.readOwnerRegions({
+        owner,
+        kinds: ["composer"],
+      });
+      return regions.composer!;
+    };
+    const priorConfig = getPref("piProviderConfigurationJson");
+    setPref("piProviderConfigurationJson", "");
+    upsertPiProviderConfiguration({
+      id: "surface-fixture",
+      label: "Fixture",
+      provider: "openai",
+      modelId: "gpt-4.1",
+      authVariant: "api-key",
+      credentialRef: "key",
+      enabled: true,
+    });
+    try {
+      // Execution mode is immutable, so the mode selector never enables.
+      const running = await composerFor("running");
+      assert.isFalse(running.runtimeOptions.mode.enabled);
+      assert.isFalse(running.runtimeOptions.model.enabled);
+      assert.equal(running.reply.status, "busy");
+
+      const suspended = await composerFor("suspended");
+      assert.isTrue(suspended.runtimeOptions.model.enabled);
+      assert.equal(suspended.reply.status, "enabled");
+
+      const waiting = await composerFor("waiting_user");
+      assert.isTrue(waiting.runtimeOptions.model.enabled);
+      // A waiting run is answered through the interaction batch, not the composer.
+      assert.equal(waiting.reply.status, "disabled");
+
+      const terminal = await composerFor("succeeded");
+      assert.isFalse(terminal.runtimeOptions.model.enabled);
+      assert.equal(terminal.reply.status, "disabled");
+    } finally {
+      setPref("piProviderConfigurationJson", priorConfig as string);
+    }
+  });
+
+  it("publishes owner-switch loading before the new run's page and regions resolve", async function () {
+    const coordinator = createPiSkillRunCoordinator({
+      root,
+      prepare: async () => {
+        throw new Error("preparation failed");
+      },
+      execution: () => {
+        throw new Error("must not dispatch");
+      },
+    });
+    const adapter = createPiSkillRunsWorkspaceSurfaceAdapter(coordinator);
+    await coordinator.execute(request());
+    const second = await coordinator.execute(request());
+    await coordinator.select(second.requestId);
+    const owner = createPiSkillRunsWorkspaceOwner(second.requestId);
+
+    const mutable = coordinator as unknown as {
+      readPage: (
+        requestId: string,
+        request?: { cursor?: number | null; limit?: number },
+      ) => Promise<unknown>;
+      readModel: (requestId: string) => Promise<unknown>;
+    };
+    const originalReadPage = mutable.readPage;
+    const originalReadModel = mutable.readModel;
+    let releaseReads!: () => void;
+    const readsGate = new Promise<void>((resolve) => {
+      releaseReads = resolve;
+    });
+    let pageReads = 0;
+    mutable.readPage = async (requestId, request) => {
+      pageReads += 1;
+      await readsGate;
+      return originalReadPage(requestId, request);
+    };
+    mutable.readModel = async (requestId) => {
+      await readsGate;
+      return originalReadModel(requestId);
+    };
+
+    const posts: AssistantWorkspacePublication[] = [];
+    const publicationCoordinator = new AssistantWorkspacePublicationCoordinator(
+      {
+        scopeKey: "pi-skill-run-owner-first",
+        getActiveOwner: () => owner,
+        post: (publication) => {
+          posts.push(publication);
+          if (
+            publication.publicationKind === "transcript" &&
+            (publication.payload as { status?: string }).status === "loading"
+          ) {
+            queueMicrotask(() => {
+              publicationCoordinator.acknowledge({
+                publicationId: publication.publicationId,
+                stage: "render-complete",
+                outcome: "accepted",
+                reason: null,
+                failure: null,
+              });
+            });
+          }
+          return true;
+        },
+      },
+    );
+    const runtime = new AssistantWorkspacePublicationRuntime({
+      coordinator: publicationCoordinator,
+      activity: () => "matching-target",
+    });
+
+    const initialization = runtime.initialize({
+      adapter,
+      context: undefined,
+      cause: "owner-switch",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Owner-first: the switched owner's loading transcript is published before
+    // any canonical page read or read model resolves a ready state.
+    const loadingPosts = posts.filter(
+      (publication) => publication.publicationKind === "transcript",
+    );
+    assert.isAbove(pageReads, 0, "the canonical page read must be entered");
+    assert.lengthOf(loadingPosts, 1);
+    assert.equal(loadingPosts[0].owner?.ownerKey, owner.ownerKey);
+    assert.equal(
+      (loadingPosts[0].payload as { status: string }).status,
+      "loading",
+    );
+
+    releaseReads();
+    await initialization;
+    const transcripts = posts.filter(
+      (publication) => publication.publicationKind === "transcript",
+    );
+    assert.lengthOf(transcripts, 2);
+    assert.equal(
+      (transcripts[1].payload as { status: string }).status,
+      "ready",
+    );
   });
 });

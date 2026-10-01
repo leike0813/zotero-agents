@@ -18,6 +18,13 @@ import type { createPiConversationCoordinator } from "../../piConversation";
 type PiConversationCoordinator = ReturnType<
   typeof createPiConversationCoordinator
 >;
+// Type-only: the Pi Skill Run coordinator is injected through the shell host
+// so this module keeps no runtime edge into the Pi Skill Run graph.
+import type { createPiSkillRunCoordinator } from "../../piSkillRun";
+
+type PiSkillRunCoordinator = ReturnType<typeof createPiSkillRunCoordinator>;
+import { openRuntimeFilePicker } from "../../../platform/filePicker";
+import { getBaseName } from "../../../platform/path";
 import type {
   PiReasoningLevel,
   PiSelection,
@@ -57,6 +64,11 @@ import {
   getAcpSkillRunWorkspaceReadModel,
 } from "../../acp/skillRun/acpSkillRunStore";
 import { deterministicInteractionResponseText } from "../../../shared/assistantInteractionContract";
+import type {
+  AssistantInteractionDeclinePayloadV1,
+  AssistantInteractionDraftPayloadV1,
+  AssistantInteractionSubmitPayloadV1,
+} from "../../../shared/userInteractionContract";
 import {
   ASSISTANT_WORKSPACE_ACTION_REGISTRY,
   createAcpChatWorkspaceOwner,
@@ -127,6 +139,21 @@ export type AssistantWorkspaceActionRouterShellHost = {
   };
   /** Pi Conversation coordinator singleton, injected by the sidebar host. */
   piConversationCoordinator(): PiConversationCoordinator;
+  /**
+   * Pi Skill Run surface adapter, injected by the sidebar shell host. It is
+   * resolved lazily (never imported here) so this module keeps no static edge
+   * to the Pi Skill Run graph.
+   */
+  piSkillRunsSurface(): {
+    adapter: AssistantWorkspacePublicationAdapter<
+      "pi-skill-runs",
+      any,
+      any,
+      any
+    >;
+  };
+  /** Pi Skill Run coordinator singleton, injected by the sidebar host. */
+  piSkillRunCoordinator(): PiSkillRunCoordinator;
   openBackendManager(args: {
     window: _ZoteroTypes.MainWindow;
     initialProviderType: "acp" | "skillrunner" | "pi";
@@ -468,6 +495,14 @@ const WORKSPACE_SURFACE_DISPATCH: {
     },
     context: () => undefined,
   },
+  "pi-skill-runs": {
+    // Deferred for the same reason as "pi-conversations": the Pi Skill Run
+    // adapter is injected by the sidebar shell host after module load.
+    get adapter() {
+      return shellHost.piSkillRunsSurface().adapter;
+    },
+    context: () => undefined,
+  },
   "acp-skills": {
     get adapter() {
       return ACP_SKILLS_WORKSPACE_ADAPTER;
@@ -503,6 +538,38 @@ async function loadTranscriptPageForSource<
     const requestId = pageRequest.owner.requestId;
     const selectedRequestId = getSelectedAcpSkillRunRequestId();
     if (requestId !== selectedRequestId) {
+      shellHost.logAssistantWorkspaceDebug(
+        host,
+        "transcript-page-request-drop-owner-mismatch",
+        "Assistant Workspace transcript page request ignored because its owner is not selected.",
+        {
+          tab: source,
+          ownerKey: pageRequest.owner.ownerKey,
+          selectedRequestId,
+        },
+      );
+      return;
+    }
+  } else if (pageRequest.owner.source === "pi-skill-runs") {
+    const requestId = pageRequest.owner.requestId;
+    const selectedRequestId = shellHost.piSkillRunCoordinator().selectedId;
+    if (!selectedRequestId || requestId !== selectedRequestId) {
+      shellHost.logAssistantWorkspaceDebug(
+        host,
+        "transcript-page-request-drop-owner-mismatch",
+        "Assistant Workspace transcript page request ignored because its owner is not selected.",
+        {
+          tab: source,
+          ownerKey: pageRequest.owner.ownerKey,
+          selectedRequestId,
+        },
+      );
+      return;
+    }
+  } else if (pageRequest.owner.source === "pi-conversations") {
+    const conversationId = pageRequest.owner.conversationId;
+    const selectedRequestId = shellHost.piConversationCoordinator().selectedId;
+    if (!selectedRequestId || conversationId !== selectedRequestId) {
       shellHost.logAssistantWorkspaceDebug(
         host,
         "transcript-page-request-drop-owner-mismatch",
@@ -732,11 +799,12 @@ function piConversationFailureCode(
 // asynchronous title task, prompting again when the requested endpoint differs;
 // the granted boolean is per-invocation and is never persisted. The endpoint is
 // shown only inside the user dialog and never logged.
-type PiLocalNetworkAuthorizer = (endpoint: string) => Promise<boolean>;
+export type PiLocalNetworkAuthorizer = (endpoint: string) => Promise<boolean>;
 
-function buildPiLocalNetworkAuthorizer(
-  host: AssistantWorkspaceHostRuntime,
-): PiLocalNetworkAuthorizer {
+/** One window-scoped local-network approval dialog; shared by every Pi turn. */
+export function buildPiLocalNetworkAuthorizer(host: {
+  win: _ZoteroTypes.MainWindow;
+}): PiLocalNetworkAuthorizer {
   return async (endpoint) => {
     const target = String(endpoint || "").slice(0, 300);
     const title = shellHost.localizeString(
@@ -803,6 +871,10 @@ async function handlePiConversationAction(
     if (!conversationId) return;
     coordinator.setComposerError(conversationId, code);
   };
+  if (action === "load-transcript-page") {
+    await loadTranscriptPageForSource("pi-conversations", ctx);
+    return;
+  }
   const runLocal = async (
     work: () => Promise<unknown> | unknown,
     failureCode: string = PI_CONVERSATION_FAILURE_FALLBACK,
@@ -1004,6 +1076,189 @@ async function handlePiConversationAction(
   }
   // Shared drawer/global chrome actions are local to the child and handled by
   // the generic routes; nothing else routes here.
+}
+
+// Pi Skill Run host routing. Every handler dispatches to the Pi Skill Run
+// coordinator singleton; local failures stay bounded and structured (a short
+// project-owned code for logs) instead of propagating to the child.
+const PI_SKILL_RUN_FAILURE_FALLBACK = "pi_skill_run_action_failed";
+
+function piSkillRunFailureCode(error: unknown) {
+  const message =
+    error && typeof error === "object" && "message" in error
+      ? String((error as { message?: unknown }).message || "")
+      : "";
+  return /^[a-z][a-z0-9_]{0,63}$/.test(message)
+    ? message
+    : PI_SKILL_RUN_FAILURE_FALLBACK;
+}
+
+function piSkillRunRequestId(ctx: AssistantWorkspaceHostActionContext) {
+  return ctx.owner?.source === "pi-skill-runs"
+    ? ctx.owner.requestId
+    : String(ctx.payload.requestId || "").trim();
+}
+
+// The page names the exact batch/question/slot it is answering; the host never
+// guesses which question a file selection belongs to. Sources stay user-picked
+// ordinary files and the coordinator owns the immutable snapshot.
+async function submitPiSkillRunInteractionFiles(
+  requestId: string,
+  payload: Record<string, unknown>,
+) {
+  const batchId = String(payload.batchId || "").trim();
+  const questionId = String(payload.questionId || "").trim();
+  const slotId = String(payload.slotId || "").trim();
+  const mutationId = String(payload.mutationId || "").trim();
+  const baseRevision = Number(payload.baseRevision);
+  if (
+    !batchId ||
+    !questionId ||
+    !mutationId ||
+    !Number.isSafeInteger(baseRevision)
+  ) {
+    throw new Error("interaction_file_request_invalid");
+  }
+  const picked = await openRuntimeFilePicker({
+    title: "Add files",
+    mode: "multiple",
+  });
+  if (!picked) return;
+  const sources = (Array.isArray(picked) ? picked : [picked])
+    .map((path) => String(path || "").trim())
+    .filter(Boolean)
+    .map((path) => ({ path, displayName: getBaseName(path) }));
+  if (!sources.length) return;
+  await shellHost.piSkillRunCoordinator().submitFiles(
+    requestId,
+    {
+      batchId,
+      questionId,
+      ...(slotId ? { slotId } : {}),
+      baseRevision,
+      mutationId,
+    },
+    sources,
+  );
+}
+
+async function handlePiSkillRunAction(
+  ctx: AssistantWorkspaceHostActionContext,
+  action: string,
+) {
+  const { host, payload } = ctx;
+  const coordinator = shellHost.piSkillRunCoordinator();
+  const requestId = piSkillRunRequestId(ctx);
+  const runLocal = async (work: () => Promise<unknown> | unknown) => {
+    try {
+      await work();
+    } catch (error) {
+      shellHost.logAssistantWorkspaceDebug(
+        host,
+        "pi-skill-run-action-failed",
+        "Pi Skill Run action failed.",
+        { tab: "pi-skill-runs", action, code: piSkillRunFailureCode(error) },
+      );
+    }
+  };
+  if (action === "load-transcript-page") {
+    await loadTranscriptPageForSource("pi-skill-runs", ctx);
+    return;
+  }
+  if (action === "request-owner-details") {
+    await requestOwnerDetailsForSource("pi-skill-runs", ctx);
+    return;
+  }
+  if (!requestId) return;
+  if (action === "select-run") {
+    await coordinator.select(requestId);
+    return;
+  }
+  if (action === "archive-run") {
+    await runLocal(() => coordinator.archive(requestId));
+    return;
+  }
+  if (action === "cancel-run") {
+    await runLocal(() => coordinator.cancel(requestId));
+    return;
+  }
+  if (action === "interrupt-run-turn") {
+    await runLocal(() => coordinator.interrupt(requestId));
+    return;
+  }
+  if (action === "reply-run") {
+    await runLocal(() =>
+      coordinator.reply(requestId, String(payload.message || "")),
+    );
+    return;
+  }
+  if (action === "resolve-permission") {
+    const callId = String(payload.permissionRequestId || "").trim();
+    // Deny is the safe default: only an explicit approve selection runs it.
+    const decision =
+      String(payload.outcome || "").trim() === "selected" &&
+      String(payload.optionId || "").trim() === "approve"
+        ? "approve"
+        : "deny";
+    if (callId) {
+      await runLocal(() =>
+        coordinator.resolvePermission(requestId, callId, decision),
+      );
+    }
+    return;
+  }
+  if (action === "draft") {
+    await runLocal(() =>
+      coordinator.updateDraft(
+        requestId,
+        payload as unknown as AssistantInteractionDraftPayloadV1,
+      ),
+    );
+    return;
+  }
+  if (action === "submit") {
+    await runLocal(() =>
+      coordinator.submitInteraction(
+        requestId,
+        payload as unknown as AssistantInteractionSubmitPayloadV1,
+      ),
+    );
+    return;
+  }
+  if (action === "decline") {
+    await runLocal(() =>
+      coordinator.declineInteraction(
+        requestId,
+        payload as unknown as AssistantInteractionDeclinePayloadV1,
+      ),
+    );
+    return;
+  }
+  if (action === "submit-interaction-files") {
+    await runLocal(() => submitPiSkillRunInteractionFiles(requestId, payload));
+    return;
+  }
+  if (action === "set-model") {
+    const modelId = String(payload.modelId || "").trim();
+    if (modelId) {
+      await runLocal(() =>
+        coordinator.setModel(requestId, { configurationId: modelId }),
+      );
+    }
+    return;
+  }
+  if (action === "set-reasoning-effort") {
+    const effortId = String(payload.effortId || "").trim();
+    if (effortId) {
+      await runLocal(() =>
+        coordinator.setReasoning(requestId, effortId as PiReasoningLevel),
+      );
+    }
+    return;
+  }
+  if (action === "copy-request-id") {
+    copyText(requestId);
+  }
 }
 
 // Decision 4: one dispatch table keyed by action then owner source, with a
@@ -1583,7 +1838,7 @@ export async function handleChildAction(
               getSkillRunnerWorkspaceSelectedOwner()?.runKey ||
               ""
             : owner.source === "pi-skill-runs"
-              ? ""
+              ? shellHost.piSkillRunCoordinator().selectedId || ""
               : getSelectedAcpSkillRunRequestId();
     if (owner.ownerKey !== selectedOwnerKey) return;
   }
@@ -1628,6 +1883,10 @@ export async function handleChildAction(
   }
   if (tab === "pi-conversations") {
     await handlePiConversationAction(ctx, action);
+    return;
+  }
+  if (tab === "pi-skill-runs") {
+    await handlePiSkillRunAction(ctx, action);
     return;
   }
   await handleAcpChatAction(ctx, action as AcpChatHostRoutedAction);

@@ -518,6 +518,10 @@ export function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
         : normalizeString(raw.executionMode).toLowerCase() === "auto"
           ? "auto"
           : undefined,
+    // Records written before the shared pipeline existed have no field and stay
+    // permanently legacy; only new admissions opt into the v1 pipeline.
+    skillRunPipelineVersion:
+      raw.skillRunPipelineVersion === "v1" ? "v1" : "legacy",
     workspaceDir: normalizeString(raw.workspaceDir) || undefined,
     runtimeDir: normalizeString(raw.runtimeDir) || undefined,
     inputManifestPath: normalizeString(raw.inputManifestPath) || undefined,

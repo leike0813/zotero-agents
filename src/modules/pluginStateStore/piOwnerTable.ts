@@ -6,7 +6,44 @@ export type PiOwnerRegistryRow = {
   entryCount: number;
   lastSequence: number;
   updatedAt: string;
+  /**
+   * Bounded, rebuildable Skill Run list scalars. Never carries transcript
+   * payloads; only facts that the canonical fold can recompute. The registry
+   * table is a single shared plugin DB, so these facts are not root-isolated.
+   */
+  skillRun?: PiSkillRunRegistryScalars;
 };
+
+export type PiSkillRunRegistryScalars = {
+  taskName: string;
+  skillId: string;
+  status: string;
+  archived: boolean;
+  counts: {
+    user: number;
+    assistant: number;
+    tool: number;
+    thought: number;
+  };
+};
+
+export type PiSkillRunRegistryEntry = PiSkillRunRegistryScalars & {
+  requestId: string;
+  entryCount: number;
+  lastSequence: number;
+  updatedAt: string;
+};
+
+const SKILL_RUN_SCALAR_COLUMNS: [string, string][] = [
+  ["task_name", "TEXT"],
+  ["skill_id", "TEXT"],
+  ["status", "TEXT"],
+  ["archived", "INTEGER NOT NULL DEFAULT 0"],
+  ["count_user", "INTEGER NOT NULL DEFAULT 0"],
+  ["count_assistant", "INTEGER NOT NULL DEFAULT 0"],
+  ["count_tool", "INTEGER NOT NULL DEFAULT 0"],
+  ["count_thought", "INTEGER NOT NULL DEFAULT 0"],
+];
 
 export function ensurePiOwnerRegistrySchema(db: SqlAdapter) {
   db.run(`CREATE TABLE IF NOT EXISTS pi_owner_registry (
@@ -15,27 +52,96 @@ export function ensurePiOwnerRegistrySchema(db: SqlAdapter) {
     entry_count INTEGER NOT NULL,
     last_sequence INTEGER NOT NULL,
     updated_at TEXT NOT NULL,
+    task_name TEXT,
+    skill_id TEXT,
+    status TEXT,
+    archived INTEGER NOT NULL DEFAULT 0,
+    count_user INTEGER NOT NULL DEFAULT 0,
+    count_assistant INTEGER NOT NULL DEFAULT 0,
+    count_tool INTEGER NOT NULL DEFAULT 0,
+    count_thought INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY(owner_kind, owner_id)
   )`);
+  const columns = new Set(
+    db
+      .all("PRAGMA table_info(pi_owner_registry)")
+      .map((row) => String(row.name)),
+  );
+  for (const [name, definition] of SKILL_RUN_SCALAR_COLUMNS) {
+    if (!columns.has(name)) {
+      db.run(`ALTER TABLE pi_owner_registry ADD COLUMN ${name} ${definition}`);
+    }
+  }
+}
+
+const REGISTRY_SELECT_COLUMNS =
+  "owner_kind, owner_id, entry_count, last_sequence, updated_at, task_name, skill_id, status, archived, count_user, count_assistant, count_tool, count_thought";
+
+function toRegistryRow(row: Record<string, unknown>): PiOwnerRegistryRow {
+  const ownerKind = String(row.owner_kind) as PiOwnerRegistryRow["ownerKind"];
+  return {
+    ownerKind,
+    ownerId: String(row.owner_id),
+    entryCount: Number(row.entry_count),
+    lastSequence: Number(row.last_sequence),
+    updatedAt: String(row.updated_at),
+    ...(ownerKind === "skill_run"
+      ? {
+          skillRun: {
+            taskName: String(row.task_name ?? ""),
+            skillId: String(row.skill_id ?? ""),
+            status: String(row.status ?? "queued"),
+            archived: Number(row.archived ?? 0) === 1,
+            counts: {
+              user: Number(row.count_user ?? 0),
+              assistant: Number(row.count_assistant ?? 0),
+              tool: Number(row.count_tool ?? 0),
+              thought: Number(row.count_thought ?? 0),
+            },
+          },
+        }
+      : {}),
+  };
 }
 
 export function createPiOwnerRegistryTable(getAdapter: () => SqlAdapter) {
   return {
     upsertPiOwnerRegistry(row: PiOwnerRegistryRow) {
+      const scalars = row.skillRun;
       getAdapter().run(
         `INSERT INTO pi_owner_registry
-        (owner_kind, owner_id, entry_count, last_sequence, updated_at)
-        VALUES (@kind, @id, @count, @seq, @updated)
+        (owner_kind, owner_id, entry_count, last_sequence, updated_at,
+          task_name, skill_id, status, archived,
+          count_user, count_assistant, count_tool, count_thought)
+        VALUES (@kind, @id, @count, @seq, @updated,
+          @taskName, @skillId, @status, @archived,
+          @countUser, @countAssistant, @countTool, @countThought)
         ON CONFLICT(owner_kind, owner_id) DO UPDATE SET
           entry_count=excluded.entry_count,
           last_sequence=excluded.last_sequence,
-          updated_at=excluded.updated_at`,
+          updated_at=excluded.updated_at,
+          task_name=excluded.task_name,
+          skill_id=excluded.skill_id,
+          status=excluded.status,
+          archived=excluded.archived,
+          count_user=excluded.count_user,
+          count_assistant=excluded.count_assistant,
+          count_tool=excluded.count_tool,
+          count_thought=excluded.count_thought`,
         {
           kind: row.ownerKind,
           id: row.ownerId,
           count: row.entryCount,
           seq: row.lastSequence,
           updated: row.updatedAt,
+          taskName: scalars?.taskName ?? null,
+          skillId: scalars?.skillId ?? null,
+          status: scalars?.status ?? null,
+          archived: scalars?.archived ? 1 : 0,
+          countUser: scalars?.counts.user ?? 0,
+          countAssistant: scalars?.counts.assistant ?? 0,
+          countTool: scalars?.counts.tool ?? 0,
+          countThought: scalars?.counts.thought ?? 0,
         },
       );
     },
@@ -44,21 +150,42 @@ export function createPiOwnerRegistryTable(getAdapter: () => SqlAdapter) {
       id: string,
     ): PiOwnerRegistryRow | null {
       const row = getAdapter().get(
-        `SELECT owner_kind, owner_id, entry_count, last_sequence, updated_at
+        `SELECT ${REGISTRY_SELECT_COLUMNS}
         FROM pi_owner_registry WHERE owner_kind=@kind AND owner_id=@id`,
         { kind, id },
       );
-      return row
-        ? {
-            ownerKind: String(
-              row.owner_kind,
-            ) as PiOwnerRegistryRow["ownerKind"],
-            ownerId: String(row.owner_id),
-            entryCount: Number(row.entry_count),
-            lastSequence: Number(row.last_sequence),
-            updatedAt: String(row.updated_at),
-          }
-        : null;
+      return row ? toRegistryRow(row) : null;
+    },
+    listPiOwnerRegistry(
+      kind: PiOwnerRegistryRow["ownerKind"],
+    ): PiOwnerRegistryRow[] {
+      return getAdapter()
+        .all(
+          `SELECT ${REGISTRY_SELECT_COLUMNS} FROM pi_owner_registry WHERE owner_kind=@kind ORDER BY updated_at DESC, owner_id ASC`,
+          { kind },
+        )
+        .map(toRegistryRow);
+    },
+    /**
+     * Cheap list projection: bounded scalar facts only, no transcript hydrate.
+     */
+    listPiSkillRunRegistry(): PiSkillRunRegistryEntry[] {
+      return getAdapter()
+        .all(
+          `SELECT ${REGISTRY_SELECT_COLUMNS} FROM pi_owner_registry
+          WHERE owner_kind='skill_run' ORDER BY updated_at DESC, owner_id ASC`,
+        )
+        .map((row) => {
+          const parsed = toRegistryRow(row);
+          const scalars = parsed.skillRun as PiSkillRunRegistryScalars;
+          return {
+            requestId: parsed.ownerId,
+            entryCount: parsed.entryCount,
+            lastSequence: parsed.lastSequence,
+            updatedAt: parsed.updatedAt,
+            ...scalars,
+          };
+        });
     },
     deletePiOwnerRegistry(kind: PiOwnerRegistryRow["ownerKind"], id: string) {
       getAdapter().run(

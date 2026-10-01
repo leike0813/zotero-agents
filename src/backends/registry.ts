@@ -1,6 +1,9 @@
 import {
   ACP_BACKEND_TYPE,
   BACKEND_TYPES,
+  BUILTIN_PI_BACKEND_DISPLAY_NAME,
+  BUILTIN_PI_BACKEND_ID,
+  BUILTIN_PI_BACKEND_TYPE,
   PASS_THROUGH_BACKEND_TYPE,
 } from "../config/defaults";
 import { getPref, setPref } from "../utils/prefs";
@@ -152,6 +155,19 @@ function normalizeBackendType(value: unknown): BackendInstance["type"] | null {
   return (BACKEND_TYPES as readonly string[]).includes(normalized)
     ? (normalized as BackendInstance["type"])
     : null;
+}
+
+/**
+ * Canonical synthetic Built-in Pi backend. It carries no credentials and is
+ * never read from `backendsConfigJson`; the registry supplies it at load time.
+ */
+export function builtinPiBackendInstance(): BackendInstance {
+  return {
+    id: BUILTIN_PI_BACKEND_ID,
+    displayName: BUILTIN_PI_BACKEND_DISPLAY_NAME,
+    type: BUILTIN_PI_BACKEND_TYPE,
+    baseUrl: "local://" + BUILTIN_PI_BACKEND_ID,
+  };
 }
 
 function normalizeStringArray(value: unknown) {
@@ -428,6 +444,10 @@ function normalizeBackendEntry(
     };
   }
   const enabled = rawEntry.enabled !== false;
+  if (type === BUILTIN_PI_BACKEND_TYPE) {
+    // Synthetic backend: never read editable fields or credentials from prefs.
+    return { backend: builtinPiBackendInstance() };
+  }
   const isAcp = isAcpBackendType(type);
   const isPassThrough = type === PASS_THROUGH_BACKEND_TYPE;
   const baseUrl = isAcp
@@ -780,6 +800,10 @@ export function loadBackendsRegistrySync(): LoadedBackends {
     }
     seenBackendIds.add(backend.id);
     validBackends.push(backend);
+  }
+
+  if (!validBackends.some((backend) => backend.id === BUILTIN_PI_BACKEND_ID)) {
+    validBackends.push(builtinPiBackendInstance());
   }
 
   for (const reason of errors) {

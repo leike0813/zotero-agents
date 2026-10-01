@@ -1,5 +1,6 @@
 import {
   ACP_BACKEND_TYPE,
+  BUILTIN_PI_BACKEND_TYPE,
   GENERIC_HTTP_BACKEND_TYPE,
   PASS_THROUGH_BACKEND_TYPE,
 } from "../config/defaults";
@@ -47,7 +48,9 @@ export function compatibleBackendTypesForManifest(
       : [ACP_BACKEND_TYPE];
   }
   if (providerType === "skillrunner") {
-    return ["skillrunner", ACP_BACKEND_TYPE];
+    return requestKind === "skillrunner.job.v1"
+      ? ["skillrunner", ACP_BACKEND_TYPE, BUILTIN_PI_BACKEND_TYPE]
+      : ["skillrunner", ACP_BACKEND_TYPE];
   }
   if (providerType === GENERIC_HTTP_BACKEND_TYPE) {
     return [GENERIC_HTTP_BACKEND_TYPE];

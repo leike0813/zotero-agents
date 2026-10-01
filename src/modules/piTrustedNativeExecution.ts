@@ -797,9 +797,18 @@ export async function createPiTrustedNativeExecution(args: {
 
   async function snapshotUserFiles(
     sources: readonly PiConversationUserFileSource[],
+    limits: { maxResources?: number; maxTotalBytes?: number } = {},
   ): Promise<PiConversationUserFileSnapshot[]> {
     const list = Array.isArray(sources) ? sources : [];
-    if (list.length > PI_USER_FILE_SNAPSHOT_LIMITS.maxResources)
+    const maxResources = Math.min(
+      PI_USER_FILE_SNAPSHOT_LIMITS.maxResources,
+      limits.maxResources ?? PI_USER_FILE_SNAPSHOT_LIMITS.maxResources,
+    );
+    const maxTotalBytes = Math.min(
+      PI_USER_FILE_SNAPSHOT_LIMITS.maxTotalBytes,
+      limits.maxTotalBytes ?? PI_USER_FILE_SNAPSHOT_LIMITS.maxTotalBytes,
+    );
+    if (list.length > maxResources)
       throw new Error("pi_snapshot_resource_limit");
     return withOwnerLock(args.ownerRoot, async () => {
       const entries = await readManifest();
@@ -840,7 +849,7 @@ export async function createPiTrustedNativeExecution(args: {
           entryName,
         });
       }
-      if (totalBytes > PI_USER_FILE_SNAPSHOT_LIMITS.maxTotalBytes)
+      if (totalBytes > maxTotalBytes)
         throw new Error("pi_snapshot_total_too_large");
       const newBytes = planned.reduce(
         (sum, item) => (item.entryName ? sum : sum + item.size),

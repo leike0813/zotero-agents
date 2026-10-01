@@ -11,6 +11,7 @@ import {
 import { ACP_SKILLS_WORKSPACE_ADAPTER } from "../../acp/skillRun/acpSkillsWorkspaceSurface";
 import { SKILLRUNNER_WORKSPACE_ADAPTER } from "../../skillRunner/surface/skillRunnerWorkspaceSurface";
 import { PI_CONVERSATIONS_WORKSPACE_ADAPTER } from "../../piConversationWorkspaceSurface";
+import { PI_SKILL_RUNS_WORKSPACE_ADAPTER } from "../../piSkillRunWorkspaceSurface";
 import type { AssistantWorkspacePublicationRuntimeConfiguration } from "../publication/assistantWorkspacePublicationRuntime";
 import type { AssistantWorkspaceServiceStatus } from "../publication/assistantWorkspacePublication";
 import { getHostBridgeServerStatus } from "../../hostBridge/server/hostBridgeServer";
@@ -21,6 +22,7 @@ import {
   type AcpChatWorkspaceChange,
 } from "../../acp/chat/acpSessionManager";
 import { type AcpSkillRunWorkspaceChange } from "../../acp/skillRun/acpSkillRunStore";
+import { type PiSkillRunChange } from "../../piSkillRun";
 import {
   getSkillRunnerWorkspaceSelectedOwner,
   refreshSkillRunnerSidebarHostSnapshot,
@@ -157,6 +159,20 @@ export function scheduleSkillRunnerPublications(
   if (!change) return;
   host.publicationRuntime?.schedule({
     adapter: SKILLRUNNER_WORKSPACE_ADAPTER,
+    change,
+    context: undefined,
+  });
+}
+
+// Pi Skill Run changes mirror ACP Skill Run routing: the coordinator change
+// lands on the shared publication plane through the bound surface adapter.
+export function schedulePiSkillRunPublications(
+  host: AssistantWorkspaceHostRuntime,
+  change?: PiSkillRunChange,
+) {
+  if (!change) return;
+  host.publicationRuntime?.schedule({
+    adapter: PI_SKILL_RUNS_WORKSPACE_ADAPTER,
     change,
     context: undefined,
   });
@@ -424,6 +440,19 @@ async function initializePiConversationsWorkspaceSurface(
   return publicationIds?.at(-1);
 }
 
+async function initializePiSkillRunsWorkspaceSurface(
+  host: AssistantWorkspaceHostRuntime,
+  cause: "initialization" | "activation" | "owner-switch",
+) {
+  const publicationIds = await host.publicationRuntime?.initialize({
+    adapter: PI_SKILL_RUNS_WORKSPACE_ADAPTER,
+    context: undefined,
+    cause,
+    serviceStatus: readAssistantWorkspaceServiceStatus(),
+  });
+  return publicationIds?.at(-1);
+}
+
 export function scheduleAcpChatPublications(
   host: AssistantWorkspaceHostRuntime,
   change: AcpChatWorkspaceChange,
@@ -618,6 +647,12 @@ async function postSnapshotForTab(
       ));
     }
     return !!(await initializeAcpSkillsWorkspaceSurface(host, "activation"));
+  }
+  if (tab === "pi-skill-runs") {
+    return !!(await initializePiSkillRunsWorkspaceSurface(
+      host,
+      phase === "init" ? "initialization" : "activation",
+    ));
   }
   if (tab === "skillrunner") {
     return activateSkillRunnerWorkspaceSurface(host, phase, options);

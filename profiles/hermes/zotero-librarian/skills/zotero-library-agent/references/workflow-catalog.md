@@ -66,7 +66,7 @@ A static match is only a candidate. If the live workflow description differs, us
 Find library literature matching a collection meaning and add reviewed matches to that Zotero collection.
 
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/collection-collector/workflow.json`; core: `false`.
-- Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
+- Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp","builtin-pi"]}`.
 - Execution modes: `["auto"]`.
 - Supported invocation modes: `["interactive","non-interactive"]`.
 - External resource requirements: `[]`.
@@ -107,7 +107,7 @@ Export literature from the current selection, a Zotero collection, or the curren
 Export manuscript-oriented research materials, analyzed literature artifacts, and synthesis evidence into a portable bundle.
 
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/export-research-bundle/workflow.json`; core: `true`.
-- Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
+- Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp","builtin-pi"]}`.
 - Execution modes: `["auto"]`.
 - Supported invocation modes: `["interactive","non-interactive"]`.
 - External resource requirements: `[{"id":"research-materialized-files","direction":"input","kind":"file","cardinality":"many","required":false,"accept":{"maxCount":1000,"maxBytes":17179869184}}]`.
@@ -186,7 +186,7 @@ Import supported external analysis files and upsert their generated Zotero notes
 Run a stateful question-answering and study-note session for one literature source.
 
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/literature-explainer/workflow.json`; core: `true`.
-- Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
+- Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp","builtin-pi"]}`.
 - Execution modes: `["auto"]`.
 - Supported invocation modes: `["interactive","non-interactive"]`.
 - External resource requirements: `[]`.
@@ -246,7 +246,7 @@ Analyze one literature source and apply its digest, structured references, citat
 Translate one literature source and apply the translated artifact while preserving academic structure.
 
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/literature-translator/workflow.json`; core: `true`.
-- Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
+- Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp","builtin-pi"]}`.
 - Execution modes: `["auto"]`.
 - Supported invocation modes: `["interactive","non-interactive"]`.
 - External resource requirements: `[]`.
@@ -266,7 +266,7 @@ Translate one literature source and apply the translated artifact while preservi
 Audit and repair bibliographic metadata for selected literature using identifier and search evidence.
 
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/literature-metadata-curator/workflow.json`; core: `true`.
-- Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
+- Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp","builtin-pi"]}`.
 - Execution modes: `["auto"]`.
 - Supported invocation modes: `["interactive","non-interactive"]`.
 - External resource requirements: `[]`.
@@ -285,7 +285,7 @@ Audit and repair bibliographic metadata for selected literature using identifier
 Search scholarly sources, review candidates, research approved papers in agent-chosen subagent groups, collect independent per-paper payloads as they complete, then serially ingest them into Zotero.
 
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/literature-search-ingest/workflow.json`; core: `true`.
-- Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
+- Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp","builtin-pi"]}`.
 - Execution modes: `["auto"]`.
 - Supported invocation modes: `["interactive","non-interactive"]`.
 - External resource requirements: `[]`.
@@ -308,7 +308,7 @@ Search scholarly sources, review candidates, research approved papers in agent-c
 Bootstrap the controlled tag vocabulary from current library evidence and reviewable suggestions.
 
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/tag-bootstrapper/workflow.json`; core: `false`.
-- Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
+- Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp","builtin-pi"]}`.
 - Execution modes: `["auto"]`.
 - Supported invocation modes: `["interactive","non-interactive"]`.
 - External resource requirements: `[]`.
@@ -345,7 +345,7 @@ Audit selected literature tags against the controlled vocabulary without silentl
 Normalize and infer selected literature tags against the controlled vocabulary.
 
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/tag-regulator/workflow.json`; core: `true`.
-- Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
+- Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp","builtin-pi"]}`.
 - Execution modes: `["auto"]`.
 - Supported invocation modes: `["interactive","non-interactive"]`.
 - External resource requirements: `[]`.
@@ -383,7 +383,7 @@ Convert selected PDF attachments into structured Markdown and image artifacts an
 Incrementally organize the current literature library into Planned Topics and Topic Graph relations before synthesis.
 
 - Package: `synthesis-layer`; manifest: `workflows_builtin/synthesis-layer/topic-planner/workflow.json`; core: `true`.
-- Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
+- Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp","builtin-pi"]}`.
 - Execution modes: `["auto"]`.
 - Supported invocation modes: `["interactive","non-interactive"]`.
 - External resource requirements: `[]`.
@@ -443,7 +443,7 @@ Update an existing topic synthesis from its current resolver scope, evidence, an
 Generate manuscript introduction and related-work framing from selected synthesis topics and library evidence.
 
 - Package: `synthesis-layer`; manifest: `workflows_builtin/synthesis-layer/manuscript-literature-framing/workflow.json`; core: `true`.
-- Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
+- Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp","builtin-pi"]}`.
 - Execution modes: `["auto"]`.
 - Supported invocation modes: `["interactive","non-interactive"]`.
 - External resource requirements: `[]`.

@@ -2645,3 +2645,521 @@ describe("Pi Conversation managed chrome identity", function () {
     }
   });
 });
+
+describe("Reply region multi-question interaction flow", function () {
+  let environment: ReturnType<typeof createSidebarDomEnvironment>;
+
+  before(function () {
+    environment = createSidebarDomEnvironment();
+    installSidebarDomGlobals(environment);
+  });
+
+  after(function () {
+    restoreSidebarDomGlobals();
+  });
+
+  function interactionBatch(overrides: Record<string, unknown> = {}) {
+    return {
+      schema: "zotero-agents.user-interaction-batch.v1",
+      batchId: "batch-1",
+      ownerKey: "run-1",
+      turnId: "turn-1",
+      assistantMessageId: "msg-1",
+      status: "collecting",
+      revision: 4,
+      calls: [
+        { toolCallId: "call-1", callIndex: 0, questionIds: ["q-1", "q-2"] },
+      ],
+      questions: [
+        {
+          questionId: "q-1",
+          toolCallId: "call-1",
+          callIndex: 0,
+          questionIndex: 0,
+          kind: "single_select",
+          prompt: "Pick one",
+          header: "Header",
+          hint: null,
+          required: true,
+          options: [
+            { optionId: "o-1", label: "Alpha", value: "a", description: null },
+            { optionId: "o-2", label: "Beta", value: "b", description: null },
+          ],
+          files: [],
+        },
+        {
+          questionId: "q-2",
+          toolCallId: "call-1",
+          callIndex: 0,
+          questionIndex: 1,
+          kind: "text",
+          prompt: "Explain",
+          header: null,
+          hint: null,
+          required: false,
+          options: [],
+          files: [],
+        },
+      ],
+      draftAnswers: {},
+      ...overrides,
+    };
+  }
+
+  function flowPanel(batch: Record<string, unknown> = interactionBatch()) {
+    return {
+      kind: "pi-skill-runs",
+      context: { id: "run-1" },
+      lifecycle: { replyState: "idle" },
+      usage: null,
+      reply: {
+        enabled: true,
+        inputEnabled: true,
+        action: "interrupt-run-turn",
+        controls: [],
+        interactionBatch: batch,
+      },
+    };
+  }
+
+  function renderReply(
+    container: Element,
+    panel: ReturnType<typeof flowPanel>,
+    onAction: (action: string, payload: unknown) => void = () => {},
+  ) {
+    if (!container.isConnected) {
+      environment.document.body.appendChild(container);
+    }
+    render(
+      h(ReplyRegion, {
+        container,
+        panel,
+        onAction,
+        labelOf: (_path: string, fallback: string) => fallback,
+      } as never),
+      container as never,
+    );
+  }
+
+  // Preact batches state updates on a microtask; flush before asserting.
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("replaces the composer with a one-question-at-a-time flow", function () {
+    const container = environment.document.createElement("div");
+    renderReply(container, flowPanel());
+    assert.isNull(
+      container.querySelector(".assistant-panel-reply-input"),
+      "the ordinary composer must be replaced while a batch is collecting",
+    );
+    const flow = container.querySelector(".assistant-panel-reply-interaction");
+    assert.ok(flow);
+    assert.equal(
+      flow!.getAttribute("data-assistant-interaction-batch"),
+      "batch-1",
+    );
+    assert.equal(
+      flow!.getAttribute("data-assistant-interaction-status"),
+      "collecting",
+    );
+    assert.equal(
+      container
+        .querySelector(".assistant-panel-interaction-progress-label")!
+        .getAttribute("data-interaction-progress"),
+      "1/2",
+    );
+    assert.equal(
+      container.querySelector(".assistant-panel-interaction-prompt")!
+        .textContent,
+      "Pick one",
+    );
+    assert.equal(
+      container
+        .querySelector(".assistant-panel-interaction-question")!
+        .getAttribute("data-interaction-question-kind"),
+      "single_select",
+    );
+    assert.equal(
+      container.getAttribute("data-assistant-reply-interaction-status"),
+      "collecting",
+    );
+  });
+
+  it("navigates previous/next and reviews every answer", async function () {
+    const container = environment.document.createElement("div");
+    renderReply(container, flowPanel());
+    const next = container.querySelector<HTMLButtonElement>(
+      ".assistant-panel-interaction-next",
+    )!;
+    const prev = container.querySelector<HTMLButtonElement>(
+      ".assistant-panel-interaction-prev",
+    )!;
+    assert.isTrue(prev.disabled, "previous is disabled on the first question");
+    next.click();
+    await tick();
+    assert.equal(
+      container
+        .querySelector(".assistant-panel-interaction-progress-label")!
+        .getAttribute("data-interaction-progress"),
+      "2/2",
+    );
+    assert.equal(
+      container.querySelector(".assistant-panel-interaction-prompt")!
+        .textContent,
+      "Explain",
+    );
+    assert.isFalse(prev.disabled);
+    // Last question: next becomes the Review step.
+    next.click();
+    await tick();
+    assert.equal(
+      container.querySelectorAll(".assistant-panel-interaction-review-item")
+        .length,
+      2,
+    );
+    assert.equal(
+      container
+        .querySelector(
+          "[data-interaction-review-question='q-1'] .assistant-panel-interaction-review-answer",
+        )!
+        .getAttribute("data-interaction-review-answer-kind"),
+      "unanswered",
+    );
+    container
+      .querySelector<HTMLButtonElement>(
+        ".assistant-panel-interaction-review-edit",
+      )!
+      .click();
+    await tick();
+    assert.equal(
+      container.querySelector(".assistant-panel-interaction-prompt")!
+        .textContent,
+      "Pick one",
+    );
+  });
+
+  it("drafts a selection and submits the whole batch atomically", async function () {
+    const container = environment.document.createElement("div");
+    const emitted: Array<{ action: string; payload: Record<string, unknown> }> =
+      [];
+    renderReply(container, flowPanel(), (action, payload) =>
+      emitted.push({ action, payload: payload as Record<string, unknown> }),
+    );
+    const submit = container.querySelector<HTMLButtonElement>(
+      ".assistant-panel-interaction-submit",
+    )!;
+    assert.isTrue(
+      submit.disabled,
+      "submit stays disabled until required answers exist",
+    );
+    const option = container.querySelector<HTMLInputElement>(
+      "[data-interaction-option='o-1']",
+    )!;
+    option.checked = true;
+    option.dispatchEvent(
+      new environment.window.Event("change", { bubbles: true }),
+    );
+    await tick();
+    const draft = emitted.find((entry) => entry.action === "draft");
+    assert.ok(draft, "a selection must persist a durable draft");
+    assert.equal(draft!.payload.batchId, "batch-1");
+    assert.equal(draft!.payload.questionId, "q-1");
+    assert.equal(draft!.payload.baseRevision, 4);
+    assert.isString(draft!.payload.mutationId);
+    assert.deepEqual(draft!.payload.answer, {
+      kind: "single_select",
+      optionId: "o-1",
+      value: "a",
+    });
+    assert.isFalse(submit.disabled);
+    submit.click();
+    await tick();
+    const submitted = emitted.find((entry) => entry.action === "submit");
+    assert.ok(submitted, "submit must emit the atomic whole-batch payload");
+    assert.equal(submitted!.payload.baseRevision, 4);
+    assert.deepEqual(
+      (submitted!.payload.answers as Record<string, unknown>)["q-1"],
+      { kind: "single_select", optionId: "o-1", value: "a" },
+    );
+    // Submit carries only answers that fit a batch question.
+    assert.deepEqual(Object.keys(submitted!.payload.answers as object), [
+      "q-1",
+    ]);
+  });
+
+  it("declines the whole batch and cancels the run separately", function () {
+    const container = environment.document.createElement("div");
+    const emitted: Array<{ action: string; payload: Record<string, unknown> }> =
+      [];
+    renderReply(container, flowPanel(), (action, payload) =>
+      emitted.push({ action, payload: payload as Record<string, unknown> }),
+    );
+    container
+      .querySelector<HTMLButtonElement>(".assistant-panel-interaction-decline")!
+      .click();
+    container
+      .querySelector<HTMLButtonElement>(".assistant-panel-interaction-cancel")!
+      .click();
+    assert.deepEqual(
+      emitted.map((entry) => entry.action),
+      ["decline", "cancel-run"],
+    );
+    assert.equal(emitted[0].payload.batchId, "batch-1");
+    assert.equal(emitted[0].payload.baseRevision, 4);
+    // Cancel is a run/turn action; the owner rejects interrupt-run-turn while
+    // waiting_user, and no synthetic decline is produced.
+    assert.deepEqual(emitted[1].payload, {});
+  });
+
+  it("persists a text draft on input without waiting for blur", async function () {
+    const container = environment.document.createElement("div");
+    const emitted: Array<{ action: string; payload: Record<string, unknown> }> =
+      [];
+    renderReply(container, flowPanel(), (action, payload) =>
+      emitted.push({ action, payload: payload as Record<string, unknown> }),
+    );
+    container
+      .querySelector<HTMLButtonElement>(".assistant-panel-interaction-next")!
+      .click();
+    await tick();
+    const input = container.querySelector<HTMLTextAreaElement>(
+      ".assistant-panel-interaction-input",
+    )!;
+    input.value = "typed now";
+    input.dispatchEvent(
+      new environment.window.Event("input", { bubbles: true }),
+    );
+    await tick();
+    const draft = emitted.find((entry) => entry.action === "draft");
+    assert.ok(
+      draft,
+      "text edits must persist immediately, never on a deferred blur",
+    );
+    assert.equal(draft!.payload.questionId, "q-2");
+    assert.deepEqual(draft!.payload.answer, {
+      kind: "text",
+      text: "typed now",
+    });
+  });
+
+  it("rebases answers onto the accepted revision without resetting navigation", async function () {
+    const container = environment.document.createElement("div");
+    renderReply(container, flowPanel());
+    container
+      .querySelector<HTMLButtonElement>(".assistant-panel-interaction-next")!
+      .click();
+    await tick();
+    assert.equal(
+      container
+        .querySelector(".assistant-panel-interaction-progress-label")!
+        .getAttribute("data-interaction-progress"),
+      "2/2",
+    );
+    // The host accepted another window's draft and republished the canonical
+    // batch at a newer revision; the region adopts it verbatim (no merge).
+    renderReply(
+      container,
+      flowPanel(
+        interactionBatch({
+          revision: 5,
+          draftAnswers: {
+            "q-1": { kind: "single_select", optionId: "o-2", value: "b" },
+          },
+        }),
+      ),
+    );
+    await tick();
+    assert.equal(
+      container
+        .querySelector(".assistant-panel-interaction-progress-label")!
+        .getAttribute("data-interaction-progress"),
+      "2/2",
+      "a revision bump rebases answers without resetting navigation",
+    );
+    container
+      .querySelector<HTMLButtonElement>(".assistant-panel-interaction-prev")!
+      .click();
+    await tick();
+    assert.isTrue(
+      container.querySelector<HTMLInputElement>(
+        "[data-interaction-option='o-2']",
+      )!.checked,
+    );
+  });
+
+  it("keeps an equal batch's DOM and re-seeds on a new batch identity", function () {
+    const container = environment.document.createElement("div");
+    renderReply(container, flowPanel());
+    const before = subtreeNodes(container);
+    // A deep-equal republication (same revision) must not rebuild the flow.
+    renderReply(container, flowPanel(interactionBatch()));
+    assert.deepEqual(subtreeNodes(container), before);
+
+    // A new batch identity re-seeds the answers and progress.
+    const single = interactionBatch({
+      batchId: "batch-2",
+      revision: 1,
+      calls: [{ toolCallId: "call-2", callIndex: 0, questionIds: ["q-9"] }],
+      questions: [
+        {
+          questionId: "q-9",
+          toolCallId: "call-2",
+          callIndex: 0,
+          questionIndex: 0,
+          kind: "confirm",
+          prompt: "Proceed?",
+          header: null,
+          hint: null,
+          required: true,
+          options: [],
+          files: [],
+        },
+      ],
+      draftAnswers: { "q-9": { kind: "confirm", confirmed: true } },
+    });
+    renderReply(container, flowPanel(single));
+    assert.equal(
+      container
+        .querySelector(".assistant-panel-interaction-progress-label")!
+        .getAttribute("data-interaction-progress"),
+      "1/1",
+    );
+    assert.equal(
+      container.querySelector(".assistant-panel-interaction-prompt")!
+        .textContent,
+      "Proceed?",
+    );
+
+    // Leaving the flow restores the ordinary composer.
+    renderReply(container, {
+      ...flowPanel(),
+      reply: {
+        enabled: true,
+        inputEnabled: true,
+        action: "interrupt-run-turn",
+        controls: [],
+        interactionBatch: null,
+      },
+    });
+    assert.ok(container.querySelector(".assistant-panel-reply-input"));
+  });
+
+  it("treats a submitted batch as read-only", function () {
+    const container = environment.document.createElement("div");
+    renderReply(
+      container,
+      flowPanel(interactionBatch({ status: "submitted" })),
+    );
+    assert.equal(
+      container
+        .querySelector(".assistant-panel-reply-interaction")!
+        .getAttribute("data-assistant-interaction-status"),
+      "submitted",
+    );
+    assert.isTrue(
+      container.querySelector<HTMLButtonElement>(
+        ".assistant-panel-interaction-submit",
+      )!.disabled,
+    );
+    assert.isTrue(
+      container.querySelector<HTMLButtonElement>(
+        ".assistant-panel-interaction-decline",
+      )!.disabled,
+    );
+  });
+
+  it("fails closed with a structured boundary state for a malformed batch", function () {
+    const container = environment.document.createElement("div");
+    const emitted: Array<{ action: string; payload: unknown }> = [];
+    const panel = flowPanel();
+    panel.reply = {
+      ...panel.reply,
+      interactionBatch: { batchId: "broken", schema: "nope" },
+    };
+    renderReply(container, panel, (action, payload) =>
+      emitted.push({ action, payload }),
+    );
+    const flow = container.querySelector(".assistant-panel-reply-interaction");
+    assert.ok(flow, "a malformed batch must still replace the composer");
+    assert.isTrue(flow!.classList.contains("is-invalid"));
+    assert.equal(
+      flow!.getAttribute("data-assistant-interaction-error"),
+      "malformed-batch",
+    );
+    assert.isNull(container.querySelector(".assistant-panel-reply-input"));
+    assert.isNull(
+      container.querySelector(".assistant-panel-interaction-submit"),
+    );
+    assert.equal(
+      container.getAttribute("data-assistant-reply-interaction-status"),
+      "invalid",
+    );
+    container
+      .querySelector<HTMLButtonElement>(".assistant-panel-interaction-cancel")!
+      .click();
+    assert.deepEqual(emitted, [{ action: "cancel-run", payload: {} }]);
+  });
+
+  it("routes a file pick to the active question and slot", function () {
+    const container = environment.document.createElement("div");
+    const emitted: Array<{ action: string; payload: unknown }> = [];
+    const filesBatch = interactionBatch({
+      calls: [{ toolCallId: "call-f", callIndex: 0, questionIds: ["q-files"] }],
+      questions: [
+        {
+          questionId: "q-files",
+          toolCallId: "call-f",
+          callIndex: 0,
+          questionIndex: 0,
+          kind: "files",
+          prompt: "Attach sources",
+          header: null,
+          hint: null,
+          required: true,
+          options: [],
+          files: [
+            {
+              slotId: "s-1",
+              name: "paper",
+              required: true,
+              hint: null,
+              accept: ".pdf",
+            },
+            {
+              slotId: "s-2",
+              name: "notes",
+              required: false,
+              hint: null,
+              accept: null,
+            },
+          ],
+        },
+      ],
+      draftAnswers: {},
+    });
+    renderReply(container, flowPanel(filesBatch), (action, payload) =>
+      emitted.push({ action, payload }),
+    );
+    const picks = container.querySelectorAll(
+      ".assistant-panel-interaction-choose-files",
+    );
+    assert.lengthOf(picks, 2, "each declared file slot gets its own picker");
+    (picks[1] as HTMLButtonElement).click();
+    assert.lengthOf(emitted, 1);
+    assert.equal(emitted[0].action, "submit-interaction-files");
+    const pick = emitted[0].payload as Record<string, unknown>;
+    // Exact key set: the child-action router gates on it.
+    assert.deepEqual(Object.keys(pick).sort(), [
+      "baseRevision",
+      "batchId",
+      "mutationId",
+      "questionId",
+      "slotId",
+    ]);
+    assert.equal(pick.batchId, "batch-1");
+    assert.equal(pick.questionId, "q-files");
+    assert.equal(pick.slotId, "s-2");
+    assert.equal(pick.baseRevision, 4);
+    assert.isString(pick.mutationId);
+    assert.isAbove((pick.mutationId as string).length, 0);
+  });
+});

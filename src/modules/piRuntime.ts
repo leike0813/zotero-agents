@@ -42,6 +42,7 @@ const KNOWN_FAILURE_CODES = new Set<string>([
   "provider_http_error",
   "provider_stream_error",
   "preparation_failed",
+  "agent_loop_limit_exceeded",
   "aborted",
 ]);
 
@@ -160,17 +161,56 @@ export type PiRuntimeToolBatch = {
  * assistant tool batch. Calls absent from `results` (or listed in `pending`) are
  * suspended: their result is withheld from events and the turn stops with
  * `waiting_permission` before any further model invocation.
+ *
+ * `waitingUser` stops the turn as `waiting_user` while the owner collects a
+ * structured user answer; `suspendedRun` stops the turn as `suspended` when the
+ * owner suspended the run for later continuation. Both withhold results and
+ * issue no further model invocation.
  */
 export type PiRuntimeToolBatchOutcome = {
   results: readonly PiRuntimeToolResult[];
   suspended?: boolean;
+  waitingUser?: boolean;
+  suspendedRun?: boolean;
+  /** Deterministic owner progress digest; a change breaks LoopGuard cycles. */
+  progress?: string;
   pending?: readonly string[];
   /** Call ids whose effect could not be verified; the turn halts as state_unknown. */
   unknown?: readonly string[];
 };
 export type PiRuntimeExecuteTools = (
-  batch: PiRuntimeToolBatch,
+  batch: PiRuntimeExecuteToolsInput,
 ) => Promise<PiRuntimeToolBatchOutcome>;
+
+export type PiRuntimeExecuteToolsInput = PiRuntimeToolBatch & {
+  /**
+   * Reconcile this batch's reserved LoopGuard attempts to the number of calls
+   * the owner will actually dispatch. Call it after the owner's whole-batch
+   * preflight and before the first effect; it is cumulative, downward-only and
+   * bounded by the reserved batch size. Omitting it keeps the conservative
+   * whole-batch reservation.
+   */
+  reserveAttempts?: (attempts: number) => Promise<void>;
+};
+
+/**
+ * "gateway" hands tool-attempt accounting to the owner. The runtime does not
+ * charge the batch up front; the owner charges the count it really dispatches
+ * through reserveAttempts after its whole-batch preflight and before its first
+ * effect. A charge beyond the run budget throws PiRuntimeToolAttemptLimitError
+ * and nothing is dispatched.
+ */
+export type PiRuntimeToolAttemptAccounting = "gateway";
+
+/** Raised by reserveAttempts when a mediated charge would exceed the budget. */
+export class PiRuntimeToolAttemptLimitError extends Error {
+  readonly code = "agent_loop_limit_exceeded";
+
+  constructor() {
+    super("agent_loop_limit_exceeded");
+    this.name = "PiRuntimeToolAttemptLimitError";
+  }
+}
 
 export type PiRuntimeToolBlockDecision = { block: true; reason?: string };
 export type PiRuntimeBeforeToolCall = (input: {
@@ -217,11 +257,14 @@ export type PiTurnFailureCode =
   | "model_failed"
   | "runtime_failed"
   | "preparation_failed"
+  | "agent_loop_limit_exceeded"
   | PiModelFailureCode;
 
 export type PiTurnResult =
   | { status: "completed"; text: string }
   | { status: "waiting_permission" }
+  | { status: "waiting_user" }
+  | { status: "suspended" }
   | { status: "state_unknown" }
   | { status: "failed"; failure: { code: PiTurnFailureCode; message: string } }
   | { status: "canceled" };
@@ -307,6 +350,9 @@ export type PiRuntimeTurnInput = {
   prepareInvocation?: PiRuntimePrepareInvocation;
   beforeToolCall?: PiRuntimeBeforeToolCall;
   executeTools?: PiRuntimeExecuteTools;
+  loopGuard?: PiRuntimeLoopGuardInput;
+  /** Defaults to the eager whole-batch charge; "gateway" defers to the owner. */
+  toolAttemptAccounting?: PiRuntimeToolAttemptAccounting;
   onEvent?: (event: PiRuntimeEvent) => Promise<void> | void;
 };
 
@@ -314,6 +360,8 @@ export type PiRuntimeTurn = {
   events: AsyncIterable<PiRuntimeEvent>;
   result: Promise<PiTurnResult>;
   abort(): void;
+  /** Owner-directed interrupt: settle as suspended so the same run can continue. */
+  suspend(): void;
 };
 
 export interface PiRuntimeSession {
@@ -700,6 +748,207 @@ export function createPiTextProviderSource(options: {
   return { model, source };
 }
 
+export type PiRuntimeLoopGuardLimits = {
+  invocations: number;
+  toolAttempts: number;
+};
+
+/** Whole-run bounds used when no trusted owner limits are supplied. */
+export const PI_RUNTIME_LOOP_GUARD_LIMITS: PiRuntimeLoopGuardLimits = {
+  invocations: 20,
+  toolAttempts: 100,
+};
+
+/** Cycle detection scans repeated tool cycles of length one through this bound. */
+export const PI_RUNTIME_LOOP_GUARD_MAX_CYCLE_LENGTH = 5;
+/** A deterministic cycle stops the run once it repeats this many times. */
+export const PI_RUNTIME_LOOP_GUARD_CYCLE_REPEATS = 5;
+
+/**
+ * Durable whole-run LoopGuard counters. The owner passes the same state object
+ * back on continuation so invocation and tool-attempt budgets survive waits,
+ * sessions and restarts.
+ */
+export type PiRuntimeLoopGuardState = {
+  invocations: number;
+  toolAttempts: number;
+  cycles: string[];
+};
+
+export type PiRuntimeLoopGuardInput = {
+  state: PiRuntimeLoopGuardState;
+  /** Trusted owner ceiling; a Workflow request can only lower it. */
+  trustedLimits?: Partial<PiRuntimeLoopGuardLimits>;
+  /** Workflow-requested limits; values above the trusted ceiling are ignored. */
+  requestedLimits?: Partial<PiRuntimeLoopGuardLimits>;
+  /** Commits the counters before the next dispatch; durability is the owner's. */
+  persist?: (state: PiRuntimeLoopGuardState) => Promise<void> | void;
+};
+
+export type PiRuntimeLoopGuard = {
+  readonly state: PiRuntimeLoopGuardState;
+  readonly limits: PiRuntimeLoopGuardLimits;
+  /** The whole-run invocation allowance is already spent. */
+  isInvocationBlocked(): boolean;
+  /** A deterministic tool cycle has already repeated to the stop bound. */
+  isCycleBlocked(): boolean;
+  /** The whole next tool batch fits inside the remaining attempt budget. */
+  allowsToolBatch(attempts: number): boolean;
+  commitInvocation(): Promise<void>;
+  /** Commits dispatched tool-attempt counters before the batch runs. */
+  commitToolAttempts(attempts: number): Promise<void>;
+  /** Records the executed batch fingerprint that feeds cycle detection. */
+  recordToolBatch(batch: PiRuntimeLoopGuardBatch): Promise<void>;
+};
+
+/**
+ * Executed tool batch facts that form one deterministic fingerprint. The
+ * fingerprint carries tool names, normalized arguments, per-call result
+ * category and the owner's progress digest, so a genuine change of result or
+ * progress breaks a cycle instead of being counted as a repeat.
+ */
+export type PiRuntimeLoopGuardBatch = {
+  calls: readonly PiRuntimeToolCall[];
+  results: readonly PiRuntimeToolResult[];
+  /** Deterministic owner progress/goal digest; a change breaks cycle repeats. */
+  progress?: string;
+};
+
+function resolveLoopGuardLimit(
+  fallback: number,
+  trusted: number | undefined,
+  requested: number | undefined,
+): number {
+  const value = Math.min(
+    trusted ?? fallback,
+    requested ?? Number.POSITIVE_INFINITY,
+  );
+  return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : fallback;
+}
+
+/**
+ * Determines whether the recent tool batch signatures already contain a
+ * deterministic cycle of length one through five repeated five times. Only the
+ * runtime's own recorded batch facts feed the check; streamed text never does.
+ */
+function repeatedToolCycle(cycles: readonly string[]): boolean {
+  const repeats = PI_RUNTIME_LOOP_GUARD_CYCLE_REPEATS;
+  for (
+    let length = 1;
+    length <= PI_RUNTIME_LOOP_GUARD_MAX_CYCLE_LENGTH;
+    length++
+  ) {
+    const span = length * repeats;
+    if (cycles.length < span) continue;
+    const start = cycles.length - span;
+    let repeated = true;
+    for (let offset = 0; offset < span; offset++) {
+      if (cycles[start + offset] !== cycles[start + (offset % length)]) {
+        repeated = false;
+        break;
+      }
+    }
+    if (repeated) return true;
+  }
+  return false;
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== "object")
+    return JSON.stringify(value) ?? "null";
+  if (Array.isArray(value))
+    return "[" + value.map((item) => canonicalJson(item)).join(",") + "]";
+  const record = value as Record<string, unknown>;
+  return (
+    "{" +
+    Object.keys(record)
+      .sort()
+      .map((key) => JSON.stringify(key) + ":" + canonicalJson(record[key]))
+      .join(",") +
+    "}"
+  );
+}
+
+/** Deterministic result category of one settled tool call. */
+function toolResultCategory(result: PiRuntimeToolResult | undefined): string {
+  if (!result) return "withheld";
+  const certainty = result.effectCertainty ?? "not_applicable";
+  return (result.isError ? "error" : "ok") + ":" + certainty;
+}
+
+/** Deterministic identity of one executed tool batch. */
+function toolBatchFingerprint(batch: PiRuntimeLoopGuardBatch): string {
+  if (!batch.calls.length) return "";
+  const byCall = new Map(
+    batch.results.map((result) => [result.callId, result]),
+  );
+  const entries = batch.calls.map((call) => [
+    call.name,
+    canonicalJson(call.arguments),
+    toolResultCategory(byCall.get(call.callId)),
+  ]);
+  return JSON.stringify([entries, batch.progress ?? ""]);
+}
+
+/**
+ * Builds the reusable whole-run LoopGuard. It mutates the caller-owned state in
+ * place and commits counters through the injected persist hook before each
+ * dispatch, so an owner can restore a run without replaying model or tool work.
+ */
+export function createPiRuntimeLoopGuard(
+  input?: PiRuntimeLoopGuardInput,
+): PiRuntimeLoopGuard {
+  const state: PiRuntimeLoopGuardState = input?.state ?? {
+    invocations: 0,
+    toolAttempts: 0,
+    cycles: [],
+  };
+  if (!Array.isArray(state.cycles)) state.cycles = [];
+  const limits: PiRuntimeLoopGuardLimits = {
+    invocations: resolveLoopGuardLimit(
+      PI_RUNTIME_LOOP_GUARD_LIMITS.invocations,
+      input?.trustedLimits?.invocations,
+      input?.requestedLimits?.invocations,
+    ),
+    toolAttempts: resolveLoopGuardLimit(
+      PI_RUNTIME_LOOP_GUARD_LIMITS.toolAttempts,
+      input?.trustedLimits?.toolAttempts,
+      input?.requestedLimits?.toolAttempts,
+    ),
+  };
+  const commit = async () => {
+    if (input?.persist) await input.persist(state);
+  };
+  return {
+    state,
+    limits,
+    isInvocationBlocked: () => state.invocations >= limits.invocations,
+    isCycleBlocked: () => repeatedToolCycle(state.cycles),
+    allowsToolBatch: (attempts) =>
+      state.toolAttempts + attempts <= limits.toolAttempts,
+    commitInvocation: async () => {
+      state.invocations += 1;
+      await commit();
+    },
+    commitToolAttempts: async (attempts) => {
+      state.toolAttempts += attempts;
+      await commit();
+    },
+    recordToolBatch: async (batch) => {
+      const signature = toolBatchFingerprint(batch);
+      if (signature) {
+        state.cycles.push(signature);
+        const ceiling =
+          PI_RUNTIME_LOOP_GUARD_MAX_CYCLE_LENGTH *
+          PI_RUNTIME_LOOP_GUARD_CYCLE_REPEATS;
+        if (state.cycles.length > ceiling)
+          state.cycles.splice(0, state.cycles.length - ceiling);
+      }
+      await commit();
+    },
+  };
+}
+
 export class PiRuntime {
   openSession(options: PiRuntimeSessionOptions): PiRuntimeSession {
     const { sessionId } = options;
@@ -802,6 +1051,11 @@ export class PiRuntime {
         finish({ status: "canceled" });
         agent.abort();
       };
+      const suspend = () => {
+        if (terminal) return;
+        finish({ status: "suspended" });
+        agent.abort();
+      };
       activeAbort = abort;
       const settle = (result: PiTurnResult) => {
         unsubscribe();
@@ -831,7 +1085,7 @@ export class PiRuntime {
             },
           }),
       );
-      return { events, result: events.result(), abort };
+      return { events, result: events.result(), abort, suspend };
     };
 
     const agentTurn = (input: PiRuntimeTurnInput): PiRuntimeTurn => {
@@ -850,6 +1104,7 @@ export class PiRuntime {
       let nativeFailure = false;
       let nativeFailureCode: PiTurnFailureCode = "model_failed";
       let prepareFailed = false;
+      const loopGuard = createPiRuntimeLoopGuard(input.loopGuard);
       let invocationCount = 0;
       let invocationId = "";
       let pendingPlan: PiRuntimeInvocationPlan | undefined;
@@ -859,7 +1114,10 @@ export class PiRuntime {
       let batchResults = new Map<string, PiRuntimeToolResult>();
       let batchPromise: Promise<void> | undefined;
       let batchSuspended = false;
+      let batchWaitingUser = false;
+      let batchSuspendedRun = false;
       let batchUnknown = false;
+      let batchLimitExceeded = false;
       let batchText = "";
       let suppressed = new Set<string>();
       let invocationStarted = false;
@@ -867,6 +1125,8 @@ export class PiRuntime {
       let invocationSuppressed = false;
       let invocationIndexValue = 0;
       let suppressing = false;
+      let suspending = false;
+      let guardBlocked = false;
       let failure: PiTurnFailureCode | undefined;
       const emit = (payload: PiRuntimeEventPayload) =>
         emitInto(events, input.turnId, counter, payload, input.onEvent);
@@ -882,24 +1142,100 @@ export class PiRuntime {
         batchResults = new Map();
         batchPromise = undefined;
         batchSuspended = false;
+        batchWaitingUser = false;
+        batchSuspendedRun = false;
         batchUnknown = false;
+        batchLimitExceeded = false;
         suppressed = new Set();
         batchText = contentText(assistant.content);
       };
       const ensureBatch = (signal: AbortSignal) =>
         (batchPromise ??= (async () => {
-          const outcome = await input.executeTools!({
-            turnId: input.turnId,
-            assistantText: batchText,
-            calls: batchCalls.slice(),
-            signal,
-          });
+          const calls = batchCalls.slice();
+          const mediated = input.toolAttemptAccounting === "gateway";
+          if (!mediated) {
+            if (!loopGuard.allowsToolBatch(calls.length)) {
+              batchLimitExceeded = true;
+              failure = "agent_loop_limit_exceeded";
+              for (const call of calls) suppressed.add(call.callId);
+              return;
+            }
+            try {
+              await loopGuard.commitToolAttempts(calls.length);
+            } catch {
+              failure = "runtime_failed";
+              for (const call of calls) suppressed.add(call.callId);
+              return;
+            }
+          }
+          // Default accounting reserves the whole batch before dispatch, so a
+          // crash over-counts rather than losing attempts. A mediated owner
+          // charges only what it really dispatches, through reserveAttempts,
+          // after its preflight and before its first effect; a charge beyond the
+          // remaining budget refuses the batch without dispatching anything.
+          let reservedAttempts = mediated ? 0 : calls.length;
+          let reservationReported = !mediated;
+          const reserveAttempts = async (attempts: number) => {
+            reservationReported = true;
+            const target = Math.min(
+              Math.max(0, Math.floor(Number(attempts) || 0)),
+              calls.length,
+            );
+            const delta = target - reservedAttempts;
+            if (!delta) return;
+            if (delta > 0 && !loopGuard.allowsToolBatch(delta)) {
+              throw new PiRuntimeToolAttemptLimitError();
+            }
+            await loopGuard.commitToolAttempts(delta);
+            reservedAttempts = target;
+          };
+          let outcome: PiRuntimeToolBatchOutcome;
+          try {
+            outcome = await input.executeTools!({
+              turnId: input.turnId,
+              assistantText: batchText,
+              calls,
+              signal,
+              reserveAttempts,
+            });
+          } catch (error) {
+            if (error instanceof PiRuntimeToolAttemptLimitError) {
+              batchLimitExceeded = true;
+              failure = "agent_loop_limit_exceeded";
+              for (const call of calls) suppressed.add(call.callId);
+              return;
+            }
+            throw error;
+          }
+          if (mediated && !reservationReported) {
+            // A mediated owner that never reported leaves the run's accounting
+            // unknowable; charging the whole batch after the effects ran could
+            // exceed the budget, so the turn fails closed instead.
+            batchLimitExceeded = true;
+            failure = "runtime_failed";
+            for (const call of calls) suppressed.add(call.callId);
+            return;
+          }
           for (const result of outcome.results)
             batchResults.set(result.callId, result);
+          try {
+            await loopGuard.recordToolBatch({
+              calls,
+              results: outcome.results,
+              progress: outcome.progress,
+            });
+          } catch {
+            failure = "runtime_failed";
+          }
           const outstanding =
             (outcome.pending?.length ?? 0) > 0 ||
-            batchCalls.some((call) => !batchResults.has(call.callId));
-          batchSuspended = outcome.suspended === true || outstanding;
+            calls.some((call) => !batchResults.has(call.callId));
+          batchWaitingUser = outcome.waitingUser === true;
+          batchSuspendedRun = outcome.suspendedRun === true;
+          batchSuspended =
+            (outcome.suspended === true || outstanding) &&
+            !batchWaitingUser &&
+            !batchSuspendedRun;
           batchUnknown =
             (outcome.unknown?.length ?? 0) > 0 ||
             outcome.results.some(
@@ -958,7 +1294,14 @@ export class PiRuntime {
         invocationSuppressed = false;
         prepareFailed = false;
         pendingPlan = undefined;
-        if (suppressing) return messages;
+        guardBlocked = false;
+        if (suppressing || suspending) return messages;
+        if (loopGuard.isInvocationBlocked() || loopGuard.isCycleBlocked()) {
+          guardBlocked = true;
+          failure = "agent_loop_limit_exceeded";
+          invocationSuppressed = true;
+          return messages;
+        }
         if (!input.prepareInvocation) return messages;
         try {
           const plan = await input.prepareInvocation({
@@ -980,10 +1323,12 @@ export class PiRuntime {
       };
       agent.streamFunction = async (streamModel, context, streamOptions) => {
         const signal = streamOptions?.signal ?? agent.signal;
-        if (suppressing || signal?.aborted)
+        if (suppressing || suspending || signal?.aborted)
           return failureStream(streamModel, "aborted", true);
         if (prepareFailed)
           return failureStream(streamModel, "preparation_failed");
+        if (guardBlocked)
+          return failureStream(streamModel, "agent_loop_limit_exceeded");
         if (!signal) {
           invocationSuppressed = true;
           failure = "provider_stream_error";
@@ -996,6 +1341,13 @@ export class PiRuntime {
           agent.state.tools = pendingPlan.tools.map((tool) =>
             nativeToolDefinition(tool, toolExecute(tool.name)),
           );
+        try {
+          await loopGuard.commitInvocation();
+        } catch {
+          invocationSuppressed = true;
+          failure = "runtime_failed";
+          return failureStream(streamModel, "runtime_failed");
+        }
         invocationStarted = true;
         invocationSettled = false;
         await emit({
@@ -1040,7 +1392,14 @@ export class PiRuntime {
         return undefined;
       };
       agent.shouldStopAfterTurn = () =>
-        suppressing || batchSuspended || batchUnknown;
+        suppressing ||
+        suspending ||
+        guardBlocked ||
+        batchSuspended ||
+        batchUnknown ||
+        batchWaitingUser ||
+        batchSuspendedRun ||
+        batchLimitExceeded;
       const unsubscribe = agent.subscribe(async (event) => {
         if (terminal || (suppressing && event.type !== "tool_execution_end"))
           return;
@@ -1107,8 +1466,13 @@ export class PiRuntime {
         }
       });
       const abort = () => {
-        if (terminal || suppressing) return;
+        if (terminal || suppressing || suspending) return;
         suppressing = true;
+        agent.abort();
+      };
+      const suspend = () => {
+        if (terminal || suppressing || suspending) return;
+        suspending = true;
         agent.abort();
       };
       activeAbort = abort;
@@ -1129,52 +1493,60 @@ export class PiRuntime {
       void agent.continue().then(
         () =>
           settle(
-            suppressing
-              ? { status: "canceled" }
-              : failure
-                ? {
-                    status: "failed",
-                    failure: {
-                      code: failure,
-                      message: "Turn execution failed",
-                    },
-                  }
-                : nativeFailure
+            suspending
+              ? { status: "suspended" }
+              : suppressing
+                ? { status: "canceled" }
+                : failure
                   ? {
                       status: "failed",
                       failure: {
-                        code: nativeFailureCode,
-                        message: "Model execution failed",
+                        code: failure,
+                        message: "Turn execution failed",
                       },
                     }
-                  : batchUnknown
-                    ? { status: "state_unknown" }
-                    : batchSuspended
-                      ? { status: "waiting_permission" }
-                      : { status: "completed", text: finalText },
+                  : nativeFailure
+                    ? {
+                        status: "failed",
+                        failure: {
+                          code: nativeFailureCode,
+                          message: "Model execution failed",
+                        },
+                      }
+                    : batchUnknown
+                      ? { status: "state_unknown" }
+                      : batchSuspended
+                        ? { status: "waiting_permission" }
+                        : batchWaitingUser
+                          ? { status: "waiting_user" }
+                          : batchSuspendedRun
+                            ? { status: "suspended" }
+                            : { status: "completed", text: finalText },
           ),
         () =>
           settle(
-            suppressing
-              ? { status: "canceled" }
-              : failure
-                ? {
-                    status: "failed",
-                    failure: {
-                      code: failure,
-                      message: "Turn execution failed",
+            suspending
+              ? { status: "suspended" }
+              : suppressing
+                ? { status: "canceled" }
+                : failure
+                  ? {
+                      status: "failed",
+                      failure: {
+                        code: failure,
+                        message: "Turn execution failed",
+                      },
+                    }
+                  : {
+                      status: "failed",
+                      failure: {
+                        code: "runtime_failed",
+                        message: "Runtime execution failed",
+                      },
                     },
-                  }
-                : {
-                    status: "failed",
-                    failure: {
-                      code: "runtime_failed",
-                      message: "Runtime execution failed",
-                    },
-                  },
           ),
       );
-      return { events, result: events.result(), abort };
+      return { events, result: events.result(), abort, suspend };
     };
 
     return {

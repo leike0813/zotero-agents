@@ -124,7 +124,12 @@ export const ASSISTANT_WORKSPACE_OPTIONAL_PUBLICATION_PAYLOAD_KEYS: Record<
   string,
   readonly string[]
 > = {
-  composer: ["resources", "errors", "sendAdmissionRevision"],
+  composer: [
+    "resources",
+    "errors",
+    "sendAdmissionRevision",
+    "interactionBatch",
+  ],
   "owner-navigation": ["archivedEntries"],
 };
 

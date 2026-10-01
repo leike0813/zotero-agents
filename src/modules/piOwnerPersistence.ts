@@ -11,6 +11,7 @@ import {
   getPiConversationReadFacts,
   insertPiConversationMetadata,
   listPiConversations,
+  listPiSkillRunRegistry,
   updatePiConversationProjection,
   upsertPiConversationCleanupReceipt,
   upsertPiOwnerRegistry,
@@ -22,6 +23,8 @@ import {
   type PiConversationReadFacts,
   type PiConversationTitleSource,
   type PiConversationUsage,
+  type PiSkillRunRegistryEntry,
+  type PiSkillRunRegistryScalars,
 } from "./pluginStateStore";
 import {
   appendPiTranscriptBatch,
@@ -56,6 +59,7 @@ export {
   getPiConversationReadFacts,
   getPiConversationReadFacts as getPiConversationProjection,
   listPiConversations,
+  listPiSkillRunRegistry,
   readPiVisibleTranscriptPage as readPiConversationPage,
 };
 export type {
@@ -66,6 +70,8 @@ export type {
   PiConversationReadFacts,
   PiConversationTitleSource,
   PiConversationUsage,
+  PiSkillRunRegistryEntry,
+  PiSkillRunRegistryScalars,
   PiTranscriptBasis,
   PiTurnTranscriptSnapshot,
 };
@@ -105,6 +111,53 @@ function record(
     : { kind: "skill_run", skillRunId: ref.ownerId, ...common };
 }
 
+const PI_SKILL_RUN_SCALAR_MAX = 32;
+
+// Bounded, rebuildable Skill Run list facts folded from the canonical log. The
+// status vocabulary stays owned by the Pi Skill Run owner; this only stores a
+// bounded opaque scalar, never a transcript payload.
+function piSkillRunScalarsFor(
+  inspection: PiInspection,
+): PiSkillRunRegistryScalars | undefined {
+  const admission = inspection.entries.find(
+    (entry) => entry.kind === "skill_run_admitted",
+  )?.payload as Record<string, unknown> | undefined;
+  if (!admission) return undefined;
+  const counts = { user: 0, assistant: 0, tool: 0, thought: 0 };
+  let status = "queued";
+  let archived = false;
+  const boundedStatus = (value: unknown) => {
+    if (typeof value !== "string") return null;
+    const next = value.trim();
+    return next && next.length <= PI_SKILL_RUN_SCALAR_MAX ? next : null;
+  };
+  for (const entry of inspection.entries) {
+    const payload = (entry.payload ?? {}) as Record<string, unknown>;
+    if (entry.kind === "skill_run_status") {
+      status = boundedStatus(payload.status) ?? status;
+    } else if (entry.kind === "skill_run_outcome") {
+      const result = payload.result as { status?: unknown } | undefined;
+      status = boundedStatus(result?.status) ?? status;
+    } else if (entry.kind === "skill_run_archive") {
+      archived = true;
+    } else if (entry.kind === "message") {
+      if (payload.role === "user") counts.user += 1;
+      else if (payload.role === "assistant") counts.assistant += 1;
+    } else if (entry.kind === "tool_result") {
+      counts.tool += 1;
+    } else if (entry.kind === "thought") {
+      counts.thought += 1;
+    }
+  }
+  return {
+    taskName: String(admission.taskName ?? ""),
+    skillId: String(admission.skillId ?? ""),
+    status,
+    archived,
+    counts,
+  };
+}
+
 async function project(
   ref: PiOwnerRef,
   inspection: PiInspection,
@@ -112,13 +165,17 @@ async function project(
 ): Promise<"ready" | "pending"> {
   try {
     await rebuildPiIndex(ref, inspection, root);
+    const updatedAt =
+      inspection.entries.at(-1)?.createdAt || inspection.header!.createdAt;
+    const skillRun =
+      ref.kind === "skill_run" ? piSkillRunScalarsFor(inspection) : undefined;
     upsertPiOwnerRegistry({
       ownerKind: ref.kind,
       ownerId: ref.ownerId,
       entryCount: inspection.entries.length,
       lastSequence: inspection.entries.length,
-      updatedAt:
-        inspection.entries.at(-1)?.createdAt || inspection.header!.createdAt,
+      updatedAt,
+      ...(skillRun ? { skillRun } : {}),
     });
     if (ref.kind === "conversation") {
       insertPiConversationMetadata({
@@ -738,15 +795,15 @@ export async function appendPiConversationFact(
   },
   root?: string,
 ) {
-  requireConversationRef(ref);
   if (typeof fact.kind !== "string" || !fact.kind)
     throw new Error("pi_fact_kind_invalid");
   return withPiOwnerWrite(ref, root, async () => {
     const metadata = getPiConversationMetadata(ref.ownerId);
-    if (!metadata) throw new Error("pi_conversation_missing");
+    if (ref.kind === "conversation" && !metadata)
+      throw new Error("pi_conversation_missing");
     if (
-      metadata.lifecycle === "deleting" ||
-      metadata.lifecycle === "cleanup_pending"
+      metadata?.lifecycle === "deleting" ||
+      metadata?.lifecycle === "cleanup_pending"
     )
       throw new Error("pi_conversation_lifecycle_frozen");
     const inspection = await inspectPiTranscript(ref, root);
@@ -849,7 +906,6 @@ export async function readPiConversationTranscriptSnapshot(
   ref: PiOwnerRef,
   root?: string,
 ): Promise<PiTurnTranscriptSnapshot> {
-  requireConversationRef(ref);
   const inspection = await inspectPiTranscript(ref, root);
   requireValidPiTranscript(inspection);
   const metadata = getPiConversationMetadata(ref.ownerId);
@@ -899,20 +955,21 @@ export function createPiConversationPreparationAdapter(
   ref: PiOwnerRef,
   root?: string,
 ): Pick<PiTurnPreparationPorts, "record" | "commitCompaction"> {
-  requireConversationRef(ref);
   return {
     async record(record: TurnPreparationRecord, expected: PiTranscriptBasis) {
       return withPiOwnerWrite(ref, root, async () => {
         const metadata = getPiConversationMetadata(ref.ownerId);
-        if (!metadata) throw new Error("pi_conversation_missing");
+        if (ref.kind === "conversation" && !metadata)
+          throw new Error("pi_conversation_missing");
         // Q188: archive may not cancel a pending auxiliary title result, so a
         // title-preparation record is the only one accepted on an archived
         // owner; every other preparation still requires an active owner.
         const titlePreparation =
           (record as { purpose?: unknown }).purpose === "title";
         if (
-          metadata.lifecycle !== "active" &&
-          !(titlePreparation && metadata.lifecycle === "archived")
+          ref.kind === "conversation" &&
+          metadata?.lifecycle !== "active" &&
+          !(titlePreparation && metadata?.lifecycle === "archived")
         )
           throw new Error("pi_conversation_lifecycle_frozen");
         const inspection = await inspectPiTranscript(ref, root);
@@ -947,8 +1004,8 @@ export function createPiConversationPreparationAdapter(
         const basis =
           inspection.status === "valid" ? transcriptBasisOf(inspection) : null;
         if (
-          !metadata ||
-          metadata.lifecycle !== "active" ||
+          (ref.kind === "conversation" &&
+            (!metadata || metadata.lifecycle !== "active")) ||
           !basis ||
           basis.revision !== expectedRevision
         )
@@ -976,4 +1033,36 @@ export function createPiConversationPreparationAdapter(
       });
     },
   };
+}
+
+// Both owner kinds share the canonical append and preparation CAS protocol.
+export const appendPiOwnerFact = appendPiConversationFact;
+export const readPiOwnerTranscriptSnapshot =
+  readPiConversationTranscriptSnapshot;
+export const createPiOwnerPreparationAdapter =
+  createPiConversationPreparationAdapter;
+
+/** Commit a caller-owned CAS transition as one canonical owner batch. */
+export function commitPiOwnerFacts(
+  ref: PiOwnerRef,
+  decide: (
+    entries: readonly PiTranscriptEntry[],
+  ) => PiTranscriptInput[] | Promise<PiTranscriptInput[]>,
+  root?: string,
+) {
+  return withPiOwnerWrite(ref, root, async () => {
+    const inspection = await inspectPiTranscript(ref, root);
+    requireValidPiTranscript(inspection);
+    const inputs = await decide(inspection.entries);
+    if (!inputs.length) return [];
+    let parent = inspection.entries.at(-1)?.entryId;
+    const linked = inputs.map((input) => {
+      const result = { ...input, ...(parent ? { parentEntryId: parent } : {}) };
+      parent = input.entryId;
+      return result;
+    });
+    const result = await appendPiTranscriptBatch(ref, linked, root);
+    await project(ref, result.inspection, root);
+    return result.entries;
+  });
 }

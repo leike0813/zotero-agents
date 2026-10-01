@@ -37,6 +37,9 @@ export type AcpSkillRunnerWorkspace = {
   inputManifestPath: string;
 };
 
+/** Backend-neutral workspace shape shared by ACP and the Built-in Pi runtime. */
+export type SkillRunWorkspace = AcpSkillRunnerWorkspace;
+
 export type AcpSkillRunnerWorkflowWorkspaceIntent = {
   mode: "new" | "reuse";
   workflowRunId: string;
@@ -163,14 +166,17 @@ export function resetAcpWorkflowWorkspaceRegistryForTests() {
 export async function createAcpSkillRunnerWorkspace(args: {
   backendId: string;
   skillId: string;
+  requestId?: string;
   workflowId?: string;
   jobId?: string;
   rootDir?: string;
   workflowWorkspace?: AcpSkillRunnerWorkflowWorkspaceIntent;
 }) {
-  const requestId = `acp-skill-${Date.now().toString(36)}-${Math.random()
-    .toString(36)
-    .slice(2, 8)}`;
+  const requestId =
+    normalizeString(args.requestId) ||
+    `acp-skill-${Date.now().toString(36)}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
   const root =
     normalizeString(args.rootDir) ||
     getRuntimePersistencePaths().acpSkillRunsDir;

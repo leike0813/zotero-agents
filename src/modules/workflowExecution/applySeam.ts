@@ -30,6 +30,43 @@ import {
   detachAcpSkillRunControllerAfterApplyResult,
   markAcpSkillRunApplyResult,
 } from "../acp/skillRun/acpSkillRunActions";
+import { BUILTIN_PI_BACKEND_TYPE } from "../../config/defaults";
+
+type PiSkillRunApplyReceipt = {
+  status: "succeeded" | "failed" | "skipped";
+  code?: string;
+};
+
+type PiSkillRunApplyClaim =
+  | { status: "claimed"; applyKey: string }
+  | { status: "terminal"; applyKey: string; receipt?: PiSkillRunApplyReceipt }
+  | { status: "recovery_required"; applyKey: string; code?: string };
+
+type PiSkillRunApplyModule = {
+  readProviderResult?: (requestId: string) => Promise<
+    | {
+        status: "succeeded" | "failed" | "canceled" | "deferred";
+        requestId: string;
+        [key: string]: unknown;
+      }
+    | undefined
+  >;
+  claimPiSkillRunApply?: (requestId: string) => Promise<PiSkillRunApplyClaim>;
+  recordPiSkillRunApplyReceipt?: (
+    requestId: string,
+    receipt: PiSkillRunApplyReceipt,
+  ) => Promise<void>;
+  acknowledgePiSkillRunTerminal?: (
+    requestId: string,
+    ackId: string,
+  ) => Promise<void>;
+};
+
+async function loadPiSkillRunApplyModule(): Promise<PiSkillRunApplyModule> {
+  return (await import("../../modules/piSkillRun").catch(
+    () => ({}),
+  )) as PiSkillRunApplyModule;
+}
 
 type RunResultLike = {
   status?: string;
@@ -152,6 +189,7 @@ type ApplySeamDeps = {
   createWorkflowResultContext: typeof createWorkflowResultContext;
   collectSkillRunFeedback: typeof collectSkillRunFeedbackSidecar;
   resolveWorkflowJobTerminalResolution: typeof resolveWorkflowJobTerminalResolution;
+  loadPiSkillRunApplyModule: typeof loadPiSkillRunApplyModule;
 };
 
 const defaultApplySeamDeps: ApplySeamDeps = {
@@ -163,6 +201,7 @@ const defaultApplySeamDeps: ApplySeamDeps = {
   createWorkflowResultContext,
   collectSkillRunFeedback: collectSkillRunFeedbackSidecar,
   resolveWorkflowJobTerminalResolution,
+  loadPiSkillRunApplyModule,
 };
 
 function getSequenceSteps(result: RunResultLike) {
@@ -348,6 +387,95 @@ export async function runWorkflowApplySeam(
       }
       continue;
     }
+    let builtinPiApplyTarget: string | undefined;
+    let builtinPiApply: PiSkillRunApplyModule | undefined;
+    const builtinPiDeferredRequestId =
+      job &&
+      String(job.meta.backendType || "").trim() === BUILTIN_PI_BACKEND_TYPE &&
+      isPendingWorkflowJobState(job.state) &&
+      (job.result as RunResultLike | undefined)?.status === "deferred"
+        ? String(
+            (job.result as RunResultLike | undefined)?.requestId ||
+              job.meta.requestId ||
+              "",
+          ).trim()
+        : "";
+    if (job && builtinPiDeferredRequestId) {
+      const applyModule = await resolved.loadPiSkillRunApplyModule();
+      const claim = applyModule.claimPiSkillRunApply
+        ? await applyModule.claimPiSkillRunApply(builtinPiDeferredRequestId)
+        : undefined;
+      if (claim?.status === "recovery_required") {
+        failed += 1;
+        const reason = claim.code || "skill_run_recovery_required";
+        failureReasons.push(
+          `job-${i} (request_id=${builtinPiDeferredRequestId}): ${reason}`,
+        );
+        jobOutcomes.push({
+          index: i,
+          taskLabel,
+          succeeded: false,
+          terminalState: "failed",
+          reason,
+          jobId: job.id,
+          requestId: builtinPiDeferredRequestId,
+        });
+        resolved.appendRuntimeLog({
+          level: "error",
+          scope: "job",
+          workflowId: args.runState.workflow.manifest.id,
+          jobId: job.id,
+          requestId: builtinPiDeferredRequestId,
+          stage: "apply-recovery-required",
+          message:
+            "workflow apply not rerun because the Pi Skill Run effect state is unknown",
+          details: { index: i, taskLabel, reason },
+        });
+        continue;
+      }
+      if (claim?.status === "terminal") {
+        if (claim.receipt?.status === "failed") {
+          failed += 1;
+          const reason = claim.receipt.code || "workflow apply failed";
+          failureReasons.push(
+            `job-${i} (request_id=${builtinPiDeferredRequestId}): ${reason}`,
+          );
+          jobOutcomes.push({
+            index: i,
+            taskLabel,
+            succeeded: false,
+            terminalState: "failed",
+            reason,
+            jobId: job.id,
+            requestId: builtinPiDeferredRequestId,
+          });
+        } else {
+          succeeded += 1;
+          jobOutcomes.push({
+            index: i,
+            taskLabel,
+            succeeded: true,
+            terminalState: "succeeded",
+            jobId: job.id,
+            requestId: builtinPiDeferredRequestId,
+          });
+        }
+        continue;
+      }
+      if (claim?.status === "claimed" && applyModule.readProviderResult) {
+        const ownerResult = await applyModule.readProviderResult(
+          builtinPiDeferredRequestId,
+        );
+        if (ownerResult && ownerResult.status !== "deferred") {
+          // The owner sealed the outcome; the Workflow owns the apply.
+          job.state = "succeeded";
+          job.result = ownerResult as RunResultLike;
+          builtinPiApplyTarget = builtinPiDeferredRequestId;
+          builtinPiApply = applyModule;
+        }
+      }
+    }
+
     if (!job || job.state !== "succeeded") {
       const recoverableRequestId = getSkillRunnerRequestIdFromJob(job as any);
       const jobResultStatus = getJobResultStatus(job as any);
@@ -815,6 +943,19 @@ export async function runWorkflowApplySeam(
           },
         });
       }
+      if (builtinPiApplyTarget) {
+        await builtinPiApply
+          ?.recordPiSkillRunApplyReceipt?.(builtinPiApplyTarget, {
+            status: "succeeded",
+          })
+          .catch(() => undefined);
+        await builtinPiApply
+          ?.acknowledgePiSkillRunTerminal?.(
+            builtinPiApplyTarget,
+            `${args.runState.runId}:${job.id}`,
+          )
+          .catch(() => undefined);
+      }
       succeeded += 1;
       jobOutcomes.push({
         index: i,
@@ -847,6 +988,14 @@ export async function runWorkflowApplySeam(
         error,
         args.messageFormatter,
       );
+      if (builtinPiApplyTarget) {
+        await builtinPiApply
+          ?.recordPiSkillRunApplyReceipt?.(builtinPiApplyTarget, {
+            status: "failed",
+            code: "workflow_apply_failed",
+          })
+          .catch(() => undefined);
+      }
       const structuredApplyResult =
         error && typeof error === "object" && "structuredResult" in error
           ? (error as { structuredResult?: unknown }).structuredResult

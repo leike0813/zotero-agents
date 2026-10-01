@@ -1770,7 +1770,17 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
             sharedPending.fileReply.supported === true
               ? {
                   action: "submit-interaction-files",
-                  payload: {},
+                  // Legacy single-question file replies carry no batch
+                  // identity; the router's exact-key gate still requires every
+                  // declared key, so they are sent explicitly empty. Their own
+                  // handler resolves the pending interaction, not this payload.
+                  payload: {
+                    batchId: "",
+                    questionId: "",
+                    slotId: null,
+                    baseRevision: 0,
+                    mutationId: "",
+                  },
                 }
               : null,
         }),
@@ -1936,6 +1946,7 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
     reply: (function () {
       const isSkillRunner = source.source === "skillrunner";
       const isPiConversations = source.source === "pi-conversations";
+      const isPiSkillRuns = source.source === "pi-skill-runs";
       // SkillRunner waiting_auth: the auth suite rides the projected
       // interaction; the composer guidance (placeholder/submit label)
       // follows the legacy skillRunnerAuth* branch.
@@ -2020,13 +2031,17 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
         controls: isSkillRunner
           ? []
           : [
-              exactWorkspaceOptionGroup(
-                runtimeOptions.mode,
-                "mode",
-                labelFrom(labelSource, "fields.mode", "Mode"),
-                "set-mode",
-                "modeId",
-              ),
+              ...(isPiSkillRuns
+                ? []
+                : [
+                    exactWorkspaceOptionGroup(
+                      runtimeOptions.mode,
+                      "mode",
+                      labelFrom(labelSource, "fields.mode", "Mode"),
+                      "set-mode",
+                      "modeId",
+                    ),
+                  ]),
               exactWorkspaceOptionGroup(
                 runtimeOptions.model,
                 "model",
@@ -2136,6 +2151,14 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
           typeof composer.sendAdmissionRevision === "number" &&
           Number.isFinite(composer.sendAdmissionRevision)
             ? composer.sendAdmissionRevision
+            : null,
+        // Versioned multi-question interaction batch (Pi Skill Runs). The
+        // Reply region replaces the ordinary composer with the one-question
+        // flow while it is present; null everywhere else.
+        interactionBatch:
+          composer.interactionBatch &&
+          typeof composer.interactionBatch === "object"
+            ? composer.interactionBatch
             : null,
         value: safeText(local.replyDraft),
       };

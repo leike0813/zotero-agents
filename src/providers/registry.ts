@@ -1,6 +1,7 @@
 import type { BackendInstance } from "../backends/types";
 import type { ProviderExecutionResult } from "./contracts";
 import { AcpProvider } from "./acp/provider";
+import { BuiltinPiProvider } from "./builtin-pi/provider";
 import { GenericHttpProvider } from "./generic-http/provider";
 import { PassThroughProvider } from "./pass-through/provider";
 import { appendRuntimeLog } from "../modules/runtimeLogManager";
@@ -25,6 +26,7 @@ function createDefaultProviders(): Provider[] {
     new AcpProvider(),
     new GenericHttpProvider(),
     new PassThroughProvider(),
+    new BuiltinPiProvider(),
   ];
 }
 
