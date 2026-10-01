@@ -102,6 +102,7 @@ export type PiTranscriptBasis = {
 };
 
 export type PiTurnPreparationInput = {
+  signal?: AbortSignal;
   intent: PiPreparationIntent;
   owner: PiOwnerRef;
   turnId: string;
@@ -266,6 +267,7 @@ export type PiTurnPreparationPorts = {
     model: PiModelSelectionSnapshot;
   }): Promise<number>;
   summarize(input: {
+    signal?: AbortSignal;
     summaryInput: readonly PiPreparedMessage[];
     inputDigest: string;
     coveredEntryIds: string[];
@@ -367,6 +369,7 @@ export const PI_TRANSCRIPT_NON_CONTEXT_KINDS: ReadonlySet<string> = new Set([
   "model_invocation_terminal",
   "tool_call_started",
   "tool_call_receipt",
+  "tool_call_physical_evidence",
   "web_source_attempt",
   "zotero_mutation_identity",
   "zotero_mutation_source_ids",
@@ -374,6 +377,7 @@ export const PI_TRANSCRIPT_NON_CONTEXT_KINDS: ReadonlySet<string> = new Set([
   "permission_pending",
   "permission_resolved",
   "skill_run_admitted",
+  "skill_run_apply_inputs",
   "skill_run_workspace",
   "skill_run_prepared",
   "skill_run_status",
@@ -386,6 +390,12 @@ export const PI_TRANSCRIPT_NON_CONTEXT_KINDS: ReadonlySet<string> = new Set([
   "skill_run_guard",
   "skill_run_result_sealed",
   "skill_run_interaction_draft",
+  "execution_checkpoint",
+  "skill_run_deleting",
+  "operation_evidence_observed",
+  "model_invocation_settled",
+  "skill_run_reservation",
+  "skill_run_apply_inputs",
 ]);
 
 class PreparationError extends Error {
@@ -565,11 +575,40 @@ function extendSelectedPathTail(
 
 async function project(snapshot: PiTurnTranscriptSnapshot): Promise<Projected> {
   const path = extendSelectedPathTail(snapshot, selectedPath(snapshot));
+  const callIdentity = (item: PiTranscriptEntry, callId: unknown) =>
+    `${item.turnId ?? ""}\n${String(callId ?? "")}`;
+  const resolvedCalls = new Set(
+    path
+      .filter((item) => {
+        if (
+          ![
+            "tool_call_physical_evidence",
+            "operation_evidence_observed",
+          ].includes(item.kind)
+        )
+          return false;
+        const payload = item.payload as Record<string, unknown>;
+        return (
+          nonempty(payload.callId) &&
+          [
+            "confirmed_none",
+            "confirmed_complete",
+            "confirmed_partial",
+          ].includes(String(payload.effectCertainty)) &&
+          (item.kind === "operation_evidence_observed" ||
+            payload.state === "settled")
+        );
+      })
+      .map((item) =>
+        callIdentity(item, (item.payload as Record<string, unknown>).callId),
+      ),
+  );
   const units: Unit[] = [];
   const started = new Set<string>();
   const permissions = new Set<string>();
   const interactions = new Set<string>();
   const modelInvocations = new Set<string>();
+  const physicallySettledModels = new Set<string>();
   let pending: { unit: Unit; calls: Set<string> } | undefined;
   for (const item of path) {
     const payload = item.payload as Record<string, unknown>;
@@ -659,9 +698,10 @@ async function project(snapshot: PiTurnTranscriptSnapshot): Promise<Projected> {
       if (!nonempty(payload.callId) || !started.has(payload.callId))
         fail("transcript_integrity_failed");
       if (
-        payload.effectCertainty === "unknown" ||
-        payload.status === "state_unknown" ||
-        payload.outcome === "state_unknown"
+        !resolvedCalls.has(callIdentity(item, payload.callId)) &&
+        (payload.effectCertainty === "unknown" ||
+          payload.status === "state_unknown" ||
+          payload.outcome === "state_unknown")
       )
         fail("recovery_required");
       started.delete(payload.callId);
@@ -674,10 +714,21 @@ async function project(snapshot: PiTurnTranscriptSnapshot): Promise<Projected> {
     } else if (item.kind === "model_invocation_terminal") {
       if (
         !nonempty(payload.invocationId) ||
-        !modelInvocations.has(payload.invocationId)
+        (!modelInvocations.has(payload.invocationId) &&
+          !physicallySettledModels.has(
+            `${item.turnId ?? ""}\n${payload.invocationId}`,
+          ))
       )
         fail("transcript_integrity_failed");
       modelInvocations.delete(payload.invocationId);
+    } else if (item.kind === "model_invocation_settled") {
+      if (!nonempty(payload.invocationId)) fail("transcript_integrity_failed");
+      if (payload.physicalOutcome === "settled") {
+        modelInvocations.delete(payload.invocationId);
+        physicallySettledModels.add(
+          `${item.turnId ?? ""}\n${payload.invocationId}`,
+        );
+      }
     } else if (
       item.kind === "permission_pending" ||
       item.kind === "interaction_pending"
@@ -1250,6 +1301,7 @@ async function run(
   ];
   for (;;) {
     while (summarizedCount < covered.length) {
+      if (input.signal?.aborted) fail("compaction_unsafe");
       const previous = summary ? [summaryMessage(summary, [])] : [];
       let nextCount = summarizedCount;
       let summaryContext: PiPreparedContext | undefined;
@@ -1316,6 +1368,7 @@ async function run(
       ];
       try {
         summary = await ports.summarize({
+          signal: input.signal,
           summaryInput,
           inputDigest,
           coveredEntryIds: coveredIds,
@@ -1356,6 +1409,7 @@ async function run(
   if (!summary || !compactedContext) fail("compaction_failed");
   let commit: Awaited<ReturnType<PiTurnPreparationPorts["commitCompaction"]>>;
   try {
+    if (input.signal?.aborted) fail("compaction_unsafe");
     commit = await ports.commitCompaction({
       owner: input.owner,
       turnId: input.turnId,
@@ -1589,6 +1643,7 @@ export async function preparePiTurn(
   ports: PiTurnPreparationPorts,
 ): Promise<PiTurnPreparationResult> {
   try {
+    if (input.signal?.aborted) fail("preparation_waiting");
     return await run(input, ports);
   } catch (error) {
     const code =

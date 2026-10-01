@@ -363,6 +363,9 @@ export function createPiConversationWorkspaceSurfaceAdapter(
               model.lifecycle === "active"
                 ? [
                     "rename-conversation",
+                    ...(model.status === "recovery_required"
+                      ? ["check-owner-recovery" as const]
+                      : []),
                     ...(replyable ? ["compact-conversation" as const] : []),
                     // C18: the scoped diagnostic export stays available in
                     // every lifecycle state, archived owners included.

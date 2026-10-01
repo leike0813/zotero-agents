@@ -322,6 +322,14 @@ const ASSISTANT_WORKSPACE_ACTION_DEFINITIONS = {
     scope: "selected-owner",
     payloadKeys: [],
   },
+  "check-owner-recovery": {
+    scope: "selected-owner",
+    payloadKeys: [],
+  },
+  "continue-owner-recovery": {
+    scope: "selected-owner",
+    payloadKeys: [],
+  },
   "open-workspace": {
     scope: "selected-owner",
     payloadKeys: [],
@@ -873,6 +881,8 @@ export const ASSISTANT_WORKSPACE_DETAILS_ACTIONS = [
   "archive-conversation",
   "restore-conversation",
   "delete-conversation",
+  "check-owner-recovery",
+  "continue-owner-recovery",
 ] as const;
 
 export type AssistantWorkspaceDetailsAction =

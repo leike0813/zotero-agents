@@ -854,7 +854,11 @@ describe("Pi Tool Gateway shared behavior", function () {
     abort.abort();
     release();
     const outcome = await batch;
-    assert.equal(outcome.results[0].status, "canceled");
+    // A cancel stops the wait but proves nothing about the effect, so the
+    // call is unknown until its real outcome arrives; the queued call was
+    // never dispatched at all.
+    assert.equal(outcome.results[0].status, "state_unknown");
+    assert.equal(outcome.results[0].effectCertainty, "unknown");
     assert.equal(outcome.results[1].effectCertainty, "not_started");
   });
 

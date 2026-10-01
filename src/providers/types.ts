@@ -53,6 +53,8 @@ export type ProviderProgressEvent =
     };
 
 export type ProviderOrchestrationContext = {
+  /** Workflow execution ceiling; a builtin-pi run may only lower its active budget. */
+  executionBudgetMs?: number;
   workflowId?: string;
   workflowLabel?: string;
   workflowRunId?: string;
@@ -65,6 +67,13 @@ export type ProviderOrchestrationContext = {
   sequenceStepIndex?: number;
   skillId?: string;
   finalStepId?: string;
+  /**
+   * Original Workflow reservation identity of a recovered builtin-pi run, so
+   * the Pi owner can rejoin its existing submission slot instead of opening a
+   * second pool. Scalars only; the queue stays authoritative for the slot.
+   */
+  workflowSubmissionId?: string;
+  workflowSubmissionUnitId?: string;
 };
 
 export type ProviderSupportsArgs = {

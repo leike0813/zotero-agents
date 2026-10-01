@@ -865,9 +865,11 @@ const makeQueue = () =>
     },
   });
 let queue = makeQueue();
+let closed = false;
 
 /** Bounded, nonblocking admission; diagnostics can never throw into execution. */
 export function record(fact: PiRuntimeAuditFact): void {
+  if (closed) return;
   try {
     const entry = projectFact(fact);
     if (!entry) return;
@@ -1394,4 +1396,20 @@ export async function resetPiRuntimeAuditForTests(
   jobs.clear();
   limits = { ...LIMITS, ...overrides };
   queue = makeQueue();
+  closed = false;
+}
+
+export async function shutdownPiRuntimeAudit(deadline: number) {
+  closed = true;
+  const { waitForPiShutdown } = await import("./piRuntimeLifecycle");
+  const drain = (async () => {
+    await Promise.allSettled([...jobs.values()].flatMap((set) => [...set]));
+    await queue.flushAndDiscardAll();
+  })();
+  try {
+    await waitForPiShutdown(drain, deadline);
+  } finally {
+    for (const state of owners.values()) state.stopped = true;
+    queue.discardAll();
+  }
 }

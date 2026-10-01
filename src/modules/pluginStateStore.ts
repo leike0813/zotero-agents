@@ -40,6 +40,8 @@ import {
 } from "./pluginStateStore/piOwnerTable";
 export type {
   PiConversationCleanupReceipt,
+  PiSkillRunCleanupReceipt,
+  PiSkillRunReservationScalars,
   PiConversationLifecycle,
   PiConversationMetadata,
   PiConversationProjection,
@@ -824,6 +826,8 @@ export const {
   deletePiConversationMetadata,
   getPiConversationCleanupReceipt,
   upsertPiConversationCleanupReceipt,
+  getPiSkillRunCleanupReceipt,
+  upsertPiSkillRunCleanupReceipt,
 } = createPiConversationMetadataTables(getAdapter);
 
 const {

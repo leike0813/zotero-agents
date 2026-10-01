@@ -18,6 +18,7 @@ import {
   flushOwner,
   exportDiagnostics,
   resetPiRuntimeAuditForTests,
+  shutdownPiRuntimeAudit,
 } from "../../src/modules/piRuntimeAudit";
 import {
   createPiOwner,
@@ -93,6 +94,72 @@ describe("Pi Runtime Audit in Node", function () {
     if (root) await fs.rm(root, { recursive: true, force: true });
   });
   piRuntimeAuditSharedTests(() => root);
+  it("ends shutdown at the shared deadline while audit owner resolution is stalled", async function () {
+    const owner = { kind: "conversation" as const, ownerId: "stalled-audit" };
+    await createPiOwner(owner, root);
+    await resetPiRuntimeAuditForTests();
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, "IOUtils");
+    let release!: () => void;
+    let entered!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    Object.defineProperty(globalThis, "IOUtils", {
+      configurable: true,
+      value: {
+        exists: async () => {
+          entered();
+          await pending;
+          return true;
+        },
+      },
+    });
+    try {
+      record({
+        operation: "owner.terminal",
+        origin: "conversation",
+        owner,
+        root,
+      });
+      await started;
+      await shutdownPiRuntimeAudit(Date.now());
+      record({
+        operation: "owner.terminal",
+        origin: "conversation",
+        owner,
+        root,
+      });
+    } finally {
+      if (descriptor) Object.defineProperty(globalThis, "IOUtils", descriptor);
+      else Reflect.deleteProperty(globalThis, "IOUtils");
+      release();
+      await resetPiRuntimeAuditForTests();
+    }
+    assert.isFalse(
+      await fs
+        .stat(
+          path.join(
+            piOwnerPaths(owner, root).dir,
+            "workspace",
+            "runtime-audit",
+            "audit.ndjson",
+          ),
+        )
+        .then(
+          () => true,
+          () => false,
+        ),
+    );
+    assert.isTrue(
+      await fs.stat(piOwnerPaths(owner, root).log).then(
+        () => true,
+        () => false,
+      ),
+    );
+  });
   it("rejects audit symlinks without writing outside the owner workspace", async function () {
     const owner = { kind: "conversation" as const, ownerId: "link-owner" };
     await createPiOwner(owner, root);

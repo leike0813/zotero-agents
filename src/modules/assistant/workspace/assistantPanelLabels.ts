@@ -80,6 +80,14 @@ export function buildAssistantPanelLabels() {
         "assistant-panel-action-export-diagnostics",
         "Export diagnostics",
       ),
+      checkRecovery: l(
+        "assistant-panel-action-check-recovery",
+        "Check recovery",
+      ),
+      continueRecovery: l(
+        "assistant-panel-action-continue-recovery",
+        "Continue",
+      ),
       cancelQueuedWorkflowUnit: l(
         "workflow-queue-cancel",
         "Cancel queued workflow unit",

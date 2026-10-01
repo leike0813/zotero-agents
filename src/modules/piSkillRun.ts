@@ -11,6 +11,7 @@ import type {
 import type { JsonValue } from "../workflows/types";
 import { sha256PrefixedHex } from "../utils/sha256";
 import { resolveNativeAbortControllerConstructor } from "../utils/wait";
+import type { PiExecutionCheckpoint } from "./piOwnerPersistence";
 import {
   createPiOwner,
   appendPiOwnerFact,
@@ -18,10 +19,34 @@ import {
   commitPiOwnerFacts,
   readPiOwnerTranscriptSnapshot,
   createPiOwnerPreparationAdapter,
+  assessPiOwnerRecovery,
+  cleanupPiSkillRun,
+  listPiOwnerInventory,
+  markPiSkillRunDeleting,
+  repairPiOwnerTornTail,
+  reconcilePiOwnerOperationEvidence,
+  recordPiExecutionCheckpoint,
+  type PiOwnerOperationObserver,
+  type PiSkillRunDeleteResult,
+  getPiSkillRunReservation,
 } from "./piOwnerPersistence";
+import {
+  getPiRuntimeLifecycle,
+  waitForPiShutdown,
+  type PiExecutionLease,
+} from "./piRuntimeLifecycle";
+import { workflowSubmissionQueue } from "../jobQueue/workflowSubmissionQueue";
+import type {
+  PiWorkflowReservation,
+  WorkflowSubmissionSlotCoordinator,
+  WorkflowSubmissionSlotState,
+  WorkflowSubmissionSlotYieldReason,
+  WorkflowSubmissionSlotResumeReason,
+} from "../jobQueue/workflowSubmissionQueueContracts";
 import {
   piOwnerPaths,
   readPiVisibleTranscriptPage,
+  type PiOwnerRef,
   type PiTranscriptEntry,
   type PiTranscriptInput,
 } from "./piTranscriptStore";
@@ -131,6 +156,12 @@ type Execution = Omit<
 >;
 type Options = {
   root?: string;
+  /** Process admission; the singleton owns capacity, budget and shutdown. */
+  lifecycle?: ReturnType<typeof getPiRuntimeLifecycle>;
+  /** Existing Workflow queue; its slot coordinator stays authoritative. */
+  queue?: typeof workflowSubmissionQueue;
+  /** Authoritative outcome source for an explicit recovery check. */
+  observeOperation?: PiOwnerOperationObserver;
   prepare?: (
     args: ProviderExecuteArgs & { requestId: string },
   ) => Promise<PreparedSkillRun>;
@@ -176,6 +207,29 @@ type State = {
   outcome?: ProviderExecutionResult;
   applyReceipt?: ApplyReceipt;
   terminalAck?: string;
+  /** Latest durable execution checkpoint; a restart resumes its remainder. */
+  checkpoint?: PiExecutionCheckpoint;
+  budgetMs?: number;
+  /** Admission-time Workflow reservation identity for slot restoration. */
+  reservation?: PiWorkflowReservation;
+  /** A run continuing after a restart runs on the background lane. */
+  recovered?: boolean;
+  canContinueRecovery?: boolean;
+  /** Permanent deletion was requested; the owner accepts no new work. */
+  deleting?: boolean;
+  /**
+   * Workflow apply inputs captured at admission. The apply seam runs on an
+   * in-memory run state a restart cannot rebuild, so these scalars are the
+   * only honest basis for a reattach; their absence is a hold, not a guess.
+   */
+  applyInputs?: {
+    workflowId: string | null;
+    workflowRunId: string | null;
+    jobId: string | null;
+    workflowLabel: string | null;
+    submissionId: string | null;
+    submissionUnitId: string | null;
+  };
   failure?: string;
   /** The committed canonical failure identity for this run, if any. */
   failureId?: string;
@@ -203,10 +257,55 @@ const digest = async (value: unknown) => {
 const terminal = (status: string) =>
   ["succeeded", "failed", "canceled"].includes(status);
 
+/**
+ * Combines the Runtime invocation signal with the owner's process lease so one
+ * abort cancels the whole turn, whichever side observes it first.
+ */
+function anySignal(
+  signals: (AbortSignal | undefined)[],
+): AbortSignal | undefined {
+  const present = signals.filter((value): value is AbortSignal => !!value);
+  if (present.length < 2) return present[0];
+  const Controller = resolveNativeAbortControllerConstructor();
+  if (!Controller) return present[0];
+  const controller = new Controller();
+  for (const value of present) {
+    if (value.aborted) {
+      controller.abort();
+      continue;
+    }
+    value.addEventListener("abort", () => controller.abort(), { once: true });
+  }
+  return controller.signal;
+}
+
 export function createPiSkillRunCoordinator(options: Options = {}) {
+  let disposed = false;
   const states = new Map<string, State>();
   const listeners = new Set<(change: PiSkillRunChange) => void>();
   const commands = new Map<string, Promise<unknown>>();
+  const lifecycle = options.lifecycle ?? getPiRuntimeLifecycle();
+  const queue = options.queue ?? workflowSubmissionQueue;
+  const leases = new Map<string, PiExecutionLease>();
+  /**
+   * The queue remains authoritative for its slot. This only projects the live
+   * descriptor for the identity the run was admitted with; a unit that is not
+   * currently queued has no reservation to record.
+   */
+  const readWorkflowReservation = (
+    args: ProviderExecuteArgs,
+    requestId: string,
+  ): PiWorkflowReservation | undefined => {
+    const unitId = args.orchestrationContext?.submissionUnitId;
+    if (!unitId) return undefined;
+    const descriptor = queue.getReservation(unitId);
+    if (!descriptor) return undefined;
+    return Object.freeze({
+      ...descriptor,
+      ownerId: descriptor.ownerId || requestId,
+    });
+  };
+  const restoredSlots = new Map<string, WorkflowSubmissionSlotCoordinator>();
   let selectedId: string | null = null;
   let launchFocus = options.launchFocus;
   let authorizeLocalNetwork = options.authorizeLocalNetwork;
@@ -309,6 +408,8 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
       status: "queued",
       archived: false,
       workflow: admission.workflow as State["workflow"],
+      budgetMs:
+        typeof admission.budgetMs === "number" ? admission.budgetMs : undefined,
       updatedAt: entries.at(-1)?.createdAt || "",
       turnId: "",
       revision: entries.length,
@@ -377,6 +478,42 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
         );
       else if (entry.kind === "interaction_pending")
         state.interactionBatch = payload.batch as UserInteractionBatchV1;
+      else if (entry.kind === "execution_checkpoint") {
+        const payload = entry.payload as {
+          turnId?: string;
+          budgetMs?: number;
+          activeMs?: number;
+          remainingMs?: number;
+          resumeEligible?: boolean;
+        };
+        // The last committed checkpoint is the whole restart budget: an
+        // earlier turn's value never overwrites a newer one.
+        if (
+          typeof payload.turnId === "string" &&
+          typeof payload.budgetMs === "number" &&
+          typeof payload.activeMs === "number" &&
+          typeof payload.remainingMs === "number" &&
+          typeof payload.resumeEligible === "boolean"
+        )
+          state.checkpoint = {
+            version: 1,
+            turnId: payload.turnId,
+            budgetMs: payload.budgetMs,
+            activeMs: payload.activeMs,
+            remainingMs: payload.remainingMs,
+            resumeEligible: payload.resumeEligible,
+          };
+      } else if (
+        entry.kind === "skill_run_deleting" ||
+        entry.kind === "skill_run_deleted"
+      ) {
+        // Permanent deletion was requested. The owner keeps its canonical
+        // history for a hold-safe retry, but it accepts no new work.
+        state.deleting = true;
+      } else if (entry.kind === "skill_run_reservation")
+        state.reservation = entry.payload as unknown as PiWorkflowReservation;
+      else if (entry.kind === "skill_run_apply_inputs")
+        state.applyInputs = entry.payload as State["applyInputs"];
       else if (entry.kind === "skill_run_interaction_draft") {
         state.interactionBatch = payload.batch as UserInteractionBatchV1;
         state.draftReceipts[String(payload.mutationId)] = {
@@ -393,6 +530,100 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
     }
     return state;
   }
+  /**
+   * Foreground Skill Run admission. The cumulative budget comes from the
+   * owner's last committed checkpoint, so a continuation or a restart spends
+   * the recorded remainder instead of a fresh allowance.
+   */
+  async function admit(
+    state: State,
+    turnId: string,
+    lane: "foreground" | "background",
+    signal: AbortSignal,
+  ) {
+    const prior = leases.get(state.requestId);
+    const budgetMs =
+      state.checkpoint?.budgetMs ?? state.budgetMs ?? 8 * 60 * 60 * 1000;
+    const restored = state.checkpoint?.activeMs;
+    if (prior) prior.release();
+    const lease = await lifecycle.acquire({
+      owner: ref(state.requestId),
+      turnId,
+      lane,
+      signal,
+      budgetMs,
+      // The lifecycle clamps to the eight hour ceiling, so a Workflow can lower
+      // the budget but never raise it.
+      ...(restored === undefined ? {} : { elapsedMs: restored }),
+    });
+    leases.set(state.requestId, lease);
+    return lease;
+  }
+  /** A settled boundary persists the consumed budget before the owner idles. */
+  /**
+   * A settled boundary commits the consumed budget before the owner idles, so
+   * a later continuation reads a canonical remainder rather than an in-memory
+   * guess. A commit failure is not swallowed: an unrecorded budget cannot be
+   * proven safe, so the owner falls back to recovery instead.
+   */
+  /**
+   * Records consumed budget at a durable boundary without releasing the lease.
+   * The turn keeps running and keeps occupying capacity; only the recorded
+   * remainder changes. This is what makes a crash between two tool calls
+   * recoverable: the budget spent so far is already canonical, and the owner
+   * resumes with exactly that remainder instead of a full eight hours.
+   */
+  async function snapshotBudget(
+    state: State,
+    turnId: string,
+    resumeEligible: boolean,
+  ) {
+    const lease = leases.get(state.requestId);
+    if (!lease) return;
+    const value = lease.checkpoint(resumeEligible);
+    // The in-memory value is only adopted after the fact is durable. A failed
+    // write means the spent budget is unproven, so the caller must not treat
+    // the next boundary as a safe continuation point.
+    await recordPiExecutionCheckpoint(
+      ref(state.requestId),
+      value,
+      options.root,
+    );
+    state.checkpoint = value;
+  }
+
+  async function checkpoint(
+    state: State,
+    turnId: string,
+    resumeEligible: boolean,
+  ) {
+    const lease = leases.get(state.requestId);
+    if (!lease) return;
+    leases.delete(state.requestId);
+    const value = lease.checkpoint(resumeEligible);
+    state.checkpoint = value;
+    // Release capacity only after the fact is durable, so a crash between the
+    // two can never lose the budget this turn spent.
+    try {
+      await recordPiExecutionCheckpoint(
+        ref(state.requestId),
+        value,
+        options.root,
+      );
+    } catch {
+      lease.release();
+      if (state.status !== "recovery_required") {
+        await setStatus(
+          state,
+          "recovery_required",
+          "pi_execution_checkpoint_unavailable",
+        );
+      }
+      return;
+    }
+    lease.release();
+  }
+
   async function load(requestId: string): Promise<State> {
     const cached = states.get(requestId);
     if (cached) return cached;
@@ -674,6 +905,12 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
     const requestId = id("pi-skill");
     await createPiOwner(ref(requestId), options.root);
     const mode = request.runtime_options?.execution_mode;
+    const requestedBudget = args.orchestrationContext?.executionBudgetMs;
+    if (
+      requestedBudget !== undefined &&
+      (!Number.isFinite(requestedBudget) || requestedBudget <= 0)
+    )
+      throw new Error("execution_budget_invalid");
     await fact(requestId, "skill_run_admitted", {
       skillRunPipelineVersion: "v1",
       skillId: request.skill_id,
@@ -681,8 +918,34 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
       mode: mode === "interactive" ? "interactive" : "auto",
       workflow: args.orchestrationContext || {},
       backendId: "builtin-pi",
+      budgetMs: Math.min(
+        8 * 60 * 60 * 1000,
+        requestedBudget ?? 8 * 60 * 60 * 1000,
+      ),
+    });
+    // The Workflow apply inputs are captured once, at admission, while they
+    // still exist. The apply seam itself runs on an in-memory run state that a
+    // restart cannot rebuild, so these scalars are the only facts a later
+    // reattach can honestly use. Anything the apply step needs beyond them is
+    // unavailable by construction, and the owner says so rather than guessing.
+    await fact(requestId, "skill_run_apply_inputs", {
+      workflowId: args.orchestrationContext?.workflowId ?? null,
+      workflowRunId: args.orchestrationContext?.workflowRunId ?? null,
+      jobId: args.orchestrationContext?.jobId ?? null,
+      workflowLabel: args.orchestrationContext?.workflowLabel ?? null,
+      submissionId: args.orchestrationContext?.submissionId ?? null,
+      submissionUnitId: args.orchestrationContext?.submissionUnitId ?? null,
+      capturedAt: new Date().toISOString(),
     });
     const state = await load(requestId);
+    // The Workflow reservation is read back from the queue that admitted this
+    // unit and committed as a canonical fact, so a restart rejoins the very
+    // same slot instead of opening a second reservation pool.
+    const reservation = readWorkflowReservation(args, requestId);
+    if (reservation) {
+      state.reservation = reservation;
+      await fact(requestId, "skill_run_reservation", reservation);
+    }
     // The workspace is bound at admission, before preparation and before any
     // model dispatch, so a run that fails preparation still has a durable
     // location for its evidence. Preparation reuses this same workspace
@@ -980,10 +1243,51 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
     signal: AbortSignal,
     reserveAttempts?: (attempts: number) => Promise<void>,
   ) {
+    // The owner lease owns the absolute turn deadline and the process-wide
+    // physical claim. A tool can therefore never outlive its budget, and its
+    // resource claim is released only on real executor settlement.
+    const lease = leases.get(state.requestId);
     return freezePiToolGatewayTurn({
       owner: ref(state.requestId),
       turnId,
       definitions: tools,
+      ...(lease ? { deadline: lease.deadline } : {}),
+      ...(lease
+        ? { trackPhysical: (settlement) => lease.trackPhysical(settlement) }
+        : {}),
+      /**
+       * Real executor evidence that arrived after the logical answer. It is
+       * appended under the original call identity and never rewrites the
+       * committed receipt or clears an unknown outcome by itself.
+       */
+      recordPhysicalEvidence: async (evidence) => {
+        // Shutdown closes admission first, so a late append must not reopen
+        // infrastructure that is already being torn down.
+        if (lifecycle.closed || disposed)
+          throw new Error("pi_shutdown_evidence_pending");
+        // Identity and the outcome's own status only. The committed receipt
+        // already holds the result body, so a late append never duplicates a
+        // payload and never claims an outcome the owner has not reconciled.
+        await fact(
+          state.requestId,
+          "tool_call_physical_evidence",
+          {
+            callId: evidence.callId,
+            capabilityId: evidence.capabilityId,
+            state: evidence.state,
+            ...(evidence.outcome
+              ? {
+                  outcomeStatus: evidence.outcome.status,
+                  effectCertainty: evidence.outcome.effectCertainty,
+                }
+              : {}),
+            ...(evidence.domainOperation
+              ? { domainOperation: evidence.domainOperation }
+              : {}),
+          },
+          evidence.turnId,
+        ).catch(() => undefined);
+      },
       runtimeCapability: {
         identity: "pi-skill-runtime:v1",
         availableCapabilityIds: tools.map((tool) => tool.capabilityId),
@@ -1149,8 +1453,21 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
     frozen: PiTurnPreparationInput["frozen"],
     invocationId: string,
     continuation: boolean,
-    signal: AbortSignal,
+    invocationSignal: AbortSignal,
   ) {
+    // The lease is the owner's own cancellation source, so a budget expiry or
+    // a shutdown aborts preparation even when the Runtime invocation has not
+    // noticed the disconnect yet. A nested provider call inherits it rather
+    // than consuming a second turn.
+    let signal = invocationSignal;
+    try {
+      const leaseSignal = leases.get(state.requestId)?.signal;
+      if (leaseSignal)
+        signal = anySignal([invocationSignal, leaseSignal]) ?? invocationSignal;
+    } catch {
+      // A missing native AbortController must not fail preparation: the
+      // Runtime's own invocation signal already bounds this call.
+    }
     const estimator = createPiNativeEstimator();
     const prepared = await preparePiTurn(
       {
@@ -1442,17 +1759,25 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
     state: State,
     text?: string,
   ): Promise<ProviderExecutionResult> {
+    if (disposed) throw new Error("pi_skill_run_shutdown");
     if (state.outcome) return state.outcome;
     if (state.active) throw new Error("pi_skill_run_busy");
+    // A deleting owner keeps its history for a hold-safe retry, so nothing
+    // here may dispatch or admit new work for it.
+    if (state.deleting) throw new Error("pi_skill_run_deleting");
     await commitPiOwnerFacts(
       ref(state.requestId),
       (entries) => {
         const fresh = fold(state.requestId, entries);
-        if (
-          fresh.outcome ||
-          fresh.sealed ||
-          !["queued", "suspended"].includes(fresh.status)
-        )
+        // The fresh fold is the authority: a deletion marked after this
+        // turn was requested blocks it even if the in-memory state is stale.
+        if (fresh.deleting) throw new Error("pi_skill_run_deleting");
+        // A previously running owner is admitted only through recovery, which
+        // has already judged its checkpoint safe. Every other status is busy.
+        const admissible = ["queued", "suspended"];
+        if (fresh.status === "running" && state.recovered)
+          admissible.push("running");
+        if (fresh.outcome || fresh.sealed || !admissible.includes(fresh.status))
           throw new Error("pi_skill_run_busy");
         return [
           {
@@ -1475,6 +1800,14 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
       const controller = new Controller();
       state.abort = () => controller.abort();
       state.suspend = () => controller.abort();
+      // A resumed run rejoins foreground capacity under its recorded
+      // remainder; a safe startup continuation joins the background lane.
+      await admit(
+        state,
+        turnId,
+        state.recovered ? "background" : "foreground",
+        controller.signal,
+      );
       state.model = options.resolveModel
         ? await options.resolveModel(state.selection)
         : resolvePiModelSelection({
@@ -1504,17 +1837,38 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
       const reservation: {
         reserve?: (attempts: number) => Promise<void>;
       } = {};
+      // Tool dispatch inherits the owner's lease. Without it a tool could run
+      // its full hard maximum long after the turn budget expired.
       const tools = await gateway(
         state,
         turnId,
         allDefinitions,
-        controller.signal,
+        anySignal([controller.signal, leases.get(state.requestId)?.signal]) ??
+          controller.signal,
         (attempts) => reservation.reserve!(attempts),
       );
       const frozen = await frozenFacts(state, tools.catalog);
       if (state.outcome) return state.outcome;
       if (controller.signal.aborted || state.status === "suspended")
         return deferred(state);
+      // The budget exists canonically before any model dispatch. Without this
+      // an owner interrupted after admission has no recorded active time, and
+      // a restart could never distinguish it from a run that never started. A
+      // failed write releases the lease and requires recovery, so the turn can
+      // never keep spending against an unrecorded budget.
+      try {
+        await snapshotBudget(state, turnId, true);
+      } catch {
+        const lease = leases.get(state.requestId);
+        leases.delete(state.requestId);
+        lease?.release();
+        await setStatus(
+          state,
+          "recovery_required",
+          "pi_execution_checkpoint_unavailable",
+        );
+        return deferred(state);
+      }
       await fact(
         state.requestId,
         "turn_started",
@@ -1543,6 +1897,10 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
       });
       let assistantId = id("assistant");
       let streamingText = "";
+      // Declared before the turn exists: the Runtime may emit events while the
+      // session is still being built, and a temporal dead zone there would drop
+      // every canonical fact of the turn.
+      const openInvocations = new Set<string>();
       const turn = session.runTurn({
         turnId,
         toolAttemptAccounting: "gateway",
@@ -1574,21 +1932,52 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
           // Owner-controlled interaction calls wait without dispatching a tool.
           await batch.reserveAttempts!(0);
           try {
-            return await runBatch(state, tools, batch.calls);
+            const settled = await runBatch(state, tools, batch.calls);
+            // Every call of the batch is settled, so this is a safe
+            // continuation point: the consumed budget is recorded while the
+            // turn keeps running, and a crash before the next model call
+            // still resumes with the correct remainder.
+            // A failed budget write throws out of the batch, so the turn never
+            // dispatches another model call on an unrecorded budget.
+            if (!settled.suspended && openInvocations.size === 0)
+              await snapshotBudget(state, turnId, true);
+            return settled;
           } catch (error) {
             await recordRefusedCleanup(state, error, turnId);
             throw error;
           }
         },
+        /**
+         * Actual provider completion. A canceled or timed-out turn never emits
+         * its logical terminal, so this separate canonical fact is the only
+         * honest closure. It is a non-context fact, so a suspended run can
+         * still continue, and it never fabricates a result.
+         */
+        async onInvocationSettled({ invocationId }) {
+          openInvocations.delete(invocationId);
+          // A closing process must not reopen owner storage from a late
+          // callback. The provider really exited, but a fact written after
+          // shutdown belongs to the next start's explicit recovery instead.
+          if (lifecycle.closed || disposed)
+            throw new Error("pi_shutdown_evidence_pending");
+          await fact(
+            state.requestId,
+            "model_invocation_settled",
+            { invocationId, physicalOutcome: "settled" },
+            turnId,
+          );
+        },
         async onEvent(event) {
-          if (event.kind === "invocation_started")
+          if (event.kind === "invocation_started") {
+            openInvocations.add(event.invocationId);
             await fact(
               state.requestId,
               "model_invocation_started",
               { invocationId: event.invocationId },
               turnId,
             );
-          else if (event.kind === "invocation_terminal")
+          } else if (event.kind === "invocation_terminal") {
+            openInvocations.delete(event.invocationId);
             await fact(
               state.requestId,
               "model_invocation_terminal",
@@ -1598,7 +1987,7 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
               },
               turnId,
             );
-          else if (event.kind === "assistant_message") {
+          } else if (event.kind === "assistant_message") {
             await fact(
               state.requestId,
               "message",
@@ -1673,6 +2062,15 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
         controller.abort();
         turn.suspend();
       };
+      // Physical occupancy is the Agent's real completion, not the bounded
+      // logical result: a canceled or timed-out turn still holds capacity until
+      // the provider actually exits.
+      leases.get(state.requestId)?.trackPhysical(turn.settled);
+      // Canonical closure of every invocation this turn opened. A canceled or
+      // timed-out turn never emits its logical terminal, so without this fact
+      // the invocation stays open forever and every later preparation refuses
+      // the owner as unrecoverable. Recording it on real physical completion
+      // never fabricates a result and never suppresses a visible event.
       let result;
       try {
         result = await turn.result;
@@ -1712,25 +2110,44 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
         state.abort = undefined;
         state.suspend = undefined;
       }
-      if (state.sealed) return finalize(state);
-      if (state.outcome) return state.outcome;
-      if (state.status === "recovery_required") return deferred(state);
+      if (state.sealed) {
+        await checkpoint(state, turnId, false);
+        return finalize(state);
+      }
+      if (state.outcome) {
+        await checkpoint(state, turnId, false);
+        return state.outcome;
+      }
+      if (state.status === "recovery_required") {
+        // The durable halt retains its budget. Unresolved effect and physical
+        // holds independently block continuation until authoritative evidence.
+        await checkpoint(state, turnId, true);
+        return deferred(state);
+      }
       if (
         ["suspended"].includes(state.status) ||
         result.status === "suspended"
       ) {
         await setStatus(state, "suspended");
+        await checkpoint(state, turnId, true);
         return deferred(state);
       }
       if (
         result.status === "waiting_user" ||
         result.status === "waiting_permission"
-      )
-        return deferred(state);
-      if (result.status === "state_unknown") {
-        await setStatus(state, "recovery_required", "tool_effect_unknown");
+      ) {
+        // Waiting is a durable pause: the remainder is checkpointed so the
+        // answer continues the same run rather than a fresh eight hours.
+        await checkpoint(state, turnId, true);
         return deferred(state);
       }
+      if (result.status === "state_unknown") {
+        await setStatus(state, "recovery_required", "tool_effect_unknown");
+        await checkpoint(state, turnId, true);
+        return deferred(state);
+      }
+      // A sealed terminal is not resumable: the run is finished.
+      await checkpoint(state, turnId, false);
       return sealOutcome(
         state,
         failureResult(
@@ -2224,16 +2641,45 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
       });
     });
   }
+  /**
+   * One explicit evidence pass: observe the authoritative Broker, then
+   * reassess the owner from canonical facts. It never dispatches, so it can
+   * clear a hold or leave it, but it can never replay the work behind it.
+   */
+  async function checkRecoveryEvidence(state: State) {
+    // Repair first: a torn tail otherwise makes the observation pass throw and
+    // the owner never reaches an assessment at all.
+    await repairPiOwnerTornTail(ref(state.requestId), options.root).catch(
+      () => undefined,
+    );
+    await reconcilePiOwnerOperationEvidence(
+      ref(state.requestId),
+      options.root,
+      {
+        observeOperation:
+          options.observeOperation ?? defaultPiOperationObserver(),
+      },
+    );
+    return assessPiOwnerRecovery(ref(state.requestId), options.root, {
+      isPhysicallyOccupied: (target) => lifecycle.hasPhysicalHold(target),
+    });
+  }
+
   async function recover(requestId: string) {
     const state = await load(requestId);
     if (state.active) return state;
     if (state.outcome) return state;
+    // An explicit check observes the Broker even for an owner whose prepared
+    // snapshot is gone: clearing a late outcome hold is what makes its files
+    // safe to clean up, and that never depends on resuming execution.
     if (!state.prepared) {
-      await setStatus(
-        state,
-        "recovery_required",
-        "prepared_snapshot_unavailable",
-      );
+      await checkRecoveryEvidence(state);
+      if (!state.prepared)
+        await setStatus(
+          state,
+          "recovery_required",
+          "prepared_snapshot_unavailable",
+        );
       return state;
     }
     if (state.sealed) {
@@ -2248,35 +2694,12 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
       await finalize(state);
       return state;
     }
-    const inspection = await inspectPiOwner(ref(requestId), options.root);
-    const started = inspection.entries.filter(
-      (entry) =>
-        entry.kind === "model_invocation_started" ||
-        entry.kind === "tool_call_started",
-    );
-    const unsafe =
-      inspection.entries.some(
-        (entry) =>
-          entry.kind === "tool_call_receipt" &&
-          (entry.payload as { effectCertainty?: string }).effectCertainty ===
-            "unknown",
-      ) ||
-      started.some((entry) => {
-        const payload = entry.payload as {
-          invocationId?: string;
-          callId?: string;
-        };
-        return !inspection.entries.some((settled) =>
-          entry.kind === "model_invocation_started"
-            ? settled.kind === "model_invocation_terminal" &&
-              (settled.payload as { invocationId?: string }).invocationId ===
-                payload.invocationId
-            : settled.kind === "tool_call_receipt" &&
-              (settled.payload as { callId?: string }).callId ===
-                payload.callId,
-        );
-      });
-    if (unsafe)
+    // Persistence owns the single definition of unsafe: unresolved
+    // invocations, unknown effects, static receipt holds and physical
+    // occupancy. An explicit check first observes the Broker, so a late
+    // authoritative outcome can clear its hold here.
+    const assessment = await checkRecoveryEvidence(state);
+    if (assessment.hasHolds)
       await setStatus(state, "recovery_required", "skill_run_recovery_unsafe");
     else if (
       !["waiting_user", "waiting_permission", "suspended"].includes(
@@ -2284,8 +2707,306 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
       )
     )
       await setStatus(state, "suspended");
+    state.canContinueRecovery = !!(await recoveryContinuation(state));
+    emit(requestId, ["presentation", "control", "details"]);
     return state;
   }
+  /**
+   * A damaged owner cannot be folded, so its reservation is recovered from the
+   * canonical facts and the rebuildable registry scalar alone. When neither can
+   * identify the occupied slot, the owner is not reconstructible and the caller
+   * keeps the admission barrier closed.
+   */
+  async function restoreUnreadableReservation(
+    owner: PiOwnerRef,
+    target: typeof workflowSubmissionQueue,
+  ): Promise<boolean> {
+    // The registry projection is the accounting source: it is rebuilt from the
+    // committed reservation tuple, so a damaged transcript does not make the
+    // occupied slot unaccountable. A valid log still wins, because it is the
+    // canonical fact.
+    const entries = await inspectPiOwner(owner, options.root).catch(() => null);
+    const fromLog =
+      entries?.status === "valid"
+        ? (entries.entries.find(
+            (entry) => entry.kind === "skill_run_reservation",
+          )?.payload as PiWorkflowReservation | undefined)
+        : undefined;
+    const reservation =
+      fromLog ??
+      (getPiSkillRunReservation(
+        owner.ownerId,
+      ) as PiWorkflowReservation | null) ??
+      undefined;
+    if (!reservation?.submissionUnitId) return false;
+    try {
+      restoredSlots.set(
+        reservation.submissionUnitId,
+        target.restoreReservation(
+          Object.freeze({ ...reservation, ownerId: owner.ownerId }),
+        ),
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Startup reservation pass. Every durable reservation is adopted under its
+   * original submission and unit identity before new Skill Run admission opens.
+   * A false result means global accounting could not be trusted, so admission
+   * stays closed; one damaged owner never blocks the others.
+   */
+  async function restoreReservations(
+    overrides: { root?: string; queue?: typeof workflowSubmissionQueue } = {},
+  ): Promise<boolean> {
+    const target = overrides.queue ?? queue;
+    const root = overrides.root ?? options.root;
+    target.setPiAdmissionBarrier(true);
+    let trustworthy = true;
+    for (const owner of await listPiOwnerInventory(root)) {
+      // A closing process must not reopen owner state after an await.
+      if (lifecycle.closed) break;
+      if (owner.kind !== "skill_run") continue;
+      let state: State;
+      try {
+        // A torn tail is repaired before the owner is read, so an interrupted
+        // final record never makes a recoverable run unrecoverable.
+        await repairPiOwnerTornTail(owner, root).catch(() => undefined);
+        state = await load(owner.ownerId);
+      } catch {
+        // A damaged owner is isolated, but only when its reservation is still
+        // reconstructible. Otherwise its slot is unaccounted for, and a new
+        // submission could take it.
+        if (!(await restoreUnreadableReservation(owner, target)))
+          trustworthy = false;
+        continue;
+      }
+      if (!state.reservation) {
+        // Work that was admitted but never bound a slot, or lost its
+        // reservation fact, is exactly the accounting gap this barrier exists
+        // to catch.
+        // A terminal run never held a slot, and work that never dispatched is
+        // still only queued. Only real dispatched work without a reservation
+        // is the accounting gap this barrier exists to catch.
+        if (state.status !== "queued" && !state.outcome) trustworthy = false;
+        continue;
+      }
+      // Adopting twice is idempotent: the queue returns the existing slot.
+      try {
+        restoredSlots.set(
+          state.reservation.submissionUnitId,
+          target.restoreReservation(state.reservation),
+        );
+      } catch {
+        trustworthy = false;
+      }
+      // A large owner set must not block the startup path.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+    if (trustworthy) {
+      target.setPiAdmissionBarrier(false);
+      lifecycle.setSkillAdmissionOpen(true);
+    } else {
+      // Global accounting is unproven, so no new Skill Run is admitted. The
+      // reservations that were restored stay accounted for either way.
+      lifecycle.setSkillAdmissionOpen(false);
+    }
+    return trustworthy;
+  }
+
+  /**
+   * Startup recovery. Each owner is observed once against authoritative Broker
+   * evidence and reassessed from canonical facts. Only a previously running
+   * owner with a verified safe checkpoint continues, and it continues on the
+   * background lane without blocking startup on its execution.
+   */
+  async function reconcile(
+    overrides: {
+      root?: string;
+      observeOperation?: PiOwnerOperationObserver;
+    } = {},
+  ): Promise<{ continued: number; holds: number; retained: number }> {
+    const root = overrides.root ?? options.root;
+    const observe = overrides.observeOperation ?? options.observeOperation;
+    const summary = { continued: 0, holds: 0, retained: 0 };
+    for (const owner of await listPiOwnerInventory(root)) {
+      if (owner.kind !== "skill_run") continue;
+      let state: State;
+      try {
+        state = await load(owner.ownerId);
+      } catch {
+        summary.holds++;
+        continue;
+      }
+      if (lifecycle.closed) break;
+      // A finalized run is not finished until the Workflow applied it, so an
+      // outcome alone must not skip the owner here. Only live work is skipped.
+      if (state.active) continue;
+      // A deleting owner is finished with execution; only its cleanup retry
+      // remains, and that never dispatches.
+      if (state.deleting) {
+        summary.retained++;
+        continue;
+      }
+      if (
+        ["waiting_user", "waiting_permission", "suspended"].includes(
+          state.status,
+        )
+      ) {
+        // Waiting and suspended owners keep their durable state unchanged.
+        summary.retained++;
+        continue;
+      }
+      try {
+        if (state.status === "running") {
+          const beforeObservation = await assessPiOwnerRecovery(
+            ref(state.requestId),
+            root,
+            {
+              isPhysicallyOccupied: (target) =>
+                lifecycle.hasPhysicalHold(target),
+            },
+          );
+          if (beforeObservation.unresolvedOperations.length) {
+            // Commit before observing: even a crash after evidence publication
+            // must not turn unknown resolution into automatic continuation.
+            await setStatus(
+              state,
+              "recovery_required",
+              "skill_run_recovery_hold",
+            );
+          }
+        }
+        await reconcilePiOwnerOperationEvidence(ref(state.requestId), root, {
+          observeOperation: observe ?? defaultPiOperationObserver(),
+        });
+        const assessment = await assessPiOwnerRecovery(
+          ref(state.requestId),
+          root,
+          {
+            isPhysicallyOccupied: (target) => lifecycle.hasPhysicalHold(target),
+          },
+        );
+        // A sealed result is finished through its existing idempotent finalizer.
+        // Its own receipt and ack hold is expected, so it is settled before the
+        // remaining holds are judged.
+        if (state.sealed && !state.outcome) {
+          await finalize(state);
+        }
+        if (state.outcome && state.applyReceipt && state.terminalAck) {
+          await releaseRestoredSlot(state);
+          summary.retained++;
+          continue;
+        }
+        if (state.outcome && state.applyReceipt && state.applyInputs) {
+          await reattachWorkflowApply(state);
+          summary.retained++;
+          continue;
+        }
+        // A finalized result is not complete until the Workflow applied it. The
+        // apply seam runs on an in-memory run state a restart cannot rebuild,
+        // so the owner can only reattach through the existing Workflow slot
+        // coordinator. Without a restored reservation and captured apply
+        // inputs the apply input is unavailable: that is a hold, never a
+        // second finalizer and never a replay.
+        if (state.outcome && !state.applyReceipt) {
+          if (!state.reservation || !state.applyInputs) {
+            summary.holds++;
+            if (state.status !== "recovery_required")
+              await setStatus(
+                state,
+                "recovery_required",
+                "skill_run_apply_input_unavailable",
+              );
+            continue;
+          }
+          const slot = restoredSlots.get(state.reservation.submissionUnitId);
+          if (!slot || !(await slot.ensureSlot("host-apply"))) {
+            summary.holds++;
+            await setStatus(
+              state,
+              "recovery_required",
+              "skill_run_apply_slot_unavailable",
+            );
+            continue;
+          }
+          await reattachWorkflowApply(state);
+          summary.retained++;
+          continue;
+        }
+        if (assessment.hasHolds) {
+          summary.holds++;
+          if (state.status !== "recovery_required")
+            await setStatus(
+              state,
+              "recovery_required",
+              "skill_run_recovery_hold",
+            );
+          continue;
+        }
+        if (state.status !== "running" || !state.prepared) {
+          summary.retained++;
+          continue;
+        }
+        if (!assessment.safeToResume) {
+          summary.holds++;
+          await setStatus(
+            state,
+            "recovery_required",
+            "skill_run_checkpoint_missing",
+          );
+          continue;
+        }
+        // A continuation occupies a Workflow slot, so it may only run when its
+        // original reservation was actually restored. Without one, the resumed
+        // work would dispatch outside the queue's admission and could double
+        // the unit's capacity.
+        if (
+          !state.reservation ||
+          !restoredSlots.has(state.reservation.submissionUnitId)
+        ) {
+          summary.holds++;
+          await setStatus(
+            state,
+            "recovery_required",
+            "skill_run_reservation_unavailable",
+          );
+          continue;
+        }
+        if (lifecycle.closed) break;
+        // Safe continuation: the same request identity, its recorded
+        // remaining budget and the restored reservation. Startup never waits
+        // for it, so a long run does not delay the process.
+        state.recovered = true;
+        state.status = "suspended";
+        void start(state).catch(() => undefined);
+        summary.continued++;
+      } catch {
+        summary.holds++;
+      }
+    }
+    return summary;
+  }
+
+  /**
+   * Explicit deletion. The owner is marked first and its files are retained
+   * while an execution, recovery or receipt hold remains, so a retry later can
+   * still finish the removal.
+   */
+  async function deleteRun(requestId: string) {
+    const state = await load(requestId).catch(() => undefined);
+    if (!state) throw new Error("pi_skill_run_recovery_required");
+    state.abort?.();
+    leases.get(requestId)?.release();
+    leases.delete(requestId);
+    await markPiSkillRunDeleting(requestId, options.root);
+    return cleanupPiSkillRun(ref(requestId), options.root, {
+      isPhysicallyOccupied: (target) => lifecycle.hasPhysicalHold(target),
+    });
+  }
+
   async function claimApply(requestId: string) {
     const state = await load(requestId);
     let status: "claimed" | "terminal" | "recovery_required" =
@@ -2353,6 +3074,72 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
     );
     publishProjection(state);
   }
+  /**
+   * Reattaches the existing Workflow apply/ack owners for a finalized run.
+   * It reuses the same claim, receipt and ack identities the live path uses,
+   * so both are idempotent: a run that was already applied is a no-op, and a
+   * run whose apply is still claimed stays a hold instead of being re-applied.
+   */
+  async function reattachWorkflowApply(state: State) {
+    const inputs = state.applyInputs!;
+    const outcome = state.outcome!;
+    const ackId = [inputs.workflowRunId, inputs.jobId]
+      .filter(Boolean)
+      .join(":");
+    // Read the committed receipt first. Claiming here would manufacture a
+    // claimed effect for apply work that was never attempted, so an existing
+    // receipt is only ever completed, never re-issued.
+    if (state.applyReceipt) {
+      if (state.applyReceipt.status === "claimed") {
+        // The effect is unconfirmed. Nothing in this owner can prove it, so the
+        // run holds and no second claim is ever created.
+        await setStatus(state, "recovery_required", "skill_run_apply_claimed");
+        return;
+      }
+      if (!state.terminalAck) await acknowledgeTerminal(state.requestId, ackId);
+      await releaseRestoredSlot(state);
+      return;
+    }
+    if (outcome.status !== "succeeded") {
+      // A non-succeeded run has no apply effect to prove, so the existing
+      // claim/receipt/ack owners complete it idempotently.
+      await claimApply(state.requestId);
+      await recordApplyReceipt(state.requestId, { status: "skipped" });
+      await acknowledgeTerminal(state.requestId, ackId);
+      await releaseRestoredSlot(state);
+      return;
+    }
+    // A succeeded run whose apply was never executed cannot be reattached from
+    // the owner alone: the Workflow apply payload lives in an in-memory run
+    // state a restart cannot rebuild, and the captured admission scalars do
+    // not prove it. The approved contract makes missing apply input a hold, so
+    // the run waits for the Workflow's own apply path instead of claiming a
+    // success this owner cannot verify.
+    await setStatus(
+      state,
+      "recovery_required",
+      "skill_run_apply_input_unavailable",
+    );
+  }
+  /**
+   * A recovered run keeps its original slot until the whole chain settled:
+   * outcome, apply receipt and terminal ack. An unresolved or unknown effect
+   * keeps the reservation, because a restart may still need to reattach it.
+   */
+  async function releaseRestoredSlot(state: State) {
+    if (!state.reservation || !state.terminalAck || !state.applyReceipt) return;
+    if (state.applyReceipt.status === "claimed") return;
+    if (leases.get(state.requestId)) return;
+    const assessment = await assessPiOwnerRecovery(
+      ref(state.requestId),
+      options.root,
+      { isPhysicallyOccupied: (target) => lifecycle.hasPhysicalHold(target) },
+    ).catch(() => ({ hasHolds: true }) as { hasHolds: boolean });
+    if (assessment.hasHolds) return;
+    const unitId = state.reservation.submissionUnitId;
+    if (queue.releaseRecoveredReservation(unitId)) restoredSlots.delete(unitId);
+  }
+
   async function acknowledgeTerminal(requestId: string, ackId: string) {
     const state = await load(requestId);
     await commitPiOwnerFacts(
@@ -2380,7 +3167,48 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
       },
       options.root,
     );
+    await releaseRestoredSlot(state);
   }
+  async function recoveryContinuation(state: State) {
+    if (
+      state.active ||
+      state.deleting ||
+      state.sealed ||
+      state.outcome ||
+      !state.prepared ||
+      !["suspended", "recovery_required"].includes(state.status)
+    )
+      return null;
+    const reservation =
+      state.reservation &&
+      queue.getReservation(state.reservation.submissionUnitId);
+    if (!reservation || reservation.ownerId !== state.requestId) return null;
+    const assessment = await assessPiOwnerRecovery(
+      ref(state.requestId),
+      options.root,
+      {
+        isPhysicallyOccupied: (owner) => lifecycle.hasPhysicalHold(owner),
+      },
+    );
+    return !assessment.hasHolds &&
+      assessment.safeToResume &&
+      assessment.checkpoint?.resumeEligible &&
+      assessment.checkpoint.remainingMs > 0
+      ? assessment.checkpoint
+      : null;
+  }
+
+  async function continueRecovery(requestId: string) {
+    const state = await load(requestId);
+    const checkpoint = await recoveryContinuation(state);
+    if (!checkpoint) throw new Error("pi_skill_run_recovery_unavailable");
+    state.checkpoint = checkpoint;
+    state.recovered = false;
+    if (state.status === "recovery_required")
+      await setStatus(state, "suspended");
+    return start(state);
+  }
+
   async function readModel(requestId: string) {
     const state = await load(requestId);
     return {
@@ -2402,6 +3230,9 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
       outcome: state.outcome,
       applyReceipt: state.applyReceipt,
       terminalAck: state.terminalAck,
+      canContinueRecovery:
+        !!state.canContinueRecovery &&
+        ["suspended", "recovery_required"].includes(state.status),
     };
   }
   async function list() {
@@ -2510,6 +3341,12 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
     readModel,
     readPage,
     recover,
+    continueRecovery,
+    restoreReservations,
+    reconcile,
+    deleteRun: deleteRun as (
+      requestId: string,
+    ) => Promise<PiSkillRunDeleteResult>,
     cancel,
     resolvePermission,
     submitFiles,
@@ -2565,6 +3402,7 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
     },
     async reply(requestId: string, text: string) {
       const state = await load(requestId);
+      if (state.deleting) throw new Error("pi_skill_run_deleting");
       if (state.status !== "suspended" || !text.trim() || state.active)
         throw new Error("pi_skill_run_not_replyable");
       return start(state, text);
@@ -2614,7 +3452,18 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
       emit(requestId, ["resources"]);
     },
     async dispose() {
+      disposed = true;
       for (const state of states.values()) state.abort?.();
+      // Release every lease without writing a new fact: a closing process
+      // records no budget checkpoint, so nothing here can be mistaken for a
+      // safe continuation by a later restart.
+      for (const [requestId, lease] of leases) {
+        leases.delete(requestId);
+        lease.release();
+      }
+      for (const [unitId] of restoredSlots)
+        queue.releaseRecoveredReservation(unitId);
+      restoredSlots.clear();
       await Promise.allSettled(
         [...states.values()].map((state) => state.active),
       );
@@ -2640,7 +3489,10 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
   };
 }
 let singleton: ReturnType<typeof createPiSkillRunCoordinator> | undefined;
+/** A closed process never reopens: the getter refuses until a test resets it. */
+let stopped = false;
 export function getPiSkillRunCoordinator() {
+  if (stopped) throw new Error("pi_skill_run_shutdown");
   return (singleton ||= createPiSkillRunCoordinator());
 }
 export const claimPiSkillRunApply = (requestId: string) =>
@@ -2658,3 +3510,62 @@ export const getPiSkillRunProviderProjection = (requestId: string) =>
 export const subscribePiSkillRunChanges = (
   listener: (change: PiSkillRunChange) => void,
 ) => getPiSkillRunCoordinator().subscribe(listener);
+
+/**
+ * Production evidence source. The Broker is only read here: an unavailable,
+ * running or unknown observation leaves its hold exactly where it was.
+ */
+function defaultPiOperationObserver(): PiOwnerOperationObserver {
+  return async (request) =>
+    resolveZoteroHostCapabilityBroker().mutations.getOperation(
+      { operationId: request.operationId },
+      request.scope,
+    );
+}
+
+/**
+ * Startup reservation pass. New Skill Run admission stays closed until every
+ * durable reservation is accounted for, so a recovered run and a new one can
+ * never occupy the same Workflow slot.
+ */
+export async function restorePiSkillRunReservationsOnStartup(
+  options: { root?: string; queue?: typeof workflowSubmissionQueue } = {},
+): Promise<boolean> {
+  return getPiSkillRunCoordinator().restoreReservations(
+    Object.keys(options).length ? options : {},
+  );
+}
+
+/**
+ * Startup recovery. Conversations are never dispatched, and a safe Skill Run
+ * continuation is queued on the background lane instead of awaited here.
+ */
+export async function reconcilePiSkillRunsOnStartup(
+  options: { root?: string; observeOperation?: PiOwnerOperationObserver } = {},
+): Promise<void> {
+  await getPiSkillRunCoordinator().reconcile(options);
+}
+
+/**
+ * One absolute deadline governs the wait. Expiry ends waiting, not truth: an
+ * owner that ignores cancellation keeps its capacity claim and its files, and a
+ * later callback can never reopen a disposed coordinator.
+ */
+export async function shutdownPiSkillRuns(
+  deadline = Date.now() + 15_000,
+): Promise<boolean> {
+  const current = singleton;
+  singleton = undefined;
+  stopped = true;
+  if (!current) return true;
+  return (
+    (await waitForPiShutdown(
+      current.dispose().then(() => true),
+      deadline,
+    )) === true
+  );
+}
+
+export function resetPiSkillRunShutdownForTests() {
+  stopped = false;
+}

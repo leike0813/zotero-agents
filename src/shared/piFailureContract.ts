@@ -106,6 +106,11 @@ const POLICY: Readonly<Record<string, PiFailurePolicy>> = {
     retryable: true,
   },
   // Runtime / preparation
+  provider_timeout: {
+    level: "warn",
+    category: "availability",
+    retryable: true,
+  },
   model_failed: { level: "error", category: "execution", retryable: true },
   runtime_failed: { level: "error", category: "execution", retryable: true },
   preparation_failed: {
@@ -136,6 +141,9 @@ const POLICY: Readonly<Record<string, PiFailurePolicy>> = {
   owner_busy: { level: "info", category: "lifecycle", retryable: true },
   cleanup_pending: { level: "warn", category: "resource", retryable: true },
   execution_failed: { level: "error", category: "execution", retryable: true },
+  // A logical tool deadline: the caller stops waiting, but the effect's
+  // outcome stays unknown until the physical claim settles.
+  execution_timeout: { level: "warn", category: "lifecycle", retryable: true },
   // Cancellation / lifecycle
   aborted: { level: "info", category: "lifecycle", retryable: true },
   canceled: { level: "info", category: "lifecycle", retryable: true },

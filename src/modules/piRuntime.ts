@@ -34,6 +34,10 @@ import {
   type PiRuntimeAuditContext,
   type PiRuntimeAuditFact,
 } from "./piRuntimeAudit";
+import {
+  PI_PROVIDER_HARD_LIMIT_MS,
+  PI_PROVIDER_INACTIVITY_MS,
+} from "./piRuntimeLifecycle";
 
 export type PiModelFailureCode =
   | "credential_missing"
@@ -45,6 +49,7 @@ export type PiModelFailureCode =
   | "provider_network_error"
   | "provider_http_error"
   | "provider_stream_error"
+  | "provider_timeout"
   | "aborted";
 
 const KNOWN_FAILURE_CODES = new Set<string>([
@@ -57,6 +62,7 @@ const KNOWN_FAILURE_CODES = new Set<string>([
   "provider_network_error",
   "provider_http_error",
   "provider_stream_error",
+  "provider_timeout",
   "preparation_failed",
   "agent_loop_limit_exceeded",
   "aborted",
@@ -373,11 +379,18 @@ export type PiRuntimeTurnInput = {
   /** Defaults to the eager whole-batch charge; "gateway" defers to the owner. */
   toolAttemptAccounting?: PiRuntimeToolAttemptAccounting;
   onEvent?: (event: PiRuntimeEvent) => Promise<void> | void;
+  /** Actual provider completion; late evidence is separate from UI events. */
+  onInvocationSettled?: (fact: {
+    turnId: string;
+    invocationId: string;
+  }) => Promise<void> | void;
 };
 
 export type PiRuntimeTurn = {
   events: AsyncIterable<PiRuntimeEvent>;
   result: Promise<PiTurnResult>;
+  /** Physical Agent completion; logical cancellation does not settle this. */
+  settled: Promise<void | "unknown">;
   abort(): void;
   /** Owner-directed interrupt: settle as suspended so the same run can continue. */
   suspend(): void;
@@ -400,6 +413,8 @@ export type PiRuntimeSessionOptions =
       model: Model<string>;
       source: PiRuntimeProviderSource;
       audit?: PiRuntimeAuditContext;
+      /** Deterministic timeout seam; production uses the fixed lifecycle limits. */
+      providerTimeouts?: { inactivityMs: number; hardMs: number };
     };
 
 export type PiRuntimeScriptedTurn = {
@@ -1119,7 +1134,7 @@ export class PiRuntime {
         activeAbort = null;
         finish(result);
       };
-      void agent.prompt(input.prompt).then(
+      const settled = agent.prompt(input.prompt).then(
         () =>
           settle(
             nativeFailure
@@ -1141,7 +1156,7 @@ export class PiRuntime {
             },
           }),
       );
-      return { events, result: events.result(), abort, suspend };
+      return { events, result: events.result(), settled, abort, suspend };
     };
 
     const agentTurn = (input: PiRuntimeTurnInput): PiRuntimeTurn => {
@@ -1189,6 +1204,7 @@ export class PiRuntime {
       let suspending = false;
       let guardBlocked = false;
       let failure: PiTurnFailureCode | undefined;
+      const physicalProviders: Promise<void | "unknown">[] = [];
       const emit = (payload: PiRuntimeEventPayload) =>
         emitInto(events, input.turnId, counter, payload, input.onEvent);
       const finish = async (result: PiTurnResult) => {
@@ -1435,14 +1451,104 @@ export class PiRuntime {
           attributes: { count: invocationIndexValue + 1 },
         });
         try {
-          return await agentSource!({
-            sessionId,
-            turnId: input.turnId,
-            invocationId,
-            model: streamModel,
-            context: outbound,
-            signal,
-          });
+          const forwarded = createAssistantMessageEventStream();
+          const abortStream = () =>
+            forwarded.push({
+              type: "error",
+              reason: "aborted",
+              error: assistantMessage(streamModel, [], "aborted"),
+            });
+          signal.addEventListener("abort", abortStream, { once: true });
+          const limits =
+            "providerTimeouts" in options
+              ? options.providerTimeouts
+              : undefined;
+          let inactiveTimer: ReturnType<typeof setTimeout> | undefined;
+          const expire = () => {
+            if (terminal) return;
+            failure = "provider_timeout";
+            suppressing = true;
+            forwarded.push({
+              type: "error",
+              reason: "error",
+              error: assistantMessage(
+                streamModel,
+                [],
+                "error",
+                "provider_timeout",
+              ),
+            });
+            void finish({
+              status: "failed",
+              failure: {
+                code: "provider_timeout",
+                message: "Provider execution timed out",
+              },
+            });
+            agent.abort();
+          };
+          const activity = () => {
+            clearTimeout(inactiveTimer);
+            inactiveTimer = setTimeout(
+              expire,
+              limits?.inactivityMs ?? PI_PROVIDER_INACTIVITY_MS,
+            );
+          };
+          activity();
+          const hardTimer = setTimeout(
+            expire,
+            limits?.hardMs ?? PI_PROVIDER_HARD_LIMIT_MS,
+          );
+          const physical = (async () => {
+            const physicalInvocationId = invocationId;
+            try {
+              const provider = await agentSource!({
+                sessionId,
+                turnId: input.turnId,
+                invocationId,
+                model: streamModel,
+                context: outbound,
+                signal,
+              });
+              for await (const event of provider) {
+                if (terminal || signal.aborted) continue;
+                activity();
+                forwarded.push(event);
+              }
+            } catch (error) {
+              if (!terminal)
+                forwarded.push({
+                  type: "error",
+                  reason: "error",
+                  error: assistantMessage(
+                    streamModel,
+                    [],
+                    "error",
+                    error instanceof PiModelStreamFailure
+                      ? error.code
+                      : "model_failed",
+                  ),
+                });
+            } finally {
+              signal.removeEventListener("abort", abortStream);
+              clearTimeout(inactiveTimer);
+              clearTimeout(hardTimer);
+              // The provider actually finished, which is the physical fact
+              // this hook reports. Gating on `terminal` skipped exactly the
+              // abort and suspend paths where a caller most needs to know the
+              // child is gone, and let a turn invent physical settlement from
+              // its own logical result instead.
+              if (input.onInvocationSettled)
+                await Promise.resolve(
+                  input.onInvocationSettled({
+                    turnId: input.turnId,
+                    invocationId: physicalInvocationId,
+                  }),
+                );
+            }
+          })();
+          physicalProviders.push(physical.catch(() => "unknown" as const));
+          return forwarded;
         } catch (error) {
           if (error instanceof PiModelStreamFailure)
             return failureStream(streamModel, error.code, signal.aborted);
@@ -1553,19 +1659,23 @@ export class PiRuntime {
       const abort = () => {
         if (terminal || suppressing || suspending) return;
         suppressing = true;
+        void finish({ status: "canceled" });
         agent.abort();
       };
       const suspend = () => {
         if (terminal || suppressing || suspending) return;
         suspending = true;
+        void finish({ status: "suspended" });
         agent.abort();
       };
       activeAbort = abort;
       const settle = async (result: PiTurnResult) => {
         unsubscribe();
-        active = false;
-        activeAbort = null;
-        if (invocationStarted && !invocationSettled) {
+        if (!suppressing && !suspending) {
+          active = false;
+          activeAbort = null;
+        }
+        if (!terminal && invocationStarted && !invocationSettled) {
           invocationSettled = true;
           await emit({
             kind: "invocation_terminal",
@@ -1581,7 +1691,7 @@ export class PiRuntime {
         }
         await finish(result);
       };
-      void agent.continue().then(
+      const logicalAgentCompletion = agent.continue().then(
         () =>
           settle(
             suspending
@@ -1637,7 +1747,13 @@ export class PiRuntime {
                     },
           ),
       );
-      return { events, result: events.result(), abort, suspend };
+      const settled = logicalAgentCompletion.then(async () => {
+        const outcomes = await Promise.all(physicalProviders);
+        if (outcomes.includes("unknown")) return "unknown" as const;
+        active = false;
+        activeAbort = null;
+      });
+      return { events, result: events.result(), settled, abort, suspend };
     };
 
     return {

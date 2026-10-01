@@ -385,10 +385,16 @@ export function createPiSkillRunsWorkspaceSurfaceAdapter(
                   ].filter((entry) => entry.value),
                 },
               ].filter((section) => section.items.length > 0),
-              // C18 owns audit/diagnostics, so the routable details actions
-              // are the canonical copy-request-id shortcut plus the
-              // owner-scoped diagnostic export.
-              actions: ["copy-id", "export-diagnostics"],
+              actions: [
+                "copy-id",
+                "export-diagnostics",
+                ...(model.status === "recovery_required"
+                  ? ["check-owner-recovery" as const]
+                  : []),
+                ...(model.canContinueRecovery
+                  ? ["continue-owner-recovery" as const]
+                  : []),
+              ],
               error: null,
             };
           },

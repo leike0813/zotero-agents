@@ -689,11 +689,21 @@ export function runWorkflowExecutionSeam(
         backend: args.prepared.executionContext.backend,
         providerOptions: {
           ...(args.prepared.executionContext.providerOptions || {}),
-          ...(args.prepared.executionContext.sourceWindow
+          ...(args.prepared.executionContext.sourceWindow &&
+          args.prepared.executionContext.backend.type === "builtin-pi"
             ? { originWindow: args.prepared.executionContext.sourceWindow }
             : {}),
         },
-        orchestrationContext,
+        orchestrationContext: {
+          ...orchestrationContext,
+          ...(args.prepared.workflow.manifest.execution?.timeout_ms ===
+          undefined
+            ? {}
+            : {
+                executionBudgetMs:
+                  args.prepared.workflow.manifest.execution.timeout_ms,
+              }),
+        },
         onProgress: (event) => {
           runtime.reportProgress(event);
         },

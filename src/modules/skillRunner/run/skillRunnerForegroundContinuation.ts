@@ -365,6 +365,10 @@ async function applySingleTerminalSuccess(args: {
   });
   applySkillRunnerRunEvent({
     type: "apply.started",
+    // Resolve by runKey: the record's own requestId is assigned by a later
+    // submit fact and can still be empty here, and an empty requestId makes the
+    // event unresolvable, which silently drops the apply state.
+    runKey: args.record.runKey,
     backendId: args.record.backendId,
     requestId: args.record.requestId || "",
     updatedAt: nowIso(),

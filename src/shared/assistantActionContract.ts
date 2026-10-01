@@ -136,6 +136,11 @@ export type AssistantWorkspaceActionPayloadMap = {
   // C18: user-selected built-in Agent diagnostic export. The host owns the
   // save target; the action itself carries no path.
   "export-diagnostics": AssistantWorkspaceEmptyActionPayload;
+  // C19: explicit recovery. The check only observes authoritative evidence
+  // and reassesses the owner; the continue resumes a resolved owner. Neither
+  // carries a path, a payload or a synthetic outcome.
+  "check-owner-recovery": AssistantWorkspaceEmptyActionPayload;
+  "continue-owner-recovery": AssistantWorkspaceEmptyActionPayload;
   "open-workspace": AssistantWorkspaceEmptyActionPayload;
 };
 
@@ -374,7 +379,8 @@ export type PiConversationsOnlyAction =
   | "remove-resource"
   | "set-model"
   | "set-reasoning-effort"
-  | "export-diagnostics";
+  | "export-diagnostics"
+  | "check-owner-recovery";
 
 /** Registry actions a pi-conversations child page may send. */
 export type PiConversationsAction =
@@ -386,7 +392,9 @@ export type PiSkillRunsOnlyAction =
   | "draft"
   | "submit"
   | "decline"
-  | "export-diagnostics";
+  | "export-diagnostics"
+  | "check-owner-recovery"
+  | "continue-owner-recovery";
 
 /**
  * Registry actions a pi-skill-runs child page may send. Pi Skill Runs mirror

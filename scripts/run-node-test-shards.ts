@@ -169,7 +169,7 @@ const SHARDS: ShardDefinition[] = [
     label: "Runtime platform and persistence",
     select: (filePath) =>
       inDirectory(filePath, "runtime") &&
-      /^(?:108-runtime-persistence|164-runtime-platform|184-runtime-file-transfer|186-runtime-file-range|189-runtime-tree|239-runtime-host|241-pi-owner-persistence|263-runtime-audit|271-pi-runtime-audit|272-pi-failure|45-runtime-log|52-runtime-bridge|97-runtime-diagnostics)/.test(
+      /^(?:108-runtime-persistence|164-runtime-platform|184-runtime-file-transfer|186-runtime-file-range|189-runtime-tree|239-runtime-host|241-pi-owner-persistence|263-runtime-audit|271-pi-runtime-audit|272-pi-failure|274-pi-owner-recovery|275-pi-runtime-lifecycle|45-runtime-log|52-runtime-bridge|97-runtime-diagnostics)/.test(
         path.basename(filePath),
       ),
   },
@@ -189,7 +189,7 @@ const SHARDS: ShardDefinition[] = [
     label: "Runtime provider execution",
     select: (filePath) =>
       inDirectory(filePath, "runtime") &&
-      /^(?:34-generic-http|37-pass-through|38-generic-http|240-pi-runtime|245-pi-tool-gateway|246-pi-api-key-provider-execution|247-pi-turn-preparation|248-pi-trusted-native-execution|249-pi-mcp-tool-sources|250-pi-zotero-tool-catalog|251-pi-openai-codex-auth|256-pi-conversation|257-pi-conversation|261-pi-brokered-web-tools|262-pi-brokered-web-network|270-pi-skill-run)/.test(
+      /^(?:34-generic-http|37-pass-through|38-generic-http|240-pi-runtime|245-pi-tool-gateway|246-pi-api-key-provider-execution|247-pi-turn-preparation|248-pi-trusted-native-execution|249-pi-mcp-tool-sources|250-pi-zotero-tool-catalog|251-pi-openai-codex-auth|256-pi-conversation|257-pi-conversation|261-pi-brokered-web-tools|262-pi-brokered-web-network|270-pi-skill-run|276-pi-physical-execution|278-pi-owner-lifecycle-integration)/.test(
         path.basename(filePath),
       ),
   },

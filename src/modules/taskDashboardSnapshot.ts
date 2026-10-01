@@ -6,7 +6,10 @@ import {
 } from "../config/defaults";
 import type { TaskDashboardHistoryRecord } from "./taskDashboardHistory";
 import type { WorkflowTaskRecord } from "./taskRuntime";
-import type { QueuedWorkflowUnitSnapshot } from "../jobQueue/workflowSubmissionQueueContracts";
+import type {
+  QueuedWorkflowUnitSnapshot,
+  WorkflowQueueBackendType,
+} from "../jobQueue/workflowSubmissionQueueContracts";
 
 function cloneBackend(backend: BackendInstance): BackendInstance {
   return {
@@ -126,7 +129,7 @@ export type TaskDashboardQueuedRow = {
   workflowId: string;
   workflowLabel: string;
   backendId: string;
-  backendType: "acp" | "skillrunner";
+  backendType: WorkflowQueueBackendType;
   backendLabel: string;
   taskName: string;
   state: "queued";

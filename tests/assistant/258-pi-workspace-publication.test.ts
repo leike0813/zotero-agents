@@ -43,6 +43,7 @@ import {
 import type { PiModelSelectionSnapshot } from "../../src/shared/piProviderContract";
 import { getPref, setPref } from "../../src/utils/prefs";
 import { upsertPiProviderConfiguration } from "../../src/modules/piProviderConfiguration";
+import { appendPiOwnerFact } from "../../src/modules/piOwnerPersistence";
 
 const SOURCE_IDS: AssistantWorkspaceSourceId[] = [
   "pi-conversations",
@@ -227,6 +228,39 @@ describe("Pi Conversation workspace publication", function () {
     // offered in every lifecycle state, archived conversations included.
     assert.include(regions["owner-details"]!.actions, "export-diagnostics");
 
+    await coordinator.dispose();
+  });
+
+  it("offers an evidence check in the existing details region for a held owner", async function () {
+    const coordinator = createCoordinator();
+    await coordinator.create();
+    const conversationId = coordinator.selectedId!;
+    await appendPiOwnerFact(
+      { kind: "conversation", ownerId: conversationId },
+      {
+        kind: "tool_call_started",
+        turnId: "interrupted",
+        payload: { callId: "unknown" },
+      },
+      root,
+    );
+    await coordinator.checkRecovery(conversationId);
+    const adapter = createPiConversationWorkspaceSurfaceAdapter(coordinator);
+    const owner = createPiConversationWorkspaceOwner(conversationId);
+    const regions = await adapter.readOwnerRegions({
+      owner,
+      kinds: ["owner-details", "composer"],
+    });
+    assert.include(regions["owner-details"]!.actions, "check-owner-recovery");
+    assert.notInclude(
+      regions["owner-details"]!.actions,
+      "continue-owner-recovery",
+    );
+    assert.equal(regions.composer!.reply.status, "disabled");
+    assert.equal(
+      publicationError(owner, "owner-details", regions["owner-details"]),
+      null,
+    );
     await coordinator.dispose();
   });
 

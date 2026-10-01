@@ -3,6 +3,7 @@ import type { JsonValue } from "../workflows/types";
 import { assertWorkflowHostStrictJsonValue } from "../workflows/workflowHostErrorContract";
 import { sha256PrefixedHex } from "../utils/sha256";
 import { resolveNativeAbortControllerConstructor } from "../utils/wait";
+import { waitForPromiseSettlement } from "../utils/wait";
 
 import type { PiGatewayEffect } from "../shared/piToolGatewayContract";
 export type { PiGatewayEffect } from "../shared/piToolGatewayContract";
@@ -12,6 +13,44 @@ import {
   type PiFailureCategory,
 } from "../shared/piFailureContract";
 import { record, type PiRuntimeAuditContext } from "./piRuntimeAudit";
+import type { PiPhysicalSettlement } from "./piRuntimeLifecycle";
+
+/**
+ * Trusted Broker operation identity for one invocation. It comes from the
+ * domain's private identity, never from model input, so the started fact can
+ * be reconciled against authoritative Broker evidence later.
+ */
+export type PiGatewayDomainOperation = {
+  scope: { ownerId: string };
+  operationId: string;
+};
+
+export type PiGatewayPhysicalSettlement = PiPhysicalSettlement;
+
+/**
+ * Trusted tool deadline categories, in milliseconds. The category comes from
+ * the catalog's own descriptor, never from model input, so a tool cannot ask
+ * for a longer budget by naming a bigger number. Shell owns its own default
+ * and ceiling; every other tool is capped by PI_TOOL_MAX_DEADLINE_MS.
+ */
+export const PI_TOOL_ORDINARY_DEADLINE_MS = 120_000;
+export const PI_TOOL_LONG_TRAVERSAL_DEADLINE_MS = 900_000;
+export const PI_TOOL_SHELL_DEFAULT_DEADLINE_MS = 900_000;
+export const PI_TOOL_SHELL_MAX_DEADLINE_MS = 3_600_000;
+export const PI_TOOL_MAX_DEADLINE_MS = 3_600_000;
+/** Per-tool teardown bound; expiry keeps the hold rather than assuming exit. */
+export const PI_TOOL_TEARDOWN_TIMEOUT_MS = 30_000;
+
+export type PiGatewayDeadlineCategory = "ordinary" | "long-traversal" | "shell";
+
+/** Resolves the absolute deadline for a trusted descriptor category. */
+export function piGatewayToolDeadline(
+  category: PiGatewayDeadlineCategory,
+): number {
+  if (category === "long-traversal") return PI_TOOL_LONG_TRAVERSAL_DEADLINE_MS;
+  if (category === "shell") return PI_TOOL_SHELL_DEFAULT_DEADLINE_MS;
+  return PI_TOOL_ORDINARY_DEADLINE_MS;
+}
 
 export type PiGatewayCertainty =
   | "not_applicable"
@@ -43,6 +82,12 @@ export type PiGatewayPreflightContext = {
   signal: AbortSignal;
   onUpdate: (update: JsonValue) => void;
   callId?: string;
+  /**
+   * Registers the executor's real completion promise. The settlement promise
+   * never enters the JSON result; it only decides when the call's resource
+   * claims may be released.
+   */
+  trackPhysical?: (settlement: Promise<PiPhysicalSettlement>) => void;
 };
 
 export type PiGatewayPreflight =
@@ -50,6 +95,7 @@ export type PiGatewayPreflight =
       status: "prepared";
       domainPlanDigest: string;
       admissionFacts: JsonValue;
+      domainOperation?: PiGatewayDomainOperation;
       execute(context: PiGatewayPreflightContext): Promise<PiGatewayExecution>;
       dispose(): Promise<void>;
     }
@@ -69,6 +115,14 @@ export type PiGatewayToolDefinition = {
   maxResultBytes: number;
   identityDigest?: string;
   batchMode?: "ordinary" | "exclusive" | "deferred" | "single-per-batch";
+  /** Trusted deadline category; defaults to the ordinary bound. */
+  deadlineCategory?: PiGatewayDeadlineCategory;
+  /**
+   * Trusted wall-clock limit for the whole call, in milliseconds. It is
+   * descriptor metadata the catalog supplies, never a model argument, and it
+   * is still capped by PI_TOOL_MAX_DEADLINE_MS.
+   */
+  timeLimitMs?: number;
   requiresForegroundConversation?: boolean;
   classify(
     args: JsonValue,
@@ -89,6 +143,7 @@ export type PiGatewayToolDefinition = {
       signal: AbortSignal;
       onUpdate: (update: JsonValue) => void;
       callId?: string;
+      trackPhysical?: (settlement: Promise<PiPhysicalSettlement>) => void;
     },
   ): Promise<PiGatewayExecution>;
 };
@@ -139,6 +194,7 @@ export type PiGatewayAttemptReceipt = {
   outcome: PiGatewayCallResult["status"];
   effectCertainty: PiGatewayCertainty;
   domainReceiptRef?: string;
+  domainOperation?: PiGatewayDomainOperation;
 };
 
 export type PiGatewayStartedFact = Omit<
@@ -208,6 +264,30 @@ export type PiGatewayTurnInput = {
     beforeExecuteBatch?: (attempts: number) => Promise<void>;
   };
   signal?: AbortSignal;
+  /** Absolute turn deadline; clips every tool's logical watchdog. */
+  deadline?: number;
+  /**
+   * Process-wide physical settlement registration. The gateway holds every
+   * resource claim of a call until the registered promise reports `settled`;
+   * `unknown` keeps the claim for the life of the process.
+   */
+  trackPhysical?: (settlement: Promise<PiPhysicalSettlement>) => void;
+  /**
+   * Authoritative evidence that arrived after the logical result committed.
+   * It is appended to the original invocation and never reopens a sealed or
+   * canceled turn, so late settlement reconciles evidence without replaying
+   * the call. The owning runtime supplies this; the gateway only reports it.
+   */
+  recordPhysicalEvidence?: (evidence: {
+    owner: PiGatewayAttemptReceipt["owner"];
+    turnId: string;
+    callId: string;
+    capabilityId: string;
+    state: PiPhysicalSettlement;
+    /** The executor's real logical outcome, when it arrived after the wait. */
+    outcome?: PiGatewayExecution;
+    domainOperation?: PiGatewayDomainOperation;
+  }) => Promise<void> | void;
   foregroundConversation?: () => boolean;
   onUpdate?: (callId: string, update: JsonValue) => void;
   /**
@@ -245,6 +325,7 @@ type FrozenDefinition = PiGatewayToolDefinition & {
 type PreparedPlan = {
   domainPlanDigest: string;
   admissionFacts: JsonValue;
+  domainOperation?: PiGatewayDomainOperation;
   execute(context: PiGatewayPreflightContext): Promise<PiGatewayExecution>;
   dispose(): Promise<void>;
 };
@@ -255,6 +336,12 @@ type PreparedCall = {
   argumentDigest: string;
   authorization: "ready" | "permission";
   plan?: PreparedPlan;
+  /** Every physical promise registered by this call's executor. */
+  physicalSettlement?: Promise<PiPhysicalSettlement>;
+  /** True once the combined claim proved it settled. */
+  physicalSettled?: boolean;
+  /** Trusted binding, kept after dispose clears the plan. */
+  domainOperation?: PiGatewayDomainOperation;
 };
 
 const EFFECTS = new Set<PiGatewayEffect>([
@@ -280,6 +367,46 @@ const utf8 = new TextEncoder();
 const MAX_RESULT_BYTES = 1024 * 1024;
 const MAX_ARGUMENT_BYTES = 512 * 1024;
 const MAX_CLAIM_BYTES = 16 * 1024;
+
+// Canonical write-resource claims for the whole process, not just one batch:
+// a call's keys stay claimed until its physical settlement is `settled`. An
+// `unknown` settlement is unprovable evidence, so the claim is kept rather than
+// released on a logical result. Counted, because two independent callers may
+// legitimately hold the same key for the same canonical resource.
+const resourceClaims = new Map<string, number>();
+// Waiters let a blocked call sleep until a claim is genuinely released instead
+// of spinning. A claim held by `unknown` may never resolve, and that is a real
+// hold, not a reason to burn the event loop.
+const resourceWaiters = new Map<string, Set<() => void>>();
+
+function claimResource(key: string) {
+  resourceClaims.set(key, (resourceClaims.get(key) || 0) + 1);
+}
+
+function releaseResource(key: string) {
+  const next = (resourceClaims.get(key) || 0) - 1;
+  if (next > 0) resourceClaims.set(key, next);
+  else {
+    resourceClaims.delete(key);
+    const waiting = resourceWaiters.get(key);
+    resourceWaiters.delete(key);
+    for (const wake of waiting || []) wake();
+  }
+}
+
+function resourceClaimed(key: string) {
+  return (resourceClaims.get(key) || 0) > 0;
+}
+
+/** Resolves the next time `key` is free; never rejects. */
+function whenResourceFree(key: string): Promise<void> {
+  if (!resourceClaimed(key)) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    const waiting = resourceWaiters.get(key) || new Set<() => void>();
+    resourceWaiters.set(key, waiting);
+    waiting.add(resolve);
+  });
+}
 
 function canonical(value: JsonValue): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -484,6 +611,14 @@ export async function freezePiToolGatewayTurn(
         )) ||
       (definition.requiresForegroundConversation !== undefined &&
         typeof definition.requiresForegroundConversation !== "boolean") ||
+      (definition.deadlineCategory !== undefined &&
+        !["ordinary", "long-traversal", "shell"].includes(
+          definition.deadlineCategory,
+        )) ||
+      (definition.timeLimitMs !== undefined &&
+        (!Number.isSafeInteger(definition.timeLimitMs) ||
+          definition.timeLimitMs < 1 ||
+          definition.timeLimitMs > PI_TOOL_MAX_DEADLINE_MS)) ||
       typeof definition.classify !== "function" ||
       (definition.preflight !== undefined &&
         typeof definition.preflight !== "function") ||
@@ -730,6 +865,25 @@ export async function freezePiToolGatewayTurn(
     };
   }
 
+  /**
+   * Per-tool teardown, bounded so one unresponsive cleanup cannot stall a
+   * turn. Expiry is not proof that anything stopped: the staging stays
+   * reserved, its claim is kept, and maintenance retries the cleanup later.
+   */
+  async function disposeWithinTeardownBound(plan: PreparedPlan) {
+    const settled = await waitForPromiseSettlement(plan.dispose(), {
+      phase: "tool_dispose",
+      signal,
+      timeoutMs: Math.min(
+        PI_TOOL_TEARDOWN_TIMEOUT_MS,
+        Math.max(0, (input.deadline ?? Infinity) - Date.now()),
+      ),
+    });
+    if (settled.status === "fulfilled") return;
+    if (settled.status === "rejected") throw settled.error;
+    throw new Error("pi_tool_teardown_pending");
+  }
+
   async function disposePrepared(
     prepared: PreparedCall,
     result: PiGatewayCallResult,
@@ -737,8 +891,35 @@ export async function freezePiToolGatewayTurn(
     const plan = prepared.plan;
     if (!plan) return result;
     prepared.plan = undefined;
+    // Staging may reference files a still-running executor is using, so an
+    // unproved settlement keeps the staging reserved. The turn never waits on
+    // that claim: it reports cleanup pending now and the release happens when
+    // the claim actually settles.
+    const settlement = prepared.physicalSettlement;
+    if (settlement) {
+      // A claim that has already proved itself disposes inline. One that is
+      // still open defers immediately: waiting on it would hang the turn, and
+      // an open claim is exactly the case where staging may still be in use.
+      const state = prepared.physicalSettled;
+      if (state === true) {
+        try {
+          await disposeWithinTeardownBound(plan);
+          return result;
+        } catch {
+          return cleanupPendingResult(result);
+        }
+      }
+      void settlement.then(
+        (state) => {
+          if (state !== "settled") return;
+          void disposeWithinTeardownBound(plan).catch(() => undefined);
+        },
+        () => undefined,
+      );
+      return cleanupPendingResult(result);
+    }
     try {
-      await plan.dispose();
+      await disposeWithinTeardownBound(plan);
       return result;
     } catch {
       return cleanupPendingResult(result);
@@ -759,7 +940,7 @@ export async function freezePiToolGatewayTurn(
       if (!plan) continue;
       item.plan = undefined;
       try {
-        await plan.dispose();
+        await disposeWithinTeardownBound(plan);
       } catch {
         cleanupPending.push(item.call.callId);
       }
@@ -899,9 +1080,33 @@ export async function freezePiToolGatewayTurn(
       return await reject("execution_failed");
     }
     if (tooLarge) return await reject("resource_limited");
+    // Trusted identity only: a malformed or oversized binding is a broken
+    // domain composition, so the call never starts an effect it cannot bind.
+    let domainOperation: PiGatewayDomainOperation | undefined;
+    if (stage.domainOperation !== undefined) {
+      const binding =
+        stage.domainOperation as Partial<PiGatewayDomainOperation>;
+      const scope = binding?.scope as { ownerId?: unknown } | undefined;
+      if (
+        !binding ||
+        typeof binding.operationId !== "string" ||
+        !binding.operationId ||
+        binding.operationId.length > 256 ||
+        !scope ||
+        typeof scope.ownerId !== "string" ||
+        !scope.ownerId ||
+        scope.ownerId.length > 256
+      )
+        return await reject("execution_failed");
+      domainOperation = {
+        scope: { ownerId: scope.ownerId },
+        operationId: binding.operationId,
+      };
+    }
     prepared.plan = {
       domainPlanDigest: stage.domainPlanDigest,
       admissionFacts: copyJson(stage.admissionFacts),
+      ...(domainOperation ? { domainOperation } : {}),
       execute: stage.execute.bind(stage),
       dispose: stage.dispose.bind(stage),
     };
@@ -913,6 +1118,17 @@ export async function freezePiToolGatewayTurn(
   ): Promise<PiGatewayCallResult> {
     const { call, definition, claims, argumentDigest, plan } = prepared;
     if (signal.aborted) return canceled(call);
+    // The logical watchdog is the trusted descriptor's own bound, further
+    // clipped by the lease deadline. Racing it only decides what the caller is
+    // told; the executor keeps running and its claim stays held until the
+    // physical promise settles, so a timeout never frees a running resource.
+    const limitMs = Math.min(
+      definition.timeLimitMs ??
+        piGatewayToolDeadline(definition.deadlineCategory || "ordinary"),
+      input.deadline !== undefined
+        ? Math.max(0, input.deadline - Date.now())
+        : PI_TOOL_MAX_DEADLINE_MS,
+    );
     const startedAt = new Date().toISOString();
     const started: PiGatewayStartedFact = {
       owner: { ...owner },
@@ -926,6 +1142,11 @@ export async function freezePiToolGatewayTurn(
       effects: [...claims.effects],
       safeRefs: [...(claims.safeRefs || [])],
       startedAt,
+      // The binding is committed with the started fact, so the first effect
+      // never runs before its Broker identity is durable.
+      ...(plan?.domainOperation
+        ? { domainOperation: plan.domainOperation }
+        : {}),
     };
     try {
       await hooks.recordStarted(started);
@@ -933,7 +1154,30 @@ export async function freezePiToolGatewayTurn(
       return fail(call, "persistence_failed");
     }
     let execution: PiGatewayExecution;
+    let executorAnswered = false;
     let updatesOpen = true;
+    // Physical settlement is collected here and reported to the owner exactly
+    // once, when every part of the call has settled. The executor's own
+    // registrations describe sub-facts of the same dispatch, so they are not
+    // forwarded individually: one call produces one settlement observation.
+    const registrations: Promise<PiPhysicalSettlement>[] = [];
+    let dispatchSettlement: Promise<PiPhysicalSettlement> | undefined;
+    const trackPhysical = (settlement: Promise<PiPhysicalSettlement>) => {
+      registrations.push(settlement);
+    };
+    const combinePhysical = () =>
+      dispatchSettlement
+        ? Promise.all([dispatchSettlement, ...registrations]).then<
+            PiPhysicalSettlement,
+            PiPhysicalSettlement
+          >(
+            (states) =>
+              states.every((state) => state === "settled")
+                ? "settled"
+                : "unknown",
+            () => "unknown",
+          )
+        : undefined;
     const onUpdate = (update: JsonValue) => {
       if (!updatesOpen || signal.aborted) return;
       try {
@@ -961,13 +1205,106 @@ export async function freezePiToolGatewayTurn(
       };
     } else {
       try {
-        execution = plan
-          ? await plan.execute({ signal, callId: call.callId, onUpdate })
-          : await definition.execute(call.arguments, {
+        const dispatched = plan
+          ? plan.execute({
               signal,
               callId: call.callId,
               onUpdate,
+              trackPhysical,
+            })
+          : definition.execute(call.arguments, {
+              signal,
+              callId: call.callId,
+              onUpdate,
+              trackPhysical,
             });
+        // The dispatched promise is registered before the race, so the claim is
+        // held by the executor's real completion whether it wins the race or
+        // loses it. A losing branch keeps the same claim, so the physical state
+        // is the same either way; only the logical answer differs.
+        // The real outcome is evidence the owner must commit before the claim
+        // is released, so the durable append is part of the settlement promise
+        // itself. Releasing first would let the next owner start against a
+        // resource whose real outcome is not yet recorded. Only identity and
+        // the outcome's own status travel: the body stays with the executor,
+        // so a late append can never duplicate a result payload.
+        // A call whose wait was won already committed its own receipt, so a
+        // second fact would be a duplicate. Only a call whose answer was
+        // forced ahead of its executor needs the later append, and that is
+        // exactly the case the durable evidence exists to reconcile.
+        let answerDeferred = false;
+        const recordOutcome = async (value?: PiGatewayExecution) => {
+          if (!answerDeferred || !input.recordPhysicalEvidence) return;
+          await input.recordPhysicalEvidence({
+            owner: { ...owner },
+            turnId: input.turnId,
+            callId: call.callId,
+            capabilityId: definition.capabilityId,
+            state: value ? "settled" : "unknown",
+            ...(value ? { outcome: value } : {}),
+            ...(plan?.domainOperation
+              ? { domainOperation: plan.domainOperation }
+              : {}),
+          });
+        };
+        const held = dispatched.then<
+          PiPhysicalSettlement,
+          PiPhysicalSettlement
+        >(
+          async (value) => {
+            try {
+              await recordOutcome(value);
+              return "settled" as const;
+            } catch {
+              return "unknown" as const;
+            }
+          },
+          async () => {
+            await recordOutcome().catch(() => undefined);
+            return "unknown" as const;
+          },
+        );
+        // The executor's own promise is the same fact as the dispatch, so it
+        // only joins the combined claim when the executor tracked nothing else.
+        dispatchSettlement = held;
+        // The call's own completion is the single settlement the owner
+        // observes; sub-registrations only widen it when an executor tracks a
+        // longer physical fact such as a child process or a staged write.
+        input.trackPhysical?.(combinePhysical()!);
+        const waited = await waitForPromiseSettlement(dispatched, {
+          phase: "tool_execution",
+          signal,
+          timeoutMs: limitMs,
+        });
+        if (waited.status === "fulfilled") {
+          execution = waited.value;
+        } else if (waited.status === "rejected") {
+          execution = {
+            status: "failed",
+            effectCertainty: "unknown",
+            code: "execution_failed",
+          };
+        } else if (waited.status === "canceled") {
+          // Cancellation is not proof that the effect did not happen, so the
+          // result stays unknown unless the executor said otherwise itself.
+          answerDeferred = true;
+          execution = {
+            status: "canceled",
+            effectCertainty: "unknown",
+          };
+        } else {
+          // The watchdog won: the caller was answered while the executor is
+          // still running, so its eventual outcome is the late evidence.
+          answerDeferred = true;
+          execution = {
+            status: "failed",
+            effectCertainty: "unknown",
+            code: "execution_timeout",
+            retryable: true,
+          };
+        }
+        executorAnswered =
+          waited.status === "fulfilled" || waited.status === "rejected";
       } catch {
         execution = {
           status: "failed",
@@ -977,6 +1314,16 @@ export async function freezePiToolGatewayTurn(
       }
     }
     updatesOpen = false;
+    prepared.physicalSettlement = combinePhysical() ?? dispatchSettlement;
+    // Executor return and registered child/write evidence must all settle.
+    if (prepared.physicalSettlement) {
+      if (!registrations.length) prepared.physicalSettled = executorAnswered;
+      else
+        void prepared.physicalSettlement.then((state) => {
+          prepared.physicalSettled = state === "settled";
+        });
+    }
+    prepared.domainOperation = plan?.domainOperation;
     if (
       !execution ||
       !["completed", "failed", "canceled"].includes(execution.status) ||
@@ -1168,7 +1515,6 @@ export async function freezePiToolGatewayTurn(
   ) {
     const queue = [...group];
     const running = new Set<Promise<void>>();
-    const held = new Set<string>();
     while (queue.length || running.size) {
       if (signal.aborted) {
         for (const pending of queue)
@@ -1183,23 +1529,53 @@ export async function freezePiToolGatewayTurn(
         index < queue.length && running.size < policy.maxConcurrent;
       ) {
         const item = queue[index];
-        if (item.claims.resourceKeys.some((key) => held.has(key))) {
+        if (item.claims.resourceKeys.some(resourceClaimed)) {
           index += 1;
           continue;
         }
         queue.splice(index, 1);
-        for (const key of item.claims.resourceKeys) held.add(key);
+        for (const key of item.claims.resourceKeys) claimResource(key);
         const task = run(item)
           .then((result) => {
             results.set(item.call.callId, result);
           })
           .finally(() => {
-            for (const key of item.claims.resourceKeys) held.delete(key);
             running.delete(task);
+            // Release on real settlement, not on the logical result. A call
+            // that registered no physical promise is a plain in-process
+            // executor, so its own promise is its settlement evidence.
+            const settlement =
+              item.physicalSettlement ?? Promise.resolve("settled" as const);
+            void settlement.then((state) => {
+              // Release only. The outcome evidence is reported once, by the
+              // late-fulfillment path, so a call never yields two observations
+              // of the same physical fact.
+              if (state !== "settled") return;
+              for (const key of item.claims.resourceKeys) releaseResource(key);
+            });
           });
         running.add(task);
       }
-      if (running.size) await Promise.race(running);
+      // Nothing running and nothing dispatchable means every remaining call is
+      // blocked on a claim this process still holds. Sleep on that claim rather
+      // than spinning: a claim whose settlement is `unknown` may never be
+      // released, and the turn's own signal is what ends the wait.
+      if (running.size) {
+        await Promise.race(running);
+        continue;
+      }
+      const blocked = queue[0]?.claims.resourceKeys.filter(resourceClaimed);
+      if (!blocked?.length) continue;
+      // The queued call waits for the real settlement. This sleeps instead of
+      // spinning, and the turn's own signal ends the wait, so cancellation and
+      // shutdown stay responsive while the claim itself remains held.
+      await Promise.race([
+        Promise.all(blocked.map((key) => whenResourceFree(key))),
+        new Promise<void>((resolve) => {
+          if (signal.aborted) return resolve();
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        }),
+      ]);
     }
   }
 

@@ -40,6 +40,12 @@ import {
 import { sha256PrefixedHex } from "../utils/sha256";
 import { getRuntimeEnvironmentSnapshot } from "../platform/env";
 import { createWorkflowStoredAttachmentStager } from "../workflows/workflowStoredAttachmentImport";
+import type { PiPhysicalSettlement } from "./piRuntimeLifecycle";
+import {
+  PI_TOOL_SHELL_DEFAULT_DEADLINE_MS,
+  PI_TOOL_SHELL_MAX_DEADLINE_MS,
+  type PiGatewayDeadlineCategory,
+} from "./piToolGateway";
 import { createZoteroHostPreparedFiles } from "./zoteroHost/zoteroHostPreparedFiles";
 import type {
   PreparedStoredAttachment,
@@ -1311,6 +1317,9 @@ export async function createPiTrustedNativeExecution(args: {
       schema,
       minimumEffects: [effect],
       maxResultBytes: name === "read" ? 1024 * 1024 : 256 * 1024,
+      // A read is a bounded text projection, not an attachment transfer, so it
+      // keeps the ordinary bound. Only known-long work earns the long one.
+      deadlineCategory: "ordinary",
       classify: async (value): Promise<PiGatewayClassification> => {
         const input = value as FileArgs;
         const identity = await resolvePath(input.path);
@@ -1637,6 +1646,8 @@ export async function createPiTrustedNativeExecution(args: {
         schema: searchSchema(name),
         minimumEffects: ["bounded-read"],
         maxResultBytes: 256 * 1024,
+        // These traverse the workspace tree, so they carry the long bound.
+        deadlineCategory: "long-traversal",
         classify: async (value) => {
           const input = value as SearchArgs;
           if (name === "grep")
@@ -1879,6 +1890,7 @@ export async function createPiTrustedNativeExecution(args: {
         minimumEffects: ["code-execution"],
         maxResultBytes: 256 * 1024,
         batchMode: "exclusive",
+        deadlineCategory: "shell",
         classify: (value) => {
           const command = (value as { command: string }).command.trim();
           const literal = /^(?:pwd|true|false)$/.test(command);
@@ -1993,10 +2005,13 @@ export async function createPiTrustedNativeExecution(args: {
           ]);
           let timedOut = false;
           let canceled = false;
-          let stopTimer: ReturnType<typeof setTimeout> | undefined;
-          let resolveUnproved!: () => void;
-          const unproved = new Promise<"unproved">((resolve) => {
-            resolveUnproved = () => resolve("unproved");
+          // Resolves the logical race below. Requesting a stop is not a reason
+          // to keep waiting for the child: the physical claim is tracked
+          // separately, so the caller is told the outcome is unknown as soon as
+          // the stop is requested, instead of when the Gateway limit fires.
+          let resolveAborted!: () => void;
+          const aborted = new Promise<"aborted">((resolve) => {
+            resolveAborted = () => resolve("aborted");
           });
           const requestStop = () => {
             try {
@@ -2004,35 +2019,55 @@ export async function createPiTrustedNativeExecution(args: {
             } catch {
               /* termination is unproved */
             }
-            stopTimer ||= setTimeout(resolveUnproved, 3000);
           };
-          const timeoutMs = Math.min(input.timeout || 900, 3600) * 1000;
+          // The requested timeout is clamped to the trusted Shell ceiling;
+          // omitting it uses the trusted default rather than any model value.
+          const timeoutMs =
+            Math.min(
+              input.timeout || PI_TOOL_SHELL_DEFAULT_DEADLINE_MS / 1000,
+              PI_TOOL_SHELL_MAX_DEADLINE_MS / 1000,
+            ) * 1000;
           const timer = setTimeout(() => {
             timedOut = true;
             requestStop();
+            resolveAborted();
           }, timeoutMs);
           const onAbort = () => {
             canceled = true;
             requestStop();
+            resolveAborted();
           };
           context.signal.addEventListener("abort", onAbort, { once: true });
           let exit: unknown;
           try {
+            // Real settlement: the child's observed wait, not a timer. A
+            // logical timeout or cancel returns below while this promise stays
+            // registered, so claims and files are held until exit is proved.
+            const observed = (async () => {
+              const value = await process.wait?.();
+              const results = await drains;
+              if (results.some((item) => item.status === "rejected"))
+                throw new Error("pi_shell_output_failed");
+              return value;
+            })();
+            context.trackPhysical?.(
+              observed.then<PiPhysicalSettlement, PiPhysicalSettlement>(
+                () => "settled",
+                () => "unknown",
+              ),
+            );
+            // The logical result is still bounded: a timeout or cancel stops
+            // waiting and reports unknown, while the registered promise above
+            // keeps the physical claim until the exit is actually observed.
             const settled = await Promise.race([
-              (async () => {
-                const value = await process.wait?.();
-                const results = await drains;
-                if (results.some((item) => item.status === "rejected"))
-                  throw new Error("pi_shell_output_failed");
-                return { kind: "settled" as const, value };
-              })(),
-              unproved.then(() => ({ kind: "unproved" as const, value: null })),
+              observed.then((value) => ({ kind: "settled" as const, value })),
+              aborted.then(() => ({ kind: "aborted" as const, value: null })),
             ]);
-            if (settled.kind === "unproved")
+            if (settled.kind === "aborted")
               return {
                 status: "failed",
                 effectCertainty: "unknown",
-                code: "pi_shell_state_unknown",
+                code: timedOut ? "pi_shell_timeout" : "pi_shell_canceled",
               };
             exit = settled.value;
           } catch {
@@ -2043,8 +2078,10 @@ export async function createPiTrustedNativeExecution(args: {
             };
           } finally {
             clearTimeout(timer);
-            if (stopTimer) clearTimeout(stopTimer);
             context.signal.removeEventListener("abort", onAbort);
+            // Release the stop signal's waiter when the child won the race, so
+            // a settled call leaves nothing pending behind it.
+            resolveAborted();
           }
           if (overflow || timedOut || canceled)
             return {

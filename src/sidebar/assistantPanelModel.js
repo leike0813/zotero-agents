@@ -926,6 +926,14 @@ const DETAILS_DRAWER_ACTIONS = {
     action: "export-diagnostics",
     labelPath: "actions.exportDiagnostics",
   },
+  "check-owner-recovery": {
+    action: "check-owner-recovery",
+    labelPath: "actions.checkRecovery",
+  },
+  "continue-owner-recovery": {
+    action: "continue-owner-recovery",
+    labelPath: "actions.continueRecovery",
+  },
   "open-workspace": {
     action: "open-workspace",
     labelPath: "actions.openWorkspace",

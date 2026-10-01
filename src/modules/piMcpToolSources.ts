@@ -21,6 +21,7 @@ import type {
   PiGatewayTurnInput,
 } from "./piToolGateway";
 import { freezePiToolGatewayTurn } from "./piToolGateway";
+import type { PiPhysicalSettlement } from "./piRuntimeLifecycle";
 import type { JsonValue } from "../workflows/types";
 
 type Tool = {
@@ -38,6 +39,8 @@ type Connection = {
     options?: { signal?: AbortSignal; timeout?: number; toolDefinition?: Tool },
   ) => Promise<unknown>;
   close: () => Promise<void>;
+  /** Real child settlement, when the transport owns one. */
+  physicalSettlement?: Promise<{ state: PiPhysicalSettlement }>;
 };
 export type PiMcpConnection = Connection;
 export type PiMcpCatalogTool = Tool & {
@@ -418,6 +421,7 @@ export function createPiMcpToolSources(
     name: string,
     args: Record<string, unknown>,
     signal: AbortSignal,
+    trackPhysical?: (settlement: Promise<PiPhysicalSettlement>) => void,
   ): Promise<PiGatewayExecution> {
     const selected = catalog.tools.find(
       (item) => item.sourceId === sourceId && item.name === name,
@@ -435,6 +439,17 @@ export function createPiMcpToolSources(
       return failed("mcp_source_unavailable");
     try {
       const connection = await getConnection(source);
+      // A stdio source owns a real child process, so its exit is the physical
+      // evidence. A dropped transport proves nothing about the tool call, so
+      // the result stays unknown until that child actually settles.
+      const settlement = (connection.client as Connection).physicalSettlement;
+      if (settlement)
+        trackPhysical?.(
+          settlement.then<PiPhysicalSettlement, PiPhysicalSettlement>(
+            (state) => state.state,
+            () => "unknown",
+          ),
+        );
       return normalizePiMcpCallResult(
         await connection.client.callTool(
           { name, arguments: args },
@@ -493,6 +508,7 @@ export function piMcpGatewayDefinitions(
             tool.name,
             args as Record<string, unknown>,
             context.signal,
+            context.trackPhysical,
           ),
       }),
     );
@@ -573,6 +589,7 @@ export function piMcpGatewayDefinitions(
           String(call.name),
           (call.arguments || {}) as Record<string, unknown>,
           context.signal,
+          context.trackPhysical,
         );
       return failed("invalid_request");
     },

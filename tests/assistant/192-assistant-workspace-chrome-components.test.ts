@@ -2478,7 +2478,7 @@ describe("Pi Conversation managed chrome identity", function () {
           items: [{ fieldId: "status", value: "idle", format: "text" }],
         },
       ],
-      actions: ["compact-conversation"],
+      actions: ["compact-conversation", "check-owner-recovery"],
       error: null,
     };
   }
@@ -2617,6 +2617,19 @@ describe("Pi Conversation managed chrome identity", function () {
         kind: "owner-details",
         payload: detailsPayload(),
       });
+      const recoveryCheck = child.document.querySelector<HTMLButtonElement>(
+        ".assistant-panel-action-check-owner-recovery",
+      );
+      const recoveryContinue = child.document.querySelector<HTMLButtonElement>(
+        ".assistant-panel-action-continue-owner-recovery",
+      );
+      assert.isNotNull(recoveryCheck);
+      assert.isNull(recoveryContinue);
+      recoveryCheck!.click();
+      assert.includeMembers(
+        child.actions.map((envelope) => envelope.action as string),
+        ["check-owner-recovery"],
+      );
       publish({ owner: piOwner, kind: "plan", payload: { items: [] } });
       publish({
         owner: piOwner,

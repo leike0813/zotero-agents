@@ -1,4 +1,5 @@
 import type { WorkflowSubmissionQueue } from "../../jobQueue/workflowSubmissionQueue";
+import { BUILTIN_PI_BACKEND_TYPE } from "../../config/defaults";
 import type {
   WorkflowExecutionUnitOutcome,
   WorkflowSubmissionId,
@@ -188,7 +189,19 @@ export async function submitPreparedWorkflowUnits(
   const backendType = String(
     args.prepared.executionContext.backend.type || "",
   ).trim();
-  if (backendType === "acp" || backendType === "skillrunner") {
+  if (
+    backendType === BUILTIN_PI_BACKEND_TYPE &&
+    deps.submissionQueue.isPiAdmissionBlocked
+  ) {
+    throw new Error(
+      `builtin-pi admission is blocked while durable reservations are restored`,
+    );
+  }
+  if (
+    backendType === "acp" ||
+    backendType === "skillrunner" ||
+    backendType === BUILTIN_PI_BACKEND_TYPE
+  ) {
     const providerOptions =
       args.prepared.executionContext.providerOptions || {};
     const handle = deps.submissionQueue.enqueueSubmission({
@@ -219,12 +232,19 @@ export async function submitPreparedWorkflowUnits(
               provider: String(providerOptions.acpModelProvider || "").trim(),
               model: String(providerOptions.acpModelId || "").trim(),
             }
-          : {
-              provider: String(
-                providerOptions.provider_id || providerOptions.engine || "",
-              ).trim(),
-              model: String(providerOptions.model || "").trim(),
-            },
+          : backendType === BUILTIN_PI_BACKEND_TYPE
+            ? {
+                provider: String(
+                  providerOptions.provider || BUILTIN_PI_BACKEND_TYPE,
+                ).trim(),
+                model: String(providerOptions.model || "").trim(),
+              }
+            : {
+                provider: String(
+                  providerOptions.provider_id || providerOptions.engine || "",
+                ).trim(),
+                model: String(providerOptions.model || "").trim(),
+              },
       initialOutcomes,
       onTerminal: args.onTerminal,
       executeUnit,

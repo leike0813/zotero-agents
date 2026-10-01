@@ -1,22 +1,32 @@
 import {
   getRuntimePersistencePaths,
   listRuntimeChildDirectories,
+  listRuntimeChildrenStrict,
+  listRuntimeChildren,
   removeRuntimePath,
+  runtimePathExists,
+  statRuntimePath,
+  statRuntimePathStrict,
 } from "./runtimePersistence";
 import {
   deletePiConversationMetadata,
   deletePiOwnerRegistry,
   getPiConversationCleanupReceipt,
+  getPiSkillRunCleanupReceipt,
   getPiConversationMetadata,
   getPiConversationReadFacts,
+  getPiOwnerRegistry,
   insertPiConversationMetadata,
   listPiConversations,
+  listPiOwnerRegistry,
   listPiSkillRunRegistry,
   updatePiConversationProjection,
   upsertPiConversationCleanupReceipt,
+  upsertPiSkillRunCleanupReceipt,
   upsertPiOwnerRegistry,
   writePiConversationMetadata,
   type PiConversationCleanupReceipt,
+  type PiSkillRunCleanupReceipt,
   type PiConversationLifecycle,
   type PiConversationMetadata,
   type PiConversationProjection,
@@ -25,6 +35,7 @@ import {
   type PiConversationUsage,
   type PiSkillRunRegistryEntry,
   type PiSkillRunRegistryScalars,
+  type PiSkillRunReservationScalars,
 } from "./pluginStateStore";
 import {
   appendPiTranscriptBatch,
@@ -51,11 +62,17 @@ import {
   type TurnPreparationRecord,
 } from "./piTurnPreparation";
 import type { JsonValue } from "../workflows/types";
+import type {
+  MutationExecutionResult,
+  MutationOperationObservation,
+} from "../workflows/types";
+import type { ZoteroHostMutationCallerScope } from "./zoteroHostMutationAuthority";
 import { record as recordPiRuntimeAudit } from "./piRuntimeAudit";
 import { joinPath } from "../utils/path";
 
 export {
   getPiConversationCleanupReceipt,
+  getPiSkillRunCleanupReceipt,
   getPiConversationMetadata,
   getPiConversationReadFacts,
   getPiConversationReadFacts as getPiConversationProjection,
@@ -65,6 +82,7 @@ export {
 };
 export type {
   PiConversationCleanupReceipt,
+  PiSkillRunCleanupReceipt,
   PiConversationLifecycle,
   PiConversationMetadata,
   PiConversationProjection,
@@ -73,6 +91,7 @@ export type {
   PiConversationUsage,
   PiSkillRunRegistryEntry,
   PiSkillRunRegistryScalars,
+  PiSkillRunReservationScalars,
   PiTranscriptBasis,
   PiTurnTranscriptSnapshot,
 };
@@ -159,6 +178,112 @@ function piSkillRunScalarsFor(
   };
 }
 
+const RESERVATION_TEXT_MAX = 256;
+const RESERVATION_IDENTITY_MAX = 64;
+
+function reservationText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  return text && text.length <= RESERVATION_TEXT_MAX ? text : null;
+}
+
+function reservationPositive(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0
+    ? value
+    : null;
+}
+
+/**
+ * The committed Workflow reservation, projected into bounded scalars. This is
+ * the accounting input for slot restoration, so it is read and rebuilt from the
+ * canonical fact rather than reconstructed at startup from live queue state.
+ */
+function piSkillRunReservationFor(
+  inspection: PiInspection,
+): PiSkillRunReservationScalars | undefined {
+  const entry = inspection.entries.find(
+    (item) => item.kind === "skill_run_reservation",
+  );
+  if (!entry) return undefined;
+  const payload = entry.payload as Record<string, unknown>;
+  const submissionId = reservationText(payload.submissionId);
+  const submissionUnitId = reservationText(payload.submissionUnitId);
+  const workflowId = reservationText(payload.workflowId);
+  const unitId = reservationText(payload.unitId);
+  const state = reservationText(payload.state);
+  const backendId = reservationText(payload.backendId);
+  const maxConcurrency = reservationPositive(payload.maxConcurrency);
+  const unitCount = reservationPositive(payload.unitCount);
+  const unitOrder =
+    typeof payload.unitOrder === "number" &&
+    Number.isSafeInteger(payload.unitOrder) &&
+    payload.unitOrder >= 0
+      ? payload.unitOrder
+      : null;
+  const members = Array.isArray(payload.memberIdentities)
+    ? payload.memberIdentities
+        .map((identity) => reservationText(identity))
+        .filter((identity): identity is string => Boolean(identity))
+    : null;
+  // A reservation is only projected when it is complete enough to restore a
+  // slot; a partial tuple would make accounting look available when it is not.
+  if (
+    !submissionId ||
+    !submissionUnitId ||
+    !workflowId ||
+    !unitId ||
+    !state ||
+    !backendId ||
+    !maxConcurrency ||
+    !unitCount ||
+    unitOrder === null ||
+    !members
+  )
+    return undefined;
+  const ownerId = reservationText(payload.ownerId);
+  return {
+    submissionId,
+    submissionUnitId,
+    workflowId,
+    workflowLabel: reservationText(payload.workflowLabel) ?? "",
+    backendId,
+    unitId,
+    unitOrder,
+    taskName: reservationText(payload.taskName) ?? "",
+    memberIdentities: members.slice(0, 64),
+    unitCount,
+    maxConcurrency,
+    state,
+    ...(ownerId ? { ownerId } : {}),
+  };
+}
+
+/**
+ * The reservation an owner still holds, read from the registry projection. A
+ * corrupt transcript keeps its last projected reservation, so one damaged
+ * owner is isolated instead of failing global accounting.
+ */
+export function getPiSkillRunReservation(
+  requestId: string,
+): PiSkillRunReservationScalars | null {
+  return getPiOwnerRegistry("skill_run", requestId)?.reservation ?? null;
+}
+
+/**
+ * Managed residue that survives a crash. A restart cannot prove an orphan
+ * process has exited, so actual files on disk are the evidence a hold is
+ * rebuilt from when the canonical fact was lost.
+ */
+async function piOwnerStagingResidue(
+  ref: PiOwnerRef,
+  root?: string,
+): Promise<boolean> {
+  const staging = joinPath(piOwnerPaths(ref, root).dir, "staging");
+  if (!(await statRuntimePath(staging)).exists) return false;
+  const children = await listRuntimeChildren(staging).catch(() => []);
+  return children.length > 0;
+}
+
 async function project(
   ref: PiOwnerRef,
   inspection: PiInspection,
@@ -170,6 +295,10 @@ async function project(
       inspection.entries.at(-1)?.createdAt || inspection.header!.createdAt;
     const skillRun =
       ref.kind === "skill_run" ? piSkillRunScalarsFor(inspection) : undefined;
+    const reservation =
+      ref.kind === "skill_run"
+        ? piSkillRunReservationFor(inspection)
+        : undefined;
     upsertPiOwnerRegistry({
       ownerKind: ref.kind,
       ownerId: ref.ownerId,
@@ -177,6 +306,7 @@ async function project(
       lastSequence: inspection.entries.length,
       updatedAt,
       ...(skillRun ? { skillRun } : {}),
+      ...(reservation ? { reservation } : {}),
     });
     if (ref.kind === "conversation") {
       insertPiConversationMetadata({
@@ -325,6 +455,993 @@ export async function rebuildAllPiOwnerProjections(root?: string) {
     }
   }
   return results;
+}
+
+/* ------------------------------------------------------------------------
+ * C19 recovery inventory, budget checkpoints and hold-safe deletion.
+ * Physical process occupancy is never inferred here: it is supplied by the
+ * process lifecycle through a parameter callback, and every static hold is
+ * read from canonical owner facts.
+ * --------------------------------------------------------------------- */
+
+const PI_OWNER_KINDS = ["conversation", "skill_run"] as const;
+const INVENTORY_YIELD_OWNERS = 100;
+const INVENTORY_YIELD_INTERVAL_MS = 50;
+const SKILL_RUN_RETENTION_DAYS = 30;
+const SKILL_RUN_RETENTION_MS = SKILL_RUN_RETENTION_DAYS * 86_400_000;
+const SKILL_RUN_TERMINAL_STATUSES = new Set([
+  "succeeded",
+  "failed",
+  "canceled",
+]);
+// Certainties that actually prove what happened. `unknown`, `not_started` and
+// `not_applicable` are statements of absence of proof, not of absence of
+// effect, so they never clear a hold.
+const PI_GATEWAY_PROVEN_CERTAINTIES = new Set([
+  "confirmed_none",
+  "confirmed_complete",
+  "confirmed_partial",
+]);
+
+export type PiOwnerRecoveryState =
+  | "ready"
+  | "interrupted"
+  | "state_unknown"
+  | "recovery_required"
+  | "terminal";
+export type PiExecutionCheckpoint = {
+  version: 1;
+  turnId: string;
+  budgetMs: number;
+  activeMs: number;
+  remainingMs: number;
+  resumeEligible: boolean;
+};
+export type PiUnresolvedOperation = {
+  turnId: string;
+  callId: string;
+  scope: { ownerId: string };
+  operationId: string;
+};
+export type PiOwnerRecoveryAssessment = {
+  state: PiOwnerRecoveryState;
+  checkpoint?: PiExecutionCheckpoint;
+  safeToResume: boolean;
+  unresolvedOperations: PiUnresolvedOperation[];
+  hasHolds: boolean;
+  entries: PiTranscriptEntry[];
+};
+export type PiOwnerOccupancyProbe = (
+  ref: PiOwnerRef,
+) => Promise<boolean> | boolean;
+export type PiOwnerCleanupOptions = {
+  /** Supplied by the process lifecycle: a restart never proves an exit. */
+  isPhysicallyOccupied?: PiOwnerOccupancyProbe;
+  nowMs?: number;
+  retentionMs?: number;
+};
+export type PiSkillRunRetentionDecision = {
+  eligible: boolean;
+  hasHolds: boolean;
+  reasons: string[];
+};
+export type PiSkillRunDeleteResult =
+  | { status: "deleted"; requestId: string; cleanedAt: string }
+  | {
+      status: "cleanup_pending";
+      requestId: string;
+      reason: string;
+    };
+
+function yieldToRuntime() {
+  return new Promise<void>((resolve) => setTimeout(resolve, 0));
+}
+
+/** An occupancy probe may be synchronous; an unprovable answer is a hold. */
+async function piOwnerOccupied(
+  probe: PiOwnerOccupancyProbe | undefined,
+  ref: PiOwnerRef,
+): Promise<boolean> {
+  if (!probe) return false;
+  return (await Promise.resolve(probe(ref)).catch(() => true)) === true;
+}
+
+/**
+ * Canonical owner inventory is the union of the strict directory listing and
+ * both registry identities: a committed directory without its rebuildable
+ * projection is still an owner, and a projection without its directory is
+ * still an owner that needs reconstruction. A failed read is not an empty
+ * inventory, so it throws and startup fails closed.
+ */
+export async function listPiOwnerInventory(
+  root?: string,
+): Promise<PiOwnerRef[]> {
+  const ownersDir = getRuntimePersistencePaths(root).piOwnersDir;
+  const found = new Map<string, PiOwnerRef>();
+  // The yield budget is spent on the real IO, so a large owner set cannot
+  // block the startup path.
+  let sinceYield = 0;
+  let lastYield = Date.now();
+  const breathe = async () => {
+    sinceYield += 1;
+    if (
+      sinceYield < INVENTORY_YIELD_OWNERS &&
+      Date.now() - lastYield < INVENTORY_YIELD_INTERVAL_MS
+    )
+      return;
+    sinceYield = 0;
+    lastYield = Date.now();
+    await yieldToRuntime();
+  };
+  for (const kind of PI_OWNER_KINDS) {
+    const kindDir = joinPath(ownersDir, kind);
+    // A kind that was never written is not an accounting failure; a kind
+    // directory that exists but cannot be listed is. Absence is probed
+    // leniently because a strict stat also rejects a missing path, while the
+    // listing itself is strict so a real read error fails closed.
+    if (!(await statRuntimePath(kindDir)).exists) continue;
+    let children: string[];
+    try {
+      children = await listRuntimeChildrenStrict(kindDir);
+    } catch {
+      throw new Error("pi_owner_inventory_unreadable");
+    }
+    for (const child of children) {
+      await breathe();
+      if (!(await statRuntimePathStrict(child)).isDir) continue;
+      const ownerId =
+        child
+          .replace(/[\\/]+$/, "")
+          .split(/[\\/]/)
+          .at(-1) || "";
+      if (!ownerId) continue;
+      found.set(`${kind}\n${ownerId}`, { kind, ownerId });
+    }
+  }
+  for (const kind of PI_OWNER_KINDS) {
+    for (const row of listPiOwnerRegistry(kind)) {
+      await breathe();
+      found.set(`${row.ownerKind}\n${row.ownerId}`, {
+        kind: row.ownerKind,
+        ownerId: row.ownerId,
+      });
+    }
+  }
+  const refs = [...found.values()].sort(
+    (left, right) =>
+      left.kind.localeCompare(right.kind) ||
+      left.ownerId.localeCompare(right.ownerId),
+  );
+  return refs;
+}
+
+function normalizeCheckpoint(value: unknown): PiExecutionCheckpoint | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const source = value as Record<string, unknown>;
+  const turnId = source.turnId;
+  if (
+    Number(source.version) !== 1 ||
+    typeof turnId !== "string" ||
+    !turnId ||
+    [source.budgetMs, source.activeMs, source.remainingMs].some(
+      (item) => typeof item !== "number" || !Number.isFinite(item) || item < 0,
+    ) ||
+    typeof source.resumeEligible !== "boolean"
+  )
+    return null;
+  return {
+    version: 1,
+    turnId,
+    budgetMs: Number(source.budgetMs),
+    activeMs: Number(source.activeMs),
+    remainingMs: Number(source.remainingMs),
+    resumeEligible: source.resumeEligible,
+  };
+}
+
+function readPiOwnerCheckpoint(
+  entries: readonly PiTranscriptEntry[],
+): PiExecutionCheckpoint | undefined {
+  let latest: PiExecutionCheckpoint | undefined;
+  for (const entry of entries) {
+    if (entry.kind !== "execution_checkpoint") continue;
+    const checkpoint = normalizeCheckpoint(entry.payload);
+    if (checkpoint) latest = checkpoint;
+  }
+  return latest;
+}
+
+export async function recordPiExecutionCheckpoint(
+  ref: PiOwnerRef,
+  value: PiExecutionCheckpoint | Record<string, unknown>,
+  root?: string,
+): Promise<PiExecutionCheckpoint> {
+  const checkpoint = normalizeCheckpoint(value);
+  if (!checkpoint) throw new Error("pi_execution_checkpoint_invalid");
+  await appendPiOwnerFact(
+    ref,
+    {
+      kind: "execution_checkpoint",
+      payload: checkpoint as unknown as JsonValue,
+      turnId: checkpoint.turnId,
+    },
+    root,
+  );
+  return checkpoint;
+}
+
+export type PiToolPhysicalEvidenceInput = {
+  turnId: string;
+  callId: string;
+  capabilityId: string;
+  state: "settled" | "unknown";
+  /** Only the outcome's own status and certainty are stored, never its body. */
+  outcome?: { status?: string; effectCertainty?: string };
+  domainOperation?: { scope: { ownerId: string }; operationId: string };
+};
+
+/**
+ * Canonical writer for late tool evidence. It stores identity, physical state
+ * and the executor's own certainty, and nothing else: an outcome body could
+ * carry paths or library payloads that have no place in an owner transcript.
+ */
+export async function recordPiToolPhysicalEvidence(
+  ref: PiOwnerRef,
+  evidence: PiToolPhysicalEvidenceInput,
+  root?: string,
+): Promise<void> {
+  if (typeof evidence?.turnId !== "string" || !evidence.turnId)
+    throw new Error("pi_physical_evidence_invalid");
+  if (typeof evidence.callId !== "string" || !evidence.callId)
+    throw new Error("pi_physical_evidence_invalid");
+  if (evidence.state !== "settled" && evidence.state !== "unknown")
+    throw new Error("pi_physical_evidence_invalid");
+  await appendPiOwnerFact(
+    ref,
+    {
+      kind: "tool_call_physical_evidence",
+      payload: {
+        owner: { ...ref },
+        turnId: evidence.turnId,
+        callId: evidence.callId,
+        capabilityId: String(evidence.capabilityId ?? ""),
+        state: evidence.state,
+        ...(evidence.outcome
+          ? {
+              outcome: String(evidence.outcome.status ?? ""),
+              effectCertainty: String(
+                evidence.outcome.effectCertainty ?? "unknown",
+              ),
+            }
+          : {}),
+        ...(evidence.domainOperation
+          ? {
+              domainOperation: {
+                scope: { ownerId: evidence.domainOperation.scope.ownerId },
+                operationId: evidence.domainOperation.operationId,
+              },
+            }
+          : {}),
+        observedAt: new Date().toISOString(),
+      } as JsonValue,
+      turnId: evidence.turnId,
+      entryId: `physical-evidence-${evidence.turnId}-${evidence.callId}`,
+    },
+    root,
+  );
+}
+
+function piOwnerHasDispatchedWork(
+  entries: readonly PiTranscriptEntry[],
+): boolean {
+  return entries.some((entry) =>
+    ["model_invocation_started", "tool_call_started", "turn_started"].includes(
+      entry.kind,
+    ),
+  );
+}
+
+function piOwnerTerminalStatus(
+  entries: readonly PiTranscriptEntry[],
+): string | null {
+  let status: string | null = null;
+  for (const entry of entries) {
+    const payload = entry.payload as {
+      status?: unknown;
+      result?: { status?: unknown };
+    } | null;
+    if (
+      entry.kind === "skill_run_status" &&
+      typeof payload?.status === "string"
+    )
+      status = payload.status;
+    else if (entry.kind === "skill_run_outcome") {
+      const result = payload?.result?.status;
+      if (typeof result === "string") status = result;
+    } else if (entry.kind === "turn_terminal") {
+      const value = payload?.status;
+      if (typeof value === "string") status = value;
+    }
+  }
+  return status;
+}
+
+/** The last turn the owner committed work in, or null when it never started one. */
+function piOwnerLatestTurnId(
+  entries: readonly PiTranscriptEntry[],
+): string | null {
+  let turnId: string | null = null;
+  for (const entry of entries) {
+    if (entry.kind !== "turn_started") continue;
+    const payload = entry.payload as { turnId?: unknown } | null;
+    if (typeof payload?.turnId === "string") turnId = payload.turnId;
+  }
+  return turnId;
+}
+
+/**
+ * Unresolved work is derived from canonical started facts that have no
+ * matching terminal fact. A missing domain operation binding is still an
+ * unresolved operation; the scope falls back to the owner itself because the
+ * owner identity is the only thing persistence can prove.
+ */
+function piUnresolvedOperations(
+  ref: PiOwnerRef,
+  entries: readonly PiTranscriptEntry[],
+): PiUnresolvedOperation[] {
+  // An invocation is identified by its turn and its ID together. A callId is
+  // only unique inside one turn, so keying on the bare ID would let a reused
+  // call in a later turn settle an older unresolved invocation.
+  const invocationKey = (turnId: unknown, id: unknown) =>
+    typeof id === "string" && id ? `${String(turnId ?? "")}\n${id}` : null;
+  const entryTurnId = (entry: PiTranscriptEntry) => {
+    const payload = entry.payload as { turnId?: unknown } | null;
+    return typeof payload?.turnId === "string" ? payload.turnId : entry.turnId;
+  };
+  const settledModels = new Set(
+    entries
+      .filter(
+        (entry) =>
+          entry.kind === "model_invocation_terminal" ||
+          // A physical settlement settles the invocation only when the process
+          // outcome is itself proven; an unproven one leaves the hold.
+          (entry.kind === "model_invocation_settled" &&
+            (entry.payload as { physicalOutcome?: unknown } | null)
+              ?.physicalOutcome === "settled"),
+      )
+      .map((entry) =>
+        invocationKey(
+          entryTurnId(entry),
+          (entry.payload as { invocationId?: unknown } | null)?.invocationId,
+        ),
+      )
+      .filter((value): value is string => value !== null),
+  );
+  const settledCalls = new Set(
+    entries
+      .filter((entry) => entry.kind === "tool_call_receipt")
+      .map((entry) =>
+        invocationKey(
+          entryTurnId(entry),
+          (entry.payload as { callId?: unknown } | null)?.callId,
+        ),
+      )
+      .filter((value): value is string => value !== null),
+  );
+  const unknownEffectCalls = new Set(
+    entries
+      .filter(
+        (entry) =>
+          entry.kind === "tool_call_receipt" &&
+          (entry.payload as { effectCertainty?: unknown } | null)
+            ?.effectCertainty === "unknown",
+      )
+      .map((entry) =>
+        invocationKey(
+          entryTurnId(entry),
+          (entry.payload as { callId?: unknown } | null)?.callId,
+        ),
+      )
+      .filter((value): value is string => value !== null),
+  );
+  // Late executor evidence settles a call only when the process ended AND the
+  // executor stated a proven certainty. A bare physical state, or an outcome
+  // that is still unknown, leaves the hold exactly where it was.
+  const physicallySettledCalls = new Set(
+    entries
+      .filter((entry) => {
+        if (entry.kind !== "tool_call_physical_evidence") return false;
+        const payload = entry.payload as {
+          state?: unknown;
+          effectCertainty?: unknown;
+          outcome?: { effectCertainty?: unknown } | null;
+        } | null;
+        // The canonical writer stores the certainty flat; the gateway's own
+        // late-evidence object nests it under the outcome, and both are read.
+        const certainty =
+          typeof payload?.effectCertainty === "string"
+            ? payload.effectCertainty
+            : (payload?.outcome?.effectCertainty ?? null);
+        return (
+          payload?.state === "settled" &&
+          typeof certainty === "string" &&
+          PI_GATEWAY_PROVEN_CERTAINTIES.has(certainty)
+        );
+      })
+      .map((entry) =>
+        invocationKey(
+          entryTurnId(entry),
+          (entry.payload as { callId?: unknown } | null)?.callId,
+        ),
+      )
+      .filter((value): value is string => value !== null),
+  );
+  // Authoritative late evidence settles the operation it names, but only when
+  // it actually proves an outcome. Evidence recorded as unknown leaves the
+  // hold exactly where it was, without rewriting the original started fact or
+  // its unknown receipt.
+  const observedOperations = new Set(
+    entries
+      .filter((entry) => {
+        if (entry.kind !== "operation_evidence_observed") return false;
+        const certainty = (
+          entry.payload as { effectCertainty?: unknown } | null
+        )?.effectCertainty;
+        return (
+          typeof certainty === "string" &&
+          PI_GATEWAY_PROVEN_CERTAINTIES.has(certainty)
+        );
+      })
+      .map(
+        (entry) =>
+          (entry.payload as { operationId?: unknown } | null)?.operationId,
+      )
+      .filter((value): value is string => typeof value === "string"),
+  );
+  const unresolved: PiUnresolvedOperation[] = [];
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    if (entry.kind !== "model_invocation_started") continue;
+    const payload = entry.payload as {
+      invocationId?: unknown;
+      turnId?: unknown;
+      domainOperation?: {
+        scope?: { ownerId?: unknown };
+        operationId?: unknown;
+      };
+    } | null;
+    const invocationId = payload?.invocationId;
+    const startedTurnId =
+      typeof payload?.turnId === "string"
+        ? payload.turnId
+        : (entry.turnId ?? "");
+    const modelKey = invocationKey(startedTurnId, invocationId);
+    if (modelKey && settledModels.has(modelKey)) continue;
+    if (
+      typeof payload?.domainOperation?.operationId === "string" &&
+      observedOperations.has(payload.domainOperation.operationId)
+    )
+      continue;
+    const turnId = startedTurnId;
+    const operationId = payload?.domainOperation?.operationId;
+    const key = `${turnId}\n${String(invocationId ?? "")}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unresolved.push({
+      turnId,
+      callId: typeof invocationId === "string" ? invocationId : "",
+      scope: {
+        ownerId:
+          typeof payload?.domainOperation?.scope?.ownerId === "string"
+            ? payload.domainOperation.scope.ownerId
+            : ref.ownerId,
+      },
+      operationId: typeof operationId === "string" ? operationId : "",
+    });
+  }
+  for (const entry of entries) {
+    if (entry.kind !== "tool_call_started") continue;
+    const payload = entry.payload as {
+      callId?: unknown;
+      turnId?: unknown;
+      domainOperation?: {
+        scope?: { ownerId?: unknown };
+        operationId?: unknown;
+      };
+    } | null;
+    const callId = payload?.callId;
+    const startedTurnId =
+      typeof payload?.turnId === "string"
+        ? payload.turnId
+        : (entry.turnId ?? "");
+    const callKey = invocationKey(startedTurnId, callId);
+    if (
+      callKey &&
+      settledCalls.has(callKey) &&
+      !unknownEffectCalls.has(callKey)
+    )
+      continue;
+    // Physical evidence alone proves a process exited, never what it did, so
+    // only a proven late outcome clears the hold.
+    if (callKey && physicallySettledCalls.has(callKey)) continue;
+    if (
+      typeof payload?.domainOperation?.operationId === "string" &&
+      observedOperations.has(payload.domainOperation.operationId)
+    )
+      continue;
+    const turnId = startedTurnId;
+    const key = `${turnId}\n${String(callId ?? "")}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unresolved.push({
+      turnId,
+      callId: typeof callId === "string" ? callId : "",
+      scope: {
+        ownerId:
+          typeof payload?.domainOperation?.scope?.ownerId === "string"
+            ? payload.domainOperation.scope.ownerId
+            : ref.ownerId,
+      },
+      operationId:
+        typeof payload?.domainOperation?.operationId === "string"
+          ? payload.domainOperation.operationId
+          : "",
+    });
+  }
+  return unresolved;
+}
+
+/**
+ * Static holds: an apply receipt still claimed, a sealed result without its
+ * terminal ack, or a permission still pending. Each is a canonical fact, so a
+ * restart rebuilds the hold without asking a live process anything.
+ */
+function piStaticHolds(entries: readonly PiTranscriptEntry[]): string[] {
+  const holds = new Set<string>();
+  let applyStatus: string | null = null;
+  let sealed = false;
+  let acked = false;
+  let applyTerminal = false;
+  let stagingPending = false;
+  const pendingPermissions = new Set<string>();
+  for (const entry of entries) {
+    const payload = entry.payload as { status?: unknown; id?: unknown } | null;
+    if (entry.kind === "skill_run_apply_receipt") {
+      applyStatus = typeof payload?.status === "string" ? payload.status : null;
+      if (applyStatus && applyStatus !== "claimed") applyTerminal = true;
+    } else if (entry.kind === "skill_run_result_sealed") sealed = true;
+    else if (entry.kind === "skill_run_terminal_ack") acked = true;
+    else if (entry.kind === "tool_preflight_cleanup_pending")
+      // A crash between staging and cleanup leaves a durable residue marker.
+      stagingPending = true;
+    else if (entry.kind === "permission_pending") {
+      if (typeof payload?.id === "string") pendingPermissions.add(payload.id);
+    } else if (entry.kind === "permission_resolved") {
+      if (typeof payload?.id === "string")
+        pendingPermissions.delete(payload.id);
+    }
+  }
+  if (applyStatus === "claimed") holds.add("apply_claimed");
+  if (sealed && !acked) holds.add("result_sealed_without_ack");
+  if (pendingPermissions.size) holds.add("permission_pending");
+  // A settled provider outcome whose apply and ack have not completed is still
+  // in flight for cleanup purposes even though it may not resume.
+  if (applyTerminal && !acked) holds.add("apply_not_acked");
+  if (stagingPending) holds.add("staging_cleanup_pending");
+  return [...holds];
+}
+
+/**
+ * Holds that block safe continuation but must not block the idempotent
+ * Finalizer and ack path. A sealed result awaiting its ack is such a hold: the
+ * owner is finished, only the acknowledgement is outstanding.
+ */
+const PI_CONTINUATION_BLOCKING_HOLDS = new Set([
+  "apply_claimed",
+  "permission_pending",
+  "physically_occupied",
+  "apply_not_acked",
+]);
+
+/** The holds that actually prevent an owner from settling as terminal. */
+function piContinuationHolds(holds: readonly string[]): string[] {
+  return holds.filter((hold) => PI_CONTINUATION_BLOCKING_HOLDS.has(hold));
+}
+
+/**
+ * Safe recovery assessment. It never manufactures evidence: an owner whose
+ * canonical store is damaged, whose holds are unresolved, or whose dispatched
+ * work has no trustworthy checkpoint stays in recovery rather than resuming.
+ */
+export async function assessPiOwnerRecovery(
+  ref: PiOwnerRef,
+  root?: string,
+  options: { isPhysicallyOccupied?: PiOwnerOccupancyProbe } = {},
+): Promise<PiOwnerRecoveryAssessment> {
+  const occupied = await piOwnerOccupied(options.isPhysicallyOccupied, ref);
+  let inspection = await inspectPiTranscript(ref, root).catch(() => null);
+  // A torn tail is an interrupted append, so it is repaired automatically and
+  // its projection is rebuilt. Committed corruption is never rewritten.
+  if (inspection?.status === "torn_tail") {
+    const repaired = await repairPiTornTail(ref, root).catch(() => null);
+    if (repaired?.status === "valid") {
+      inspection = repaired;
+      await rebuildPiIndex(ref, repaired, root).catch(() => undefined);
+      await rebuildPiOwnerProjections(ref, root).catch(() => undefined);
+    }
+  }
+  if (!inspection || inspection.status !== "valid") {
+    // Committed corruption is isolated to this owner: it is reported, never
+    // repaired here, and never blocks the other owners' assessment.
+    recordPiIntegrityFailure(ref, root, inspection?.status ?? "corrupt");
+    return {
+      state: "recovery_required",
+      safeToResume: false,
+      unresolvedOperations: [],
+      hasHolds: true,
+      entries: [],
+    };
+  }
+  const entries = inspection.entries;
+  const checkpoint = readPiOwnerCheckpoint(entries);
+  const unresolved = piUnresolvedOperations(ref, entries);
+  const holds = piStaticHolds(entries);
+  if (occupied) holds.push("physically_occupied");
+  // Assessment reports every hold, but only continuation-blocking ones prevent
+  // an owner from being settled as terminal: a sealed result awaiting its ack
+  // must still reach the idempotent Finalizer and ack path.
+  const hasHolds = unresolved.length > 0 || holds.length > 0;
+  const hasContinuationHolds =
+    unresolved.length > 0 || piContinuationHolds(holds).length > 0;
+  const status = piOwnerTerminalStatus(entries);
+  if (
+    status &&
+    SKILL_RUN_TERMINAL_STATUSES.has(status) &&
+    !hasContinuationHolds
+  )
+    return {
+      state: "terminal",
+      ...(checkpoint ? { checkpoint } : {}),
+      safeToResume: false,
+      unresolvedOperations: unresolved,
+      hasHolds,
+      entries,
+    };
+  if (hasContinuationHolds)
+    return {
+      // An unresolved operation is an unprovable effect: state_unknown must
+      // survive as such, never as a settled failure that invites replay.
+      state: unresolved.length ? "state_unknown" : "recovery_required",
+      ...(checkpoint ? { checkpoint } : {}),
+      safeToResume: false,
+      unresolvedOperations: unresolved,
+      hasHolds,
+      entries,
+    };
+  if (!checkpoint)
+    return {
+      state: piOwnerHasDispatchedWork(entries) ? "recovery_required" : "ready",
+      safeToResume: !piOwnerHasDispatchedWork(entries),
+      unresolvedOperations: [],
+      hasHolds: false,
+      entries,
+    };
+  const resumable = checkpoint.resumeEligible && checkpoint.remainingMs > 0;
+  // A checkpoint only speaks for the turn it was taken in. Reusing an older
+  // turn's remaining budget would refill a run that already moved on.
+  const latestTurnId = piOwnerLatestTurnId(entries);
+  const currentTurn =
+    latestTurnId === null || latestTurnId === checkpoint.turnId;
+  return {
+    state: resumable && currentTurn ? "interrupted" : "recovery_required",
+    checkpoint,
+    safeToResume: resumable && currentTurn,
+    unresolvedOperations: [],
+    hasHolds: false,
+    entries,
+  };
+}
+
+function requireSkillRunRef(ref: PiOwnerRef) {
+  if (ref.kind !== "skill_run") throw new Error("pi_skill_run_owner_required");
+}
+
+export type PiOwnerOperationObservationRequest = {
+  operationId: string;
+  scope: ZoteroHostMutationCallerScope;
+};
+export type PiOwnerOperationObserver = (
+  request: PiOwnerOperationObservationRequest,
+) => Promise<MutationOperationObservation>;
+export type PiOwnerEvidenceReconciliation = {
+  resolved: PiUnresolvedOperation[];
+  unresolved: PiUnresolvedOperation[];
+};
+
+/**
+ * Reconcile original tool invocations against authoritative Broker evidence.
+ * The Broker is observed, never invoked: a settled observation is appended as
+ * a late canonical fact under the original invocation identity, and anything
+ * that is running, unavailable, unbound or unreachable stays an unresolved
+ * hold. No execution path is reachable from here, so no replay is possible.
+ */
+export async function reconcilePiOwnerOperationEvidence(
+  ref: PiOwnerRef,
+  root?: string,
+  options: { observeOperation: PiOwnerOperationObserver } = {
+    observeOperation: () => {
+      throw new Error("pi_operation_observer_required");
+    },
+  },
+): Promise<PiOwnerEvidenceReconciliation> {
+  const inspection = await inspectPiTranscript(ref, root);
+  if (inspection.status !== "valid")
+    throw new Error(`pi_transcript_${inspection.status}`);
+  const pending = piUnresolvedOperations(ref, inspection.entries);
+  const settled: PiUnresolvedOperation[] = [];
+  const unresolved: PiUnresolvedOperation[] = [];
+  for (const operation of pending) {
+    // Without a bound operation identity there is nothing authoritative to
+    // ask, so the hold stands rather than being cleared by assumption.
+    if (!operation.operationId) {
+      unresolved.push(operation);
+      continue;
+    }
+    let observation: MutationOperationObservation;
+    try {
+      observation = await options.observeOperation({
+        operationId: operation.operationId,
+        scope: { ownerId: operation.scope.ownerId },
+      });
+    } catch {
+      unresolved.push(operation);
+      continue;
+    }
+    if (observation?.state !== "settled") {
+      unresolved.push(operation);
+      continue;
+    }
+    const result = observation.result as MutationExecutionResult<
+      Record<string, JsonValue>
+    >;
+    // A settled observation is not proof by itself. Only a committed or
+    // unchanged result, or a failed attempt that states its own certainty, can
+    // clear the effect hold. An `unknown` or `repair_required` attempt proves
+    // no absence of effect, so the hold survives.
+    const attempt =
+      result && "attempt" in result
+        ? (result as { attempt?: { effectCertainty?: unknown } }).attempt
+        : undefined;
+    const committed =
+      result?.outcome === "committed" || result?.outcome === "unchanged";
+    const certainty = committed
+      ? "confirmed_complete"
+      : attempt?.effectCertainty;
+    if (!committed && !PI_GATEWAY_PROVEN_CERTAINTIES.has(certainty as string)) {
+      unresolved.push(operation);
+      continue;
+    }
+    await appendPiOwnerFact(
+      ref,
+      {
+        kind: "operation_evidence_observed",
+        payload: {
+          operationId: operation.operationId,
+          callId: operation.callId,
+          turnId: operation.turnId,
+          scope: { ownerId: operation.scope.ownerId },
+          observedAt: new Date().toISOString(),
+          outcome: result?.outcome ?? "unknown",
+          // The gateway certainty vocabulary is the single accepted one; a
+          // receipt never invents a certainty the broker did not state.
+          effectCertainty: certainty,
+          // Only the Broker's own identity is durable. Its result body can
+          // carry file paths and library payloads that have no place in an
+          // owner transcript, and the observation's purpose is the proof, not
+          // a mirror of the mutation result.
+          receiptRef:
+            result && "receipt" in result && result.receipt
+              ? String(
+                  (result.receipt as { receiptId?: unknown }).receiptId ?? "",
+                )
+              : "",
+        } as JsonValue,
+        turnId: operation.turnId || undefined,
+        // One observation per invocation identity: a repeated pass is a
+        // no-op rather than a second settlement of the same operation.
+        entryId: `operation-evidence-${operation.turnId}-${operation.callId || operation.operationId}`,
+      },
+      root,
+    );
+    settled.push(operation);
+  }
+  return { resolved: settled, unresolved };
+}
+
+function piSkillRunArchivedAt(
+  entries: readonly PiTranscriptEntry[],
+): number | null {
+  let archivedAt: number | null = null;
+  for (const entry of entries) {
+    if (entry.kind !== "skill_run_archive") continue;
+    const value = (entry.payload as { archivedAt?: unknown } | null)
+      ?.archivedAt;
+    if (typeof value === "string" && Number.isFinite(Date.parse(value)))
+      archivedAt = Date.parse(value);
+  }
+  return archivedAt;
+}
+
+function piSkillRunDeleting(entries: readonly PiTranscriptEntry[]): boolean {
+  return entries.some((entry) => entry.kind === "skill_run_deleting");
+}
+
+/**
+ * Retention needs terminal status, an archive older than the window and no
+ * apply, receipt, effect or physical hold. Anything else stays on disk.
+ */
+export async function isPiSkillRunRetentionEligible(
+  ref: PiOwnerRef,
+  root?: string,
+  options: { nowMs?: number; retentionMs?: number } & {
+    isPhysicallyOccupied?: PiOwnerOccupancyProbe;
+  } = {},
+): Promise<PiSkillRunRetentionDecision> {
+  requireSkillRunRef(ref);
+  const reasons: string[] = [];
+  const inspection = await inspectPiTranscript(ref, root).catch(() => null);
+  if (!inspection || inspection.status !== "valid")
+    return { eligible: false, hasHolds: true, reasons: ["owner_unreadable"] };
+  const entries = inspection.entries;
+  const status = piOwnerTerminalStatus(entries);
+  if (!status || !SKILL_RUN_TERMINAL_STATUSES.has(status))
+    reasons.push("not_terminal");
+  const archivedAt = piSkillRunArchivedAt(entries);
+  const nowMs = options.nowMs ?? Date.now();
+  const retentionMs = options.retentionMs ?? SKILL_RUN_RETENTION_MS;
+  if (archivedAt === null) reasons.push("not_archived");
+  else if (nowMs - archivedAt < retentionMs) reasons.push("retention_window");
+  const unresolved = piUnresolvedOperations(ref, entries);
+  const holds = piStaticHolds(entries);
+  if (unresolved.length) reasons.push("unresolved_effect");
+  if (holds.length) reasons.push("apply_or_receipt_hold");
+  // Actual managed residue is rebuilt evidence: a crash can lose the fact
+  // while the staged bytes remain.
+  if (await piOwnerStagingResidue(ref, root)) reasons.push("staging_residue");
+  if (await piOwnerOccupied(options.isPhysicallyOccupied, ref))
+    reasons.push("physically_occupied");
+  const hasHolds = unresolved.length > 0 || holds.length > 0;
+  return { eligible: reasons.length === 0, hasHolds, reasons };
+}
+
+/**
+ * Two-phase deletion: the owner is marked first, so a crash between the mark
+ * and the removal still leaves a request that maintenance retries.
+ */
+export async function markPiSkillRunDeleting(
+  requestId: string,
+  root?: string,
+): Promise<void> {
+  const ref = { kind: "skill_run" as const, ownerId: requestId };
+  await appendPiOwnerFact(
+    ref,
+    {
+      kind: "skill_run_deleting",
+      payload: { markedAt: new Date().toISOString() },
+    },
+    root,
+  );
+}
+
+async function removePiOwnerDirectories(
+  ref: PiOwnerRef,
+  root?: string,
+): Promise<boolean> {
+  const { discardPiRuntimeAuditOwner } = await import("./piRuntimeAudit");
+  await discardPiRuntimeAuditOwner(ref, root);
+  await removeRuntimePath(piOwnerPaths(ref, root).dir);
+  // A removal that reports success is only a deletion once the tree is gone.
+  if (await runtimePathExists(piOwnerPaths(ref, root).dir)) return false;
+  // The registry row is only dropped once the canonical tree is confirmed
+  // gone, so an unconfirmed removal leaves the owner discoverable for retry.
+  deletePiOwnerRegistry(ref.kind, ref.ownerId);
+  return true;
+}
+
+export async function cleanupPiSkillRun(
+  ref: PiOwnerRef,
+  root?: string,
+  options: PiOwnerCleanupOptions = {},
+): Promise<PiSkillRunDeleteResult> {
+  requireSkillRunRef(ref);
+  const inspection = await inspectPiTranscript(ref, root).catch(() => null);
+  if (!inspection || inspection.status !== "valid") {
+    // An owner that is already gone has a durable receipt to replay; without
+    // one there is nothing to claim, so the deletion stays unproven.
+    if (!(await runtimePathExists(piOwnerPaths(ref, root).dir))) {
+      const receipt = getPiSkillRunCleanupReceipt(ref.ownerId);
+      if (receipt)
+        return {
+          status: "deleted",
+          requestId: ref.ownerId,
+          cleanedAt: receipt.cleanedAt,
+        };
+    }
+    return {
+      status: "cleanup_pending",
+      requestId: ref.ownerId,
+      reason: "owner_unreadable",
+    };
+  }
+  const entries = inspection.entries;
+  const marked = piSkillRunDeleting(entries);
+  if (!marked) {
+    // Retention owns the only unmarked path; an explicit request marks first.
+    const decision = await isPiSkillRunRetentionEligible(ref, root, {
+      ...(options.nowMs === undefined ? {} : { nowMs: options.nowMs }),
+      ...(options.retentionMs === undefined
+        ? { retentionMs: SKILL_RUN_RETENTION_MS }
+        : { retentionMs: options.retentionMs }),
+      ...(options.isPhysicallyOccupied
+        ? { isPhysicallyOccupied: options.isPhysicallyOccupied }
+        : {}),
+    });
+    if (!decision.eligible)
+      return {
+        status: "cleanup_pending",
+        requestId: ref.ownerId,
+        reason: decision.reasons.join(",") || "not_eligible",
+      };
+  } else if (options.isPhysicallyOccupied) {
+    if (await piOwnerOccupied(options.isPhysicallyOccupied, ref))
+      return {
+        status: "cleanup_pending",
+        requestId: ref.ownerId,
+        reason: "physically_occupied",
+      };
+  }
+  if (piUnresolvedOperations(ref, entries).length)
+    return {
+      status: "cleanup_pending",
+      requestId: ref.ownerId,
+      reason: "unresolved_effect",
+    };
+  if (piStaticHolds(entries).length)
+    return {
+      status: "cleanup_pending",
+      requestId: ref.ownerId,
+      reason: "apply_or_receipt_hold",
+    };
+  if (await piOwnerStagingResidue(ref, root))
+    return {
+      status: "cleanup_pending",
+      requestId: ref.ownerId,
+      reason: "staging_residue",
+    };
+  return withPiOwnerWrite(ref, root, async () => {
+    try {
+      if (!(await removePiOwnerDirectories(ref, root)))
+        throw new Error("pi_skill_run_remove_unconfirmed");
+      const receipt: PiSkillRunCleanupReceipt = {
+        requestId: ref.ownerId,
+        cleanedAt: new Date().toISOString(),
+      };
+      // The receipt is published only after the tree is confirmed gone, so it
+      // is never evidence of a deletion that did not happen.
+      upsertPiSkillRunCleanupReceipt(receipt);
+      return {
+        status: "deleted" as const,
+        requestId: ref.ownerId,
+        cleanedAt: receipt.cleanedAt,
+      };
+    } catch {
+      return {
+        status: "cleanup_pending" as const,
+        requestId: ref.ownerId,
+        reason: "remove_failed",
+      };
+    }
+  });
 }
 
 const CONVERSATION_TITLE_MAX = 200;
@@ -756,6 +1873,7 @@ export function markPiConversationDeleting(
 export async function cleanupPiConversation(
   ref: PiOwnerRef,
   root?: string,
+  options: { isPhysicallyOccupied?: PiOwnerOccupancyProbe } = {},
 ): Promise<PiConversationDeleteResult> {
   requireConversationRef(ref);
   return withPiOwnerWrite(ref, root, async () => {
@@ -770,14 +1888,28 @@ export async function cleanupPiConversation(
       metadata.lifecycle !== "cleanup_pending"
     )
       throw new Error("pi_conversation_not_deleting");
+    // Permanent deletion preserves files while an executor or an outcome hold
+    // remains; maintenance retries it later under the same lifecycle.
+    if (options.isPhysicallyOccupied) {
+      if (await piOwnerOccupied(options.isPhysicallyOccupied, ref))
+        return {
+          status: "cleanup_pending" as const,
+          conversationId: ref.ownerId,
+        };
+    }
+    // An owner tree that is already gone is a finished deletion, not a hold:
+    // a retry after a receipt failure must still reach its receipt.
+    if (await runtimePathExists(piOwnerPaths(ref, root).dir)) {
+      const assessment = await assessPiOwnerRecovery(ref, root);
+      if (assessment.hasHolds)
+        return {
+          status: "cleanup_pending" as const,
+          conversationId: ref.ownerId,
+        };
+    }
     try {
-      // Audit writes must settle or be discarded before the owner directory is
-      // removed, otherwise a queued write could recreate the directory being
-      // deleted. Discard is a queue operation only; it takes no canonical lock.
-      const { discardPiRuntimeAuditOwner } = await import("./piRuntimeAudit");
-      await discardPiRuntimeAuditOwner(ref, root);
-      await removeRuntimePath(piOwnerPaths(ref, root).dir);
-      deletePiOwnerRegistry(ref.kind, ref.ownerId);
+      if (!(await removePiOwnerDirectories(ref, root)))
+        throw new Error("pi_conversation_remove_unconfirmed");
       const receipt: PiConversationCleanupReceipt = {
         conversationId: ref.ownerId,
         generation: metadata.generation,

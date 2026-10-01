@@ -1,4 +1,5 @@
 import "../../../runtime/240-pi-runtime.test";
+import "../../../runtime/275-pi-runtime-lifecycle.test";
 
 describe("PiRuntime browser host", function () {
   it("runs the shared faux turn in Zotero without a Node runtime", function () {

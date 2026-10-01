@@ -30,6 +30,86 @@ async function observe(events: AsyncIterable<PiRuntimeEvent>) {
   return observed;
 }
 
+describe("PiRuntime physical settlement", function () {
+  it("ends an inactive invocation while awaiting actual provider settlement", async function () {
+    const base = createPiTextProviderSource({ steps: [{ text: "late" }] });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const session = new PiRuntime().openSession({
+      sessionId: "inactive",
+      model: base.model,
+      providerTimeouts: { inactivityMs: 5, hardMs: 50 },
+      source: async (input) => {
+        await gate;
+        return base.source(input);
+      },
+    });
+    const turn = session.runTurn({
+      turnId: "idle",
+      messages: [{ role: "user", text: "go" }],
+    });
+    const result = await turn.result;
+    assert.equal(result.status, "failed");
+    if (result.status === "failed")
+      assert.equal(result.failure.code, "provider_timeout");
+    let settled = false;
+    void turn.settled.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    assert.isFalse(settled);
+    release();
+    await turn.settled;
+    session.dispose();
+  });
+  for (const evidenceFails of [false, true]) {
+    it(`cancels promptly while retaining physical settlement (evidence fails: ${evidenceFails})`, async function () {
+      const base = createPiTextProviderSource({ steps: [{ text: "late" }] });
+      let entered!: () => void;
+      const started = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      let release!: () => void;
+      const blocked = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const session = new PiRuntime().openSession({
+        sessionId: "physical",
+        model: base.model,
+        source: async (input) => {
+          entered();
+          await blocked;
+          return base.source(input);
+        },
+      });
+      const turn = session.runTurn({
+        turnId: "turn",
+        messages: [{ role: "user", text: "go" }],
+        onInvocationSettled: () => {
+          if (evidenceFails) throw new Error("fixture_evidence_failure");
+        },
+      });
+      await started;
+      let settled = false;
+      void turn.settled.then(() => {
+        settled = true;
+      });
+      turn.abort();
+      assert.deepEqual(await turn.result, { status: "canceled" });
+      assert.isFalse(settled);
+      assert.throws(() => session.runTurn({ turnId: "next", messages: [] }));
+      release();
+      assert.equal(await turn.settled, evidenceFails ? "unknown" : undefined);
+      assert.isTrue(settled);
+      if (evidenceFails)
+        assert.throws(() => session.runTurn({ turnId: "next", messages: [] }));
+      session.dispose();
+    });
+  }
+});
+
 // C18: the Runtime is a fact owner for structural turn and invocation
 // boundaries. These cases drive the real audit module through a real owner, so
 // they observe the persisted evidence rather than a test double.

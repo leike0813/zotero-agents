@@ -848,6 +848,36 @@ export async function cleanupRuntimePersistenceRetention(args?: {
     retentionDays: retention.retentionDays,
     retentionMs: retention.retentionMs,
   };
+  const piPersistence = await import("./piOwnerPersistence");
+  const { getPiRuntimeLifecycle } = await import("./piRuntimeLifecycle");
+  const lifecycle = getPiRuntimeLifecycle();
+  let piDeleted = 0;
+  let piPending = 0;
+  for (const owner of await piPersistence.listPiOwnerInventory()) {
+    if (lifecycle.closed) break;
+    const options = {
+      nowMs,
+      isPhysicallyOccupied: (ref: typeof owner) =>
+        lifecycle.hasPhysicalHold(ref),
+    };
+    try {
+      const result =
+        owner.kind === "skill_run"
+          ? await piPersistence.cleanupPiSkillRun(owner, undefined, options)
+          : await piPersistence.cleanupPiConversation(
+              owner,
+              undefined,
+              options,
+            );
+      if (result.status === "deleted") piDeleted++;
+      else piPending++;
+    } catch {
+      piPending++;
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  }
+  details.piOwnersDeleted = piDeleted;
+  details.piOwnersCleanupPending = piPending;
   const removedPaths: string[] = [];
   const { cleanupExpiredAcpSkillRunsForRetention } =
     await import("./acp/skillRun/acpSkillRunPersistence");

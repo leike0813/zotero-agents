@@ -12,6 +12,7 @@ export type PiOwnerRegistryRow = {
    * table is a single shared plugin DB, so these facts are not root-isolated.
    */
   skillRun?: PiSkillRunRegistryScalars;
+  reservation?: PiSkillRunReservationScalars;
 };
 
 export type PiSkillRunRegistryScalars = {
@@ -25,6 +26,28 @@ export type PiSkillRunRegistryScalars = {
     tool: number;
     thought: number;
   };
+};
+
+/**
+ * Rebuildable Workflow reservation projection. It is the accounting input for
+ * slot restoration, so a corrupt owner transcript must not make global
+ * accounting unreconstructable. Every field is a bounded scalar or an
+ * identifier; no transcript or result payload is ever stored here.
+ */
+export type PiSkillRunReservationScalars = {
+  submissionId: string;
+  submissionUnitId: string;
+  workflowId: string;
+  workflowLabel: string;
+  backendId: string;
+  unitId: string;
+  unitOrder: number;
+  taskName: string;
+  memberIdentities: string[];
+  unitCount: number;
+  maxConcurrency: number;
+  state: string;
+  ownerId?: string;
 };
 
 export type PiSkillRunRegistryEntry = PiSkillRunRegistryScalars & {
@@ -43,6 +66,7 @@ const SKILL_RUN_SCALAR_COLUMNS: [string, string][] = [
   ["count_assistant", "INTEGER NOT NULL DEFAULT 0"],
   ["count_tool", "INTEGER NOT NULL DEFAULT 0"],
   ["count_thought", "INTEGER NOT NULL DEFAULT 0"],
+  ["reservation_json", "TEXT"],
 ];
 
 export function ensurePiOwnerRegistrySchema(db: SqlAdapter) {
@@ -75,16 +99,30 @@ export function ensurePiOwnerRegistrySchema(db: SqlAdapter) {
 }
 
 const REGISTRY_SELECT_COLUMNS =
-  "owner_kind, owner_id, entry_count, last_sequence, updated_at, task_name, skill_id, status, archived, count_user, count_assistant, count_tool, count_thought";
+  "owner_kind, owner_id, entry_count, last_sequence, updated_at, task_name, skill_id, status, archived, count_user, count_assistant, count_tool, count_thought, reservation_json";
+
+function parseReservationColumn(
+  value: unknown,
+): PiSkillRunReservationScalars | undefined {
+  if (value === null || value === undefined) return undefined;
+  try {
+    const parsed = JSON.parse(String(value)) as PiSkillRunReservationScalars;
+    return parsed && typeof parsed === "object" ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 function toRegistryRow(row: Record<string, unknown>): PiOwnerRegistryRow {
   const ownerKind = String(row.owner_kind) as PiOwnerRegistryRow["ownerKind"];
+  const reservation = parseReservationColumn(row.reservation_json);
   return {
     ownerKind,
     ownerId: String(row.owner_id),
     entryCount: Number(row.entry_count),
     lastSequence: Number(row.last_sequence),
     updatedAt: String(row.updated_at),
+    ...(reservation ? { reservation } : {}),
     ...(ownerKind === "skill_run"
       ? {
           skillRun: {
@@ -108,14 +146,15 @@ export function createPiOwnerRegistryTable(getAdapter: () => SqlAdapter) {
   return {
     upsertPiOwnerRegistry(row: PiOwnerRegistryRow) {
       const scalars = row.skillRun;
+      const reservation = row.reservation;
       getAdapter().run(
         `INSERT INTO pi_owner_registry
         (owner_kind, owner_id, entry_count, last_sequence, updated_at,
           task_name, skill_id, status, archived,
-          count_user, count_assistant, count_tool, count_thought)
+          count_user, count_assistant, count_tool, count_thought, reservation_json)
         VALUES (@kind, @id, @count, @seq, @updated,
           @taskName, @skillId, @status, @archived,
-          @countUser, @countAssistant, @countTool, @countThought)
+          @countUser, @countAssistant, @countTool, @countThought, @reservation)
         ON CONFLICT(owner_kind, owner_id) DO UPDATE SET
           entry_count=excluded.entry_count,
           last_sequence=excluded.last_sequence,
@@ -127,7 +166,8 @@ export function createPiOwnerRegistryTable(getAdapter: () => SqlAdapter) {
           count_user=excluded.count_user,
           count_assistant=excluded.count_assistant,
           count_tool=excluded.count_tool,
-          count_thought=excluded.count_thought`,
+          count_thought=excluded.count_thought,
+          reservation_json=excluded.reservation_json`,
         {
           kind: row.ownerKind,
           id: row.ownerId,
@@ -142,6 +182,7 @@ export function createPiOwnerRegistryTable(getAdapter: () => SqlAdapter) {
           countAssistant: scalars?.counts.assistant ?? 0,
           countTool: scalars?.counts.tool ?? 0,
           countThought: scalars?.counts.thought ?? 0,
+          reservation: reservation ? JSON.stringify(reservation) : null,
         },
       );
     },
@@ -218,6 +259,10 @@ export type PiConversationCleanupReceipt = {
   generation: number;
   cleanedAt: string;
 };
+export type PiSkillRunCleanupReceipt = {
+  requestId: string;
+  cleanedAt: string;
+};
 
 export type PiConversationUsage = {
   input: number;
@@ -291,6 +336,13 @@ export function ensurePiConversationMetadataSchema(db: SqlAdapter) {
   db.run(`CREATE TABLE IF NOT EXISTS pi_conversation_cleanup_receipts (
     conversation_id TEXT PRIMARY KEY,
     generation INTEGER NOT NULL,
+    cleaned_at TEXT NOT NULL
+  )`);
+  // Minimal Skill Run deletion receipt: the same evidence Conversation
+  // cleanup keeps, so a crash between removal and completion still has a
+  // durable answer. It carries no transcript payload.
+  db.run(`CREATE TABLE IF NOT EXISTS pi_skill_run_cleanup_receipts (
+    request_id TEXT PRIMARY KEY,
     cleaned_at TEXT NOT NULL
   )`);
 }
@@ -466,6 +518,29 @@ export function createPiConversationMetadataTables(
           generation: receipt.generation,
           cleanedAt: receipt.cleanedAt,
         },
+      );
+    },
+    getPiSkillRunCleanupReceipt(
+      requestId: string,
+    ): PiSkillRunCleanupReceipt | null {
+      const row = getAdapter().get(
+        `SELECT request_id, cleaned_at FROM pi_skill_run_cleanup_receipts
+        WHERE request_id=@id`,
+        { id: requestId },
+      );
+      return row
+        ? {
+            requestId: String(row.request_id),
+            cleanedAt: String(row.cleaned_at ?? ""),
+          }
+        : null;
+    },
+    upsertPiSkillRunCleanupReceipt(receipt: PiSkillRunCleanupReceipt) {
+      getAdapter().run(
+        `INSERT INTO pi_skill_run_cleanup_receipts (request_id, cleaned_at)
+        VALUES (@id, @cleanedAt)
+        ON CONFLICT(request_id) DO UPDATE SET cleaned_at=excluded.cleaned_at`,
+        { id: receipt.requestId, cleanedAt: receipt.cleanedAt },
       );
     },
     updatePiConversationProjection(

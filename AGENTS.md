@@ -280,7 +280,17 @@ This is a single-context repository using a root `CONTEXT.md` and root `docs/adr
 - `piSkillRun.ts` 只由 Workflow 的 `builtin-pi` / `skillrunner.job.v1` admission 创建 owner。模式在 admission 固定；新 ACP 与 Pi 请求共享 `skillRunPreparation.ts` / `skillRunFinalizer.ts` v1，缺少版本的既有 ACP owner 保持 legacy。
 - 成功必须通过独占、schema 有效的 `submit_skill_result` 单次封存；provider outcome、Workflow ApplyReceipt 与 terminal ack 各自持久化。取消不能覆盖封存结果，未知或未结算效果不得重放。
 - `ask_user` 仅用于 Interactive，由共享 `userInteractionContract.ts` 定义多问题、owner 文件引用与 revision CAS；普通工具结算后才能发布等待。Interrupt 保持原 request 并暂停，继续仅接受文本。
-- LoopGuard 按整个 run 累积，在完整批次预检后、首次效果前持久化实际 dispatch 数；被拒、待审批与更新审批不消耗执行额度。known-owner recovery 不调度 model/tool；启动发现与进程清理由后续生命周期 owner 持有。
+- LoopGuard 按整个 run 累积，在完整批次预检后、首次效果前持久化实际 dispatch 数；被拒、待审批与更新审批不消耗执行额度。known-owner recovery 本身不调度 model/tool；只有此前 running 且安全检查点有效的 run 由 `piRuntimeLifecycle` 启动路径在后台 lane 自动续跑，启动发现、进程清理与回收门槛都由该生命周期持有。
+
+# Pi Runtime Lifecycle 硬约束
+
+- `src/modules/piRuntimeLifecycle.ts` 统一协调进程准入、活动预算、维护串行与 shutdown deadline。前台与后台 lane 合计最多 12 个活动 turn、后台最多 10 个；lane 内保持 FIFO，控制操作绕过准入，嵌套 provider/tool 调用继承既有 lease 而不额外占槽。
+- 物理占用与逻辑结果分离：超时、取消或进程重启只有在执行器实际结算后才释放容量、资源 claim 与 owner 文件；进程重启不证明孤儿执行器已退出，物理占用 hold 阻止清理与按龄删除。
+- 每个 owner 以 version 1 的 canonical `execution_checkpoint`（`turnId`、`budgetMs`、`activeMs`、`remainingMs`、`resumeEligible`）持久化活动预算；active 时间用单调时钟，不含排队、durable 等待与停机时间。Conversation 上限 2 小时，Skill Run 累积上限 8 小时，Workflow 只能下调不能上调；检查点先于容量释放提交、只为其所在 turn 说话，重启不补足预算。预算事实是 canonical 持久条目，与可重建的运行时状态缓存无关。
+- 启动 inventory 取 canonical owner 目录与 registry 身份的并集，严格、有界、串行读取；全局枚举或记账失败时保持 Skill Run admission 关闭，单个 owner 损坏只隔离自身且其 reservation 继续计入。reservation barrier 在放行新 Skill Run 前按原始 submission/unit 身份恢复 Workflow 占用且不调用原 execute 回调。
+- 恢复串行处理单个 owner：只自动修复 torn tail，committed 损坏原样保留；唯一自动调度是此前 running、安全检查点有效、效果已知且 reservation 已恢复的 Skill Run 由生命周期启动路径经后台 lane 续跑；其余 waiting/suspended/recovery 状态与 Conversation 都不调度 model/tool。无法证明的效果保持 unknown，迟到 Broker 证据以原 invocation 追加且每个 invocation 至多一次，不重写 started/unknown 事实；证据解析后 Conversation 与 Skill Run 都只经显式继续恢复。
+- shutdown 先同步关闭准入与调度，所有 owner/executor/transport/audit 等待共享同一个 15 秒绝对 deadline；到期保留未证明的资源与 pending cleanup，迟到回调不得重开基础设施或改变已封存结果。
+- 维护串行且不重叠：启动时先完成 recovery（含 unknown 对账）再执行首轮清理；之后每天一次的 daily maintenance 只跑 cleanup，不轮询 Broker/operation 状态。Conversation 不按龄删除；terminal 且 archived/removed 的 Skill Run 才在 30 天后清理，存在 execution、unknown/repair、receipt、apply 或物理占用 hold 时保留。删除先标记后移除，成功只在既有 SQLite 留下最小 deletion receipt，失败保留 `cleanup_pending` 幂等重试，外部目录与独立产物不受影响。
 
 # Pi Zotero Mutation 硬约束
 

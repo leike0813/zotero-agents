@@ -556,4 +556,138 @@ describe("Pi Conversations in real Zotero", function () {
       await removeRuntimePath(root);
     }
   });
+  it("records the active budget before dispatch and preserves it across a restart", async function () {
+    this.timeout(30000);
+    assert.isUndefined(
+      (globalThis as { process?: { versions?: { node?: string } } }).process
+        ?.versions?.node,
+    );
+    const root = joinPath(
+      Zotero.getTempDirectory().path,
+      `pi-lifecycle-${Date.now()}-${Math.random()}`,
+    );
+    const prior = String(getPref("piProviderConfigurationJson") || "");
+    setPref("piProviderConfigurationJson", "");
+    const coordinator = createPiConversationCoordinator({
+      root,
+      resolveModel: async () => mutationModel,
+      definitions: async () => [],
+      execution: () =>
+        createPiTextProviderSource({ steps: [{ text: "Answer" }] }),
+    });
+    let ownerId: string | undefined;
+    try {
+      await coordinator.create();
+      ownerId = coordinator.selectedId!;
+      const turn = await coordinator.send(ownerId, "Question");
+      assert.equal((await turn.result).status, "completed");
+      const history = await inspectPiOwner(
+        { kind: "conversation", ownerId },
+        root,
+      );
+      const checkpoints = history.entries
+        .filter((entry) => entry.kind === "execution_checkpoint")
+        .map((entry) => entry.payload as { budgetMs: number });
+      // A Conversation turn runs a two hour budget, and the fact is
+      // durable before any model dispatch, so an interrupted owner always
+      // has one to resume from.
+      assert.isAtLeast(checkpoints.length, 1);
+      for (const entry of checkpoints) assert.equal(entry.budgetMs, 7_200_000);
+      // A restart must not replenish it: every later checkpoint of the same
+      // owner keeps the recorded total.
+      const restarted = createPiConversationCoordinator({
+        root,
+        resolveModel: async () => mutationModel,
+        definitions: async () => [],
+        execution: () =>
+          createPiTextProviderSource({ steps: [{ text: "Second answer" }] }),
+      });
+      assert.equal(
+        (await (await restarted.send(ownerId, "Second")).result).status,
+        "completed",
+      );
+      const after = await inspectPiOwner(
+        { kind: "conversation", ownerId },
+        root,
+      );
+      const all = after.entries
+        .filter((entry) => entry.kind === "execution_checkpoint")
+        .map((entry) => entry.payload as { budgetMs: number });
+      assert.isAtLeast(all.length, checkpoints.length);
+      for (const entry of all) assert.equal(entry.budgetMs, 7_200_000);
+      await restarted.dispose();
+    } finally {
+      await coordinator.dispose().catch(() => {});
+      if (ownerId) {
+        await coordinator.archive(ownerId).catch(() => {});
+        await coordinator.delete(ownerId).catch(() => {});
+      }
+      setPref("piProviderConfigurationJson", prior);
+      await removeRuntimePath(root);
+    }
+  });
+  it("reconstructs a Conversation from canonical facts without replaying it", async function () {
+    this.timeout(30000);
+    assert.isUndefined(
+      (globalThis as { process?: { versions?: { node?: string } } }).process
+        ?.versions?.node,
+    );
+    const root = joinPath(
+      Zotero.getTempDirectory().path,
+      `pi-recovery-${Date.now()}-${Math.random()}`,
+    );
+    const prior = String(getPref("piProviderConfigurationJson") || "");
+    setPref("piProviderConfigurationJson", "");
+    let dispatched = 0;
+    const coordinator = createPiConversationCoordinator({
+      root,
+      resolveModel: async () => mutationModel,
+      definitions: async () => [],
+      execution: () => {
+        dispatched++;
+        return createPiTextProviderSource({ steps: [{ text: "Answer" }] });
+      },
+    });
+    let ownerId: string | undefined;
+    try {
+      await coordinator.create();
+      ownerId = coordinator.selectedId!;
+      assert.equal(
+        (await (await coordinator.send(ownerId, "Question")).result).status,
+        "completed",
+      );
+      assert.equal(dispatched, 1);
+      // A restart reconstructs the owner from canonical facts only. A
+      // Conversation never auto-dispatches, so an explicit recovery check
+      // has to stay a no-op until the user sends a real new prompt.
+      const restarted = createPiConversationCoordinator({
+        root,
+        resolveModel: async () => mutationModel,
+        definitions: async () => [],
+        execution: () => {
+          dispatched++;
+          return createPiTextProviderSource({ steps: [{ text: "Replayed" }] });
+        },
+      });
+      await restarted.checkRecovery(ownerId);
+      assert.equal(dispatched, 1, "recovery never replays a settled turn");
+      const model = await restarted.readModel(ownerId);
+      assert.notEqual(model.status, "busy");
+      // The reconstructed history is the context the next real turn uses.
+      assert.equal(
+        (await (await restarted.send(ownerId, "Second")).result).status,
+        "completed",
+      );
+      assert.equal(dispatched, 2);
+      await restarted.dispose();
+    } finally {
+      await coordinator.dispose().catch(() => {});
+      if (ownerId) {
+        await coordinator.archive(ownerId).catch(() => {});
+        await coordinator.delete(ownerId).catch(() => {});
+      }
+      setPref("piProviderConfigurationJson", prior);
+      await removeRuntimePath(root);
+    }
+  });
 });

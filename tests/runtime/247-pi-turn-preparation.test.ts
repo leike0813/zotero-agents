@@ -191,6 +191,124 @@ function ports(records: unknown[] = []): PiTurnPreparationPorts {
 }
 
 describe("Pi Turn Preparation shared behavior", function () {
+  it("uses authoritative late tool evidence only for its original turn and call", async function () {
+    const input = fixture();
+    input.frozen.resources.userFiles = [];
+    input.transcript.entries = [
+      entry(
+        "m1",
+        undefined,
+        "message",
+        {
+          role: "assistant",
+          text: "read",
+          toolCalls: [
+            { callId: "c1", name: "read", argumentsDigest: "args-1" },
+          ],
+        },
+        1,
+      ),
+      entry("started", "m1", "tool_call_started", { callId: "c1" }, 2),
+      entry(
+        "receipt",
+        "started",
+        "tool_call_receipt",
+        { callId: "c1", status: "state_unknown", effectCertainty: "unknown" },
+        3,
+      ),
+      entry(
+        "evidence",
+        "receipt",
+        "tool_call_physical_evidence",
+        {
+          callId: "c1",
+          state: "settled",
+          outcome: "canceled",
+          effectCertainty: "confirmed_none",
+        },
+        4,
+      ),
+      entry(
+        "result",
+        "evidence",
+        "tool_result",
+        {
+          callId: "c1",
+          name: "read",
+          text: "canceled",
+          status: "canceled",
+          effectCertainty: "confirmed_none",
+        },
+        5,
+      ),
+    ];
+    input.transcript.activeLeaf = "result";
+    input.transcript.revision = 5;
+    assert.equal((await preparePiTurn(input, ports())).status, "ready");
+    input.transcript.entries[3].turnId = "another-turn";
+    const unrelated = await preparePiTurn(input, ports());
+    assert.equal(unrelated.status, "failed");
+    if (unrelated.status === "failed")
+      assert.equal(unrelated.failure.code, "recovery_required");
+  });
+
+  it("continues after actual provider settlement while refusing unproved settlement", async function () {
+    const input = fixture();
+    input.frozen.resources.userFiles = [];
+    input.transcript.entries = [
+      entry("m1", undefined, "message", { role: "user", text: "ask" }, 1),
+      entry(
+        "started",
+        "m1",
+        "model_invocation_started",
+        { invocationId: "canceled" },
+        2,
+      ),
+      entry(
+        "settled",
+        "started",
+        "model_invocation_settled",
+        { invocationId: "canceled", physicalOutcome: "settled" },
+        3,
+      ),
+      entry(
+        "next",
+        "settled",
+        "message",
+        { role: "user", text: "continue" },
+        4,
+      ),
+    ];
+    input.transcript.activeLeaf = "next";
+    input.transcript.revision = 4;
+    assert.equal((await preparePiTurn(input, ports())).status, "ready");
+    input.transcript.entries.splice(
+      3,
+      0,
+      entry(
+        "terminal",
+        "settled",
+        "model_invocation_terminal",
+        { invocationId: "canceled" },
+        4,
+      ),
+    );
+    input.transcript.entries[4].parentEntryId = "terminal";
+    input.transcript.entries[4].seq = 5;
+    assert.equal((await preparePiTurn(input, ports())).status, "ready");
+    input.transcript.entries.splice(3, 1);
+    input.transcript.entries[3].parentEntryId = "settled";
+    input.transcript.entries[3].seq = 4;
+    input.transcript.entries[2].payload = {
+      invocationId: "canceled",
+      physicalOutcome: "unknown",
+    };
+    const unproved = await preparePiTurn(input, ports());
+    assert.equal(unproved.status, "failed");
+    if (unproved.status === "failed")
+      assert.equal(unproved.failure.code, "recovery_required");
+  });
+
   it("reserves output within Codex context when discovery has no output ceiling", async function () {
     const input = fixture();
     input.frozen.model = {
@@ -457,6 +575,29 @@ describe("Pi Turn Preparation shared behavior", function () {
     assert.equal(busy.status, "failed");
     if (busy.status === "failed")
       assert.equal(busy.failure.code, "compaction_unsafe");
+  });
+
+  it("preserves the active branch when cancellation arrives during summarization", async function () {
+    const input = compactFixture();
+    const controller = new AbortController();
+    input.signal = controller.signal;
+    let commits = 0;
+    const result = await preparePiTurn(
+      input,
+      compactPorts(
+        [],
+        async (request) => {
+          controller.abort();
+          return summaryFor(request);
+        },
+        async () => {
+          commits++;
+          return { status: "stale" };
+        },
+      ),
+    );
+    assert.equal(result.status, "failed");
+    assert.equal(commits, 0);
   });
 
   it("uses the basis returned by durable preparation records for compaction CAS", async function () {

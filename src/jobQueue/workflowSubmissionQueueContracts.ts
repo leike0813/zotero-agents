@@ -9,7 +9,7 @@ export type WorkflowQueueEntryId = string & {
   readonly [workflowQueueEntryIdBrand]: true;
 };
 
-export type WorkflowQueueBackendType = "acp" | "skillrunner";
+export type WorkflowQueueBackendType = "acp" | "skillrunner" | "builtin-pi";
 
 export type WorkflowQueueBackendScope = Readonly<{
   backendType: WorkflowQueueBackendType;
@@ -76,6 +76,32 @@ export type WorkflowSubmissionSlotCoordinator = Readonly<{
   ) => Promise<boolean>;
   cancelPendingResumption: () => boolean;
   snapshot: () => WorkflowSubmissionSlotSnapshot | null;
+}>;
+
+/**
+ * Narrow, persistence-safe projection of one occupied submission slot. The
+ * Workflow queue owns admission, concurrency and duplicate suppression; the Pi
+ * owner owns the canonical fact and passes the same identity back when it
+ * restores the reservation at startup. No request, provider or transcript
+ * payload is carried here.
+ */
+export type PiWorkflowReservation = Readonly<{
+  submissionId: WorkflowSubmissionId;
+  submissionUnitId: WorkflowQueueEntryId;
+  workflowId: string;
+  workflowLabel: string;
+  backendId: string;
+  unitId: string;
+  unitOrder: number;
+  taskName: string;
+  inputUnitIdentity?: string;
+  memberIdentities: ReadonlyArray<string>;
+  unitCount: number;
+  maxConcurrency: number;
+  state: WorkflowSubmissionSlotState;
+  yieldReason?: WorkflowSubmissionSlotYieldReason;
+  resumeReason?: WorkflowSubmissionSlotResumeReason;
+  ownerId?: string;
 }>;
 
 export type WorkflowExecutionUnitOutcome =

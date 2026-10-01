@@ -26,9 +26,9 @@ import {
 import { deletePluginRunStoreEntry } from "../../../../src/modules/pluginStateStore";
 import { probeAcpBackendRuntimeOptions } from "../../../../src/modules/acp/transport/acpBackendProbe";
 import {
-  getAcpWebSocketBridgeSnapshot,
-  shutdownAcpWebSocketBridgeService,
-} from "../../../../src/modules/acp/transport/acpWebSocketBridgeService";
+  getWindowsStdioBridgeSnapshot,
+  shutdownWindowsStdioBridgeService,
+} from "../../../../src/platform/windowsStdioBridgeService";
 import { createWorkflowHostApi } from "../../../../src/workflows/hostApi";
 import { getPref, setPref } from "../../../../src/utils/prefs";
 import { setDebugModeOverrideForTests } from "../../../../src/modules/debugMode";
@@ -2808,8 +2808,8 @@ describe("System E2E Phase 2 ACP and SkillRunner", function () {
           await deleteActiveAcpConversation({ backendId, conversationId });
         }
         if (Zotero.isWin) {
-          await shutdownAcpWebSocketBridgeService();
-          assert.isNull(getAcpWebSocketBridgeSnapshot());
+          await shutdownWindowsStdioBridgeService();
+          assert.isNull(getWindowsStdioBridgeSnapshot());
         }
         if (workspaceDir) await removeRuntimePath(workspaceDir);
         setPref("backendsConfigJson", previousBackendConfig);
@@ -2920,7 +2920,7 @@ describe("System E2E Phase 2 ACP owner restart", function () {
         "AC-05 backend must load",
       );
       let executionError = "";
-      void executeWorkflowFromCurrentSelection({
+      const workflowRun = executeWorkflowFromCurrentSelection({
         win: Zotero.getMainWindow() as _ZoteroTypes.MainWindow,
         workflow: workflow!,
         executionOptionsOverride: { backendId: backend.id },
@@ -2931,13 +2931,36 @@ describe("System E2E Phase 2 ACP owner restart", function () {
         (run) => run.backendId === backend.id,
       );
       for (let attempt = 0; attempt < 150; attempt += 1) {
-        if (active?.inputManifestPath && (await IOUtils.exists(evidencePath))) {
-          const peer = await IOUtils.readUTF8(evidencePath);
-          if (peer.includes('"method":"initialize"')) break;
+        // Capture a run that is actually executing. The peer evidence file is
+        // appended to, and the runtime probe already ran this fixture once in
+        // "normal" mode, so only a line this run's stalled peer appended counts:
+        // matching the probe's initialize would break before the real run starts.
+        if (active?.status === "running" && active.inputManifestPath) {
+          if (await IOUtils.exists(evidencePath)) {
+            const peer = await IOUtils.readUTF8(evidencePath);
+            if (peer.includes('"mode":"startup-stall"')) break;
+          }
+        }
+        // A settled run will never become running, so stop and let the
+        // assertions below report the real status instead of polling to
+        // exhaustion and hiding it behind a timeout. waiting_user is excluded
+        // because it is a live state this case can legitimately restarts from.
+        if (
+          active &&
+          ["failed", "canceled", "failed_retriable"].includes(active.status)
+        ) {
+          break;
         }
         await new Promise((resolve) => setTimeout(resolve, 100));
         active = listAcpSkillRuns().find((run) => run.backendId === backend.id);
       }
+      // The poll can end while the workflow is still mid-flight. Settle it
+      // within a bounded window so the real error surfaces instead of being
+      // swallowed by the detached promise.
+      await Promise.race([
+        workflowRun,
+        new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
+      ]);
       assert.isOk(
         active,
         JSON.stringify({
@@ -2958,8 +2981,53 @@ describe("System E2E Phase 2 ACP owner restart", function () {
         }),
       );
       assert.isNotEmpty(active!.inputManifestPath);
+      // The record carries a precomputed path, so only the file proves the run
+      // actually reached its input stage.
+      assert.isTrue(
+        await IOUtils.exists(active!.inputManifestPath!),
+        JSON.stringify({
+          status: active!.status,
+          requestId: active!.requestId,
+          error: active!.error,
+          executionError,
+          peerEvidence: await IOUtils.readUTF8(evidencePath),
+          runtimeLogs: listRuntimeLogs({
+            workflowId: workflow!.manifest.id,
+            limit: 40,
+          }).map((entry) => ({
+            stage: entry.stage,
+            message: entry.message,
+            details: entry.details,
+            error: entry.error?.message,
+          })),
+          tasks: listWorkflowTasks().filter(
+            (task) => task.backendId === backend.id,
+          ),
+        }),
+      );
       assert.isTrue(await IOUtils.exists(evidencePath));
-      assert.equal(active!.status, "running");
+      assert.equal(
+        active!.status,
+        "running",
+        JSON.stringify({
+          requestId: active!.requestId,
+          backendId: active!.backendId,
+          status: active!.status,
+          error: active!.error,
+          inputManifestPath: active!.inputManifestPath,
+          executionError,
+          peerEvidence: await IOUtils.readUTF8(evidencePath),
+          runtimeLogs: listRuntimeLogs({
+            requestId: active!.requestId,
+            limit: 40,
+          }).map((entry) => ({
+            stage: entry.stage,
+            message: entry.message,
+            details: entry.details,
+            error: entry.error?.message,
+          })),
+        }),
+      );
       assert.isTrue(
         listWorkflowTasks().some(
           (task) => task.requestId === active!.requestId,
@@ -3172,44 +3240,73 @@ describe("System E2E Phase 2 SkillRunner apply restart", function () {
       for (let attempt = 0; attempt < 20_000; attempt += 1) {
         run = findRun();
         if (
-          run?.requestId &&
+          run &&
           listSkillRunnerRunEvents(run.runKey).some(
             (event) => event.type === "apply.started",
           )
         )
           break;
+        if (run && ["failed", "canceled", "succeeded"].includes(run.status)) {
+          break;
+        }
         await new Promise((resolve) => setTimeout(resolve, 1));
       }
       assert.isOk(run);
-      assert.isNotEmpty(run!.requestId);
       const events = listSkillRunnerRunEvents(run!.runKey);
-      const started = events.some((event) => event.type === "apply.started");
+      // The record's requestId is assigned by a separate submit fact and can
+      // still be empty here, but apply.started always carries the request
+      // identity of the apply this case restarts. Persist that one, because the
+      // resumed phase filters runtime logs by it to prove no replay happened.
+      const applyStarted = events.find(
+        (event) => event.type === "apply.started",
+      );
+      const requestId = String(applyStarted?.requestId || run!.requestId || "");
+      const started = !!applyStarted;
       const settled = events.some(
         (event) =>
           event.type === "apply.succeeded" || event.type === "apply.failed",
       );
-      const parentRef = (
+      const parentRefValue = (
         run!.requestPayload as {
           targetParentRef?: { libraryId: number; key: string };
         }
       )?.targetParentRef;
-      assert.isOk(parentRef);
+      // The restart boundary is the started-but-unsettled apply. Report it as
+      // such before any downstream identity assertion, so a missed window is
+      // never disguised as an unrelated empty-value failure.
+      if (!started || settled) {
+        // Report why the window was missed instead of a bare boundary error.
+        const diagnosis = JSON.stringify({
+          runKey: run!.runKey,
+          requestId: run!.requestId,
+          status: run!.status,
+          submitPhase: run!.submitPhase,
+          applyState: run!.apply,
+          resultState: run!.result,
+          error: run!.error,
+          eventTypes: events.map((event) => event.type),
+        });
+        await pending;
+        deletePluginRunStoreEntry("skillrunner", run!.runKey);
+        const parent = parentRefValue
+          ? Zotero.Items.getByLibraryAndKey(
+              parentRefValue.libraryId,
+              parentRefValue.key,
+            )
+          : null;
+        if (parent) await parent.eraseTx();
+        setPref("backendsConfigJson", previousBackendConfig);
+        setDebugModeOverrideForTests();
+        throw new Error(
+          `system_e2e_apply_started_external_boundary_not_hit: ${diagnosis}`,
+        );
+      }
+      assert.isNotEmpty(requestId);
+      assert.isOk(parentRefValue);
       const processId = Number(
         (Zotero.Utilities.Internal as any).getProcessID?.() || 0,
       );
       assert.isAbove(processId, 0);
-      if (!started || settled) {
-        await pending;
-        deletePluginRunStoreEntry("skillrunner", run!.runKey);
-        const parent = Zotero.Items.getByLibraryAndKey(
-          parentRef!.libraryId,
-          parentRef!.key,
-        );
-        if (parent) await parent.eraseTx();
-        setPref("backendsConfigJson", previousBackendConfig);
-        setDebugModeOverrideForTests();
-        throw new Error("system_e2e_apply_started_external_boundary_not_hit");
-      }
       await IOUtils.writeUTF8(
         statePath,
         JSON.stringify({
@@ -3217,8 +3314,8 @@ describe("System E2E Phase 2 SkillRunner apply restart", function () {
           processId,
           backendId: backend.id,
           runKey: run!.runKey,
-          requestId: run!.requestId,
-          parentRef,
+          requestId,
+          parentRef: parentRefValue,
           previousBackendConfig,
           checkpointUsed: false,
         }),

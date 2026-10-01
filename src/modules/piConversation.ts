@@ -70,9 +70,12 @@ import {
   createZoteroHostCapabilityBroker,
 } from "./zoteroHostCapabilityBroker";
 import { getPiMcpToolSources } from "./piMcpRuntimeOwner";
+import type { PiPhysicalSettlement } from "./piRuntimeLifecycle";
 import { getPiBrokeredWebTools, type PiWebTurn } from "./piBrokeredWebTools";
 import {
   createPiConversationOwner,
+  inspectPiOwner,
+  recordPiToolPhysicalEvidence,
   getPiConversationMetadata,
   listPiConversations,
   updatePiConversationMetadata,
@@ -84,7 +87,18 @@ import {
   createPiConversationPreparationAdapter,
   readPiConversationPage,
   getPiConversationProjection,
+  listPiOwnerInventory,
+  assessPiOwnerRecovery,
+  recordPiExecutionCheckpoint,
+  repairPiOwnerTornTail,
+  reconcilePiOwnerOperationEvidence,
+  type PiOwnerOperationObserver,
 } from "./piOwnerPersistence";
+import {
+  getPiRuntimeLifecycle,
+  waitForPiShutdown,
+  type PiExecutionLease,
+} from "./piRuntimeLifecycle";
 import type {
   AssistantWorkspaceTranscriptItem,
   AssistantWorkspaceTranscriptMutationEvent,
@@ -115,6 +129,8 @@ export type PiConversationChange = {
 };
 type Options = {
   root?: string;
+  /** Process admission; the singleton owns capacity, budget and shutdown. */
+  lifecycle?: ReturnType<typeof getPiRuntimeLifecycle>;
   resolveModel?: (selection?: PiSelection) => Promise<PiModelSelectionSnapshot>;
   modelSource?: (selection: PiModelSelectionSnapshot) => PiRuntimeModelSource;
   execution?: (
@@ -145,8 +161,21 @@ const normalizeTitle = (text: string) =>
     .slice(0, 48)
     .join("");
 
+/**
+ * Production evidence source. The Broker is only ever read here: an
+ * unavailable or unknown observation leaves its hold exactly where it was.
+ */
+function defaultPiOperationObserver(): PiOwnerOperationObserver {
+  return async (request) =>
+    resolveZoteroHostCapabilityBroker().mutations.getOperation(
+      { operationId: request.operationId },
+      request.scope,
+    );
+}
+
 export function createPiConversationCoordinator(options: Options = {}) {
   const listeners = new Set<(change: PiConversationChange) => void>();
+  const lifecycle = options.lifecycle ?? getPiRuntimeLifecycle();
   const drafts = new Map<string, PiConversationResource[]>();
   let selectedId: string | null = null;
   let disposed = false;
@@ -188,7 +217,7 @@ export function createPiConversationCoordinator(options: Options = {}) {
   >();
   const titleTasks = new Map<
     string,
-    { abort(): void; result: Promise<void> }
+    { abort(): void; result: Promise<void>; settled?: Promise<unknown> }
   >();
   function state(conversationId: string) {
     let current = states.get(conversationId);
@@ -277,6 +306,129 @@ export function createPiConversationCoordinator(options: Options = {}) {
     authorizeLocalNetwork: async (endpoint: string) =>
       state(conversationId).localEndpoint === endpoint,
   });
+  /**
+   * One admitted interaction owns one process lease. The lease deadline caps
+   * the whole turn, and the budget checkpoint is written at the durable turn
+   * boundaries so a later continuation inherits the remaining active time
+   * instead of a fresh allowance.
+   */
+  /** Last committed, still resumable budget for a restarted continuation. */
+  const readCanonicalRemaining = async (conversationId: string) => {
+    const inspection = await inspectPiOwner(
+      ref(conversationId),
+      options.root,
+    ).catch(() => null);
+    if (!inspection || inspection.status !== "valid") return undefined;
+    let latest: { remainingMs: number; resumeEligible: boolean } | undefined;
+    for (const entry of inspection.entries) {
+      if (entry.kind !== "execution_checkpoint") continue;
+      const payload = entry.payload as {
+        remainingMs?: unknown;
+        resumeEligible?: unknown;
+      };
+      if (
+        typeof payload.remainingMs === "number" &&
+        typeof payload.resumeEligible === "boolean"
+      )
+        latest = {
+          remainingMs: payload.remainingMs,
+          resumeEligible: payload.resumeEligible,
+        };
+    }
+    return latest?.resumeEligible ? latest.remainingMs : undefined;
+  };
+  const leaseOf = new Map<string, PiExecutionLease>();
+  /** The auxiliary title's background lease, released on explicit delete. */
+  const titleLeases = new Map<string, PiExecutionLease>();
+  // Deletes that hit a live hold and were deferred. The retry happens when the
+  // work that held the owner proves it settled, never on a timer.
+  const deferredDeletes = new Set<string>();
+  // Settles when a deferred deletion has run its retry, so a caller that
+  // awaits the aborted work also awaits the completion it asked for.
+  const deferredDeleteDone = new Map<string, Promise<void>>();
+  // A permission decision continues the same logical turn, so its budget is
+  // the checkpoint the waiting boundary committed. Without this the second
+  // admission would silently hand the owner a fresh two hours.
+  const continuationBudget = new Map<string, number>();
+  const admit = async (
+    conversationId: string,
+    turnId: string,
+    lane: "foreground" | "background",
+    signal: AbortSignal,
+    resume = false,
+  ) => {
+    const prior = leaseOf.get(conversationId);
+    if (prior) prior.release();
+    // A resume continues one logical turn and therefore spends what that turn
+    // left. A brand new prompt always starts from the full ceiling. The
+    // in-memory value covers the live process; the canonical fact covers a
+    // restart, so a resumed turn never gains a fresh allowance either way.
+    const restore = resume
+      ? (continuationBudget.get(conversationId) ??
+        (await readCanonicalRemaining(conversationId)))
+      : undefined;
+    continuationBudget.delete(conversationId);
+    const lease = await lifecycle.acquire({
+      owner: ref(conversationId),
+      turnId,
+      lane,
+      signal,
+      // The lifecycle clamps to the two hour ceiling, so a continuation can
+      // only ever spend what the previous boundary left behind.
+      ...(restore === undefined
+        ? {}
+        : { elapsedMs: 2 * 60 * 60 * 1000 - restore }),
+    });
+    leaseOf.set(conversationId, lease);
+    return lease;
+  };
+  const releaseLease = (conversationId: string, resumeEligible: boolean) => {
+    const lease = leaseOf.get(conversationId);
+    if (!lease) return undefined;
+    leaseOf.delete(conversationId);
+    const value = lease.checkpoint(resumeEligible);
+    lease.release();
+    return value;
+  };
+  /**
+   * A settled boundary commits the consumed budget before the owner idles, so
+   * a later continuation reads a canonical remainder rather than an in-memory
+   * guess. A commit failure is not swallowed: the owner falls back to recovery
+   * because an unrecorded budget cannot be proven to be safe.
+   */
+  const checkpoint = async (
+    conversationId: string,
+    turnId: string,
+    resumeEligible: boolean,
+  ) => {
+    const lease = leaseOf.get(conversationId);
+    if (!lease) return;
+    const value = lease.checkpoint(resumeEligible);
+    if (resumeEligible)
+      continuationBudget.set(conversationId, value.remainingMs);
+    try {
+      // The fact is durable before the capacity is released, so a crash in
+      // between can never lose the budget this turn already spent.
+      await recordPiExecutionCheckpoint(
+        ref(conversationId),
+        value,
+        options.root,
+      );
+    } catch {
+      leaseOf.delete(conversationId);
+      lease.release();
+      continuationBudget.delete(conversationId);
+      const current = state(conversationId);
+      if (current.status !== "waiting_permission") {
+        current.status = "recovery_required";
+        current.failure = "pi_execution_checkpoint_unavailable";
+        emit(conversationId, ["control", "details"]);
+      }
+      return;
+    }
+    leaseOf.delete(conversationId);
+    lease.release();
+  };
   const fact = (
     conversationId: string,
     kind: string,
@@ -440,15 +592,72 @@ export function createPiConversationCoordinator(options: Options = {}) {
     );
     await select(conversationId);
   }
+  /**
+   * Completes a deletion the user already requested once the work that forced
+   * it to defer has settled. A hold that is still real keeps deferring for
+   * lifecycle maintenance; this never invents a deletion of its own.
+   */
+  async function finishDeferredDelete(conversationId: string) {
+    if (lifecycle.closed || disposed) return;
+    if (!deferredDeletes.has(conversationId)) return;
+    const retried = await cleanupPiConversation(
+      ref(conversationId),
+      options.root,
+      { isPhysicallyOccupied: (owner) => lifecycle.hasPhysicalHold(owner) },
+    ).catch(() => undefined);
+    if (retried?.status === "deleted") {
+      deferredDeletes.delete(conversationId);
+      states.delete(conversationId);
+      drafts.delete(conversationId);
+      emit(conversationId, ["navigation"]);
+    }
+  }
+
   async function deleteConversation(conversationId: string) {
     markPiConversationDeleting(conversationId, { lifecycle: "archived" });
-    titleTasks.get(conversationId)?.abort();
+    const title = titleTasks.get(conversationId);
+    title?.abort();
+    // An aborted title still holds its background lease until the provider
+    // unwinds. Releasing it here is what lets the retry below judge the real
+    // occupancy instead of work the user already asked to abandon.
+    titleLeases.get(conversationId)?.release();
+    titleLeases.delete(conversationId);
+    // An explicit delete is a request, not a race: the aborted work is awaited
+    // once so a purely in-flight executor is not mistaken for a live hold. A
+    // hold that survives that — an unresolved outcome or a process that has
+    // not really exited — still keeps the owner and its files, and lifecycle
+    // maintenance retries it.
+    // The title task settles its own lease in its finally, so awaiting the
+    // task is also awaiting the release. Awaiting once more guarantees the
+    // microtask that releases it has run before occupancy is judged.
+    await title?.result.catch(() => undefined);
+    // Permanent deletion is hold-safe: a live executor or an unresolved
+    // outcome keeps the owner and its files until maintenance retries it.
     const result = await cleanupPiConversation(
       ref(conversationId),
       options.root,
+      {
+        isPhysicallyOccupied: (owner) => lifecycle.hasPhysicalHold(owner),
+      },
     );
     states.delete(conversationId);
     drafts.delete(conversationId);
+    if (result.status === "cleanup_pending") {
+      deferredDeletes.add(conversationId);
+      // The user already asked for this deletion. The only reason it deferred
+      // is a still-settling executor whose work the abort above awaited, so a
+      // single retry now finishes the request they made. A hold that is still
+      // real keeps deferring for lifecycle maintenance. The retry runs when
+      // the aborted work actually settles, because an executor that ignores
+      // its abort is still occupying the owner and must not be judged gone.
+      deferredDeleteDone.set(
+        conversationId,
+        (title?.settled ?? title?.result ?? Promise.resolve())
+          .catch(() => undefined)
+          .then(() => finishDeferredDelete(conversationId))
+          .then(() => undefined),
+      );
+    } else deferredDeletes.delete(conversationId);
     emit(conversationId, ["navigation"]);
     return result;
   }
@@ -669,8 +878,16 @@ export function createPiConversationCoordinator(options: Options = {}) {
     signal: AbortSignal,
   ) {
     const navigationTarget = state(conversationId).navigationTarget;
+    // The owner lease owns the absolute turn deadline and the process-wide
+    // physical claim. A tool can therefore never outlive its budget, and its
+    // resource claim is released only on real executor settlement.
+    const lease = leaseOf.get(conversationId);
     return freezePiToolGatewayTurn({
       owner: ref(conversationId),
+      ...(lease ? { deadline: lease.deadline } : {}),
+      ...(lease
+        ? { trackPhysical: (settlement) => lease.trackPhysical(settlement) }
+        : {}),
       turnId,
       definitions: tools,
       runtimeCapability: {
@@ -694,6 +911,82 @@ export function createPiConversationCoordinator(options: Options = {}) {
         maxCalls: 100,
         maxConcurrent: 4,
         maxCost: 100,
+      },
+      /**
+       * Real executor evidence that arrived after the logical answer. It is
+       * appended under the original call identity and never rewrites the
+       * committed receipt or clears an unknown outcome by itself.
+       */
+      recordPhysicalEvidence: async (evidence): Promise<void> => {
+        // Shutdown closes admission first, so a late append must not reopen
+        // infrastructure that is already being torn down.
+        if (lifecycle.closed) throw new Error("pi_shutdown_evidence_pending");
+        // Awaited so the gateway only resolves the call's physical claim
+        // after the evidence is durable. A rejecting owner is a hold, never an
+        // unhandled rejection.
+        // The canonical writer owns the stored shape: identity, physical state
+        // and the executor's own certainty, never an outcome body.
+        await recordPiToolPhysicalEvidence(
+          ref(conversationId),
+          {
+            turnId: evidence.turnId,
+            callId: evidence.callId,
+            capabilityId: evidence.capabilityId,
+            state: evidence.state,
+            ...(evidence.outcome
+              ? {
+                  outcome: {
+                    status: evidence.outcome.status,
+                    effectCertainty: evidence.outcome.effectCertainty,
+                  },
+                }
+              : {}),
+            ...(evidence.domainOperation
+              ? { domainOperation: evidence.domainOperation }
+              : {}),
+          },
+          options.root,
+        ).catch(() => undefined);
+        // A call canceled while its executor was still running never emits a
+        // result event, so its durable result would otherwise be lost and the
+        // next turn's context would miss a tool message for a call the
+        // assistant already made. The late outcome is appended under the same
+        // call identity; the canceled turn itself stays unchanged.
+        const outcome = evidence.outcome;
+        if (!outcome) return;
+        // The model knows the call by its tool name, not its capability, so
+        // the durable result has to carry the name the catalog published.
+        const name =
+          tools.find((tool) => tool.capabilityId === evidence.capabilityId)
+            ?.name ?? evidence.capabilityId;
+        const already = await inspectPiOwner(
+          ref(conversationId),
+          options.root,
+        ).catch(() => null);
+        // Identity is turn plus call: two turns can legitimately use the same
+        // callId, so a bare callId would suppress a real result.
+        if (
+          already?.entries.some(
+            (entry) =>
+              entry.kind === "tool_result" &&
+              entry.turnId === evidence.turnId &&
+              String((entry.payload as { callId?: unknown }).callId) ===
+                evidence.callId,
+          )
+        )
+          return;
+        await fact(
+          conversationId,
+          "tool_result",
+          {
+            callId: evidence.callId,
+            name,
+            text: JSON.stringify({ status: outcome.status }),
+            status: outcome.status,
+            effectCertainty: outcome.effectCertainty,
+          },
+          evidence.turnId,
+        ).catch(() => undefined);
       },
       hooks: {
         recordStarted: (value) =>
@@ -775,14 +1068,42 @@ export function createPiConversationCoordinator(options: Options = {}) {
       },
     };
   }
+  /**
+   * Preparation runs under both the Runtime invocation signal and the process
+   * lease signal, so a budget expiry or a shutdown aborts a summary in flight
+   * instead of letting it publish after its owner stopped.
+   */
+  function anySignal(
+    ...signals: (AbortSignal | undefined)[]
+  ): AbortSignal | undefined {
+    const present = signals.filter((value): value is AbortSignal => !!value);
+    if (present.length < 2) return present[0];
+    const Controller = resolveNativeAbortControllerConstructor();
+    if (!Controller) return present[0];
+    const controller = new Controller();
+    for (const value of present) {
+      if (value.aborted) {
+        controller.abort();
+        continue;
+      }
+      value.addEventListener("abort", () => controller.abort(), { once: true });
+    }
+    return controller.signal;
+  }
   async function preparation(
     conversationId: string,
     turnId: string,
     invocationId: string,
     frozen: PiTurnPreparationInput["frozen"],
     intent: PiTurnPreparationInput["intent"] = "initial",
-    signal?: AbortSignal,
+    invocationSignal?: AbortSignal,
   ) {
+    // The lease is the owner's own cancellation source; a nested provider or
+    // tool call inherits it rather than consuming a second turn.
+    const signal = anySignal(
+      invocationSignal,
+      leaseOf.get(conversationId)?.signal,
+    );
     const estimator = createPiNativeEstimator();
     const ports: PiTurnPreparationPorts = {
       ...createPiConversationPreparationAdapter(
@@ -886,6 +1207,10 @@ export function createPiConversationCoordinator(options: Options = {}) {
             sessionId: `${conversationId}:${turnId}`,
             ...createPiProviderSource(model, providerAdmission(conversationId)),
           });
+    // Declared before the turn exists: the Runtime may emit events while the
+    // session is still being built, and a temporal dead zone there would drop
+    // every canonical fact of the turn.
+    const openInvocations = new Set<string>();
     const turn = session.runTurn({
       turnId,
       messages: [],
@@ -976,6 +1301,26 @@ export function createPiConversationCoordinator(options: Options = {}) {
             .map((value) => value.callId),
         };
       },
+      /**
+       * Actual provider completion. A canceled turn never emits its logical
+       * terminal, so this separate canonical fact is the only honest closure.
+       * It is a non-context fact, so an interrupted conversation can still
+       * continue, and it never fabricates a result.
+       */
+      async onInvocationSettled({ invocationId }) {
+        openInvocations.delete(invocationId);
+        // A closing process must not reopen owner storage from a late
+        // callback. The provider really exited, but a fact written after
+        // shutdown belongs to the next start's explicit recovery instead.
+        if (lifecycle.closed || disposed)
+          throw new Error("pi_shutdown_evidence_pending");
+        await fact(
+          conversationId,
+          "model_invocation_settled",
+          { invocationId, physicalOutcome: "settled" },
+          turnId,
+        );
+      },
       async onEvent(event) {
         try {
           if (
@@ -985,14 +1330,15 @@ export function createPiConversationCoordinator(options: Options = {}) {
               event.kind !== "tool_result")
           )
             return;
-          if (event.kind === "invocation_started")
+          if (event.kind === "invocation_started") {
+            openInvocations.add(event.invocationId);
             await fact(
               conversationId,
               "model_invocation_started",
               { invocationId: event.invocationId },
               turnId,
             );
-          else if (event.kind === "text_delta") {
+          } else if (event.kind === "text_delta") {
             if (!current.text)
               publishItem(conversationId, {
                 itemId: current.itemId,
@@ -1089,7 +1435,8 @@ export function createPiConversationCoordinator(options: Options = {}) {
             if (result.effectCertainty === "unknown")
               current.status = "recovery_required";
             publishItem(conversationId, messageItem(entry.entry)!);
-          } else if (event.kind === "invocation_terminal")
+          } else if (event.kind === "invocation_terminal") {
+            openInvocations.delete(event.invocationId);
             await fact(
               conversationId,
               "model_invocation_terminal",
@@ -1099,6 +1446,7 @@ export function createPiConversationCoordinator(options: Options = {}) {
               },
               turnId,
             );
+          }
         } catch {
           current.failure = "persistence_failed";
           current.status = "recovery_required";
@@ -1108,6 +1456,10 @@ export function createPiConversationCoordinator(options: Options = {}) {
     });
     current.abort = turn.abort;
     emit(conversationId, ["control", "navigation", "counts"]);
+    // Physical occupancy is the Agent's real completion, not the bounded
+    // logical result: a canceled turn still holds capacity until the provider
+    // actually exits, so admission can never over-admit in the meantime.
+    leaseOf.get(conversationId)?.trackPhysical(turn.settled);
     current.result = (async () => {
       let result = await turn.result;
       const persistenceFailure = (): PiTurnResult => ({
@@ -1217,6 +1569,14 @@ export function createPiConversationCoordinator(options: Options = {}) {
         current.definitions = [];
       }
       session.dispose();
+      // The turn reached a durable terminal, so the consumed active budget is
+      // checkpointed exactly once. A turn that ended in recovery records no
+      // resume-eligible checkpoint, which keeps its continuation blocked.
+      await checkpoint(
+        conversationId,
+        turnId,
+        terminalCommitted && current.status !== "recovery_required",
+      );
       // Owner terminal is recorded by the coordinator that owns the turn, once
       // the canonical terminal fact is committed. Propagation layers and the
       // Workspace surfaces deliberately do not repeat it. A turn that fell back
@@ -1316,6 +1676,11 @@ export function createPiConversationCoordinator(options: Options = {}) {
     current.composerError = undefined;
     emit(conversationId, ["control"]);
     try {
+      const turnId = id("turn");
+      // Process admission comes first: a prompt that cannot get foreground
+      // capacity never freezes resources or dispatches a model turn.
+      await admit(conversationId, turnId, "foreground", controller.signal);
+      checkPreflight();
       const owner = metadata(conversationId);
       const model = await resolveModel(
         owner.selection ? JSON.parse(owner.selection) : undefined,
@@ -1375,12 +1740,14 @@ export function createPiConversationCoordinator(options: Options = {}) {
         !current.definitions.some((tool) => tool.name === "read")
       )
         throw new Error("pi_attachment_reader_unavailable");
-      const turnId = id("turn");
+      // Tool dispatch inherits the owner's lease. Without it a tool could run
+      // its full hard maximum long after the turn budget expired.
       const tools = await gateway(
         conversationId,
         turnId,
         current.definitions,
-        controller.signal,
+        anySignal(controller.signal, leaseOf.get(conversationId)?.signal) ??
+          controller.signal,
       );
       current.frozen = await frozenFacts(
         conversationId,
@@ -1456,6 +1823,8 @@ export function createPiConversationCoordinator(options: Options = {}) {
       current.invalidateNavigation = undefined;
       current.navigationTarget = undefined;
       current.definitions = [];
+      // A prompt that never reached its admission never earned a checkpoint.
+      await releaseLease(conversationId, false);
       if (controller.signal.aborted || disposed) {
         if (admittedTurnId)
           await fact(
@@ -1494,14 +1863,17 @@ export function createPiConversationCoordinator(options: Options = {}) {
     current.failure = undefined;
     current.status = "busy";
     emit(conversationId, ["control"]);
+    const turnId = id("compaction");
     try {
+      // Manual compaction is a user-initiated foreground turn with the same
+      // budget as a prompt: a conversation cannot compact indefinitely.
+      await admit(conversationId, turnId, "foreground", controller.signal);
       const owner = metadata(conversationId);
       const model = await resolveModel(
         owner.selection ? JSON.parse(owner.selection) : undefined,
       );
       await authorizeModel(conversationId, model, authorizeLocalNetwork);
       if (controller.signal.aborted) throw new Error("pi_send_canceled");
-      const turnId = id("compaction");
       const frozen = await frozenFacts(
         conversationId,
         turnId,
@@ -1518,7 +1890,11 @@ export function createPiConversationCoordinator(options: Options = {}) {
         controller.signal,
       );
       current.status = "idle";
+      // Reaching here means preparation committed its summary, so the turn is
+      // a settled foreground boundary with a resume-eligible budget.
+      await checkpoint(conversationId, turnId, true);
     } catch (error) {
+      await releaseLease(conversationId, false);
       if (controller.signal.aborted) {
         current.failure = undefined;
         current.status = "idle";
@@ -1557,6 +1933,9 @@ export function createPiConversationCoordinator(options: Options = {}) {
     current.status = "busy";
     current.abort = () => controller.abort();
     emit(conversationId, ["control", "permission"]);
+    // A permission decision is a continuation of the same turn, so it rejoins
+    // foreground capacity under the remaining budget instead of a new one.
+    await admit(conversationId, turnId, "foreground", controller.signal, true);
     let tools: PiGatewayTurn;
     let result: PiGatewayCallResult;
     let renewed: PiGatewayPendingCall | undefined;
@@ -1595,6 +1974,7 @@ export function createPiConversationCoordinator(options: Options = {}) {
     } catch {
       current.status = "recovery_required";
       current.abort = undefined;
+      await releaseLease(conversationId, false);
       current.invalidateNavigation?.();
       current.invalidateNavigation = undefined;
       current.navigationTarget = undefined;
@@ -1656,6 +2036,13 @@ export function createPiConversationCoordinator(options: Options = {}) {
       // owner goes idle, so a later export never races a pending write.
       if (current.status === "waiting_permission")
         await flushPiRuntimeAuditOwner(ref(conversationId), options.root);
+      // Waiting on a permission decision is a durable pause, not a terminal:
+      // the consumed budget is checkpointed and the same turn continues later.
+      await checkpoint(
+        conversationId,
+        turnId,
+        current.status !== "recovery_required",
+      );
       emit(conversationId, ["permission", "control", "navigation"]);
       return;
     }
@@ -1701,6 +2088,7 @@ export function createPiConversationCoordinator(options: Options = {}) {
     const Controller = resolveNativeAbortControllerConstructor();
     if (!Controller) return;
     const controller = new Controller();
+    const titleTurnId = id("title");
     const result = (async () => {
       let output = "";
       let usage = 0;
@@ -1710,7 +2098,23 @@ export function createPiConversationCoordinator(options: Options = {}) {
       let provider = "";
       let modelId = "";
       let failure: string | undefined;
+      let lease: PiExecutionLease | undefined;
       try {
+        // An auxiliary title is background work: it never competes with a user
+        // prompt for foreground capacity, and a full process drops it.
+        try {
+          lease = await lifecycle.acquire({
+            owner: ref(conversationId),
+            turnId: titleTurnId,
+            lane: "background",
+            signal: controller.signal,
+          });
+          // Tracked so an explicit delete can release the background claim
+          // without waiting for the provider to unwind.
+          titleLeases.set(conversationId, lease);
+        } catch {
+          return;
+        }
         const model = await resolveModel(auxiliary);
         const localApproved =
           !model.requiresLocalNetwork ||
@@ -1739,7 +2143,6 @@ export function createPiConversationCoordinator(options: Options = {}) {
                     localApproved && endpoint === model.baseUrl,
                 }),
               });
-        const titleTurnId = id("title");
         const titleInput = JSON.stringify({
           text: text.slice(0, 4000),
           resources: accepted.map(({ kind, displayName }) => ({
@@ -1819,6 +2222,21 @@ export function createPiConversationCoordinator(options: Options = {}) {
         controller.signal.addEventListener("abort", () => turn.abort(), {
           once: true,
         });
+        // The title's real completion is the provider's exit, not the bounded
+        // logical result, so a deletion that deferred on this work waits on the
+        // physical fact instead of the answer it was already given.
+        // The title's real completion is the provider's exit, not the
+        // bounded logical result. Registering it is what lets a permanent
+        // delete finish: without it the lease looks permanently occupied and
+        // cleanup keeps deferring an owner that has actually finished.
+        lease?.trackPhysical(
+          turn.settled.then<PiPhysicalSettlement, PiPhysicalSettlement>(
+            (outcome) => (outcome === "unknown" ? "unknown" : "settled"),
+            () => "unknown",
+          ),
+        );
+        const task = titleTasks.get(conversationId);
+        if (task) task.settled = turn.settled;
         try {
           if ((await turn.result).status !== "completed")
             throw new Error("title_failed");
@@ -1843,7 +2261,14 @@ export function createPiConversationCoordinator(options: Options = {}) {
       } catch {
         failure = "title_failed";
       } finally {
+        // A dropped auxiliary title never writes a budget fact: it is not a
+        // turn, and the owner's main budget is untouched by it.
+        lease?.release();
+        titleLeases.delete(conversationId);
         const fresh = getPiConversationMetadata(conversationId);
+        // A deleting or already-removed owner must not gain a new fact: the
+        // abort is only observed once the task unwinds, and the write would
+        // otherwise resurrect an owner the user already asked to delete.
         if (fresh && ["active", "archived"].includes(fresh.lifecycle)) {
           state(conversationId).usage.title += usage;
           state(conversationId).usage.titleCost += cost;
@@ -1861,7 +2286,13 @@ export function createPiConversationCoordinator(options: Options = {}) {
         titleTasks.delete(conversationId);
       }
     })();
-    titleTasks.set(conversationId, { abort: () => controller.abort(), result });
+    // The title's real completion is the provider's exit, not the bounded
+    // logical result, so a deletion that deferred on this work waits on the
+    // physical fact instead of the answer it was already given.
+    titleTasks.set(conversationId, {
+      abort: () => controller.abort(),
+      result,
+    });
     await result;
   }
 
@@ -1939,6 +2370,46 @@ export function createPiConversationCoordinator(options: Options = {}) {
     }
     add(conversationId, additions);
   }
+  /**
+   * Explicit recovery check. It only observes authoritative Broker outcomes
+   * and re-reads canonical facts: no model, tool or summary work is dispatched
+   * here, so a check can never replay the work it is checking.
+   */
+  async function checkRecovery(
+    conversationId: string,
+    observer?: PiOwnerOperationObserver,
+  ) {
+    const owner = ref(conversationId);
+    // Repair first: a torn tail otherwise makes the observation pass throw and
+    // the owner never reaches an assessment at all.
+    await repairPiOwnerTornTail(owner, options.root).catch(() => undefined);
+    const reconciliation = await reconcilePiOwnerOperationEvidence(
+      owner,
+      options.root,
+      { observeOperation: observer ?? defaultPiOperationObserver() },
+    );
+    const assessment = await assessPiOwnerRecovery(owner, options.root, {
+      isPhysicallyOccupied: (target) => lifecycle.hasPhysicalHold(target),
+    });
+    const current = state(conversationId);
+    if (assessment.hasHolds) {
+      current.status = "recovery_required";
+      current.failure = "owner_recovery_hold";
+    } else if (current.status === "recovery_required") {
+      // Cleared holds restore the owner to its canonical resting state; the
+      // next real prompt is a new foreground turn, not an automatic resume.
+      current.status = "idle";
+      current.failure = undefined;
+    }
+    emit(conversationId, ["control", "navigation", "details"]);
+    return {
+      state: assessment.state,
+      safeToResume: assessment.safeToResume,
+      hasHolds: assessment.hasHolds,
+      unresolvedOperations: assessment.unresolvedOperations,
+      resolved: reconciliation.resolved.length,
+    };
+  }
   async function addSelection(
     conversationId: string,
     window?: _ZoteroTypes.MainWindow,
@@ -1989,6 +2460,7 @@ export function createPiConversationCoordinator(options: Options = {}) {
     setComposerError,
     async waitForTitle(conversationId: string) {
       await titleTasks.get(conversationId)?.result;
+      await deferredDeleteDone.get(conversationId)?.catch(() => undefined);
     },
     addFiles,
     addSelection,
@@ -2001,10 +2473,18 @@ export function createPiConversationCoordinator(options: Options = {}) {
       );
       emit(conversationId, ["resources"]);
     },
+    checkRecovery,
     async dispose() {
       disposed = true;
       for (const current of states.values()) current.abort?.();
       for (const task of titleTasks.values()) task.abort();
+      // Release every lease without a new fact: a closing process records no
+      // budget checkpoint, so nothing here can be mistaken for a safe
+      // continuation by a later restart.
+      for (const [conversationId, lease] of leaseOf) {
+        leaseOf.delete(conversationId);
+        lease.release();
+      }
       await Promise.allSettled([
         ...[...states.values()].map((current) => current.result),
         ...[...titleTasks.values()].map((task) => task.result),
@@ -2030,12 +2510,59 @@ export function createPiConversationCoordinator(options: Options = {}) {
 }
 
 let singleton: ReturnType<typeof createPiConversationCoordinator> | undefined;
+/** A closed process never reopens: the getter refuses until a test resets it. */
+let stopped = false;
 export function getPiConversationCoordinator() {
+  if (stopped) throw new Error("pi_conversation_shutdown");
   return (singleton ||= createPiConversationCoordinator());
 }
-export async function shutdownPiConversations() {
-  if (singleton) {
-    await singleton.dispose();
-    singleton = undefined;
+
+/**
+ * Startup recovery for Conversations. It reconstructs state from canonical
+ * facts and reassesses each owner once, but it never dispatches: an owner with
+ * unresolved effects keeps its hold until authoritative evidence arrives.
+ */
+export async function reconcilePiConversationsOnStartup(
+  options: { root?: string; observeOperation?: PiOwnerOperationObserver } = {},
+): Promise<void> {
+  const coordinator = getPiConversationCoordinator();
+  const lifecycle = getPiRuntimeLifecycle();
+  for (const ref of await listPiOwnerInventory(options.root)) {
+    // A closing process must not reopen owner state after an await.
+    if (lifecycle.closed) break;
+    if (ref.kind !== "conversation") continue;
+    // A canonical owner directory without its registry projection is still an
+    // owner, so discovery never depends on the rebuildable metadata row.
+    const metadata = getPiConversationMetadata(ref.ownerId);
+    if (metadata && metadata.lifecycle !== "active") continue;
+    // Serial and bounded: one owner at a time, and a single owner's damage
+    // never stops the next one from being reconstructed.
+    await coordinator
+      .checkRecovery(ref.ownerId, options.observeOperation)
+      .catch(() => undefined);
+    // A large owner set must not block the startup path.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
   }
+}
+
+/**
+ * One absolute deadline governs the wait. Expiry ends waiting, not truth: any
+ * owner still holding capacity or files keeps both after the deadline.
+ */
+export async function shutdownPiConversations(
+  deadline = Date.now() + 15_000,
+): Promise<boolean> {
+  const current = singleton;
+  singleton = undefined;
+  stopped = true;
+  if (!current) return true;
+  return (
+    (await waitForPiShutdown(
+      current.dispose().then(() => true),
+      deadline,
+    )) === true
+  );
+}
+export function resetPiConversationShutdownForTests() {
+  stopped = false;
 }

@@ -20,6 +20,7 @@ import type {
   WorkflowSubmissionQueueConfig,
   WorkflowSubmissionQueueListener,
   WorkflowSubmissionSummary,
+  PiWorkflowReservation,
 } from "./workflowSubmissionQueueContracts";
 
 type QueueLogInput = Parameters<typeof appendRuntimeLogEntry>[0];
@@ -63,6 +64,18 @@ type InternalQueuedUnit = {
   resumeOrdinal?: number;
   resumePromise?: Promise<boolean>;
   resolveResume?: (admitted: boolean) => void;
+  /**
+   * Set only by restoreReservation. A recovered unit occupies its slot and
+   * duplicate-suppression identity but has no execute callback, so no drain
+   * path can dispatch it.
+   */
+  recovered?: Readonly<{
+    backendId: string;
+    workflowLabel: string;
+    maxConcurrency: number;
+    unitCount: number;
+    ownerId?: string;
+  }>;
 };
 
 type SubmissionController = {
@@ -118,6 +131,36 @@ function freezeBackendScope(
     backendType: scope.backendType,
     backendId: scope.backendId,
   });
+}
+
+const RESERVATION_STATES = new Set<string>([
+  "held",
+  "yielded",
+  "resumption-pending",
+  "settled",
+]);
+
+/**
+ * A restored reservation is a durable accounting fact, so a corrupted one must
+ * fail closed instead of occupying a slot with unbounded capacity. Identity,
+ * capacity and duplicate-suppression identities are validated at this trust
+ * boundary; an already occupied submission unit is a separate conflict.
+ */
+function assertRestorableReservation(reservation: PiWorkflowReservation) {
+  const invalid = () => new Error("pi_workflow_reservation_invalid");
+  const positive = (value: unknown) =>
+    typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+  if (!String(reservation.submissionId || "").trim()) throw invalid();
+  if (!String(reservation.submissionUnitId || "").trim()) throw invalid();
+  if (!String(reservation.workflowId || "").trim()) throw invalid();
+  if (!String(reservation.unitId || "").trim()) throw invalid();
+  if (!RESERVATION_STATES.has(String(reservation.state || ""))) throw invalid();
+  if (!positive(reservation.maxConcurrency)) throw invalid();
+  if (!positive(reservation.unitCount)) throw invalid();
+  if (!Array.isArray(reservation.memberIdentities)) throw invalid();
+  for (const identity of reservation.memberIdentities) {
+    if (typeof identity !== "string" || !identity.trim()) throw invalid();
+  }
 }
 
 function summarize(
@@ -178,6 +221,7 @@ export class WorkflowSubmissionQueue {
   private resumeOrdinalSequence = 0;
   private displaySequence = 0;
   private shuttingDown = false;
+  private piAdmissionBlocked = false;
 
   private static readonly SUBMISSION_SYMBOLS = [
     "🌙",
@@ -205,6 +249,207 @@ export class WorkflowSubmissionQueue {
 
   get isShuttingDown() {
     return this.shuttingDown;
+  }
+
+  get isPiAdmissionBlocked() {
+    return this.piAdmissionBlocked;
+  }
+
+  /**
+   * Startup holds new builtin-pi admission while durable reservations are
+   * restored. Only builtin-pi is gated; ACP and Skill-Runner submissions keep
+   * flowing, and restoration itself is never blocked.
+   */
+  setPiAdmissionBarrier(blocked: boolean) {
+    this.piAdmissionBlocked = blocked;
+  }
+
+  /**
+   * Narrow slot descriptor the Pi owner persists. Returns undefined once the
+   * unit settles, is released or the queue shuts down.
+   */
+  getReservation(
+    submissionUnitId: WorkflowQueueEntryId | string,
+  ): PiWorkflowReservation | undefined {
+    const item = this.findReservationItem(submissionUnitId);
+    if (!item) {
+      return undefined;
+    }
+    const controller = this.submissions.get(item.submissionId);
+    const slot = this.toSlotSnapshot(item);
+    return Object.freeze({
+      submissionId: item.submissionId,
+      submissionUnitId: item.queueId,
+      workflowId: item.workflowId,
+      workflowLabel: item.workflowLabel,
+      backendId: item.backend.backendId,
+      unitId: item.unitId,
+      unitOrder: item.unitOrder,
+      taskName: item.taskName,
+      ...(item.inputUnitIdentity
+        ? { inputUnitIdentity: item.inputUnitIdentity }
+        : {}),
+      memberIdentities: item.memberIdentities,
+      unitCount: controller?.items.length ?? item.recovered?.unitCount ?? 1,
+      maxConcurrency: controller?.limit ?? item.recovered?.maxConcurrency ?? 1,
+      state: slot.state,
+      ...(slot.yieldReason ? { yieldReason: slot.yieldReason } : {}),
+      ...(slot.resumeReason ? { resumeReason: slot.resumeReason } : {}),
+      ...(item.recovered?.ownerId ? { ownerId: item.recovered.ownerId } : {}),
+    });
+  }
+
+  /**
+   * Adopts a durable Pi reservation under its original identities, state and
+   * per-submission concurrency limit. The recovered unit never dispatches:
+   * its owner resumes through the returned slot coordinator.
+   */
+  restoreReservation(
+    reservation: PiWorkflowReservation,
+  ): WorkflowSubmissionSlotCoordinator {
+    assertRestorableReservation(reservation);
+    const submissionId = reservation.submissionId;
+    const queueId = reservation.submissionUnitId;
+    const backendId = String(reservation.backendId || "").trim();
+    let controller = this.submissions.get(submissionId);
+    if (!controller) {
+      let resolveCompletion!: (summary: WorkflowSubmissionSummary) => void;
+      const completion = new Promise<WorkflowSubmissionSummary>((resolve) => {
+        resolveCompletion = resolve;
+      });
+      controller = {
+        submissionId,
+        backend: Object.freeze({
+          backendType: "builtin-pi",
+          backendId,
+        }),
+        workflow: Object.freeze({
+          workflowId: reservation.workflowId,
+          workflowLabel: reservation.workflowLabel,
+        }),
+        display: this.createDisplayIdentity(undefined),
+        items: [],
+        limit: Math.max(1, reservation.maxConcurrency || 1),
+        total: 1,
+        initiallySkipped: 0,
+        outcomes: [],
+        completion,
+        resolveCompletion,
+        active: 0,
+        settled: 0,
+        drainScheduled: false,
+        completed: false,
+      };
+      this.submissions.set(submissionId, controller);
+    }
+    const existing = this.activeByQueueId.get(queueId);
+    if (existing) {
+      if (existing.recovered?.ownerId !== reservation.ownerId) {
+        throw new Error("pi_workflow_reservation_conflict");
+      }
+      return this.createSlotCoordinator(controller, existing);
+    }
+    const item: InternalQueuedUnit = {
+      queueId,
+      submissionId,
+      backend: controller.backend,
+      workflowId: reservation.workflowId,
+      workflowLabel: reservation.workflowLabel,
+      unitId: reservation.unitId,
+      unitOrder: reservation.unitOrder,
+      taskName: reservation.taskName,
+      inputUnitIdentity: reservation.inputUnitIdentity,
+      memberIdentities: Object.freeze([...reservation.memberIdentities]),
+      memberCount: Math.max(1, reservation.memberIdentities.length),
+      createdAt: this.now(),
+      ordinal: ++this.ordinalSequence,
+      execute: () =>
+        Promise.resolve<WorkflowExecutionUnitOutcome>({
+          status: "skipped",
+          reasonCode: "host-queue-recovered-reservation-not-dispatched",
+        }),
+      state:
+        reservation.state === "resumption-pending"
+          ? "resumption-pending"
+          : reservation.state === "yielded"
+            ? "yielded"
+            : "admitted",
+      slotHeld: reservation.state === "held",
+      ...(reservation.yieldReason
+        ? { yieldReason: reservation.yieldReason }
+        : {}),
+      ...(reservation.resumeReason
+        ? { resumeReason: reservation.resumeReason }
+        : {}),
+      recovered: Object.freeze({
+        backendId,
+        workflowLabel: reservation.workflowLabel,
+        maxConcurrency: reservation.maxConcurrency,
+        unitCount: reservation.unitCount,
+        ...(reservation.ownerId ? { ownerId: reservation.ownerId } : {}),
+      }),
+    };
+    if (item.state === "resumption-pending") {
+      // A recovered resumption-pending unit keeps its reason and gains a fresh
+      // resume promise, so a late owner release cannot resolve a dead waiter.
+      item.resumeReason = reservation.resumeReason;
+      item.resumeOrdinal = ++this.resumeOrdinalSequence;
+      item.resumePromise = new Promise<boolean>((resolve) => {
+        item.resolveResume = resolve;
+      });
+    }
+    controller.items.push(item);
+    if (item.slotHeld) {
+      controller.active += 1;
+    }
+    this.activeByQueueId.set(queueId, item);
+    this.addIdentityIndexes(item);
+    this.log("reservation-restore", {
+      submissionId,
+      queueId,
+      unitId: item.unitId,
+      reasonCode: reservation.state,
+    });
+    if (item.state === "resumption-pending") {
+      this.scheduleDrain(controller);
+    }
+    return this.createSlotCoordinator(controller, item);
+  }
+
+  /**
+   * Drops a recovered reservation once its owner settled or abandoned the
+   * work. Live submissions are settled through the normal queue path instead.
+   */
+  releaseRecoveredReservation(
+    submissionUnitId: WorkflowQueueEntryId | string,
+  ): boolean {
+    const item = this.activeByQueueId.get(
+      submissionUnitId as WorkflowQueueEntryId,
+    );
+    if (!item?.recovered) {
+      return false;
+    }
+    const controller = this.submissions.get(item.submissionId);
+    this.cancelPendingResumption(item);
+    item.state = "settled";
+    item.slotHeld = false;
+    this.activeByQueueId.delete(item.queueId);
+    this.removeIdentityIndexes(item);
+    if (controller) {
+      controller.active = Math.max(0, controller.active - 1);
+      controller.settled += 1;
+      controller.outcomes.push({
+        status: "skipped",
+        reasonCode: "host-queue-recovered-reservation-released",
+      });
+      this.maybeComplete(controller);
+    }
+    this.log("reservation-release", {
+      submissionId: item.submissionId,
+      queueId: item.queueId,
+      unitId: item.unitId,
+    });
+    return true;
   }
 
   enqueueSubmission<TUnit>(
@@ -483,6 +728,7 @@ export class WorkflowSubmissionQueue {
     this.resumeOrdinalSequence = 0;
     this.displaySequence = 0;
     this.shuttingDown = false;
+    this.piAdmissionBlocked = false;
   }
 
   private nextSubmissionId() {
@@ -654,6 +900,29 @@ export class WorkflowSubmissionQueue {
     }
   }
 
+  /**
+   * Recovered reservations are admitted, not pending, so they need the
+   * duplicate-suppression identities without the pending queue entry.
+   */
+  private addIdentityIndexes(item: InternalQueuedUnit) {
+    for (const inputUnitIdentity of item.memberIdentities) {
+      this.addIndex(
+        this.queueIdsByIdentity,
+        identityKey({
+          workflowId: item.workflowId,
+          inputUnitIdentity,
+        }),
+        item.queueId,
+      );
+    }
+  }
+
+  private findReservationItem(
+    submissionUnitId: WorkflowQueueEntryId | string,
+  ): InternalQueuedUnit | undefined {
+    return this.activeByQueueId.get(submissionUnitId as WorkflowQueueEntryId);
+  }
+
   private removePendingIndexes(
     item: InternalQueuedUnit,
     options: { preserveIdentity?: boolean } = {},
@@ -734,7 +1003,9 @@ export class WorkflowSubmissionQueue {
             (left, right) =>
               (left.resumeOrdinal ?? 0) - (right.resumeOrdinal ?? 0),
           )[0] ??
-        controller.items.find((candidate) => candidate.state === "pending");
+        controller.items.find(
+          (candidate) => candidate.state === "pending" && !candidate.recovered,
+        );
       if (!item) {
         break;
       }

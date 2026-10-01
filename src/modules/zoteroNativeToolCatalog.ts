@@ -1797,6 +1797,15 @@ async function runMutationPreflight(
     const scope: ZoteroHostMutationCallerScope = {
       ownerId: "pi:" + context.owner.kind + ":" + context.owner.ownerId,
     };
+    // The Broker binding is trusted composition from the private identity, so
+    // the Gateway can commit it with the started fact and reconcile against
+    // authoritative Broker evidence without reissuing the effect. Model
+    // arguments never reach it, and the mutation input keeps its own
+    // operationId unchanged.
+    const domainOperation = {
+      scope: { ownerId: scope.ownerId },
+      operationId: identity.operationId,
+    };
     const prepared = await control.prepare({
       input: input as MutationRequestByOperation[MutationOperation],
       scope,
@@ -1826,6 +1835,7 @@ async function runMutationPreflight(
             ? prepared.result.receipt.effectDigest
             : "settled",
         admissionFacts: admissionFacts(spec, identity, args, undefined),
+        domainOperation,
         execute: async () =>
           finalizeMutation(
             prepared.result,
@@ -1850,6 +1860,7 @@ async function runMutationPreflight(
         status: "prepared",
         domainPlanDigest: preview.domainPlanDigest,
         admissionFacts: facts,
+        domainOperation,
         execute: async () => ({
           status: "completed",
           effectCertainty: "not_applicable",
@@ -1866,6 +1877,7 @@ async function runMutationPreflight(
       status: "prepared",
       domainPlanDigest: preview.domainPlanDigest,
       admissionFacts: facts,
+      domainOperation,
       execute: async (executeContext) =>
         finalizeMutation(
           await control.execute({
@@ -1907,6 +1919,9 @@ function mutationDefinition(
     schema: spec.schema,
     minimumEffects: ["bounded-read"],
     maxResultBytes: BYTE_LIMIT,
+    // A stored-attachment mutation copies and imports a file, so it keeps the
+    // long bound; the remaining Zotero mutations stay ordinary.
+    deadlineCategory: spec.files ? "long-traversal" : "ordinary",
     classify: (value) => {
       const dryRun = (value as JsonObject | undefined)?.dryRun === true;
       return {

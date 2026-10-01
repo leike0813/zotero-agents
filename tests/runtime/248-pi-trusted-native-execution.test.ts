@@ -33,6 +33,7 @@ import {
   createPiTrustedNativeExecution,
   withPiOwnerAuditQuota,
 } from "../../src/modules/piTrustedNativeExecution";
+import type { PiPhysicalSettlement } from "../../src/modules/piRuntimeLifecycle";
 
 async function expectFailure(work: () => Promise<unknown>, pattern: RegExp) {
   let error: unknown;
@@ -416,11 +417,12 @@ describe("Pi Trusted Native execution", function () {
     }
   });
 
-  it("bounds Shell teardown when the child never proves exit", async function () {
+  it("keeps Shell physical settlement unknown while the child never proves exit", async function () {
     this.timeout(10000);
     const root = await mkdtemp(join(tmpdir(), "pi-native-shell-stop-"));
     const existingChromeUtils = (globalThis as { ChromeUtils?: unknown })
       .ChromeUtils;
+    const registered: Promise<PiPhysicalSettlement>[] = [];
     try {
       (globalThis as { ChromeUtils?: unknown }).ChromeUtils = {
         importESModule: () => ({
@@ -440,13 +442,65 @@ describe("Pi Trusted Native execution", function () {
         mode: "trusted",
       });
       const shell = native.definitions.find((item) => item.name === shellName)!;
+      const controller = new AbortController();
+      // A logical cancel must return at once; the physical claim survives on
+      // the registered promise until a real exit is observed.
+      setTimeout(() => controller.abort(), 20);
+      const started = Date.now();
+      const outcome = await shell.execute(
+        { command: "pwd" },
+        {
+          signal: controller.signal,
+          onUpdate: () => undefined,
+          trackPhysical: (settlement) => registered.push(settlement),
+        },
+      );
+      assert.isBelow(Date.now() - started, 7000);
+      assert.equal(outcome.effectCertainty, "unknown");
+      assert.lengthOf(registered, 1);
+    } finally {
+      (globalThis as { ChromeUtils?: unknown }).ChromeUtils =
+        existingChromeUtils;
+    }
+  });
+
+  it("returns a Shell timeout on its own bound without waiting for the Gateway limit", async function () {
+    this.timeout(10000);
+    const root = await mkdtemp(join(tmpdir(), "pi-native-shell-timeout-"));
+    const existingChromeUtils = (globalThis as { ChromeUtils?: unknown })
+      .ChromeUtils;
+    try {
+      (globalThis as { ChromeUtils?: unknown }).ChromeUtils = {
+        importESModule: () => ({
+          Subprocess: {
+            call: async () => ({
+              stdout: { readString: async () => "" },
+              stderr: { readString: async () => "" },
+              // The child ignores the stop, so only the executor's own bound
+              // can end the logical wait.
+              wait: () => new Promise(() => undefined),
+              kill: () => undefined,
+            }),
+          },
+        }),
+      };
+      const native = await createPiTrustedNativeExecution({
+        workspaceRoot: root,
+        ownerRoot: join(root, ".owner"),
+        mode: "trusted",
+      });
+      const shell = native.definitions.find((item) => item.name === shellName)!;
       const started = Date.now();
       const outcome = await shell.execute(
         { command: "pwd", timeout: 1 },
         { signal: new AbortController().signal, onUpdate: () => undefined },
       );
-      assert.isBelow(Date.now() - started, 7000);
+      // The one second executor bound ends it; the Gateway's own deadline is
+      // two minutes and must never be the thing that returns this result.
+      assert.isBelow(Date.now() - started, 6000);
+      assert.equal(outcome.status, "failed");
       assert.equal(outcome.effectCertainty, "unknown");
+      assert.equal(outcome.code, "pi_shell_timeout");
     } finally {
       (globalThis as { ChromeUtils?: unknown }).ChromeUtils =
         existingChromeUtils;

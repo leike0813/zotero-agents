@@ -5898,51 +5898,56 @@ describe("workflow execution seams", function () {
     }
   });
 
-  it("carries the invocation source window to built-in Pi provider dispatch", async function () {
-    const sourceWindow = { id: "invocation-window" };
-    let captured: Record<string, unknown> | undefined;
-    const runState = runWorkflowExecutionSeam(
-      {
-        prepared: {
-          workflow: {
-            manifest: {
-              id: "seam-builtin-pi-origin-window",
-              label: "Seam Built-in Pi Origin Window",
-              provider: "skillrunner",
+  for (const backendType of ["builtin-pi", "acp", "skillrunner"] as const) {
+    it(`passes the invocation window only to built-in Pi (${backendType})`, async function () {
+      const sourceWindow = { id: "invocation-window" };
+      let captured: Record<string, unknown> | undefined;
+      const runState = runWorkflowExecutionSeam(
+        {
+          prepared: {
+            workflow: {
+              manifest: {
+                id: "seam-builtin-pi-origin-window",
+                label: "Seam Built-in Pi Origin Window",
+                provider: "skillrunner",
+              },
+            } as any,
+            requests: [{ kind: "skillrunner.job.v1", skill_id: "deterministic" }],
+            skillDisplayById: {},
+            candidateSkipped: 0,
+            executionContext: {
+              providerId: backendType,
+              requestKind: "skillrunner.job.v1",
+              providerOptions: { engine: "deterministic" },
+              backend: {
+                id: backendType,
+                type: backendType,
+                baseUrl: "local://builtin-pi",
+              },
+              sourceWindow,
             },
-          } as any,
-          requests: [{ kind: "skillrunner.job.v1", skill_id: "deterministic" }],
-          skillDisplayById: {},
-          candidateSkipped: 0,
-          executionContext: {
-            providerId: "builtin-pi",
-            requestKind: "skillrunner.job.v1",
-            providerOptions: { engine: "deterministic" },
-            backend: {
-              id: "builtin-pi",
-              type: "builtin-pi",
-              baseUrl: "local://builtin-pi",
-            },
-            sourceWindow,
           },
         },
-      },
-      {
-        executeWithProvider: async ({ providerOptions }) => {
-          captured = providerOptions as Record<string, unknown>;
-          return {
-            status: "succeeded",
-            requestId: "pi-origin-window",
-            fetchType: "result",
-            resultJson: {},
-            responseJson: {},
-          };
+        {
+          executeWithProvider: async ({ providerOptions }) => {
+            captured = providerOptions as Record<string, unknown>;
+            return {
+              status: "succeeded",
+              requestId: "pi-origin-window",
+              fetchType: "result",
+              resultJson: {},
+              responseJson: {},
+            };
+          },
         },
-      },
-    );
-    await runState.idlePromise;
-    assert.isOk(captured, "provider dispatch should have run");
-    assert.equal(captured?.originWindow, sourceWindow);
-    assert.equal(captured?.engine, "deterministic");
-  });
+      );
+      await runState.idlePromise;
+      assert.isOk(captured, "provider dispatch should have run");
+      assert.equal(
+        captured?.originWindow,
+        backendType === "builtin-pi" ? sourceWindow : undefined,
+      );
+      assert.equal(captured?.engine, "deterministic");
+    });
+  }
 });

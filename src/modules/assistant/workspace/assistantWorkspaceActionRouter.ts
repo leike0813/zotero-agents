@@ -974,6 +974,13 @@ async function handlePiConversationAction(
     }
     return;
   }
+  // A Conversation check only reassesses its holds. It never dispatches: the
+  // next real prompt is a new foreground turn the user sends.
+  if (action === "check-owner-recovery") {
+    if (conversationId)
+      await runLocal(() => coordinator.checkRecovery(conversationId));
+    return;
+  }
   if (action === "new-conversation") {
     let status = "unavailable";
     try {
@@ -1262,6 +1269,17 @@ async function handlePiSkillRunAction(
     await runLocal(() =>
       exportPiDiagnosticsForOwner({ kind: "skill_run", ownerId: requestId }),
     );
+    return;
+  }
+  // Recovery is explicit and evidence-bound: the check observes the Broker and
+  // reassesses the owner, and the continue resumes only a resolved owner. Both
+  // reuse the existing owner surfaces, so no new region is published.
+  if (action === "check-owner-recovery") {
+    await runLocal(() => coordinator.recover(requestId));
+    return;
+  }
+  if (action === "continue-owner-recovery") {
+    await runLocal(() => coordinator.continueRecovery(requestId));
     return;
   }
   if (action === "select-run") {

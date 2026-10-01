@@ -120,7 +120,6 @@ import { shutdownRuntimeFileRangeReader } from "./modules/runtimeFileRangeReader
 import {
   cleanupRuntimePersistenceCategory,
   cleanupRuntimePersistenceIssues,
-  cleanupRuntimePersistenceRetention,
   scanRuntimePersistenceGovernance,
   type RuntimePersistenceCategory,
 } from "./modules/runtimePersistenceGovernance";
@@ -188,6 +187,11 @@ import {
 } from "./modules/synthesis/production/synthesisProductionOwner";
 import { advanceSynthesisReverseHostLibraryRevision } from "./modules/synthesis/reverseHost/synthesisReverseHostHandlers";
 import { shutdownAcpSkillRunConversations } from "./modules/acp/skillRun/acpSkillRunActions";
+import {
+  getPiRuntimeLifecycle,
+  startPiRuntimeLifecycle,
+  PI_SHUTDOWN_BUDGET_MS,
+} from "./modules/piRuntimeLifecycle";
 import {
   finishCitationGraphCrashJournal,
   initializeCitationGraphCrashJournal,
@@ -887,6 +891,28 @@ async function onStartup() {
   }
   await rescanWorkflowRegistry();
   reconcileRecoveredRuntimeTasksOnStartup();
+  workflowSubmissionQueue.setPiAdmissionBarrier(true);
+  await startPiRuntimeLifecycle({
+    async restoreReservations() {
+      const owners = await import("./modules/piSkillRun");
+      return owners.restorePiSkillRunReservationsOnStartup();
+    },
+    async recover() {
+      const conversations = await import("./modules/piConversation");
+      await conversations.reconcilePiConversationsOnStartup();
+      if (getPiRuntimeLifecycle().closed) return;
+      const owners = await import("./modules/piSkillRun");
+      await owners.reconcilePiSkillRunsOnStartup();
+    },
+    async cleanup() {
+      const { cleanupRuntimePersistenceRetention } =
+        await import("./modules/runtimePersistenceGovernance");
+      await cleanupRuntimePersistenceRetention();
+    },
+  });
+  workflowSubmissionQueue.setPiAdmissionBarrier(
+    !getPiRuntimeLifecycle().skillAdmissionOpen,
+  );
   workflowSubmissionQueue.start();
   purgeSkillRunnerBackendReconcileState(LEGACY_REMOVED_SKILLRUNNER_BACKEND_ID);
   untrackSkillRunnerBackendHealth(LEGACY_REMOVED_SKILLRUNNER_BACKEND_ID);
@@ -895,11 +921,6 @@ async function onStartup() {
     onBackendsChanged: refreshWorkflowMenus,
   });
   startSkillRunnerTaskReconciler();
-  void cleanupRuntimePersistenceRetention().catch((error) => {
-    if (typeof console !== "undefined") {
-      console.warn("[runtime-persistence] retention cleanup failed", error);
-    }
-  });
   hydrateLocalRuntimeAutoStartSessionStateFromPersistedState();
   if (!isLocalRuntimeAutoStartPaused()) {
     await runManagedRuntimeStartupPreflightProbe();
@@ -1107,13 +1128,22 @@ function handleLibraryArtifactsItemNotification(
 }
 
 const PLUGIN_SHUTDOWN_STEP_TIMEOUT_MS = 3_000;
+let pluginShutdownDeadline: number | undefined;
 
 async function runShutdownStepWithTimeout(
   stage: string,
   runner: () => void | Promise<void>,
   timeoutMs = PLUGIN_SHUTDOWN_STEP_TIMEOUT_MS,
 ) {
+  timeoutMs = Math.max(
+    0,
+    Math.min(
+      timeoutMs,
+      (pluginShutdownDeadline ?? Number.POSITIVE_INFINITY) - Date.now(),
+    ),
+  );
   let settled = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const task = Promise.resolve()
     .then(() => runner())
     .then(
@@ -1129,13 +1159,14 @@ async function runShutdownStepWithTimeout(
   const result = await Promise.race([
     task,
     new Promise<{ ok: false; timedOut: true }>((resolve) => {
-      setTimeout(() => {
+      timer = setTimeout(() => {
         if (!settled) {
           resolve({ ok: false, timedOut: true });
         }
       }, timeoutMs);
     }),
   ]);
+  clearTimeout(timer);
   if (result.ok) {
     return;
   }
@@ -1168,6 +1199,18 @@ async function runShutdownStepWithTimeout(
 }
 
 async function onShutdown(): Promise<void> {
+  pluginShutdownDeadline = Date.now() + PI_SHUTDOWN_BUDGET_MS;
+  getPiRuntimeLifecycle().closeAdmission();
+  workflowSubmissionQueue.setPiAdmissionBarrier(true);
+  const piOwnersStopping = Promise.all([
+    import("./modules/piConversation").then((module) =>
+      module.shutdownPiConversations(pluginShutdownDeadline),
+    ),
+    import("./modules/piSkillRun").then((module) =>
+      module.shutdownPiSkillRuns(pluginShutdownDeadline),
+    ),
+  ]).then(() => undefined);
+  void piOwnersStopping.catch(() => undefined);
   await runShutdownStepWithTimeout("workflow-submission-queue-shutdown", () =>
     workflowSubmissionQueue.shutdown(),
   );
@@ -1195,12 +1238,18 @@ async function onShutdown(): Promise<void> {
     "acp-audit-drain",
     releaseAcpSkillRunAuditTrailWrites,
   );
-  await runShutdownStepWithTimeout("pi-conversations-shutdown", async () =>
-    (await import("./modules/piConversation")).shutdownPiConversations(),
+  await runShutdownStepWithTimeout(
+    "pi-owners-shutdown",
+    () => piOwnersStopping,
+    PI_SHUTDOWN_BUDGET_MS,
   );
   await runShutdownStepWithTimeout("pi-mcp-sources-shutdown", async () =>
     (await import("./modules/piMcpRuntimeOwner")).shutdownPiMcpToolSources(),
   );
+  await runShutdownStepWithTimeout("pi-audit-drain", async () => {
+    const audit = await import("./modules/piRuntimeAudit");
+    await audit.shutdownPiRuntimeAudit(pluginShutdownDeadline!);
+  });
   await runShutdownStepWithTimeout(
     "stdio-bridge-shutdown",
     shutdownWindowsStdioBridgeService,
@@ -1268,8 +1317,12 @@ async function onShutdown(): Promise<void> {
   unregisterToolkitSafely();
   unregisterZoteroPaneStylesheet();
   unregisterLibraryArtifactsNotifierObserver();
-  await unregisterLibraryRatingColumn();
-  await unregisterLibraryArtifactsColumn();
+  await runShutdownStepWithTimeout("rating-column-unregister", async () => {
+    await unregisterLibraryRatingColumn();
+  });
+  await runShutdownStepWithTimeout("artifacts-column-unregister", async () => {
+    await unregisterLibraryArtifactsColumn();
+  });
   uninstallMarkdownAttachmentOpenProbe();
   addon.data.dialog?.window?.close();
   // Remove addon object

@@ -993,6 +993,7 @@ export function applySkillRunnerRunEvent(
       return updateSkillRunnerRunApplyState({
         backendId: existing.backendId,
         requestId: existing.requestId || event.requestId,
+        resolvedRecord: existing,
         state,
         attempt: event.attempt,
         maxAttempt: event.maxAttempt,
@@ -1819,6 +1820,12 @@ function updateSkillRunnerRunStateByRunKey(args: {
 function updateSkillRunnerRunApplyState(args: {
   backendId?: string;
   requestId: string;
+  /**
+   * The caller already resolved this record, possibly by runKey. A run whose
+   * requestId is still empty is not indexed by request, so re-querying by it
+   * would drop the apply state that the event just delivered.
+   */
+  resolvedRecord?: SkillRunnerRunRecord;
   state: SkillRunnerRunApplyState;
   attempt?: number;
   maxAttempt?: number;
@@ -1828,10 +1835,12 @@ function updateSkillRunnerRunApplyState(args: {
   eventType?: SkillRunnerRunEventType;
   eventPayload?: unknown;
 }) {
-  const existing = getSkillRunnerRunRecordByRequest({
-    backendId: args.backendId,
-    requestId: args.requestId,
-  });
+  const existing =
+    args.resolvedRecord ||
+    getSkillRunnerRunRecordByRequest({
+      backendId: args.backendId,
+      requestId: args.requestId,
+    });
   if (!existing) {
     return null;
   }

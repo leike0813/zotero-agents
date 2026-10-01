@@ -7,7 +7,9 @@ import {
   startLongLivedProcess,
   type LongLivedProcess,
   type LongLivedProcessRequest,
+  type ProcessExit,
 } from "../platform/longLivedProcess";
+import type { PiPhysicalSettlement } from "./piRuntimeLifecycle";
 
 const MAX_LINE_BYTES = 1024 * 1024;
 
@@ -17,6 +19,22 @@ export class PiMcpStdioTransport implements Transport {
   onmessage?: (message: JSONRPCMessage) => void;
   private process: LongLivedProcess | null = null;
   private closed = false;
+  private exit: Promise<ProcessExit> | null = null;
+
+  /**
+   * Real child settlement. Closing the client proves nothing about the child,
+   * so callers that hold resources or recovery holds must await this instead.
+   */
+  get physicalSettlement(): Promise<{ state: PiPhysicalSettlement }> {
+    if (!this.exit)
+      return Promise.resolve({ state: "unknown" as PiPhysicalSettlement });
+    return this.exit.then((exit) => ({
+      state:
+        exit.outcome === "exited"
+          ? ("settled" as PiPhysicalSettlement)
+          : ("unknown" as PiPhysicalSettlement),
+    }));
+  }
 
   constructor(private readonly request: LongLivedProcessRequest) {}
 
@@ -29,9 +47,19 @@ export class PiMcpStdioTransport implements Transport {
       throw new Error("mcp_stdio_closed");
     }
     this.process = process;
+    this.exit = process.wait().then(
+      (exit) => exit,
+      (): ProcessExit => ({
+        adapter: "mozilla",
+        pid: null,
+        exitCode: null,
+        outcome: "unknown",
+        terminationRequested: true,
+      }),
+    );
     void this.readStdout(this.process);
     void this.drainStderr(this.process);
-    void this.process.wait().then(
+    void this.exit.then(
       () => this.notifyClosed(),
       (error: unknown) => {
         this.onerror?.(new Error("mcp_stdio_wait_failed", { cause: error }));
@@ -104,5 +132,19 @@ export class PiMcpStdioTransport implements Transport {
     const process = this.process;
     if (process) await process.terminate();
     this.notifyClosed();
+  }
+
+  /** Requests termination and returns the real exit evidence. */
+  async terminateNow(): Promise<ProcessExit> {
+    if (!this.process) {
+      return {
+        adapter: "mozilla",
+        pid: null,
+        exitCode: null,
+        outcome: "unknown",
+        terminationRequested: false,
+      };
+    }
+    return await this.process.terminate();
   }
 }

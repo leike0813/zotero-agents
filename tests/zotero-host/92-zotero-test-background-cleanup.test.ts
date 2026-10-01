@@ -161,7 +161,9 @@ describe("zotero test background cleanup harness", function () {
     });
 
     const cleanupPromise = cleanupBackgroundRuntimeForZoteroTests();
-    for (let attempt = 0; attempt < 10; attempt += 1) {
+    // Pi surfaces are disposed ahead of these steps, so the poll budget covers
+    // those awaited disposals as well.
+    for (let attempt = 0; attempt < 200; attempt += 1) {
       if (calls.includes("resetSkillRunnerTaskReconcilerForTests:start")) {
         break;
       }
