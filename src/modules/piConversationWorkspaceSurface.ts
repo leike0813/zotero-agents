@@ -364,8 +364,11 @@ export function createPiConversationWorkspaceSurfaceAdapter(
                 ? [
                     "rename-conversation",
                     ...(replyable ? ["compact-conversation" as const] : []),
+                    // C18: the scoped diagnostic export stays available in
+                    // every lifecycle state, archived owners included.
+                    "export-diagnostics" as const,
                   ]
-                : [],
+                : ["export-diagnostics" as const],
             error: null,
           }),
         },

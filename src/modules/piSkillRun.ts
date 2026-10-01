@@ -27,7 +27,18 @@ import {
 } from "./piTranscriptStore";
 import { listPiSkillRunRegistry } from "./pluginStateStore";
 import { type PreparedSkillRun } from "./skillRunPreparation";
+import type { AcpSkillRunnerWorkspace } from "./acp/skillRun/acpSkillRunnerWorkspace";
 import { buildSkillRunResponseEnvelope } from "./skillRunFinalizer";
+import {
+  createPiFailureCore,
+  type PiFailureEffectCertainty,
+  type PiFailureOrigin,
+} from "../shared/piFailureContract";
+import {
+  discardPiRuntimeAuditOwner,
+  flushOwner as flushPiRuntimeAuditOwner,
+  record as recordPiRuntimeAudit,
+} from "./piRuntimeAudit";
 import {
   updatePiSkillRunProviderProjection,
   type PiSkillRunProviderProjection,
@@ -49,6 +60,7 @@ import {
   createPiProviderModelSource,
 } from "./piProviderExecution";
 import {
+  failureEffectCertainty,
   freezePiToolGatewayTurn,
   type PiGatewayToolDefinition,
   type PiGatewayPendingCall,
@@ -148,6 +160,8 @@ type State = {
   revision: number;
   workflow: ProviderExecuteArgs["orchestrationContext"];
   prepared?: PreparedSkillRun;
+  /** Admission-time workspace binding, present even when preparation fails. */
+  workspace?: AcpSkillRunnerWorkspace;
   model?: PiModelSelectionSnapshot;
   selection?: PiSelection;
   pending: PiGatewayPendingCall[];
@@ -163,6 +177,10 @@ type State = {
   applyReceipt?: ApplyReceipt;
   terminalAck?: string;
   failure?: string;
+  /** The committed canonical failure identity for this run, if any. */
+  failureId?: string;
+  /** The code that identity was committed for; guards against stale reuse. */
+  failureCode?: string;
   counts: { user: number; assistant: number; tool: number; thought: number };
   draftReceipts: Record<string, { fingerprint: string; revision: number }>;
   abort?: () => void;
@@ -244,6 +262,37 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
     if (state) state.updatedAt = result.entry.createdAt;
     return result.entry;
   };
+  /**
+   * One observed failure gets one canonical core, committed before any audit
+   * evidence or higher projection references it. The caller that observed the
+   * failure records the evidence, so a Gateway failure and a run terminal
+   * never both record for the same identity.
+   */
+  const failureFact = async (
+    requestId: string,
+    code: string,
+    turnId: string | undefined,
+    detail: {
+      origin?: PiFailureOrigin;
+      effectCertainty?: PiFailureEffectCertainty;
+    } = {},
+  ) => {
+    const core = createPiFailureCore({
+      origin: detail.origin || "pi_skill_run",
+      code,
+      failureId: id("failure"),
+      ...(detail.effectCertainty
+        ? { effectCertainty: detail.effectCertainty }
+        : {}),
+    });
+    await fact(requestId, "failure_observed", core, turnId);
+    const state = states.get(requestId);
+    if (state) {
+      state.failureId = core.failureId;
+      state.failureCode = code;
+    }
+    return core;
+  };
   function fold(
     requestId: string,
     entries: readonly PiTranscriptEntry[],
@@ -275,14 +324,37 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
         state.failure =
           typeof payload.code === "string" ? payload.code : undefined;
       } else if (entry.kind === "turn_started") {
+        state.failureId = undefined;
+        state.failureCode = undefined;
         state.turnId = String(payload.turnId);
         state.model = payload.model as PiModelSelectionSnapshot;
+      } else if (entry.kind === "failure_observed") {
+        if (typeof payload.failureId === "string") {
+          state.failureId = payload.failureId;
+          if (typeof payload.code === "string")
+            state.failureCode = payload.code;
+        }
+      } else if (entry.kind === "skill_run_workspace") {
+        // The admission-time binding survives a failed preparation, so audit
+        // can resolve this owner without depending on a prepared fact.
+        if (typeof payload.workspaceDir === "string")
+          state.workspace = {
+            workspaceDir: payload.workspaceDir,
+            runtimeDir:
+              typeof payload.runtimeDir === "string"
+                ? payload.runtimeDir
+                : payload.workspaceDir,
+          } as AcpSkillRunnerWorkspace;
       } else if (entry.kind === "skill_run_guard")
         state.guard = payload as unknown as PiRuntimeLoopGuardState;
       else if (entry.kind === "skill_run_result_sealed")
         state.sealed = payload as unknown as State["sealed"];
       else if (entry.kind === "skill_run_outcome") {
         state.outcome = payload.result as ProviderExecutionResult;
+        // Reuse the committed identity so a restored owner never mints a
+        // second failure for the same run.
+        if (typeof payload.failureId === "string")
+          state.failureId = payload.failureId;
         if (state.outcome.status === "succeeded" && state.sealed)
           state.outcome = { ...state.outcome, resultJson: state.sealed.result };
         state.status = state.outcome.status as PiSkillRunStatus;
@@ -357,6 +429,38 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
       { status, ...(code ? { code } : {}) },
       state.turnId || undefined,
     );
+    // Interaction boundaries are structural evidence of where a run paused,
+    // recorded once the status fact is durable. They carry the interaction
+    // identity only, never the pending call arguments or a user's answer.
+    if (["waiting_user", "waiting_permission"].includes(status))
+      recordPiRuntimeAudit({
+        operation: "interaction.wait",
+        origin: "skill_run",
+        owner: ref(state.requestId),
+        ...(options.root ? { root: options.root } : {}),
+        ...(state.workspace
+          ? { workspaceDir: state.workspace.workspaceDir }
+          : {}),
+        correlation: {
+          ...(state.turnId ? { turnId: state.turnId } : {}),
+          ...(state.pending[0]?.call.callId
+            ? { callId: state.pending[0].call.callId }
+            : {}),
+        },
+        attributes: { kind: status },
+      });
+    if (status === "suspended")
+      recordPiRuntimeAudit({
+        operation: "interaction.suspended",
+        origin: "skill_run",
+        owner: ref(state.requestId),
+        ...(options.root ? { root: options.root } : {}),
+        ...(state.workspace
+          ? { workspaceDir: state.workspace.workspaceDir }
+          : {}),
+        correlation: state.turnId ? { turnId: state.turnId } : {},
+        attributes: { kind: "suspended" },
+      });
     state.status = status;
     state.failure = code;
     emit(state.requestId, [
@@ -400,6 +504,77 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
     };
   }
   async function sealOutcome(state: State, result: ProviderExecutionResult) {
+    // A failing run commits its failure core before the sealed outcome, so the
+    // outcome and every higher projection reference one existing identity. A
+    // repeat seal reuses the committed observation instead of appending one.
+    let failureId: string | undefined;
+    const failureCode =
+      result.status === "failed"
+        ? (result.responseJson as { error?: { code?: string } } | undefined)
+            ?.error?.code || "skill_run_execution_failed"
+        : undefined;
+    if (failureCode) {
+      // Only an observation committed for this same cause may be reused. An
+      // earlier turn's identity describes a different failure, so a genuinely
+      // distinct cause always gets its own.
+      const existing =
+        state.failureCode === failureCode ? state.failureId : undefined;
+      if (existing) {
+        failureId = existing;
+      } else {
+        try {
+          failureId = (
+            await failureFact(state.requestId, failureCode, state.turnId)
+          ).failureId;
+          state.failureCode = failureCode;
+          // The run observed this terminal failure, so the coordinator records
+          // the evidence; a Gateway failure already recorded its own.
+          recordPiRuntimeAudit({
+            operation: "failure.observed",
+            origin: "skill_run",
+            owner: ref(state.requestId),
+            ...(options.root ? { root: options.root } : {}),
+            ...(state.workspace
+              ? { workspaceDir: state.workspace.workspaceDir }
+              : {}),
+            correlation: {
+              ...(state.turnId ? { turnId: state.turnId } : {}),
+              failureId,
+            },
+            failureCode,
+          });
+        } catch {
+          // The failure core could not be committed, so no sealed outcome may
+          // reference a durable identity that does not exist. The run requires
+          // recovery and records the evidence gap instead.
+          state.failureId = undefined;
+          state.failureCode = undefined;
+          recordPiRuntimeAudit({
+            operation: "audit.gap",
+            origin: "persistence",
+            owner: ref(state.requestId),
+            ...(options.root ? { root: options.root } : {}),
+            ...(state.workspace
+              ? { workspaceDir: state.workspace.workspaceDir }
+              : {}),
+            correlation: state.turnId ? { turnId: state.turnId } : {},
+            attributes: { reason: "canonical_failure_unavailable" },
+          });
+          state.status = "recovery_required";
+          state.failure = "persistence_failed";
+          return (
+            state.outcome ||
+            ({
+              status: "failed",
+              requestId: state.requestId,
+              fetchType: "result",
+              error: "persistence_failed",
+              responseJson: undefined,
+            } as ProviderExecutionResult)
+          );
+        }
+      }
+    }
     let committed = false;
     await commitPiOwnerFacts(
       ref(state.requestId),
@@ -419,6 +594,9 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
             kind: "skill_run_outcome",
             payload: json({
               result: receipt,
+              // The outcome references the committed failure identity; the
+              // cause itself stays in the failure core, not restated here.
+              ...(failureId ? { failureId } : {}),
               sealedAt: new Date().toISOString(),
               revision: entries.length + 1,
             }),
@@ -429,6 +607,35 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
     );
     if (committed) state.outcome = result;
     state.status = state.outcome!.status as PiSkillRunStatus;
+    const settled = state.outcome!;
+    // The failure observation and its evidence were committed by failureFact
+    // before the outcome, so the terminal only references that identity.
+    if (committed) {
+      if (settled.status === "canceled")
+        recordPiRuntimeAudit({
+          operation: "execution.canceled",
+          origin: "skill_run",
+          owner: ref(state.requestId),
+          root: options.root,
+          correlation: { turnId: state.turnId || undefined },
+        });
+      recordPiRuntimeAudit({
+        operation: "owner.terminal",
+        origin: "skill_run",
+        owner: ref(state.requestId),
+        root: options.root,
+        ...(state.workspace
+          ? { workspaceDir: state.workspace.workspaceDir }
+          : {}),
+        correlation: {
+          turnId: state.turnId || undefined,
+          ...(failureId ? { failureId } : {}),
+        },
+        attributes: { status: settled.status },
+      });
+    }
+    // Terminal is a flush boundary for this owner.
+    await flushPiRuntimeAuditOwner(ref(state.requestId), options.root);
     emit(state.requestId, [
       "navigation",
       "control",
@@ -476,6 +683,39 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
       backendId: "builtin-pi",
     });
     const state = await load(requestId);
+    // The workspace is bound at admission, before preparation and before any
+    // model dispatch, so a run that fails preparation still has a durable
+    // location for its evidence. Preparation reuses this same workspace
+    // instead of creating a second one. A failure here still settles the
+    // already-admitted owner rather than leaving it dangling.
+    let workspace: AcpSkillRunnerWorkspace | undefined;
+    try {
+      const { createAcpSkillRunnerWorkspace } =
+        await import("./acp/skillRun/acpSkillRunnerWorkspace");
+      workspace = await createAcpSkillRunnerWorkspace({
+        backendId: "builtin-pi",
+        skillId: request.skill_id,
+        requestId,
+        ...(args.orchestrationContext?.workflowId
+          ? { workflowId: args.orchestrationContext.workflowId }
+          : {}),
+        ...(args.orchestrationContext?.jobId
+          ? { jobId: args.orchestrationContext.jobId }
+          : {}),
+        ...(options.root ? { rootDir: options.root } : {}),
+      });
+      state.workspace = workspace;
+      await fact(requestId, "skill_run_workspace", {
+        workspaceDir: workspace.workspaceDir,
+      });
+    } catch {
+      // Without a binding the run cannot own evidence, so it settles as a
+      // preparation failure through the same terminal path as any other.
+      return sealOutcome(
+        state,
+        failureResult(state, "skill_run_preparation_failed", "prepare"),
+      );
+    }
     state.originWindow =
       args.providerOptions?.originWindow ||
       (typeof Zotero === "undefined" ? undefined : Zotero.getMainWindow?.());
@@ -506,12 +746,16 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
               workflowId: args.orchestrationContext?.workflowId,
               jobId: args.orchestrationContext?.jobId,
               root: options.root,
+              // Reuse the admission-time binding so preparation never
+              // creates a second workspace for the same owner.
+              workspace,
             })
           ).prepared;
       if (state.outcome) return state.outcome;
       state.prepared = prepared;
       await fact(requestId, "skill_run_prepared", {
         runtimeDir: prepared.workspace.runtimeDir,
+        workspaceDir: prepared.workspace.workspaceDir,
         snapshotDigest: prepared.provenance.snapshotDigest,
       });
       return await start(
@@ -782,6 +1026,22 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
             { id: value.call.callId, pending: value },
             turnId,
           ).then(() => {}),
+        // The gateway owns the tool failure and commits its canonical core;
+        // everything above reuses the returned identity.
+        recordFailure: async (failure) =>
+          (
+            await failureFact(state.requestId, failure.code, turnId, {
+              origin: "pi_tool_gateway",
+              effectCertainty: failureEffectCertainty(failure.effectCertainty),
+            })
+          ).failureId,
+      },
+      audit: {
+        owner: ref(state.requestId),
+        ...(options.root ? { root: options.root } : {}),
+        ...(state.workspace
+          ? { workspaceDir: state.workspace.workspaceDir }
+          : {}),
       },
       signal,
     });
@@ -1208,6 +1468,8 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
     const work = (async () => {
       const turnId = id("turn");
       state.turnId = turnId;
+      state.failureId = undefined;
+      state.failureCode = undefined;
       const Controller = resolveNativeAbortControllerConstructor();
       if (!Controller) throw new Error("pi_signal_unavailable");
       const controller = new Controller();
@@ -1414,10 +1676,35 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
       let result;
       try {
         result = await turn.result;
+        if (result.status === "failed") {
+          const failure = await failureFact(
+            state.requestId,
+            result.failure.code,
+            turnId,
+          );
+          result = {
+            ...result,
+            failure: { ...result.failure, failureId: failure.failureId },
+          };
+          recordPiRuntimeAudit({
+            operation: "failure.observed",
+            origin: "skill_run",
+            owner: ref(state.requestId),
+            root: options.root,
+            correlation: { turnId, failureId: failure.failureId },
+            failureCode: failure.code,
+          });
+        }
         await fact(
           state.requestId,
           "turn_terminal",
-          { turnId, status: result.status },
+          {
+            turnId,
+            status: result.status,
+            ...(result.status === "failed"
+              ? { failureId: result.failure.failureId }
+              : {}),
+          },
           turnId,
         );
       } finally {
@@ -1806,6 +2093,22 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
         { id: callId, decision },
         turnId,
       );
+      // The decision is durable, so its structural evidence can be recorded.
+      // Only the decision itself is kept; the reviewed arguments are not.
+      recordPiRuntimeAudit({
+        operation:
+          decision === "approve"
+            ? "interaction.continued"
+            : "interaction.declined",
+        origin: "skill_run",
+        owner: ref(requestId),
+        ...(options.root ? { root: options.root } : {}),
+        ...(state.workspace
+          ? { workspaceDir: state.workspace.workspaceDir }
+          : {}),
+        correlation: { ...(turnId ? { turnId } : {}), callId },
+        attributes: { kind: decision },
+      });
       await recordResult(state, toolResult(continued.result), turnId);
       if (continued.result.effectCertainty === "unknown") {
         await setStatus(state, "recovery_required", "tool_effect_unknown");
@@ -2314,6 +2617,23 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
       for (const state of states.values()) state.abort?.();
       await Promise.allSettled(
         [...states.values()].map((state) => state.active),
+      );
+      // Dispose is the production close boundary. Settle each owner's queued
+      // evidence before the owner can be released or removed, so a pending
+      // write can never race a directory removal. Best effort: the audit queue
+      // retains its own bounded gap, and this never fails a shutdown.
+      await Promise.allSettled(
+        [...states.keys()].map((requestId) =>
+          flushPiRuntimeAuditOwner(ref(requestId), options.root),
+        ),
+      );
+      // A flush only settles records already admitted to the queue. Records
+      // still waiting on owner resolution would land afterwards and recreate
+      // the tree, so stop the owner before the second, confirming flush.
+      await Promise.allSettled(
+        [...states.keys()].map((requestId) =>
+          discardPiRuntimeAuditOwner(ref(requestId), options.root),
+        ),
       );
       listeners.clear();
     },

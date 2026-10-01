@@ -6,6 +6,7 @@ import { createPiSkillRunCoordinator } from "../../src/modules/piSkillRun";
 import {
   inspectPiOwner,
   appendPiOwnerFact,
+  createPiOwner,
 } from "../../src/modules/piOwnerPersistence";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 import { installPluginStateNodeSqliteAdapter } from "../helpers/pluginStateNodeSqliteAdapter";
@@ -14,6 +15,10 @@ import { createPiTextProviderSource } from "../../src/modules/piRuntime";
 import { prepareSkillRun } from "../../src/modules/skillRunPreparation";
 import { createAcpSkillRunnerWorkspace } from "../../src/modules/acp/skillRun/acpSkillRunnerWorkspace";
 import type { PiModelSelectionSnapshot } from "../../src/shared/piProviderContract";
+import { readOwnerAudit } from "./piOwnerAuditRead";
+import { resetPiRuntimeAuditForTests } from "../../src/modules/piRuntimeAudit";
+import { setRuntimeLogDiagnosticMode } from "../../src/modules/runtimeLogManager";
+import { joinPath } from "../../src/utils/path";
 
 const model: PiModelSelectionSnapshot = {
   configurationId: "test",
@@ -48,6 +53,10 @@ describe("Pi Skill Run integration", function () {
   });
   afterEach(async function () {
     resetPluginStateStoreForTests();
+    // Drain every owner audit queue before the tree is removed. A coordinator
+    // that a test never disposed can still hold a queued write, and that write
+    // would otherwise recreate the directory under removal.
+    await resetPiRuntimeAuditForTests();
     if (prior === undefined) delete process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
     else process.env.ZOTERO_SKILLS_RUNTIME_ROOT = prior;
     await fs.rm(root, { recursive: true, force: true });
@@ -157,6 +166,240 @@ describe("Pi Skill Run integration", function () {
     assert.equal(result.error, "invalid_execution_mode");
     assert.isFalse(prepared);
     assert.equal((await coordinator.list())[0].requestId, result.requestId);
+  });
+
+  it("commits one failure identity before the sealed outcome and never repeats it", async function () {
+    const coordinator = createPiSkillRunCoordinator({
+      root,
+      prepare,
+      resolveModel: async () => model,
+      definitions: async () => [],
+      execution: () => {
+        const execution = createPiTextProviderSource({
+          steps: [{ text: "nothing sealed" }],
+        });
+        return {
+          model: execution.model,
+          source: () => {
+            throw new Error("private-provider-failure");
+          },
+        };
+      },
+    });
+    const result = await coordinator.execute(request());
+    assert.equal(result.status, "failed");
+    const requestId = result.requestId;
+    const ref = { kind: "skill_run" as const, ownerId: requestId };
+    const entries = (await inspectPiOwner(ref, root)).entries;
+    const failures = entries.filter(
+      (entry) => entry.kind === "failure_observed",
+    );
+    // Exactly one observation, committed before the outcome that references it.
+    assert.lengthOf(failures, 1);
+    const outcome = entries.find((entry) => entry.kind === "skill_run_outcome");
+    assert.isBelow(failures[0].seq, outcome!.seq);
+    const terminal = entries.find((entry) => entry.kind === "turn_terminal");
+    const failureId = (failures[0].payload as { failureId: string }).failureId;
+    assert.equal(
+      (outcome!.payload as { failureId: string }).failureId,
+      failureId,
+    );
+    assert.equal(
+      (terminal!.payload as { failureId: string }).failureId,
+      failureId,
+    );
+    // The core never carries the response envelope or provider detail.
+    assert.notInclude(JSON.stringify(failures[0].payload), "responseJson");
+    await coordinator.cancel(requestId).catch(() => undefined);
+    const after = (await inspectPiOwner(ref, root)).entries.filter(
+      (entry) => entry.kind === "failure_observed",
+    );
+    assert.lengthOf(after, 1);
+  });
+
+  it("records the workspace location before preparation evidence", async function () {
+    let prepared = false;
+    const coordinator = createPiSkillRunCoordinator({
+      root,
+      prepare: async (args) => {
+        prepared = true;
+        return prepare(args);
+      },
+      resolveModel: async () => model,
+      definitions: async () => [],
+      execution: () => {
+        const execution = createPiTextProviderSource({
+          steps: [{ text: "nothing sealed" }],
+        });
+        return { model: execution.model, source: execution.source };
+      },
+    });
+    const result = await coordinator.execute(request());
+    assert.isTrue(prepared);
+    const entries = (
+      await inspectPiOwner(
+        { kind: "skill_run", ownerId: result.requestId },
+        root,
+      )
+    ).entries;
+    const workspace = entries.find(
+      (entry) => entry.kind === "skill_run_workspace",
+    );
+    assert.isDefined(
+      workspace,
+      "workspace fact is required for audit owner resolution",
+    );
+    assert.isBelow(
+      workspace!.seq,
+      entries.find((entry) => entry.kind === "skill_run_prepared")!.seq,
+    );
+  });
+
+  it("binds a workspace at admission so a preparation failure still has one", async function () {
+    const coordinator = createPiSkillRunCoordinator({
+      root,
+      prepare: async () => {
+        throw new Error("private setup details");
+      },
+      execution: () => {
+        throw new Error("must not dispatch");
+      },
+    });
+    const result = await coordinator.execute(request());
+    assert.equal(result.status, "failed");
+    const entries = (
+      await inspectPiOwner(
+        { kind: "skill_run", ownerId: result.requestId },
+        root,
+      )
+    ).entries;
+    const workspace = entries.find(
+      (entry) => entry.kind === "skill_run_workspace",
+    );
+    // Preparation never resolved, yet the owner still has a durable location,
+    // so its terminal evidence has a home instead of being discarded.
+    assert.isDefined(
+      workspace,
+      "admission must bind a workspace before preparation",
+    );
+    const bound = workspace!.payload as { workspaceDir?: string };
+    assert.isString(bound.workspaceDir);
+    const audit = await readOwnerAudit(root, {
+      kind: "skill_run",
+      ownerId: result.requestId,
+    });
+    assert.isAbove(
+      audit.length,
+      0,
+      "a failed preparation still records evidence",
+    );
+  });
+
+  it("settles queued audit evidence before dispose releases the owner", async function () {
+    const coordinator = createPiSkillRunCoordinator({
+      root,
+      prepare,
+      resolveModel: async () => model,
+      definitions: async () => [],
+      execution: () => {
+        const execution = createPiTextProviderSource({
+          steps: [{ text: "nothing sealed" }],
+        });
+        return { model: execution.model, source: execution.source };
+      },
+    });
+    const result = await coordinator.execute(request());
+    assert.equal(result.status, "failed");
+    // Dispose is the production close boundary: an owner released without a
+    // flush can leave a queued write racing the next removal of its directory.
+    await coordinator.dispose();
+    const audit = await readOwnerAudit(root, {
+      kind: "skill_run",
+      ownerId: result.requestId,
+    });
+    assert.isAbove(
+      audit.length,
+      0,
+      "dispose must settle queued owner evidence",
+    );
+    // Nothing may still be writing into the owner tree once dispose resolves.
+    const before = await readOwnerAudit(root, {
+      kind: "skill_run",
+      ownerId: result.requestId,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    const after = await readOwnerAudit(root, {
+      kind: "skill_run",
+      ownerId: result.requestId,
+    });
+    assert.equal(
+      after.length,
+      before.length,
+      "no audit write may outlive dispose",
+    );
+  });
+
+  it("keeps interaction boundaries out of the store until Diagnostic Mode", async function () {
+    const coordinator = createPiSkillRunCoordinator({
+      root,
+      prepare,
+      resolveModel: async () => model,
+      definitions: async () => [],
+      execution: () => {
+        const execution = createPiTextProviderSource({
+          steps: [{ text: "nothing sealed" }],
+        });
+        return { model: execution.model, source: execution.source };
+      },
+    });
+    const result = await coordinator.execute(request());
+    const owner = { kind: "skill_run" as const, ownerId: result.requestId };
+    const production = await readOwnerAudit(root, owner);
+    // Interaction boundaries are diagnostic tier: production evidence holds
+    // the terminal and failure facts only.
+    assert.notInclude(JSON.stringify(production), "interaction.wait");
+    setRuntimeLogDiagnosticMode(true);
+    try {
+      await coordinator.cancel(result.requestId).catch(() => undefined);
+    } finally {
+      setRuntimeLogDiagnosticMode(false);
+    }
+  });
+
+  it("does not reuse a prior turn's failure identity for a different cause", async function () {
+    // A preparation failure is the distinct-cause path: the run reaches its
+    // terminal with a cause of its own, and the sealed outcome must reference
+    // that identity rather than whatever the folded state happened to hold.
+    const coordinator = createPiSkillRunCoordinator({
+      root,
+      prepare: async () => {
+        throw new Error("private setup details");
+      },
+      execution: () => {
+        throw new Error("must not dispatch");
+      },
+    });
+    const result = await coordinator.execute(request());
+    assert.equal(result.status, "failed");
+    const entries = (
+      await inspectPiOwner(
+        { kind: "skill_run", ownerId: result.requestId },
+        root,
+      )
+    ).entries;
+    const failures = entries.filter(
+      (entry) => entry.kind === "failure_observed",
+    );
+    const outcome = entries.find((entry) => entry.kind === "skill_run_outcome");
+    const failureId = (failures[0]?.payload as { failureId?: string })
+      ?.failureId;
+    // Exactly one observation, and the sealed outcome references it.
+    assert.lengthOf(failures, 1);
+    assert.isString(failureId);
+    assert.equal(
+      (outcome?.payload as { failureId?: string })?.failureId,
+      failureId,
+    );
   });
 
   it("seals explicit output and keeps apply/ack independent from cancellation and recovery", async function () {
@@ -1068,6 +1311,16 @@ describe("Pi Skill Run integration", function () {
     ]);
     assert.equal(canceled.status, "canceled");
     await continuing;
+    const cancellationAudit = await readOwnerAudit(root, {
+      kind: "skill_run",
+      ownerId: result.requestId,
+    });
+    assert.lengthOf(
+      cancellationAudit.filter(
+        (entry) => entry.operation === "execution.canceled",
+      ),
+      1,
+    );
     await coordinator.dispose();
   });
 });

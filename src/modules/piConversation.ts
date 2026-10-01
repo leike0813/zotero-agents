@@ -11,6 +11,15 @@ import { getBaseName, joinPath } from "../utils/path";
 import { sha256PrefixedHex } from "../utils/sha256";
 import { resolveNativeAbortControllerConstructor } from "../utils/wait";
 import { resolveRuntimeToolkit } from "../utils/runtimeBridge";
+import {
+  createPiFailureCore,
+  type PiFailureEffectCertainty,
+  type PiFailureOrigin,
+} from "../shared/piFailureContract";
+import {
+  flushOwner as flushPiRuntimeAuditOwner,
+  record as recordPiRuntimeAudit,
+} from "./piRuntimeAudit";
 import { loadPiModelCatalog } from "./piModelCatalog";
 import { listPiCredentials } from "./piCredentialStore";
 import {
@@ -30,6 +39,7 @@ import {
   type PiRuntimeSessionOptions,
 } from "./piRuntime";
 import {
+  failureEffectCertainty,
   freezePiToolGatewayTurn,
   type PiGatewayToolDefinition,
   type PiGatewayTurn,
@@ -284,6 +294,34 @@ export function createPiConversationCoordinator(options: Options = {}) {
       },
       options.root,
     );
+  /**
+   * One observed failure gets one canonical core, committed before any audit
+   * evidence or higher projection references it. This helper deliberately
+   * records no audit fact: the module that *observes* the failure owns its
+   * evidence. A Gateway failure is observed by the Gateway, and a turn failure
+   * is observed by this coordinator, so recording here would duplicate both.
+   */
+  const failureFact = (
+    conversationId: string,
+    code: string,
+    turnId: string | undefined,
+    detail: {
+      origin?: PiFailureOrigin;
+      effectCertainty?: PiFailureEffectCertainty;
+    } = {},
+  ) => {
+    const core = createPiFailureCore({
+      origin: detail.origin || "pi_conversation",
+      code,
+      failureId: id("failure"),
+      ...(detail.effectCertainty
+        ? { effectCertainty: detail.effectCertainty }
+        : {}),
+    });
+    return fact(conversationId, "failure_observed", core, turnId).then(
+      () => core,
+    );
+  };
   function setComposerError(conversationId: string, code?: string) {
     state(conversationId).composerError =
       code === "pi_resource_add_failed"
@@ -386,6 +424,9 @@ export function createPiConversationCoordinator(options: Options = {}) {
   async function archive(conversationId: string) {
     idle(conversationId);
     updatePiConversationMetadata(conversationId, { lifecycle: "archived" });
+    // Archive retains audit, so pending evidence settles before the owner goes
+    // quiet. Best effort: a failed flush leaves a bounded gap, never a failure.
+    await flushPiRuntimeAuditOwner(ref(conversationId), options.root);
     states.delete(conversationId);
     drafts.delete(conversationId);
     if (selectedId === conversationId) selectedId = null;
@@ -670,6 +711,20 @@ export function createPiConversationCoordinator(options: Options = {}) {
             { id: value.call.callId, pending: value },
             turnId,
           ).then(() => {}),
+        // The gateway owns the tool failure, so it commits the canonical core
+        // here and returns its identity. Audit and the turn projection reuse
+        // that id instead of re-describing the cause.
+        recordFailure: async (failure) =>
+          (
+            await failureFact(conversationId, failure.code, turnId, {
+              origin: "pi_tool_gateway",
+              effectCertainty: failureEffectCertainty(failure.effectCertainty),
+            })
+          ).failureId,
+      },
+      audit: {
+        owner: ref(conversationId),
+        ...(options.root ? { root: options.root } : {}),
       },
       signal,
       foregroundConversation: () =>
@@ -1064,27 +1119,76 @@ export function createPiConversationCoordinator(options: Options = {}) {
       });
       if (current.failure === "persistence_failed")
         result = persistenceFailure();
-      try {
-        await fact(
-          conversationId,
-          "turn_terminal",
-          {
-            turnId,
-            status:
-              current.status === "recovery_required"
-                ? "state_unknown"
-                : result.status,
-            ...(result.status === "failed"
-              ? { failure: result.failure.code }
-              : {}),
-          },
-          turnId,
-        );
-      } catch {
+      // A failed turn commits its failure core once, before the terminal fact
+      // that references it. Both share one identity: propagation, the owner
+      // projection and audit all point at this failureId.
+      let failureId: string | undefined;
+      let failureCommitted = true;
+      let terminalCommitted = false;
+      if (result.status === "failed") {
+        try {
+          failureId = (
+            await failureFact(conversationId, result.failure.code, turnId)
+          ).failureId;
+          result = { ...result, failure: { ...result.failure, failureId } };
+          // The turn observed this failure, so the coordinator records the
+          // evidence. The Gateway records its own separately, and a
+          // propagated cause is not a second observation.
+          recordPiRuntimeAudit({
+            operation: "failure.observed",
+            origin: "conversation",
+            owner: ref(conversationId),
+            root: options.root,
+            correlation: { turnId, failureId },
+            failureCode: result.failure.code,
+          });
+        } catch {
+          // The canonical commit failed, so no terminal may describe this
+          // failure: the observation it would reference does not exist. The
+          // owner requires recovery and records the evidence gap instead of
+          // publishing a terminal for a fact that was never written.
+          failureId = undefined;
+          failureCommitted = false;
+        }
+      }
+      if (!failureCommitted) {
         current.failure = "persistence_failed";
         current.status = "recovery_required";
         result = persistenceFailure();
-      }
+        recordPiRuntimeAudit({
+          operation: "audit.gap",
+          origin: "persistence",
+          owner: ref(conversationId),
+          root: options.root,
+          correlation: { turnId },
+          attributes: { reason: "canonical_failure_unavailable" },
+        });
+      } else
+        try {
+          await fact(
+            conversationId,
+            "turn_terminal",
+            {
+              turnId,
+              status:
+                current.status === "recovery_required"
+                  ? "state_unknown"
+                  : result.status,
+              ...(result.status === "failed"
+                ? {
+                    failure: result.failure.code,
+                    ...(failureId ? { failureId } : {}),
+                  }
+                : {}),
+            },
+            turnId,
+          );
+          terminalCommitted = true;
+        } catch {
+          current.failure = "persistence_failed";
+          current.status = "recovery_required";
+          result = persistenceFailure();
+        }
       if (current.status !== "recovery_required")
         current.status =
           result.status === "waiting_permission"
@@ -1113,6 +1217,43 @@ export function createPiConversationCoordinator(options: Options = {}) {
         current.definitions = [];
       }
       session.dispose();
+      // Owner terminal is recorded by the coordinator that owns the turn, once
+      // the canonical terminal fact is committed. Propagation layers and the
+      // Workspace surfaces deliberately do not repeat it. A turn that fell back
+      // to recovery has no committed terminal, so it records no owner terminal
+      // either.
+      if (terminalCommitted) {
+        if (result.status === "canceled")
+          recordPiRuntimeAudit({
+            operation: "execution.canceled",
+            origin: "conversation",
+            owner: ref(conversationId),
+            root: options.root,
+            correlation: { turnId },
+          });
+        recordPiRuntimeAudit({
+          operation: "owner.terminal",
+          origin: "conversation",
+          owner: ref(conversationId),
+          root: options.root,
+          correlation: {
+            turnId,
+            ...(failureId ? { failureId } : {}),
+          },
+          attributes: {
+            status:
+              current.status === "recovery_required"
+                ? "state_unknown"
+                : result.status,
+            ...(result.status === "failed"
+              ? { reason: result.failure.code }
+              : {}),
+          },
+        });
+        // Terminal is a flush boundary: the owner's evidence is settled before
+        // the turn is reported finished.
+        await flushPiRuntimeAuditOwner(ref(conversationId), options.root);
+      }
       emit(conversationId, [
         "control",
         "navigation",
@@ -1511,6 +1652,10 @@ export function createPiConversationCoordinator(options: Options = {}) {
         current.navigationTarget = undefined;
         current.definitions = [];
       }
+      // Waiting is a lifecycle boundary: settle any queued evidence before the
+      // owner goes idle, so a later export never races a pending write.
+      if (current.status === "waiting_permission")
+        await flushPiRuntimeAuditOwner(ref(conversationId), options.root);
       emit(conversationId, ["permission", "control", "navigation"]);
       return;
     }
@@ -1864,6 +2009,13 @@ export function createPiConversationCoordinator(options: Options = {}) {
         ...[...states.values()].map((current) => current.result),
         ...[...titleTasks.values()].map((task) => task.result),
       ]);
+      // Settle each owner's queued evidence before releasing it, so a pending
+      // write cannot race a later directory removal. Best effort only.
+      await Promise.allSettled(
+        [...states.keys()].map((conversationId) =>
+          flushPiRuntimeAuditOwner(ref(conversationId), options.root),
+        ),
+      );
       listeners.clear();
       for (const current of states.values()) {
         current.invalidateNavigation?.();

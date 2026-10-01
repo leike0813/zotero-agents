@@ -294,6 +294,15 @@ describe("dashboard backend-manager page (src/dashboard)", function () {
     assert.ok(page.root.querySelector("[data-pi-field='provider']"));
     clickButton(page.root.querySelector("[data-pi-action='save']"));
     assert.equal(page.actions.at(-1)?.action, "pi-upsert-configuration");
+    // C18: the global diagnostic export lives on the Built-in Agent surface
+    // and is entirely independent of the Backend Profile rows.
+    clickButton(
+      page.root.querySelector("[data-pi-action='export-diagnostics']"),
+    );
+    assert.deepEqual(page.actions.at(-1), {
+      action: "pi-export-diagnostics",
+      payload: {},
+    });
     for (const [field, value] of [
       ["id", "mcp-fixture"],
       ["label", "MCP fixture"],

@@ -1599,6 +1599,43 @@ describe("Assistant Workspace chrome components", function () {
         assert.strictEqual(node, before[index], `node #${index} rebuilt`);
       });
     });
+
+    // C18: the scoped diagnostic export is an ordinary details action. Its
+    // presence must not make the drawer (or any other managed region) rebuild
+    // on a transcript-only update.
+    it("keeps the export action inside the preserved drawer subtree", function () {
+      const mount = environment.document.createElement("div");
+      renderDetailsDrawerRegion(
+        mount,
+        detailsSelection({
+          actions: [
+            { action: "copy-request-id", label: "Copy ID" },
+            { action: "export-diagnostics", label: "Export diagnostics" },
+          ],
+        }),
+      );
+      const before = subtreeNodes(mount);
+      assert.isOk(
+        mount.querySelector(".assistant-panel-action-export-diagnostics"),
+        "the export action renders its canonical button",
+      );
+      // A transcript revision arriving afterwards must leave the whole drawer
+      // subtree identical, action buttons included.
+      renderDetailsDrawerRegion(
+        mount,
+        detailsSelection({
+          actions: [
+            { action: "copy-request-id", label: "Copy ID" },
+            { action: "export-diagnostics", label: "Export diagnostics" },
+          ],
+        }),
+      );
+      const after = subtreeNodes(mount);
+      assert.equal(after.length, before.length);
+      after.forEach((node, index) => {
+        assert.strictEqual(node, before[index], `node #${index} rebuilt`);
+      });
+    });
   });
 
   describe("ContextDrawerRegion", function () {

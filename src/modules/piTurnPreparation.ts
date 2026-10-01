@@ -356,6 +356,7 @@ function projectMessageResources(value: unknown): PiPreparedResource[] {
  */
 export const PI_TRANSCRIPT_NON_CONTEXT_KINDS: ReadonlySet<string> = new Set([
   "tool_preflight_cleanup_pending",
+  "failure_observed",
   "turn_started",
   "turn_terminal",
   "thought",
@@ -373,6 +374,7 @@ export const PI_TRANSCRIPT_NON_CONTEXT_KINDS: ReadonlySet<string> = new Set([
   "permission_pending",
   "permission_resolved",
   "skill_run_admitted",
+  "skill_run_workspace",
   "skill_run_prepared",
   "skill_run_status",
   "skill_run_outcome",

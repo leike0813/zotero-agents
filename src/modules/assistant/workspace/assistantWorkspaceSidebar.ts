@@ -26,7 +26,10 @@ import {
 } from "../publication/assistantWorkspacePublicationLabels";
 import { PI_CONVERSATIONS_WORKSPACE_ADAPTER } from "../../piConversationWorkspaceSurface";
 import { getPiConversationCoordinator } from "../../piConversation";
-import { PI_SKILL_RUNS_WORKSPACE_ADAPTER } from "../../piSkillRunWorkspaceSurface";
+import {
+  PI_SKILL_RUNS_WORKSPACE_ADAPTER,
+  setPiSkillRunActionNotice,
+} from "../../piSkillRunWorkspaceSurface";
 import { getPiSkillRunCoordinator } from "../../piSkillRun";
 import {
   ASSISTANT_WORKSPACE_SOURCE_REGISTRY,
@@ -313,6 +316,13 @@ configureAssistantWorkspaceActionRouterShellHost({
     adapter: PI_SKILL_RUNS_WORKSPACE_ADAPTER,
   }),
   piSkillRunCoordinator: () => getPiSkillRunCoordinator(),
+  // C18 diagnostic export stays a lazy edge: the audit module is only loaded
+  // when the user actually triggers an export from a product surface.
+  exportPiDiagnostics: async (args) => {
+    const { exportDiagnostics } = await import("../../piRuntimeAudit");
+    return exportDiagnostics(args.scope, args.targetPath);
+  },
+  setPiSkillRunActionNotice,
   localizeString: (key, fallback) => localize(key as any, fallback),
   openBackendManager: openBackendManagerDialog,
   logAssistantWorkspaceDebug,

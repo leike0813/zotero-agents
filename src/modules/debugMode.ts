@@ -12,6 +12,7 @@ export const ACP_RUNTIME_SEMANTIC_TRACE_RECORDER_ENABLED = true;
 export const ACP_RUNTIME_REPLAY_PROFILER_ENABLED = true;
 export const SKILLRUNNER_CONNECTION_AUDIT_ENABLED = false;
 export const SYNTHESIS_SIDECAR_DIAGNOSTICS_ENABLED = true;
+export const PI_RUNTIME_AUDIT_DEBUG_ENABLED = false;
 
 // Assert every outgoing assistant workspace publication against the strict v1
 // wire schema at the single construction funnel. Debug-only; release builds

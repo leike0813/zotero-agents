@@ -51,6 +51,7 @@ import {
   type TurnPreparationRecord,
 } from "./piTurnPreparation";
 import type { JsonValue } from "../workflows/types";
+import { record as recordPiRuntimeAudit } from "./piRuntimeAudit";
 import { joinPath } from "../utils/path";
 
 export {
@@ -220,6 +221,29 @@ export async function appendPiOwnerEntry(
 export function inspectPiOwner(ref: PiOwnerRef, root?: string) {
   return inspectPiTranscript(ref, root);
 }
+
+/**
+ * A refused transcript is an integrity failure of the owner's own canonical
+ * store. It is recorded here, by the module that owns the store, and only ever
+ * as a structural status: no entry content, path or repair detail leaves this
+ * boundary.
+ */
+function recordPiIntegrityFailure(
+  ref: PiOwnerRef,
+  root: string | undefined,
+  status: string,
+) {
+  recordPiRuntimeAudit({
+    operation: "persistence.integrity_failure",
+    origin: "persistence",
+    owner: { ...ref },
+    ...(root ? { root } : {}),
+    attributes: {
+      status: status === "torn_tail" ? "state_unknown" : "recovery_required",
+      reason: "transcript_not_valid",
+    },
+  });
+}
 export function readPiOwnerPage(
   ref: PiOwnerRef,
   options: { cursor?: number; limit?: number } = {},
@@ -234,8 +258,10 @@ export async function rebuildPiOwnerProjections(
 ): Promise<PiOwnerRecord> {
   return withPiOwnerWrite(ref, root, async () => {
     const inspection = await inspectPiTranscript(ref, root);
-    if (inspection.status !== "valid")
+    if (inspection.status !== "valid") {
+      recordPiIntegrityFailure(ref, root, inspection.status);
       throw new Error(`pi_transcript_${inspection.status}`);
+    }
     const projection = await project(ref, inspection, root);
     if (projection !== "ready") throw new Error("pi_projection_rebuild_failed");
     return record(ref, inspection, projection);
@@ -245,9 +271,29 @@ export async function rebuildPiOwnerProjections(
 export async function repairPiOwnerTornTail(ref: PiOwnerRef, root?: string) {
   return withPiOwnerWrite(ref, root, async () => {
     const inspection = await repairPiTornTail(ref, root);
-    if (inspection.status !== "valid")
+    if (inspection.status !== "valid") {
+      recordPiIntegrityFailure(ref, root, inspection.status);
       throw new Error(`pi_transcript_${inspection.status}`);
-    return record(ref, inspection, await project(ref, inspection, root));
+    }
+    const projected = await record(
+      ref,
+      inspection,
+      await project(ref, inspection, root),
+    );
+    // The repair terminal is evidence of a completed repair, so it is recorded
+    // only after the transcript is valid again and the projection committed.
+    recordPiRuntimeAudit({
+      operation: "persistence.repair_terminal",
+      origin: "persistence",
+      owner: { ...ref },
+      ...(root ? { root } : {}),
+      attributes: {
+        status: "valid",
+        reason: "torn_tail_repaired",
+        bytes: inspection.validBytes,
+      },
+    });
+    return projected;
   });
 }
 
@@ -725,6 +771,11 @@ export async function cleanupPiConversation(
     )
       throw new Error("pi_conversation_not_deleting");
     try {
+      // Audit writes must settle or be discarded before the owner directory is
+      // removed, otherwise a queued write could recreate the directory being
+      // deleted. Discard is a queue operation only; it takes no canonical lock.
+      const { discardPiRuntimeAuditOwner } = await import("./piRuntimeAudit");
+      await discardPiRuntimeAuditOwner(ref, root);
       await removeRuntimePath(piOwnerPaths(ref, root).dir);
       deletePiOwnerRegistry(ref.kind, ref.ownerId);
       const receipt: PiConversationCleanupReceipt = {
@@ -1026,6 +1077,19 @@ export function createPiConversationPreparationAdapter(
           },
           root,
         );
+        // Recorded only after the compaction entry is durable, so the evidence
+        // never claims a summary the transcript does not contain.
+        recordPiRuntimeAudit({
+          operation: "persistence.compaction_terminal",
+          origin: "persistence",
+          owner: { ...ref },
+          ...(root ? { root } : {}),
+          attributes: {
+            status: "completed",
+            kind: "compaction",
+            revision: basis.revision,
+          },
+        });
         return {
           status: "committed" as const,
           transcript: await readPiConversationTranscriptSnapshot(ref, root),

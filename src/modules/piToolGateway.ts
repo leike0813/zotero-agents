@@ -6,6 +6,12 @@ import { resolveNativeAbortControllerConstructor } from "../utils/wait";
 
 import type { PiGatewayEffect } from "../shared/piToolGatewayContract";
 export type { PiGatewayEffect } from "../shared/piToolGatewayContract";
+import {
+  getPiFailurePolicy,
+  type PiFailureEffectCertainty,
+  type PiFailureCategory,
+} from "../shared/piFailureContract";
+import { record, type PiRuntimeAuditContext } from "./piRuntimeAudit";
 
 export type PiGatewayCertainty =
   | "not_applicable"
@@ -95,16 +101,11 @@ export type PiGatewayCall = {
 
 export type PiGatewayFailure = {
   origin: "tool_gateway";
-  category:
-    | "input"
-    | "policy"
-    | "availability"
-    | "resource"
-    | "persistence"
-    | "execution"
-    | "lifecycle";
+  category: PiFailureCategory;
   code: string;
   retryable: boolean;
+  /** Effects known to the gateway when the failure was produced. */
+  effectCertainty: PiGatewayCertainty;
   details?: JsonValue;
 };
 
@@ -184,6 +185,22 @@ export type PiGatewayTurnInput = {
     recordReceipt: (receipt: PiGatewayAttemptReceipt) => Promise<void>;
     recordPermission: (pending: PiGatewayPendingCall) => Promise<void>;
     /**
+     * Commits the canonical failure core for a failed call and returns its
+     * identity. The gateway owns the failure, so it owns the commit; audit and
+     * higher layers only reuse the returned failureId.
+     */
+    recordFailure?: (
+      failure: PiGatewayFailure,
+      call: {
+        owner: PiGatewayAttemptReceipt["owner"];
+        turnId: string;
+        callId: string;
+        capabilityId: string;
+        /** What the gateway already knows about the effects of this call. */
+        effectCertainty: PiGatewayCertainty;
+      },
+    ) => Promise<string | undefined>;
+    /**
      * Reports how many calls this batch will actually dispatch, once, after the
      * whole-batch preflight and before the first effect. Pending approvals and
      * rejected calls are excluded; a failure aborts the batch before any effect.
@@ -193,6 +210,12 @@ export type PiGatewayTurnInput = {
   signal?: AbortSignal;
   foregroundConversation?: () => boolean;
   onUpdate?: (callId: string, update: JsonValue) => void;
+  /**
+   * Transient trusted context for audit owner resolution. Never persisted and
+   * never carried into a result; it only tells the audit module where this
+   * owner's evidence already lives.
+   */
+  audit?: PiRuntimeAuditContext;
 };
 
 export type PiGatewayTurn = {
@@ -289,27 +312,15 @@ function deepFreeze<T>(value: T): T {
 }
 
 function failure(code: string): PiGatewayFailure {
-  const category =
-    code === "invalid_request"
-      ? "input"
-      : code === "policy_denied"
-        ? "policy"
-        : code === "capability_unavailable"
-          ? "availability"
-          : code === "resource_limited"
-            ? "resource"
-            : code === "persistence_failed"
-              ? "persistence"
-              : code === "owner_busy"
-                ? "lifecycle"
-                : code === "cleanup_pending"
-                  ? "resource"
-                  : "execution";
+  // Classification is the shared policy table's job, so a gateway failure and
+  // the canonical core an owner later commits can never disagree.
+  const policy = getPiFailurePolicy(code, "pi_tool_gateway");
   return {
     origin: "tool_gateway",
-    category,
+    category: policy.category,
     code,
-    retryable: code === "persistence_failed" || code === "owner_busy",
+    retryable: policy.retryable,
+    effectCertainty: "not_started",
   };
 }
 
@@ -333,6 +344,93 @@ function canceled(call: PiGatewayCall): PiGatewayCallResult {
     status: "canceled",
     effectCertainty: "not_started",
   };
+}
+
+/**
+ * What the call's effects are known to be, expressed in the failure contract's
+ * vocabulary. The gateway's confirmed states are effects that did settle, and
+ * an unprovable call is explicitly uncertain rather than merely not started.
+ */
+export function failureEffectCertainty(
+  certainty: PiGatewayCertainty,
+): PiFailureEffectCertainty {
+  if (certainty === "unknown") return "unknown";
+  if (certainty === "not_started") return "not_started";
+  if (certainty === "not_applicable") return "not_applicable";
+  return "settled";
+}
+
+/**
+ * Structural gateway evidence, recorded by the gateway because it owns the
+ * call. It runs only after the canonical receipt has committed, so evidence
+ * never precedes the fact it describes, and it carries no argument or result
+ * body: only identity, outcome and the committed receipt reference.
+ */
+function recordPiGatewayEvidence(
+  input: PiGatewayTurnInput,
+  call: {
+    turnId: string;
+    callId: string;
+    capabilityId: string;
+    outcome?: PiGatewayCallResult["status"];
+    domainReceiptRef?: string;
+  },
+  result: PiGatewayCallResult,
+  failureId?: string,
+) {
+  if (!input.owner) return;
+  const context = {
+    owner: input.owner,
+    ...(input.audit?.root ? { root: input.audit.root } : {}),
+    ...(input.audit?.workspaceDir
+      ? { workspaceDir: input.audit.workspaceDir }
+      : {}),
+  };
+  const correlation = { turnId: call.turnId, callId: call.callId };
+  // Failure evidence references a committed canonical identity. Without one
+  // there is nothing durable to point at, so no evidence is written.
+  if (
+    failureId &&
+    (result.status === "failed" || result.status === "state_unknown")
+  ) {
+    record({
+      operation: "failure.observed",
+      origin: "tool_gateway",
+      ...context,
+      correlation: { ...correlation, failureId },
+      ...(result.failure ? { failureCode: result.failure.code } : {}),
+    });
+  }
+  if (
+    result.failure?.category === "policy" ||
+    result.failure?.code === "capability_unavailable"
+  )
+    record({
+      operation:
+        result.failure?.code === "security_denied"
+          ? "security.decision_denied"
+          : "capability.denied_or_degraded",
+      origin: "tool_gateway",
+      ...context,
+      correlation,
+      attributes: {
+        outcome: result.status,
+        reason: result.failure.code,
+        capabilityId: call.capabilityId,
+      },
+    });
+  if (call.domainReceiptRef)
+    record({
+      operation: "tool.mutation_receipt_committed",
+      origin: "tool_gateway",
+      ...context,
+      correlation,
+      attributes: {
+        outcome: call.outcome || result.status,
+        receiptId: call.domainReceiptRef,
+        capabilityId: call.capabilityId,
+      },
+    });
 }
 
 export async function freezePiToolGatewayTurn(
@@ -727,7 +825,7 @@ export async function freezePiToolGatewayTurn(
           details = undefined;
         }
       }
-      return {
+      const denied: PiGatewayCallResult = {
         callId: call.callId,
         name: call.name,
         status: "failed",
@@ -735,9 +833,36 @@ export async function freezePiToolGatewayTurn(
         failure: {
           ...base,
           retryable: outcome.retryable ?? base.retryable,
+          effectCertainty: "not_started",
           ...(details !== undefined ? { details } : {}),
         },
       };
+      // A preflight denial settles before any receipt exists. It is still a
+      // gateway-owned decision, so the gateway records it here; a failure
+      // reference is written only when a canonical core was committed.
+      const failureId = denied.failure
+        ? await hooks
+            .recordFailure?.(denied.failure, {
+              owner: input.owner,
+              turnId: input.turnId,
+              callId: call.callId,
+              capabilityId: definition.capabilityId,
+              effectCertainty: denied.effectCertainty,
+            })
+            .catch(() => undefined)
+        : undefined;
+      recordPiGatewayEvidence(
+        input,
+        {
+          turnId: input.turnId,
+          callId: call.callId,
+          capabilityId: definition.capabilityId,
+          outcome: denied.status,
+        },
+        denied,
+        failureId,
+      );
+      return denied;
     }
     if (outcome.status !== "prepared") return fail(call, "execution_failed");
     const stage = outcome;
@@ -926,6 +1051,7 @@ export async function freezePiToolGatewayTurn(
               : "state_unknown",
           ),
           retryable: execution.retryable ?? false,
+          effectCertainty: "unknown",
           ...(recoveryDetails !== undefined
             ? { details: copyJson(recoveryDetails) }
             : {}),
@@ -974,6 +1100,7 @@ export async function freezePiToolGatewayTurn(
         failure: {
           ...baseFailure,
           retryable: execution.retryable ?? baseFailure.retryable,
+          effectCertainty: execution.effectCertainty,
           ...(recoveryDetails !== undefined
             ? { details: copyJson(recoveryDetails) }
             : {}),
@@ -997,9 +1124,37 @@ export async function freezePiToolGatewayTurn(
         name: call.name,
         status: "state_unknown",
         effectCertainty: "unknown",
-        failure: failure("state_unknown"),
+        failure: { ...failure("state_unknown"), effectCertainty: "unknown" },
       };
     }
+    let failureId: string | undefined;
+    if (result.failure && hooks.recordFailure) {
+      // Canonical first: the failure identity is committed before any evidence
+      // or projection can reference it.
+      failureId = await hooks
+        .recordFailure(result.failure, {
+          owner: receipt.owner,
+          turnId: receipt.turnId,
+          callId: receipt.callId,
+          capabilityId: receipt.capabilityId,
+          effectCertainty: receipt.effectCertainty,
+        })
+        .catch(() => undefined);
+    }
+    recordPiGatewayEvidence(
+      input,
+      {
+        turnId: receipt.turnId,
+        callId: receipt.callId,
+        capabilityId: receipt.capabilityId,
+        outcome: receipt.outcome,
+        ...(receipt.domainReceiptRef
+          ? { domainReceiptRef: receipt.domainReceiptRef }
+          : {}),
+      },
+      result,
+      failureId,
+    );
     return result;
   }
 

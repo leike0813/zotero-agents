@@ -41,6 +41,7 @@ import {
   createNodeSqliteAdapter,
   installPluginStateNodeSqliteAdapter,
 } from "../helpers/pluginStateNodeSqliteAdapter";
+import { readOwnerAudit } from "./piOwnerAuditRead";
 
 async function rejectsWith(promise: Promise<unknown>, pattern: RegExp) {
   try {
@@ -91,6 +92,34 @@ describe("Pi owner persistence in Node", function () {
     assert.equal((await inspectPiOwner(owner, root)).status, "valid");
     await rebuildPiOwnerProjections(owner, root);
     assert.equal((await readPiOwnerPage(owner, {}, root)).entries.length, 2);
+  });
+
+  it("records a repair terminal only after the transcript is valid again", async function () {
+    const owner = { kind: "conversation" as const, ownerId: "repair-audit" };
+    await createPiOwner(owner, root);
+    await appendPiOwnerEntry(
+      owner,
+      { entryId: "e1", kind: "message", payload: { text: "ok" } },
+      root,
+    );
+    const log = path.join(
+      getRuntimePersistencePaths(root).piOwnersDir,
+      "conversation",
+      "repair-audit",
+      "transcript.jsonl",
+    );
+    await fs.appendFile(log, '{"seq":2');
+    assert.equal((await inspectPiOwner(owner, root)).status, "torn_tail");
+    await repairPiOwnerTornTail(owner, root);
+    const audit = await readOwnerAudit(root, owner);
+    const repairs = audit.filter(
+      (entry) => entry.operation === "persistence.repair_terminal",
+    );
+    // Exactly one terminal, recorded by the module that owns the repair.
+    assert.lengthOf(repairs, 1);
+    assert.equal(repairs[0].details.status, "valid");
+    assert.equal(repairs[0].details.reason, "torn_tail_repaired");
+    assert.isAbove(repairs[0].details.bytes, 0);
   });
 
   it("refuses committed corruption", async function () {

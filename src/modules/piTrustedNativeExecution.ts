@@ -53,6 +53,10 @@ const MAX_EDIT_BYTES = 50 * 1024 * 1024;
 const OWNER_QUOTA_BYTES = 2 * 1024 * 1024 * 1024;
 const WORKSPACE_SCAN_MAX_DEPTH = 32;
 const WORKSPACE_SCAN_MAX_ENTRIES = 20000;
+// Owner diagnostics live here and are lower priority than business data: the
+// owner quota counts their bytes exactly once, and an owner over quota may
+// reclaim them instead of losing managed results.
+const OWNER_RUNTIME_AUDIT_DIR = "runtime-audit";
 const textEncoder = new TextEncoder();
 const ownerLocks = new Map<string, Promise<void>>();
 const MANAGED_FILE_MAX_BYTES = 256 * 1024 * 1024;
@@ -156,6 +160,120 @@ type ManagedEntry = {
   kind: "source" | "generated" | "snapshot";
   displayName?: string;
 };
+
+function parseManifestEntries(parsed: unknown): ManagedEntry[] {
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    (parsed as { version?: unknown }).version !== 1 ||
+    !Array.isArray((parsed as { entries?: unknown }).entries) ||
+    (parsed as { entries: unknown[] }).entries.length > 4096 ||
+    (parsed as { entries: unknown[] }).entries.some((entry) => {
+      const row = entry as ManagedEntry;
+      return (
+        !row ||
+        !["source", "generated", "snapshot"].includes(row.kind) ||
+        typeof row.name !== "string" ||
+        !/^managed-[A-Za-z0-9.-]+$/.test(row.name) ||
+        !Number.isSafeInteger(row.size) ||
+        row.size < 0 ||
+        typeof row.sha256 !== "string" ||
+        (row.kind === "snapshot" &&
+          (typeof row.displayName !== "string" ||
+            !row.displayName ||
+            row.displayName.length > 512 ||
+            /[\\/]/.test(row.displayName))) ||
+        (row.kind === "source" &&
+          (typeof row.sourceKey !== "string" ||
+            typeof row.revisionKey !== "string"))
+      );
+    })
+  )
+    throw new Error("pi_manifest_corrupt");
+  return (parsed as { entries: ManagedEntry[] }).entries;
+}
+
+const ownerKey = (path: string) => path.replace(/\\/g, "/").replace(/\/+$/, "");
+const caseInsensitiveOwner =
+  detectRuntimePlatform() === "win32" || detectRuntimePlatform() === "darwin";
+
+function isWithin(ancestor: string, path: string) {
+  const owner = ownerKey(ancestor);
+  if (!owner) return false;
+  const left = ownerKey(path);
+  const lower = caseInsensitiveOwner ? left.toLowerCase() : left;
+  const upper = caseInsensitiveOwner ? owner.toLowerCase() : owner;
+  return lower === upper || lower.startsWith(`${upper}/`);
+}
+
+// Bounded recursive byte total of the agent workspace (listing and sizes only,
+// no file bodies). Symlinked entries are rejected so a cyclic or branching link
+// layout cannot make the scan exponential; the entry and depth caps bound the
+// work, and the total short-circuits once the quota is exceeded.
+async function walkByteTotal(
+  scanRoot: string,
+  exclude: (path: string) => boolean,
+) {
+  let total = 0;
+  let visited = 0;
+  const stack: { path: string; depth: number }[] = [
+    { path: scanRoot, depth: 0 },
+  ];
+  while (stack.length) {
+    if (visited >= WORKSPACE_SCAN_MAX_ENTRIES)
+      throw new Error("pi_owner_quota_unavailable");
+    const current = stack.pop()!;
+    if (current.depth >= WORKSPACE_SCAN_MAX_DEPTH)
+      throw new Error("pi_owner_quota_unavailable");
+    let children: string[];
+    try {
+      children = await listRuntimeChildrenStrict(current.path);
+    } catch {
+      throw new Error("pi_owner_quota_unavailable");
+    }
+    for (const child of children) {
+      visited += 1;
+      if (visited > WORKSPACE_SCAN_MAX_ENTRIES)
+        throw new Error("pi_owner_quota_unavailable");
+      if (exclude(child)) continue;
+      let identity: { path: string; exists: boolean; canonicalKey: string };
+      try {
+        // Rejects symlinks so a cyclic link layout cannot recurse, and keeps
+        // the walk inside the already-verified parent directory.
+        identity = await resolveRuntimePathIdentity({
+          root: current.path,
+          path: child,
+        });
+      } catch {
+        continue;
+      }
+      if (!identity.exists) continue;
+      const info = await statRuntimePathStrict(identity.path).catch(() => null);
+      if (!info?.exists) throw new Error("pi_owner_quota_unavailable");
+      if (info.isDir) {
+        stack.push({ path: identity.path, depth: current.depth + 1 });
+        continue;
+      }
+      total += info.size;
+      if (total > OWNER_QUOTA_BYTES) return total;
+    }
+  }
+  return total;
+}
+
+// Diagnostics are measured on their own so the workspace walk can exclude
+// them: the audit directory is counted exactly once, and its bytes are still
+// bounded and symlink-rejected like any other counted tree.
+async function auditByteTotal(scanRoot: string, auditRoot: string) {
+  if (!isWithin(scanRoot, auditRoot)) return 0;
+  const identity = await resolveRuntimePathIdentity({
+    root: scanRoot,
+    path: auditRoot,
+    allowMissing: true,
+  }).catch(() => null);
+  if (!identity?.exists) return 0;
+  return walkByteTotal(identity.path, () => false);
+}
 
 function parentDirectory(pathRaw: string) {
   const normalized = String(pathRaw || "").replace(/[\\/]+$/, "");
@@ -393,10 +511,27 @@ export async function createPiTrustedNativeExecution(args: {
     allowMissing: true,
   }).catch(() => null);
   const privateKey = ownerIdentity?.canonicalKey.replace(/\\/g, "/");
+  // Owner diagnostics are private metadata: the agent may neither read nor
+  // write them, so the audit tree is excluded like the owner tree itself even
+  // when the workspace is nested inside the owner.
+  const auditKey = await resolveRuntimePathIdentity({
+    root,
+    path: joinPath(root, OWNER_RUNTIME_AUDIT_DIR),
+    allowMissing: true,
+  })
+    .then((identity) =>
+      identity.exists ? identity.canonicalKey.replace(/\\/g, "/") : "",
+    )
+    .catch(() => "");
   // Shared owner quota key for in-flight private staging reservations.
-  const stagedBytesKey = privateKey || args.ownerRoot.replace(/[\\/]+$/, "");
+  const stagedBytesKey = await resolveOwnerKey(root, args.ownerRoot);
   function assertPublic(key: string) {
     const normalized = key.replace(/\\/g, "/");
+    if (
+      auditKey &&
+      (normalized === auditKey || normalized.startsWith(auditKey + "/"))
+    )
+      throw new Error("pi_path_private_owner");
     if (
       privateKey &&
       (normalized === privateKey || normalized.startsWith(`${privateKey}/`))
@@ -409,37 +544,9 @@ export async function createPiTrustedNativeExecution(args: {
     const info = await statRuntimePathStrict(manifestPath);
     if (!info.exists || info.isDir || info.size > 1024 * 1024)
       throw new Error("pi_manifest_corrupt");
-    const parsed = JSON.parse(
-      await readRuntimeTextFileStrict(manifestPath),
-    ) as { version?: unknown; entries?: unknown };
-    if (
-      !parsed ||
-      parsed.version !== 1 ||
-      !Array.isArray(parsed.entries) ||
-      parsed.entries.length > 4096 ||
-      parsed.entries.some((entry) => {
-        const row = entry as ManagedEntry;
-        return (
-          !row ||
-          !["source", "generated", "snapshot"].includes(row.kind) ||
-          typeof row.name !== "string" ||
-          !/^managed-[A-Za-z0-9.-]+$/.test(row.name) ||
-          !Number.isSafeInteger(row.size) ||
-          row.size < 0 ||
-          typeof row.sha256 !== "string" ||
-          (row.kind === "snapshot" &&
-            (typeof row.displayName !== "string" ||
-              !row.displayName ||
-              row.displayName.length > 512 ||
-              /[\\/]/.test(row.displayName))) ||
-          (row.kind === "source" &&
-            (typeof row.sourceKey !== "string" ||
-              typeof row.revisionKey !== "string"))
-        );
-      })
-    )
-      throw new Error("pi_manifest_corrupt");
-    return parsed.entries as ManagedEntry[];
+    return parseManifestEntries(
+      JSON.parse(await readRuntimeTextFileStrict(manifestPath)),
+    );
   }
 
   async function commitManifest(entries: ManagedEntry[]) {
@@ -451,81 +558,30 @@ export async function createPiTrustedNativeExecution(args: {
     await replaceRuntimeTextFileAtomically(manifestPath, content);
   }
 
-  const ownerKey = (path: string) =>
-    path.replace(/\\/g, "/").replace(/\/+$/, "");
-  const caseInsensitiveOwner =
-    detectRuntimePlatform() === "win32" || detectRuntimePlatform() === "darwin";
+  // Shared owner 2 GiB quota, counted by the same module-scope seam the audit
+  // writer uses: manifest-managed copies, workspace files, owner diagnostics
+  // and in-flight private staging reserved by stored-attachment preparation.
+  const ownerUsageBytes = (entries: ManagedEntry[]) =>
+    ownerUsageBytesFor({
+      ownerRoot: args.ownerRoot,
+      workspaceRoot: root,
+      stagedBytesKey,
+      manifestBytes: entries.reduce((sum, entry) => sum + entry.size, 0),
+    });
 
-  function isOwnerPath(path: string) {
-    const normalized = ownerKey(path);
-    const owner = ownerKey(args.ownerRoot);
-    if (!owner) return false;
-    const left = caseInsensitiveOwner ? normalized.toLowerCase() : normalized;
-    const right = caseInsensitiveOwner ? owner.toLowerCase() : owner;
-    return left === right || left.startsWith(`${right}/`);
-  }
-
-  // Bounded recursive byte total of the agent workspace (listing and sizes
-  // only, no file bodies), excluding the owner tree that the manifest already
-  // accounts for. Symlinked entries are skipped so a cyclic or branching link
-  // layout cannot make the scan exponential; the entry and depth caps bound
-  // the work, and the total short-circuits once the quota is exceeded.
-  async function workspaceByteTotal() {
-    let total = 0;
-    let visited = 0;
-    const stack: { path: string; depth: number }[] = [{ path: root, depth: 0 }];
-    while (stack.length) {
-      if (visited >= WORKSPACE_SCAN_MAX_ENTRIES)
-        throw new Error("pi_owner_quota_unavailable");
-      const current = stack.pop()!;
-      if (current.depth >= WORKSPACE_SCAN_MAX_DEPTH)
-        throw new Error("pi_owner_quota_unavailable");
-      let children: string[];
-      try {
-        children = await listRuntimeChildrenStrict(current.path);
-      } catch {
-        throw new Error("pi_owner_quota_unavailable");
-      }
-      for (const child of children) {
-        visited += 1;
-        if (visited > WORKSPACE_SCAN_MAX_ENTRIES)
-          throw new Error("pi_owner_quota_unavailable");
-        if (isOwnerPath(child)) continue;
-        let identity: { path: string; exists: boolean; canonicalKey: string };
-        try {
-          // Rejects symlinks so a cyclic link layout cannot recurse, and keeps
-          // the walk inside the already-verified parent directory.
-          identity = await resolveRuntimePathIdentity({
-            root: current.path,
-            path: child,
-          });
-        } catch {
-          continue;
-        }
-        if (!identity.exists) continue;
-        const info = await statRuntimePathStrict(identity.path).catch(
-          () => null,
-        );
-        if (!info?.exists) throw new Error("pi_owner_quota_unavailable");
-        if (info.isDir) {
-          stack.push({ path: identity.path, depth: current.depth + 1 });
-          continue;
-        }
-        total += info.size;
-        if (total > OWNER_QUOTA_BYTES) return total;
-      }
-    }
-    return total;
-  }
-
-  // Shared owner 2 GiB quota: manifest-managed copies, agent-written files and
-  // in-flight private staging reserved by stored-attachment preparation.
-  async function ownerUsageBytes(entries: ManagedEntry[]) {
-    return (
-      entries.reduce((sum, entry) => sum + entry.size, 0) +
-      (await workspaceByteTotal()) +
-      ownerStagedBytesFor(stagedBytesKey)
-    );
+  // Business data outranks diagnostics: an allocation that would exceed the
+  // owner quota reclaims just enough audit bytes and is only rejected if it
+  // still does not fit. Callers already hold the owner lock, which is what
+  // serializes the reclaim against every other quota consumer.
+  async function admitsOwnerAllocation(
+    entries: ManagedEntry[],
+    deltaBytes: number,
+  ) {
+    const usage = await ownerUsageBytes(entries);
+    if (usage + deltaBytes <= OWNER_QUOTA_BYTES) return true;
+    const required = usage + deltaBytes - OWNER_QUOTA_BYTES;
+    await reclaimAuditForQuota(args.ownerRoot, root, required);
+    return (await ownerUsageBytes(entries)) + deltaBytes <= OWNER_QUOTA_BYTES;
   }
 
   async function nextManagedPath(sourcePath: string) {
@@ -608,7 +664,7 @@ export async function createPiTrustedNativeExecution(args: {
       }
       if (
         newBytes > 512 * 1024 * 1024 ||
-        (await ownerUsageBytes(entries)) + newBytes > OWNER_QUOTA_BYTES
+        !(await admitsOwnerAllocation(entries, newBytes))
       )
         throw new Error("pi_owner_quota_exceeded");
       const created: string[] = [];
@@ -857,7 +913,7 @@ export async function createPiTrustedNativeExecution(args: {
       );
       if (
         newBytes > PI_USER_FILE_SNAPSHOT_LIMITS.maxTotalBytes ||
-        (await ownerUsageBytes(entries)) + newBytes > OWNER_QUOTA_BYTES
+        !(await admitsOwnerAllocation(entries, newBytes))
       )
         throw new Error("pi_owner_quota_exceeded");
       const created: string[] = [];
@@ -978,7 +1034,7 @@ export async function createPiTrustedNativeExecution(args: {
       }
       if (
         newBytes > 512 * 1024 * 1024 ||
-        (await ownerUsageBytes(entries)) + newBytes > OWNER_QUOTA_BYTES
+        !(await admitsOwnerAllocation(entries, newBytes))
       )
         throw new Error("pi_owner_quota_exceeded");
       const promoted: string[] = [];
@@ -1122,8 +1178,18 @@ export async function createPiTrustedNativeExecution(args: {
     // adjacent to the check, so a second preparation cannot observe it stale.
     await withOwnerLock(args.ownerRoot, async () => {
       const usage = await ownerUsageBytes(await readManifest());
-      if (usage + source.size > OWNER_QUOTA_BYTES)
-        throw new Error("pi_owner_quota_exceeded");
+      if (usage + source.size > OWNER_QUOTA_BYTES) {
+        await reclaimAuditForQuota(
+          args.ownerRoot,
+          root,
+          usage + source.size - OWNER_QUOTA_BYTES,
+        );
+        if (
+          (await ownerUsageBytes(await readManifest())) + source.size >
+          OWNER_QUOTA_BYTES
+        )
+          throw new Error("pi_owner_quota_exceeded");
+      }
       adjustOwnerStagedBytes(stagedBytesKey, source.size);
     });
     let held = source.size;
@@ -1175,13 +1241,18 @@ export async function createPiTrustedNativeExecution(args: {
       return abandon(new Error("pi_managed_file_too_large"));
     adjustOwnerStagedBytes(stagedBytesKey, actual - held);
     held = actual;
-    const withinQuota = await withOwnerLock(
-      args.ownerRoot,
-      async () =>
-        // Fresh measurement: it includes this file's real staged size and any
-        // reservation another preparation made while the copy was running.
-        (await ownerUsageBytes(await readManifest())) <= OWNER_QUOTA_BYTES,
-    );
+    const withinQuota = await withOwnerLock(args.ownerRoot, async () => {
+      // Fresh measurement: it includes this file's real staged size and any
+      // reservation another preparation made while the copy was running.
+      const entries = await readManifest();
+      if ((await ownerUsageBytes(entries)) <= OWNER_QUOTA_BYTES) return true;
+      await reclaimAuditForQuota(
+        args.ownerRoot,
+        root,
+        (await ownerUsageBytes(entries)) - OWNER_QUOTA_BYTES,
+      );
+      return (await ownerUsageBytes(await readManifest())) <= OWNER_QUOTA_BYTES;
+    });
     if (!withinQuota) return abandon(new Error("pi_owner_quota_exceeded"));
     if (signal?.aborted)
       return abandon(new Error("pi_stored_attachment_canceled"));
@@ -1377,10 +1448,12 @@ export async function createPiTrustedNativeExecution(args: {
         const existing = await statRuntimePathStrict(path).catch(() => null);
         const existingBytes =
           existing?.exists && !existing.isDir ? existing.size : 0;
-        const usage = await ownerUsageBytes(
-          await readManifest().catch(() => [] as ManagedEntry[]),
-        );
-        if (usage - existingBytes + bytes > OWNER_QUOTA_BYTES)
+        if (
+          !(await admitsOwnerAllocation(
+            await readManifest().catch(() => [] as ManagedEntry[]),
+            bytes - existingBytes,
+          ))
+        )
           return failure("pi_owner_quota_exceeded");
         await replaceRuntimeTextFileAtomically(path, content);
         return result({ written: true });
@@ -1449,10 +1522,12 @@ export async function createPiTrustedNativeExecution(args: {
           textEncoder.encode(changed).length -
           textEncoder.encode(original).length;
         if (delta > 0) {
-          const usage = await ownerUsageBytes(
-            await readManifest().catch(() => [] as ManagedEntry[]),
-          );
-          if (usage + delta > OWNER_QUOTA_BYTES)
+          if (
+            !(await admitsOwnerAllocation(
+              await readManifest().catch(() => [] as ManagedEntry[]),
+              delta,
+            ))
+          )
             return failure("pi_owner_quota_exceeded");
         }
         await replaceRuntimeTextFileAtomically(path, changed);
@@ -1518,7 +1593,14 @@ export async function createPiTrustedNativeExecution(args: {
         const children = (await listRuntimeChildrenStrict(item.path)).sort();
         for (const child of children) {
           const name = getBaseName(child);
-          if (name === ".git" || child === args.ownerRoot) continue;
+          if (
+            name === ".git" ||
+            child === args.ownerRoot ||
+            (auditKey &&
+              (ownerKey(child) === ownerKey(auditKey) ||
+                ownerKey(child).startsWith(ownerKey(auditKey) + "/")))
+          )
+            continue;
           const relative = item.relative ? `${item.relative}/${name}` : name;
           try {
             const childIdentity = await resolveRuntimePathIdentity({
@@ -2017,4 +2099,108 @@ export async function createPiTrustedNativeExecution(args: {
       availableCapabilityIds: definitions.map((item) => item.capabilityId),
     },
   };
+}
+
+async function readOwnerManifestEntries(
+  ownerRoot: string,
+): Promise<ManagedEntry[]> {
+  const manifestPath = joinPath(ownerRoot, "managed-files.json");
+  if (!(await runtimePathExists(manifestPath))) return [];
+  const info = await statRuntimePathStrict(manifestPath);
+  if (!info.exists || info.isDir || info.size > 1024 * 1024)
+    throw new Error("pi_manifest_corrupt");
+  // A corrupt manifest is missing quota evidence, so admission fails closed
+  // rather than admitting against an unverified owner.
+  return parseManifestEntries(
+    JSON.parse(await readRuntimeTextFileStrict(manifestPath)),
+  );
+}
+
+async function ownerUsageBytesFor(args: {
+  ownerRoot: string;
+  workspaceRoot: string;
+  stagedBytesKey: string;
+  manifestBytes: number;
+}) {
+  const { ownerRoot, workspaceRoot, stagedBytesKey } = args;
+  const auditRoot = joinPath(workspaceRoot, OWNER_RUNTIME_AUDIT_DIR);
+  // Private owner bytes are already counted by the manifest, so the walk skips
+  // them only when its root is an ancestor of the owner tree: a nested owner
+  // workspace is real content and must count. Diagnostics are measured apart
+  // so they are counted exactly once and can be reclaimed when over quota.
+  const excludeAudit = (path: string) => isWithin(auditRoot, path);
+  const excludePrivateOwner = isWithin(workspaceRoot, ownerRoot)
+    ? (path: string) => isWithin(ownerRoot, path)
+    : () => false;
+  return (
+    args.manifestBytes +
+    (await walkByteTotal(
+      workspaceRoot,
+      (path) => excludeAudit(path) || excludePrivateOwner(path),
+    )) +
+    (await auditByteTotal(workspaceRoot, auditRoot)) +
+    ownerStagedBytesFor(stagedBytesKey)
+  );
+}
+
+// One canonical owner key for every quota consumer. Resolving it against the
+// same scan root everywhere keeps the in-flight staging reservation key that
+// `prepareStoredAttachment` reserves under identical to the one the audit seam
+// reads: a nested owner (an ancestor of the workspace) resolves to nothing and
+// both sides fall back to the same lexical key.
+async function resolveOwnerKey(scanRoot: string, ownerRoot: string) {
+  const identity = await resolveRuntimePathIdentity({
+    root: scanRoot,
+    path: ownerRoot,
+    allowMissing: true,
+  }).catch(() => null);
+  return identity?.canonicalKey.replace(/\\/g, "/") || ownerKey(ownerRoot);
+}
+
+// Diagnostics are lower priority than business data: when a business
+// allocation would push the owner over quota, it reclaims audit bytes first and
+// only rejects when there is no room left. The reclaim runs under the owner lock
+// and never acquires the audit queue or quota lock itself.
+async function reclaimAuditForQuota(
+  ownerRoot: string,
+  workspaceRoot: string,
+  requiredBytes: number,
+) {
+  const { reclaimPiRuntimeAudit } = await import("./piRuntimeAudit");
+  await reclaimPiRuntimeAudit(ownerRoot, workspaceRoot, requiredBytes).catch(
+    () => undefined,
+  );
+}
+
+/**
+ * Owner-private quota seam for the Runtime Audit writer. It shares the single
+ * owner lock, manifest accounting and workspace scan with the business
+ * allocation paths, so an audit append can never push an owner past the quota
+ * unnoticed. An audit append never reclaims for its own admission: without
+ * capacity it fails, and the audit layer records the gap.
+ */
+export async function withPiOwnerAuditQuota<T>(
+  args: {
+    ownerRoot: string;
+    workspaceRoot: string;
+    additionalBytes: number;
+  },
+  write: () => Promise<T>,
+): Promise<T> {
+  const stagedBytesKey = await resolveOwnerKey(
+    args.workspaceRoot,
+    args.ownerRoot,
+  );
+  return withOwnerLock(args.ownerRoot, async () => {
+    const entries = await readOwnerManifestEntries(args.ownerRoot);
+    const usage = await ownerUsageBytesFor({
+      ownerRoot: args.ownerRoot,
+      workspaceRoot: args.workspaceRoot,
+      stagedBytesKey,
+      manifestBytes: entries.reduce((sum, entry) => sum + entry.size, 0),
+    });
+    if (usage + Math.max(0, args.additionalBytes) > OWNER_QUOTA_BYTES)
+      throw new Error("pi_owner_quota_exceeded");
+    return write();
+  });
 }

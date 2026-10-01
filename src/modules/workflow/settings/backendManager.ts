@@ -54,6 +54,7 @@ import {
   listGenericHttpBackendPresets,
 } from "./genericHttpBackendPresets";
 import { getRuntimeCommandRegistrySnapshot } from "../../../platform/command";
+import { openRuntimeFilePicker } from "../../../platform/filePicker";
 import type {
   BackendManagerActionEnvelope,
   BackendManagerBuiltinAgentSnapshot,
@@ -2630,6 +2631,10 @@ function buildBackendManagerLabels() {
       "backend-manager-pi-test-connection",
       "Test connection",
     ),
+    piExportDiagnostics: localizeBackendManager(
+      "backend-manager-pi-export-diagnostics",
+      "Export diagnostics",
+    ),
     piConnectionAvailable: localizeBackendManager(
       "backend-manager-pi-connection-available",
       "Connection available",
@@ -3602,6 +3607,34 @@ export async function openBackendManagerDialog(
                   String(payload.id || ""),
                   "web-source",
                 );
+              } else if (action === "pi-export-diagnostics") {
+                // The host owns the save target; a cancelled picker performs
+                // no export at all and publishes no result. The global scope
+                // reads no owner workspace.
+                const picked = await openRuntimeFilePicker({
+                  title: localizeBackendManager(
+                    "backend-manager-pi-export-diagnostics",
+                    "Export diagnostics",
+                  ),
+                  mode: "save",
+                  suggestion: "pi-diagnostics.zip",
+                });
+                const targetPath = typeof picked === "string" ? picked : "";
+                if (!targetPath) return;
+                const { exportDiagnostics } =
+                  await import("../../piRuntimeAudit");
+                const result = await exportDiagnostics(
+                  { kind: "global" },
+                  targetPath,
+                );
+                postToFrame("backend-manager-dialog:action-result", {
+                  action,
+                  ok: result.status === "exported",
+                  ...(result.status === "exported"
+                    ? {}
+                    : { error: result.code, code: result.code }),
+                });
+                return;
               } else if (action === "pi-test-connection") {
                 if (!activePiCatalog) throw new Error("Provider unavailable");
                 const selection = resolvePiModelSelection({
@@ -3652,7 +3685,8 @@ export async function openBackendManagerDialog(
                 action.startsWith("pi-codex-") ||
                 action === "pi-put-credential" ||
                 action === "pi-delete-credential" ||
-                action === "pi-test-connection";
+                action === "pi-test-connection" ||
+                action === "pi-export-diagnostics";
               const authFailure =
                 action === "pi-codex-connect" &&
                 error instanceof

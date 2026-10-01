@@ -255,6 +255,7 @@ export type BackendManagerRegionHandlers = {
   putPiCredential(input: { id: string; label: string; secret: string }): void;
   deletePiCredential(id: string): void;
   testPiConnection(configurationId: string): void;
+  exportPiDiagnostics(): void;
   connectPiCodex(configurationId: string, credentialId?: string): void;
   cancelPiCodex(): void;
   openPiCodexVerification(): void;
@@ -1341,6 +1342,14 @@ function PiConfigurationPanel(props: {
           }}
         >
           {labelText(labels, "piAdd", "Add configuration")}
+        </button>
+        <button
+          type="button"
+          class="backend-button"
+          data-pi-action="export-diagnostics"
+          onClick={() => handlers.exportPiDiagnostics()}
+        >
+          {labelText(labels, "piExportDiagnostics", "Export diagnostics")}
         </button>
       </header>
       <p class="backend-pi-status" role="status">

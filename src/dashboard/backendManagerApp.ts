@@ -863,6 +863,10 @@ export function createBackendManagerController(
         requestId: lastPiTestRequestId,
       });
     },
+    exportPiDiagnostics() {
+      // The host owns the save picker; a cancelled picker exports nothing.
+      deps.sendAction("pi-export-diagnostics", {});
+    },
     connectPiCodex(configurationId, credentialId) {
       if (state.codexAuth) return;
       state.codexAuth = {

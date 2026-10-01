@@ -79,7 +79,35 @@ export type RuntimeLogTransportSummary = {
   stepId?: string;
 };
 
-export type RuntimeLogEntry = {
+export type PiRuntimeLogCorrelation = {
+  conversationId?: string;
+  skillRunId?: string;
+  sessionId?: string;
+  turnId?: string;
+  invocationId?: string;
+  callId?: string;
+  failureId?: string;
+};
+
+const PI_CORRELATION_FIELDS = [
+  "conversationId",
+  "skillRunId",
+  "sessionId",
+  "turnId",
+  "invocationId",
+  "callId",
+  "failureId",
+] as const;
+
+function piCorrelations(
+  input: PiRuntimeLogCorrelation,
+): PiRuntimeLogCorrelation {
+  return Object.fromEntries(
+    PI_CORRELATION_FIELDS.map((key) => [key, normalizeId(input[key])]),
+  );
+}
+
+export type RuntimeLogEntry = PiRuntimeLogCorrelation & {
   id: string;
   ts: string;
   level: RuntimeLogLevel;
@@ -122,7 +150,7 @@ export type RuntimeLogInput = Omit<
   diagnosticMode?: boolean;
 };
 
-export type RuntimeLogListFilters = {
+export type RuntimeLogListFilters = PiRuntimeLogCorrelation & {
   levels?: RuntimeLogLevel[];
   scopes?: RuntimeLogScope[];
   backendId?: string | string[];
@@ -160,7 +188,7 @@ type RuntimeLogSnapshot = {
 
 type RuntimeDiagnosticBundleFilters = RuntimeLogListFilters;
 
-export type RuntimeDiagnosticTimelineEvent = {
+export type RuntimeDiagnosticTimelineEvent = PiRuntimeLogCorrelation & {
   id: string;
   ts: string;
   level: RuntimeLogLevel;
@@ -769,6 +797,7 @@ function parseRuntimeLogEntry(raw: unknown): RuntimeLogEntry | null {
     requestId: normalizeId(raw.requestId),
     jobId: normalizeId(raw.jobId),
     interactionId: normalizeId(raw.interactionId),
+    ...piCorrelations(raw),
     component: normalizeId(raw.component),
     operation: normalizeId(raw.operation),
     attempt: normalizeAttempt(raw.attempt),
@@ -1255,15 +1284,14 @@ export function getRuntimeLogDiagnosticMode() {
   return diagnosticMode;
 }
 
-export function appendRuntimeLog(input: RuntimeLogInput) {
+export function normalizeRuntimeLogEntry(
+  input: RuntimeLogInput,
+  options: { id?: string } = {},
+): RuntimeLogEntry {
   const level = normalizeLevel(input.level);
-  if (level === "debug" ? !diagnosticMode : !allowedLevels.has(level)) {
-    return null;
-  }
-
   const normalizedError = normalizeError(input.error);
   const entry: RuntimeLogEntry = {
-    id: `log-${++sequence}`,
+    id: options.id || `log-${++sequence}`,
     ts: String(input.ts || new Date().toISOString()),
     level,
     scope: normalizeScope(input.scope),
@@ -1278,6 +1306,7 @@ export function appendRuntimeLog(input: RuntimeLogInput) {
     requestId: normalizeId(input.requestId),
     jobId: normalizeId(input.jobId),
     interactionId: normalizeId(input.interactionId),
+    ...piCorrelations(input),
     component: normalizeId(input.component),
     operation: normalizeId(input.operation),
     attempt: normalizeAttempt(input.attempt),
@@ -1293,6 +1322,16 @@ export function appendRuntimeLog(input: RuntimeLogInput) {
   if (normalizedError) {
     entry.error = normalizedError;
   }
+
+  return entry;
+}
+
+export function appendRuntimeLog(input: RuntimeLogInput) {
+  const level = normalizeLevel(input.level);
+  if (level === "debug" ? !diagnosticMode : !allowedLevels.has(level)) {
+    return null;
+  }
+  const entry = normalizeRuntimeLogEntry(input);
 
   retainSerializedEntry(entry);
   const evictedEntryIds = enforceRetentionBudgets();
@@ -1331,6 +1370,13 @@ export function listRuntimeLogs(filters: RuntimeLogListFilters = {}) {
   const toTs = filters.toTs ? Date.parse(String(filters.toTs)) : NaN;
 
   let result = retainedEntriesInGlobalOrder().filter((entry) => {
+    if (
+      PI_CORRELATION_FIELDS.some(
+        (key) => filters[key] && entry[key] !== normalizeId(filters[key]),
+      )
+    ) {
+      return false;
+    }
     if (levels && !levels.has(entry.level)) {
       return false;
     }
@@ -1776,6 +1822,7 @@ function toTimelineEvent(
     jobId: entry.jobId,
     requestId: entry.requestId,
     interactionId: entry.interactionId,
+    ...piCorrelations(entry),
     component: entry.component,
     operation: entry.operation,
     phase: entry.phase,

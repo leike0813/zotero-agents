@@ -169,7 +169,7 @@ const SHARDS: ShardDefinition[] = [
     label: "Runtime platform and persistence",
     select: (filePath) =>
       inDirectory(filePath, "runtime") &&
-      /^(?:108-runtime-persistence|164-runtime-platform|184-runtime-file-transfer|186-runtime-file-range|189-runtime-tree|239-runtime-host|241-pi-owner-persistence|45-runtime-log|52-runtime-bridge|97-runtime-diagnostics)/.test(
+      /^(?:108-runtime-persistence|164-runtime-platform|184-runtime-file-transfer|186-runtime-file-range|189-runtime-tree|239-runtime-host|241-pi-owner-persistence|263-runtime-audit|271-pi-runtime-audit|272-pi-failure|45-runtime-log|52-runtime-bridge|97-runtime-diagnostics)/.test(
         path.basename(filePath),
       ),
   },
@@ -209,6 +209,7 @@ const SHARDS: ShardDefinition[] = [
     label: "Runtime task and queue",
     select: (filePath) =>
       inDirectory(filePath, "runtime") &&
+      !/^(?:263-runtime-audit)/.test(path.basename(filePath)) &&
       /(?:task|queue|job-queue)/.test(path.basename(filePath)),
   },
   {

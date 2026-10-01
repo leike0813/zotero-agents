@@ -4,7 +4,7 @@
 - 工作分支：`dev-agent-harness`
 - 实施路线：[地图 #10](https://github.com/leike0813/zotero-agents/issues/10)、[执行计划 #26](https://github.com/leike0813/zotero-agents/issues/26)
 - 已实现并归档：W0 C01（提交 `fbd297d4`）、W1 C02（`1da0cd84`）、W1 C03（`ef91407c`）、W1 C07（`f5ce9fe6`）、W1 C09（`5077c7b3`）、W2 C04（`f88e2825`）、W2 C06（`2bb22e90`）、W2 C08（实现 `fe6a5a51`，归档 `ad671f6f4`）、W2 C10（实现 `78023c716`、`a8602bc77`，归档 `2026-09-29`）、W2 C12（归档 `2026-09-29`）、C08 受管文件补齐与 W3 C13（均归档 `2026-09-29`）；见 [C08 补齐](../openspec/changes/archive/2026-09-29-complete-pi-managed-workspace-operations/)、[C12 OpenSpec 归档](../openspec/changes/archive/2026-09-29-establish-pi-zotero-tool-catalog/)与 [C13 OpenSpec 归档](../openspec/changes/archive/2026-09-29-add-pi-zotero-read-tools/)。
-- W3 C16 Conversation 已提交并归档（`b6cc7f48`），见 [归档 change](../openspec/changes/archive/2026-09-30-integrate-pi-conversations/) 与 [验证记录](../openspec/changes/archive/2026-09-30-integrate-pi-conversations/verification.md)。W4 C11 Web Search/Fetch 已提交（`2fa6bc0c`）并[归档](../openspec/changes/archive/2026-09-30-add-pi-brokered-web-tools/)；用户已将 DeepSeek 搜索来源改为官方 Anthropic 搜索。C14 已提交（`64ea8d16`）并[归档](../openspec/changes/archive/2026-09-30-add-pi-zotero-mutation-tools/)。C15 已实现并[归档](../openspec/changes/archive/2026-10-01-add-pi-zotero-navigation-tools/)。C17 Skill Run 接线已实现、验证并同步规格，10/10 任务完成，见 [当前 change](../openspec/changes/integrate-pi-skill-runs/) 与 [验证记录](../openspec/changes/integrate-pi-skill-runs/verification.md)，C17 保留活动状态待归档审阅。C05 真实账号证据与间歇性 start JSON 403 的限制仍见 [专项交接](builtin-pi-agent-c05-auth-handoff-2026-09-30.md)。后续为 C18 审计。
+- W3 C16 Conversation 已提交并归档（`b6cc7f48`），见 [归档 change](../openspec/changes/archive/2026-09-30-integrate-pi-conversations/) 与[验证记录](../openspec/changes/archive/2026-09-30-integrate-pi-conversations/verification.md)。W4 C11 Web Search/Fetch 已提交（`2fa6bc0c`）并[归档](../openspec/changes/archive/2026-09-30-add-pi-brokered-web-tools/)；用户已将 DeepSeek 搜索来源改为官方 Anthropic 搜索。C14 已提交（`64ea8d16`）并[归档](../openspec/changes/archive/2026-09-30-add-pi-zotero-mutation-tools/)。C15 已实现并[归档](../openspec/changes/archive/2026-10-01-add-pi-zotero-navigation-tools/)。C17 Skill Run 接线已实现、验证、同步规格并[归档](../openspec/changes/archive/2026-10-01-integrate-pi-skill-runs/)，见其[验证记录](../openspec/changes/archive/2026-10-01-integrate-pi-skill-runs/verification.md)。C18 审计与诊断导出已实现、验证、同步规格并[归档](../openspec/changes/archive/2026-10-01-add-pi-observability-and-audit/)，其实际边界见下文“W6 C18”一节。C05 真实账号证据与间歇性 start JSON 403 的限制仍见 [专项交接](builtin-pi-agent-c05-auth-handoff-2026-09-30.md)。
 
 本文是持续更新的工作交接。**后续每个 Pi Runtime 相关 change 完成、归档或改变实施决定时，实施者须在交接前按实际进度更新本文**：核对已实现边界、下一步、验证结果、未解决风险及链接，并更新状态日期。拟议能力不得写成已交付能力；实现与规格冲突时先核对代码和正式决策。
 
@@ -216,11 +216,24 @@ git show research/pi-agent-sandbox-models:artifact/pi-agent-runtime/sandbox-and-
 - Interactive `ask_user` 支持多问题、revision CAS、Review/Submit/Decline 和 owner 文件快照；文件问题必须声明 slot。文件限额沿用 20 文件、每文件 20 MiB、总计 50 MiB 和共享 owner 2 GiB。普通工具先结算，等待才持久化；陈旧 CAS 重新发布 canonical 草稿。Interrupt 暂停并保持原 request，继续只接受文本，Auto 不获得 `ask_user`。
 - LoopGuard 跨 turn 累积调用次数与实际 dispatch 数，整批预检后、首次效果前持久化计账；被拒、待审批和更新审批不收费。known-owner recovery 从封存或安全等待事实恢复，不重复 model/tool dispatch。未知效果只能进入可取消的 recovery_required。
 - Pi Skill Runs 使用共享 source、Reply、permission、page-first/owner-first publication。Interactive 首次 launch 聚焦原窗口一次；后续更新不抢焦点。终态可归档，无 Restore。相关 chrome DOM identity 用例在现有 `192/258` 中扩展。
-- 真实 Linux Zotero 9.0.6 完整 core 179 项通过，最后清理修复后的真实宿主定向 49 项通过；构建、类型检查、lint、change 和两份已同步主规格 strict 已通过。Node 全量首轮 25/28 分片通过，三个验证环境问题经测试适配修复后分别复跑通过；最终 runtime/assistant 分片也通过。没有把首轮改记为全量一次通过；结果与范围见 [C17 verification](../openspec/changes/integrate-pi-skill-runs/verification.md)。完整版本/OS matrix、正式 XPI、账号和性能验收仍属于 C20。
+- 真实 Linux Zotero 9.0.6 完整 core 179 项通过，最后清理修复后的真实宿主定向 49 项通过；构建、类型检查、lint、change 和两份已同步主规格 strict 已通过。Node 全量首轮 25/28 分片通过，三个验证环境问题经测试适配修复后分别复跑通过；最终 runtime/assistant 分片也通过。没有把首轮改记为全量一次通过；结果与范围见 [C17 verification](../openspec/changes/archive/2026-10-01-integrate-pi-skill-runs/verification.md)。完整版本/OS matrix、正式 XPI、账号和性能验收仍属于 C20。
+
+### W6 C18：失败合同、Runtime Audit 与诊断导出（已实现、验证并归档）
+
+- [`src/shared/piFailureContract.ts`](../src/shared/piFailureContract.ts) 是失败身份与分类的唯一事实源。一次观察只产生一个 `PiFailureCore`（`failureId`、origin、code、category、retryable、可选 effectCertainty），由持有模块写入自己的 canonical transcript，上层只引用同一 `failureId`。core 不带 message、stack、原生异常、凭据或自由文本。单一 `POLICY` 表给出分类与严重度；未登记的 code 按 `error` / `execution` / 不可重试处理，不会降级为 info。`failure_observed` 是非上下文事实，被持久化并被引用，但不进入 turn preparation 重建的模型上下文。
+- [`src/modules/runtimeAuditAppendQueue.ts`](../src/modules/runtimeAuditAppendQueue.ts) 由原 ACP `acpAuditAppendCore` 泛化而来，两个 ACP 调用方已迁移，旧文件已删除，ACP 行为与预算保持不变。队列支持可配置 pending 上限、按 owner 的快照 barrier、flush、release 与 discard；它不含任何 policy 或 schema 知识，也不加全局锁。
+- [`src/modules/piRuntimeAudit.ts`](../src/modules/piRuntimeAudit.ts) 是唯一审计 sink，对外只有 `record(fact)`、`flushOwner(ownerRef)` 与 `exportDiagnostics(scope, targetPath)`。单一 operation 表决定 tier、severity、允许来源与允许属性；投影是白名单，`failureCode` 只参与 severity 查询，canonical 失败正文不进入审计。带 owner 的事实写入该 owner 受管 Workspace 的 `runtime-audit/audit.ndjson`，无 owner 的进入既有 Runtime Log 保留策略。
+- 上限是模块常量，仅测试重置可覆盖：单 owner 64 MiB / 50,000 条 / 单条 64 KiB，待写队列 1 MiB 或 1,000 条，导出未压缩 96 MiB。达到上限原子压缩到两个目标的 75%（合并相邻结构重复、先删最旧 debug 再删 info、压缩旧 warn/error 重复并保留最新代表、再删最旧剩余）并记录 gap。溢出、超大条目与写失败只累加有界 gap 计数，`record` 不会向执行抛错。审计在既有 Native owner 配额锁下写入，并可经模块私有回调仅回收审计数据。
+- `exportDiagnostics` 复用既有原子 ZIP writer。owner 范围含该 owner 审计加按关联身份与时间窗筛选的全局日志；global 范围只含无 owner 的事实与日志，不扫描任何 owner 目录。活动 owner 导出经队列 barrier 与 Runtime Log 快照后基于临时副本组装，不持有 owner 执行；超预算优先保留 manifest、结构化失败与完整性，先裁全局日志再裁 owner 审计，且不裁剪来源。临时数据在成功与失败路径都清理，失败返回 `diagnostic_export_failed`，不改变 owner 状态也不发布半成品 ZIP。
+- 导出入口只有两处：所选 Pi owner 的 Details drawer（`export-diagnostics`，仅 Pi 两个 source 可用，经既有 action contract/registry/惰性 router 路由）与 Backend Manager 内置 Agent 区（`pi-export-diagnostics`，global）。保存路径由宿主 picker 决定，取消选路径不执行导出也不发布结果；导出绑定动作到达时捕获的 owner，picker 打开期间切换选择不会改写目标。审计模块以返回值报告失败而不抛错，用户触发的导出把失败抛回各界面既有本地错误通道：Pi Conversation 走 composer 错误，Pi Skill Run 只走 surface notice（不进入 coordinator 或运行终态），Backend Manager 走状态行；三者都不改变运行终态。
+- 相关 Node 验证：runtime 5/5 分片（42 个文件）、ACP 3/3（35 个文件）、assistant 8 个文件、dashboard 13 个文件、UI 16 个文件与 shared 1 个文件均通过；后续 owner/cancel/security/shared-host 修正后 execution 的 16 个文件与 assistant 的 8 个文件再次通过。`271` 定向 14 项通过。Workspace 用例覆盖导出 scope、picker 取消及选择变化、各界面本地错误通道与 Details/chrome DOM identity。
+- 最新源码在 Linux x86_64 / Zotero 9.0.6 的完整 core 209 项与 UI 4 项通过；core 包含 9 项共享审计、真实 Gecko ZIP、原子替换、配额和 audit private path 用例。较早 197 项通过、随后 207 通过/1 失败与 Node import 构建阻塞都保留在 verification 中，未改记为一次全量通过。完整 build、根与页面类型检查通过。
+- 四份主规格已同步，change 与受影响主规格 strict 通过，全仓 381 份主规格普通校验通过。完整 lint 已通过，11/11 任务完成并归档；结果与边界见 [C18 verification](../openspec/changes/archive/2026-10-01-add-pi-observability-and-audit/verification.md)。Runtime 的 turn/invocation 与 Provider 的 transport 直接调用同一审计接口；取消、安全拒绝、Gateway receipt 和 owner terminal 在事实持有入口记录。
+- 本 change 不含：进程启动对账、异常退出与暂存恢复、未知效果的生命周期恢复、Skill Run 既有 30 天清理调度、完整 Workspace E2E 与版本/OS matrix，也不含 health 面板、定时巡检、主动探针或自动导出。诊断保持被动，Diagnostic Mode 与独立的 `PI_RUNTIME_AUDIT_DEBUG_ENABLED` 只放宽记录时刻的 tier 准入，不调度任何动作。
 
 ## 当前工作区状态
 
-C16 的固定基线为 `4d95a25c`，实现提交为 `b6cc7f48`，change 已同步并归档。C11 实现提交为 `2fa6bc0c`；C14 实现提交为 `64ea8d16`，14/14 任务完成并归档。C15 以 `64ea8d1699293820941767f75733fa5ab1048329` 为固定基线，9/9 任务完成，四份规格已同步并归档。C17 以 `24f6dabae9f5e1a9387bf03ce17c0d2ca52c13ef` 为固定基线，10/10 任务完成，两份规格已同步，change 保持活动待归档审阅。实现没有新增提交。启动自动恢复尚未实现。以最新 `git status` 辨别所有权，不覆盖并行改动。
+C16 的固定基线为 `4d95a25c`，实现提交为 `b6cc7f48`，change 已同步并归档。C11 实现提交为 `2fa6bc0c`；C14 实现提交为 `64ea8d16`，14/14 任务完成并归档。C15 以 `64ea8d1699293820941767f75733fa5ab1048329` 为固定基线，9/9 任务完成，四份规格已同步并归档。C17 以 `24f6dabae9f5e1a9387bf03ce17c0d2ca52c13ef` 为固定基线，10/10 任务完成，两份规格已同步并归档为 `2026-10-01-integrate-pi-skill-runs`。C18 以 `b26824f2572c6258d7fcd15fb807dcc610f143e3` 为固定基线，11/11 任务完成，相关 Node、lint、build 和真实宿主验证通过，四份主规格已同步并归档为 `2026-10-01-add-pi-observability-and-audit`。实现没有新增提交。启动自动恢复尚未实现，仍属于 C19。以最新 `git status` 辨别所有权，不覆盖并行改动。
 
 用户已批准 C15 一并完成 Gateway/Broker 前置修复与 Conversation 生产接线，取代 #26 原 catalog-only 文件范围。[#39 维护者关闭决定](https://github.com/leike0813/zotero-agents/issues/39#issuecomment-5587998361)允许继续开发，正式发布与 receipt 仍待后续补齐；本次没有发布 v0.9.0，也没有正式 release receipt。
 
@@ -270,7 +283,8 @@ C16 的固定基线为 `4d95a25c`，实现提交为 `b6cc7f48`，change 已同�
 ### Pi Conversation 与现有 UI/工作流
 
 - C16 已接入独立 Conversation owner、canonical transcript、模型选择、取消与共享 page-first/owner-first publication。C17 已接入 `pi-skill-runs` adapter，保持工作流任务与 Conversation 的 owner 边界。
-- C18 接续完整 product owner 的审计与诊断；C19 负责重启待办、异常退出和未知效应的生命周期恢复。C16 恢复出未结算历史时保持 `recovery_required`，不自动重放工具。
+- C18 已实现完整 product owner 的失败合同、审计与诊断导出，并完成真实宿主验证和规格同步。C19 负责重启待办、异常退出、未知效应的生命周期恢复，以及 Skill Run 既有 30 天清理的调度归属；C20 负责完整 Workspace E2E 与版本/OS matrix。C16 恢复出未结算历史时保持 `recovery_required`，不自动重放工具。
+- 审计与诊断保持被动：不设 health 面板、定时巡检、主动探针或自动导出。若将来需要主动探针，须作为独立且显式授权的决定处理，不作为本合同的补充。
 
 ### Trusted Native Execution 与可选 Strong
 
@@ -289,9 +303,9 @@ C16 的固定基线为 `4d95a25c`，实现提交为 `b6cc7f48`，change 已同�
 
 ## 下一步实施入口
 
-C13、C05、C16、W4 C11/C14/C15 已归档；C17 实现与验证见 [当前 change](../openspec/changes/integrate-pi-skill-runs/)。依 [#26 最终 wave 表](https://github.com/leike0813/zotero-agents/issues/26#issuecomment-5552013273)，C17 验证、同步、归档完成后接续 C18 审计，再进入 C19 恢复与 C20 完整验收。C15 的实现与验证边界见 [归档 change](../openspec/changes/archive/2026-10-01-add-pi-zotero-navigation-tools/)。真实账号限制仍见 [C05 专项交接](builtin-pi-agent-c05-auth-handoff-2026-09-30.md)。
+C13、C05、C16、C17、W4 C11/C14/C15 已归档；C17 的实现与验证边界见 [归档 change](../openspec/changes/archive/2026-10-01-integrate-pi-skill-runs/)。C18 已验证并[归档](../openspec/changes/archive/2026-10-01-add-pi-observability-and-audit/)，实现与验证边界见上文对应小节。依 [#26 最终 wave 表](https://github.com/leike0813/zotero-agents/issues/26#issuecomment-5552013273)，下一项为 C19 `harden-pi-lifecycle-and-recovery`：启动对账、异常退出、unknown-effect 恢复、共享 shutdown deadline 和 Skill Run 30 天清理调度，随后进入 C20 完整验收。C15 的实现与验证边界见 [归档 change](../openspec/changes/archive/2026-10-01-add-pi-zotero-navigation-tools/)。真实账号限制仍见 [C05 专项交接](builtin-pi-agent-c05-auth-handoff-2026-09-30.md)。
 
-接续工作按 [C04 verification](../openspec/changes/archive/2026-09-28-add-pi-api-key-provider-execution/verification.md) 和 C06 的验证记录核对 Provider 与 context 边界。Assistant Workspace、具体工具和自动恢复分别遵守 ADR 0001/0003、区域级 DOM identity 约束和 ADR 0002。会话接线 C16 已完成；后续 Skill Run 接线是 C17，生命周期恢复是 C19。每项能力的完成证据应落在对应 OpenSpec change 与测试中，并回写本文状态。
+接续工作按 [C04 verification](../openspec/changes/archive/2026-09-28-add-pi-api-key-provider-execution/verification.md) 和 C06 的验证记录核对 Provider 与 context 边界。Assistant Workspace、具体工具和自动恢复分别遵守 ADR 0001/0003、区域级 DOM identity 约束和 ADR 0002。会话接线 C16、Skill Run 接线 C17、审计与诊断导出 C18 均已完成并归档；生命周期恢复是 C19，完整验收是 C20。每项能力的完成证据应落在对应 OpenSpec change 与测试中，并回写本文状态。
 
 ## 实施前的代码探索入口
 

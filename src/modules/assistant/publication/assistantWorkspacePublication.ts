@@ -318,6 +318,10 @@ const ASSISTANT_WORKSPACE_ACTION_DEFINITIONS = {
     scope: "selected-owner",
     payloadKeys: [],
   },
+  "export-diagnostics": {
+    scope: "selected-owner",
+    payloadKeys: [],
+  },
   "open-workspace": {
     scope: "selected-owner",
     payloadKeys: [],
@@ -862,6 +866,7 @@ export type AssistantWorkspaceOwnerPresentation = {
 export const ASSISTANT_WORKSPACE_DETAILS_ACTIONS = [
   "copy-id",
   "copy-diagnostics",
+  "export-diagnostics",
   "open-workspace",
   "compact-conversation",
   "rename-conversation",

@@ -13,6 +13,8 @@ import {
   createPiSkillRunsWorkspaceOwner,
   createPiSkillRunsWorkspaceSurfaceAdapter,
   PI_SKILL_RUN_CHANGE_PUBLICATION_MAPPING,
+  resetPiSkillRunActionNoticesForTests,
+  setPiSkillRunActionNotice,
 } from "../../src/modules/piSkillRunWorkspaceSurface";
 import { mapWorkspaceChangeKindsToPublicationKinds } from "../../src/modules/assistant/workspace/assistantWorkspaceSurfaceSkeleton";
 import type { ProviderExecuteArgs } from "../../src/providers/types";
@@ -221,6 +223,9 @@ describe("Pi Conversation workspace publication", function () {
     }).filter((value): value is string => value !== null);
     assert.deepEqual(failures, []);
     assert.include(regions["owner-details"]!.actions, "rename-conversation");
+    // C18: the scoped diagnostic export belongs to the selected owner and is
+    // offered in every lifecycle state, archived conversations included.
+    assert.include(regions["owner-details"]!.actions, "export-diagnostics");
 
     await coordinator.dispose();
   });
@@ -526,7 +531,10 @@ describe("Pi Skill Run workspace publication", function () {
       return publicationError(owner, kind, payload);
     }).filter((value): value is string => value !== null);
     assert.deepEqual(failures, []);
-    assert.deepEqual(regions["owner-details"]!.actions, ["copy-id"]);
+    assert.deepEqual(regions["owner-details"]!.actions, [
+      "copy-id",
+      "export-diagnostics",
+    ]);
     // Execution mode is immutable after admission, so no mode selector ships.
     assert.deepEqual(regions.composer!.runtimeOptions.mode, {
       enabled: false,
@@ -544,6 +552,65 @@ describe("Pi Skill Run workspace publication", function () {
 
     await coordinator.archive(result.requestId);
     assert.lengthOf((await adapter.readOwnerNavigation()).entries, 0);
+  });
+
+  it("reports a local action error as surface notice, never as run outcome", async function () {
+    const coordinator = createPiSkillRunCoordinator({
+      root,
+      prepare: async () => {
+        throw new Error("preparation failed");
+      },
+      execution: () => {
+        throw new Error("must not dispatch");
+      },
+    });
+    const adapter = createPiSkillRunsWorkspaceSurfaceAdapter(coordinator);
+    const result = await coordinator.execute(request());
+    await coordinator.select(result.requestId);
+    const owner = createPiSkillRunsWorkspaceOwner(result.requestId);
+
+    const read = async () => {
+      const regions = await adapter.readOwnerRegions({
+        owner,
+        kinds: ["owner-presentation", "owner-details"],
+      });
+      return regions;
+    };
+
+    const before = await read();
+    const statusBefore = before["owner-details"]!.sections.flatMap(
+      (section) => section.items,
+    ).find((item) => item.fieldId === "status")?.value;
+
+    setPiSkillRunActionNotice(owner.requestId, "diagnostic_export_failed");
+    const afterNotice = await read();
+    // A local action error becomes visible as a warning notice, and stays out
+    // of the run's own error field and status.
+    assert.deepEqual(afterNotice["owner-presentation"]?.notice, {
+      tone: "warning",
+      text: "diagnostic_export_failed",
+    });
+    const afterItems = afterNotice["owner-details"]!.sections.flatMap(
+      (section) => section.items,
+    );
+    assert.isUndefined(
+      afterItems.find((item) => item.fieldId === "run-error"),
+      "an action error is never a run error",
+    );
+    assert.equal(
+      afterItems.find((item) => item.fieldId === "status")?.value,
+      statusBefore,
+      "an action error never changes run status",
+    );
+
+    setPiSkillRunActionNotice(owner.requestId, null);
+    const cleared = await read();
+    assert.notDeepEqual(cleared["owner-presentation"]?.notice, {
+      tone: "warning",
+      text: "diagnostic_export_failed",
+    });
+    resetPiSkillRunActionNoticesForTests();
+    await coordinator.dispose();
   });
 
   it("maps change kinds so a draft-only update repaints the composer alone", function () {

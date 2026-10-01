@@ -56,6 +56,30 @@ export const PI_SKILL_RUN_CHANGE_PUBLICATION_MAPPING = {
 
 const TERMINAL_STATUSES = ["succeeded", "failed", "canceled"];
 
+// Local user-action errors (for example a diagnostic export that could not be
+// written) are surface state, not run outcome. They are held here so the
+// coordinator and the run's own terminal state are never touched; the run's
+// failure stays reported through the details view's run-error field.
+const ACTION_NOTICES = new Map<string, string>();
+
+export function setPiSkillRunActionNotice(
+  requestId: string,
+  code: string | null,
+): void {
+  const key = String(requestId || "").trim();
+  if (!key) return;
+  if (code) ACTION_NOTICES.set(key, code);
+  else ACTION_NOTICES.delete(key);
+}
+
+export function readPiSkillRunActionNotice(requestId: string): string | null {
+  return ACTION_NOTICES.get(String(requestId || "").trim()) || null;
+}
+
+export function resetPiSkillRunActionNoticesForTests(): void {
+  ACTION_NOTICES.clear();
+}
+
 export function createPiSkillRunsWorkspaceSurfaceAdapter(
   coordinator = getPiSkillRunCoordinator(),
 ) {
@@ -298,9 +322,16 @@ export function createPiSkillRunsWorkspaceSurfaceAdapter(
               skillId: model.skillId,
             }),
             description: null,
+            // The run's own failure wins; a local action error is only shown
+            // when the run has no failure of its own to report.
             notice: model.failure
               ? { tone: "danger", text: model.failure }
-              : null,
+              : readPiSkillRunActionNotice(owner.requestId)
+                ? {
+                    tone: "warning",
+                    text: readPiSkillRunActionNotice(owner.requestId)!,
+                  }
+                : null,
             metadata: [
               { fieldId: "skill" as const, value: model.skillId },
               { fieldId: "status" as const, value: model.status },
@@ -354,9 +385,10 @@ export function createPiSkillRunsWorkspaceSurfaceAdapter(
                   ].filter((entry) => entry.value),
                 },
               ].filter((section) => section.items.length > 0),
-              // C18 owns audit/diagnostics, so the only routable details
-              // action here is the canonical copy-request-id shortcut.
-              actions: ["copy-id"],
+              // C18 owns audit/diagnostics, so the routable details actions
+              // are the canonical copy-request-id shortcut plus the
+              // owner-scoped diagnostic export.
+              actions: ["copy-id", "export-diagnostics"],
               error: null,
             };
           },

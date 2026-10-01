@@ -428,7 +428,10 @@ export type BackendManagerActionName =
   | "pi-web-save-sources"
   | "pi-web-test-source"
   | "pi-web-put-secret"
-  | "pi-web-delete-secret";
+  | "pi-web-delete-secret"
+  // C18: global built-in Agent diagnostic export (ownerless facts and logs
+  // only; the target path comes from the host save picker).
+  | "pi-export-diagnostics";
 
 export type BackendManagerBuiltinAgentSnapshot = {
   configurations: import("./piProviderContract").PiProviderConfiguration[];
@@ -599,6 +602,7 @@ export type BackendManagerActionPayloadMap = {
     secret: string;
   }>;
   "pi-web-delete-secret": DashboardActionPayloadShape<{ id: string }>;
+  "pi-export-diagnostics": DashboardEmptyActionPayload;
 };
 
 export type BackendManagerActionPayload<

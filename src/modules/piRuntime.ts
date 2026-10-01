@@ -18,6 +18,22 @@ import {
   type Usage,
 } from "@earendil-works/pi-ai";
 import type { JsonValue } from "../workflows/types";
+// C18: the Runtime is a fact owner for turn and model invocation boundaries.
+// It calls the audit module's own `record` directly with the owner identity its
+// session already holds; it defines no audit schema and forwards no callback.
+// The provider module owns transport only and never re-reports invocation
+// boundaries. An observed failure is committed once to the canonical
+// transcript and is not re-factored here — a failure is referenced by
+// `failureId`, never re-described.
+//
+// This is a direct import on purpose: `record` is synchronous and
+// non-throwing, so a turn seam needs no await, and piRuntimeAudit does not
+// import this module, so there is no cycle.
+import {
+  record as recordPiRuntimeAudit,
+  type PiRuntimeAuditContext,
+  type PiRuntimeAuditFact,
+} from "./piRuntimeAudit";
 
 export type PiModelFailureCode =
   | "credential_missing"
@@ -266,7 +282,10 @@ export type PiTurnResult =
   | { status: "waiting_user" }
   | { status: "suspended" }
   | { status: "state_unknown" }
-  | { status: "failed"; failure: { code: PiTurnFailureCode; message: string } }
+  | {
+      status: "failed";
+      failure: { code: PiTurnFailureCode; message: string; failureId?: string };
+    }
   | { status: "canceled" };
 
 export type PiRuntimeEvent = {
@@ -371,11 +390,16 @@ export interface PiRuntimeSession {
 }
 
 export type PiRuntimeSessionOptions =
-  | { sessionId: string; modelStream: PiRuntimeModelSource }
+  | {
+      sessionId: string;
+      modelStream: PiRuntimeModelSource;
+      audit?: PiRuntimeAuditContext;
+    }
   | {
       sessionId: string;
       model: Model<string>;
       source: PiRuntimeProviderSource;
+      audit?: PiRuntimeAuditContext;
     };
 
 export type PiRuntimeScriptedTurn = {
@@ -953,6 +977,19 @@ export class PiRuntime {
   openSession(options: PiRuntimeSessionOptions): PiRuntimeSession {
     const { sessionId } = options;
     if (!sessionId.trim()) throw new Error("session_id_required");
+    const audit = options.audit;
+    // The context is only the owner identity this session already holds, so
+    // there is no callback to forward and no audit schema here: the audit
+    // module owns admission and storage. `record` is synchronous and
+    // non-throwing, so recording never adds latency to a turn; where a
+    // canonical owner callback is involved, the record happens after that
+    // callback is awaited, never instead of it.
+    const auditRecord = (
+      fact: Omit<PiRuntimeAuditFact, "owner" | "root" | "workspaceDir">,
+    ) => {
+      if (!audit) return;
+      recordPiRuntimeAudit({ ...fact, ...audit });
+    };
     const textStream =
       "modelStream" in options ? options.modelStream : undefined;
     const model = "source" in options ? options.model : DEFAULT_TEXT_MODEL;
@@ -999,6 +1036,15 @@ export class PiRuntime {
       if (!input.turnId.trim()) throw new Error("turn_id_required");
       if (!textStream) throw new Error("session_mode_invalid");
       active = true;
+      auditRecord({
+        operation: "turn.started",
+        origin: "runtime",
+        correlation: {
+          sessionId,
+          turnId: input.turnId,
+          invocationId: input.turnId + ":invocation:0",
+        },
+      });
       agent.state.model = DEFAULT_TEXT_MODEL;
       agent.state.systemPrompt = input.systemPrompt ?? "";
       agent.state.tools = [];
@@ -1022,6 +1068,16 @@ export class PiRuntime {
       const finish = async (result: PiTurnResult) => {
         if (terminal) return;
         terminal = true;
+        auditRecord({
+          operation: "turn.terminal",
+          origin: "runtime",
+          correlation: {
+            sessionId,
+            turnId: input.turnId,
+            invocationId: input.turnId + ":invocation:0",
+          },
+          attributes: { status: result.status },
+        });
         await emit({ kind: "terminal", result });
       };
       const unsubscribe = agent.subscribe(async (event) => {
@@ -1094,6 +1150,11 @@ export class PiRuntime {
       if (!input.turnId.trim()) throw new Error("turn_id_required");
       if (!agentSource) throw new Error("session_mode_invalid");
       active = true;
+      auditRecord({
+        operation: "turn.started",
+        origin: "runtime",
+        correlation: { sessionId, turnId: input.turnId },
+      });
       const events = new EventStream<PiRuntimeEvent, PiTurnResult>(
         (event) => event.kind === "terminal",
         (event) =>
@@ -1133,6 +1194,16 @@ export class PiRuntime {
       const finish = async (result: PiTurnResult) => {
         if (terminal) return;
         terminal = true;
+        auditRecord({
+          operation: "turn.terminal",
+          origin: "runtime",
+          correlation: {
+            sessionId,
+            turnId: input.turnId,
+            ...(invocationId ? { invocationId } : {}),
+          },
+          attributes: { status: result.status },
+        });
         await emit({ kind: "terminal", result });
       };
       const beginBatch = (assistant: AssistantMessage) => {
@@ -1355,6 +1426,14 @@ export class PiRuntime {
           invocationId,
           invocationIndex: invocationIndexValue,
         });
+        // The owner has observed invocation_started through its canonical
+        // event callback; only now does the structural fact exist.
+        auditRecord({
+          operation: "model.invocation_started",
+          origin: "provider",
+          correlation: { sessionId, turnId: input.turnId, invocationId },
+          attributes: { count: invocationIndexValue + 1 },
+        });
         try {
           return await agentSource!({
             sessionId,
@@ -1453,6 +1532,12 @@ export class PiRuntime {
               invocationId,
               stopReason: message.stopReason as PiRuntimeStopReason,
             });
+            auditRecord({
+              operation: "model.invocation_terminal",
+              origin: "provider",
+              correlation: { sessionId, turnId: input.turnId, invocationId },
+              attributes: { reason: message.stopReason },
+            });
           }
         } else if (event.type === "tool_execution_end") {
           if (suppressed.has(event.toolCallId)) return;
@@ -1486,6 +1571,12 @@ export class PiRuntime {
             kind: "invocation_terminal",
             invocationId,
             stopReason: "aborted",
+          });
+          auditRecord({
+            operation: "model.invocation_terminal",
+            origin: "provider",
+            correlation: { sessionId, turnId: input.turnId, invocationId },
+            attributes: { reason: "aborted" },
           });
         }
         await finish(result);

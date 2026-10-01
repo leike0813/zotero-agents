@@ -23,6 +23,25 @@ type PiConversationCoordinator = ReturnType<
 import type { createPiSkillRunCoordinator } from "../../piSkillRun";
 
 type PiSkillRunCoordinator = ReturnType<typeof createPiSkillRunCoordinator>;
+// Type-only: the Pi Runtime Audit exporter is injected through the shell host
+// so this module keeps no static edge to the audit graph.
+import type { PiOwnerRef } from "../../piTranscriptStore";
+
+/** Result shape the audit exporter reports; a failure never throws. */
+type PiDiagnosticExportOutcome =
+  | { status: "exported"; bytes?: number; complete?: boolean }
+  | { status: "failed"; code: string };
+
+function isFailedPiDiagnosticExport(
+  value: unknown,
+): value is { status: "failed"; code: string } {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    (value as { status?: unknown }).status === "failed" &&
+    typeof (value as { code?: unknown }).code === "string"
+  );
+}
 import { openRuntimeFilePicker } from "../../../platform/filePicker";
 import { getBaseName } from "../../../platform/path";
 import type {
@@ -154,6 +173,20 @@ export type AssistantWorkspaceActionRouterShellHost = {
   };
   /** Pi Skill Run coordinator singleton, injected by the sidebar host. */
   piSkillRunCoordinator(): PiSkillRunCoordinator;
+  /**
+   * Built-in Agent diagnostic exporter, injected by the sidebar host. It is
+   * resolved lazily (never imported here) so this module keeps no static edge
+   * to the Pi Runtime Audit graph, mirroring the Pi coordinator seams.
+   */
+  exportPiDiagnostics(args: {
+    scope: { kind: "owner"; owner: PiOwnerRef } | { kind: "global" };
+    targetPath: string;
+  }): Promise<PiDiagnosticExportOutcome>;
+  /**
+   * Records a Pi Skill Run user-action error as surface notice state. It is
+   * never run outcome or coordinator state, and never reaches the transcript.
+   */
+  setPiSkillRunActionNotice(requestId: string, code: string | null): void;
   openBackendManager(args: {
     window: _ZoteroTypes.MainWindow;
     initialProviderType: "acp" | "skillrunner" | "pi";
@@ -341,6 +374,33 @@ async function copyDiagnosticsForSource(
     conversationId,
     visible: true,
   });
+}
+
+// C18 scoped/global diagnostic export. The host owns the save target: a
+// cancelled picker performs no export at all, and a selected path is passed
+// straight to the Pi Runtime Audit module, which writes the ZIP atomically.
+// The owner ref is bound before the await, so a selection change while the
+// picker is open cannot redirect the export to a later owner.
+async function exportPiDiagnosticsForOwner(ref: PiOwnerRef | null) {
+  if (!ref) return;
+  const picked = await openRuntimeFilePicker({
+    title: "Export diagnostics",
+    mode: "save",
+    suggestion: `pi-diagnostics-${ref.ownerId}.zip`,
+  });
+  const targetPath = typeof picked === "string" ? picked.trim() : "";
+  if (!targetPath) return;
+  const result = await shellHost.exportPiDiagnostics({
+    scope: { kind: "owner", owner: ref },
+    targetPath,
+  });
+  // The audit module reports failure as a value so it can never throw into
+  // execution. A user-initiated export has no result path of its own, so the
+  // failure is re-raised here and surfaced by each source's existing local
+  // error channel instead of completing silently.
+  if (isFailedPiDiagnosticExport(result)) {
+    throw new Error(result.code);
+  }
 }
 
 async function openWorkspaceForSource(
@@ -711,6 +771,12 @@ function piConversationOwner(
   };
 }
 
+function piSkillRunsOwner(
+  requestId: string,
+): Extract<AssistantWorkspaceOwner, { source: "pi-skill-runs" }> {
+  return { source: "pi-skill-runs", ownerKey: requestId, requestId };
+}
+
 // A trusted navigation target is bound to one Workspace presentation for the
 // whole turn. `resolveAndValidate()` returns the exact source MainWindow only
 // while that window still presents the same Pi Conversation, in the same shell
@@ -897,6 +963,17 @@ async function handlePiConversationAction(
       return false;
     }
   };
+  if (action === "export-diagnostics") {
+    if (conversationId) {
+      await runLocal(() =>
+        exportPiDiagnosticsForOwner({
+          kind: "conversation",
+          ownerId: conversationId,
+        }),
+      );
+    }
+    return;
+  }
   if (action === "new-conversation") {
     let status = "unavailable";
     try {
@@ -1153,11 +1230,22 @@ async function handlePiSkillRunAction(
     try {
       await work();
     } catch (error) {
+      const code = piSkillRunFailureCode(error);
+      // A user-initiated action error is published as surface notice state
+      // only. It never becomes a run outcome or coordinator state.
+      shellHost.setPiSkillRunActionNotice(requestId, code);
+      void host.publicationRuntime?.publishRegions({
+        adapter: shellHost.piSkillRunsSurface().adapter,
+        owner: piSkillRunsOwner(requestId),
+        context: {},
+        kinds: ["owner-presentation"],
+        cause: "steady-state",
+      });
       shellHost.logAssistantWorkspaceDebug(
         host,
         "pi-skill-run-action-failed",
         "Pi Skill Run action failed.",
-        { tab: "pi-skill-runs", action, code: piSkillRunFailureCode(error) },
+        { tab: "pi-skill-runs", action, code },
       );
     }
   };
@@ -1170,6 +1258,12 @@ async function handlePiSkillRunAction(
     return;
   }
   if (!requestId) return;
+  if (action === "export-diagnostics") {
+    await runLocal(() =>
+      exportPiDiagnosticsForOwner({ kind: "skill_run", ownerId: requestId }),
+    );
+    return;
+  }
   if (action === "select-run") {
     await coordinator.select(requestId);
     return;

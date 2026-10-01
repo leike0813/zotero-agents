@@ -284,6 +284,194 @@ describe("pi conversation permission routing", function () {
   });
 });
 
+describe("C18 diagnostic export routing", function () {
+  const exports: Array<{ scope: unknown; targetPath: string }> = [];
+  let pickedPath: string | null = "/tmp/diagnostics.zip";
+  let pickerGate: Promise<void> | null = null;
+  let exportResult: { status: string; code?: string } = { status: "exported" };
+  let selectedConversationId = "conv-1";
+  const composerErrors: Array<{ conversationId: string; code: string }> = [];
+  const actionNotices: Array<{ requestId: string; code: string | null }> = [];
+
+  // The host save picker is the only source of the export target; a cancelled
+  // picker must therefore perform no export at all.
+  beforeEach(function () {
+    (globalThis as Record<string, unknown>).ztoolkit = {
+      FilePicker: class {
+        async open() {
+          if (pickerGate) await pickerGate;
+          return pickedPath;
+        }
+      },
+    };
+    exports.length = 0;
+    pickedPath = "/tmp/diagnostics.zip";
+    pickerGate = null;
+    exportResult = { status: "exported" };
+    selectedConversationId = "conv-1";
+    composerErrors.length = 0;
+    actionNotices.length = 0;
+  });
+
+  afterEach(function () {
+    delete (globalThis as Record<string, unknown>).ztoolkit;
+  });
+
+  before(function () {
+    configureAssistantWorkspaceActionRouterShellHost({
+      piConversationsSurface: () => ({ adapter: {} as never }),
+      piConversationCoordinator: () =>
+        ({
+          selectedId: selectedConversationId,
+          setComposerError: (conversationId: string, code: string) => {
+            composerErrors.push({ conversationId, code });
+          },
+        }) as never,
+      piSkillRunsSurface: () => ({ adapter: {} as never }),
+      piSkillRunCoordinator: () => ({ selectedId: "run-1" }) as never,
+      exportPiDiagnostics: async (args) => {
+        exports.push({ scope: args.scope, targetPath: args.targetPath });
+        return exportResult as never;
+      },
+      setPiSkillRunActionNotice: (requestId, code) => {
+        actionNotices.push({ requestId, code });
+      },
+      localizeString: (_key, fallback) => fallback,
+      openBackendManager: async () => undefined,
+      logAssistantWorkspaceDebug: () => undefined,
+      closeActiveSidebarHost: () => false,
+      normalizeTab: (value) => String(value || "pi-conversations") as never,
+      resolveCurrentShellWindow: () => null,
+      isHostAlive: () => true,
+    } as never);
+  });
+
+  function hostForTab(activeTab: string) {
+    return {
+      activeTab,
+      activeTarget: "library",
+      win: {},
+      readyTabs: new Set(),
+      readyTabGenerations: new Map(),
+      childInitInFlight: new Map(),
+    } as never;
+  }
+
+  function envelopeFor(
+    source: "pi-conversations" | "pi-skill-runs",
+    action: string,
+    owner: Record<string, unknown>,
+  ) {
+    const ownerKey = String(owner.conversationId || owner.requestId || "");
+    return {
+      source,
+      owner: { ownerKey, ...owner },
+      actionId: "action-export",
+      action,
+      payload: {},
+    } as never;
+  }
+
+  it("scopes the export to the captured owner", async function () {
+    await handleChildAction(
+      hostForTab("pi-conversations"),
+      "library" as never,
+      envelopeFor("pi-conversations", "export-diagnostics", {
+        source: "pi-conversations",
+        conversationId: "conv-1",
+      }),
+    );
+    assert.deepEqual(exports, [
+      {
+        scope: {
+          kind: "owner",
+          owner: { kind: "conversation", ownerId: "conv-1" },
+        },
+        targetPath: "/tmp/diagnostics.zip",
+      },
+    ]);
+  });
+
+  it("scopes the Pi Skill Run export to its own owner kind", async function () {
+    await handleChildAction(
+      hostForTab("pi-skill-runs"),
+      "library" as never,
+      envelopeFor("pi-skill-runs", "export-diagnostics", {
+        source: "pi-skill-runs",
+        requestId: "run-1",
+      }),
+    );
+    assert.deepEqual(exports[0]?.scope, {
+      kind: "owner",
+      owner: { kind: "skill_run", ownerId: "run-1" },
+    });
+  });
+
+  it("performs no export when the save picker is cancelled", async function () {
+    pickedPath = null;
+    await handleChildAction(
+      hostForTab("pi-conversations"),
+      "library" as never,
+      envelopeFor("pi-conversations", "export-diagnostics", {
+        source: "pi-conversations",
+        conversationId: "conv-1",
+      }),
+    );
+    assert.deepEqual(exports, []);
+  });
+
+  it("keeps the owner captured before the picker when the selection changes", async function () {
+    let release: () => void = () => {};
+    pickerGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const pending = handleChildAction(
+      hostForTab("pi-conversations"),
+      "library" as never,
+      envelopeFor("pi-conversations", "export-diagnostics", {
+        source: "pi-conversations",
+        conversationId: "conv-1",
+      }),
+    );
+    // The user picks another conversation while the save dialog is still open.
+    selectedConversationId = "conv-2";
+    release();
+    await pending;
+    assert.deepEqual(exports[0]?.scope, {
+      kind: "owner",
+      owner: { kind: "conversation", ownerId: "conv-1" },
+    });
+  });
+
+  it("surfaces a failed export instead of completing silently", async function () {
+    exportResult = { status: "failed", code: "diagnostic_export_failed" };
+    await handleChildAction(
+      hostForTab("pi-conversations"),
+      "library" as never,
+      envelopeFor("pi-conversations", "export-diagnostics", {
+        source: "pi-conversations",
+        conversationId: "conv-1",
+      }),
+    );
+    assert.deepEqual(composerErrors, [
+      { conversationId: "conv-1", code: "pi_conversation_action_failed" },
+    ]);
+
+    composerErrors.length = 0;
+    await handleChildAction(
+      hostForTab("pi-skill-runs"),
+      "library" as never,
+      envelopeFor("pi-skill-runs", "export-diagnostics", {
+        source: "pi-skill-runs",
+        requestId: "run-1",
+      }),
+    );
+    assert.deepEqual(actionNotices, [
+      { requestId: "run-1", code: "diagnostic_export_failed" },
+    ]);
+  });
+});
+
 import {
   ASSISTANT_WORKSPACE_LANE_ORDER,
   ASSISTANT_WORKSPACE_LANE_REGISTRY,

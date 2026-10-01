@@ -101,11 +101,10 @@ function enforceHardPendingLimit(state: KeyState<unknown>) {
   }
   state.diagnostics.droppedEntries += droppedEntries;
   state.diagnostics.droppedBytes += droppedBytes;
-  if (state.overflowActive) {
-    return;
+  if (!state.overflowActive) {
+    state.overflowActive = true;
+    state.diagnostics.overflowEpisodes += 1;
   }
-  state.overflowActive = true;
-  state.diagnostics.overflowEpisodes += 1;
   try {
     limit.onOverflow?.({
       droppedEntries,
@@ -122,6 +121,68 @@ function clearTimer(state: KeyState<unknown>) {
     clearTimeout(state.timer);
     state.timer = null;
   }
+}
+
+function configureKeyState<T>(args: {
+  key: string;
+  owner: string;
+  sink: Sink<T>;
+  performanceProfileRequestId?: string;
+  performanceChannel?: "transcript" | "audit" | "runtime-log" | "other";
+  hardPendingLimit?: BufferedWriteHardPendingLimit;
+}): KeyState<T> {
+  let state = states.get(args.key) as KeyState<T> | undefined;
+  if (!state) {
+    state = {
+      key: args.key,
+      owner: args.owner,
+      sink: args.sink,
+      pending: [],
+      pendingBytes: 0,
+      timer: null,
+      draining: null,
+      failed: false,
+      performanceProfileRequestId: args.performanceProfileRequestId,
+      performanceChannel: args.performanceChannel,
+      hardPendingLimit: normalizeHardPendingLimit(args.hardPendingLimit),
+      overflowActive: false,
+      discarded: false,
+      diagnostics: {
+        logicalEntries: 0,
+        physicalWriteCycles: 0,
+        bytes: 0,
+        forcedFlushes: 0,
+        failures: 0,
+        retries: 0,
+        droppedEntries: 0,
+        droppedBytes: 0,
+        overflowEpisodes: 0,
+      },
+    };
+    states.set(args.key, state as KeyState<unknown>);
+  }
+  state.owner = args.owner;
+  state.sink = args.sink;
+  state.performanceProfileRequestId = args.performanceProfileRequestId;
+  state.performanceChannel = args.performanceChannel;
+  state.hardPendingLimit = normalizeHardPendingLimit(args.hardPendingLimit);
+  return state;
+}
+
+/**
+ * Makes a key known to the coordinator without queueing any entry, so a
+ * snapshot barrier can hold a fixed watermark for an owner that has not
+ * admitted a record yet. Enqueuing later reuses this state.
+ */
+export function registerBufferedWriteKey<T>(args: {
+  key: string;
+  owner: string;
+  sink: Sink<T>;
+  performanceProfileRequestId?: string;
+  performanceChannel?: "transcript" | "audit" | "runtime-log" | "other";
+  hardPendingLimit?: BufferedWriteHardPendingLimit;
+}) {
+  return configureKeyState(args);
 }
 
 function schedule(state: KeyState<unknown>) {
@@ -228,41 +289,7 @@ export function enqueueBufferedWrite<T>(args: {
   performanceChannel?: "transcript" | "audit" | "runtime-log" | "other";
   hardPendingLimit?: BufferedWriteHardPendingLimit;
 }) {
-  let state = states.get(args.key) as KeyState<T> | undefined;
-  if (!state) {
-    state = {
-      key: args.key,
-      owner: args.owner,
-      sink: args.sink,
-      pending: [],
-      pendingBytes: 0,
-      timer: null,
-      draining: null,
-      failed: false,
-      performanceProfileRequestId: args.performanceProfileRequestId,
-      performanceChannel: args.performanceChannel,
-      hardPendingLimit: normalizeHardPendingLimit(args.hardPendingLimit),
-      overflowActive: false,
-      discarded: false,
-      diagnostics: {
-        logicalEntries: 0,
-        physicalWriteCycles: 0,
-        bytes: 0,
-        forcedFlushes: 0,
-        failures: 0,
-        retries: 0,
-        droppedEntries: 0,
-        droppedBytes: 0,
-        overflowEpisodes: 0,
-      },
-    };
-    states.set(args.key, state as KeyState<unknown>);
-  }
-  state.owner = args.owner;
-  state.sink = args.sink;
-  state.performanceProfileRequestId = args.performanceProfileRequestId;
-  state.performanceChannel = args.performanceChannel;
-  state.hardPendingLimit = normalizeHardPendingLimit(args.hardPendingLimit);
+  const state = configureKeyState<T>(args);
   const bytes = Math.max(0, Math.floor(args.bytes));
   state.pending.push({ value: args.entry, bytes });
   state.pendingBytes += bytes;
@@ -291,6 +318,65 @@ export async function flushBufferedWriteKey(key: string) {
       await state.draining;
     } else {
       await drain(state);
+    }
+  }
+}
+
+/**
+ * Takes the entries pending at this instant and settles exactly that batch, so
+ * the caller gets a fixed watermark. Anything appended afterwards stays
+ * pending for a later drain and cannot extend the batch. This never re-checks
+ * pending, so an active producer cannot drag the caller along with it.
+ */
+export async function captureBufferedWriteKeys<T>(
+  keys: readonly string[],
+  capture: () => Promise<T> | T,
+): Promise<T> {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  // Capture every pending batch before the first await. The existing draining
+  // slot also covers snapshot I/O, so deletion waits and later drains queue.
+  const captured = keys.flatMap((key) => {
+    const state = states.get(key);
+    if (!state) return [];
+    const prior = state.draining;
+    const batch = state.pending;
+    const bytes = state.pendingBytes;
+    const sink = state.sink;
+    clearTimer(state);
+    state.pending = [];
+    state.pendingBytes = 0;
+    state.draining = held;
+    return [{ state, prior, batch, bytes, sink }];
+  });
+  try {
+    await Promise.allSettled(
+      captured.map(async ({ state, prior, batch, bytes, sink }) => {
+        await prior?.catch(() => undefined);
+        if (state.discarded || !batch.length) return;
+        state.diagnostics.physicalWriteCycles += 1;
+        try {
+          await sink(batch.map((entry) => entry.value));
+          state.failed = false;
+        } catch {
+          state.failed = true;
+          state.diagnostics.failures += 1;
+          if (!state.discarded) {
+            state.pending = [...batch, ...state.pending];
+            state.pendingBytes += bytes;
+            enforceHardPendingLimit(state);
+          }
+        }
+      }),
+    );
+    return await capture();
+  } finally {
+    release();
+    for (const { state } of captured) {
+      if (state.draining === held) state.draining = null;
+      if (!state.discarded && !state.failed) schedule(state);
     }
   }
 }

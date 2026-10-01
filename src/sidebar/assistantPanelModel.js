@@ -922,6 +922,10 @@ const DETAILS_DRAWER_ACTIONS = {
     action: "copy-diagnostics",
     labelPath: "actions.copyDiagnostics",
   },
+  "export-diagnostics": {
+    action: "export-diagnostics",
+    labelPath: "actions.exportDiagnostics",
+  },
   "open-workspace": {
     action: "open-workspace",
     labelPath: "actions.openWorkspace",

@@ -1,7 +1,8 @@
-import { createAcpAuditAppendCore } from "./acpAuditAppendCore";
+import { createRuntimeAuditAppendQueue } from "../../runtimeAuditAppendQueue";
 import type { AcpDiagnosticEvidenceRecord } from "./acpDiagnostics";
 import { isDebugModeEnabled } from "../../debugMode";
 import { appendRuntimeLog } from "../../runtimeLogManager";
+import { appendRuntimeTextFile } from "../../runtimePersistence";
 
 const ACP_CHAT_DIAGNOSTIC_AUDIT_SCHEMA = "zotero-skills.acp-chat.diagnostic.v1";
 const discardedOwners = new Set<string>();
@@ -65,7 +66,10 @@ function recordAuditWarning(args: {
   }
 }
 
-const auditCore = createAcpAuditAppendCore({
+const auditCore = createRuntimeAuditAppendQueue({
+  sink: async ({ path, lines }) => {
+    await appendRuntimeTextFile(path, lines.join(""));
+  },
   log: (event) => {
     if (event.kind === "overflow") {
       recordAuditWarning({

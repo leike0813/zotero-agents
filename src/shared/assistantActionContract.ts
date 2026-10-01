@@ -133,6 +133,9 @@ export type AssistantWorkspaceActionPayloadMap = {
   decline: AssistantInteractionDeclinePayloadV1;
   "copy-request-id": AssistantWorkspaceEmptyActionPayload;
   "copy-diagnostics": AssistantWorkspaceEmptyActionPayload;
+  // C18: user-selected built-in Agent diagnostic export. The host owns the
+  // save target; the action itself carries no path.
+  "export-diagnostics": AssistantWorkspaceEmptyActionPayload;
   "open-workspace": AssistantWorkspaceEmptyActionPayload;
 };
 
@@ -370,7 +373,8 @@ export type PiConversationsOnlyAction =
   | "add-resource"
   | "remove-resource"
   | "set-model"
-  | "set-reasoning-effort";
+  | "set-reasoning-effort"
+  | "export-diagnostics";
 
 /** Registry actions a pi-conversations child page may send. */
 export type PiConversationsAction =
@@ -378,7 +382,11 @@ export type PiConversationsAction =
   | PiConversationsOnlyAction;
 
 /** Registry actions limited to the pi-skill-runs source. */
-export type PiSkillRunsOnlyAction = "draft" | "submit" | "decline";
+export type PiSkillRunsOnlyAction =
+  | "draft"
+  | "submit"
+  | "decline"
+  | "export-diagnostics";
 
 /**
  * Registry actions a pi-skill-runs child page may send. Pi Skill Runs mirror

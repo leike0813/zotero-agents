@@ -1,95 +1,121 @@
 # runtime-log-pipeline Specification
 
 ## Purpose
-TBD - created by archiving change add-plugin-log-system. Update Purpose after archive.
+
+Provides structured, correlated plugin runtime logs with bounded retention, sanitized persistence and explicit diagnostic export for workflows and other runtime producers.
+
 ## Requirements
+
 ### Requirement: Runtime Log Pipeline SHALL Record Structured Entries In Memory
+
 The system SHALL provide a centralized in-memory pipeline that records plugin runtime logs as structured entries with correlation context and diagnostic metadata.
 
 #### Scenario: Append a normal workflow entry
+
 - **WHEN** a workflow lifecycle event is emitted
 - **THEN** the pipeline SHALL append one entry containing timestamp, level, scope, stage, message, and available context IDs (`backendId/backendType/providerId/workflowId/runId/jobId/requestId/interactionId`)
 
 #### Scenario: Append a transport-aware entry
+
 - **WHEN** provider/client/queue/reconciler emits network or transport boundary logs
 - **THEN** the pipeline SHALL persist transport summary fields (`method/url/path/status/duration/retry/size/stepId`) when provided
 - **AND** missing transport fields SHALL remain optional without rejecting the entry
 
 ### Requirement: Runtime Log Pipeline SHALL Instrument Trigger-Level and Job-Level Execution Boundaries
+
 Runtime log 管道 MUST 为 Dashboard 与诊断导出提供可按 request/job/run 聚合的执行边界日志，覆盖全 provider 执行链路。
 
 #### Scenario: 按 requestId 过滤日志
+
 - **WHEN** Dashboard backend 详情页指定 `requestId`
 - **THEN** 系统 SHALL 返回仅属于该 request 的日志条目
 
 #### Scenario: 按 jobId/workflowId 组合过滤日志
+
 - **WHEN** Dashboard backend 详情页指定 `jobId` 或 `workflowId`
 - **THEN** 系统 SHALL 返回满足过滤条件的日志条目
 - **AND** 过滤结果可用于 Generic HTTP backend 任务详情页展示
 
 #### Scenario: Cross-provider chain instrumentation
+
 - **WHEN** SkillRunner、generic-http、pass-through 任一 provider 执行成功或失败
 - **THEN** 系统 MUST 记录可关联到 request/job 的边界日志（dispatch/transport/retry/terminal）
 
 ### Requirement: Runtime Log Pipeline SHALL Default to Recording info/warn/error and Not Record debug by Default
+
 The default runtime write policy SHALL record `info`, `warn`, and `error` levels while excluding `debug` unless diagnostic collection is explicitly enabled.
 
 #### Scenario: Debug entry under default policy
+
 - **WHEN** a debug-level write is attempted under default settings
 - **THEN** the pipeline SHALL ignore it and keep stored entries unchanged
 
 #### Scenario: Error entry under default policy
+
 - **WHEN** an error-level write is attempted under default settings
 - **THEN** the pipeline SHALL store the entry successfully
 
 ### Requirement: Runtime Log Pipeline SHALL Redact Sensitive Auth Data Before Storage
+
 The system MUST prevent known secret-bearing fields from being persisted in runtime logs.
 
 #### Scenario: Authorization header present in details
+
 - **WHEN** a log entry includes auth header/token fields in details
 - **THEN** the stored entry SHALL replace sensitive values with redacted placeholders
 
 ### Requirement: Generic HTTP dashboard logs MUST bind to explicitly selected task
+
 系统 MUST 让 Generic HTTP backend 的日志面板绑定到用户显式选择的任务，不得在同 backend 新任务到达时自动切换目标。
 
 #### Scenario: same backend receives a new task while viewing logs
+
 - **WHEN** 用户正在查看某 backend 某任务的日志
 - **AND** 同 backend 新任务开始执行
 - **THEN** 日志面板 MUST 继续显示原绑定任务日志
 - **AND** 仅在用户主动选择新任务后才切换日志目标
 
 ### Requirement: Generic HTTP dashboard logs MUST expose structured details drawer
+
 系统 MUST 在 Generic HTTP backend 页面展示结构化日志详情抽屉，用于查看 scope/stage/workflowId/requestId/jobId/details/error 等信息。
 
 #### Scenario: open log detail drawer
+
 - **WHEN** 用户点击日志表中的某条日志
 - **THEN** 页面 MUST 打开或更新日志详情抽屉
 - **AND** 抽屉 MUST 展示该日志条目的结构化 payload
 
 ### Requirement: Runtime Log Pipeline SHALL Support Session Diagnostic Mode
+
 The pipeline MUST expose a session-level diagnostic mode switch that controls logging granularity.
 
 #### Scenario: Diagnostic mode disabled
+
 - **WHEN** diagnostic mode is disabled
 - **THEN** pipeline SHALL keep default low-noise policy (info/warn/error by default)
 - **AND** debug-only transport details SHALL NOT be emitted unless explicitly enabled
 
 #### Scenario: Diagnostic mode enabled
+
 - **WHEN** diagnostic mode is enabled
 - **THEN** pipeline SHALL allow fine-grained debug entries and transport diagnostics for provider/client/reconciler boundaries
 
 ### Requirement: Runtime Log Pipeline SHALL Normalize Error Classification and Cause Summary
+
 The pipeline MUST classify runtime failures into stable categories and preserve structured cause summaries.
 
 #### Scenario: Normalize categorized errors
+
 - **WHEN** an error is captured in provider/client/hook/reconciler paths
 - **THEN** the stored log details SHALL include normalized category (`network|timeout|auth|validation|provider|hook|unknown`)
 - **AND** a sanitized cause summary SHALL be retained for triage
 
 ### Requirement: Runtime Log Pipeline SHALL Build RuntimeDiagnosticBundleV1
+
 The pipeline MUST support exporting a machine-consumable diagnostic bundle from retained logs.
 
 #### Scenario: Build diagnostic bundle with filters
+
 - **WHEN** caller requests diagnostic export with filters and time window
 - **THEN** system SHALL output `RuntimeDiagnosticBundleV1` JSON with `meta`, `filters`, `timeline`, `incidents`, and `entries`
 - **AND** `timeline` SHALL be time-ordered and `incidents` SHALL summarize first-failure/retry/terminal chain per request/job context
@@ -232,36 +258,44 @@ Synthesis Runtime Log details SHALL contain operation, trigger, stage, outcome,
 duration, Host classification, and public semantic status only.
 
 #### Scenario: RPC transport fails
+
 - **WHEN** a Synthesis call fails after crossing HTTP and a worker boundary
 - **THEN** one Host-normalized business incident is stored
 - **AND** HTTP status, sizes, request IDs, worker codes, and trace data are absent
 
 ### Requirement: Workflow logging adapter SHALL bind trusted identity and bounded data
+
 The Workflow logging owner SHALL accept only level, stage, message, optional operation and phase, and optional strict-JSON details. It SHALL own caller-input validation, trusted workflow identity binding, and Workflow-specific sanitization before submitting a normalized entry. The runtime log pipeline SHALL own normalized storage, retention, persistence, and observation without depending on Workflow Host definitions. The Host MUST reject caller-supplied identity or retention fields and sanitize secrets, paths, native errors, stacks, and transport locations before storage.
 
 #### Scenario: Workflow appends a valid log entry
+
 - **WHEN** a workflow submits bounded portable logging data
 - **THEN** the runtime pipeline stores a sanitized entry with Host-bound run identity
 - **AND** the caller cannot override timestamp or execution identity
 
 #### Scenario: Workflow log input is unsafe or too large
+
 - **WHEN** stage, operation, or phase exceeds 128 characters, message exceeds 16 KiB UTF-8, details exceed depth 8, 512 nodes, or 64 KiB serialized, or details are not strict JSON
 - **THEN** the adapter fails with stable `invalid_request` or `resource_limited` data
 - **AND** no unsanitized partial entry is stored
 
 #### Scenario: Non-interactive workflow logs
+
 - **WHEN** a non-interactive workflow submits a valid log request
 - **THEN** logging remains available and uses the same trusted binding and sanitization path
 
 #### Scenario: Runtime log core is used without Workflow Host
+
 - **WHEN** a non-Workflow producer submits an already normalized runtime log entry
 - **THEN** the runtime log pipeline SHALL apply its storage, retention, persistence, and observation rules
 - **AND** loading the pipeline SHALL NOT require Workflow Host composition or caller DTO validation.
 
 ### Requirement: Test probes SHALL remain outside the workflow logging contract
+
 Performance-span and leak-artifact probe controls SHALL be available only through an internal harness seam and MUST NOT be exposed by the workflow logging adapter.
 
 #### Scenario: Workflow attempts to invoke a probe control
+
 - **WHEN** workflow code addresses a performance or leak-probe test member
 - **THEN** no such member exists on the workflow logging contract
 - **AND** ordinary bounded logging remains available
@@ -280,3 +314,11 @@ events, and failures SHALL remain warn/error events.
 - **THEN** exported runtime logs omit those successful stages
 - **AND** retain ready lifecycle entries and representative warnings
 
+### Requirement: Pi correlations survive log normalization and filtering
+
+The pipeline SHALL preserve and filter optional Pi conversationId, skillRunId, sessionId, turnId, invocationId, callId and failureId fields through normalization, persistence hydration and diagnostic projection. Owner audit SHALL reuse normalization without entering the global retention sink. Existing log producers and ACP behavior SHALL remain unchanged.
+
+#### Scenario: Owner correlation round trip
+
+- **WHEN** a structural Pi log is normalized, retained, hydrated and queried by invocation or owner identity
+- **THEN** its safe identities remain available and another owner's logs are not returned

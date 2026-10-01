@@ -317,6 +317,19 @@ This is a single-context repository using a root `CONTEXT.md` and root `docs/adr
 - Conversation 用户文件经有界分块读取形成不可变 managed ref，原路径留在暂态输入；配额计算不能在扫描不完整时报告成功。标题独立调用仅使用有界首条输入与资源显示事实，归档允许结果写回，手动 rename 与删除通过 revision/generation 拒绝迟到结果。
 - `src/shared/assistantWorkspaceSourceRegistry.ts` 是 lane/source 描述符事实源；每个 Workspace 窗口在内存中记住 lane 及各 lane 的 source。Pi UI 使用现有 publication 与区域 renderer，owner-first/page-first 和非 transcript DOM identity 约束保持有效。
 
+# Pi Runtime Audit 与诊断导出硬约束
+
+- `src/shared/piFailureContract.ts` 是失败分类与严重度的唯一事实源。一次观察只产生一个 `PiFailureCore`，由持有模块写入自己的 canonical transcript；上层只引用同一个 `failureId`，不得重新分类或复述原因。未登记的 code 按 `error` / `execution` / 不可重试处理，不得降级为 info。
+- `src/modules/piRuntimeAudit.ts` 是唯一审计 sink。生产者只提供 operation、origin、owner 和结构化属性，tier、severity、允许来源与允许属性由模块内单一 operation 表决定；`failureCode` 只参与 severity 查询，canonical 失败正文不得进入审计。
+- 每个事实只在其事实持有模块记录一次，且在对应 canonical 提交之后入队；传播层和 UI 不得重复记录。带 `PiOwnerRef` 的事实写入该 owner 受管 Workspace 的 `runtime-audit/audit.ndjson`，无 owner 的事实进入既有 Runtime Log 保留策略。
+- Conversation 的审计根为 `<ownerDir>/workspace`；Skill Run 的审计根只能来自其 canonical `skill_run_workspace` / `skill_run_prepared` 条目，不得接受调用方传入的工作区路径。
+- 存储与队列上限是模块常量，仅测试重置可覆盖：单 owner 64 MiB / 50,000 条 / 单条 64 KiB，待写队列 1 MiB 或 1,000 条，导出未压缩 96 MiB。达到上限原子压缩到两个目标的 75%，并记录 gap。溢出、超大条目和写失败只累加有界 gap 计数，`record` 不得向执行抛错。
+- 审计在既有 Native owner 配额锁下写入，并可通过模块私有回调仅回收审计数据；不得删除 canonical 或业务数据。缺少配额证据时以 gap 失败审计接纳。
+- `exportDiagnostics(scope, targetPath)` 只写用户选定路径，并复用既有原子 ZIP writer。owner 范围含该 owner 审计加按关联身份与时间窗筛选的全局日志；global 范围只含无 owner 的事实与日志，且不扫描任何 owner 目录。导出经队列 barrier 与日志快照后基于临时副本组装，不持有 owner 执行；超预算时优先保留 manifest、结构化失败与完整性信息，先裁全局日志再裁 owner 审计，且不得裁剪来源。
+- 审计模块以返回值报告失败而不抛错。用户触发的导出必须把失败重新抛回所属界面的既有本地错误通道：Pi Conversation 走 composer 错误，Pi Skill Run 只走 surface notice，不得进入 coordinator 或运行终态，Backend Manager 走状态行。三者都不得改变运行的终态结果。
+- 导出入口只有两处：所选 Pi owner 的 Details drawer（scoped）与 Backend Manager 内置 Agent 区（global）。保存路径由宿主 picker 决定，取消选路径不执行导出也不发布结果；导出绑定动作到达时捕获的 owner，picker 打开期间切换选择不得改写目标。入口是普通详情按钮，不新增 managed region，transcript、loading 与 streaming 更新仍须保持其它 region 的 DOM identity。
+- 诊断保持被动：不得新增 health 面板、定时巡检、主动探针、存活端点或后台导出。Diagnostic Mode 与 `PI_RUNTIME_AUDIT_DEBUG_ENABLED` 只放宽记录时刻的 tier 准入，不调度任何动作。
+
 # Workflow Host Runtime Adaptation硬约束
 
 - `src/modules/runtimePersistence.ts` 是跨运行时文件系统 adapter 选择的唯一事实源；Workflow Host、输入物化、图片准备、附件导入等模块不得自行选择 `IOUtils`、`OS.File`、Node filesystem 或 Components stream。

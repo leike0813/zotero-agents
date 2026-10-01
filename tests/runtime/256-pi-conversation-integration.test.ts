@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { assert } from "chai";
+import { readOwnerAudit } from "./piOwnerAuditRead";
 import { createPiConversationCoordinator } from "../../src/modules/piConversation";
 import { inspectPiOwner } from "../../src/modules/piOwnerPersistence";
 import { piOwnerPaths } from "../../src/modules/piTranscriptStore";
@@ -125,6 +126,183 @@ describe("Pi Conversation integration", function () {
     await coordinator.archive(id);
     await coordinator.delete(id);
     assert.lengthOf(await coordinator.list({ archived: true }), 0);
+    await coordinator.dispose();
+  });
+
+  it("commits one canonical failure identity before its terminal and audit facts", async function () {
+    const coordinator = createPiConversationCoordinator({
+      root,
+      resolveModel: async () => model,
+      modelSource: () =>
+        // eslint-disable-next-line require-yield -- deliberate failure before any output
+        async function* () {
+          throw new Error("private-provider-canary");
+        },
+      definitions: async () => [],
+    });
+    await coordinator.create();
+    const id = coordinator.selectedId!;
+    const result = await (await coordinator.send(id, "First")).result;
+    assert.equal(result.status, "failed");
+
+    const entries = (
+      await inspectPiOwner({ kind: "conversation", ownerId: id }, root)
+    ).entries;
+    const failures = entries.filter(
+      (entry) => entry.kind === "failure_observed",
+    );
+    // Exactly one observation, and the terminal that propagates it reuses the
+    // same identity rather than describing the cause a second time.
+    assert.lengthOf(failures, 1);
+    const failureId = (failures[0].payload as { failureId: string }).failureId;
+    assert.isString(failureId);
+    if (result.status === "failed")
+      assert.equal(result.failure.failureId, failureId);
+    const terminal = entries.find((entry) => entry.kind === "turn_terminal");
+    assert.equal(
+      (terminal?.payload as { failureId?: string }).failureId,
+      failureId,
+    );
+    // Canonical-first: the observation is committed before the terminal that
+    // references it.
+    assert.isBelow(failures[0].seq, terminal!.seq);
+    // A failure core carries identity and classification, never the cause text.
+    const serialized = JSON.stringify(failures[0].payload);
+    assert.notInclude(serialized, "private-provider-canary");
+    assert.notProperty(failures[0].payload as object, "message");
+    await coordinator.dispose();
+  });
+
+  it("keeps the failure observation out of the next model context", async function () {
+    const contexts: string[][] = [];
+    const coordinator = createPiConversationCoordinator({
+      root,
+      resolveModel: async () => model,
+      modelSource: () =>
+        async function* (input) {
+          contexts.push(input.messages.map((message) => message.text));
+          if (contexts.length === 1) throw new Error("private-failure");
+          yield "Recovered";
+        },
+      definitions: async () => [],
+    });
+    await coordinator.create();
+    const id = coordinator.selectedId!;
+    assert.equal(
+      (await (await coordinator.send(id, "First")).result).status,
+      "failed",
+    );
+    assert.equal(
+      (await (await coordinator.send(id, "Second")).result).status,
+      "completed",
+    );
+    // The durable failure fact exists, yet the rebuilt context carries only the
+    // semantic messages a model should see.
+    const entries = (
+      await inspectPiOwner({ kind: "conversation", ownerId: id }, root)
+    ).entries;
+    assert.isTrue(entries.some((entry) => entry.kind === "failure_observed"));
+    assert.notInclude(JSON.stringify(contexts.at(-1)), "failureId");
+    assert.includeMembers(contexts.at(-1)!, ["First", "Second"]);
+    await coordinator.dispose();
+  });
+
+  it("requires recovery instead of a fictional terminal when the failure fact cannot commit", async function () {
+    const response = createPiTextProviderSource({ steps: [{ text: "nope" }] });
+    const coordinator = createPiConversationCoordinator({
+      root,
+      resolveModel: async () => model,
+      execution: () => ({
+        ...response,
+        source: async (input) => {
+          // Corrupt the canonical log from inside the turn, so the failure
+          // observation that follows cannot be appended.
+          const paths = piOwnerPaths(
+            { kind: "conversation", ownerId: coordinator.selectedId! },
+            root,
+          );
+          await fs.appendFile(paths.log, "invalid-json\n");
+          throw new Error("private-failure");
+        },
+      }),
+      definitions: async () => [],
+    });
+    await coordinator.create();
+    const id = coordinator.selectedId!;
+    const result = await (await coordinator.send(id, "First")).result;
+    // A failure whose canonical observation could not be committed is an
+    // integrity gap, not a settled failure: the owner must require recovery
+    // rather than publish a terminal describing a fact that does not exist.
+    assert.equal(result.status, "failed");
+    assert.equal((await coordinator.readModel(id)).status, "recovery_required");
+    // The failure observation never reached the log, so nothing may claim a
+    // failureId for it; the owner simply requires recovery.
+    const inspection = await inspectPiOwner(
+      { kind: "conversation", ownerId: id },
+      root,
+    );
+    assert.notEqual(inspection.status, "valid");
+    await coordinator.dispose();
+  });
+
+  it("keeps an uncertain tool failure as one observation without inventing a turn cause", async function () {
+    const response = createPiTextProviderSource({
+      steps: [
+        {
+          text: "Read",
+          toolCalls: [{ callId: "read", name: "fixture_read", arguments: {} }],
+        },
+      ],
+    });
+    const coordinator = createPiConversationCoordinator({
+      root,
+      resolveModel: async () => model,
+      execution: () => response,
+      definitions: async () => [
+        {
+          capabilityId: "fixture.read",
+          name: "fixture_read",
+          description: "Read",
+          schema: { type: "object", additionalProperties: false },
+          minimumEffects: ["bounded-read"],
+          maxResultBytes: 1024,
+          classify: () => ({
+            effects: ["bounded-read"],
+            authorizationKeys: [],
+            resourceKeys: [],
+            cost: 1,
+          }),
+          execute: async () => {
+            throw new Error("private-tool-cause");
+          },
+        },
+      ],
+    });
+    await coordinator.create();
+    const id = coordinator.selectedId!;
+    const result = await (await coordinator.send(id, "Read something")).result;
+    const entries = (
+      await inspectPiOwner({ kind: "conversation", ownerId: id }, root)
+    ).entries;
+    const failures = entries.filter(
+      (entry) => entry.kind === "failure_observed",
+    );
+    const gatewayFailures = failures.filter(
+      (entry) =>
+        (entry.payload as { origin?: string }).origin === "pi_tool_gateway",
+    );
+    assert.lengthOf(gatewayFailures, 1);
+    assert.lengthOf(failures, 1);
+    assert.equal(
+      (gatewayFailures[0].payload as { effectCertainty: string })
+        .effectCertainty,
+      "unknown",
+    );
+    const turnTerminal = entries
+      .filter((entry) => entry.kind === "turn_terminal")
+      .at(-1);
+    assert.equal(result.status, "state_unknown");
+    assert.notProperty(turnTerminal!.payload as object, "failureId");
     await coordinator.dispose();
   });
 
@@ -941,6 +1119,16 @@ describe("Pi Conversation integration", function () {
     coordinator.cancel(id);
     release();
     assert.equal((await first.result).status, "canceled");
+    const cancellationAudit = await readOwnerAudit(root, {
+      kind: "conversation",
+      ownerId: id,
+    });
+    assert.lengthOf(
+      cancellationAudit.filter(
+        (entry) => entry.operation === "execution.canceled",
+      ),
+      1,
+    );
     const history = await inspectPiOwner(
       { kind: "conversation", ownerId: id },
       root,

@@ -260,7 +260,19 @@ describe("ACP runtime memory governance", function () {
       assert.equal(bounded?.overflowEpisodes, 1);
       assert.equal(unbounded?.pendingEntries, 5);
       assert.equal(unbounded?.droppedEntries, 0);
-      assert.lengthOf(overflows, 1);
+      assert.lengthOf(overflows, 2);
+      assert.deepEqual(
+        overflows.map((event) => event.droppedEntries),
+        [1, 1],
+      );
+      assert.deepEqual(
+        overflows.map((event) => event.droppedBytes),
+        [2, 2],
+      );
+      assert.deepEqual(
+        overflows.map((event) => event.overflowEpisode),
+        [1, 1],
+      );
 
       await flushBufferedWriteKey(boundedKey);
       await flushBufferedWriteKey(defaultKey);

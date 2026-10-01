@@ -4,8 +4,11 @@ import {
   formatRuntimeLogsAsNDJSON,
   listRuntimeLogs,
 } from "../../runtimeLogManager";
-import { writeRuntimeTextFile } from "../../runtimePersistence";
-import { createAcpAuditAppendCore } from "../diagnostics/acpAuditAppendCore";
+import {
+  appendRuntimeTextFile as appendRuntimeTextFileImpl,
+  writeRuntimeTextFile,
+} from "../../runtimePersistence";
+import { createRuntimeAuditAppendQueue } from "../../runtimeAuditAppendQueue";
 import type { SessionNotification } from "../../acpProtocol";
 import type { AcpSkillRunEvent, AcpSkillRunRecord } from "./acpSkillRunStore";
 import type { AcpDiagnosticEvidenceRecord } from "../diagnostics/acpDiagnostics";
@@ -29,7 +32,10 @@ const MAX_OBJECT_KEYS = 200;
 const SENSITIVE_KEY_PATTERN =
   /(authorization|token|secret|password|api[-_]?key|cookie|bearer)/i;
 
-const auditCore = createAcpAuditAppendCore({
+const auditCore = createRuntimeAuditAppendQueue({
+  sink: async ({ path, lines }) => {
+    await appendRuntimeTextFileImpl(path, lines.join(""));
+  },
   log: (event) => {
     if (event.kind === "overflow") {
       recordAuditOverflow({

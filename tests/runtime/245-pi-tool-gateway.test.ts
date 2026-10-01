@@ -9,6 +9,12 @@ import {
   type PiGatewayTurnInput,
 } from "../../src/modules/piToolGateway";
 import type { JsonValue } from "../../src/workflows/types";
+import { createPiOwner } from "../../src/modules/piOwnerPersistence";
+import { readOwnerAudit } from "./piOwnerAuditRead";
+import {
+  createTestRuntimeRoot,
+  removeTestRuntimeRoot,
+} from "./piTestRuntimeRoot";
 
 function fixture(overrides: Partial<PiGatewayToolDefinition> = {}) {
   let executions = 0;
@@ -1815,5 +1821,99 @@ describe("Pi Tool Gateway shared behavior", function () {
     assert.include(String(caught), "agent_loop_limit_exceeded");
     assert.equal(item.executions(), 0);
     assert.equal(item.disposals(), before + 1);
+  });
+
+  // Audit evidence is recorded by the gateway, the module that owns the call,
+  // and only after the canonical receipt hook returns.
+  describe("gateway audit evidence", function () {
+    let root: string;
+    beforeEach(async function () {
+      root = await createTestRuntimeRoot("pi-gateway-audit");
+    });
+    afterEach(async function () {
+      await removeTestRuntimeRoot(root);
+    });
+
+    it("records a mutation receipt only after the receipt hook returns", async function () {
+      const seen: string[] = [];
+      const item = fixture({
+        execute: async () => ({
+          status: "completed",
+          effectCertainty: "confirmed_complete",
+          value: { text: "done" },
+          domainReceiptRef: "receipt-1",
+        }),
+      });
+      const owner = { kind: "conversation" as const, ownerId: "owner-one" };
+      await createPiOwner(owner, root);
+      const gateway = await turn([item.definition], {
+        audit: { owner, root },
+        hooks: {
+          recordStarted: async () => {
+            seen.push("started");
+          },
+          recordReceipt: async (receipt) => {
+            seen.push(`receipt:${receipt.outcome}`);
+          },
+          recordPermission: async () => undefined,
+        },
+      });
+      const result = await gateway.executeBatch([
+        { callId: "one", name: "fixture_read", arguments: { path: "p" } },
+      ]);
+      assert.equal(result.results[0].status, "completed");
+      assert.deepEqual(seen, ["started", "receipt:completed"]);
+      const audit = await readOwnerAudit(root, owner);
+      const receipts = audit.filter(
+        (entry) => entry.operation === "tool.mutation_receipt_committed",
+      );
+      assert.lengthOf(receipts, 1);
+      assert.equal(receipts[0].callId, "one");
+      assert.equal(receipts[0].turnId, "turn-one");
+    });
+
+    it("never copies tool arguments or result bodies into evidence", async function () {
+      const item = fixture({});
+      const owner = { kind: "conversation" as const, ownerId: "owner-one" };
+      await createPiOwner(owner, root);
+      const gateway = await turn([item.definition], {
+        audit: { owner, root },
+      });
+      const result = await gateway.executeBatch([
+        {
+          callId: "one",
+          name: "fixture_read",
+          arguments: { path: "private-argument-canary" },
+        },
+      ]);
+      assert.equal(result.results[0].status, "completed");
+      // A bounded read commits no domain mutation receipt, so the guarantee
+      // under test is that no argument body reached the evidence store.
+      const audit = await readOwnerAudit(root, owner);
+      assert.notInclude(JSON.stringify(audit), "private-argument-canary");
+    });
+
+    for (const [code, operation] of [
+      ["policy_denied", "capability.denied_or_degraded"],
+      ["security_denied", "security.decision_denied"],
+    ])
+      it(`records ${code} before any receipt exists`, async function () {
+        const item = plannedFixture({
+          preflight: async () => ({ status: "failed", code }),
+        });
+        const owner = { kind: "conversation" as const, ownerId: "owner-one" };
+        await createPiOwner(owner, root);
+        const gateway = await turn([item.definition], {
+          audit: { owner, root },
+          policy: { authorizedKeys: [] },
+        });
+        const result = await gateway.executeBatch([
+          { callId: "one", name: "fixture_mutate", arguments: { path: "p" } },
+        ]);
+        assert.equal(result.results[0].failure?.code, code);
+        const audit = await readOwnerAudit(root, owner);
+        const denials = audit.filter((entry) => entry.operation === operation);
+        assert.lengthOf(denials, 1);
+      });
   });
 });

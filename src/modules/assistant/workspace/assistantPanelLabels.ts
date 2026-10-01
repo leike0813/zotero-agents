@@ -76,6 +76,10 @@ export function buildAssistantPanelLabels() {
         "assistant-panel-action-copy-diagnostics",
         "Copy Diagnostics",
       ),
+      exportDiagnostics: l(
+        "assistant-panel-action-export-diagnostics",
+        "Export diagnostics",
+      ),
       cancelQueuedWorkflowUnit: l(
         "workflow-queue-cancel",
         "Cancel queued workflow unit",

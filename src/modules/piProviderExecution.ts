@@ -21,11 +21,45 @@ import {
   type PiRuntimeModelSource,
   type PiRuntimeProviderSource,
 } from "./piRuntime";
+// Direct import on purpose: `record` is synchronous and non-throwing, and
+// piRuntimeAudit does not import this module, so there is no cycle.
+import {
+  record as recordPiRuntimeAudit,
+  type PiRuntimeAuditContext,
+} from "./piRuntimeAudit";
 
 type Admission = {
   fetch?: typeof fetch;
   authorizeLocalNetwork?: (endpoint: string) => Promise<boolean>;
+  /**
+   * C18 structural audit. The provider is the fact owner for transport
+   * boundaries only; turn and model invocation boundaries belong to
+   * {@link PiRuntime} and are never re-reported here. The context is the owner
+   * identity this admission already belongs to — no callback is forwarded.
+   * A fact carries the HTTP status and a duration, never a request or response
+   * body, header, credential, URL or exception. The normalized failure code is
+   * deliberately absent: it belongs to the canonical failure record and is not
+   * repeated here.
+   */
+  audit?: PiRuntimeAuditContext;
 };
+
+// Audit is evidence, never an owner outcome: a missing or failing audit module
+// can not fail a provider call.
+function auditRecord(
+  context: PiRuntimeAuditContext | undefined,
+  fact: {
+    operation: "provider.transport";
+    attributes: Record<string, number | string>;
+  },
+) {
+  if (!context) return;
+  try {
+    recordPiRuntimeAudit({ ...fact, origin: "provider", ...context });
+  } catch {
+    // Deliberately ignored; diagnostics never change provider behavior.
+  }
+}
 
 const streams: Record<string, ProviderStreams["streamSimple"]> = {
   "openai-responses": streamOpenAIResponses,
@@ -172,6 +206,16 @@ async function openPiProviderStream(
   const model = modelOf(selection);
   let failureCode: PiModelFailureCode | undefined;
   const requestFetch: typeof fetch = async (request, init) => {
+    const startedAt = Date.now();
+    // Only status, duration and the normalized code ever leave this boundary.
+    const finish = (status?: number) =>
+      auditRecord(admission.audit, {
+        operation: "provider.transport",
+        attributes: {
+          ...(status !== undefined ? { status } : {}),
+          duration: Date.now() - startedAt,
+        },
+      });
     try {
       const clean = new Request(request, init);
       if (selection.authVariant === "none") {
@@ -188,9 +232,11 @@ async function openPiProviderStream(
               : response.status >= 500
                 ? "provider_unavailable"
                 : "provider_http_error";
+      finish(response.status);
       return response;
     } catch {
       failureCode = signal.aborted ? "aborted" : "provider_network_error";
+      finish(undefined);
       throw new PiModelStreamFailure(failureCode);
     }
   };

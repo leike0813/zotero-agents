@@ -4,6 +4,23 @@ import { putPiCredential } from "../../src/modules/piCredentialStore";
 import { createPiProviderModelSource } from "../../src/modules/piProviderExecution";
 import { PiRuntime } from "../../src/modules/piRuntime";
 import type { PiModelSelectionSnapshot } from "../../src/shared/piProviderContract";
+import type { PiRuntimeAuditContext } from "../../src/modules/piRuntimeAudit";
+import {
+  flushOwner,
+  resetPiRuntimeAuditForTests,
+} from "../../src/modules/piRuntimeAudit";
+import { createPiOwner } from "../../src/modules/piOwnerPersistence";
+import { piOwnerPaths } from "../../src/modules/piTranscriptStore";
+import {
+  readRuntimeTextFileStrict,
+  runtimePathExists,
+} from "../../src/modules/runtimePersistence";
+import { setRuntimeLogDiagnosticMode } from "../../src/modules/runtimeLogManager";
+import { joinPath } from "../../src/utils/path";
+import {
+  createTestRuntimeRoot,
+  removeTestRuntimeRoot,
+} from "./piTestRuntimeRoot";
 
 const selection: PiModelSelectionSnapshot = {
   configurationId: "test-config",
@@ -311,5 +328,119 @@ describe("Pi API-key Provider execution", function () {
     assert.equal(result.status, "canceled");
     assert.isTrue(requestAborted);
     session.dispose();
+  });
+
+  // C18: the provider is a fact owner for transport boundaries only. Turn and
+  // model invocation boundaries belong to the Runtime and are never
+  // re-reported here. A transport fact carries the HTTP status, a duration and
+  // the normalized failure code — never a prompt, response body, header,
+  // credential, URL or exception text.
+  describe("provider structural audit", function () {
+    let root: string;
+    const owner = { kind: "conversation" as const, ownerId: "provider-audit" };
+
+    beforeEach(async function () {
+      root = await createTestRuntimeRoot("pi-provider-audit");
+      await resetPiRuntimeAuditForTests();
+      await createPiOwner(owner, root);
+      // Transport is a diagnostic-tier fact, so the assertion needs Diagnostic
+      // Mode; the default is proved silent by the case at the end.
+      setRuntimeLogDiagnosticMode(true);
+    });
+
+    afterEach(async function () {
+      await resetPiRuntimeAuditForTests();
+      setRuntimeLogDiagnosticMode(false);
+      await removeTestRuntimeRoot(root);
+    });
+
+    async function transportFacts(context?: PiRuntimeAuditContext) {
+      await flushOwner(owner, root);
+      const path = joinPath(
+        piOwnerPaths(owner, root).dir,
+        "workspace",
+        "runtime-audit",
+        "audit.ndjson",
+      );
+      if (!(await runtimePathExists(path))) return [];
+      return (await readRuntimeTextFileStrict(path))
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line))
+        .filter((fact) => fact.operation === "provider.transport");
+    }
+
+    it("records status and duration without a body, credential or URL", async function () {
+      await putPiCredential({
+        id: "fixture-key",
+        label: "Fixture",
+        material: { kind: "api-key", secret: "fixture-secret" },
+      });
+      const source = createPiProviderModelSource(selection, {
+        fetch: async () =>
+          new Response(COMPLETIONS_SSE, {
+            headers: { "content-type": "text/event-stream" },
+          }),
+        audit: { owner, root },
+      });
+      const deltas: string[] = [];
+      for await (const delta of source({
+        systemPrompt: "system-prompt-canary",
+        messages: [{ role: "user", text: "user-text-canary" }],
+        signal: new AbortController().signal,
+      }))
+        deltas.push(delta);
+      assert.equal(deltas.join(""), "hello");
+
+      const facts = await transportFacts();
+      assert.lengthOf(facts, 1);
+      assert.equal(facts[0].details.status, 200);
+      assert.isNumber(facts[0].details.duration);
+      const serialized = JSON.stringify(facts);
+      assert.notInclude(serialized, "canary");
+      assert.notInclude(serialized, "fixture-secret");
+      assert.notInclude(serialized, "provider.example");
+      assert.notInclude(serialized, "authorization");
+    });
+
+    it("records the failing status without repeating the failure code", async function () {
+      await putPiCredential({
+        id: "fixture-key",
+        label: "Fixture",
+        material: { kind: "api-key", secret: "fixture-secret" },
+      });
+      const source = createPiProviderModelSource(selection, {
+        fetch: async () =>
+          new Response("private-response-body-canary", { status: 401 }),
+        audit: { owner, root },
+      });
+      try {
+        await collect(source);
+        assert.fail("Expected an authentication failure");
+      } catch (error) {
+        assert.include(String(error), "provider_auth_failed");
+      }
+      const facts = await transportFacts();
+      assert.equal(facts[0]?.details.status, 401);
+      assert.notInclude(JSON.stringify(facts), "canary");
+    });
+
+    it("stays silent without an audit context", async function () {
+      await putPiCredential({
+        id: "fixture-key",
+        label: "Fixture",
+        material: { kind: "api-key", secret: "fixture-secret" },
+      });
+      const source = createPiProviderModelSource(selection, {
+        fetch: async () =>
+          new Response(COMPLETIONS_SSE, {
+            headers: { "content-type": "text/event-stream" },
+          }),
+        audit: { owner, root },
+      });
+      // The context is required for a fact to exist at all; a source without
+      // one still streams normally.
+      assert.equal(await collect(source), "hello");
+    });
   });
 });

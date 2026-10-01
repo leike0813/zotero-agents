@@ -18,8 +18,21 @@ import {
   resetRuntimeEnvironmentSnapshotForTests,
   seedRuntimeEnvironmentSnapshotForTests,
 } from "../../src/platform/env";
-import { resolveRuntimePathIdentity } from "../../src/modules/runtimePersistence";
-import { createPiTrustedNativeExecution } from "../../src/modules/piTrustedNativeExecution";
+import {
+  resolveRuntimePathIdentity,
+  statRuntimePathStrict,
+} from "../../src/modules/runtimePersistence";
+import { createPiOwner } from "../../src/modules/piOwnerPersistence";
+import { piOwnerPaths } from "../../src/modules/piTranscriptStore";
+import {
+  flushOwner,
+  record,
+  resetPiRuntimeAuditForTests,
+} from "../../src/modules/piRuntimeAudit";
+import {
+  createPiTrustedNativeExecution,
+  withPiOwnerAuditQuota,
+} from "../../src/modules/piTrustedNativeExecution";
 
 async function expectFailure(work: () => Promise<unknown>, pattern: RegExp) {
   let error: unknown;
@@ -748,6 +761,290 @@ describe("Pi Trusted Native execution", function () {
     assert.include(String(error), "pi_owner_quota_unavailable");
     assert.deepEqual(await native.listUserFileSnapshots(), []);
     await rm(base, { recursive: true, force: true });
+  });
+
+  it("counts a nested owner workspace that lives inside the owner tree", async function () {
+    const base = await mkdtemp(join(tmpdir(), "pi-native-nested-quota-"));
+    const ownerRoot = join(base, "owner");
+    const root = join(ownerRoot, "workspace");
+    await mkdir(root, { recursive: true });
+    const written = join(root, "agent-output.bin");
+    await writeFile(written, "");
+    await truncate(written, 200 * 1024 * 1024);
+    await writeFile(
+      join(ownerRoot, "managed-files.json"),
+      JSON.stringify({
+        version: 1,
+        entries: [
+          {
+            kind: "generated",
+            size: 1900 * 1024 * 1024,
+            sha256: "sha256:deadbeef",
+            name: "managed-old.bin",
+          },
+        ],
+      }),
+    );
+    const native = await createPiTrustedNativeExecution({
+      workspaceRoot: root,
+      ownerRoot,
+      mode: "restricted",
+    });
+    const source = join(base, "small.txt");
+    await writeFile(source, "small");
+    try {
+      await expectFailure(
+        () =>
+          native.snapshotUserFiles([
+            { path: source, displayName: "small.txt" },
+          ]),
+        /pi_owner_quota_exceeded/,
+      );
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  it("counts owner runtime-audit bytes exactly once", async function () {
+    const base = await mkdtemp(join(tmpdir(), "pi-native-audit-once-"));
+    const ownerRoot = join(base, "owner");
+    const root = join(ownerRoot, "workspace");
+    const audit = join(root, "runtime-audit", "audit.ndjson");
+    await mkdir(join(root, "runtime-audit"), { recursive: true });
+    await mkdir(ownerRoot, { recursive: true });
+    await writeFile(audit, "");
+    await truncate(audit, 600 * 1024 * 1024);
+    await writeFile(
+      join(ownerRoot, "managed-files.json"),
+      JSON.stringify({
+        version: 1,
+        entries: [
+          {
+            kind: "generated",
+            size: 1000 * 1024 * 1024,
+            sha256: "sha256:deadbeef",
+            name: "managed-old.bin",
+          },
+        ],
+      }),
+    );
+    const native = await createPiTrustedNativeExecution({
+      workspaceRoot: root,
+      ownerRoot,
+      mode: "restricted",
+    });
+    const source = join(base, "small.txt");
+    await writeFile(source, "small");
+    try {
+      // 1000 MiB manifest + 600 MiB audit stays under the 2 GiB owner quota:
+      // hiding the nested workspace (the pre-existing owner exclusion) or
+      // counting the audit directory a second time would reject it.
+      const snaps = await native.snapshotUserFiles([
+        { path: source, displayName: "small.txt" },
+      ]);
+      assert.lengthOf(snaps, 1);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  it("gates owner runtime-audit writes on the shared owner quota", async function () {
+    const base = await mkdtemp(join(tmpdir(), "pi-native-audit-corrupt-"));
+    const ownerRoot = join(base, "owner");
+    const root = join(base, "workspace");
+    await mkdir(root, { recursive: true });
+    await mkdir(ownerRoot, { recursive: true });
+    await writeFile(
+      join(ownerRoot, "managed-files.json"),
+      JSON.stringify({ version: 1, entries: [{ kind: "bogus", size: -1 }] }),
+    );
+    try {
+      // A corrupt manifest is missing quota evidence, so the seam fails closed
+      // instead of admitting against an unverified owner.
+      await expectFailure(
+        () =>
+          withPiOwnerAuditQuota(
+            { ownerRoot, workspaceRoot: root, additionalBytes: 0 },
+            async () => true,
+          ),
+        /pi_manifest_corrupt/,
+      );
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  it("admits an owner runtime-audit write that fits the shared owner quota", async function () {
+    const base = await mkdtemp(join(tmpdir(), "pi-native-audit-quota-"));
+    const ownerRoot = join(base, "owner");
+    const root = join(ownerRoot, "workspace");
+    const audit = join(root, "runtime-audit", "audit.ndjson");
+    await mkdir(join(root, "runtime-audit"), { recursive: true });
+    await writeFile(audit, "");
+    await truncate(audit, 100 * 1024 * 1024);
+    let ran = false;
+    try {
+      await withPiOwnerAuditQuota(
+        { ownerRoot, workspaceRoot: root, additionalBytes: 1024 },
+        async () => {
+          ran = true;
+        },
+      );
+      assert.isTrue(ran, "audit write below the quota was blocked");
+      const fat = join(root, "fat.bin");
+      await writeFile(fat, "");
+      await truncate(fat, 2100 * 1024 * 1024);
+      await expectFailure(
+        () =>
+          withPiOwnerAuditQuota(
+            { ownerRoot, workspaceRoot: root, additionalBytes: 1024 },
+            async () => undefined,
+          ),
+        /pi_owner_quota_exceeded/,
+      );
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  it("reclaims owner audit bytes before rejecting a business allocation", async function () {
+    this.timeout(60000);
+    await resetPiRuntimeAuditForTests();
+    const base = await mkdtemp(join(tmpdir(), "pi-native-audit-reclaim-"));
+    const owner = { kind: "conversation" as const, ownerId: "audit-reclaim" };
+    await createPiOwner(owner, base);
+    // A real owner: the audit path is derived from the canonical owner record,
+    // so the reclaim the quota seam performs is the production one.
+    const ownerRoot = piOwnerPaths(owner, base).dir;
+    const root = join(ownerRoot, "workspace");
+    const audit = join(root, "runtime-audit", "audit.ndjson");
+    await mkdir(root, { recursive: true });
+    record({
+      operation: "owner.terminal",
+      origin: "conversation",
+      owner,
+      root: base,
+      attributes: { status: "completed" },
+    });
+    await flushOwner(owner, base);
+    // Grow the audit file so it alone can cover the shortfall below: the reclaim
+    // has to compact real entries, not remove one oversized record.
+    const line = await readFile(audit, "utf8");
+    await writeFile(audit, line.repeat(Math.ceil(400_000 / line.length)));
+    const auditBytes = (await statRuntimePathStrict(audit)).size;
+    assert.isAbove(auditBytes, 200_000);
+    const fat = join(root, "fat.bin");
+    await writeFile(fat, "");
+    // Managed bytes plus the audit overshoot the quota by half the audit size,
+    // so the shortfall is real and the audit alone can still cover it: only a
+    // real reclaim admits the snapshot below.
+    const headroom = Math.floor(auditBytes / 2);
+    await writeFile(
+      join(ownerRoot, "managed-files.json"),
+      JSON.stringify({
+        version: 1,
+        entries: [
+          {
+            kind: "generated",
+            size: 2_147_483_648 - headroom,
+            sha256: "sha256:deadbeef",
+            name: "managed-old.bin",
+          },
+        ],
+      }),
+    );
+    await truncate(fat, 0);
+    try {
+      const native = await createPiTrustedNativeExecution({
+        workspaceRoot: root,
+        ownerRoot,
+        mode: "restricted",
+      });
+      const source = join(root, "result.txt");
+      await writeFile(source, "result");
+      const before = (await statRuntimePathStrict(audit)).size;
+      const snaps = await native.snapshotUserFiles([
+        { path: source, displayName: "result.txt" },
+      ]);
+      assert.lengthOf(snaps, 1, "business allocation was not reclaimed into");
+      const after = await readFile(audit, "utf8");
+      assert.isBelow(
+        (await statRuntimePathStrict(audit)).size,
+        before,
+        "the reclaim released no audit bytes",
+      );
+      assert.include(
+        after,
+        "owner_quota",
+        "the reclaim left no owner_quota gap",
+      );
+    } finally {
+      await rm(base, { recursive: true, force: true });
+      await resetPiRuntimeAuditForTests();
+    }
+  });
+
+  it("counts in-flight staging against the audit quota seam", async function () {
+    const base = await mkdtemp(join(tmpdir(), "pi-native-audit-staged-"));
+    const ownerRoot = join(base, "owner");
+    const root = join(base, "workspace");
+    await mkdir(root, { recursive: true });
+    await mkdir(ownerRoot, { recursive: true });
+    const source = join(root, "attachment.bin");
+    await writeFile(source, "");
+    await truncate(source, 40_000_000);
+    const extra = join(root, "extra.bin");
+    await writeFile(extra, "");
+    await truncate(extra, 50_000_000);
+    // Managed bytes plus the 90 MB workspace and its 40 MB staging reservation
+    // fit the quota. The audit seam has to observe the same held reservation:
+    // without it the seam is admitted, and releasing it stays admitted.
+    await writeFile(
+      join(ownerRoot, "managed-files.json"),
+      JSON.stringify({
+        version: 1,
+        entries: [
+          {
+            kind: "generated",
+            size: 2_000_000_000,
+            sha256: "sha256:deadbeef",
+            name: "managed-old.bin",
+          },
+        ],
+      }),
+    );
+    try {
+      const native = await createPiTrustedNativeExecution({
+        workspaceRoot: root,
+        ownerRoot,
+        mode: "restricted",
+      });
+      const prepared = await native.prepareStoredAttachment(source);
+      // The staging reservation is keyed by canonical owner identity, so the
+      // audit seam must observe the same held bytes. A reservation-scale
+      // workspace file is exactly what makes the seam refuse.
+      const fill = join(root, "fill.bin");
+      await writeFile(fill, "");
+      await truncate(fill, 30_000_000);
+      await expectFailure(
+        () =>
+          withPiOwnerAuditQuota(
+            { ownerRoot, workspaceRoot: root, additionalBytes: 0 },
+            async () => true,
+          ),
+        /pi_owner_quota_exceeded/,
+      );
+      await prepared.dispose();
+      await rm(fill);
+      assert.isTrue(
+        await withPiOwnerAuditQuota(
+          { ownerRoot, workspaceRoot: root, additionalBytes: 0 },
+          async () => true,
+        ),
+      );
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
   });
 
   it("rolls back a source that grows beyond its admitted size during snapshotting", async function () {

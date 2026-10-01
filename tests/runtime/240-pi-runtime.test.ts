@@ -7,12 +7,170 @@ import {
   type PiTurnResult,
 } from "../../src/modules/piRuntime";
 import { fauxTurn } from "../fixtures/pi/fauxTurn";
+import { createPiOwner } from "../../src/modules/piOwnerPersistence";
+import { piOwnerPaths } from "../../src/modules/piTranscriptStore";
+import {
+  readRuntimeTextFileStrict,
+  runtimePathExists,
+} from "../../src/modules/runtimePersistence";
+import {
+  flushOwner,
+  resetPiRuntimeAuditForTests,
+} from "../../src/modules/piRuntimeAudit";
+import { joinPath } from "../../src/utils/path";
+import { setRuntimeLogDiagnosticMode } from "../../src/modules/runtimeLogManager";
+import {
+  createTestRuntimeRoot,
+  removeTestRuntimeRoot,
+} from "./piTestRuntimeRoot";
 
 async function observe(events: AsyncIterable<PiRuntimeEvent>) {
   const observed: PiRuntimeEvent[] = [];
   for await (const event of events) observed.push(event);
   return observed;
 }
+
+// C18: the Runtime is a fact owner for structural turn and invocation
+// boundaries. These cases drive the real audit module through a real owner, so
+// they observe the persisted evidence rather than a test double.
+describe("PiRuntime structural audit boundaries", function () {
+  let root: string;
+  const owner = { kind: "conversation" as const, ownerId: "runtime-audit" };
+
+  beforeEach(async function () {
+    root = await createTestRuntimeRoot("pi-runtime-audit");
+    await resetPiRuntimeAuditForTests();
+    await createPiOwner(owner, root);
+    // Turn and invocation boundaries are diagnostic-tier facts: Production
+    // Mode drops them, so a case that asserts them must enable Diagnostic Mode
+    // first. A separate case below proves the Production default stays quiet.
+    setRuntimeLogDiagnosticMode(true);
+  });
+
+  afterEach(async function () {
+    await resetPiRuntimeAuditForTests();
+    setRuntimeLogDiagnosticMode(false);
+    await removeTestRuntimeRoot(root);
+  });
+
+  async function auditFacts() {
+    await flushOwner(owner, root);
+    const text = await readRuntimeTextFileStrict(
+      joinPath(auditPath(owner), "audit.ndjson"),
+    );
+    return text
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+  }
+
+  const auditPath = (target: { kind: "conversation"; ownerId: string }) =>
+    joinPath(piOwnerPaths(target, root).dir, "workspace", "runtime-audit");
+
+  it("emits turn boundaries around a turn without changing its events", async function () {
+    const session = new PiRuntime().openSession({
+      sessionId: "audit-session",
+      modelStream: fauxTurn(["ok"]),
+      audit: { owner, root },
+    });
+    const turn = session.runTurn({ turnId: "audit-turn", prompt: "reply" });
+    const [events, result] = await Promise.all([
+      observe(turn.events),
+      turn.result,
+    ]);
+    assert.deepEqual(result, { status: "completed", text: "ok" });
+    assert.deepEqual(
+      events.map((event) => event.kind),
+      ["text_delta", "terminal"],
+      "audit must not add or remove runtime events",
+    );
+    const facts = await auditFacts();
+    assert.deepEqual(
+      facts.map((fact) => fact.operation),
+      ["turn.started", "turn.terminal"],
+    );
+    assert.isTrue(facts.every((fact) => fact.turnId === "audit-turn"));
+    assert.equal(facts[1]?.details?.status, "completed");
+    session.dispose();
+  });
+
+  it("never lets an unresolvable owner change the turn result", async function () {
+    const missing = { kind: "conversation" as const, ownerId: "no-such-owner" };
+    const session = new PiRuntime().openSession({
+      sessionId: "audit-missing-session",
+      modelStream: fauxTurn(["fine"]),
+      audit: { owner: missing, root },
+    });
+    const result = await session.runTurn({
+      turnId: "audit-missing-turn",
+      prompt: "reply",
+    }).result;
+    assert.deepEqual(result, { status: "completed", text: "fine" });
+    const path = joinPath(auditPath(missing), "audit.ndjson");
+    assert.isFalse(await runtimePathExists(path));
+    session.dispose();
+  });
+
+  it("emits model invocation boundaries from the Runtime, not the provider", async function () {
+    const session = new PiRuntime().openSession({
+      sessionId: "invocation-audit-session",
+      model: {
+        id: "audit-model",
+        name: "Audit Model",
+        api: "openai-completions",
+        provider: "audit-provider",
+        baseUrl: "https://audit.invalid/v1",
+        reasoning: false,
+        input: ["text"],
+        contextWindow: 1024,
+        maxTokens: 64,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      },
+      source: async () => {
+        const stream = new EventStream<never, never>(
+          () => true,
+          () => undefined,
+        ) as never;
+        return stream;
+      },
+      audit: { owner, root },
+    });
+    const result = await session.runTurn({
+      turnId: "invocation-audit-turn",
+      messages: [{ role: "user", text: "hi" }],
+    }).result;
+    assert.isString(result.status);
+    // Turn boundaries and invocation boundaries both come from the Runtime,
+    // and every fact is a structural token with no payload.
+    const facts = await auditFacts();
+    const operations = facts.map((fact) => fact.operation);
+    assert.equal(operations[0], "turn.started");
+    assert.equal(operations.at(-1), "turn.terminal");
+    assert.include(operations, "model.invocation_started");
+    assert.isTrue(
+      facts
+        .filter((fact) => fact.operation.startsWith("model."))
+        .every((fact) => fact.component === "pi-provider"),
+      "the Runtime declares the provider origin it owns",
+    );
+    assert.notInclude(JSON.stringify(facts), "hi");
+    assert.notInclude(JSON.stringify(facts), "audit.invalid");
+    session.dispose();
+  });
+
+  it("stays completely silent without an audit context", async function () {
+    const session = new PiRuntime().openSession({
+      sessionId: "no-audit-session",
+      modelStream: fauxTurn(["quiet"]),
+    });
+    const result = await session.runTurn({
+      turnId: "no-audit-turn",
+      prompt: "reply",
+    }).result;
+    assert.deepEqual(result, { status: "completed", text: "quiet" });
+    session.dispose();
+  });
+});
 
 describe("PiRuntime transient turn", function () {
   it("streams ordered project events and one authoritative completed result", async function () {
