@@ -1,0 +1,16 @@
+
+# skills_src/topic-synthesis/contracts/payload-schemas
+> 目录聚合页：8 个文件、0 个符号。由知识图谱按源路径生成。
+
+## 文件
+
+| 文件 | 类型 | 符号数 | 摘要 |
+| --- | --- | --- | --- |
+| [skills_src/topic-synthesis/contracts/payload-schemas/stage-10-create-topic-context.schema.json](../../../../files/skills_src/topic-synthesis/contracts/payload-schemas/stage-10-create-topic-context.schema.json.md) | 配置 | 0 | topic-synthesis 工作流 Stage 10「创建主题上下文」阶段的输出 payload JSON Schema，六个必填字段 topic_title、aliases、definition、scope_include、scope_exclude、target_decision 共同构成新主题的初始定义与研究边界，并附完整示例。 |
+| [skills_src/topic-synthesis/contracts/payload-schemas/stage-10-update-topic-context.schema.json](../../../../files/skills_src/topic-synthesis/contracts/payload-schemas/stage-10-update-topic-context.schema.json.md) | 配置 | 0 | topic-synthesis 工作流 Stage 10「更新决策与 resolver」阶段的输出 payload JSON Schema，以 update_decision 为唯一必填项，并允许附带 resolver 与 resolver_reasoning；$defs.string_or_string_array 统一了单值/数组两种写法。 |
+| [skills_src/topic-synthesis/contracts/payload-schemas/stage-20-resolver-and-workset.schema.json](../../../../files/skills_src/topic-synthesis/contracts/payload-schemas/stage-20-resolver-and-workset.schema.json.md) | 配置 | 0 | topic-synthesis 工作流 Stage 20「resolver 与工作集解析」阶段的输出 payload JSON Schema，三个必填字段 resolver、resolver_reasoning、operation_intent 记录检索式解析、解析理由与操作意图，是检索工作集的交接契约。 |
+| [skills_src/topic-synthesis/contracts/payload-schemas/stage-30-prepare-analysis-context.schema.json](../../../../files/skills_src/topic-synthesis/contracts/payload-schemas/stage-30-prepare-analysis-context.schema.json.md) | 配置 | 0 | topic-synthesis 工作流 Stage 30「准备分析上下文」阶段的输出 payload JSON Schema，仅以 assessments 一个必填字段承载对候选文献的分析价值评估结果。 |
+| [skills_src/topic-synthesis/contracts/payload-schemas/stage-40-core-synthesis.schema.json](../../../../files/skills_src/topic-synthesis/contracts/payload-schemas/stage-40-core-synthesis.schema.json.md) | 配置 | 0 | topic-synthesis 工作流 Stage 40「核心综合」阶段的输出 payload JSON Schema，本合约集中最庞大的一份：$defs 抽出 14 个复用子结构（taxonomy_axis、timeline_event、claim、improvement_dimension、review_outline 等），顶层九个必填字段覆盖分类体系、时间线、论断、改进维度、概念标签、争议与未来方向。 |
+| [skills_src/topic-synthesis/contracts/payload-schemas/stage-50-kg-enrichment.schema.json](../../../../files/skills_src/topic-synthesis/contracts/payload-schemas/stage-50-kg-enrichment.schema.json.md) | 配置 | 0 | topic-synthesis 工作流 Stage 50「知识图谱富化」阶段的输出 payload JSON Schema，四个必填字段 concept_details、existing_topic_relation_proposals、prospective_topic_relation_proposals、topic_matching_terms 描述概念明细与对既有/潜在主题的关系提案，关系类型统一由 $defs.relation_type 收窄。 |
+| [skills_src/topic-synthesis/contracts/payload-schemas/stage-60-coverage-and-collection-suggestions.schema.json](../../../../files/skills_src/topic-synthesis/contracts/payload-schemas/stage-60-coverage-and-collection-suggestions.schema.json.md) | 配置 | 0 | topic-synthesis 工作流 Stage 60「覆盖度评估与馆藏补充建议」阶段的输出 payload JSON Schema，五个必填字段给出覆盖度判定 coverage_verdict、理由、注意事项、外部背景摘要与建议的馆藏拓展方向。 |
+| [skills_src/topic-synthesis/contracts/payload-schemas/stage-70-summary.schema.json](../../../../files/skills_src/topic-synthesis/contracts/payload-schemas/stage-70-summary.schema.json.md) | 配置 | 0 | topic-synthesis 工作流 Stage 70「最终摘要」阶段的输出 payload JSON Schema，整条流水线最精简的终端契约：仅 summary_brief、summary_overview、key_takeaways 三个必填字段。 |

@@ -1,0 +1,91 @@
+# .understandignore — patterns for files/dirs to exclude from analysis
+# Syntax: same as .gitignore (globs, # comments, ! negation, trailing / for dirs)
+#
+# Scope decision (2026-10-02): analyze the architectural core only —
+# src, packages, rust, contracts, workflows_builtin, skills_src, scripts, tools, typings.
+# Everything else is excluded.
+
+# --- Out of scope: top-level directories ---
+
+# Zotero 源码 submodule 基线（152M，外部参考实现）
+references/
+
+# esbuild 构建产物与静态资源
+addon/
+
+# OpenSpec 规格与变更记录（5949 个文件）
+openspec/
+
+# 开发过程工件、审计报告、playbook
+artifacts/
+
+# Docusaurus 文档站
+site/
+
+# 辅助资源、附件、订阅 feed、发布身份
+assets/
+attachments/
+feeds/
+releases/
+
+# 文档
+docs/
+
+# 测试（本次不纳入，以控制批次规模）
+tests/
+
+# Hermes Profile 与内建 Skill 定义
+profiles/
+profiles_src/
+skills_builtin/
+
+# 本地模拟数据
+non-existing-zotero-data/
+
+# CI 与工具配置
+.github/
+.agents/
+.vscode/
+
+# --- Build output, caches, local state (from .gitignore) ---
+
+site/build/
+site/.docusaurus/
+site/.cache-loader/
+.DS_Store
+*.tsbuildinfo
+rust/*/target/
+.env
+.scaffold
+/build
+/logs
+.mattpack/
+.openviking/
+.history/
+.codex/
+.claude/
+.kilo/
+.kilocode/
+.kimi-code/
+.qwen/
+.pi/
+.omp/
+.codebuddy/
+.commandcode/
+.codegraph/
+.pnpmfile.cjs
+/attachments
+/runtime
+artifacts/test-diagnostics/
+artifacts/content-packages/
+artifacts/literature-deep-reading-detr-sample/visual-regression/latest/
+.zotero-skills-runtime/
+.zotero-agents/
+*-safeBackup-*
+.opencode
+.tmp_lit_bundle/
+**/__pycache__/
+.pytest_cache/
+
+# --- Built-in defaults (always excluded unless negated) ---
+# node_modules/, .git/, dist/, build/, obj/, *.lock, *.min.js, etc.
