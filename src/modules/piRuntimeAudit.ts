@@ -86,7 +86,12 @@ export type PiRuntimeAuditFact = {
       | "capabilityId"
       | "kind"
       | "retry"
-      | "method",
+      | "method"
+      | "activeCount"
+      | "capacity"
+      | "waitMs"
+      | "reservedAvailable"
+      | "lane",
       string | number | boolean
     >
   >;
@@ -234,7 +239,19 @@ const OPERATIONS = {
     ["tool_gateway"],
     ["capabilityId", "reason"],
   ),
-  "queue.capacity": policy("diagnostic", "info", ["runtime", "audit"], COUNTS),
+  "queue.capacity": policy(
+    "diagnostic",
+    "info",
+    ["runtime", "audit"],
+    [
+      ...COUNTS,
+      "activeCount",
+      "capacity",
+      "waitMs",
+      "reservedAvailable",
+      "lane",
+    ],
+  ),
   "persistence.projection_terminal": policy(
     "diagnostic",
     "info",
@@ -362,6 +379,8 @@ const STRUCTURAL_VALUES = new Set([
   "retention",
   "queue_overflow",
   "admission_overflow",
+  "foreground",
+  "background",
   "oversized_entry",
   "invalid_audit_record",
   "audit_write_failed",

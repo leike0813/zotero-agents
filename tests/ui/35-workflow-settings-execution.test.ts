@@ -528,6 +528,28 @@ describe("workflow settings execution", function () {
   );
 
   itNodeOnly(
+    "offers Built-in Pi for a compatible Skill Run workflow",
+    async function () {
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.request?.kind === "skillrunner.job.v1",
+      );
+      assert.isOk(workflow);
+      const descriptor = await buildWorkflowSettingsUiDescriptor({
+        workflow: workflow!,
+        draft: { backendId: "builtin-pi" },
+      });
+      assert.include(
+        descriptor.profiles.map((profile) => profile.id),
+        "builtin-pi",
+      );
+      assert.equal(descriptor.selectedProfile, "builtin-pi");
+      assert.equal(descriptor.providerId, "builtin-pi");
+      assert.isFalse(descriptor.hostQueueSupported);
+    },
+  );
+
+  itNodeOnly(
     "enforces auto-mode runtime options for auto workflows",
     async function () {
       updateWorkflowSettings("tag-regulator", {

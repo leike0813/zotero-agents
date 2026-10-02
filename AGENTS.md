@@ -285,6 +285,7 @@ This is a single-context repository using a root `CONTEXT.md` and root `docs/adr
 # Pi Runtime Lifecycle 硬约束
 
 - `src/modules/piRuntimeLifecycle.ts` 统一协调进程准入、活动预算、维护串行与 shutdown deadline。前台与后台 lane 合计最多 12 个活动 turn、后台最多 10 个；lane 内保持 FIFO，控制操作绕过准入，嵌套 provider/tool 调用继承既有 lease 而不额外占槽。
+- Conversation 与 Interactive Skill Run 使用 foreground lane；Auto Skill Run（含显式继续）及安全启动续跑使用 background lane。模式在 admission 固定，所有续调用继承当前 turn 的 lease。
 - 物理占用与逻辑结果分离：超时、取消或进程重启只有在执行器实际结算后才释放容量、资源 claim 与 owner 文件；进程重启不证明孤儿执行器已退出，物理占用 hold 阻止清理与按龄删除。
 - 每个 owner 以 version 1 的 canonical `execution_checkpoint`（`turnId`、`budgetMs`、`activeMs`、`remainingMs`、`resumeEligible`）持久化活动预算；active 时间用单调时钟，不含排队、durable 等待与停机时间。Conversation 上限 2 小时，Skill Run 累积上限 8 小时，Workflow 只能下调不能上调；检查点先于容量释放提交、只为其所在 turn 说话，重启不补足预算。预算事实是 canonical 持久条目，与可重建的运行时状态缓存无关。
 - 启动 inventory 取 canonical owner 目录与 registry 身份的并集，严格、有界、串行读取；全局枚举或记账失败时保持 Skill Run admission 关闭，单个 owner 损坏只隔离自身且其 reservation 继续计入。reservation barrier 在放行新 Skill Run 前按原始 submission/unit 身份恢复 Workflow 占用且不调用原 execute 回调。

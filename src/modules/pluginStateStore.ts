@@ -30,14 +30,47 @@ import {
   createLiteratureMigrationTables,
   ensureLiteratureMigrationTablesSchema,
 } from "./pluginStateStore/literatureMigrationTables";
-import {
-  createPiOwnerRegistryTable,
-  ensurePiOwnerRegistrySchema,
-} from "./pluginStateStore/piOwnerTable";
-import {
-  createPiConversationMetadataTables,
-  ensurePiConversationMetadataSchema,
-} from "./pluginStateStore/piOwnerTable";
+type PiStateModule = typeof import("./pluginStateStore/piOwnerTable");
+type PiStateTables = ReturnType<PiStateModule["createPiOwnerRegistryTable"]> &
+  ReturnType<PiStateModule["createPiConversationMetadataTables"]>;
+let piStateModule: PiStateModule | undefined;
+let piStateTables: PiStateTables | undefined;
+const piSchemaAdapters = new WeakSet<SqlAdapter>();
+const piStateReady =
+  typeof __PI_RUNTIME_ENABLED__ === "undefined" || __PI_RUNTIME_ENABLED__
+    ? import("./pluginStateStore/piOwnerTable").then((module) => {
+        piStateModule = module;
+        piStateTables = {
+          ...module.createPiOwnerRegistryTable(getPiAdapter),
+          ...module.createPiConversationMetadataTables(getPiAdapter),
+        };
+      })
+    : Promise.resolve();
+
+/** Composition waits for the optional Pi tables before starting Pi owners. */
+export async function initializePiStateTables() {
+  await piStateReady;
+}
+
+function getPiAdapter() {
+  const db = getAdapter();
+  if (!piStateModule) throw new Error("pi_state_tables_unavailable");
+  if (!piSchemaAdapters.has(db)) {
+    piStateModule.ensurePiOwnerRegistrySchema(db);
+    piStateModule.ensurePiConversationMetadataSchema(db);
+    piSchemaAdapters.add(db);
+  }
+  return db;
+}
+
+function piTableMethod<K extends keyof PiStateTables>(
+  name: K,
+): PiStateTables[K] {
+  return ((...args: Parameters<PiStateTables[K]>) => {
+    if (!piStateTables) throw new Error("pi_state_tables_unavailable");
+    return Reflect.apply(piStateTables[name], undefined, args);
+  }) as PiStateTables[K];
+}
 export type {
   PiConversationCleanupReceipt,
   PiSkillRunCleanupReceipt,
@@ -628,8 +661,6 @@ function ensureSchema(db: SqlAdapter) {
   ensureRunTablesSchema(db);
   ensureMutationAuthorityTableSchema(db);
   ensureLiteratureMigrationTablesSchema(db);
-  ensurePiOwnerRegistrySchema(db);
-  ensurePiConversationMetadataSchema(db);
 }
 
 function parseLegacyDocument(rawValue: string) {
@@ -808,27 +839,42 @@ function getAdapter() {
   return adapter;
 }
 
-export const {
-  upsertPiOwnerRegistry,
-  getPiOwnerRegistry,
-  listPiOwnerRegistry,
-  listPiSkillRunRegistry,
-  deletePiOwnerRegistry,
-} = createPiOwnerRegistryTable(getAdapter);
-
-export const {
-  insertPiConversationMetadata,
-  getPiConversationMetadata,
-  listPiConversations,
-  updatePiConversationMetadata: writePiConversationMetadata,
-  updatePiConversationProjection,
-  getPiConversationReadFacts,
-  deletePiConversationMetadata,
-  getPiConversationCleanupReceipt,
-  upsertPiConversationCleanupReceipt,
-  getPiSkillRunCleanupReceipt,
-  upsertPiSkillRunCleanupReceipt,
-} = createPiConversationMetadataTables(getAdapter);
+export const upsertPiOwnerRegistry = piTableMethod("upsertPiOwnerRegistry");
+export const getPiOwnerRegistry = piTableMethod("getPiOwnerRegistry");
+export const listPiOwnerRegistry = piTableMethod("listPiOwnerRegistry");
+export const listPiSkillRunRegistry = piTableMethod("listPiSkillRunRegistry");
+export const deletePiOwnerRegistry = piTableMethod("deletePiOwnerRegistry");
+export const insertPiConversationMetadata = piTableMethod(
+  "insertPiConversationMetadata",
+);
+export const getPiConversationMetadata = piTableMethod(
+  "getPiConversationMetadata",
+);
+export const listPiConversations = piTableMethod("listPiConversations");
+export const writePiConversationMetadata = piTableMethod(
+  "updatePiConversationMetadata",
+);
+export const updatePiConversationProjection = piTableMethod(
+  "updatePiConversationProjection",
+);
+export const getPiConversationReadFacts = piTableMethod(
+  "getPiConversationReadFacts",
+);
+export const deletePiConversationMetadata = piTableMethod(
+  "deletePiConversationMetadata",
+);
+export const getPiConversationCleanupReceipt = piTableMethod(
+  "getPiConversationCleanupReceipt",
+);
+export const upsertPiConversationCleanupReceipt = piTableMethod(
+  "upsertPiConversationCleanupReceipt",
+);
+export const getPiSkillRunCleanupReceipt = piTableMethod(
+  "getPiSkillRunCleanupReceipt",
+);
+export const upsertPiSkillRunCleanupReceipt = piTableMethod(
+  "upsertPiSkillRunCleanupReceipt",
+);
 
 const {
   listPluginRunStoreEntries,
@@ -997,9 +1043,12 @@ export function resetPluginStateStoreForTests() {
     db.run("DELETE FROM plugin_mutation_authority");
     db.run("DELETE FROM plugin_literature_artifact_migration_sets");
     db.run("DELETE FROM plugin_literature_artifact_migration_runs");
-    db.run("DELETE FROM pi_owner_registry");
-    db.run("DELETE FROM pi_conversation_metadata");
-    db.run("DELETE FROM pi_conversation_cleanup_receipts");
+    if (piSchemaAdapters.has(db)) {
+      db.run("DELETE FROM pi_owner_registry");
+      db.run("DELETE FROM pi_conversation_metadata");
+      db.run("DELETE FROM pi_conversation_cleanup_receipts");
+      piSchemaAdapters.delete(db);
+    }
     db.run("DELETE FROM plugin_meta");
   }
   configurePluginMutationAuthorityStorageFaultForTests(undefined);

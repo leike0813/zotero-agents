@@ -10,9 +10,27 @@ import {
 } from "../../acp/chat/acpChatWorkspaceSurface";
 import { ACP_SKILLS_WORKSPACE_ADAPTER } from "../../acp/skillRun/acpSkillsWorkspaceSurface";
 import { SKILLRUNNER_WORKSPACE_ADAPTER } from "../../skillRunner/surface/skillRunnerWorkspaceSurface";
-import { PI_CONVERSATIONS_WORKSPACE_ADAPTER } from "../../piConversationWorkspaceSurface";
-import { PI_SKILL_RUNS_WORKSPACE_ADAPTER } from "../../piSkillRunWorkspaceSurface";
 import type { AssistantWorkspacePublicationRuntimeConfiguration } from "../publication/assistantWorkspacePublicationRuntime";
+
+/**
+ * Compile-time Pi entry: the Pi publication adapters arrive through this
+ * injected binding from the dynamically imported Pi registration, so the
+ * measurement-only control build keeps no static edge to either Pi surface.
+ */
+type PiPublicationAdapters = { conversations: any; skillRuns: any };
+
+let piPublicationAdapters: PiPublicationAdapters | undefined;
+
+export function setPiPublicationAdapters(adapters: PiPublicationAdapters) {
+  piPublicationAdapters = adapters;
+}
+
+function requirePiPublicationAdapters(): PiPublicationAdapters {
+  if (!piPublicationAdapters) {
+    throw new Error("pi_publication_adapters_unavailable");
+  }
+  return piPublicationAdapters;
+}
 import type { AssistantWorkspaceServiceStatus } from "../publication/assistantWorkspacePublication";
 import { getHostBridgeServerStatus } from "../../hostBridge/server/hostBridgeServer";
 import { buildAssistantWorkspacePublicationLabels } from "../publication/assistantWorkspacePublicationLabels";
@@ -172,7 +190,7 @@ export function schedulePiSkillRunPublications(
 ) {
   if (!change) return;
   host.publicationRuntime?.schedule({
-    adapter: PI_SKILL_RUNS_WORKSPACE_ADAPTER,
+    adapter: requirePiPublicationAdapters().skillRuns,
     change,
     context: undefined,
   });
@@ -432,7 +450,7 @@ async function initializePiConversationsWorkspaceSurface(
   cause: "initialization" | "activation" | "owner-switch",
 ) {
   const publicationIds = await host.publicationRuntime?.initialize({
-    adapter: PI_CONVERSATIONS_WORKSPACE_ADAPTER,
+    adapter: requirePiPublicationAdapters().conversations,
     context: {},
     cause,
     serviceStatus: readAssistantWorkspaceServiceStatus(),
@@ -445,7 +463,7 @@ async function initializePiSkillRunsWorkspaceSurface(
   cause: "initialization" | "activation" | "owner-switch",
 ) {
   const publicationIds = await host.publicationRuntime?.initialize({
-    adapter: PI_SKILL_RUNS_WORKSPACE_ADAPTER,
+    adapter: requirePiPublicationAdapters().skillRuns,
     context: undefined,
     cause,
     serviceStatus: readAssistantWorkspaceServiceStatus(),

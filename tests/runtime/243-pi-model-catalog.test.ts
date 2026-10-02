@@ -82,10 +82,37 @@ describe("Pi model catalog", function () {
       assert.notEqual(result.revision, prior.revision);
       assert.notInclude(JSON.stringify(result), "private response");
       assert.notInclude(JSON.stringify(result), access);
+      const shared = await loadPiModelCatalog();
+      assert.deepEqual(
+        shared.models.find((entry) => entry.id === "new-codex-model"),
+        model,
+      );
+      assert.equal(shared.revision, result.revision);
+      await putPiCredential({
+        id,
+        label: "Replacement",
+        material: {
+          kind: "openai-codex",
+          access,
+          refresh: "replacement-refresh",
+          expiresAt: Date.now() + 3600000,
+          accountId: "fixture-account",
+        },
+      });
+      const replaced = await loadPiModelCatalog();
+      assert.isFalse(
+        replaced.models.some((entry) => entry.credentialRef === id),
+      );
+      assert.notEqual(replaced.revision, result.revision);
       const disconnected = await removePiCodexCredentialModels(result, id);
       assert.notEqual(disconnected.revision, result.revision);
       assert.isFalse(
         disconnected.models.some((entry) => entry.credentialRef === id),
+      );
+      assert.isFalse(
+        (await loadPiModelCatalog()).models.some(
+          (entry) => entry.credentialRef === id,
+        ),
       );
       assert.deepEqual(
         disconnected.models,

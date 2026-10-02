@@ -1,0 +1,48 @@
+import { executeApplyResult } from "../../workflows/runtime";
+import { appendRuntimeLog } from "../runtimeLogManager";
+import { collectSkillRunFeedbackSidecar } from "../skillRunner/run/skillRunFeedback";
+import { openRunResultBundleReader } from "./bundleIO";
+import { createWorkflowResultContext } from "./resultContext";
+function normalizeString(value) {
+    return String(value || "").trim();
+}
+export async function executeSequenceStepApply(args) {
+    const requestId = normalizeString(args.runResult.requestId);
+    let bundleResource;
+    try {
+        bundleResource = await openRunResultBundleReader({
+            result: args.runResult,
+            requestId: requestId || "sequence-step",
+        });
+        const bundleReader = bundleResource.bundleReader;
+        const resultContext = await createWorkflowResultContext({
+            runResult: args.runResult,
+            bundleReader,
+            manifest: args.workflow.manifest,
+        });
+        const applied = await executeApplyResult({
+            workflow: args.workflow,
+            parent: args.parent,
+            bundleReader,
+            resultContext,
+            request: args.request,
+            runResult: args.runResult,
+            sequenceStep: args.sequenceStep,
+            runtime: args.runtime,
+        });
+        await collectSkillRunFeedbackSidecar({
+            workflow: args.workflow,
+            request: args.request,
+            runResult: args.runResult,
+            resultContext,
+            bundleReader,
+            jobId: args.sequenceStep.id,
+            sequenceStep: args.sequenceStep,
+            appendRuntimeLog,
+        });
+        return applied;
+    }
+    finally {
+        await bundleResource?.dispose();
+    }
+}

@@ -257,6 +257,244 @@ export async function startMockSkillRunnerServer(args: {
         return;
       }
 
+      const openAiPath = url.split("?")[0];
+      if (
+        method === "POST" &&
+        (openAiPath === "/v1/chat/completions" ||
+          openAiPath === "/chat/completions")
+      ) {
+        let payload: Record<string, unknown> = {};
+        try {
+          payload = JSON.parse(bodyRaw || "{}") as Record<string, unknown>;
+        } catch {
+          payload = {};
+        }
+        const messages = Array.isArray(payload.messages)
+          ? (payload.messages as Array<Record<string, unknown>>)
+          : [];
+        const textOf = (message: Record<string, unknown>) => {
+          const content = message?.content;
+          if (typeof content === "string") return content;
+          if (Array.isArray(content)) {
+            return content
+              .map((part) => (isObject(part) ? String(part.text || "") : ""))
+              .join("");
+          }
+          return "";
+        };
+        const joined = messages.map(textOf).join("\n");
+        const pi04Sequence = joined.includes("[system-e2e:pi04-sequence:v1");
+        const pi04Parent = joined.match(
+          /\[system-e2e:pi04-sequence:v1:(\d+):([A-Za-z0-9]+)\]/,
+        );
+        const toolNames = new Map<string, string>();
+        for (const message of messages) {
+          for (const call of Array.isArray(message.tool_calls)
+            ? message.tool_calls
+            : []) {
+            if (isObject(call) && isObject(call.function))
+              toolNames.set(String(call.id), String(call.function.name));
+          }
+        }
+        const pi04ToolResults = messages
+          .filter((message) => message.role === "tool")
+          .map((message) =>
+            String(
+              message.name || toolNames.get(String(message.tool_call_id)) || "",
+            ),
+          );
+        const pi04Step = pi04ToolResults.includes("ask_user")
+          ? 2
+          : pi04ToolResults.includes("zotero_custom_note_write")
+            ? 1
+            : 0;
+        const hasToolResult = messages.some(
+          (message) => message.role === "tool",
+        );
+        const toolMarker = joined.match(
+          /\[system-e2e:tool:([A-Za-z0-9_.-]+)\]/,
+        );
+        const asksUser = joined.includes("[system-e2e:tool:ask_user]");
+        const sealsAfterTool = joined.includes(
+          "[system-e2e:tool:submit_skill_result]",
+        );
+        const slow = joined.includes("[system-e2e:slow]");
+        // Capacity measurement marker: hold every response (plain and
+        // tool-call alike) for a fixed interval after the headers and before
+        // the first chunk, so a foreground/common prompt can be paced.
+        const capacityDelay = joined.includes("[system-e2e:capacity]");
+        const model = String(payload.model || "system-e2e-local");
+        res.statusCode = 200;
+        res.setHeader("content-type", "text/event-stream");
+        res.setHeader("cache-control", "no-cache");
+        res.setHeader("connection", "keep-alive");
+        const completionId = `chatcmpl-${instanceId}-${nextId++}`;
+        const created = Math.floor(Date.now() / 1000);
+        const emit = (
+          delta: Record<string, unknown>,
+          finish: string | null = null,
+        ) =>
+          res.write(
+            `data: ${JSON.stringify({
+              id: completionId,
+              object: "chat.completion.chunk",
+              created,
+              model,
+              choices: [{ index: 0, delta, finish_reason: finish }],
+            })}\n\n`,
+          );
+        if (capacityDelay) {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
+        emit({ role: "assistant", content: "" });
+        if (
+          pi04Sequence &&
+          pi04Step === 2 &&
+          messages.some(
+            (message) =>
+              message.role === "user" &&
+              textOf(message).includes("Continue PI-04"),
+          )
+        ) {
+          emit({
+            tool_calls: [
+              {
+                index: 0,
+                id: `call-${nextId++}`,
+                type: "function",
+                function: {
+                  name: "submit_skill_result",
+                  arguments: JSON.stringify({
+                    protocolVersion: 1,
+                    result: { ok: true },
+                  }),
+                },
+              },
+            ],
+          });
+          emit({}, "tool_calls");
+        } else if (pi04Sequence && pi04Step < 2) {
+          const sequence = [
+            "zotero_custom_note_write",
+            "ask_user",
+            "submit_skill_result",
+          ] as const;
+          const name = sequence[pi04Step]!;
+          const argumentsPayload = [
+            JSON.stringify({
+              target: {
+                kind: "create",
+                parentRef: {
+                  libraryId: Number(pi04Parent?.[1] || 1),
+                  key: pi04Parent?.[2] || "PI04",
+                },
+              },
+              title: "PI-04",
+              markdown: "PI-04",
+            }),
+            JSON.stringify({ questions: [{ kind: "text", prompt: "PI-04" }] }),
+            JSON.stringify({ protocolVersion: 1, result: { ok: true } }),
+          ][pi04Step]!;
+          emit({
+            tool_calls: [
+              {
+                index: 0,
+                id: `call-${nextId++}`,
+                type: "function",
+                function: { name, arguments: argumentsPayload },
+              },
+            ],
+          });
+          emit({}, "tool_calls");
+        } else if (pi04Sequence && pi04Step === 2) {
+          const text = "System E2E local provider streaming reply.";
+          for (const piece of text.split(" ")) {
+            emit({ content: `${piece} ` });
+            await new Promise((resolve) =>
+              setTimeout(resolve, pollDelayMs + 50),
+            );
+          }
+          emit({}, "stop");
+        } else if (toolMarker && !hasToolResult) {
+          // Auto Skill Run seals through the production `submit_skill_result`
+          // tool, so the deterministic model returns a protocol-valid payload
+          // rather than an empty placeholder.
+          const argumentsPayload = asksUser
+            ? JSON.stringify({
+                questions: [{ kind: "confirm", prompt: "PI-04 continue?" }],
+              })
+            : ["bash", "powershell"].includes(toolMarker[1]!)
+              ? JSON.stringify({
+                  command:
+                    toolMarker[1] === "bash"
+                      ? "sleep 60"
+                      : "Start-Sleep -Seconds 60",
+                })
+              : sealsAfterTool
+                ? JSON.stringify({ protocolVersion: 1, result: { ok: true } })
+                : "{}";
+          emit({
+            tool_calls: [
+              {
+                index: 0,
+                id: `call-${nextId++}`,
+                type: "function",
+                function: { name: toolMarker[1], arguments: argumentsPayload },
+              },
+            ],
+          });
+          emit({}, "tool_calls");
+        } else if (asksUser && sealsAfterTool) {
+          // Interactive second step: once the user interaction is answered, the
+          // deterministic model seals through the production tool.
+          emit({
+            tool_calls: [
+              {
+                index: 0,
+                id: `call-${nextId++}`,
+                type: "function",
+                function: {
+                  name: "submit_skill_result",
+                  arguments: JSON.stringify({
+                    protocolVersion: 1,
+                    result: { ok: true },
+                  }),
+                },
+              },
+            ],
+          });
+          emit({}, "tool_calls");
+        } else {
+          const text = hasToolResult
+            ? "System E2E local provider tool result acknowledged."
+            : "System E2E local provider streaming reply.";
+          const pieces = slow ? text.split(" ") : [text];
+          for (const piece of pieces) {
+            emit({ content: slow ? `${piece} ` : piece });
+            if (slow) {
+              await new Promise((resolve) =>
+                setTimeout(resolve, pollDelayMs + 50),
+              );
+            }
+          }
+          emit({}, "stop");
+        }
+        res.write("data: [DONE]\n\n");
+        res.end();
+        return;
+      }
+      if (method === "GET" && openAiPath === "/v1/models") {
+        res.statusCode = 200;
+        res.setHeader("content-type", "application/json");
+        res.end(
+          JSON.stringify({
+            object: "list",
+            data: [{ id: "system-e2e-local", object: "model" }],
+          }),
+        );
+        return;
+      }
+
       if (method === "POST" && url === "/v1/jobs") {
         let payload: unknown;
         try {

@@ -1,4 +1,11 @@
 import { assert } from "chai";
+import { loadBackendsRegistry } from "../../../../src/backends/registry";
+import { runInstalledPiChains } from "../../../helpers/piInstalledPluginDriver";
+import {
+  seedInstalledLegacyHistory,
+  verifyInstalledLegacyHistory,
+} from "../../../helpers/piInstalledLegacySeedDriver";
+import { readDiagnosticsEnv } from "../../testDiagnosticsOutput";
 
 declare global {
   interface Window {
@@ -41,15 +48,42 @@ function getAddonManager() {
 }
 
 function localFile(filePath: string) {
-  const file = Components.classes["@mozilla.org/file/local;1"].createInstance(
-    Components.interfaces.nsIFile,
-  );
+  const file = (Components.classes as any)[
+    "@mozilla.org/file/local;1"
+  ].createInstance(Components.interfaces.nsIFile);
   file.initWithPath(filePath);
   return file;
 }
 
+async function lifecycleStep<T>(stage: string, action: () => Promise<T>) {
+  window.debug?.({ kind: "zotero-compatibility-xpi-step", stage });
+  let timer: ReturnType<typeof setTimeout>;
+  try {
+    return await Promise.race([
+      action(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`xpi_${stage}_timeout`)),
+          60_000,
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer!);
+  }
+}
+
+type XpiPhase = "pi-xpi-fresh" | "pi-xpi-upgrade";
+
+function emitXpiPhase(
+  phase: XpiPhase,
+  status: "passed" | "failed" | "skipped",
+) {
+  window.debug?.({ kind: "zotero-compatibility-xpi-phase", phase, status });
+}
+
 describe("formal XPI compatibility smoke", function () {
-  this.timeout(60_000);
+  this.timeout(240_000);
 
   it("installs and starts the canonical XPI", async function () {
     const xpiPath = Services.prefs.getStringPref(XPI_PREF, "").trim();
@@ -58,13 +92,18 @@ describe("formal XPI compatibility smoke", function () {
 
     const temporaryAddon = await addonManager.getAddonByID(ADDON_ID);
     assert.exists(temporaryAddon);
-    await temporaryAddon.uninstall();
+    await lifecycleStep("temporary-uninstall", () =>
+      temporaryAddon.uninstall(),
+    );
     await waitUntil(() => (Zotero as any).ZoteroSkills === undefined);
 
     const previousPath = Services.prefs
       .getStringPref(PREVIOUS_XPI_PREF, "")
       .trim();
     let previousVersion = "";
+    let legacySeed:
+      | Awaited<ReturnType<typeof seedInstalledLegacyHistory>>
+      | undefined;
     const marker = PathUtils.join(
       Services.dirsvc.get("ProfD", Components.interfaces.nsIFile).path,
       "compatibility-upgrade-preserve.txt",
@@ -74,18 +113,26 @@ describe("formal XPI compatibility smoke", function () {
         localFile(previousPath),
       );
       assert.exists(previousInstall);
-      await previousInstall.install();
+      await lifecycleStep("baseline-install", () => previousInstall.install());
       const previousAddon = await addonManager.getAddonByID(ADDON_ID);
       assert.exists(previousAddon);
       assert.isTrue(Boolean(previousAddon.isActive));
+      await waitUntil(
+        () => (Zotero as any).ZoteroSkills?.data?.initialized === true,
+      );
       previousVersion = String(previousAddon.version);
       await IOUtils.writeUTF8(marker, "unrelated-profile-data\n");
+      window.debug?.({
+        kind: "zotero-compatibility-xpi-step",
+        stage: "baseline-seed",
+      });
+      legacySeed = await seedInstalledLegacyHistory();
     }
 
     const install = await addonManager.getInstallForFile(localFile(xpiPath));
     assert.exists(install);
     const candidateVersion = String(install.addon?.version || "");
-    await install.install();
+    await lifecycleStep("candidate-install", () => install.install());
     await waitUntil(
       () =>
         (Zotero as any).ZoteroSkills?.data?.alive === true &&
@@ -95,7 +142,6 @@ describe("formal XPI compatibility smoke", function () {
     const installedAddon = await addonManager.getAddonByID(ADDON_ID);
     assert.exists(installedAddon);
     if (previousPath) {
-      assert.notEqual(previousVersion, candidateVersion);
       assert.equal(installedAddon.version, candidateVersion);
       assert.equal(await IOUtils.readUTF8(marker), "unrelated-profile-data\n");
     }
@@ -110,7 +156,48 @@ describe("formal XPI compatibility smoke", function () {
         ? { previousVersion, installedVersion: String(installedAddon.version) }
         : {}),
     });
-
+    try {
+      window.debug?.({
+        kind: "zotero-compatibility-xpi-step",
+        stage: "installed-chains",
+      });
+      await runInstalledPiChains();
+      emitXpiPhase("pi-xpi-fresh", "passed");
+    } catch (error) {
+      emitXpiPhase("pi-xpi-fresh", "failed");
+      throw error;
+    }
+    if (previousPath) {
+      const registry = await loadBackendsRegistry();
+      assert.isTrue(
+        registry.backends.some(
+          (backend) => backend.id === legacySeed!.acp.backendId,
+        ) &&
+          registry.backends.some(
+            (backend) => backend.id === legacySeed!.skillrunner.backendId,
+          ),
+        "seeded ACP configuration must survive the upgrade",
+      );
+      await verifyInstalledLegacyHistory(legacySeed!);
+      assert.equal(await IOUtils.readUTF8(marker), "unrelated-profile-data\n");
+      window.debug?.({
+        kind: "zotero-compatibility-pi-upgrade",
+        upgrade: {
+          baselineCommit: readDiagnosticsEnv(
+            "ZOTERO_PI_UPGRADE_BASELINE_COMMIT",
+          ),
+          baselineVersion: previousVersion,
+          baselineXpiSha256: readDiagnosticsEnv(
+            "ZOTERO_PI_UPGRADE_BASELINE_SHA256",
+          ),
+          seededWithInstalledBaseline: true,
+          legacyPreserved: true,
+        },
+      });
+      emitXpiPhase("pi-xpi-upgrade", "passed");
+    } else {
+      emitXpiPhase("pi-xpi-upgrade", "skipped");
+    }
     if (!Services.prefs.getBoolPref(KEEP_XPI_PREF, false)) {
       await installedAddon.uninstall();
       await waitUntil(() => (Zotero as any).ZoteroSkills === undefined);

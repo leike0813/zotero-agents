@@ -60,40 +60,39 @@ import type {
   BackendManagerBuiltinAgentSnapshot,
 } from "../../../shared/dashboardWireContract";
 import type { PiCatalog } from "../../piModelCatalog";
+import { type PiMcpSource } from "../../piMcpSourceRegistry";
+import { type PiWebSource } from "../../../shared/piWebSourceContract";
 import {
-  deletePiCredential,
-  listPiCredentials,
-  putPiCredential,
-} from "../../piCredentialStore";
-import {
-  acceptPiMcpImport,
-  deletePiMcpSource,
-  exportPiMcpJson,
-  loadPiMcpSourceRegistry,
-  previewPiMcpJson,
-  reviewPiMcpTool,
-  resetPiMcpSourceRegistry,
-  unreviewPiMcpTool,
-  upsertPiMcpSource,
-  type PiMcpSource,
-} from "../../piMcpSourceRegistry";
-import { getPiBrokeredWebTools } from "../../piBrokeredWebTools";
-import {
-  defaultPiWebSources,
-  type PiWebSource,
-} from "../../../shared/piWebSourceContract";
-import {
-  deletePiProviderConfiguration,
-  findPiCatalogModel,
-  hasPiModelCapabilities,
-  loadPiProviderConfigurationState,
-  setPiOverlayPath,
-  setPiProviderDefaults,
-  upsertPiProviderConfiguration,
-  resolvePiModelSelection,
   type PiProviderConfiguration,
   type PiProviderDefaults,
 } from "../../piProviderConfiguration";
+
+/**
+ * Compile-time Pi entry: the Built-in Pi settings section reaches its modules
+ * through this injected access, which the dynamically imported Pi access module
+ * fills. The measurement-only control build never imports it, so the Pi
+ * settings graph and the static model catalog leave that entry graph.
+ */
+type BackendManagerPiAccess = typeof import("./backendManagerPiAccess");
+
+let backendManagerPiAccess: BackendManagerPiAccess | undefined;
+
+export function setBackendManagerPiAccess(access: BackendManagerPiAccess) {
+  backendManagerPiAccess = access;
+}
+
+function requireBackendManagerPi(): BackendManagerPiAccess {
+  if (!backendManagerPiAccess) {
+    throw new Error("pi_backend_manager_access_unavailable");
+  }
+  return backendManagerPiAccess;
+}
+
+if (typeof __PI_RUNTIME_ENABLED__ === "undefined" || __PI_RUNTIME_ENABLED__) {
+  void import("./backendManagerPiAccess").then((module) =>
+    setBackendManagerPiAccess(module),
+  );
+}
 
 const BACKENDS_CONFIG_PREF_KEY = "backendsConfigJson";
 const PROVIDER_SECTIONS = [
@@ -2915,6 +2914,15 @@ function buildBackendManagerSnapshot(
   rows: BackendManagerDraftRow[],
   args?: { initialProviderType?: string },
 ): BackendManagerSnapshot {
+  const {
+    defaultPiWebSources,
+    findPiCatalogModel,
+    getPiBrokeredWebTools,
+    hasPiModelCapabilities,
+    listPiCredentials,
+    loadPiMcpSourceRegistry,
+    loadPiProviderConfigurationState,
+  } = requireBackendManagerPi();
   const npxRuntimeStatus = getBackendManagerNpxRuntimeStatus();
   const piState = loadPiProviderConfigurationState();
   const piCredentials = listPiCredentials();
@@ -3081,6 +3089,26 @@ async function persistAcpBackendProbeResultFromDraft(
 export async function openBackendManagerDialog(
   args?: OpenBackendManagerDialogArgs,
 ) {
+  const {
+    acceptPiMcpImport,
+    deletePiCredential,
+    deletePiMcpSource,
+    deletePiProviderConfiguration,
+    exportPiMcpJson,
+    getPiBrokeredWebTools,
+    listPiCredentials,
+    loadPiProviderConfigurationState,
+    previewPiMcpJson,
+    putPiCredential,
+    resetPiMcpSourceRegistry,
+    resolvePiModelSelection,
+    reviewPiMcpTool,
+    setPiOverlayPath,
+    setPiProviderDefaults,
+    unreviewPiMcpTool,
+    upsertPiMcpSource,
+    upsertPiProviderConfiguration,
+  } = requireBackendManagerPi();
   if (isWindowAlive(addon.data.dialog?.window)) {
     addon.data.dialog?.window?.focus();
     postBackendManagerProviderSelection(args?.initialProviderType);
@@ -3183,7 +3211,7 @@ export async function openBackendManagerDialog(
         const timeout = setTimeout(stop, 30_000);
         try {
           const { refreshPiCodexModelCatalog, loadPiModelCatalog } =
-            await import("../../piModelCatalog");
+            await requireBackendManagerPi().loadPiModelCatalog();
           const next = await refreshPiCodexModelCatalog(
             activePiCatalog || (await loadPiModelCatalog()),
             {
@@ -3239,7 +3267,7 @@ export async function openBackendManagerDialog(
           void (async () => {
             try {
               const { loadPiModelCatalog, refreshPiModelCatalog } =
-                await import("../../piModelCatalog");
+                await requireBackendManagerPi().loadPiModelCatalog();
               try {
                 activePiCatalog = await refreshPiModelCatalog({
                   overlayPath:
@@ -3328,7 +3356,7 @@ export async function openBackendManagerDialog(
                 activePiCodexLogin = login;
                 try {
                   const { connectPiOpenAICodex } =
-                    await import("../../piOpenAICodexAuth");
+                    await requireBackendManagerPi().loadPiOpenAICodexAuth();
                   await connectPiOpenAICodex({
                     id: login.credentialId,
                     label: configuration.label || "OpenAI Codex",
@@ -3416,7 +3444,7 @@ export async function openBackendManagerDialog(
                 catalogController?.abort();
                 if (activePiCatalog)
                   activePiCatalog = await (
-                    await import("../../piModelCatalog")
+                    await requireBackendManagerPi().loadPiModelCatalog()
                   ).removePiCodexCredentialModels(
                     activePiCatalog,
                     credentialId,
@@ -3443,7 +3471,7 @@ export async function openBackendManagerDialog(
                 );
               } else if (action === "pi-refresh-overlay") {
                 const { refreshPiModelCatalog } =
-                  await import("../../piModelCatalog");
+                  await requireBackendManagerPi().loadPiModelCatalog();
                 const path = String(payload.path || "").trim();
                 activePiCatalog = await refreshPiModelCatalog({
                   overlayPath: path || undefined,
@@ -3464,13 +3492,13 @@ export async function openBackendManagerDialog(
               } else if (action === "pi-mcp-upsert-source") {
                 const source = upsertPiMcpSource(payload.source as PiMcpSource);
                 await (
-                  await import("../../piMcpRuntimeOwner")
+                  await requireBackendManagerPi().loadPiMcpRuntimeOwner()
                 ).disconnectPiMcpSource(source.id);
               } else if (action === "pi-mcp-delete-source") {
                 const id = String(payload.id || "");
                 deletePiMcpSource(id);
                 await (
-                  await import("../../piMcpRuntimeOwner")
+                  await requireBackendManagerPi().loadPiMcpRuntimeOwner()
                 ).disconnectPiMcpSource(id);
               } else if (action === "pi-mcp-put-secret") {
                 await putPiCredential({
@@ -3489,7 +3517,7 @@ export async function openBackendManagerDialog(
                 );
               } else if (action === "pi-mcp-test-source") {
                 const { getPiMcpToolSources } =
-                  await import("../../piMcpRuntimeOwner");
+                  await requireBackendManagerPi().loadPiMcpRuntimeOwner();
                 const sourceOwner = await getPiMcpToolSources();
                 const tools = await sourceOwner.testSource(
                   String(payload.id || ""),
@@ -3567,7 +3595,7 @@ export async function openBackendManagerDialog(
               } else if (action === "pi-mcp-reset-registry") {
                 resetPiMcpSourceRegistry();
                 await (
-                  await import("../../piMcpRuntimeOwner")
+                  await requireBackendManagerPi().loadPiMcpRuntimeOwner()
                 ).shutdownPiMcpToolSources();
               } else if (action === "pi-web-save-sources") {
                 getPiBrokeredWebTools().saveSources(
@@ -3622,7 +3650,7 @@ export async function openBackendManagerDialog(
                 const targetPath = typeof picked === "string" ? picked : "";
                 if (!targetPath) return;
                 const { exportDiagnostics } =
-                  await import("../../piRuntimeAudit");
+                  await requireBackendManagerPi().loadPiRuntimeAudit();
                 const result = await exportDiagnostics(
                   { kind: "global" },
                   targetPath,
@@ -3653,7 +3681,7 @@ export async function openBackendManagerDialog(
                 const timeout = setTimeout(() => controller.abort(), 20_000);
                 try {
                   const { createPiProviderModelSource } =
-                    await import("../../piProviderExecution");
+                    await requireBackendManagerPi().loadPiProviderExecution();
                   for await (const _ of createPiProviderModelSource(selection)({
                     systemPrompt: "",
                     messages: [{ role: "user", text: "Reply OK." }],
@@ -3690,14 +3718,16 @@ export async function openBackendManagerDialog(
               const authFailure =
                 action === "pi-codex-connect" &&
                 error instanceof
-                  (await import("../../piOpenAICodexAuth")).PiCodexAuthFailure
+                  (await requireBackendManagerPi().loadPiOpenAICodexAuth())
+                    .PiCodexAuthFailure
                   ? error
                   : null;
               const failureCode = authFailure
                 ? authFailure.code
                 : action === "pi-test-connection" &&
                     error instanceof
-                      (await import("../../piRuntime")).PiModelStreamFailure
+                      (await requireBackendManagerPi().loadPiRuntime())
+                        .PiModelStreamFailure
                   ? error.code
                   : "provider_unavailable";
               postToFrame("backend-manager-dialog:action-result", {

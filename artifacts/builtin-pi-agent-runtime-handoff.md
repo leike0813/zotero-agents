@@ -1,6 +1,6 @@
 # 内置 Pi Agent Runtime 工作交接
 
-- 状态核对：2026-10-01
+- 状态核对：2026-10-02
 - 工作分支：`dev-agent-harness`
 - 实施路线：[地图 #10](https://github.com/leike0813/zotero-agents/issues/10)、[执行计划 #26](https://github.com/leike0813/zotero-agents/issues/26)
 - 已实现并归档：W0 C01（提交 `fbd297d4`）、W1 C02（`1da0cd84`）、W1 C03（`ef91407c`）、W1 C07（`f5ce9fe6`）、W1 C09（`5077c7b3`）、W2 C04（`f88e2825`）、W2 C06（`2bb22e90`）、W2 C08（实现 `fe6a5a51`，归档 `ad671f6f4`）、W2 C10（实现 `78023c716`、`a8602bc77`，归档 `2026-09-29`）、W2 C12（归档 `2026-09-29`）、C08 受管文件补齐与 W3 C13（均归档 `2026-09-29`）；见 [C08 补齐](../openspec/changes/archive/2026-09-29-complete-pi-managed-workspace-operations/)、[C12 OpenSpec 归档](../openspec/changes/archive/2026-09-29-establish-pi-zotero-tool-catalog/)与 [C13 OpenSpec 归档](../openspec/changes/archive/2026-09-29-add-pi-zotero-read-tools/)。
@@ -233,6 +233,22 @@ git show research/pi-agent-sandbox-models:artifact/pi-agent-runtime/sandbox-and-
 - 本 change 不含：进程启动对账、异常退出与暂存恢复、未知效果的生命周期恢复、Skill Run 既有 30 天清理调度、完整 Workspace E2E 与版本/OS matrix，也不含 health 面板、定时巡检、主动探针或自动导出。诊断保持被动，Diagnostic Mode 与独立的 `PI_RUNTIME_AUDIT_DEBUG_ENABLED` 只放宽记录时刻的 tier 准入，不调度任何动作。
 
 ## 当前工作区状态
+
+C20 [`verify-builtin-pi-runtime-release`](../openspec/changes/verify-builtin-pi-runtime-release/) 正在实施，尚未通过最终验收。用户指定 `dev@9218f30899e47d6e9b852dec978be81b1f802c2f` 为 v0.9.0 升级基线，本地已从该源码构建 XPI，SHA-256 为 `d524554a87c913ca503ac1875160ab8eb4ce44c759acb5e9c235c1c8b7405655`。聚合、release gate、Pi 排除控制与连续容量 probe 已接入现有工具链；安装升级、完整行为和负载仍按实际运行逐项验证。命令和人工 inventory 见 [验收 runbook](../docs/dev/pi-runtime-acceptance.md)。
+
+2026-10-02 已重收本地证据。用户批准 Auto（含显式继续）进入 background，Conversation/Interactive 保持 foreground，安全启动续跑保持 background；统一准入点已修改。恢复边界修复后相关测试 49 项通过；完整 Node 首轮 27/28 的 archive mock 类型断言修正后，第二轮一次通过 28/28。生产 build、四份类型配置、lint、browser guard 和 strict 通过。Linux Zotero 7.0.32/9.0.6/10.0.1 的 Pi 五组行为、两次真实重启、固定基线 XPI fresh/upgrade 及 core/UI/workflow 完整矩阵均通过同一 dirty 候选，SHA-256 为 `338a1695dfa22c7ee81fec920f7b03718ee13b13502798fd5132ac443f03b9cc`。三个版本均为 core 237、UI 9、workflow 5 passed。首轮 Zotero 10 core 的全局列表断言失败和修正后的全域重跑均保留。现有默认 12 未被伪造为实测选择。
+
+正式安装 XPI 的 Conversation/Auto 工具链与固定基线 legacy preservation 已在三个 Linux 版本的新候选上通过；先前 Zotero 7 installed chains 超时仍保留，新候选未再现。此前 C05 副本的 Codex `gpt-6-luna / low` 与 MiniMax 中国区 `MiniMax-M3.1-Flash-Preview / low` smoke 各记录 1 pass，但 `/tmp` 原始日志与临时 profile 已丢失，脱敏观察不能作为新候选证据。人工 lifecycle/search inventory 保持缺失。修复后的目录发现按凭据隔离，配置加载保持离线。
+
+最新大小测量与宿主矩阵使用同一候选：raw 增量 `16,331,020` bytes、gzip `929,256` bytes、XPI `966,908` bytes；同输入/浏览器 guard/完整排除控制通过，原 8 MiB 预算下 raw 超限，测量返回 2（dirty-worktree）。用户决定保留完整模型目录并修订规格：raw 上限改为 20 MiB，gzip/XPI 保持 1.5/2 MiB；现有数值均低于新上限，预计无需大小例外。原始测量与失败记录保留，clean 最终候选仍需按新预算重测，开发测量不认证正式候选。
+
+Linux 容量 4 第三轮 lag p95 114 ms、最大 1,358 ms 超限，失败保留。独立 Gecko profiler 诊断后，shared SHA-256 accumulator 去掉逐块数组复制；75 项既有用例通过。第四轮 4/6/8/12 全门槛通过，p95 分别为 58/63/59/60 ms，411/431/435/447 次任务全部结算，零未知失败/丢失，RSS 与前台等待也通过。聚合器直接读取 performance digest 的 `piCapacity` 字段，先复现格式失败再以 24 项相关测试验证修复。3.2 已完成；双平台共同容量与 final certification 仍未完成。
+
+容量探索后复核发现 Interactive 启动恢复标记会影响后续用户继续；现改为单次续跑参数并删除 owner 标记。既有恢复用例扩展后先失败，三个相关测试文件共 49 项通过。四个容量记录保留旧候选身份，不认证修复后新候选；新的包体和 Linux 完整矩阵已收集，clean final workload 须重测。
+
+Windows 实机容量与其余 Windows 验收由用户明确保留到另一台 Windows 主机推进；对应 mandatory evidence 保持缺失。当前工作树未提交，不能认证 clean final candidate。`r4-development-summary.json`/`.md` 保留 66 个尝试，CLI 返回 2、accepted false，缺项与 dirty/mismatching 尝试均未豁免。C20 为 6/13 项完成，保持开放；没有发布、提交、规格同步或归档。
+
+本轮日志/receipt 保存在 `.scaffold/pi-acceptance/`，结果与候选绑定见 [C20 verification](../openspec/changes/verify-builtin-pi-runtime-release/verification.md)。592 个误 emit 的未跟踪 JS 原样保留，测试使用过滤源码副本。共享宿主启动脚本导致的一次并行版本串用已弃作证据，之后宿主和容量严格串行；保留失败与弃用原因。
 
 C16 的固定基线为 `4d95a25c`，实现提交为 `b6cc7f48`，change 已同步并归档。C11 实现提交为 `2fa6bc0c`；C14 实现提交为 `64ea8d16`，14/14 任务完成并归档。C15 以 `64ea8d1699293820941767f75733fa5ab1048329` 为固定基线，9/9 任务完成，四份规格已同步并归档。C17 以 `24f6dabae9f5e1a9387bf03ce17c0d2ca52c13ef` 为固定基线，10/10 任务完成，两份规格已同步并归档为 `2026-10-01-integrate-pi-skill-runs`。C18 以 `b26824f2572c6258d7fcd15fb807dcc610f143e3` 为固定基线，11/11 任务完成，相关 Node、lint、build 和真实宿主验证通过，四份主规格已同步并归档为 `2026-10-01-add-pi-observability-and-audit`。实现没有新增提交。C19 以 `7efd7044def0f91e3d99805ca1df149fe9845f4d` 为固定基线，13/13 任务完成，7 份主规格已同步并归档（见下）；实现没有新增提交。以最新 `git status` 辨别所有权，不覆盖并行改动。
 

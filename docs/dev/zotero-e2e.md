@@ -7,9 +7,12 @@ R9 / Stage 1 候选验收的 XPI、sidecar 安装身份与六个阻塞 cell 的�
 `npm run test:zotero:compatibility:prepare -- --gate=acceptance --install-candidate-xpi`
 校验已经构建的 XPI，再用相同 `--gate=acceptance --install-candidate-xpi`
 运行各个 `--mode=behavior --suite=full --domain=e2e` cell。worker 在 catalog
-之前通过 Zotero AddonManager 安装 XPI，验收 lane 仅投影 Phase 1 的
-`300`–`302` 测试文件；Windows 默认使用短的隔离根，避免 sidecar session
-配置路径超过系统限制。`release` lane 仍只接收 tag 候选。
+之前通过 Zotero AddonManager 安装 XPI。验收 lane 复用同一个 `tests/zotero/e2e/full`
+runner（不再复制 `300`–`302` 到平行目录），family 集合由 catalog 选中，PI family 用
+`ZOTERO_SYSTEM_E2E_FAMILIES=PI` 定向运行；Windows 默认使用短的隔离根，避免 sidecar
+session 配置路径超过系统限制。XPI 升级路径用
+`--mode=xpi-smoke --previous-xpi <baseline>.xpi`（先装旧版、再由 suite 安装候选），与
+`--install-candidate-xpi` 的 e2e 路径互不影响。`release` lane 仍只接收 tag 候选。
 固定 Linux XPI 的 Zotero 7/9/10 Phase 1 cell 均已通过；三个 Windows cell
 已有全通过的 dirty-source 诊断结果，但仍需 clean、same-source receipt，
 六 cell 验收决策保持 `pending`。

@@ -188,11 +188,6 @@ import {
 import { advanceSynthesisReverseHostLibraryRevision } from "./modules/synthesis/reverseHost/synthesisReverseHostHandlers";
 import { shutdownAcpSkillRunConversations } from "./modules/acp/skillRun/acpSkillRunActions";
 import {
-  getPiRuntimeLifecycle,
-  startPiRuntimeLifecycle,
-  PI_SHUTDOWN_BUDGET_MS,
-} from "./modules/piRuntimeLifecycle";
-import {
   finishCitationGraphCrashJournal,
   initializeCitationGraphCrashJournal,
 } from "./modules/synthesis/debug/citationGraphCrashJournal";
@@ -892,27 +887,43 @@ async function onStartup() {
   await rescanWorkflowRegistry();
   reconcileRecoveredRuntimeTasksOnStartup();
   workflowSubmissionQueue.setPiAdmissionBarrier(true);
-  await startPiRuntimeLifecycle({
-    async restoreReservations() {
-      const owners = await import("./modules/piSkillRun");
-      return owners.restorePiSkillRunReservationsOnStartup();
-    },
-    async recover() {
-      const conversations = await import("./modules/piConversation");
-      await conversations.reconcilePiConversationsOnStartup();
-      if (getPiRuntimeLifecycle().closed) return;
-      const owners = await import("./modules/piSkillRun");
-      await owners.reconcilePiSkillRunsOnStartup();
-    },
-    async cleanup() {
-      const { cleanupRuntimePersistenceRetention } =
-        await import("./modules/runtimePersistenceGovernance");
-      await cleanupRuntimePersistenceRetention();
-    },
-  });
-  workflowSubmissionQueue.setPiAdmissionBarrier(
-    !getPiRuntimeLifecycle().skillAdmissionOpen,
-  );
+  // Compile-time Pi entry: the measurement-only control build keeps the Pi
+  // admission barrier closed and never starts the runtime lifecycle.
+  if (typeof __PI_RUNTIME_ENABLED__ === "undefined" || __PI_RUNTIME_ENABLED__) {
+    // The Pi owner tables are created lazily by the state store; make the
+    // assembly ready before any Pi owner or surface can be registered.
+    const { initializePiStateTables } =
+      await import("./modules/pluginStateStore");
+    await initializePiStateTables();
+    // Register the Pi Assistant Workspace surfaces before the runtime
+    // lifecycle starts, so no Pi owner can publish into an unbound shell.
+    const { registerPiAssistantWorkspaceSurfaces } =
+      await import("./modules/piAssistantWorkspaceRegistration");
+    registerPiAssistantWorkspaceSurfaces();
+    const { getPiRuntimeLifecycle, startPiRuntimeLifecycle } =
+      await import("./modules/piRuntimeLifecycle");
+    await startPiRuntimeLifecycle({
+      async restoreReservations() {
+        const owners = await import("./modules/piSkillRun");
+        return owners.restorePiSkillRunReservationsOnStartup();
+      },
+      async recover() {
+        const conversations = await import("./modules/piConversation");
+        await conversations.reconcilePiConversationsOnStartup();
+        if (getPiRuntimeLifecycle().closed) return;
+        const owners = await import("./modules/piSkillRun");
+        await owners.reconcilePiSkillRunsOnStartup();
+      },
+      async cleanup() {
+        const { cleanupRuntimePersistenceRetention } =
+          await import("./modules/runtimePersistenceGovernance");
+        await cleanupRuntimePersistenceRetention();
+      },
+    });
+    workflowSubmissionQueue.setPiAdmissionBarrier(
+      !getPiRuntimeLifecycle().skillAdmissionOpen,
+    );
+  }
   workflowSubmissionQueue.start();
   purgeSkillRunnerBackendReconcileState(LEGACY_REMOVED_SKILLRUNNER_BACKEND_ID);
   untrackSkillRunnerBackendHealth(LEGACY_REMOVED_SKILLRUNNER_BACKEND_ID);
@@ -1199,18 +1210,27 @@ async function runShutdownStepWithTimeout(
 }
 
 async function onShutdown(): Promise<void> {
-  pluginShutdownDeadline = Date.now() + PI_SHUTDOWN_BUDGET_MS;
-  getPiRuntimeLifecycle().closeAdmission();
-  workflowSubmissionQueue.setPiAdmissionBarrier(true);
-  const piOwnersStopping = Promise.all([
-    import("./modules/piConversation").then((module) =>
-      module.shutdownPiConversations(pluginShutdownDeadline),
-    ),
-    import("./modules/piSkillRun").then((module) =>
-      module.shutdownPiSkillRuns(pluginShutdownDeadline),
-    ),
-  ]).then(() => undefined);
-  void piOwnersStopping.catch(() => undefined);
+  const piLifecycle =
+    typeof __PI_RUNTIME_ENABLED__ === "undefined" || __PI_RUNTIME_ENABLED__
+      ? await import("./modules/piRuntimeLifecycle")
+      : undefined;
+  pluginShutdownDeadline = piLifecycle
+    ? Date.now() + piLifecycle.PI_SHUTDOWN_BUDGET_MS
+    : undefined;
+  let piOwnersStopping: Promise<void> | undefined;
+  if (typeof __PI_RUNTIME_ENABLED__ === "undefined" || __PI_RUNTIME_ENABLED__) {
+    piLifecycle!.getPiRuntimeLifecycle().closeAdmission();
+    workflowSubmissionQueue.setPiAdmissionBarrier(true);
+    piOwnersStopping = Promise.all([
+      import("./modules/piConversation").then((module) =>
+        module.shutdownPiConversations(pluginShutdownDeadline),
+      ),
+      import("./modules/piSkillRun").then((module) =>
+        module.shutdownPiSkillRuns(pluginShutdownDeadline),
+      ),
+    ]).then(() => undefined);
+    void piOwnersStopping.catch(() => undefined);
+  }
   await runShutdownStepWithTimeout("workflow-submission-queue-shutdown", () =>
     workflowSubmissionQueue.shutdown(),
   );
@@ -1238,18 +1258,20 @@ async function onShutdown(): Promise<void> {
     "acp-audit-drain",
     releaseAcpSkillRunAuditTrailWrites,
   );
-  await runShutdownStepWithTimeout(
-    "pi-owners-shutdown",
-    () => piOwnersStopping,
-    PI_SHUTDOWN_BUDGET_MS,
-  );
-  await runShutdownStepWithTimeout("pi-mcp-sources-shutdown", async () =>
-    (await import("./modules/piMcpRuntimeOwner")).shutdownPiMcpToolSources(),
-  );
-  await runShutdownStepWithTimeout("pi-audit-drain", async () => {
-    const audit = await import("./modules/piRuntimeAudit");
-    await audit.shutdownPiRuntimeAudit(pluginShutdownDeadline!);
-  });
+  if (typeof __PI_RUNTIME_ENABLED__ === "undefined" || __PI_RUNTIME_ENABLED__) {
+    await runShutdownStepWithTimeout(
+      "pi-owners-shutdown",
+      () => piOwnersStopping,
+      piLifecycle!.PI_SHUTDOWN_BUDGET_MS,
+    );
+    await runShutdownStepWithTimeout("pi-mcp-sources-shutdown", async () =>
+      (await import("./modules/piMcpRuntimeOwner")).shutdownPiMcpToolSources(),
+    );
+    await runShutdownStepWithTimeout("pi-audit-drain", async () => {
+      const audit = await import("./modules/piRuntimeAudit");
+      await audit.shutdownPiRuntimeAudit(pluginShutdownDeadline!);
+    });
+  }
   await runShutdownStepWithTimeout(
     "stdio-bridge-shutdown",
     shutdownWindowsStdioBridgeService,

@@ -72,7 +72,7 @@ export function resolveSystemE2EScaffoldRoot(
 }
 
 type SystemE2ERestartRequest = {
-  caseId: "HB-03" | "AC-05" | "SR-02";
+  caseId: "HB-03" | "AC-05" | "SR-02" | "PI-05" | "PI-05-safe";
   operationId: string;
   processId: number;
 };
@@ -81,6 +81,8 @@ const RESTART_OPERATION_IDS = {
   "HB-03": "system-e2e:hb:03",
   "AC-05": "system-e2e:ac:05",
   "SR-02": "system-e2e:sr:02",
+  "PI-05": "system-e2e:pi:05",
+  "PI-05-safe": "system-e2e:pi:05-safe",
 } as const;
 
 export function parseSystemE2ERestartRequest(
@@ -432,7 +434,12 @@ export function buildMockSkillRunnerEndpointEnvironment(
   return {
     ...env,
     ...(normalizedBaseUrl
-      ? { ZOTERO_TEST_SKILLRUNNER_ENDPOINT: normalizedBaseUrl }
+      ? {
+          ZOTERO_TEST_SKILLRUNNER_ENDPOINT: normalizedBaseUrl,
+          // The same deterministic mock process answers the OpenAI-compatible
+          // Pi path; the provider appends `/chat/completions` to this base.
+          ZOTERO_TEST_PI_ENDPOINT: `${normalizedBaseUrl.replace(/\/$/, "")}/v1`,
+        }
       : {}),
   };
 }
@@ -773,14 +780,23 @@ async function main() {
           throw new Error("system_e2e_restart_already_requested");
         }
         restartRequest = requestedRestart;
+        // A checkpoint file gates only the cases whose owning product writes
+        // one. PI-05 gates on a canonical production fact the test observes
+        // directly, so the runner kills as soon as the request arrives.
+        const checkpointFiles: Partial<
+          Record<SystemE2ERestartRequest["caseId"], string>
+        > = {
+          "HB-03": "canonical-mutation-admission.held",
+        };
+        const checkpointFile = checkpointFiles[requestedRestart.caseId];
         restartBoundary = (
-          requestedRestart.caseId === "HB-03"
+          checkpointFile
             ? waitForSystemE2EAdmissionCheckpoint({
                 checkpointPath: path.join(
                   resolveSystemE2EScaffoldRoot(testEnv),
                   "data",
                   "system-e2e",
-                  "canonical-mutation-admission.held",
+                  checkpointFile,
                 ),
                 operationId: requestedRestart.operationId,
               })

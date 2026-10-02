@@ -21,13 +21,18 @@ import type {
 let providers: Provider[] | null = null;
 
 function createDefaultProviders(): Provider[] {
-  return [
+  const providers: Provider[] = [
     new SkillRunnerProvider(),
     new AcpProvider(),
     new GenericHttpProvider(),
     new PassThroughProvider(),
-    new BuiltinPiProvider(),
   ];
+  // Compile-time Pi entry: the measurement-only control build excludes the
+  // Built-in Pi provider and its whole module graph.
+  if (typeof __PI_RUNTIME_ENABLED__ === "undefined" || __PI_RUNTIME_ENABLED__) {
+    providers.push(new BuiltinPiProvider());
+  }
+  return providers;
 }
 
 function getProviders() {

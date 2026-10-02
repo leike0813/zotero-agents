@@ -73,10 +73,13 @@ type PiSkillRunModule = {
 const COORDINATOR_UNAVAILABLE_CODE = "pi_skill_run_coordinator_unavailable";
 
 async function resolvePiSkillRunCoordinator(): Promise<PiSkillRunCoordinatorLike | null> {
-  const loaded = (await import("../../modules/piSkillRun").catch(
-    () => undefined,
-  )) as PiSkillRunModule | undefined;
-  return loaded?.getPiSkillRunCoordinator?.() ?? null;
+  if (typeof __PI_RUNTIME_ENABLED__ === "undefined" || __PI_RUNTIME_ENABLED__) {
+    const loaded = (await import("../../modules/piSkillRun").catch(
+      () => undefined,
+    )) as PiSkillRunModule | undefined;
+    return loaded?.getPiSkillRunCoordinator?.() ?? null;
+  }
+  return null;
 }
 
 export class BuiltinPiProvider implements Provider {

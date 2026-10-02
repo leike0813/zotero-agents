@@ -22,6 +22,14 @@ import {
   materializeCommittedSeed,
   readFixtureRegistry,
 } from "./scripts/system-e2e/fixture";
+import {
+  PI_RUNTIME_CAPACITY_DEFAULT,
+  PI_RUNTIME_CAPACITY_OPTIONS,
+} from "./src/modules/piRuntimeLifecycle";
+import {
+  PI_RUNTIME_BUILD_IDENTITY_ENTRY,
+  type PiRuntimeBuildIdentity,
+} from "./src/config/piRuntimeBuild";
 
 export const piProviderEnvGuardPlugin: Plugin = {
   name: "pi-provider-env-guard",
@@ -42,6 +50,78 @@ export const piProviderEnvGuardPlugin: Plugin = {
     }));
   },
 };
+
+/**
+ * Build-only switches for the Pi runtime. Production builds keep Pi enabled;
+ * the excluded control exists only so C20 can measure the same-source size
+ * delta (issue #26 Q240) and must never be published.
+ */
+export const PI_RUNTIME_BUILD_ENV = "ZOTERO_PI_RUNTIME";
+export const PI_RUNTIME_CAPACITY_ENV = "PI_RUNTIME_CAPACITY";
+export const PI_RUNTIME_ENABLED_DEFINE = "__PI_RUNTIME_ENABLED__";
+export const PI_RUNTIME_CAPACITY_DEFINE = "__PI_RUNTIME_CAPACITY__";
+export const PLUGIN_BUILD_DIST_ENV = "ZOTERO_PLUGIN_DIST";
+export const PLUGIN_BUILD_DIST_DEFAULT = ".scaffold/build";
+
+export type PiRuntimeBuildControl = {
+  /** `false` builds the measurement-only control without Pi entry/registration. */
+  enabled: boolean;
+  /** Active-turn capacity baked in for the accepted 4/6/8/12 exploration. */
+  capacity: number;
+};
+
+export function resolvePiRuntimeBuildControl(
+  env: NodeJS.ProcessEnv = process.env,
+): PiRuntimeBuildControl {
+  const requested = String(env[PI_RUNTIME_BUILD_ENV] ?? "")
+    .trim()
+    .toLowerCase();
+  const parsedCapacity = Number(env[PI_RUNTIME_CAPACITY_ENV]);
+  return {
+    enabled: !["0", "false", "no", "off"].includes(requested),
+    capacity: (PI_RUNTIME_CAPACITY_OPTIONS as readonly number[]).includes(
+      parsedCapacity,
+    )
+      ? parsedCapacity
+      : PI_RUNTIME_CAPACITY_DEFAULT,
+  };
+}
+
+export const PI_RUNTIME_BUILD = resolvePiRuntimeBuildControl();
+
+export const PLUGIN_BUILD_DIST =
+  String(process.env[PLUGIN_BUILD_DIST_ENV] || "").trim() ||
+  PLUGIN_BUILD_DIST_DEFAULT;
+
+/** Resolves a bundle path inside the resolved build directory. */
+function distFile(relativePath: string) {
+  return path.join(PLUGIN_BUILD_DIST, relativePath);
+}
+
+/** Shapes the two compile-time Pi defines every plugin bundle shares. */
+export function piRuntimeBuildDefines(
+  control: PiRuntimeBuildControl = PI_RUNTIME_BUILD,
+): Record<string, string> {
+  return {
+    [PI_RUNTIME_ENABLED_DEFINE]: String(control.enabled),
+    [PI_RUNTIME_CAPACITY_DEFINE]: String(control.capacity),
+  };
+}
+
+/**
+ * A Pi-excluded control is measurement-only evidence. Refuse to pack it at the
+ * canonical publish location so a control artifact can never be shipped.
+ */
+export function assertPiRuntimeBuildPublishable(
+  dist: string = PLUGIN_BUILD_DIST,
+) {
+  if (PI_RUNTIME_BUILD.enabled) return;
+  if (path.resolve(dist) !== path.resolve(PLUGIN_BUILD_DIST_DEFAULT)) return;
+  throw new Error(
+    "pi_runtime_control_build_is_measurement_only: set " +
+      `${PLUGIN_BUILD_DIST_ENV} for the control build; never publish it`,
+  );
+}
 
 export type TestDomain = "all" | "core" | "ui" | "workflow" | "e2e";
 type TestMode = "lite" | "full";
@@ -220,12 +300,16 @@ const RELEASE_REPO = "leike0813/zotero-agents";
 const RELEASE_UPLOAD_REPO = process.env.GITHUB_REPOSITORY || RELEASE_REPO;
 
 async function resolveGitBranch(): Promise<string> {
+  return execGit("git rev-parse --abbrev-ref HEAD");
+}
+
+async function execGit(command: string): Promise<string> {
   try {
     // @ts-expect-error -- dynamic import for ESM/CJS compatibility
     const { createRequire } = await import("node:module");
     // @ts-expect-error -- createRequire result typed as any
     const { execSync } = createRequire(import.meta.url)("node:child_process");
-    return execSync("git rev-parse --abbrev-ref HEAD", {
+    return execSync(command, {
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
       timeout: 5000,
@@ -235,8 +319,59 @@ async function resolveGitBranch(): Promise<string> {
   }
 }
 
+export const PI_RUNTIME_BUILD_IDENTITY_PATH = path.join(
+  "addon",
+  PI_RUNTIME_BUILD_IDENTITY_ENTRY,
+);
+
+export async function writePiRuntimeBuildIdentity(
+  dist: string,
+): Promise<PiRuntimeBuildIdentity> {
+  const commit = await execGit("git rev-parse HEAD");
+  const clean = !(await execGit("git status --porcelain"));
+  const identity: PiRuntimeBuildIdentity = {
+    schema: "zotero-agents.pi-runtime-build.v1",
+    enabled: PI_RUNTIME_BUILD.enabled,
+    capacity: PI_RUNTIME_BUILD.capacity,
+    measurementOnly: !PI_RUNTIME_BUILD.enabled,
+    debug: DEBUG_MODE,
+    buildTime: new Date().toISOString(),
+    source: { commit, clean },
+  };
+  await fs.mkdir(
+    path.dirname(path.join(dist, PI_RUNTIME_BUILD_IDENTITY_PATH)),
+    {
+      recursive: true,
+    },
+  );
+  await fs.writeFile(
+    path.join(dist, PI_RUNTIME_BUILD_IDENTITY_PATH),
+    `${JSON.stringify(identity, null, 2)}\n`,
+  );
+  return identity;
+}
+
 const branch = await resolveGitBranch();
-const DEBUG_MODE = branch === "dev" || branch.startsWith("dev-");
+export const DEBUG_MODE_ENV = "ZOTERO_BUILD_DEBUG";
+
+/**
+ * Development branches build in debug mode; release builds on other branches
+ * do not. `ZOTERO_BUILD_DEBUG` pins the formal setting when a measurement runs
+ * from a development branch.
+ */
+export function resolveDebugMode(
+  currentBranch: string = branch,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const requested = String(env[DEBUG_MODE_ENV] ?? "")
+    .trim()
+    .toLowerCase();
+  if (["1", "true", "yes", "on"].includes(requested)) return true;
+  if (["0", "false", "no", "off"].includes(requested)) return false;
+  return currentBranch === "dev" || currentBranch.startsWith("dev-");
+}
+
+const DEBUG_MODE = resolveDebugMode();
 
 export async function stageZoteroE2EFixture(
   options: {
@@ -320,7 +455,7 @@ export default defineConfig({
   source: ["src", "addon"],
   // 关闭开发模式下的热重载，避免大文件变更导致频繁 rebuild + reload
   watchIgnore: ["**/*"],
-  dist: ".scaffold/build",
+  dist: PLUGIN_BUILD_DIST,
   name: pkg.config.addonName,
   id: pkg.config.addonID,
   namespace: pkg.config.addonRef,
@@ -340,7 +475,9 @@ export default defineConfig({
 
   build: {
     hooks: {
+      "build:bundle": (ctx) => writePiRuntimeBuildIdentity(ctx.dist),
       "build:pack": (ctx) => {
+        assertPiRuntimeBuildPublishable(ctx.dist);
         assertPluginHostBridgeAssets({
           xpiPath: path.join(ctx.dist, `${ctx.xpiName}.xpi`),
           hostBridgeReleasePath: path.join(
@@ -377,6 +514,7 @@ export default defineConfig({
         define: {
           __env__: `"${process.env.NODE_ENV}"`,
           __debug_mode__: String(DEBUG_MODE),
+          ...piRuntimeBuildDefines(),
           __acp_runtime_performance_profiler_enabled__: String(
             ACP_RUNTIME_PERFORMANCE_PROFILER_ENABLED,
           ),
@@ -403,7 +541,7 @@ export default defineConfig({
           piProviderEnvGuardPlugin,
         ],
         target: "firefox115",
-        outfile: `.scaffold/build/addon/content/scripts/${pkg.config.addonRef}.js`,
+        outfile: distFile(`addon/content/scripts/${pkg.config.addonRef}.js`),
       },
       {
         entryPoints: ["src/synthesisWorkbenchApp.ts"],
@@ -411,27 +549,29 @@ export default defineConfig({
         jsxImportSource: "preact",
         define: {
           __debug_mode__: String(DEBUG_MODE),
+          ...piRuntimeBuildDefines(),
         },
         bundle: true,
         minifySyntax: true,
         plugins: [runtimeDiagnosticsSideEffectsPlugin],
         target: "firefox115",
-        outfile: ".scaffold/build/addon/content/synthesis/app.bundle.js",
+        outfile: distFile("addon/content/synthesis/app.bundle.js"),
       },
       {
         entryPoints: ["src/synthesis/standaloneTopicApp.ts"],
+        define: piRuntimeBuildDefines(),
         bundle: true,
         minifySyntax: true,
         jsx: "automatic",
         jsxImportSource: "preact",
         target: "firefox115",
-        outfile:
-          ".scaffold/build/addon/content/synthesis/topic-export.bundle.js",
+        outfile: distFile("addon/content/synthesis/topic-export.bundle.js"),
       },
       {
         entryPoints: ["src/dashboard/dashboardApp.ts"],
         define: {
           __debug_mode__: String(DEBUG_MODE),
+          ...piRuntimeBuildDefines(),
           __synthesis_sidecar_diagnostics_enabled__: String(
             SYNTHESIS_SIDECAR_DIAGNOSTICS_ENABLED,
           ),
@@ -442,12 +582,13 @@ export default defineConfig({
         jsxImportSource: "preact",
         plugins: [dashboardSynthesisSidecarRegionElisionPlugin],
         target: "firefox115",
-        outfile: ".scaffold/build/addon/content/dashboard/app.js",
+        outfile: distFile("addon/content/dashboard/app.js"),
       },
       {
         entryPoints: ["src/dashboard/workflowSettingsDialogApp.ts"],
         define: {
           __debug_mode__: String(DEBUG_MODE),
+          ...piRuntimeBuildDefines(),
           __synthesis_sidecar_diagnostics_enabled__: String(
             SYNTHESIS_SIDECAR_DIAGNOSTICS_ENABLED,
           ),
@@ -457,47 +598,53 @@ export default defineConfig({
         jsx: "automatic",
         jsxImportSource: "preact",
         target: "firefox115",
-        outfile:
-          ".scaffold/build/addon/content/dashboard/workflow-settings-dialog.js",
+        outfile: distFile(
+          "addon/content/dashboard/workflow-settings-dialog.js",
+        ),
       },
       {
         entryPoints: ["src/dashboard/backendManagerApp.ts"],
+        define: piRuntimeBuildDefines(),
         bundle: true,
         minifySyntax: true,
         jsx: "automatic",
         jsxImportSource: "preact",
         target: "firefox115",
-        outfile: ".scaffold/build/addon/content/dashboard/backend-manager.js",
+        outfile: distFile("addon/content/dashboard/backend-manager.js"),
       },
       {
         entryPoints: ["src/workspaceApp.ts"],
+        define: piRuntimeBuildDefines(),
         bundle: true,
         target: "firefox115",
-        outfile: ".scaffold/build/addon/content/workspace/app.bundle.js",
+        outfile: distFile("addon/content/workspace/app.bundle.js"),
       },
       {
         entryPoints: ["src/sidebar/acpChildApp.js"],
+        define: piRuntimeBuildDefines(),
         bundle: true,
         jsx: "automatic",
         jsxImportSource: "preact",
         target: "firefox115",
-        outfile: ".scaffold/build/addon/content/sidebar/acp-child.bundle.js",
+        outfile: distFile("addon/content/sidebar/acp-child.bundle.js"),
       },
       {
         entryPoints: ["src/sidebar/assistantWorkspaceApp.js"],
+        define: piRuntimeBuildDefines(),
         bundle: true,
         jsx: "automatic",
         jsxImportSource: "preact",
         target: "firefox115",
-        outfile:
-          ".scaffold/build/addon/content/sidebar/assistant-workspace.bundle.js",
+        outfile: distFile(
+          "addon/content/sidebar/assistant-workspace.bundle.js",
+        ),
       },
       {
         entryPoints: ["src/workers/runtimeFileRangeWorker.ts"],
+        define: piRuntimeBuildDefines(),
         bundle: true,
         target: "firefox115",
-        outfile:
-          ".scaffold/build/addon/content/workers/runtime-file-range-worker.js",
+        outfile: distFile("addon/content/workers/runtime-file-range-worker.js"),
       },
     ],
   },

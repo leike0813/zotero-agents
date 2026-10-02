@@ -420,6 +420,26 @@ function createPageRequest(owner, cursor, limit) {
       requestId: text(owner.requestId),
     };
   } else if (
+    owner.source === "pi-conversations" &&
+    text(owner.conversationId) &&
+    text(owner.ownerKey) === text(owner.conversationId)
+  ) {
+    canonicalOwner = {
+      source: "pi-conversations",
+      ownerKey: text(owner.ownerKey),
+      conversationId: text(owner.conversationId),
+    };
+  } else if (
+    owner.source === "pi-skill-runs" &&
+    text(owner.requestId) &&
+    text(owner.ownerKey) === text(owner.requestId)
+  ) {
+    canonicalOwner = {
+      source: "pi-skill-runs",
+      ownerKey: text(owner.ownerKey),
+      requestId: text(owner.requestId),
+    };
+  } else if (
     owner.source === "skillrunner" &&
     text(owner.runKey) &&
     text(owner.ownerKey) === (text(owner.requestId) || text(owner.runKey))

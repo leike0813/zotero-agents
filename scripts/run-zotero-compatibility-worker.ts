@@ -28,18 +28,13 @@ export function resolveCompatibilityWorkerEntries(
   configuredEntries: readonly unknown[],
   domain = "all",
   installCandidateXpi = false,
-  lane = "",
 ) {
   return mode === "xpi-smoke"
     ? ["tests/zotero/compatibility/xpi"]
     : domain === "e2e"
       ? [
           ...(installCandidateXpi ? ["tests/zotero/compatibility/xpi"] : []),
-          ...configuredEntries.map((entry) =>
-            lane === "acceptance" && entry === "tests/zotero/e2e/full"
-              ? "tests/zotero/e2e/acceptance"
-              : String(entry),
-          ),
+          ...configuredEntries.map(String),
         ]
       : [...configuredEntries.map(String), "tests/zotero/compatibility/probe"];
 }
@@ -47,7 +42,6 @@ export function resolveCompatibilityWorkerEntries(
 export async function materializeCompatibilityTestWorkspace(
   projectRoot: string,
   runRoot: string,
-  lane = "",
 ) {
   await fs.mkdir(path.join(runRoot, "tests"), { recursive: true });
   await fs.cp(
@@ -55,30 +49,10 @@ export async function materializeCompatibilityTestWorkspace(
     path.join(runRoot, "tests/zotero"),
     { recursive: true },
   );
-  if (lane === "acceptance") {
-    const full = path.join(runRoot, "tests/zotero/e2e/full");
-    const selected = (await fs.readdir(full)).filter((name) =>
-      /^30[0-2]-.*\.zotero\.test\.ts$/.test(name),
-    );
-    if (
-      selected.length !== 3 ||
-      ["300-", "301-", "302-"].some(
-        (prefix) => !selected.some((name) => name.startsWith(prefix)),
-      )
-    ) {
-      throw new Error("acceptance_phase1_test_membership_invalid");
-    }
-    const acceptance = path.join(runRoot, "tests/zotero/e2e/acceptance");
-    await fs.mkdir(acceptance, { recursive: true });
-    await Promise.all(
-      selected.map((name) =>
-        fs.copyFile(path.join(full, name), path.join(acceptance, name)),
-      ),
-    );
-  }
   for (const relative of [
     "tests/fixtures",
     "tests/helpers",
+    "tests/runtime",
     "src",
     "scripts",
     "packages",
@@ -112,8 +86,7 @@ async function main() {
     path.join(projectRoot, "workflows_builtin"),
     path.join(runRoot, "workflows_builtin"),
   );
-  const lane = String(process.env.ZOTERO_E2E_TRIGGER_LANE || "").trim();
-  await materializeCompatibilityTestWorkspace(projectRoot, runRoot, lane);
+  await materializeCompatibilityTestWorkspace(projectRoot, runRoot);
   try {
     await fs.access(path.join(projectRoot, ".scaffold", "cache"));
     await createDirectoryLink(
@@ -138,7 +111,6 @@ async function main() {
     configuredEntries,
     domain,
     process.env.ZOTERO_COMPAT_INSTALL_CANDIDATE_XPI === "1",
-    lane,
   );
   context.test.watch = false;
   context.test.headless = resolveZoteroTestDisplayMode().needsXvfb;

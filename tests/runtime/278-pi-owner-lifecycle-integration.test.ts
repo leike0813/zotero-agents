@@ -167,6 +167,58 @@ describe("Pi owner lifecycle integration", function () {
     await coordinator.dispose();
   });
 
+  for (const mode of ["auto", "interactive"] as const) {
+    it(`keeps ${mode} Skill Run admission on its lane when background capacity is full`, async function () {
+      const lifecycle = createPiRuntimeLifecycle({ capacity: 4 });
+      const held = await Promise.all(
+        Array.from({ length: 2 }, (_, index) =>
+          lifecycle.acquire({
+            owner: { kind: "skill_run", ownerId: `held-${index}` },
+            turnId: `held-${index}`,
+            lane: "background",
+          }),
+        ),
+      );
+      let dispatched = 0;
+      let preparationFinished!: () => void;
+      const prepared = new Promise<void>((resolve) => {
+        preparationFinished = resolve;
+      });
+      const coordinator = createPiSkillRunCoordinator({
+        root,
+        lifecycle,
+        prepare: async (args) => {
+          const value = await prepareFor(root)(args);
+          preparationFinished();
+          return { ...value, executionMode: mode };
+        },
+        resolveModel: async () => model,
+        definitions: async () => [],
+        execution: () => {
+          dispatched++;
+          return createPiTextProviderSource({ steps: [{ text: "done" }] });
+        },
+      });
+      const args = skillRunArgs();
+      (args.request as { runtime_options?: unknown }).runtime_options = {
+        execution_mode: mode,
+      };
+      const pending = coordinator.execute(args);
+      try {
+        await prepared;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        assert.equal(dispatched, mode === "auto" ? 0 : 1);
+        assert.isAtMost(lifecycle.activeCount, 4);
+      } finally {
+        held.forEach((lease) => lease.release());
+        await pending;
+        await coordinator.dispose();
+        lifecycle.closeAdmission();
+      }
+      assert.equal(dispatched, 1, "queued work proceeds when capacity settles");
+    });
+  }
+
   it("persists a cumulative Skill Run budget across a safe restart", async function () {
     const coordinator = createPiSkillRunCoordinator({
       root,
@@ -575,8 +627,12 @@ describe("Pi owner lifecycle integration", function () {
     return found[0].ownerId;
   }
 
-  for (const continuation of ["startup", "explicit"] as const) {
-    it(`continues a safely checkpointed Skill Run on its original request (${continuation})`, async function () {
+  for (const { continuation, mode } of [
+    { continuation: "startup", mode: "auto" },
+    { continuation: "explicit", mode: "auto" },
+    { continuation: "startup", mode: "interactive" },
+  ] as const) {
+    it(`continues a safely checkpointed Skill Run on its original request (${continuation}, ${mode})`, async function () {
       // A real run drives until it suspends, so its Prepared Skill and workspace
       // are genuine. Startup then sees exactly the shape it may continue, and
       // the recorded remainder has to survive the restart.
@@ -587,7 +643,7 @@ describe("Pi owner lifecycle integration", function () {
       let first = true;
       const coordinator = createPiSkillRunCoordinator({
         root,
-        prepare: prepareFor(root),
+        prepare: prepareFor(root, mode),
         resolveModel: async () => model,
         definitions: async () => [],
         execution: () => {
@@ -611,7 +667,11 @@ describe("Pi owner lifecycle integration", function () {
           };
         },
       });
-      const running = coordinator.execute(skillRunArgs());
+      const args = skillRunArgs();
+      (args.request as { runtime_options?: unknown }).runtime_options = {
+        execution_mode: mode,
+      };
+      const running = coordinator.execute(args);
       await started;
       const requestId = await soleSkillRunOwnerId(root);
       await coordinator.interrupt(requestId);
@@ -685,15 +745,34 @@ describe("Pi owner lifecycle integration", function () {
         now: () => "2026-10-01T00:00:00.000Z",
       });
       queued.start();
+      const lifecycle = createPiRuntimeLifecycle({ capacity: 4 });
+      let resumedEntered = false;
       const withSlot = createPiSkillRunCoordinator({
         root,
         queue: queued,
+        lifecycle,
         prepare: prepareFor(root),
         resolveModel: async () => model,
         definitions: async () => [],
         execution: () => {
           dispatched++;
-          return createPiTextProviderSource({ steps: [{ text: "resumed" }] });
+          const source = createPiTextProviderSource({
+            steps: [{ text: "resumed" }],
+          });
+          return mode === "interactive" && dispatched === 1
+            ? {
+                model: source.model,
+                source: async (input) => {
+                  resumedEntered = true;
+                  await new Promise<void>((resolve) =>
+                    input.signal.addEventListener("abort", () => resolve(), {
+                      once: true,
+                    }),
+                  );
+                  return source.source(input);
+                },
+              }
+            : source;
         },
       });
       assert.isTrue(
@@ -733,6 +812,37 @@ describe("Pi owner lifecycle integration", function () {
       for (let index = 0; index < 40 && dispatched === 0; index++)
         await new Promise((resolve) => setTimeout(resolve, 5));
       assert.equal(dispatched, 1, "the same request continues exactly once");
+      if (mode === "interactive") {
+        for (let index = 0; index < 100 && !resumedEntered; index++)
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        assert.isTrue(resumedEntered);
+        await withSlot.interrupt(requestId);
+        for (let index = 0; index < 40 && lifecycle.activeCount > 0; index++)
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        assert.equal(lifecycle.activeCount, 0);
+        const held = await Promise.all(
+          Array.from({ length: 2 }, (_, index) =>
+            lifecycle.acquire({
+              owner: { kind: "skill_run", ownerId: `held-${index}` },
+              turnId: `held-${index}`,
+              lane: "background",
+            }),
+          ),
+        );
+        const reply = withSlot.reply(requestId, "Continue");
+        try {
+          for (let index = 0; index < 40 && dispatched < 2; index++)
+            await new Promise((resolve) => setTimeout(resolve, 5));
+          assert.equal(
+            dispatched,
+            2,
+            "user continuation uses foreground reserve",
+          );
+        } finally {
+          held.forEach((lease) => lease.release());
+          await reply;
+        }
+      }
       const history = await inspectPiOwner(
         { kind: "skill_run", ownerId: requestId },
         root,
@@ -790,6 +900,32 @@ describe("Pi owner lifecycle integration", function () {
       "valid",
       "the owner tree survives its hold",
     );
+    // Clearing the hold lets the same deletion finish: the owner must then be
+    // evicted from the in-memory projection and refuse further reads.
+    await appendPiOwnerFact(
+      ref,
+      {
+        kind: "skill_run_apply_receipt",
+        payload: { applyKey: "pi-skill-apply:held-run", status: "succeeded" },
+      },
+      root,
+    );
+    await appendPiOwnerFact(
+      ref,
+      { kind: "skill_run_terminal_ack", payload: { ackId: "held-run-ack" } },
+      root,
+    );
+    const deleted = await coordinator.deleteRun("held-run");
+    assert.equal(deleted.status, "deleted");
+    assert.isFalse(
+      (await coordinator.list()).some((run) => run.requestId === "held-run"),
+      "a deleted owner leaves the in-memory projection",
+    );
+    let readable = true;
+    await coordinator.readModel("held-run").catch(() => {
+      readable = false;
+    });
+    assert.isFalse(readable, "a deleted owner must not be readable");
     await coordinator.dispose();
   });
 
@@ -1072,7 +1208,7 @@ function skillRunArgs(): ProviderExecuteArgs {
   } as ProviderExecuteArgs;
 }
 
-function prepareFor(root: string) {
+function prepareFor(root: string, mode: "auto" | "interactive" = "auto") {
   return async (args: ProviderExecuteArgs & { requestId: string }) => {
     const skillDir = path.join(root, "skill");
     await fs.mkdir(skillDir, { recursive: true });
@@ -1088,7 +1224,7 @@ function prepareFor(root: string) {
       request: args.request as { skill_id: string },
       workspace,
       backendId: "builtin-pi",
-      executionMode: "auto",
+      executionMode: mode,
       materialization: { primarySkillDir: skillDir },
       skillEntry: {
         skillId: "deterministic",

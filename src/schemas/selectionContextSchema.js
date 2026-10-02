@@ -1,0 +1,97 @@
+const selectionContextSchema = {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    $id: "selection-context.schema.json",
+    title: "SelectionContext",
+    type: "object",
+    required: ["items", "sampledAt"],
+    properties: {
+        items: {
+            type: "array",
+            items: {
+                type: "object",
+                required: ["kind", "ref", "itemType"],
+                properties: {
+                    kind: {
+                        enum: ["parent", "child", "attachment", "note"],
+                    },
+                    ref: {
+                        $ref: "#/$defs/PortableItemRef",
+                    },
+                    parentRef: {
+                        $ref: "#/$defs/PortableItemRef",
+                    },
+                    itemType: {
+                        type: "string",
+                    },
+                    title: {
+                        type: "string",
+                    },
+                    filename: {
+                        type: ["string", "null"],
+                    },
+                    contentType: {
+                        type: ["string", "null"],
+                    },
+                    createdAt: {
+                        type: "string",
+                    },
+                    fileState: {
+                        enum: ["available", "missing", "not_applicable"],
+                    },
+                },
+                additionalProperties: false,
+            },
+        },
+        sampledAt: {
+            type: "string",
+            format: "date-time",
+        },
+        exportCandidates: {
+            type: "array",
+            items: {
+                $ref: "#/$defs/GeneratedNoteCandidate",
+            },
+        },
+        digestRepresentativeImageTarget: {
+            $ref: "#/$defs/GeneratedNoteCandidate",
+        },
+    },
+    additionalProperties: false,
+    $defs: {
+        PortableItemRef: {
+            type: "object",
+            required: ["libraryId", "key"],
+            properties: {
+                libraryId: {
+                    type: "integer",
+                    minimum: 1,
+                },
+                key: {
+                    type: "string",
+                    minLength: 1,
+                },
+            },
+            additionalProperties: false,
+        },
+        GeneratedNoteCandidate: {
+            type: "object",
+            required: ["ref", "noteKind"],
+            properties: {
+                ref: {
+                    $ref: "#/$defs/PortableItemRef",
+                },
+                parentRef: {
+                    $ref: "#/$defs/PortableItemRef",
+                },
+                noteKind: {
+                    type: "string",
+                },
+                parentTitle: {
+                    type: "string",
+                },
+            },
+            additionalProperties: false,
+        },
+    },
+};
+export default selectionContextSchema;

@@ -1,0 +1,2872 @@
+import { ACP_BACKEND_TYPE, DEFAULT_BACKEND_ID, DEFAULT_BACKEND_TYPE, DEFAULT_SKILLRUNNER_ENDPOINT, GENERIC_HTTP_BACKEND_TYPE, } from "../../../config/defaults";
+import { config } from "../../../../package.json";
+import { refreshWorkflowMenus } from "../ui/workflowMenu";
+import { getPref, setPref } from "../../../utils/prefs";
+import { createBackendsPrefsDocument, loadBackendsRegistry, syncBackendReferenceState, } from "../../../backends/registry";
+import { isWindowAlive } from "../../../utils/window";
+import { getString } from "../../../utils/locale";
+import { resolveAddonRef } from "../../../utils/runtimeBridge";
+import { resolveNativeAbortControllerConstructor } from "../../../utils/wait";
+import { buildSkillRunnerManagementUiUrl } from "../../skillRunner/surface/skillRunnerManagementDialog";
+import { openZoteroSkillsWorkspaceTab } from "../../workspaceTab";
+import { refreshSkillRunnerModelCacheForBackend } from "../../../providers/skillrunner/modelCache";
+import { emitVerboseConsole } from "../../diagnosticVerbosity";
+import { generateBackendInternalId, isManagedLocalBackendId, normalizeBackendDisplayName, } from "../../../backends/identity";
+import { MANAGED_LOCAL_BACKEND_ID } from "../../../backends/identity";
+import { stopSessionSync } from "../../skillRunner/run/skillRunnerSessionSyncManager";
+import { getSkillRunnerBackendHealthState, markSkillRunnerBackendHealthFailure, markSkillRunnerBackendHealthSuccess, syncSkillRunnerBackendHealthForConfiguredBackends, untrackSkillRunnerBackendHealth, } from "../../skillRunner/connection/skillRunnerBackendHealthRegistry";
+import { scheduleSkillRunnerBackendReachabilityProbe } from "../../skillRunner/connection/skillRunnerBackendReachabilityCoordinator";
+import { purgeSkillRunnerBackendReconcileState } from "../../skillRunner/run/skillRunnerTaskReconciler";
+import { pruneAcpChatSessionRuntimesForBackends } from "../../acp/chat/acpSessionManager";
+import { computeAcpBackendConfigFingerprint } from "../../../backends/identity";
+import { probeAcpBackendRuntimeOptions } from "../../acp/transport/acpBackendProbe";
+import { createAcpBackendFromPresetOptions, ensureManagedAcpBackendEnvironmentDirectories, findAcpBackendPreset, getAcpBackendIsolatedEnvironmentRoot, listAcpBackendPresets, } from "../../acp/chat/acpBackendPresets";
+import { createGenericHttpBackendDraftFromPreset, findGenericHttpBackendPreset, listGenericHttpBackendPresets, } from "./genericHttpBackendPresets";
+import { getRuntimeCommandRegistrySnapshot } from "../../../platform/command";
+import { openRuntimeFilePicker } from "../../../platform/filePicker";
+let backendManagerPiAccess;
+export function setBackendManagerPiAccess(access) {
+    backendManagerPiAccess = access;
+}
+function requireBackendManagerPi() {
+    if (!backendManagerPiAccess) {
+        throw new Error("pi_backend_manager_access_unavailable");
+    }
+    return backendManagerPiAccess;
+}
+if (typeof __PI_RUNTIME_ENABLED__ === "undefined" || __PI_RUNTIME_ENABLED__) {
+    void import("./backendManagerPiAccess").then((module) => setBackendManagerPiAccess(module));
+}
+const BACKENDS_CONFIG_PREF_KEY = "backendsConfigJson";
+const PROVIDER_SECTIONS = [
+    {
+        type: ACP_BACKEND_TYPE,
+        labelKey: "backend-manager-provider-acp",
+    },
+    {
+        type: DEFAULT_BACKEND_TYPE,
+        labelKey: "backend-manager-provider-skillrunner",
+    },
+    {
+        type: GENERIC_HTTP_BACKEND_TYPE,
+        labelKey: "backend-manager-provider-generic-http",
+    },
+];
+const HTML_NS = "http://www.w3.org/1999/xhtml";
+let activeBackendManagerFrameWindow = null;
+let activePiCatalog = null;
+let activePiCatalogError = "";
+function createHtmlElement(doc, tag) {
+    return doc.createElementNS(HTML_NS, tag);
+}
+function applySelectVisualStyle(control, width) {
+    if (width) {
+        control.style.width = width;
+    }
+    control.style.boxSizing = "border-box";
+    control.style.position = "relative";
+    control.style.display = "inline-block";
+}
+function getChoiceTrigger(control) {
+    return control.querySelector("[data-zs-choice-trigger='1']");
+}
+function getChoiceList(control) {
+    return control.querySelector("[data-zs-choice-list='1']");
+}
+function closeChoiceList(control) {
+    const list = getChoiceList(control);
+    if (list) {
+        list.hidden = true;
+        list.style.display = "none";
+    }
+}
+function closeAllChoiceLists(doc) {
+    const lists = Array.from(doc.querySelectorAll("[data-zs-choice-list='1']"));
+    for (const list of lists) {
+        list.hidden = true;
+        list.style.display = "none";
+    }
+}
+function closeAllAcpPresetMenus(doc) {
+    const menus = Array.from(doc.querySelectorAll("[data-zs-acp-preset-menu='1']"));
+    for (const menu of menus) {
+        menu.hidden = true;
+        menu.style.display = "none";
+    }
+}
+function dispatchChoiceChange(control) {
+    const doc = control.ownerDocument;
+    if (!doc) {
+        return;
+    }
+    const ev = doc.createEvent("Event");
+    ev.initEvent("change", true, true);
+    control.dispatchEvent(ev);
+}
+function setChoiceSelection(args) {
+    const { control, value, label, dispatchChange } = args;
+    control.setAttribute("data-zs-choice-value", value);
+    control.value = value;
+    const triggerLabel = control.querySelector("[data-zs-choice-trigger-label='1']");
+    if (triggerLabel) {
+        triggerLabel.textContent = label || getString("choice-empty");
+    }
+    if (dispatchChange) {
+        dispatchChoiceChange(control);
+    }
+}
+function getElementValue(control) {
+    if (control.getAttribute("data-zs-choice-control") === "1") {
+        return String(control.getAttribute("data-zs-choice-value") || "").trim();
+    }
+    if (control.type === "checkbox") {
+        return control.checked ? "true" : "false";
+    }
+    return String(control.value || "").trim();
+}
+function setChoiceControlOptions(args) {
+    const { control, options, selectedValue } = args;
+    const list = getChoiceList(control);
+    if (!list) {
+        return;
+    }
+    while (list.firstChild) {
+        list.removeChild(list.firstChild);
+    }
+    for (const option of options) {
+        const node = createHtmlElement(control.ownerDocument, "button");
+        node.type = "button";
+        node.textContent = option.text;
+        node.style.width = "100%";
+        node.style.textAlign = "left";
+        node.style.padding = "4px 6px";
+        node.style.border = "none";
+        node.style.background = "transparent";
+        node.style.cursor = "pointer";
+        node.style.color = "#111";
+        node.addEventListener("mouseenter", () => {
+            node.style.backgroundColor = "#f1f3f5";
+        });
+        node.addEventListener("mouseleave", () => {
+            node.style.backgroundColor = "transparent";
+        });
+        const pick = (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setChoiceSelection({
+                control,
+                value: option.value,
+                label: option.text,
+                dispatchChange: true,
+            });
+            closeAllChoiceLists(control.ownerDocument);
+        };
+        node.addEventListener("mousedown", pick);
+        node.addEventListener("click", pick);
+        node.addEventListener("command", pick);
+        list.appendChild(node);
+    }
+    const finalValue = options.find((entry) => entry.value === selectedValue)?.value ||
+        (options[0]?.value ?? "");
+    const finalLabel = options.find((entry) => entry.value === finalValue)?.text ||
+        (options[0]?.text ?? "(empty)");
+    setChoiceSelection({
+        control,
+        value: finalValue,
+        label: finalLabel,
+    });
+}
+function createChoiceControl(args) {
+    const { doc, options, selectedValue } = args;
+    const select = createHtmlElement(doc, "div");
+    select.setAttribute("data-zs-choice-control", "1");
+    applySelectVisualStyle(select);
+    const trigger = createHtmlElement(doc, "button");
+    trigger.type = "button";
+    trigger.setAttribute("data-zs-choice-trigger", "1");
+    trigger.style.width = "100%";
+    trigger.style.boxSizing = "border-box";
+    trigger.style.padding = "2px 24px 2px 6px";
+    trigger.style.border = "1px solid #8f8f9d";
+    trigger.style.borderRadius = "4px";
+    trigger.style.backgroundColor = "#fff";
+    trigger.style.color = "#111";
+    trigger.style.textAlign = "left";
+    trigger.style.cursor = "pointer";
+    trigger.style.position = "relative";
+    select.appendChild(trigger);
+    const triggerLabel = createHtmlElement(doc, "span");
+    triggerLabel.setAttribute("data-zs-choice-trigger-label", "1");
+    trigger.appendChild(triggerLabel);
+    const arrow = createHtmlElement(doc, "span");
+    arrow.textContent = "▾";
+    arrow.style.position = "absolute";
+    arrow.style.right = "8px";
+    arrow.style.top = "50%";
+    arrow.style.transform = "translateY(-50%)";
+    arrow.style.pointerEvents = "none";
+    trigger.appendChild(arrow);
+    const list = createHtmlElement(doc, "div");
+    list.setAttribute("data-zs-choice-list", "1");
+    list.style.display = "none";
+    list.hidden = true;
+    list.style.position = "absolute";
+    list.style.left = "0";
+    list.style.right = "0";
+    list.style.top = "calc(100% + 2px)";
+    list.style.zIndex = "99999";
+    list.style.border = "1px solid #8f8f9d";
+    list.style.borderRadius = "4px";
+    list.style.backgroundColor = "#fff";
+    list.style.boxShadow = "0 2px 8px rgba(0,0,0,0.15)";
+    list.style.maxHeight = "260px";
+    list.style.overflowY = "auto";
+    select.appendChild(list);
+    trigger.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const shouldOpen = list.style.display === "none";
+        closeAllChoiceLists(doc);
+        list.hidden = !shouldOpen;
+        list.style.display = shouldOpen ? "block" : "none";
+    });
+    doc.addEventListener("click", (event) => {
+        const target = event.target;
+        if (!target || !select.contains(target)) {
+            closeAllChoiceLists(doc);
+        }
+    });
+    setChoiceControlOptions({
+        control: select,
+        options,
+        selectedValue,
+    });
+    return select;
+}
+function createAcpPresetMenu(args) {
+    const { doc } = args;
+    const wrapper = createHtmlElement(doc, "div");
+    wrapper.style.position = "relative";
+    wrapper.style.display = "inline-block";
+    const button = createHtmlElement(doc, "button");
+    button.type = "button";
+    button.textContent = getString("backend-manager-acp-preset-add");
+    button.setAttribute("data-zs-backend-action", "toggle-acp-preset-menu");
+    button.setAttribute("data-zs-provider-type", args.providerType);
+    wrapper.appendChild(button);
+    const menu = createHtmlElement(doc, "div");
+    menu.hidden = true;
+    menu.style.display = "none";
+    menu.style.position = "absolute";
+    menu.style.right = "0";
+    menu.style.top = "calc(100% + 2px)";
+    menu.style.zIndex = "99999";
+    menu.style.minWidth = "220px";
+    menu.style.padding = "4px 0";
+    menu.style.border = "1px solid #8f8f9d";
+    menu.style.borderRadius = "4px";
+    menu.style.backgroundColor = "#fff";
+    menu.style.boxShadow = "0 2px 8px rgba(0,0,0,0.15)";
+    menu.setAttribute("data-zs-acp-preset-menu", "1");
+    wrapper.appendChild(menu);
+    const appendItem = (label, attrs) => {
+        const item = createHtmlElement(doc, "button");
+        item.type = "button";
+        item.textContent = label;
+        item.style.display = "block";
+        item.style.width = "100%";
+        item.style.padding = "4px 8px";
+        item.style.border = "none";
+        item.style.background = "transparent";
+        item.style.color = "#111";
+        item.style.textAlign = "left";
+        item.style.cursor = "pointer";
+        for (const [key, value] of Object.entries(attrs)) {
+            item.setAttribute(key, value);
+        }
+        item.addEventListener("mouseenter", () => {
+            item.style.backgroundColor = "#f1f3f5";
+        });
+        item.addEventListener("mouseleave", () => {
+            item.style.backgroundColor = "transparent";
+        });
+        menu.appendChild(item);
+    };
+    for (const preset of listAcpBackendPresets()) {
+        appendItem(preset.displayName, {
+            "data-zs-backend-action": "add-acp-preset",
+            "data-zs-provider-type": args.providerType,
+            "data-zs-acp-preset-id": preset.id,
+        });
+    }
+    const separator = createHtmlElement(doc, "div");
+    separator.style.height = "1px";
+    separator.style.margin = "4px 0";
+    separator.style.backgroundColor = "#d0d0d7";
+    separator.setAttribute("role", "separator");
+    menu.appendChild(separator);
+    appendItem(getString("backend-manager-acp-preset-custom"), {
+        "data-zs-backend-action": "add",
+        "data-zs-provider-type": args.providerType,
+    });
+    button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const shouldOpen = menu.style.display === "none";
+        closeAllAcpPresetMenus(doc);
+        menu.hidden = !shouldOpen;
+        menu.style.display = shouldOpen ? "block" : "none";
+    });
+    doc.addEventListener("click", (event) => {
+        const target = event.target;
+        if (!target || !wrapper.contains(target)) {
+            closeAllAcpPresetMenus(doc);
+        }
+    });
+    return wrapper;
+}
+function buildFallbackBackendRow() {
+    return {
+        internalId: DEFAULT_BACKEND_ID,
+        displayName: DEFAULT_BACKEND_ID,
+        type: DEFAULT_BACKEND_TYPE,
+        enabled: true,
+        baseUrl: String(getPref("skillRunnerEndpoint") || DEFAULT_SKILLRUNNER_ENDPOINT).trim(),
+        authKind: "none",
+        authToken: "",
+        authTokenPlaceholder: "",
+        timeoutMs: "600000",
+        command: "",
+        argsText: "",
+        envText: "",
+        acp: undefined,
+    };
+}
+function normalizeRowFromBackend(backend) {
+    return {
+        internalId: backend.id,
+        displayName: normalizeBackendDisplayName(backend.displayName, backend.id),
+        type: backend.type,
+        enabled: backend.enabled !== false,
+        baseUrl: backend.baseUrl,
+        authKind: backend.auth?.kind === "bearer" ? "bearer" : "none",
+        authToken: backend.auth?.kind === "bearer" ? backend.auth.token || "" : "",
+        authTokenPlaceholder: "",
+        timeoutMs: typeof backend.defaults?.timeout_ms === "number"
+            ? String(backend.defaults.timeout_ms)
+            : "",
+        command: backend.command || "",
+        argsText: Array.isArray(backend.args) ? backend.args.join("\n") : "",
+        envText: backend.env
+            ? Object.entries(backend.env)
+                .map(([key, value]) => `${key}=${value}`)
+                .join("\n")
+            : "",
+        acp: backend.acp,
+    };
+}
+function envRecordToDraftItems(env) {
+    return env
+        ? Object.entries(env).map(([key, value]) => ({
+            key,
+            value: String(value ?? ""),
+        }))
+        : [];
+}
+function editableRowToDraft(row) {
+    return {
+        internalId: row.internalId,
+        displayName: row.displayName,
+        type: row.type,
+        enabled: row.enabled !== false,
+        baseUrl: row.baseUrl,
+        authKind: row.authKind,
+        authToken: row.authToken,
+        authTokenPlaceholder: row.authTokenPlaceholder || "",
+        timeoutMs: row.timeoutMs,
+        command: row.command,
+        args: parseBackendArgsText(row.argsText),
+        env: envRecordToDraftItems(parseBackendEnvText(row.envText)),
+        acp: row.acp,
+    };
+}
+function normalizeDraftRows(raw) {
+    if (!Array.isArray(raw)) {
+        return [];
+    }
+    return raw
+        .filter((entry) => entry && typeof entry === "object")
+        .map((entry) => {
+        const row = entry;
+        const authKind = String(row.authKind || "").trim() === "bearer" ? "bearer" : "none";
+        const args = Array.isArray(row.args)
+            ? row.args.map((item) => String(item ?? ""))
+            : parseBackendArgsText(String(row.argsText || ""));
+        const env = Array.isArray(row.env)
+            ? row.env
+                .filter((item) => item && typeof item === "object")
+                .map((item) => {
+                const typed = item;
+                return {
+                    key: String(typed.key ?? ""),
+                    value: String(typed.value ?? ""),
+                };
+            })
+            : envRecordToDraftItems(parseBackendEnvText(String(row.envText || "")));
+        const acp = row.acp && typeof row.acp === "object" && !Array.isArray(row.acp)
+            ? row.acp
+            : undefined;
+        return {
+            internalId: String(row.internalId || "").trim(),
+            displayName: String(row.displayName || ""),
+            type: String(row.type || "").trim(),
+            enabled: row.enabled !== false,
+            baseUrl: String(row.baseUrl || ""),
+            authKind,
+            authToken: String(row.authToken || ""),
+            authTokenPlaceholder: String(row.authTokenPlaceholder || ""),
+            timeoutMs: String(row.timeoutMs || ""),
+            command: String(row.command || ""),
+            args,
+            env,
+            ...(acp ? { acp } : {}),
+        };
+    });
+}
+function appendCell(row) {
+    const doc = row.ownerDocument;
+    const cell = createHtmlElement(doc, "td");
+    row.appendChild(cell);
+    return cell;
+}
+function appendTextCell(row, label, value, width = "220px") {
+    const cell = appendCell(row);
+    const input = createHtmlElement(row.ownerDocument, "input");
+    input.type = "text";
+    input.value = value;
+    input.setAttribute("data-zs-backend-field", label);
+    input.style.width = width;
+    cell.appendChild(input);
+}
+function appendTextAreaCell(row, label, value, width = "260px") {
+    const cell = appendCell(row);
+    const textarea = createHtmlElement(row.ownerDocument, "textarea");
+    textarea.value = value;
+    textarea.setAttribute("data-zs-backend-field", label);
+    textarea.style.width = width;
+    textarea.style.minHeight = "56px";
+    textarea.style.boxSizing = "border-box";
+    cell.appendChild(textarea);
+}
+function appendSelectCell(row, label, options, selected, width = "130px") {
+    const cell = appendCell(row);
+    const control = createChoiceControl({
+        doc: row.ownerDocument,
+        options,
+        selectedValue: selected,
+    });
+    control.setAttribute("data-zs-backend-field", label);
+    applySelectVisualStyle(control, width);
+    cell.appendChild(control);
+}
+function appendCheckboxCell(row, label, checked) {
+    const cell = appendCell(row);
+    const input = createHtmlElement(row.ownerDocument, "input");
+    input.type = "checkbox";
+    input.checked = checked;
+    input.setAttribute("data-zs-backend-field", label);
+    cell.appendChild(input);
+}
+function readAcpMetadataFromRow(row) {
+    const raw = String(row.getAttribute("data-zs-backend-acp") || "").trim();
+    if (!raw) {
+        return undefined;
+    }
+    try {
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+            ? parsed
+            : undefined;
+    }
+    catch {
+        return undefined;
+    }
+}
+function writeAcpMetadataToRow(row, acp) {
+    if (acp) {
+        row.setAttribute("data-zs-backend-acp", JSON.stringify(acp));
+    }
+    else {
+        row.removeAttribute("data-zs-backend-acp");
+    }
+    const chip = row.querySelector("[data-zs-acp-connection-status='1']");
+    if (chip) {
+        const status = acp?.connectionTest?.status || "untested";
+        styleAcpBackendStatusChip({
+            chip,
+            status,
+        });
+    }
+    const button = row.querySelector("[data-zs-backend-action='refresh-acp-runtime-options']");
+    if (button) {
+        button.disabled = false;
+        button.textContent = getAcpBackendActionLabel(acp);
+    }
+}
+function getAcpBackendActionLabel(acp) {
+    return acp?.connectionTest?.status === "passed"
+        ? getString("backend-manager-refresh-acp-runtime-cache")
+        : getString("backend-manager-test-acp-connection");
+}
+function styleAcpBackendStatusChip(args) {
+    const { chip, status, text } = args;
+    chip.textContent = text || status;
+    chip.style.backgroundColor =
+        status === "passed"
+            ? "#dcfce7"
+            : status === "failed"
+                ? "#fee2e2"
+                : status === "testing" || status === "refreshing"
+                    ? "#fef3c7"
+                    : "#f3f4f6";
+    chip.style.color =
+        status === "passed"
+            ? "#166534"
+            : status === "failed"
+                ? "#991b1b"
+                : status === "testing" || status === "refreshing"
+                    ? "#92400e"
+                    : "#374151";
+}
+function setAcpBackendRowBusy(row, busy) {
+    const button = row.querySelector("[data-zs-backend-action='refresh-acp-runtime-options']");
+    const chip = row.querySelector("[data-zs-acp-connection-status='1']");
+    const acp = readAcpMetadataFromRow(row);
+    const wasPassed = acp?.connectionTest?.status === "passed";
+    if (button) {
+        button.disabled = busy;
+        button.textContent = busy
+            ? getString((wasPassed
+                ? "backend-manager-acp-refreshing"
+                : "backend-manager-acp-testing"))
+            : getAcpBackendActionLabel(acp);
+    }
+    if (chip) {
+        if (busy) {
+            styleAcpBackendStatusChip({
+                chip,
+                status: wasPassed ? "refreshing" : "testing",
+                text: getString((wasPassed
+                    ? "backend-manager-acp-refreshing"
+                    : "backend-manager-acp-testing")),
+            });
+        }
+        else {
+            const status = acp?.connectionTest?.status || "untested";
+            styleAcpBackendStatusChip({
+                chip,
+                status,
+            });
+        }
+    }
+}
+export function getBackendRowActionKindsForType(type) {
+    const normalizedType = String(type || "").trim();
+    if (normalizedType === DEFAULT_BACKEND_TYPE) {
+        return ["manage-ui", "refresh-model-cache", "remove"];
+    }
+    if (normalizedType === ACP_BACKEND_TYPE) {
+        return ["refresh-acp-runtime-options", "remove"];
+    }
+    return ["remove"];
+}
+function appendActionCell(args) {
+    const cell = appendCell(args.row);
+    cell.style.whiteSpace = "nowrap";
+    cell.style.minWidth =
+        String(args.backendType || "").trim() === DEFAULT_BACKEND_TYPE
+            ? "300px"
+            : "180px";
+    if (String(args.backendType || "").trim() === DEFAULT_BACKEND_TYPE) {
+        const manageButton = createHtmlElement(args.row.ownerDocument, "button");
+        manageButton.type = "button";
+        manageButton.textContent = getString("backend-manager-open-management");
+        manageButton.setAttribute("data-zs-backend-action", "open-management");
+        manageButton.addEventListener("click", () => {
+            if (typeof args.onOpenManagement === "function") {
+                args.onOpenManagement(args.row);
+            }
+        });
+        manageButton.style.marginRight = "6px";
+        cell.appendChild(manageButton);
+        const refreshButton = createHtmlElement(args.row.ownerDocument, "button");
+        refreshButton.type = "button";
+        refreshButton.textContent = getString("backend-manager-refresh-model-cache");
+        refreshButton.setAttribute("data-zs-backend-action", "refresh-model-cache");
+        refreshButton.addEventListener("click", () => {
+            if (typeof args.onRefreshModelCache === "function") {
+                args.onRefreshModelCache(args.row);
+            }
+        });
+        refreshButton.style.marginRight = "6px";
+        cell.appendChild(refreshButton);
+    }
+    if (String(args.backendType || "").trim() === ACP_BACKEND_TYPE) {
+        const refreshButton = createHtmlElement(args.row.ownerDocument, "button");
+        refreshButton.type = "button";
+        const status = readAcpMetadataFromRow(args.row)?.connectionTest?.status || "untested";
+        refreshButton.textContent = getAcpBackendActionLabel(readAcpMetadataFromRow(args.row));
+        refreshButton.setAttribute("data-zs-backend-action", "refresh-acp-runtime-options");
+        refreshButton.addEventListener("click", () => {
+            if (typeof args.onRefreshAcpRuntimeOptions === "function") {
+                args.onRefreshAcpRuntimeOptions(args.row);
+            }
+        });
+        refreshButton.style.marginRight = "6px";
+        cell.appendChild(refreshButton);
+        const chip = createHtmlElement(args.row.ownerDocument, "span");
+        chip.setAttribute("data-zs-acp-connection-status", "1");
+        chip.style.padding = "2px 6px";
+        chip.style.borderRadius = "999px";
+        styleAcpBackendStatusChip({
+            chip,
+            status,
+        });
+        cell.appendChild(chip);
+    }
+    const button = createHtmlElement(args.row.ownerDocument, "button");
+    button.type = "button";
+    button.textContent = getString("backend-manager-remove");
+    button.setAttribute("data-zs-backend-action", "remove");
+    button.addEventListener("click", () => {
+        args.row.remove();
+    });
+    cell.appendChild(button);
+}
+function appendBackendRow(args) {
+    const row = createHtmlElement(args.tbody.ownerDocument, "tr");
+    row.setAttribute("data-zs-backend-row", "1");
+    row.setAttribute("data-zs-backend-type", args.backend.type);
+    row.setAttribute("data-zs-backend-internal-id", args.backend.internalId);
+    if (args.backend.acp) {
+        row.setAttribute("data-zs-backend-acp", JSON.stringify(args.backend.acp));
+    }
+    appendTextCell(row, "displayName", args.backend.displayName, "190px");
+    if (args.backend.type === DEFAULT_BACKEND_TYPE) {
+        appendCheckboxCell(row, "enabled", args.backend.enabled !== false);
+    }
+    if (args.backend.type === ACP_BACKEND_TYPE) {
+        appendTextCell(row, "command", args.backend.command, "180px");
+        appendTextAreaCell(row, "args", args.backend.argsText, "240px");
+        appendTextAreaCell(row, "env", args.backend.envText, "260px");
+    }
+    else {
+        appendTextCell(row, "baseUrl", args.backend.baseUrl, "320px");
+        appendSelectCell(row, "authKind", [
+            {
+                value: "none",
+                text: getString("backend-manager-auth-none"),
+            },
+            {
+                value: "bearer",
+                text: getString("backend-manager-auth-bearer"),
+            },
+        ], args.backend.authKind, "110px");
+        appendTextCell(row, "authToken", args.backend.authToken, "96px");
+        appendTextCell(row, "timeoutMs", args.backend.timeoutMs, "110px");
+    }
+    appendActionCell({
+        row,
+        backendType: args.backend.type,
+        onOpenManagement: args.onOpenManagement,
+        onRefreshModelCache: args.onRefreshModelCache,
+        onRefreshAcpRuntimeOptions: args.onRefreshAcpRuntimeOptions,
+    });
+    args.tbody.appendChild(row);
+}
+function appendProviderSection(args) {
+    const doc = args.root.ownerDocument;
+    const section = createHtmlElement(doc, "div");
+    section.style.marginBottom = "12px";
+    section.setAttribute("data-zs-provider-section", args.provider.type);
+    const header = createHtmlElement(doc, "div");
+    header.style.display = "flex";
+    header.style.alignItems = "center";
+    header.style.justifyContent = "space-between";
+    header.style.marginBottom = "6px";
+    const title = createHtmlElement(doc, "h4");
+    title.textContent = getString("backend-manager-provider-profiles-title", {
+        args: { provider: getString(args.provider.labelKey) },
+    });
+    title.style.margin = "0";
+    header.appendChild(title);
+    const actions = createHtmlElement(doc, "div");
+    actions.style.display = "flex";
+    actions.style.alignItems = "center";
+    actions.style.gap = "6px";
+    if (args.provider.type === ACP_BACKEND_TYPE) {
+        actions.appendChild(createAcpPresetMenu({ doc, providerType: args.provider.type }));
+    }
+    if (args.provider.type !== ACP_BACKEND_TYPE) {
+        const addButton = createHtmlElement(doc, "button");
+        addButton.type = "button";
+        addButton.textContent = getString("backend-manager-provider-add", {
+            args: { provider: getString(args.provider.labelKey) },
+        });
+        addButton.setAttribute("data-zs-backend-action", "add");
+        addButton.setAttribute("data-zs-provider-type", args.provider.type);
+        actions.appendChild(addButton);
+    }
+    header.appendChild(actions);
+    section.appendChild(header);
+    const table = createHtmlElement(doc, "table");
+    table.style.width = "100%";
+    table.style.borderCollapse = "collapse";
+    table.setAttribute("data-zs-backend-table", args.provider.type);
+    const thead = createHtmlElement(doc, "thead");
+    const headerRow = createHtmlElement(doc, "tr");
+    const columnKeys = args.provider.type === ACP_BACKEND_TYPE
+        ? [
+            "backend-manager-column-id",
+            "backend-manager-column-command",
+            "backend-manager-column-args",
+            "backend-manager-column-env",
+            "backend-manager-column-actions",
+        ]
+        : [
+            "backend-manager-column-id",
+            ...(args.provider.type === DEFAULT_BACKEND_TYPE
+                ? ["backend-manager-column-enabled"]
+                : []),
+            "backend-manager-column-base-url",
+            "backend-manager-column-auth",
+            "backend-manager-column-token",
+            "backend-manager-column-timeout-ms",
+            "backend-manager-column-actions",
+        ];
+    columnKeys.forEach((columnKey) => {
+        const th = createHtmlElement(doc, "th");
+        th.textContent = getString(columnKey);
+        th.style.textAlign = "left";
+        th.style.padding = "4px";
+        headerRow.appendChild(th);
+    });
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+    const tbody = createHtmlElement(doc, "tbody");
+    tbody.setAttribute("data-zs-backend-body", "1");
+    tbody.setAttribute("data-zs-provider-type", args.provider.type);
+    table.appendChild(tbody);
+    section.appendChild(table);
+    args.root.appendChild(section);
+}
+function createBackendManagerActionButton(args) {
+    const button = createHtmlElement(args.doc, "button");
+    button.type = "button";
+    button.textContent = getString(args.labelKey);
+    button.setAttribute("data-zs-backend-dialog-action", args.action);
+    button.style.minWidth = "84px";
+    button.style.padding = "4px 12px";
+    if (args.primary) {
+        button.style.fontWeight = "600";
+    }
+    return button;
+}
+function createBackendManagerActionBar(args) {
+    const actionBar = createHtmlElement(args.doc, "div");
+    actionBar.setAttribute("data-zs-backend-action-bar", "1");
+    actionBar.style.display = "flex";
+    actionBar.style.flex = "0 0 auto";
+    actionBar.style.alignItems = "center";
+    actionBar.style.justifyContent = "flex-end";
+    actionBar.style.gap = "8px";
+    actionBar.style.minHeight = "0";
+    actionBar.style.padding = "8px 10px";
+    actionBar.style.borderTop = "1px solid #d0d0d7";
+    actionBar.style.backgroundColor = "Canvas";
+    actionBar.style.boxShadow = "0 -2px 8px rgba(0, 0, 0, 0.08)";
+    actionBar.style.zIndex = "2";
+    const cancelButton = createBackendManagerActionButton({
+        doc: args.doc,
+        labelKey: "backend-manager-cancel",
+        action: "cancel",
+    });
+    cancelButton.addEventListener("click", () => {
+        if (!confirmBackendManagerClose(args.doc, args.dialogData)) {
+            return;
+        }
+        args.dialogData._lastButtonId = "cancel";
+        args.dialogData._allowBackendManagerClose = true;
+        args.doc.defaultView?.close();
+    });
+    const saveButton = createBackendManagerActionButton({
+        doc: args.doc,
+        labelKey: "backend-manager-save",
+        action: "save",
+        primary: true,
+    });
+    saveButton.addEventListener("click", () => {
+        args.dialogData._lastButtonId = "save";
+        args.dialogData._allowBackendManagerClose = true;
+        args.doc.defaultView?.close();
+    });
+    actionBar.append(cancelButton, saveButton);
+    return actionBar;
+}
+function ensureTableSkeleton(doc, root, dialogData) {
+    root.innerHTML = "";
+    root.style.display = "flex";
+    root.style.flexDirection = "column";
+    root.style.height = "100%";
+    root.style.maxHeight = "none";
+    root.style.minHeight = "0";
+    root.style.minWidth = "1040px";
+    root.style.overflow = "hidden";
+    root.style.padding = "0";
+    const scrollRegion = createHtmlElement(doc, "div");
+    scrollRegion.setAttribute("data-zs-backend-scroll-region", "1");
+    scrollRegion.style.flex = "1 1 0";
+    scrollRegion.style.minHeight = "0";
+    scrollRegion.style.overflow = "auto";
+    scrollRegion.style.padding = "6px";
+    const wrapper = createHtmlElement(doc, "div");
+    wrapper.style.minWidth = "1040px";
+    PROVIDER_SECTIONS.forEach((provider) => {
+        appendProviderSection({
+            root: wrapper,
+            provider,
+        });
+    });
+    const help = createHtmlElement(doc, "p");
+    help.textContent = getString("backend-manager-help");
+    help.style.marginTop = "8px";
+    wrapper.appendChild(help);
+    scrollRegion.appendChild(wrapper);
+    root.append(scrollRegion, createBackendManagerActionBar({ doc, dialogData }));
+}
+function readRowField(row, field) {
+    const control = row.querySelector(`[data-zs-backend-field="${field}"]`);
+    if (!control) {
+        return "";
+    }
+    return getElementValue(control);
+}
+function readRowInternalId(row) {
+    return String(row.getAttribute("data-zs-backend-internal-id") || "").trim();
+}
+function createBackendManagerDomDraftSignature(doc) {
+    const rows = Array.from(doc.querySelectorAll("[data-zs-backend-row='1']"));
+    return JSON.stringify(rows.map((row) => ({
+        type: String(row.getAttribute("data-zs-backend-type") || "").trim(),
+        internalId: readRowInternalId(row),
+        displayName: readRowField(row, "displayName"),
+        enabled: readRowField(row, "enabled"),
+        baseUrl: readRowField(row, "baseUrl"),
+        authKind: readRowField(row, "authKind"),
+        authToken: readRowField(row, "authToken"),
+        timeoutMs: readRowField(row, "timeoutMs"),
+        command: readRowField(row, "command"),
+        args: readRowField(row, "args"),
+        env: readRowField(row, "env"),
+        acp: String(row.getAttribute("data-zs-backend-acp") || "").trim(),
+    })));
+}
+function hasBackendManagerUnsavedChanges(_doc, dialogData) {
+    const initial = String(dialogData._initialBackendDraftSignature || "");
+    const current = String(dialogData._currentBackendDraftSignature || initial);
+    return Boolean(initial && current !== initial);
+}
+function confirmBackendManagerClose(doc, dialogData) {
+    if (dialogData._allowBackendManagerClose ||
+        !hasBackendManagerUnsavedChanges(doc, dialogData)) {
+        return true;
+    }
+    const message = getString("backend-manager-unsaved-exit-confirm");
+    const dialogWindow = doc.defaultView;
+    const confirmWindow = dialogWindow && typeof dialogWindow.confirm === "function"
+        ? dialogWindow
+        : ztoolkit.getGlobal("window");
+    if (typeof confirmWindow?.confirm !== "function") {
+        return true;
+    }
+    return confirmWindow.confirm(message);
+}
+function installBackendManagerBeforeUnloadPrompt(doc, dialogData) {
+    const win = doc.defaultView;
+    if (!win || dialogData._nativeBeforeUnloadListener) {
+        return;
+    }
+    const listener = (event) => {
+        if (confirmBackendManagerClose(doc, dialogData)) {
+            return;
+        }
+        event.preventDefault();
+        event.returnValue = "";
+    };
+    win.addEventListener("beforeunload", listener);
+    dialogData._nativeBeforeUnloadListener = listener;
+}
+function removeBackendManagerBeforeUnloadPrompt(doc, dialogData) {
+    const win = doc?.defaultView;
+    const listener = dialogData._nativeBeforeUnloadListener;
+    if (win && listener) {
+        win.removeEventListener("beforeunload", listener);
+    }
+    dialogData._nativeBeforeUnloadListener = undefined;
+}
+function hasBackendRowInternalId(doc, internalId) {
+    const expected = String(internalId || "").trim();
+    if (!expected) {
+        return false;
+    }
+    const rows = Array.from(doc.querySelectorAll("[data-zs-backend-row='1']"));
+    return rows.some((row) => readRowInternalId(row) === expected);
+}
+function editableRowFromAcpBackendPresetOptions(args) {
+    return normalizeRowFromBackend(createAcpBackendFromPresetOptions(args.presetId, {
+        useNpx: args.useNpx,
+        isolated: args.isolated,
+    }));
+}
+export function resolveSkillRunnerManagementLaunchPayloadFromRow(row) {
+    const backendId = readRowInternalId(row);
+    const baseUrl = String(readRowField(row, "baseUrl") || "").trim();
+    const uiUrl = buildSkillRunnerManagementUiUrl(baseUrl);
+    return {
+        backendId: backendId || DEFAULT_BACKEND_ID,
+        baseUrl,
+        uiUrl,
+    };
+}
+function resolveSkillRunnerBackendFromRow(row) {
+    const type = String(row.getAttribute("data-zs-backend-type") || "").trim();
+    if (type !== DEFAULT_BACKEND_TYPE) {
+        throw new Error(getString("backend-manager-error-unsupported-provider", {
+            args: { row: "?", type },
+        }));
+    }
+    const backendId = readRowInternalId(row);
+    if (!backendId) {
+        throw new Error(getString("backend-manager-error-model-cache-id-required"));
+    }
+    const displayName = String(readRowField(row, "displayName") || "").trim();
+    const baseUrl = String(readRowField(row, "baseUrl") || "").trim();
+    if (!baseUrl) {
+        throw new Error(getString("backend-manager-error-management-base-url-required"));
+    }
+    try {
+        const parsed = new URL(baseUrl);
+        if (!["http:", "https:"].includes(parsed.protocol)) {
+            throw new Error("protocol");
+        }
+    }
+    catch {
+        throw new Error(getString("backend-manager-error-management-base-url-invalid"));
+    }
+    const authKind = String(readRowField(row, "authKind") || "none").trim();
+    const authToken = String(readRowField(row, "authToken") || "").trim();
+    if (authKind === "bearer" && !authToken) {
+        throw new Error(getString("backend-manager-error-model-cache-bearer-required"));
+    }
+    return {
+        id: backendId,
+        displayName: normalizeBackendDisplayName(displayName, backendId),
+        type: DEFAULT_BACKEND_TYPE,
+        ...(readRowField(row, "enabled") === "false" ? { enabled: false } : {}),
+        baseUrl,
+        auth: authKind === "bearer"
+            ? {
+                kind: "bearer",
+                token: authToken,
+            }
+            : {
+                kind: "none",
+            },
+    };
+}
+function parseBackendEnvText(envText) {
+    const parsedEnv = {};
+    for (const line of String(envText || "").split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (!trimmed) {
+            continue;
+        }
+        const equalsIndex = trimmed.indexOf("=");
+        if (equalsIndex <= 0) {
+            continue;
+        }
+        const key = trimmed.slice(0, equalsIndex).trim();
+        if (!key) {
+            continue;
+        }
+        parsedEnv[key] = trimmed.slice(equalsIndex + 1);
+    }
+    return parsedEnv;
+}
+function parseBackendArgsText(argsText) {
+    return String(argsText || "")
+        .split(/\r?\n/)
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+}
+function resolveAcpBackendFromRow(row) {
+    const type = String(row.getAttribute("data-zs-backend-type") || "").trim();
+    if (type !== ACP_BACKEND_TYPE) {
+        throw new Error(getString("backend-manager-error-unsupported-provider", {
+            args: { row: "?", type },
+        }));
+    }
+    let backendId = readRowInternalId(row);
+    const displayName = String(readRowField(row, "displayName") || "").trim();
+    const command = String(readRowField(row, "command") || "").trim();
+    if (!displayName) {
+        throw new Error(getString("backend-manager-error-id-required", {
+            args: { row: "?" },
+        }));
+    }
+    if (!backendId) {
+        backendId = generateBackendInternalId({
+            displayName,
+            type,
+            usedIds: new Set(),
+        });
+        row.setAttribute("data-zs-backend-internal-id", backendId);
+    }
+    if (!command) {
+        throw new Error(getString("backend-manager-error-command-required", {
+            args: { row: "?" },
+        }));
+    }
+    const metadata = readAcpMetadataFromRow(row);
+    const backend = {
+        id: backendId,
+        displayName: normalizeBackendDisplayName(displayName, backendId),
+        type,
+        baseUrl: `local://${backendId}`,
+        command,
+        args: parseBackendArgsText(readRowField(row, "args")),
+        ...(Object.keys(parseBackendEnvText(readRowField(row, "env"))).length > 0
+            ? { env: parseBackendEnvText(readRowField(row, "env")) }
+            : {}),
+        ...(metadata ? { acp: metadata } : {}),
+    };
+    const expectedFingerprint = computeAcpBackendConfigFingerprint(backend);
+    if (backend.acp?.connectionTest?.configFingerprint &&
+        backend.acp.connectionTest.configFingerprint !== expectedFingerprint) {
+        backend.acp = {
+            ...backend.acp,
+            connectionTest: {
+                ...backend.acp.connectionTest,
+                status: "stale",
+                error: "Backend command, args, env, or ACP overrides changed.",
+            },
+        };
+    }
+    return backend;
+}
+export async function launchSkillRunnerManagementFromRow(args) {
+    if (readRowField(args.row, "enabled") === "false") {
+        throw new Error("SkillRunner backend is disabled");
+    }
+    const payload = resolveSkillRunnerManagementLaunchPayloadFromRow(args.row);
+    if (args.openDialog) {
+        await args.openDialog(payload);
+    }
+    else {
+        await openZoteroSkillsWorkspaceTab({
+            initialView: "dashboard",
+            initialDashboardTabKey: `backend:${payload.backendId}`,
+            initialDashboardBackendSubview: "management",
+        });
+    }
+    return payload;
+}
+function resolveSkillRunnerManagementLaunchPayloadFromDraft(row) {
+    const backend = collectBackendsFromDraftRows([row]).backends[0];
+    if (String(backend.type || "").trim() !== DEFAULT_BACKEND_TYPE) {
+        throw new Error(getString("backend-manager-error-unsupported-provider", {
+            args: { row: "?", type: backend.type },
+        }));
+    }
+    if (backend.enabled === false) {
+        throw new Error("SkillRunner backend is disabled");
+    }
+    const uiUrl = buildSkillRunnerManagementUiUrl(backend.baseUrl);
+    return {
+        backendId: backend.id || DEFAULT_BACKEND_ID,
+        baseUrl: backend.baseUrl,
+        uiUrl,
+    };
+}
+async function launchSkillRunnerManagementFromDraft(args) {
+    const payload = resolveSkillRunnerManagementLaunchPayloadFromDraft(args.row);
+    await openZoteroSkillsWorkspaceTab({
+        initialView: "dashboard",
+        initialDashboardTabKey: `backend:${payload.backendId}`,
+        initialDashboardBackendSubview: "management",
+    });
+    return payload;
+}
+export async function refreshSkillRunnerModelCacheFromRow(args) {
+    const backend = resolveSkillRunnerBackendFromRow(args.row);
+    if (backend.enabled === false) {
+        throw new Error("SkillRunner backend is disabled");
+    }
+    const refresh = args.refresh || refreshSkillRunnerModelCacheForBackend;
+    return refresh({
+        backend,
+    });
+}
+async function refreshSkillRunnerModelCacheFromDraft(args) {
+    const backend = collectBackendsFromDraftRows([args.row]).backends[0];
+    if (String(backend.type || "").trim() !== DEFAULT_BACKEND_TYPE) {
+        throw new Error(getString("backend-manager-error-unsupported-provider", {
+            args: { row: "?", type: backend.type },
+        }));
+    }
+    if (backend.enabled === false) {
+        throw new Error("SkillRunner backend is disabled");
+    }
+    return refreshSkillRunnerModelCacheForBackend({ backend });
+}
+export async function refreshAcpRuntimeOptionsFromRow(args) {
+    const backend = resolveAcpBackendFromRow(args.row);
+    const probe = args.probe || probeAcpBackendRuntimeOptions;
+    const result = await probe({
+        backend,
+    });
+    writeAcpMetadataToRow(args.row, result.backend.acp);
+    return result;
+}
+async function refreshAcpRuntimeOptionsFromDraft(args) {
+    const backend = collectBackendsFromDraftRows([args.row]).backends[0];
+    if (String(backend.type || "").trim() !== ACP_BACKEND_TYPE) {
+        throw new Error(getString("backend-manager-error-unsupported-provider", {
+            args: { row: "?", type: backend.type },
+        }));
+    }
+    return probeAcpBackendRuntimeOptions({ backend });
+}
+export async function persistAcpBackendProbeResultFromRow(row, deps = {}) {
+    const backend = resolveAcpBackendFromRow(row);
+    const loaded = await loadBackendsRegistry();
+    if (loaded.fatalError) {
+        throw new Error(loaded.fatalError);
+    }
+    let replaced = false;
+    const nextBackends = loaded.backends.map((entry) => {
+        if (entry.id !== backend.id) {
+            return entry;
+        }
+        replaced = true;
+        return backend;
+    });
+    if (!replaced) {
+        nextBackends.push(backend);
+    }
+    persistBackendsConfig(nextBackends, deps);
+    return backend;
+}
+export function collectBackendsFromDialog(doc) {
+    const rows = Array.from(doc.querySelectorAll("[data-zs-backend-row='1']"));
+    const seen = new Set();
+    const usedIds = new Set();
+    const backends = [];
+    for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const typeText = String(row.getAttribute("data-zs-backend-type") || "").trim();
+        const type = normalizeBackendManagerProviderType(typeText);
+        let id = readRowInternalId(row);
+        const displayName = String(readRowField(row, "displayName") || "").trim();
+        const baseUrl = readRowField(row, "baseUrl");
+        const authKind = readRowField(row, "authKind") || "none";
+        const authToken = readRowField(row, "authToken");
+        const timeoutText = readRowField(row, "timeoutMs");
+        const enabled = readRowField(row, "enabled") !== "false";
+        const command = readRowField(row, "command");
+        const argsText = readRowField(row, "args");
+        const envText = readRowField(row, "env");
+        if (!displayName) {
+            throw new Error(getString("backend-manager-error-id-required", {
+                args: { row: i + 1 },
+            }));
+        }
+        if (!type) {
+            throw new Error(getString("backend-manager-error-unsupported-provider", {
+                args: { row: i + 1, type: typeText },
+            }));
+        }
+        if (!id) {
+            id = generateBackendInternalId({
+                displayName,
+                type,
+                usedIds,
+            });
+            row.setAttribute("data-zs-backend-internal-id", id);
+        }
+        usedIds.add(id);
+        if (seen.has(id)) {
+            throw new Error(getString("backend-manager-error-duplicate-id", {
+                args: { row: i + 1, id },
+            }));
+        }
+        seen.add(id);
+        if (type === ACP_BACKEND_TYPE) {
+            if (!command) {
+                throw new Error(getString("backend-manager-error-command-required", {
+                    args: { row: i + 1 },
+                }));
+            }
+            const parsedEnv = parseBackendEnvText(envText);
+            const metadata = readAcpMetadataFromRow(row);
+            const backend = {
+                id,
+                displayName: normalizeBackendDisplayName(displayName, id),
+                type,
+                baseUrl: `local://${id}`,
+                command,
+                args: parseBackendArgsText(argsText),
+                ...(Object.keys(parsedEnv).length > 0 ? { env: parsedEnv } : {}),
+                ...(metadata ? { acp: metadata } : {}),
+            };
+            const expectedFingerprint = computeAcpBackendConfigFingerprint(backend);
+            if (backend.acp?.connectionTest?.configFingerprint &&
+                backend.acp.connectionTest.configFingerprint !== expectedFingerprint) {
+                backend.acp = {
+                    ...backend.acp,
+                    connectionTest: {
+                        ...backend.acp.connectionTest,
+                        status: "stale",
+                        error: "Backend command, args, env, or ACP overrides changed.",
+                    },
+                };
+            }
+            backends.push(backend);
+            continue;
+        }
+        if (!baseUrl) {
+            throw new Error(getString("backend-manager-error-base-url-required", {
+                args: { row: i + 1 },
+            }));
+        }
+        try {
+            const parsed = new URL(baseUrl);
+            if (!["http:", "https:"].includes(parsed.protocol)) {
+                throw new Error("protocol");
+            }
+        }
+        catch {
+            throw new Error(getString("backend-manager-error-base-url-invalid", {
+                args: { row: i + 1 },
+            }));
+        }
+        if (authKind === "bearer" && !authToken) {
+            throw new Error(getString("backend-manager-error-bearer-required", {
+                args: { row: i + 1 },
+            }));
+        }
+        const timeoutMs = timeoutText ? Number(timeoutText) : undefined;
+        if (typeof timeoutMs !== "undefined" &&
+            (!Number.isFinite(timeoutMs) || timeoutMs <= 0)) {
+            throw new Error(getString("backend-manager-error-timeout-invalid", {
+                args: { row: i + 1 },
+            }));
+        }
+        backends.push({
+            id,
+            displayName: normalizeBackendDisplayName(displayName, id),
+            type,
+            ...(type === DEFAULT_BACKEND_TYPE && enabled === false
+                ? { enabled: false }
+                : {}),
+            baseUrl,
+            auth: authKind === "bearer"
+                ? {
+                    kind: "bearer",
+                    token: authToken,
+                }
+                : {
+                    kind: "none",
+                },
+            ...(typeof timeoutMs === "number"
+                ? {
+                    defaults: {
+                        timeout_ms: timeoutMs,
+                    },
+                }
+                : {}),
+        });
+    }
+    return {
+        backends,
+    };
+}
+function normalizeDraftArgs(args) {
+    return Array.isArray(args)
+        ? args
+            .map((entry) => String(entry ?? "").trim())
+            .filter((entry) => entry.length > 0)
+        : [];
+}
+function normalizeDraftEnv(env, rowNumber) {
+    const parsed = {};
+    if (!Array.isArray(env)) {
+        return parsed;
+    }
+    for (const item of env) {
+        if (!item || typeof item !== "object") {
+            continue;
+        }
+        const typed = item;
+        const key = String(typed.key ?? "").trim();
+        const value = String(typed.value ?? "");
+        if (!key && !value.trim()) {
+            continue;
+        }
+        if (!key) {
+            throw new Error(getString("backend-manager-error-env-key-required", {
+                args: { row: rowNumber },
+            }));
+        }
+        parsed[key] = value;
+    }
+    return parsed;
+}
+export function collectBackendsFromDraftRows(rawRows) {
+    const rows = normalizeDraftRows(rawRows);
+    const seen = new Set();
+    const usedIds = new Set();
+    const backends = [];
+    for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const rowNumber = i + 1;
+        const typeText = String(row.type || "").trim();
+        const type = normalizeBackendManagerProviderType(typeText);
+        let id = String(row.internalId || "").trim();
+        const displayName = String(row.displayName || "").trim();
+        const baseUrl = String(row.baseUrl || "").trim();
+        const authKind = row.authKind === "bearer" ? "bearer" : "none";
+        const authToken = String(row.authToken || "").trim();
+        const timeoutText = String(row.timeoutMs || "").trim();
+        const command = String(row.command || "").trim();
+        if (!displayName) {
+            throw new Error(getString("backend-manager-error-id-required", {
+                args: { row: rowNumber },
+            }));
+        }
+        if (!type) {
+            throw new Error(getString("backend-manager-error-unsupported-provider", {
+                args: { row: rowNumber, type: typeText },
+            }));
+        }
+        if (!id) {
+            id = generateBackendInternalId({
+                displayName,
+                type,
+                usedIds,
+            });
+            row.internalId = id;
+        }
+        usedIds.add(id);
+        if (seen.has(id)) {
+            throw new Error(getString("backend-manager-error-duplicate-id", {
+                args: { row: rowNumber, id },
+            }));
+        }
+        seen.add(id);
+        if (type === ACP_BACKEND_TYPE) {
+            if (!command) {
+                throw new Error(getString("backend-manager-error-command-required", {
+                    args: { row: rowNumber },
+                }));
+            }
+            const parsedEnv = normalizeDraftEnv(row.env, rowNumber);
+            const backend = {
+                id,
+                displayName: normalizeBackendDisplayName(displayName, id),
+                type,
+                baseUrl: `local://${id}`,
+                command,
+                args: normalizeDraftArgs(row.args),
+                ...(Object.keys(parsedEnv).length > 0 ? { env: parsedEnv } : {}),
+                ...(row.acp ? { acp: row.acp } : {}),
+            };
+            const expectedFingerprint = computeAcpBackendConfigFingerprint(backend);
+            if (backend.acp?.connectionTest?.configFingerprint &&
+                backend.acp.connectionTest.configFingerprint !== expectedFingerprint) {
+                backend.acp = {
+                    ...backend.acp,
+                    connectionTest: {
+                        ...backend.acp.connectionTest,
+                        status: "stale",
+                        error: "Backend command, args, env, or ACP overrides changed.",
+                    },
+                };
+            }
+            backends.push(backend);
+            continue;
+        }
+        if (!baseUrl) {
+            throw new Error(getString("backend-manager-error-base-url-required", {
+                args: { row: rowNumber },
+            }));
+        }
+        try {
+            const parsed = new URL(baseUrl);
+            if (!["http:", "https:"].includes(parsed.protocol)) {
+                throw new Error("protocol");
+            }
+        }
+        catch {
+            throw new Error(getString("backend-manager-error-base-url-invalid", {
+                args: { row: rowNumber },
+            }));
+        }
+        if (authKind === "bearer" && !authToken) {
+            throw new Error(getString("backend-manager-error-bearer-required", {
+                args: { row: rowNumber },
+            }));
+        }
+        const timeoutMs = timeoutText ? Number(timeoutText) : undefined;
+        if (typeof timeoutMs !== "undefined" &&
+            (!Number.isFinite(timeoutMs) || timeoutMs <= 0)) {
+            throw new Error(getString("backend-manager-error-timeout-invalid", {
+                args: { row: rowNumber },
+            }));
+        }
+        backends.push({
+            id,
+            displayName: normalizeBackendDisplayName(displayName, id),
+            type,
+            ...(type === DEFAULT_BACKEND_TYPE && row.enabled === false
+                ? { enabled: false }
+                : {}),
+            baseUrl,
+            auth: authKind === "bearer"
+                ? {
+                    kind: "bearer",
+                    token: authToken,
+                }
+                : {
+                    kind: "none",
+                },
+            ...(typeof timeoutMs === "number"
+                ? {
+                    defaults: {
+                        timeout_ms: timeoutMs,
+                    },
+                }
+                : {}),
+        });
+    }
+    return { backends };
+}
+const defaultBackendPersistenceDeps = {
+    setPref,
+    refreshWorkflowMenus,
+    refreshModelCache: refreshSkillRunnerModelCacheForBackend,
+};
+function readPersistedManagementAuthByBackendId() {
+    const map = new Map();
+    const raw = String(getPref(BACKENDS_CONFIG_PREF_KEY) || "").trim();
+    if (!raw) {
+        return map;
+    }
+    try {
+        const parsed = JSON.parse(raw);
+        const entries = Array.isArray(parsed?.backends) ? parsed.backends : [];
+        for (const entry of entries) {
+            const id = String(entry?.id || "").trim();
+            if (!id) {
+                continue;
+            }
+            const managementAuth = entry?.management_auth;
+            if (!managementAuth || typeof managementAuth !== "object") {
+                continue;
+            }
+            const typed = managementAuth;
+            const kind = String(typed.kind || "").trim();
+            if (kind === "basic") {
+                const username = String(typed.username || "").trim();
+                const password = String(typed.password || "").trim();
+                if (!username || !password) {
+                    continue;
+                }
+                map.set(id, {
+                    kind: "basic",
+                    username,
+                    password,
+                });
+                continue;
+            }
+            map.set(id, { kind: "none" });
+        }
+    }
+    catch {
+        return map;
+    }
+    return map;
+}
+function triggerSilentModelCacheRefreshForAddedSkillRunnerBackends(args) {
+    const addedBackends = args.mergedBackends.filter((backend) => {
+        const backendId = String(backend.id || "").trim();
+        return (String(backend.type || "").trim() === "skillrunner" &&
+            backend.enabled !== false &&
+            !!backendId &&
+            !args.existingSkillRunnerIds.has(backendId));
+    });
+    for (const backend of addedBackends) {
+        void args
+            .refreshModelCache({ backend })
+            .then((result) => {
+            if (!result?.ok) {
+                emitVerboseConsole("warn", `[backend-manager] silent model cache refresh failed for backend=${backend.id}: ${String(result?.error || "unknown error")}`);
+            }
+        })
+            .catch((error) => {
+            emitVerboseConsole("warn", `[backend-manager] silent model cache refresh threw for backend=${backend.id}: ${String(error)}`);
+        });
+    }
+}
+export function persistBackendsConfig(backends, deps = {}) {
+    const resolved = {
+        ...defaultBackendPersistenceDeps,
+        ...deps,
+    };
+    const existingManagementAuth = readPersistedManagementAuthByBackendId();
+    const mergedBackends = backends.map((backend) => {
+        const explicit = backend.management_auth;
+        if (explicit && typeof explicit === "object") {
+            return backend;
+        }
+        const persisted = existingManagementAuth.get(backend.id);
+        if (!persisted) {
+            return backend;
+        }
+        return {
+            ...backend,
+            management_auth: persisted,
+        };
+    });
+    const idMapping = new Map();
+    const removedIds = new Set();
+    const existingSkillRunnerIds = new Set();
+    const raw = String(getPref(BACKENDS_CONFIG_PREF_KEY) || "").trim();
+    if (raw) {
+        try {
+            const parsed = JSON.parse(raw);
+            const existing = Array.isArray(parsed?.backends) ? parsed.backends : [];
+            for (const entry of existing) {
+                const existingId = String(entry?.id || "").trim();
+                if (!existingId) {
+                    continue;
+                }
+                if (String(entry?.type || "").trim() === "skillrunner") {
+                    existingSkillRunnerIds.add(existingId);
+                }
+            }
+            const managed = existing.find((entry) => isManagedLocalBackendId(entry.id));
+            const existingIds = new Set(existing
+                .map((entry) => String(entry.id || "").trim())
+                .filter((id) => id && !isManagedLocalBackendId(id)));
+            const nextIds = new Set(mergedBackends
+                .map((entry) => String(entry.id || "").trim())
+                .filter((id) => id && !isManagedLocalBackendId(id)));
+            for (const existingId of existingIds) {
+                if (!nextIds.has(existingId)) {
+                    removedIds.add(existingId);
+                }
+            }
+            if (managed &&
+                !mergedBackends.some((entry) => isManagedLocalBackendId(entry.id))) {
+                if (String(managed.id || "").trim() === MANAGED_LOCAL_BACKEND_ID) {
+                    const normalizedManaged = {
+                        ...managed,
+                        id: MANAGED_LOCAL_BACKEND_ID,
+                        displayName: normalizeBackendDisplayName(managed.displayName, "Local Backend"),
+                    };
+                    mergedBackends.push(normalizedManaged);
+                }
+                else {
+                    removedIds.add(String(managed.id || "").trim());
+                }
+            }
+        }
+        catch {
+            // ignore parse failures and keep current mergedBackends
+        }
+    }
+    resolved.setPref(BACKENDS_CONFIG_PREF_KEY, JSON.stringify(createBackendsPrefsDocument(mergedBackends)));
+    syncSkillRunnerBackendHealthForConfiguredBackends(mergedBackends, {
+        prune: true,
+    });
+    for (const backend of mergedBackends) {
+        if (String(backend.type || "").trim() === DEFAULT_BACKEND_TYPE &&
+            backend.enabled !== false) {
+            scheduleSkillRunnerBackendReachabilityProbe({
+                backendId: backend.id,
+                source: "settings",
+            });
+        }
+    }
+    syncBackendReferenceState({
+        idMapping,
+        removedIds,
+    });
+    for (const removedId of removedIds.values()) {
+        stopSessionSync({
+            backendId: removedId,
+        });
+        purgeSkillRunnerBackendReconcileState(removedId);
+        untrackSkillRunnerBackendHealth(removedId);
+    }
+    resolved.refreshWorkflowMenus();
+    triggerSilentModelCacheRefreshForAddedSkillRunnerBackends({
+        existingSkillRunnerIds,
+        mergedBackends,
+        refreshModelCache: resolved.refreshModelCache,
+    });
+    pruneAcpChatSessionRuntimesForBackends(mergedBackends);
+}
+function getAlertWindow(window) {
+    if (window && typeof window.alert === "function") {
+        return window;
+    }
+    return ztoolkit.getGlobal("window");
+}
+function localizeBackendManager(key, fallback, options) {
+    try {
+        const value = String(options ? getString(key, options) : getString(key)).trim();
+        return value || fallback;
+    }
+    catch {
+        return fallback;
+    }
+}
+function resolveBackendManagerPageUrl() {
+    const addonRef = String(config.addonRef || "").trim() || resolveAddonRef("");
+    if (!addonRef) {
+        return "about:blank";
+    }
+    return `chrome://${addonRef}/content/dashboard/backend-manager.html?ui=20260617-html-backend-manager-v2`;
+}
+function createBackendManagerFrame(doc) {
+    const frame = doc.createElement("iframe");
+    frame.setAttribute("type", "content");
+    frame.setAttribute("data-zs-role", "backend-manager-dialog-frame");
+    frame.style.width = "100%";
+    frame.style.height = "100%";
+    frame.style.display = "block";
+    frame.style.flex = "1 1 auto";
+    frame.style.minHeight = "620px";
+    frame.style.border = "none";
+    return frame;
+}
+function resolveFrameWindow(frame) {
+    if (!frame) {
+        return null;
+    }
+    const candidate = frame;
+    return candidate.contentWindow || null;
+}
+function normalizeBackendManagerProviderType(value) {
+    const text = String(value || "").trim();
+    return PROVIDER_SECTIONS.some((provider) => provider.type === text)
+        ? text
+        : undefined;
+}
+function postBackendManagerProviderSelection(providerType) {
+    const selectedProviderType = normalizeBackendManagerProviderType(providerType);
+    if (!selectedProviderType) {
+        return;
+    }
+    try {
+        activeBackendManagerFrameWindow?.postMessage({
+            type: "backend-manager-dialog:select-provider",
+            payload: { providerType: selectedProviderType },
+        }, "*");
+    }
+    catch {
+        activeBackendManagerFrameWindow = null;
+    }
+}
+function createBackendManagerDraftSignature(rows) {
+    return JSON.stringify(normalizeDraftRows(rows).map((row) => ({
+        internalId: row.internalId,
+        displayName: row.displayName,
+        type: row.type,
+        enabled: row.enabled !== false,
+        baseUrl: row.baseUrl,
+        authKind: row.authKind,
+        authToken: row.authToken,
+        authTokenPlaceholder: row.authTokenPlaceholder || "",
+        timeoutMs: row.timeoutMs,
+        command: row.command,
+        args: normalizeDraftArgs(row.args),
+        env: Array.isArray(row.env)
+            ? row.env.map((item) => ({
+                key: String(item.key || "").trim(),
+                value: String(item.value || ""),
+            }))
+            : [],
+        acp: row.acp || null,
+    })));
+}
+function buildBackendManagerLabels() {
+    return {
+        piTitle: localizeBackendManager("backend-manager-pi-title", "Built-in Agent"),
+        piAdd: localizeBackendManager("backend-manager-pi-add", "Add configuration"),
+        piModels: localizeBackendManager("backend-manager-pi-models", "models"),
+        piCatalogReady: localizeBackendManager("backend-manager-pi-catalog-ready", "Catalog ready"),
+        piCatalogLoading: localizeBackendManager("backend-manager-pi-catalog-loading", "Loading catalog"),
+        piCatalogError: localizeBackendManager("backend-manager-pi-catalog-error", "Catalog unavailable"),
+        piStatusConfigured: localizeBackendManager("backend-manager-pi-status-configured", "Configured"),
+        piStatusIncomplete: localizeBackendManager("backend-manager-pi-status-incomplete", "Incomplete"),
+        piStatusNeedsAuth: localizeBackendManager("backend-manager-pi-status-needs-auth", "Credential required"),
+        piStatusInvalid: localizeBackendManager("backend-manager-pi-status-invalid", "Model unavailable"),
+        piStatusUnavailable: localizeBackendManager("backend-manager-pi-status-unavailable", "Catalog unavailable"),
+        piUnavailable: localizeBackendManager("backend-manager-pi-unavailable", "No usable provider configuration."),
+        piConfigurations: localizeBackendManager("backend-manager-pi-configurations", "Configurations"),
+        piNew: localizeBackendManager("backend-manager-pi-new", "New configuration"),
+        piLabel: localizeBackendManager("backend-manager-pi-label", "Name"),
+        piProvider: localizeBackendManager("backend-manager-pi-provider", "Provider"),
+        piModel: localizeBackendManager("backend-manager-pi-model", "Model"),
+        piAuth: localizeBackendManager("backend-manager-pi-auth", "Authentication"),
+        piCredential: localizeBackendManager("backend-manager-pi-credential", "Credential"),
+        piNoCredential: localizeBackendManager("backend-manager-pi-no-credential", "No credential"),
+        piCredentials: localizeBackendManager("backend-manager-pi-credentials", "Saved credentials"),
+        piCodexConnect: localizeBackendManager("backend-manager-pi-codex-connect", "Connect OpenAI Codex"),
+        piCodexReconnect: localizeBackendManager("backend-manager-pi-codex-reconnect", "Reconnect OpenAI Codex"),
+        piCodexCancel: localizeBackendManager("backend-manager-pi-codex-cancel", "Cancel sign-in"),
+        piCodexOpen: localizeBackendManager("backend-manager-pi-codex-open", "Open verification page"),
+        piCodexDisconnect: localizeBackendManager("backend-manager-pi-codex-disconnect", "Disconnect locally"),
+        piCodexConnected: localizeBackendManager("backend-manager-pi-codex-connected", "OpenAI Codex connected"),
+        piCodexFailed: localizeBackendManager("backend-manager-pi-codex-failed", "OpenAI Codex sign-in failed"),
+        mcpSources: localizeBackendManager("backend-manager-mcp-sources", "MCP Tool Sources"),
+        mcpRegistryCorrupt: localizeBackendManager("backend-manager-mcp-registry-corrupt", "MCP source settings are damaged."),
+        mcpResetConfirm: localizeBackendManager("backend-manager-mcp-reset-confirm", "Delete all MCP source settings?"),
+        mcpReset: localizeBackendManager("backend-manager-mcp-reset", "Reset sources"),
+        mcpName: localizeBackendManager("backend-manager-mcp-name", "Name"),
+        mcpTransport: localizeBackendManager("backend-manager-mcp-transport", "Transport"),
+        mcpExecutable: localizeBackendManager("backend-manager-mcp-executable", "Executable"),
+        mcpArguments: localizeBackendManager("backend-manager-mcp-arguments", "Arguments (one per line)"),
+        mcpCwd: localizeBackendManager("backend-manager-mcp-cwd", "Working directory"),
+        mcpSlot: localizeBackendManager("backend-manager-mcp-slot", "Credential slot (HTTP header / environment variable)"),
+        mcpSecretId: localizeBackendManager("backend-manager-mcp-secret-id", "Saved credential ID"),
+        mcpEnabled: localizeBackendManager("backend-manager-mcp-enabled", "Enabled"),
+        mcpLocalNetwork: localizeBackendManager("backend-manager-mcp-local-network", "Allow local network endpoint"),
+        mcpCleartext: localizeBackendManager("backend-manager-mcp-cleartext", "Allow cleartext private endpoint"),
+        mcpSaveSource: localizeBackendManager("backend-manager-mcp-save-source", "Save source"),
+        mcpSecret: localizeBackendManager("backend-manager-mcp-secret", "Secret"),
+        mcpSaveSecret: localizeBackendManager("backend-manager-mcp-save-secret", "Save secret"),
+        mcpClear: localizeBackendManager("backend-manager-mcp-clear", "Clear"),
+        mcpEdit: localizeBackendManager("backend-manager-mcp-edit", "Edit"),
+        mcpTest: localizeBackendManager("backend-manager-mcp-test", "Test / discover"),
+        mcpDelete: localizeBackendManager("backend-manager-mcp-delete", "Delete"),
+        mcpSelect: localizeBackendManager("backend-manager-mcp-select", "Select"),
+        mcpDirect: localizeBackendManager("backend-manager-mcp-direct", "Direct"),
+        mcpImport: localizeBackendManager("backend-manager-mcp-import", "Import .mcp.json"),
+        mcpImportReadFailed: localizeBackendManager("backend-manager-mcp-import-read-failed", "Could not read this file (limit: 1 MiB)."),
+        mcpPreview: localizeBackendManager("backend-manager-mcp-preview", "Preview import"),
+        mcpSecretSlots: localizeBackendManager("backend-manager-mcp-secret-slots", "secret slots"),
+        mcpConfirmImport: localizeBackendManager("backend-manager-mcp-confirm-import", "Import"),
+        mcpExport: localizeBackendManager("backend-manager-mcp-export", "Export template"),
+        webSources: localizeBackendManager("backend-manager-web-sources", "Web Search Sources"),
+        webError: localizeBackendManager("backend-manager-web-error", "Web source settings are damaged."),
+        webPaidNotice: localizeBackendManager("backend-manager-web-paid-notice", "Enabling a paid source is your consent to its billing."),
+        webPaid: localizeBackendManager("backend-manager-web-paid", "May incur cost"),
+        webMoveUp: localizeBackendManager("backend-manager-web-move-up", "Move up"),
+        webMoveDown: localizeBackendManager("backend-manager-web-move-down", "Move down"),
+        webEnabled: localizeBackendManager("backend-manager-web-enabled", "Enabled"),
+        webCredential: localizeBackendManager("backend-manager-web-credential", "Credential"),
+        webNoCredential: localizeBackendManager("backend-manager-web-no-credential", "No credential"),
+        webModel: localizeBackendManager("backend-manager-web-model", "Model configuration"),
+        webSearchModel: localizeBackendManager("backend-manager-web-search-model", "Search model (explicit)"),
+        webNoModel: localizeBackendManager("backend-manager-web-no-model", "No configuration"),
+        webEndpoint: localizeBackendManager("backend-manager-web-endpoint", "Endpoint"),
+        webLocalNetwork: localizeBackendManager("backend-manager-web-local-network", "Allow local network origin"),
+        webExecutable: localizeBackendManager("backend-manager-web-executable", "Executable"),
+        webArguments: localizeBackendManager("backend-manager-web-arguments", "Arguments (one per line)"),
+        webCodeExecution: localizeBackendManager("backend-manager-web-code-execution", "Allow running the package"),
+        webBravePackage: localizeBackendManager("backend-manager-web-brave-package", "Brave MCP runs the user-installed package version 2.1.4."),
+        webTest: localizeBackendManager("backend-manager-web-test", "Test source"),
+        webReview: localizeBackendManager("backend-manager-web-review", "Approve discovered search tool"),
+        webAvailable: localizeBackendManager("backend-manager-web-available", "Available"),
+        webUnavailable: localizeBackendManager("backend-manager-web-unavailable", "Unavailable"),
+        webFailed: localizeBackendManager("backend-manager-web-failed", "Test failed"),
+        webSecretId: localizeBackendManager("backend-manager-web-secret-id", "Secret ID"),
+        webSecretLabel: localizeBackendManager("backend-manager-web-secret-label", "Secret label"),
+        webSecret: localizeBackendManager("backend-manager-web-secret", "Secret"),
+        webSaveSecret: localizeBackendManager("backend-manager-web-save-secret", "Save secret"),
+        webClear: localizeBackendManager("backend-manager-web-clear", "Clear"),
+        piCredentialLabel: localizeBackendManager("backend-manager-pi-credential-label", "Key label"),
+        piCredentialSecret: localizeBackendManager("backend-manager-pi-credential-secret", "API key"),
+        piSaveCredential: localizeBackendManager("backend-manager-pi-save-credential", "Save API key"),
+        piClearCredential: localizeBackendManager("backend-manager-pi-clear-credential", "Clear"),
+        piTestConnection: localizeBackendManager("backend-manager-pi-test-connection", "Test connection"),
+        piExportDiagnostics: localizeBackendManager("backend-manager-pi-export-diagnostics", "Export diagnostics"),
+        piConnectionAvailable: localizeBackendManager("backend-manager-pi-connection-available", "Connection available"),
+        piConnectionUnavailable: localizeBackendManager("backend-manager-pi-connection-unavailable", "Connection unavailable"),
+        piEndpoint: localizeBackendManager("backend-manager-pi-endpoint", "Custom endpoint"),
+        piDialect: localizeBackendManager("backend-manager-pi-dialect", "API dialect"),
+        piCatalogDefault: localizeBackendManager("backend-manager-pi-catalog-default", "Catalog default"),
+        piReasoning: localizeBackendManager("backend-manager-pi-reasoning", "Reasoning"),
+        piSave: localizeBackendManager("backend-manager-pi-save", "Save configuration"),
+        piDefaults: localizeBackendManager("backend-manager-pi-defaults", "Defaults"),
+        piGlobal: localizeBackendManager("backend-manager-pi-global", "Global"),
+        piConversation: localizeBackendManager("backend-manager-pi-conversation", "Conversation"),
+        piSkillRun: localizeBackendManager("backend-manager-pi-skill-run", "Skill Run"),
+        piAuxiliary: localizeBackendManager("backend-manager-pi-auxiliary", "Conversation titles"),
+        piNoDefault: localizeBackendManager("backend-manager-pi-no-default", "No default"),
+        piSaveDefaults: localizeBackendManager("backend-manager-pi-save-defaults", "Save defaults"),
+        piOverlay: localizeBackendManager("backend-manager-pi-overlay", "models.yml overlay"),
+        piRefresh: localizeBackendManager("backend-manager-pi-refresh", "Import / refresh"),
+        addProfile: localizeBackendManager("backend-manager-provider-add", "Add { $provider } Profile"),
+        addAcpPreset: localizeBackendManager("backend-manager-acp-preset-add", "Add ACP Preset"),
+        addGenericHttpPreset: localizeBackendManager("backend-manager-generic-http-preset-add", "Add Generic HTTP Profile from Preset"),
+        customAcp: localizeBackendManager("backend-manager-acp-preset-custom", "Custom ACP"),
+        displayName: localizeBackendManager("backend-manager-column-id", "ID"),
+        enabled: localizeBackendManager("backend-manager-column-enabled", "Enabled"),
+        baseUrl: localizeBackendManager("backend-manager-column-base-url", "Base URL"),
+        auth: localizeBackendManager("backend-manager-column-auth", "Auth"),
+        token: localizeBackendManager("backend-manager-column-token", "Token"),
+        timeoutMs: localizeBackendManager("backend-manager-column-timeout-ms", "Timeout(ms)"),
+        command: localizeBackendManager("backend-manager-column-command", "Command"),
+        args: localizeBackendManager("backend-manager-column-args", "Args"),
+        env: localizeBackendManager("backend-manager-column-env", "Env"),
+        actions: localizeBackendManager("backend-manager-column-actions", "Actions"),
+        authNone: localizeBackendManager("backend-manager-auth-none", "None"),
+        authBearer: localizeBackendManager("backend-manager-auth-bearer", "Bearer"),
+        remove: localizeBackendManager("backend-manager-remove", "Remove"),
+        save: localizeBackendManager("backend-manager-save", "Save"),
+        cancel: localizeBackendManager("backend-manager-cancel", "Cancel"),
+        confirm: localizeBackendManager("backend-manager-confirm", "Confirm"),
+        profileId: localizeBackendManager("backend-manager-profile-id", "Profile ID"),
+        agentFamily: localizeBackendManager("backend-manager-agent-family", "Agent Family"),
+        acpPresetDialogTitle: localizeBackendManager("backend-manager-acp-preset-dialog-title", "Add ACP Profile from Preset"),
+        genericHttpPresetDialogTitle: localizeBackendManager("backend-manager-generic-http-preset-dialog-title", "Add Generic HTTP Profile from Preset"),
+        acpPresetUseNpx: localizeBackendManager("backend-manager-acp-preset-use-npx", "Use npx"),
+        acpPresetIsolated: localizeBackendManager("backend-manager-acp-preset-isolated", "Isolated environment"),
+        acpPresetNpxWarning: localizeBackendManager("backend-manager-acp-preset-npx-warning", "Requires Node.js and npm."),
+        acpPresetNodeLink: localizeBackendManager("backend-manager-acp-preset-node-link", "Node.js"),
+        acpPresetIsolationWarning: localizeBackendManager("backend-manager-acp-preset-isolation-warning", "Using an isolated environment requires configuring and authenticating the agent in { $path }. Do not enable this if you are unsure."),
+        openManagement: localizeBackendManager("backend-manager-open-management", "Open Management"),
+        refreshModelCache: localizeBackendManager("backend-manager-refresh-model-cache", "Refresh Model Cache"),
+        unreachable: localizeBackendManager("backend-manager-status-unreachable", "Unreachable"),
+        disabled: localizeBackendManager("backend-manager-status-disabled", "Disabled"),
+        statusModelCacheRefreshed: localizeBackendManager("backend-manager-status-model-cache-refreshed", "Model cache refreshed"),
+        statusModelCacheRefreshFailed: localizeBackendManager("backend-manager-status-model-cache-refresh-failed", "Model cache refresh failed"),
+        statusAcpRuntimeCacheRefreshed: localizeBackendManager("backend-manager-status-acp-runtime-cache-refreshed", "ACP config cache refreshed"),
+        statusAcpRuntimeCacheRefreshFailed: localizeBackendManager("backend-manager-status-acp-runtime-cache-refresh-failed", "ACP config cache refresh failed"),
+        refreshAcpRuntimeCache: localizeBackendManager("backend-manager-refresh-acp-runtime-cache", "Refresh Config Cache"),
+        testAcpConnection: localizeBackendManager("backend-manager-test-acp-connection", "Test Connection"),
+        addArg: localizeBackendManager("backend-manager-add-arg", "Add Argument"),
+        addEnv: localizeBackendManager("backend-manager-add-env", "Add Environment Variable"),
+        argPlaceholder: localizeBackendManager("backend-manager-arg-placeholder", "Argument"),
+        envKeyPlaceholder: localizeBackendManager("backend-manager-env-key-placeholder", "Variable"),
+        envValuePlaceholder: localizeBackendManager("backend-manager-env-value-placeholder", "Value"),
+        noProfiles: localizeBackendManager("backend-manager-empty-provider", "No profiles configured."),
+        unsavedExitConfirm: localizeBackendManager("backend-manager-unsaved-exit-confirm", "Discard unsaved backend changes?"),
+    };
+}
+function buildSkillRunnerHealthSnapshot(rows) {
+    const healthById = {};
+    for (const row of rows) {
+        if (row.type !== DEFAULT_BACKEND_TYPE || !row.internalId) {
+            continue;
+        }
+        const health = getSkillRunnerBackendHealthState(row.internalId);
+        healthById[row.internalId] = {
+            enabled: row.enabled !== false && health?.status !== "disabled",
+            reachable: health?.reachable === true && health?.status === "reachable",
+            status: row.enabled === false ? "disabled" : health?.status || "unknown",
+            updatedAt: health?.updatedAt,
+            lastReachableAt: health?.lastReachableAt,
+            lastProbeAt: health?.lastProbeAt,
+            ...(health?.lastError ? { lastError: health.lastError } : {}),
+        };
+    }
+    return healthById;
+}
+function buildGenericHttpPresetSnapshot() {
+    return listGenericHttpBackendPresets().map((preset) => ({
+        id: preset.id,
+        displayName: preset.displayName,
+        baseUrl: preset.baseUrl,
+        authKind: preset.authKind,
+        authTokenPlaceholder: preset.authTokenPlaceholder,
+        timeoutMs: preset.timeoutMs,
+        note: preset.note
+            ? {
+                text: localizeBackendManager(preset.note.textKey, preset.note.textFallback),
+                linkText: localizeBackendManager(preset.note.linkTextKey, preset.note.linkTextFallback),
+                linkUrl: preset.note.linkUrl,
+            }
+            : undefined,
+    }));
+}
+function isKnownGenericHttpPresetLink(url) {
+    const normalized = String(url || "").trim();
+    return listGenericHttpBackendPresets().some((preset) => preset.note?.linkUrl === normalized);
+}
+function getBackendManagerNpxRuntimeStatus() {
+    const runtimeCommands = getRuntimeCommandRegistrySnapshot();
+    const npxResolution = runtimeCommands.commands.npx;
+    return {
+        ...(runtimeCommands.initialized && npxResolution
+            ? { available: npxResolution.available }
+            : {}),
+        ...(npxResolution?.diagnostic
+            ? { diagnostic: npxResolution.diagnostic }
+            : {}),
+    };
+}
+function buildBackendManagerSnapshot(rows, args) {
+    const { defaultPiWebSources, findPiCatalogModel, getPiBrokeredWebTools, hasPiModelCapabilities, listPiCredentials, loadPiMcpSourceRegistry, loadPiProviderConfigurationState, } = requireBackendManagerPi();
+    const npxRuntimeStatus = getBackendManagerNpxRuntimeStatus();
+    const piState = loadPiProviderConfigurationState();
+    const piCredentials = listPiCredentials();
+    let mcpSources = [];
+    let mcpError = "";
+    try {
+        mcpSources = loadPiMcpSourceRegistry().sources;
+    }
+    catch {
+        mcpError = "mcp_source_registry_corrupt";
+    }
+    let webSources = [];
+    let webError = "";
+    try {
+        webSources = getPiBrokeredWebTools().listSources();
+    }
+    catch {
+        webSources = defaultPiWebSources();
+        webError = "web_source_registry_corrupt";
+    }
+    const configurationStatus = {};
+    for (const entry of piState.configurations) {
+        const model = activePiCatalog
+            ? findPiCatalogModel(activePiCatalog, entry, entry.modelId)
+            : undefined;
+        if (!entry.enabled)
+            configurationStatus[entry.id] = "disabled";
+        else if (!entry.provider ||
+            !entry.modelId ||
+            (entry.authVariant === "none" && !entry.baseUrl))
+            configurationStatus[entry.id] = "incomplete";
+        else if (entry.authVariant !== "none" &&
+            !piCredentials.some((credential) => credential.id === entry.credentialRef &&
+                credential.kind === entry.authVariant))
+            configurationStatus[entry.id] = "needs-auth";
+        else if (!activePiCatalog)
+            configurationStatus[entry.id] = "unavailable";
+        else if (!hasPiModelCapabilities(model) ||
+            !model.reasoning.includes(entry.reasoning || "off"))
+            configurationStatus[entry.id] = "invalid";
+        else
+            configurationStatus[entry.id] = "configured";
+    }
+    return {
+        title: localizeBackendManager("backend-manager-title", "Backend Manager"),
+        help: localizeBackendManager("backend-manager-help", 'Profiles are managed by provider. Click "Save" to persist.'),
+        labels: buildBackendManagerLabels(),
+        initialProviderType: normalizeBackendManagerProviderType(args?.initialProviderType),
+        providers: PROVIDER_SECTIONS.map((provider) => {
+            const label = localizeBackendManager(provider.labelKey, provider.type);
+            return {
+                type: provider.type,
+                label,
+                title: localizeBackendManager("backend-manager-provider-profiles-title", `${label} Profiles`, { args: { provider: label } }),
+            };
+        }),
+        rows,
+        builtinAgent: {
+            configurations: piState.configurations,
+            configurationStatus,
+            credentials: piCredentials,
+            mcpSources,
+            ...(mcpError ? { mcpError } : {}),
+            mcpCredentials: listPiCredentials("mcp-source"),
+            mcpDiscovered: {},
+            webSources,
+            ...(webError ? { webError } : {}),
+            webCredentials: listPiCredentials("web-source"),
+            webTestResults: {},
+            defaults: piState.defaults,
+            overlayPath: piState.overlayPath,
+            catalog: {
+                status: activePiCatalogError
+                    ? "error"
+                    : activePiCatalog
+                        ? "ready"
+                        : "loading",
+                revision: activePiCatalog?.revision || "",
+                modelCount: activePiCatalog?.models.length || 0,
+                providers: activePiCatalog
+                    ? Array.from(new Set(activePiCatalog.models.map((model) => model.provider))).sort()
+                    : [],
+                ...(activePiCatalogError ? { error: activePiCatalogError } : {}),
+            },
+            models: [],
+        },
+        acpPresets: listAcpBackendPresets().map((preset) => ({
+            id: preset.id,
+            label: preset.displayName,
+            bareCommand: preset.bareCommand,
+            bareArgs: [...preset.bareArgs],
+            npxPackage: preset.npxPackage,
+            npxArgs: preset.npxArgs ? [...preset.npxArgs] : undefined,
+            defaultEnv: preset.defaultEnv ? { ...preset.defaultEnv } : undefined,
+            defaultUseNpx: preset.defaultUseNpx,
+            supportsNpx: preset.supportsNpx,
+            agentFamily: preset.agentFamily,
+            isolation: preset.isolation
+                ? {
+                    envKey: preset.isolation.envKey,
+                    env: preset.isolation.env
+                        ? preset.isolation.env.map((entry) => ({
+                            key: entry.key,
+                            pathSuffix: entry.pathSuffix,
+                        }))
+                        : undefined,
+                    args: preset.isolation.args
+                        ? preset.isolation.args.map((entry) => ({
+                            flag: entry.flag,
+                            pathSuffix: entry.pathSuffix,
+                        }))
+                        : undefined,
+                }
+                : undefined,
+        })),
+        genericHttpPresets: buildGenericHttpPresetSnapshot(),
+        acpPresetIsolationRoot: getAcpBackendIsolatedEnvironmentRoot(),
+        runtimeCommands: {
+            npx: npxRuntimeStatus,
+        },
+        skillRunnerHealth: buildSkillRunnerHealthSnapshot(rows),
+    };
+}
+async function persistAcpBackendProbeResultFromDraft(row) {
+    const backend = collectBackendsFromDraftRows([row]).backends[0];
+    const loaded = await loadBackendsRegistry();
+    if (loaded.fatalError) {
+        throw new Error(loaded.fatalError);
+    }
+    let replaced = false;
+    const nextBackends = loaded.backends.map((entry) => {
+        if (entry.id !== backend.id) {
+            return entry;
+        }
+        replaced = true;
+        return backend;
+    });
+    if (!replaced) {
+        nextBackends.push(backend);
+    }
+    persistBackendsConfig(nextBackends);
+    return backend;
+}
+export async function openBackendManagerDialog(args) {
+    const { acceptPiMcpImport, deletePiCredential, deletePiMcpSource, deletePiProviderConfiguration, exportPiMcpJson, getPiBrokeredWebTools, listPiCredentials, loadPiProviderConfigurationState, previewPiMcpJson, putPiCredential, resetPiMcpSourceRegistry, resolvePiModelSelection, reviewPiMcpTool, setPiOverlayPath, setPiProviderDefaults, unreviewPiMcpTool, upsertPiMcpSource, upsertPiProviderConfiguration, } = requireBackendManagerPi();
+    if (isWindowAlive(addon.data.dialog?.window)) {
+        addon.data.dialog?.window?.focus();
+        postBackendManagerProviderSelection(args?.initialProviderType);
+        return;
+    }
+    activePiCatalog = null;
+    activePiCatalogError = "";
+    let activePiCodexLogin;
+    const alertWindow = getAlertWindow(args?.window);
+    const initialProviderType = normalizeBackendManagerProviderType(args?.initialProviderType);
+    const loaded = await loadBackendsRegistry();
+    const initialRows = (loaded.fatalError
+        ? [buildFallbackBackendRow()]
+        : loaded.backends
+            .filter((entry) => !isManagedLocalBackendId(entry.id))
+            .map((entry) => normalizeRowFromBackend(entry))).map(editableRowToDraft);
+    if (loaded.fatalError) {
+        alertWindow?.alert?.(getString("backend-manager-error-invalid-config", {
+            args: { error: loaded.fatalError },
+        }));
+    }
+    let frameWindow = null;
+    let removeMessageListener;
+    let currentDraftRows = normalizeDraftRows(initialRows);
+    const initialSignature = createBackendManagerDraftSignature(currentDraftRows);
+    const dialogData = {
+        _initialBackendDraftSignature: initialSignature,
+        _currentBackendDraftSignature: initialSignature,
+        loadCallback: () => {
+            const doc = addon.data.dialog?.window?.document;
+            const dialogWindow = addon.data.dialog?.window;
+            if (!doc) {
+                return;
+            }
+            const root = doc.getElementById("zs-backend-manager-root");
+            if (!root) {
+                return;
+            }
+            root.innerHTML = "";
+            const frame = createBackendManagerFrame(doc);
+            const postToFrame = (type, payload) => {
+                const targetWindow = resolveFrameWindow(frame);
+                if (!targetWindow) {
+                    return;
+                }
+                frameWindow = targetWindow;
+                targetWindow.postMessage({ type, payload }, "*");
+            };
+            const pushSnapshot = (type) => {
+                postToFrame(type, buildBackendManagerSnapshot(currentDraftRows, {
+                    initialProviderType,
+                }));
+            };
+            let catalogController;
+            const refreshCodexModels = async (configurationId) => {
+                const configuration = loadPiProviderConfigurationState().configurations.find((entry) => entry.id === configurationId);
+                if (!configuration ||
+                    configuration.authVariant !== "openai-codex" ||
+                    !configuration.credentialRef)
+                    throw new Error("Provider unavailable");
+                const AbortControllerCtor = resolveNativeAbortControllerConstructor(dialogWindow);
+                if (!AbortControllerCtor)
+                    throw new Error("Provider unavailable");
+                catalogController?.abort();
+                const controller = new AbortControllerCtor();
+                catalogController = controller;
+                const stop = () => controller.abort();
+                dialogWindow?.addEventListener("unload", stop, { once: true });
+                const timeout = setTimeout(stop, 30_000);
+                try {
+                    const { refreshPiCodexModelCatalog, loadPiModelCatalog } = await requireBackendManagerPi().loadPiModelCatalog();
+                    const next = await refreshPiCodexModelCatalog(activePiCatalog || (await loadPiModelCatalog()), {
+                        credentialId: configuration.credentialRef,
+                        signal: controller.signal,
+                    });
+                    const current = loadPiProviderConfigurationState().configurations.find((entry) => entry.id === configurationId);
+                    if (catalogController !== controller ||
+                        controller.signal.aborted ||
+                        current?.credentialRef !== configuration.credentialRef)
+                        throw new Error("Provider unavailable");
+                    activePiCatalog = next;
+                    activePiCatalogError = "";
+                }
+                finally {
+                    clearTimeout(timeout);
+                    dialogWindow?.removeEventListener("unload", stop);
+                    if (catalogController === controller)
+                        catalogController = undefined;
+                }
+            };
+            const onMessage = (event) => {
+                const sourceWindow = event.source && "postMessage" in event.source
+                    ? event.source
+                    : null;
+                const currentFrameWindow = resolveFrameWindow(frame);
+                if (sourceWindow &&
+                    currentFrameWindow &&
+                    sourceWindow !== currentFrameWindow) {
+                    return;
+                }
+                const data = event.data;
+                if (!data || data.type !== "backend-manager-dialog:action") {
+                    return;
+                }
+                frameWindow = sourceWindow || currentFrameWindow;
+                activeBackendManagerFrameWindow = frameWindow;
+                const envelope = data;
+                const action = String(envelope.action || "").trim();
+                const payload = envelope.payload && typeof envelope.payload === "object"
+                    ? envelope.payload
+                    : {};
+                if (action === "ready") {
+                    pushSnapshot("backend-manager-dialog:init");
+                    void (async () => {
+                        try {
+                            const { loadPiModelCatalog, refreshPiModelCatalog } = await requireBackendManagerPi().loadPiModelCatalog();
+                            try {
+                                activePiCatalog = await refreshPiModelCatalog({
+                                    overlayPath: loadPiProviderConfigurationState().overlayPath || undefined,
+                                });
+                                activePiCatalogError = "";
+                            }
+                            catch {
+                                activePiCatalog = await loadPiModelCatalog();
+                                activePiCatalogError = "Catalog overlay could not be loaded";
+                            }
+                        }
+                        catch {
+                            activePiCatalog = null;
+                            activePiCatalogError = "Model catalog is unavailable";
+                        }
+                        pushSnapshot("backend-manager-dialog:snapshot");
+                    })();
+                    return;
+                }
+                if (action === "pi-catalog-query") {
+                    const provider = String(payload.provider || "").trim();
+                    const query = String(payload.query || "")
+                        .trim()
+                        .toLowerCase()
+                        .slice(0, 128);
+                    const models = (activePiCatalog?.models || [])
+                        .filter((model) => model.provider === provider &&
+                        (provider !== "openai-codex" ||
+                            (model.source === "discovered" &&
+                                model.credentialRef === payload.credentialId)) &&
+                        (!query ||
+                            model.id.toLowerCase().includes(query) ||
+                            model.name.toLowerCase().includes(query)))
+                        .slice(0, 100)
+                        .map(({ provider, id, name }) => ({ provider, id, name }));
+                    postToFrame("backend-manager-dialog:action-result", {
+                        action,
+                        ok: true,
+                        models,
+                        requestId: String(payload.requestId || ""),
+                    });
+                    return;
+                }
+                if (action.startsWith("pi-")) {
+                    void (async () => {
+                        try {
+                            const randomId = () => {
+                                const bytes = new Uint8Array(16);
+                                globalThis.crypto.getRandomValues(bytes);
+                                return `pi-${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+                            };
+                            if (action === "pi-codex-connect") {
+                                const configurationId = String(payload.configurationId || "");
+                                const requestId = String(payload.requestId || "");
+                                const configuration = loadPiProviderConfigurationState().configurations.find((entry) => entry.id === configurationId);
+                                if (!requestId ||
+                                    !configuration ||
+                                    configuration.provider !== "openai-codex" ||
+                                    configuration.authVariant !== "openai-codex" ||
+                                    (payload.credentialId &&
+                                        payload.credentialId !== configuration.credentialRef) ||
+                                    (configuration.credentialRef &&
+                                        listPiCredentials().some((item) => item.id === configuration.credentialRef &&
+                                            item.kind !== "openai-codex")))
+                                    throw new Error("Invalid Codex configuration");
+                                activePiCodexLogin?.controller.abort();
+                                const AbortControllerCtor = resolveNativeAbortControllerConstructor(dialogWindow);
+                                if (!AbortControllerCtor)
+                                    throw new Error("Provider unavailable");
+                                const login = {
+                                    requestId,
+                                    credentialId: configuration.credentialRef || randomId(),
+                                    controller: new AbortControllerCtor(),
+                                };
+                                activePiCodexLogin = login;
+                                try {
+                                    const { connectPiOpenAICodex } = await requireBackendManagerPi().loadPiOpenAICodexAuth();
+                                    await connectPiOpenAICodex({
+                                        id: login.credentialId,
+                                        label: configuration.label || "OpenAI Codex",
+                                        signal: login.controller.signal,
+                                        onCode: ({ verificationUrl, userCode }) => {
+                                            if (activePiCodexLogin !== login)
+                                                return;
+                                            postToFrame("backend-manager-dialog:action-result", {
+                                                action,
+                                                requestId,
+                                                stage: "code",
+                                                verificationUrl,
+                                                userCode,
+                                            });
+                                        },
+                                    });
+                                    if (activePiCodexLogin !== login ||
+                                        login.controller.signal.aborted)
+                                        return;
+                                    const current = loadPiProviderConfigurationState().configurations.find((entry) => entry.id === configurationId);
+                                    if (!current ||
+                                        current.provider !== "openai-codex" ||
+                                        current.authVariant !== "openai-codex" ||
+                                        current.credentialRef !== configuration.credentialRef)
+                                        throw new Error("Codex configuration changed");
+                                    upsertPiProviderConfiguration({
+                                        ...current,
+                                        credentialRef: login.credentialId,
+                                    });
+                                    postToFrame("backend-manager-dialog:action-result", {
+                                        action,
+                                        requestId,
+                                        stage: "complete",
+                                        ok: true,
+                                    });
+                                    pushSnapshot("backend-manager-dialog:snapshot");
+                                    try {
+                                        await refreshCodexModels(configurationId);
+                                    }
+                                    catch {
+                                        activePiCatalogError = "provider_unavailable";
+                                    }
+                                    pushSnapshot("backend-manager-dialog:snapshot");
+                                }
+                                finally {
+                                    if (activePiCodexLogin === login)
+                                        activePiCodexLogin = undefined;
+                                }
+                                return;
+                            }
+                            else if (action === "pi-codex-cancel") {
+                                if (activePiCodexLogin?.requestId ===
+                                    String(payload.requestId || ""))
+                                    activePiCodexLogin.controller.abort();
+                                return;
+                            }
+                            else if (action === "pi-codex-open-verification") {
+                                if (activePiCodexLogin?.requestId ===
+                                    String(payload.requestId || ""))
+                                    globalThis.Zotero?.launchURL?.("https://auth.openai.com/codex/device");
+                                return;
+                            }
+                            else if (action === "pi-codex-disconnect") {
+                                const credentialId = String(payload.credentialId || "");
+                                if (!credentialId ||
+                                    !listPiCredentials().some((item) => item.id === credentialId && item.kind === "openai-codex"))
+                                    throw new Error("Codex credential unavailable");
+                                if (activePiCodexLogin?.credentialId === credentialId)
+                                    activePiCodexLogin.controller.abort();
+                                await deletePiCredential(credentialId);
+                                catalogController?.abort();
+                                if (activePiCatalog)
+                                    activePiCatalog = await (await requireBackendManagerPi().loadPiModelCatalog()).removePiCodexCredentialModels(activePiCatalog, credentialId);
+                            }
+                            else if (action === "pi-codex-refresh-models") {
+                                await refreshCodexModels(String(payload.configurationId || ""));
+                            }
+                            else if (action === "pi-upsert-configuration") {
+                                const raw = payload.configuration;
+                                if (!raw || typeof raw !== "object")
+                                    throw new Error("Pi configuration is required");
+                                upsertPiProviderConfiguration({
+                                    ...raw,
+                                    id: String(raw.id || "").trim() || randomId(),
+                                });
+                            }
+                            else if (action === "pi-delete-configuration") {
+                                deletePiProviderConfiguration(String(payload.id || ""));
+                            }
+                            else if (action === "pi-set-defaults") {
+                                if (!activePiCatalog)
+                                    throw new Error("Pi catalog is unavailable");
+                                setPiProviderDefaults(payload.defaults, listPiCredentials(), activePiCatalog);
+                            }
+                            else if (action === "pi-refresh-overlay") {
+                                const { refreshPiModelCatalog } = await requireBackendManagerPi().loadPiModelCatalog();
+                                const path = String(payload.path || "").trim();
+                                activePiCatalog = await refreshPiModelCatalog({
+                                    overlayPath: path || undefined,
+                                });
+                                setPiOverlayPath(path);
+                                activePiCatalogError = "";
+                            }
+                            else if (action === "pi-put-credential") {
+                                await putPiCredential({
+                                    id: String(payload.id || "").trim() || randomId(),
+                                    label: String(payload.label || ""),
+                                    material: {
+                                        kind: "api-key",
+                                        secret: String(payload.secret || ""),
+                                    },
+                                });
+                            }
+                            else if (action === "pi-delete-credential") {
+                                await deletePiCredential(String(payload.id || ""));
+                            }
+                            else if (action === "pi-mcp-upsert-source") {
+                                const source = upsertPiMcpSource(payload.source);
+                                await (await requireBackendManagerPi().loadPiMcpRuntimeOwner()).disconnectPiMcpSource(source.id);
+                            }
+                            else if (action === "pi-mcp-delete-source") {
+                                const id = String(payload.id || "");
+                                deletePiMcpSource(id);
+                                await (await requireBackendManagerPi().loadPiMcpRuntimeOwner()).disconnectPiMcpSource(id);
+                            }
+                            else if (action === "pi-mcp-put-secret") {
+                                await putPiCredential({
+                                    id: String(payload.id || ""),
+                                    label: String(payload.label || ""),
+                                    namespace: "mcp-source",
+                                    material: {
+                                        kind: "mcp-secret",
+                                        secret: String(payload.secret || ""),
+                                    },
+                                });
+                            }
+                            else if (action === "pi-mcp-delete-secret") {
+                                await deletePiCredential(String(payload.id || ""), "mcp-source");
+                            }
+                            else if (action === "pi-mcp-test-source") {
+                                const { getPiMcpToolSources } = await requireBackendManagerPi().loadPiMcpRuntimeOwner();
+                                const sourceOwner = await getPiMcpToolSources();
+                                const tools = await sourceOwner.testSource(String(payload.id || ""));
+                                postToFrame("backend-manager-dialog:action-result", {
+                                    action,
+                                    ok: true,
+                                    id: String(payload.id || ""),
+                                    requestId: String(payload.requestId || ""),
+                                    tools: tools.map(({ name, description, digest }) => ({
+                                        name,
+                                        description,
+                                        digest,
+                                    })),
+                                });
+                                return;
+                            }
+                            else if (action === "pi-mcp-review-tool") {
+                                reviewPiMcpTool(String(payload.sourceId || ""), String(payload.name || ""), String(payload.digest || ""), { promoted: payload.promoted === true });
+                            }
+                            else if (action === "pi-mcp-unreview-tool") {
+                                unreviewPiMcpTool(String(payload.sourceId || ""), String(payload.name || ""));
+                            }
+                            else if (action === "pi-mcp-import") {
+                                await acceptPiMcpImport(previewPiMcpJson(String(payload.json || "")), Array.isArray(payload.approvals)
+                                    ? payload.approvals
+                                    : []);
+                            }
+                            else if (action === "pi-mcp-preview-import") {
+                                const preview = previewPiMcpJson(String(payload.json || ""));
+                                postToFrame("backend-manager-dialog:action-result", {
+                                    action,
+                                    ok: true,
+                                    sources: preview.sources.map(({ id, transport, url, executable, localNetworkApproval, cleartextApproval, }) => ({
+                                        id,
+                                        transport,
+                                        endpoint: url || executable || "",
+                                        origin: localNetworkApproval || "",
+                                        localNetwork: !!localNetworkApproval,
+                                        cleartext: !!cleartextApproval,
+                                    })),
+                                    secretSlots: preview.secrets.map(({ sourceId, slot }) => ({
+                                        sourceId,
+                                        slot,
+                                    })),
+                                });
+                                return;
+                            }
+                            else if (action === "pi-mcp-export") {
+                                postToFrame("backend-manager-dialog:action-result", {
+                                    action,
+                                    ok: true,
+                                    json: exportPiMcpJson(),
+                                });
+                                return;
+                            }
+                            else if (action === "pi-mcp-reset-registry") {
+                                resetPiMcpSourceRegistry();
+                                await (await requireBackendManagerPi().loadPiMcpRuntimeOwner()).shutdownPiMcpToolSources();
+                            }
+                            else if (action === "pi-web-save-sources") {
+                                getPiBrokeredWebTools().saveSources(payload.sources || []);
+                            }
+                            else if (action === "pi-web-test-source") {
+                                const id = String(payload.id || "");
+                                const requestId = String(payload.requestId || "");
+                                const result = await getPiBrokeredWebTools().testSource(id, requestId);
+                                postToFrame("backend-manager-dialog:action-result", {
+                                    action,
+                                    ok: true,
+                                    sourceId: id,
+                                    requestId,
+                                    status: result.status,
+                                    ...(result.toolDigest
+                                        ? { toolDigest: result.toolDigest }
+                                        : {}),
+                                    ...(result.code ? { code: result.code } : {}),
+                                });
+                                return;
+                            }
+                            else if (action === "pi-web-put-secret") {
+                                await putPiCredential({
+                                    id: String(payload.id || ""),
+                                    label: String(payload.label || ""),
+                                    namespace: "web-source",
+                                    material: {
+                                        kind: "web-secret",
+                                        secret: String(payload.secret || ""),
+                                    },
+                                });
+                            }
+                            else if (action === "pi-web-delete-secret") {
+                                await deletePiCredential(String(payload.id || ""), "web-source");
+                            }
+                            else if (action === "pi-export-diagnostics") {
+                                // The host owns the save target; a cancelled picker performs
+                                // no export at all and publishes no result. The global scope
+                                // reads no owner workspace.
+                                const picked = await openRuntimeFilePicker({
+                                    title: localizeBackendManager("backend-manager-pi-export-diagnostics", "Export diagnostics"),
+                                    mode: "save",
+                                    suggestion: "pi-diagnostics.zip",
+                                });
+                                const targetPath = typeof picked === "string" ? picked : "";
+                                if (!targetPath)
+                                    return;
+                                const { exportDiagnostics } = await requireBackendManagerPi().loadPiRuntimeAudit();
+                                const result = await exportDiagnostics({ kind: "global" }, targetPath);
+                                postToFrame("backend-manager-dialog:action-result", {
+                                    action,
+                                    ok: result.status === "exported",
+                                    ...(result.status === "exported"
+                                        ? {}
+                                        : { error: result.code, code: result.code }),
+                                });
+                                return;
+                            }
+                            else if (action === "pi-test-connection") {
+                                if (!activePiCatalog)
+                                    throw new Error("Provider unavailable");
+                                const selection = resolvePiModelSelection({
+                                    kind: "conversation",
+                                    catalog: activePiCatalog,
+                                    credentials: listPiCredentials(),
+                                    explicit: {
+                                        configurationId: String(payload.configurationId || ""),
+                                    },
+                                });
+                                const AbortControllerCtor = resolveNativeAbortControllerConstructor(dialogWindow);
+                                if (!AbortControllerCtor)
+                                    throw new Error("Provider unavailable");
+                                const controller = new AbortControllerCtor();
+                                const timeout = setTimeout(() => controller.abort(), 20_000);
+                                try {
+                                    const { createPiProviderModelSource } = await requireBackendManagerPi().loadPiProviderExecution();
+                                    for await (const _ of createPiProviderModelSource(selection)({
+                                        systemPrompt: "",
+                                        messages: [{ role: "user", text: "Reply OK." }],
+                                        signal: controller.signal,
+                                    })) {
+                                        // A completed stream is the connection-test success boundary.
+                                    }
+                                }
+                                finally {
+                                    clearTimeout(timeout);
+                                }
+                                postToFrame("backend-manager-dialog:action-result", {
+                                    action,
+                                    ok: true,
+                                    requestId: String(payload.requestId || ""),
+                                });
+                                return;
+                            }
+                            else {
+                                throw new Error("Unknown Pi action");
+                            }
+                            postToFrame("backend-manager-dialog:action-result", {
+                                action,
+                                ok: true,
+                            });
+                            pushSnapshot("backend-manager-dialog:snapshot");
+                        }
+                        catch (error) {
+                            const sensitive = action.startsWith("pi-mcp-") ||
+                                action.startsWith("pi-web-") ||
+                                action.startsWith("pi-codex-") ||
+                                action === "pi-put-credential" ||
+                                action === "pi-delete-credential" ||
+                                action === "pi-test-connection" ||
+                                action === "pi-export-diagnostics";
+                            const authFailure = action === "pi-codex-connect" &&
+                                error instanceof
+                                    (await requireBackendManagerPi().loadPiOpenAICodexAuth())
+                                        .PiCodexAuthFailure
+                                ? error
+                                : null;
+                            const failureCode = authFailure
+                                ? authFailure.code
+                                : action === "pi-test-connection" &&
+                                    error instanceof
+                                        (await requireBackendManagerPi().loadPiRuntime())
+                                            .PiModelStreamFailure
+                                    ? error.code
+                                    : "provider_unavailable";
+                            postToFrame("backend-manager-dialog:action-result", {
+                                action,
+                                ok: false,
+                                ...(action === "pi-codex-connect"
+                                    ? {
+                                        requestId: String(payload.requestId || ""),
+                                        stage: "failed",
+                                        code: failureCode,
+                                        phase: authFailure?.phase,
+                                    }
+                                    : {}),
+                                ...(action === "pi-mcp-test-source"
+                                    ? {
+                                        id: String(payload.id || ""),
+                                        requestId: String(payload.requestId || ""),
+                                    }
+                                    : {}),
+                                ...(action === "pi-web-test-source"
+                                    ? {
+                                        sourceId: String(payload.id || ""),
+                                        requestId: String(payload.requestId || ""),
+                                    }
+                                    : {}),
+                                ...(action === "pi-test-connection"
+                                    ? {
+                                        requestId: String(payload.requestId || ""),
+                                        code: failureCode,
+                                    }
+                                    : {
+                                        error: action.startsWith("pi-mcp-")
+                                            ? error instanceof Error &&
+                                                /^(mcp_[a-z0-9_]+|oauth_not_supported)$/.test(error.message)
+                                                ? error.message
+                                                : "mcp_source_unavailable"
+                                            : sensitive
+                                                ? "Pi action failed"
+                                                : String(error),
+                                    }),
+                            });
+                        }
+                    })();
+                    return;
+                }
+                if (action === "draft-changed") {
+                    currentDraftRows = normalizeDraftRows(payload.rows);
+                    dialogData._currentBackendDraftSignature =
+                        createBackendManagerDraftSignature(currentDraftRows);
+                    return;
+                }
+                if (action === "cancel") {
+                    dialogData._lastButtonId = "cancel";
+                    dialogData._allowBackendManagerClose = true;
+                    dialogWindow?.close();
+                    return;
+                }
+                if (action === "save") {
+                    void (async () => {
+                        try {
+                            currentDraftRows = normalizeDraftRows(payload.rows);
+                            const collected = collectBackendsFromDraftRows(currentDraftRows);
+                            await ensureManagedAcpBackendEnvironmentDirectories(collected.backends);
+                            persistBackendsConfig(collected.backends);
+                            dialogData._lastButtonId = "save";
+                            dialogData._allowBackendManagerClose = true;
+                            alertWindow?.alert?.(getString("backend-manager-saved"));
+                            dialogWindow?.close();
+                        }
+                        catch (error) {
+                            alertWindow?.alert?.(getString("backend-manager-save-failed", {
+                                args: { error: String(error) },
+                            }));
+                        }
+                    })();
+                    return;
+                }
+                if (action === "open-management") {
+                    void launchSkillRunnerManagementFromDraft({
+                        row: normalizeDraftRows([payload.row])[0],
+                    }).catch((error) => {
+                        alertWindow?.alert?.(getString("backend-manager-open-management-failed", {
+                            args: { error: String(error) },
+                        }));
+                    });
+                    return;
+                }
+                if (action === "refresh-model-cache") {
+                    const rowIndex = Number(payload.rowIndex);
+                    const row = normalizeDraftRows([payload.row])[0];
+                    const backendId = row?.internalId || "";
+                    void refreshSkillRunnerModelCacheFromDraft({
+                        row,
+                    })
+                        .then((result) => {
+                        const typed = (result || {});
+                        const resultBackendId = String(typed.backendId || backendId || "").trim();
+                        if (typed.ok === true) {
+                            markSkillRunnerBackendHealthSuccess(resultBackendId);
+                            postToFrame("backend-manager-dialog:action-result", {
+                                action,
+                                rowIndex,
+                                backendId: resultBackendId,
+                                refreshedAt: String(typed.refreshedAt || ""),
+                                ok: true,
+                            });
+                            return;
+                        }
+                        throw new Error(String(typed.error || "unknown error"));
+                    })
+                        .catch((error) => {
+                        markSkillRunnerBackendHealthFailure({ backendId, error });
+                        postToFrame("backend-manager-dialog:action-result", {
+                            action,
+                            rowIndex,
+                            backendId,
+                            error: String(error),
+                            ok: false,
+                        });
+                    });
+                    return;
+                }
+                if (action === "refresh-acp-runtime-options") {
+                    const rowIndex = Number(payload.rowIndex);
+                    const row = normalizeDraftRows([payload.row])[0];
+                    const backendId = row?.internalId || "";
+                    void refreshAcpRuntimeOptionsFromDraft({
+                        row,
+                    })
+                        .then(async (result) => {
+                        const updatedRow = normalizeDraftRows([payload.row])[0];
+                        updatedRow.acp = result.backend.acp;
+                        await persistAcpBackendProbeResultFromDraft(updatedRow);
+                        postToFrame("backend-manager-dialog:action-result", {
+                            action,
+                            rowIndex,
+                            backendId,
+                            acp: result.backend.acp,
+                            ok: result.ok,
+                        });
+                    })
+                        .catch((error) => {
+                        postToFrame("backend-manager-dialog:action-result", {
+                            action,
+                            rowIndex,
+                            backendId,
+                            acp: {
+                                connectionTest: {
+                                    status: "failed",
+                                    testedAt: new Date().toISOString(),
+                                    error: String(error),
+                                },
+                            },
+                            error: String(error),
+                            ok: false,
+                        });
+                    });
+                    return;
+                }
+                if (action === "open-nodejs-download") {
+                    const zotero = globalThis.Zotero;
+                    zotero?.launchURL?.("https://nodejs.org/");
+                    return;
+                }
+                if (action === "open-preset-link") {
+                    const url = String(payload.url || "").trim();
+                    if (url && isKnownGenericHttpPresetLink(url)) {
+                        const zotero = globalThis.Zotero;
+                        zotero?.launchURL?.(url);
+                    }
+                    return;
+                }
+                if (action === "add-acp-preset") {
+                    try {
+                        const presetId = String(payload.presetId || "").trim();
+                        const requestedUseNpx = typeof payload.useNpx === "boolean" ? payload.useNpx : undefined;
+                        const useNpx = getBackendManagerNpxRuntimeStatus().available === false
+                            ? false
+                            : requestedUseNpx;
+                        const isolated = typeof payload.isolated === "boolean"
+                            ? payload.isolated
+                            : undefined;
+                        const preset = findAcpBackendPreset(presetId);
+                        if (!preset) {
+                            throw new Error(`Unknown ACP backend preset: ${presetId}`);
+                        }
+                        const draftRow = editableRowFromAcpBackendPresetOptions({
+                            presetId,
+                            useNpx,
+                            isolated,
+                        });
+                        const existingIds = new Set(normalizeDraftRows(payload.rows || currentDraftRows)
+                            .map((row) => row.internalId)
+                            .filter(Boolean));
+                        if (existingIds.has(draftRow.internalId)) {
+                            throw new Error(getString("backend-manager-acp-preset-exists", {
+                                args: { name: preset.displayName },
+                            }));
+                        }
+                        postToFrame("backend-manager-dialog:action-result", {
+                            action,
+                            row: editableRowToDraft(draftRow),
+                        });
+                    }
+                    catch (error) {
+                        alertWindow?.alert?.(String(error));
+                    }
+                }
+                if (action === "add-generic-http-preset") {
+                    try {
+                        const presetId = String(payload.presetId || "").trim();
+                        const preset = findGenericHttpBackendPreset(presetId);
+                        if (!preset) {
+                            throw new Error(`Unknown Generic HTTP backend preset: ${presetId}`);
+                        }
+                        const draftRow = createGenericHttpBackendDraftFromPreset(preset);
+                        const existingIds = new Set(normalizeDraftRows(payload.rows || currentDraftRows)
+                            .map((row) => row.internalId)
+                            .filter(Boolean));
+                        if (existingIds.has(draftRow.internalId)) {
+                            throw new Error(getString("backend-manager-generic-http-preset-exists", {
+                                args: { name: preset.displayName },
+                            }));
+                        }
+                        postToFrame("backend-manager-dialog:action-result", {
+                            action,
+                            row: draftRow,
+                        });
+                    }
+                    catch (error) {
+                        alertWindow?.alert?.(String(error));
+                    }
+                }
+            };
+            dialogWindow?.addEventListener("message", onMessage);
+            removeMessageListener = () => {
+                dialogWindow?.removeEventListener("message", onMessage);
+            };
+            frame.addEventListener("load", () => {
+                frameWindow = resolveFrameWindow(frame);
+                activeBackendManagerFrameWindow = frameWindow;
+                pushSnapshot("backend-manager-dialog:init");
+            });
+            root.appendChild(frame);
+            frame.src = resolveBackendManagerPageUrl();
+            installBackendManagerBeforeUnloadPrompt(doc, dialogData);
+        },
+        unloadCallback: () => {
+            activePiCodexLogin?.controller.abort();
+            if (removeMessageListener) {
+                removeMessageListener();
+                removeMessageListener = undefined;
+            }
+            frameWindow = null;
+            activeBackendManagerFrameWindow = null;
+            removeBackendManagerBeforeUnloadPrompt(addon.data.dialog?.window?.document, dialogData);
+        },
+    };
+    const dialogHelper = new ztoolkit.Dialog(1, 1)
+        .addCell(0, 0, {
+        tag: "div",
+        namespace: "html",
+        id: "zs-backend-manager-root",
+        styles: {
+            width: "100%",
+            height: "100%",
+            minWidth: "1040px",
+            minHeight: "620px",
+            padding: "0",
+            margin: "0",
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+        },
+    })
+        .setDialogData(dialogData)
+        .open(getString("backend-manager-title"), {
+        centerscreen: true,
+        resizable: true,
+        fitContent: false,
+        width: 1180,
+        height: 700,
+    });
+    addon.data.dialog = dialogHelper;
+    await dialogData.unloadLock
+        ?.promise;
+    addon.data.dialog = undefined;
+}

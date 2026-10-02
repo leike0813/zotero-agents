@@ -56,6 +56,65 @@ function blockerCodes(report: Awaited<ReturnType<typeof analyzeReleaseGate>>) {
 }
 
 describe("release coordinator gate", function () {
+  it("blocks Pi releases without candidate acceptance evidence", async function () {
+    await withPackageVersion("0.9.0", async (packageJsonPath) => {
+      const report = await analyzeReleaseGate({
+        packageJsonPath,
+        targetVersion: "v0.10.0",
+        commandRunner: commandRunner(),
+        testNodeFullPassed: true,
+        lintCheckPassed: true,
+      });
+      assert.include(blockerCodes(report), "pi_acceptance_required");
+    });
+  });
+
+  it("parses the candidate acceptance input without accepting a pass flag", () => {
+    const args = parseReleaseGateCliArgs([
+      "--pi-acceptance",
+      "artifacts/acceptance.json",
+      "--pi-xpi",
+      ".scaffold/build/candidate.xpi",
+    ]);
+    assert.equal(args.piAcceptancePath, "artifacts/acceptance.json");
+    assert.equal(args.piXpiPath, ".scaffold/build/candidate.xpi");
+  });
+
+  it("rejects a reported pass without required items or matching artifact identity", async () => {
+    await withPackageVersion("0.9.0", async (packageJsonPath) => {
+      const root = path.dirname(packageJsonPath);
+      const piAcceptancePath = path.join(root, "summary.json");
+      const piXpiPath = path.join(root, "candidate.xpi");
+      await fs.writeFile(piXpiPath, "unverified artifact");
+      await fs.writeFile(
+        piAcceptancePath,
+        JSON.stringify({
+          schema: "zotero-agents.pi-runtime-acceptance.v1",
+          accepted: true,
+          candidate: {
+            sourceCommit: "a".repeat(40),
+            dirty: false,
+            xpiSha256: "b".repeat(64),
+            version: "0.10.0",
+            capacity: 12,
+          },
+          items: [],
+        }),
+      );
+      const report = await analyzeReleaseGate({
+        packageJsonPath,
+        targetVersion: "v0.10.0",
+        commandRunner: commandRunner(),
+        testNodeFullPassed: true,
+        lintCheckPassed: true,
+        piAcceptancePath,
+        piXpiPath,
+      });
+      assert.include(blockerCodes(report), "pi_acceptance_required");
+      assert.isFalse(report.pi_acceptance?.accepted);
+    });
+  });
+
   it("reports ready_to_release when release gates and remote state are clean", async function () {
     await withPackageVersion("0.5.4", async (packageJsonPath) => {
       const report = await analyzeReleaseGate({

@@ -1,0 +1,881 @@
+import { config as packageConfig, version as packageVersion, } from "../../package.json";
+import { createWorkflowEditorOwner } from "../modules/workflow/ui/workflowEditorHost";
+import { createZoteroHostCapabilityBroker, getZoteroHostCanonicalMutationControl, ZoteroHostCapabilityError, } from "../modules/zoteroHostCapabilityBroker";
+import { getZoteroManagedNoteLocalControl, classifyManagedNoteTransfer, } from "../modules/zoteroHost/zoteroManagedNotes";
+import { parseEmbeddedNotePayloadBlock } from "../modules/zoteroHost/notePayloadCodec";
+import { createWorkflowNotificationOwner } from "../modules/workflowExecution/feedbackSeam";
+import { copyRuntimeFile, ensureRuntimeDirectory, getRuntimePersistencePaths, readRuntimeBytes, removeRuntimePath, statRuntimePathStrict, } from "../modules/runtimePersistence";
+import { createZoteroHostPreparedFiles, } from "../modules/zoteroHost/zoteroHostPreparedFiles";
+import { resolveRuntimeAddon, resolveRuntimeZotero, } from "../utils/runtimeBridge";
+import { canonicalizeLocale, resolveRuntimeLocale, } from "../utils/localizationGovernance";
+import { joinPath } from "../utils/path";
+import { detectRuntimePlatform } from "../platform/runtimePlatform";
+import { createWorkflowPreparedImageScope, } from "./workflowNoteImagePreparation";
+import { createWorkflowBibliographyOwner } from "./bibliography";
+import { createWorkflowClipboardOwner } from "./clipboard";
+import { createWorkflowStoredAttachmentStager, WorkflowStoredAttachmentInputError, } from "./workflowStoredAttachmentImport";
+import { createResearchBundleImportEffects, createResearchBundleImporter, createCanonicalResearchBundleMaterializer, } from "../modules/hostBridge/workflow/researchBundleService";
+import { lookupTrustedStoredAttachmentMutation, MutationAuthorityExecutionError, } from "../modules/zoteroHostMutationAuthority";
+import { sha256Hex } from "../utils/sha256";
+import { createWorkflowLoggingOwner, } from "./workflowLoggingOwner";
+export { WORKFLOW_HOST_API_VERSION } from "./workflowHostContract";
+function canonicalAttachmentSha256(value) {
+    return value.startsWith("sha256:") ? value : `sha256:${value}`;
+}
+function canonicalAttachmentMetadata(metadata) {
+    if (!metadata)
+        return undefined;
+    const result = {};
+    for (const key of [
+        "title",
+        "contentType",
+        "charset",
+        "originalUrl",
+    ]) {
+        const value = metadata[key];
+        if (value !== undefined && value !== null)
+            result[key] = value;
+    }
+    return Object.keys(result).length ? result : undefined;
+}
+export function createCanonicalStoredAttachmentSource(source, snapshot) {
+    const content = {
+        schema: "zotero-agents.attachment-content.v1",
+        identity: snapshot.identity,
+        main: {
+            ...snapshot.main,
+            sha256: canonicalAttachmentSha256(snapshot.main.sha256),
+        },
+        companions: snapshot.companions.map((companion) => ({
+            ...companion,
+            sha256: canonicalAttachmentSha256(companion.sha256),
+        })),
+    };
+    return {
+        kind: "stored_file",
+        content,
+        ...(source.main.targetFilename
+            ? { targetFilename: source.main.targetFilename }
+            : {}),
+        ...(source.companions?.length
+            ? {
+                companions: source.companions.map(({ targetRelativePath }) => ({
+                    targetRelativePath,
+                })),
+            }
+            : {}),
+    };
+}
+export function createStoredAttachmentNonResourceSemanticInput(input, source) {
+    return {
+        ...input,
+        source: {
+            kind: "stored_file",
+            ...(source.main.targetFilename
+                ? { targetFilename: source.main.targetFilename }
+                : {}),
+            ...(source.companions?.length
+                ? {
+                    companions: source.companions.map(({ targetRelativePath }) => ({
+                        targetRelativePath,
+                    })),
+                }
+                : {}),
+        },
+    };
+}
+export function createStoredAttachmentCompleteSemanticInput(input, source) {
+    return {
+        ...input,
+        source: {
+            kind: "stored_file",
+            content: {
+                schema: source.content.schema,
+                identity: source.content.identity,
+                main: { ...source.content.main },
+                companions: source.content.companions.map((companion) => ({
+                    ...companion,
+                })),
+            },
+            ...(source.targetFilename
+                ? { targetFilename: source.targetFilename }
+                : {}),
+            ...(source.companions?.length
+                ? {
+                    companions: source.companions.map(({ targetRelativePath }) => ({
+                        targetRelativePath,
+                    })),
+                }
+                : {}),
+        },
+    };
+}
+export function lookupWorkflowStoredAttachmentMutation(args) {
+    return lookupTrustedStoredAttachmentMutation({
+        scope: args.scope,
+        operationId: args.input.operationId,
+        operation: args.input.operation,
+        nonResourceSemanticInput: createStoredAttachmentNonResourceSemanticInput(args.input, args.source),
+        ...(args.completeSemanticInput
+            ? { completeSemanticInput: args.completeSemanticInput }
+            : {}),
+    });
+}
+function isAttachmentDetail(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return false;
+    }
+    return (!!value.ref &&
+        typeof value.ref === "object" &&
+        !Array.isArray(value.ref) &&
+        typeof value.title === "string");
+}
+export function isAttachmentCreateMutationResult(value) {
+    return isAttachmentDetail(value.attachment);
+}
+export function isAttachmentReplaceMutationResult(value) {
+    return (isAttachmentDetail(value.attachment) &&
+        (value.outcome === "replaced" || value.outcome === "unchanged"));
+}
+export function createWorkflowHostCapabilityBroker(_resources) {
+    return createZoteroHostCapabilityBroker();
+}
+export function createWorkflowPreparedStoredFiles(resources) {
+    const validateStoredSource = async (path) => {
+        const stat = await statRuntimePathStrict(path).catch(() => null);
+        if (!stat?.exists || stat.isDir) {
+            throw new WorkflowStoredAttachmentInputError("Stored attachment source must be a regular file");
+        }
+        return { sizeBytes: stat.size };
+    };
+    const stager = createWorkflowStoredAttachmentStager({
+        getStagingRoot: () => joinPath(getRuntimePersistencePaths().tmpDir, "workflow-attachment-import"),
+        validateSource: validateStoredSource,
+        ensureDirectory: ensureRuntimeDirectory,
+        copyFile: (sourcePath, targetPath) => copyRuntimeFile({ sourcePath, targetPath }).then(() => undefined),
+        removePath: removeRuntimePath,
+    });
+    const preparedFiles = createZoteroHostPreparedFiles({
+        stageStoredAttachmentSources: stager,
+        readBytes: readRuntimeBytes,
+    });
+    const resolveSource = async (source) => {
+        if (source.kind === "local_path")
+            return source.path;
+        if (!resources) {
+            throw new Error("workflow resource resolver is unavailable");
+        }
+        return (await resources.get(source.resourceRef)).path;
+    };
+    return Object.freeze({
+        async prepareStoredAttachment(request) {
+            return preparedFiles.prepareStoredAttachment({
+                path: await resolveSource(request.main.source),
+                targetFilename: request.main.targetFilename,
+                companionFiles: await Promise.all((request.companions || []).map(async (companion) => ({
+                    sourcePath: await resolveSource(companion.source),
+                    relativePath: companion.targetRelativePath,
+                }))),
+            });
+        },
+        preparedFiles,
+    });
+}
+export function createWorkflowHostLeafScope(args) {
+    const prepared = createWorkflowPreparedImageScope({
+        runScopeId: args.runScopeId,
+        adapter: args.imageAdapter,
+        readResourceBlob: args.resources?.get
+            ? async (ref) => {
+                const resource = await args.resources.get(ref);
+                return new Blob([await readRuntimeBytes(resource.path)], {
+                    type: resource.contentType,
+                });
+            }
+            : undefined,
+    });
+    const callerScope = {};
+    return {
+        owners: {
+            addon: createWorkflowAddonOwner(),
+            environment: createWorkflowEnvironmentOwner(),
+            images: prepared.owner,
+            bibliography: createWorkflowBibliographyOwner(),
+            clipboard: createWorkflowClipboardOwner({
+                interactionMode: args.interactionMode,
+            }),
+            editor: createWorkflowEditorOwner({
+                interactionMode: args.interactionMode,
+                callerScope,
+            }),
+            notifications: createWorkflowNotificationOwner({
+                interactionMode: args.interactionMode,
+                callerScope,
+            }),
+            logging: createWorkflowLoggingOwner(args.logBinding),
+        },
+        preparedImages: { resolve: prepared.resolve },
+        dispose: prepared.dispose,
+    };
+}
+export async function withWorkflowHostLeafScope(args, work) {
+    const scope = createWorkflowHostLeafScope(args);
+    try {
+        return await work(scope);
+    }
+    finally {
+        scope.dispose();
+    }
+}
+export function createWorkflowHostLiveReadAdapters(args) {
+    const broker = args.broker || createZoteroHostCapabilityBroker();
+    const interactionRequiredError = (member) => new ZoteroHostCapabilityError("interaction_required", `${member} requires an interactive Workflow Host`, { member });
+    const interactive = args.interactionMode === "interactive";
+    return {
+        context: {
+            getCurrentView: () => interactive
+                ? broker.context.getCurrentView()
+                : (() => {
+                    throw interactionRequiredError("context.getCurrentView");
+                })(),
+            getSelectedItems: (request, control) => interactive
+                ? broker.context.getSelectedItems(request, control)
+                : Promise.reject(interactionRequiredError("context.getSelectedItems")),
+        },
+        library: {
+            listItems: broker.library.listItems,
+            traverseItems: broker.library.traverseItems,
+            listCollections: broker.library.listCollections,
+            listSavedSearches: broker.library.listSavedSearches,
+            getItemDetail: broker.library.getItemDetail,
+            getItemNotes: broker.library.getItemNotes,
+            getNoteDetail: broker.library.getNoteDetail,
+            listNotePayloads: broker.library.listNotePayloads,
+            getNotePayload: broker.library.getNotePayload,
+            getItemAttachments: broker.library.getItemAttachments,
+            listAnnotations: broker.library.listAnnotations,
+            exportPortableItems: broker.library.exportPortableItems,
+        },
+    };
+}
+function workflowSnapshotOwnerId() {
+    const crypto = globalThis
+        .crypto;
+    return `workflow-snapshot-${crypto?.randomUUID?.() ||
+        `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`}`;
+}
+function requireConfirmedMutationResult(result) {
+    if ("result" in result) {
+        return result.result;
+    }
+    const { attempt } = result;
+    throw new MutationAuthorityExecutionError(attempt.status, attempt.error.code, attempt.error.phase, attempt.error.recovery, attempt.error.details, attempt.error.message ||
+        `Workflow Host mutation ${result.outcome}: ${attempt.error.code}`, attempt.affectedRefs, attempt.residualRefs);
+}
+async function researchImportEffectOperationId(operationId, consistencyGroupId, member, identity) {
+    const digest = await sha256Hex(new TextEncoder().encode(JSON.stringify([operationId, consistencyGroupId, member, identity])));
+    if (!digest) {
+        throw new Error("SHA-256 is unavailable for research import identity");
+    }
+    return `research-import:${digest}`;
+}
+function requireMutationItemRef(value) {
+    const candidate = value;
+    const libraryId = Number(candidate?.ref?.libraryId);
+    const key = String(candidate?.ref?.key || "").trim();
+    const revision = String(candidate?.revision || "").trim();
+    if (!Number.isInteger(libraryId) || libraryId <= 0 || !key || !revision) {
+        throw new Error("Research import mutation returned an invalid item result");
+    }
+    return { ref: { libraryId, key }, revision };
+}
+function escapeResearchImportHtml(value) {
+    return value
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+}
+export function createWorkflowResearchBundleImportApi(args) {
+    const broker = createWorkflowHostCapabilityBroker(args.resources);
+    const trusted = getZoteroHostCanonicalMutationControl(broker);
+    const callerScope = {
+        ownerId: args.ownerId,
+        preparedImages: args.preparedImages,
+    };
+    const executePreparedAttachmentCreate = async (input, source, control) => {
+        const existing = await lookupWorkflowStoredAttachmentMutation({
+            scope: callerScope,
+            input,
+            source,
+        });
+        if (existing.state !== "missing")
+            return existing.result;
+        const files = createWorkflowPreparedStoredFiles(args.resources);
+        try {
+            const preparedFile = await files.prepareStoredAttachment(source);
+            const canonicalSource = createCanonicalStoredAttachmentSource(source, preparedFile.snapshot);
+            const canonicalInput = {
+                ...input,
+                source: canonicalSource,
+            };
+            const replay = await lookupWorkflowStoredAttachmentMutation({
+                scope: callerScope,
+                input,
+                source,
+                completeSemanticInput: createStoredAttachmentCompleteSemanticInput(input, canonicalSource),
+            });
+            if (replay.state !== "missing")
+                return replay.result;
+            const prepared = await trusted.prepare({
+                input: canonicalInput,
+                scope: callerScope,
+                control,
+                resources: {
+                    deferredStoredAttachment: {
+                        prepare: async () => preparedFile,
+                    },
+                    preparedFiles: files.preparedFiles,
+                },
+            });
+            if (prepared.state === "settled")
+                return prepared.result;
+            return await trusted.execute({
+                input: canonicalInput,
+                scope: callerScope,
+                prepared: prepared.prepared,
+                control,
+            });
+        }
+        finally {
+            await files.preparedFiles.dispose();
+        }
+    };
+    const mutationResult = async (request, control) => requireConfirmedMutationResult(await broker.mutations.execute(request, callerScope, control));
+    const importPapers = createResearchBundleImporter({
+        ownerId: args.ownerId,
+        effects: createResearchBundleImportEffects({
+            resolveLibraryId(libraryId) {
+                return (libraryId || Number(resolveHostZotero().Libraries?.userLibraryID) || 1);
+            },
+            async readExistingTarget({ itemRef, control }) {
+                const detail = await broker.library.getItemDetail(itemRef, control);
+                if (!detail || detail.kind !== "regular")
+                    return null;
+                return {
+                    itemRef: detail.item.ref,
+                    revision: detail.item.revision,
+                    itemType: detail.item.itemType,
+                };
+            },
+            async readCollectionTarget({ collectionRef, control }) {
+                let cursor;
+                while (true) {
+                    const page = await broker.library.listCollections({
+                        libraryId: collectionRef.libraryId,
+                        limit: 100,
+                        ...(cursor ? { cursor } : {}),
+                    }, control);
+                    const collection = page.collections.find((entry) => entry.ref.key === collectionRef.key);
+                    if (collection) {
+                        return {
+                            collectionRef: collection.ref,
+                            revision: collection.revision,
+                        };
+                    }
+                    if (!page.hasMore)
+                        return null;
+                    const nextCursor = page.nextCursor?.trim();
+                    if (!nextCursor || nextCursor === cursor) {
+                        throw new Error("Research import collection pagination is invalid");
+                    }
+                    cursor = nextCursor;
+                }
+            },
+            async resolveResource({ resourceRef }) {
+                const resource = await args.resources.get(resourceRef);
+                const sizeBytes = Number(resource.sizeBytes ?? resource.size);
+                const sha256 = String(resource.sha256 || "").replace(/^sha256:/, "");
+                if (!resource.path || !Number.isFinite(sizeBytes) || !sha256) {
+                    throw new Error("Research import resource is incomplete");
+                }
+                return {
+                    path: resource.path,
+                    sizeBytes,
+                    sha256,
+                    ...(resource.contentType
+                        ? { contentType: resource.contentType }
+                        : {}),
+                };
+            },
+            async createItem({ operationId, consistencyGroupId, graphId, libraryId, item, control, }) {
+                const result = await mutationResult({
+                    operation: "item.create",
+                    operationId: await researchImportEffectOperationId(operationId, consistencyGroupId, "item.create", graphId),
+                    libraryId,
+                    itemType: item.itemType,
+                    fields: item.fields,
+                    creators: item.creators,
+                    initialTags: item.tags,
+                }, control);
+                return requireMutationItemRef(result.item);
+            },
+            async addToCollection({ operationId, consistencyGroupId, graphId, itemRef, collectionRef, control, }) {
+                await mutationResult({
+                    operation: "collection.updateMembership",
+                    operationId: await researchImportEffectOperationId(operationId, consistencyGroupId, "collection.updateMembership", `${graphId}:${collectionRef.libraryId}:${collectionRef.key}`),
+                    collectionRef,
+                    add: [itemRef],
+                    remove: [],
+                }, control);
+            },
+            async createNotes({ operationId, consistencyGroupId, graphId, parentRef, notes, control, }) {
+                const prepared = await Promise.all(notes.map(async ({ note, embeddedImages }) => {
+                    const content = note.content.format === "html"
+                        ? note.content.value
+                        : `<p>${escapeResearchImportHtml(note.content.value)}</p>`;
+                    const transferImages = await Promise.all(embeddedImages.map(async (image) => ({
+                        image,
+                        payload: parseEmbeddedNotePayloadBlock(await readRuntimeBytes(image.resource.path)),
+                    })));
+                    const inspection = classifyManagedNoteTransfer({
+                        html: content,
+                        title: "",
+                        payloads: note.payloads,
+                        embeddedPayloads: transferImages.flatMap((entry) => entry.payload ? [entry.payload] : []),
+                    });
+                    const imageBindings = await Promise.all(transferImages
+                        .filter((entry) => inspection.kind === "ordinary" || !entry.payload)
+                        .map(async ({ image }) => ({
+                        slot: image.slot,
+                        preparedImage: (await args.images.prepareForNoteEmbedding({
+                            source: { kind: "file", path: image.resource.path },
+                            ...(image.preserveSourceBytes
+                                ? { options: { preserveSourceBytes: true } }
+                                : {}),
+                        }, control)).ref,
+                        ...(image.altText ? { altText: image.altText } : {}),
+                    })));
+                    const payloadImageSlots = transferImages.flatMap((entry) => entry.payload
+                        ? [
+                            {
+                                slot: entry.image.slot,
+                                payloadType: entry.payload.payloadType,
+                            },
+                        ]
+                        : []);
+                    return {
+                        note,
+                        content,
+                        inspection,
+                        imageBindings,
+                        payloadImageSlots,
+                    };
+                }));
+                const managedEntries = [];
+                const managedIds = [];
+                for (const entry of prepared) {
+                    if (entry.inspection.kind !== "managed")
+                        continue;
+                    managedIds.push(entry.note.noteId);
+                    managedEntries.push({
+                        sourceNoteId: entry.note.noteId,
+                        noteKind: entry.inspection.noteKind,
+                        title: entry.inspection.title,
+                        payload: entry.inspection.payload,
+                        visibleHtml: entry.content,
+                        tags: entry.note.tags,
+                        embeddedImages: entry.imageBindings,
+                        auxiliaryPayloads: entry.inspection.payloads,
+                        payloadImageSlots: entry.payloadImageSlots,
+                    });
+                }
+                const created = [];
+                try {
+                    if (managedEntries.length) {
+                        const result = requireConfirmedMutationResult(await getZoteroManagedNoteLocalControl(broker).applyParentSet({
+                            operationId: await researchImportEffectOperationId(operationId, consistencyGroupId, "managed.parentSet", graphId),
+                            parentRef,
+                            entries: managedEntries,
+                        }, callerScope, control));
+                        result.notes.forEach((note, index) => created.push({
+                            noteId: managedIds[index],
+                            value: { ref: note.ref, revision: note.revision },
+                        }));
+                        if (result.notes.length !== managedIds.length)
+                            throw new Error("Managed parent set returned incomplete note identities");
+                    }
+                    for (const entry of prepared) {
+                        if (entry.inspection.kind === "managed")
+                            continue;
+                        const result = requireMutationItemRef(requireConfirmedMutationResult(await broker.notes.create({
+                            operationId: await researchImportEffectOperationId(operationId, consistencyGroupId, "notes.create", `${graphId}:${entry.note.noteId}`),
+                            placement: { kind: "child", parentRef },
+                            content: {
+                                format: "html",
+                                value: entry.content,
+                                ...(entry.imageBindings.length
+                                    ? { embeddedImages: entry.imageBindings }
+                                    : {}),
+                            },
+                            initialTags: entry.note.tags,
+                        }, callerScope, control)).note);
+                        created.push({ noteId: entry.note.noteId, value: result });
+                        for (const payload of entry.note.payloads) {
+                            requireConfirmedMutationResult(await broker.notes.upsertPayload({
+                                operationId: await researchImportEffectOperationId(operationId, consistencyGroupId, "notes.upsertPayload", `${graphId}:${entry.note.noteId}:${payload.summary.payloadType}`),
+                                noteRef: result.ref,
+                                payload: {
+                                    payloadType: payload.summary.payloadType,
+                                    noteKind: payload.summary.noteKind,
+                                    schemaVersion: payload.summary.version,
+                                    format: payload.summary.format,
+                                    value: payload.value,
+                                },
+                            }, callerScope, control));
+                        }
+                    }
+                    return created;
+                }
+                catch (error) {
+                    const residualRefs = error instanceof MutationAuthorityExecutionError
+                        ? [...error.residualRefs]
+                        : [];
+                    for (const entry of [...created].reverse()) {
+                        try {
+                            await mutationResult({
+                                operation: "trash.setItemsState",
+                                operationId: await researchImportEffectOperationId(operationId, consistencyGroupId, "trash.setItemsState", `${entry.value.ref.libraryId}:${entry.value.ref.key}`),
+                                itemRefs: [entry.value.ref],
+                                state: "trashed",
+                            }, control);
+                        }
+                        catch {
+                            residualRefs.push({ kind: "item", ref: entry.value.ref });
+                        }
+                    }
+                    const affectedRefs = [
+                        ...created.map((entry) => ({
+                            kind: "item",
+                            ref: entry.value.ref,
+                        })),
+                        ...(error instanceof MutationAuthorityExecutionError
+                            ? error.affectedRefs
+                            : []),
+                    ];
+                    throw new MutationAuthorityExecutionError(residualRefs.length ? "repair_required" : "failed", "execution_failed", "compensation", residualRefs.length ? "reconcile" : "retry_same_operation", {
+                        phase: "cleanup",
+                        recovery: residualRefs.length
+                            ? "reconcile"
+                            : "retry_same_operation",
+                        affectedCount: affectedRefs.length,
+                        residualCount: residualRefs.length,
+                    }, error instanceof Error
+                        ? error.message
+                        : "Research note import failed", affectedRefs, residualRefs);
+                }
+            },
+            async createAttachment({ operationId, consistencyGroupId, graphId, parentRef, attachment, materializedSource, control, }) {
+                const metadata = canonicalAttachmentMetadata(attachment.metadata);
+                const input = {
+                    operationId: await researchImportEffectOperationId(operationId, consistencyGroupId, "attachments.create", `${graphId}:${attachment.attachmentId}`),
+                    placement: { kind: "child", parentRef },
+                    ...(metadata ? { metadata } : {}),
+                };
+                const result = requireConfirmedMutationResult(materializedSource.kind === "stored_file"
+                    ? await executePreparedAttachmentCreate({ ...input, operation: "attachments.create" }, {
+                        main: {
+                            source: {
+                                kind: "local_path",
+                                path: materializedSource.main.path,
+                            },
+                            ...(materializedSource.main.targetFilename
+                                ? {
+                                    targetFilename: materializedSource.main.targetFilename,
+                                }
+                                : {}),
+                        },
+                        companions: materializedSource.companions.map((companion) => ({
+                            source: {
+                                kind: "local_path",
+                                path: companion.path,
+                            },
+                            targetRelativePath: companion.targetRelativePath,
+                        })),
+                    }, control)
+                    : await broker.attachments.create({
+                        ...input,
+                        source: {
+                            kind: materializedSource.kind,
+                            url: materializedSource.url,
+                        },
+                    }, callerScope, control));
+                return requireMutationItemRef(result.attachment);
+            },
+            async addRelated({ operationId, consistencyGroupId, sourceGraphId, sourceRef, targetRef, control, }) {
+                await mutationResult({
+                    operation: "item.addRelated",
+                    operationId: await researchImportEffectOperationId(operationId, consistencyGroupId, "item.addRelated", `${sourceGraphId}:${targetRef.libraryId}:${targetRef.key}`),
+                    sourceRef,
+                    relatedRefs: [targetRef],
+                }, control);
+            },
+            async readRevision({ itemRef, control }) {
+                const detail = await broker.library.getItemDetail(itemRef, control);
+                if (!detail) {
+                    throw new Error("Imported research item is unavailable");
+                }
+                return detail.item.revision;
+            },
+            async removeItem({ operationId, consistencyGroupId, itemRef, control }) {
+                await mutationResult({
+                    operation: "trash.setItemsState",
+                    operationId: await researchImportEffectOperationId(operationId, consistencyGroupId, "trash.setItemsState", `${itemRef.libraryId}:${itemRef.key}`),
+                    itemRefs: [itemRef],
+                    state: "trashed",
+                }, control);
+            },
+        }),
+    });
+    return (request, control) => importPapers(request, control);
+}
+export function createWorkflowResearchBundleMaterializeApi(args) {
+    const broker = createZoteroHostCapabilityBroker();
+    async function readAllLibraryPages(readPage, getItems) {
+        const items = [];
+        let cursor;
+        while (true) {
+            const page = await readPage({
+                limit: 100,
+                ...(cursor ? { cursor } : {}),
+            });
+            items.push(...getItems(page));
+            if (!page.hasMore)
+                return items;
+            const nextCursor = page.nextCursor?.trim();
+            if (!nextCursor || nextCursor === cursor) {
+                throw new Error("Workflow Host page continuation is invalid");
+            }
+            cursor = nextCursor;
+        }
+    }
+    const readPaper = async (ref, control, stageFile) => {
+        const detail = await broker.library.getItemDetail(ref, control);
+        if (!detail || detail.kind !== "regular")
+            return null;
+        const [item] = await broker.library.exportPortableItems([ref], control);
+        if (!item)
+            return null;
+        const noteSummaries = await readAllLibraryPages((page) => broker.library.getItemNotes(ref, page, control), (page) => page.notes);
+        const notes = await Promise.all(noteSummaries.map(async (summary) => {
+            const { detail: note, html, payloads, tags, } = await getZoteroManagedNoteLocalControl(broker).readForTransfer(summary.ref, control);
+            let content = html;
+            const embeddedImages = [];
+            const imageAttachments = (await readAllLibraryPages((page) => broker.library.getItemAttachments(summary.ref, page, control), (page) => page.attachments)).filter((attachment) => (attachment.role === "note_image" ||
+                attachment.role === "note_payload") &&
+                attachment.file.state === "available" &&
+                (attachment.contentType === "image/jpeg" ||
+                    attachment.contentType === "image/png") &&
+                new RegExp(`\\bdata-attachment-key\\s*=\\s*(?:["']${attachment.ref.key}["']|${attachment.ref.key}(?=\\s|>))`, "i").test(html));
+            for (const attachment of imageAttachments) {
+                if (attachment.file.state !== "available" ||
+                    (attachment.contentType !== "image/jpeg" &&
+                        attachment.contentType !== "image/png")) {
+                    continue;
+                }
+                const slot = `${attachment.ref.libraryId}:${attachment.ref.key}`;
+                const staged = await stageFile({
+                    slotId: `paper:${ref.libraryId}:${ref.key}:note:${summary.ref.key}:image:${attachment.ref.key}`,
+                    sourcePath: attachment.file.path,
+                    displayName: attachment.filename || `${attachment.ref.key}.png`,
+                    contentType: attachment.contentType || undefined,
+                });
+                content = content
+                    .replaceAll(`data-attachment-key="${attachment.ref.key}"`, `data-zotero-agents-image-slot="${slot}"`)
+                    .replaceAll(`data-attachment-key='${attachment.ref.key}'`, `data-zotero-agents-image-slot='${slot}'`);
+                embeddedImages.push({
+                    slot,
+                    resourceRef: staged.ref,
+                    altText: attachment.title || null,
+                    mimeType: attachment.contentType,
+                    sizeBytes: staged.sizeBytes,
+                    sha256: staged.sha256.replace(/^sha256:/, ""),
+                });
+            }
+            return {
+                source: { ref: note.ref, revision: note.revision },
+                content: {
+                    format: "html",
+                    value: content,
+                    embeddedImages,
+                },
+                tags,
+                payloads,
+                ...(note.kind === "managed"
+                    ? {
+                        managedArtifact: {
+                            noteKind: note.noteKind,
+                            payload: note.payload,
+                            ...(note.provenance ? { provenance: note.provenance } : {}),
+                        },
+                    }
+                    : {}),
+            };
+        }));
+        const attachments = (await readAllLibraryPages((page) => broker.library.getItemAttachments(ref, page, control), (page) => page.attachments)).filter((attachment) => attachment.role === "ordinary");
+        const annotations = await readAllLibraryPages((page) => broker.library.listAnnotations(ref, page, control), (page) => page.annotations);
+        return {
+            source: { ref: detail.item.ref, revision: detail.item.revision },
+            item,
+            collectionRefs: detail.item.collectionRefs,
+            relatedRefs: detail.item.relatedRefs,
+            notes,
+            attachments,
+            annotations,
+        };
+    };
+    return async (request, control = {}) => {
+        const stagedRefs = [];
+        const stageFile = async (stageArgs) => {
+            const staged = await args.resources.materializeFile({
+                ...stageArgs,
+                slotId: "research-materialized-files",
+            });
+            if (!staged.ref ||
+                !staged.path ||
+                staged.sizeBytes === undefined ||
+                !staged.sha256) {
+                throw new Error("Materialized research resource is incomplete");
+            }
+            stagedRefs.push(staged.ref);
+            return {
+                ref: staged.ref,
+                path: staged.path,
+                displayName: staged.displayName,
+                contentType: staged.contentType,
+                sizeBytes: staged.sizeBytes,
+                sha256: staged.sha256,
+            };
+        };
+        const materialize = createCanonicalResearchBundleMaterializer({
+            readPaper: (ref, readControl) => readPaper(ref, readControl, stageFile),
+            resources: {
+                async stageFile(stageArgs) {
+                    const staged = await stageFile(stageArgs);
+                    return {
+                        ref: staged.ref,
+                        path: staged.path,
+                        displayName: staged.displayName,
+                        contentType: staged.contentType,
+                        sizeBytes: staged.sizeBytes,
+                        sha256: staged.sha256,
+                    };
+                },
+                cleanup: () => args.resources.releaseResources(stagedRefs),
+            },
+        });
+        return materialize(request, control);
+    };
+}
+export function createBoundWorkflowResearchBundleApi(args) {
+    const canonicalMaterialize = createWorkflowResearchBundleMaterializeApi({
+        resources: args.resources,
+    });
+    return {
+        materializePapers: canonicalMaterialize,
+        importPapers: createWorkflowResearchBundleImportApi({
+            ownerId: args.ownerId,
+            images: args.images,
+            preparedImages: args.preparedImages,
+            resources: args.resources,
+        }),
+    };
+}
+export function createWorkflowLibraryItemSnapshotApi(broker = createZoteroHostCapabilityBroker()) {
+    return async function withItemSnapshot(request, control, onBatch) {
+        if (control.signal?.aborted) {
+            throw new ZoteroHostCapabilityError("canceled", "snapshot was canceled before capture", { reason: "caller_signal" });
+        }
+        const scope = { ownerId: workflowSnapshotOwnerId() };
+        let page = await broker.library.syncSnapshot(request, scope, control);
+        for (;;) {
+            try {
+                await onBatch({
+                    schema: page.schema,
+                    snapshotId: page.snapshotId,
+                    batchIndex: page.batchIndex,
+                    items: page.items,
+                });
+            }
+            catch (error) {
+                if (page.outcome === "active") {
+                    broker.library.cancelSnapshot(page.snapshotId, scope);
+                }
+                throw error;
+            }
+            if (control.signal?.aborted) {
+                if (page.outcome === "active") {
+                    return broker.library.cancelSnapshot(page.snapshotId, scope);
+                }
+                return {
+                    outcome: "canceled",
+                    snapshotId: page.snapshotId,
+                    deliveredItems: page.deliveredItems,
+                    deliveredBatches: page.deliveredBatches,
+                };
+            }
+            if (page.outcome === "completed") {
+                return {
+                    outcome: "completed",
+                    completionEvidence: page.completionEvidence,
+                };
+            }
+            page = await broker.library.syncSnapshot({
+                libraryId: page.libraryId,
+                batchSize: page.batchSize,
+                snapshotId: page.snapshotId,
+                cursor: page.nextCursor,
+            }, scope, control);
+        }
+    };
+}
+export async function withWorkflowLibraryItemSnapshot(request, control, onBatch) {
+    return createWorkflowLibraryItemSnapshotApi()(request, control, onBatch);
+}
+export function createWorkflowAddonOwner() {
+    return {
+        getConfig() {
+            const runtime = resolveRuntimeAddon()?.data?.config;
+            return {
+                addonName: String(runtime?.addonName || packageConfig.addonName).trim(),
+                addonRef: String(runtime?.addonRef || packageConfig.addonRef).trim(),
+                addonVersion: String(runtime?.addonVersion || packageVersion).trim(),
+            };
+        },
+    };
+}
+export function createWorkflowEnvironmentOwner() {
+    return {
+        getInfo() {
+            const zotero = resolveRuntimeZotero();
+            return {
+                zoteroVersion: String(zotero?.version || "unknown").trim() || "unknown",
+                platform: detectRuntimePlatform(zotero?.isWin
+                    ? "win32"
+                    : zotero?.isMac
+                        ? "darwin"
+                        : zotero?.isLinux
+                            ? "linux"
+                            : "unknown"),
+                locale: canonicalizeLocale(resolveRuntimeLocale(zotero?.locale)),
+            };
+        },
+    };
+}
+function resolveHostZotero() {
+    const runtimeZotero = resolveRuntimeZotero() ||
+        (typeof Zotero !== "undefined" ? Zotero : undefined);
+    if (!runtimeZotero) {
+        throw new Error("Zotero runtime is unavailable in workflow host api");
+    }
+    return runtimeZotero;
+}

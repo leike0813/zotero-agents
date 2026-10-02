@@ -5,7 +5,10 @@ import type { BackendInstance } from "../../../backends/types";
 import { getStringOrFallback } from "../../../utils/locale";
 import { resolveAddonRef } from "../../../utils/runtimeBridge";
 
-import { subscribeAssistantExecutionDisplayMode } from "../publication/assistantExecutionDisplayPolicy";
+import {
+  getAssistantExecutionDisplayMode,
+  subscribeAssistantExecutionDisplayMode,
+} from "../publication/assistantExecutionDisplayPolicy";
 import { openBackendManagerDialog } from "../../workflow/settings/backendManager";
 
 import {
@@ -24,13 +27,6 @@ import {
   buildAssistantWorkspaceNavigationLabels,
   buildAssistantWorkspacePublicationLabels,
 } from "../publication/assistantWorkspacePublicationLabels";
-import { PI_CONVERSATIONS_WORKSPACE_ADAPTER } from "../../piConversationWorkspaceSurface";
-import { getPiConversationCoordinator } from "../../piConversation";
-import {
-  PI_SKILL_RUNS_WORKSPACE_ADAPTER,
-  setPiSkillRunActionNotice,
-} from "../../piSkillRunWorkspaceSurface";
-import { getPiSkillRunCoordinator } from "../../piSkillRun";
 import {
   ASSISTANT_WORKSPACE_SOURCE_REGISTRY,
   DEFAULT_ASSISTANT_WORKSPACE_SOURCE_ID,
@@ -43,6 +39,9 @@ import {
 } from "../../acp/chat/acpSessionManager";
 
 import type { AcpSidebarTarget } from "../../acpTypes";
+import type { AssistantWorkspacePublicationAdapter } from "../publication/assistantWorkspacePublicationRuntime";
+import type { createPiConversationCoordinator } from "../../piConversation";
+import type { createPiSkillRunCoordinator } from "../../piSkillRun";
 import {
   listAcpSkillRunSummaries,
   subscribeAcpSkillRunWorkspaceChanges,
@@ -194,6 +193,7 @@ export type AssistantWorkspaceHostRuntime = {
   removeAcpChatPanelSubscription?: () => void;
   removeAcpSkillRunSubscription?: () => void;
   removePiSkillRunSubscription?: () => void;
+  removePiConversationSubscription?: () => void;
   removeSkillRunnerWorkspaceSubscription?: () => void;
   removeTaskSubscription?: () => void;
   removeWorkflowQueueSubscription?: () => void;
@@ -299,6 +299,61 @@ export function resolveAssistantWorkspaceAuditLogLevel(args: {
     : null;
 }
 
+// Compile-time Pi entry: the Pi Conversation and Skill Run graphs reach the
+// Assistant Workspace through this injected binding, which the dynamically
+// imported Pi registration fills. The measurement-only control build never
+// imports that registration, so no Pi module enters its entry graph.
+type PiConversationCoordinator = ReturnType<
+  typeof createPiConversationCoordinator
+>;
+type PiSkillRunCoordinator = ReturnType<typeof createPiSkillRunCoordinator>;
+
+type PiAssistantWorkspaceBindings = {
+  conversationsSurface: () => {
+    adapter: AssistantWorkspacePublicationAdapter<
+      "pi-conversations",
+      any,
+      any,
+      any
+    >;
+  };
+  conversationCoordinator: () => PiConversationCoordinator;
+  skillRunsSurface: () => {
+    adapter: AssistantWorkspacePublicationAdapter<
+      "pi-skill-runs",
+      any,
+      any,
+      any
+    >;
+  };
+  skillRunCoordinator: () => PiSkillRunCoordinator;
+  listSkillRuns: PiSkillRunCoordinator["list"];
+  subscribeSkillRuns: PiSkillRunCoordinator["subscribe"];
+  selectSkillRun: (requestId: string) => Promise<void> | void;
+  setSkillRunActionNotice: (requestId: string, code: string | null) => void;
+};
+
+let piAssistantWorkspaceBindings: PiAssistantWorkspaceBindings | undefined;
+
+export function setPiAssistantWorkspaceBindings(
+  bindings: PiAssistantWorkspaceBindings,
+) {
+  piAssistantWorkspaceBindings = bindings;
+}
+
+function requirePiAssistantWorkspaceBindings(): PiAssistantWorkspaceBindings {
+  if (!piAssistantWorkspaceBindings) {
+    throw new Error("pi_assistant_workspace_bindings_unavailable");
+  }
+  return piAssistantWorkspaceBindings;
+}
+
+if (typeof __PI_RUNTIME_ENABLED__ === "undefined" || __PI_RUNTIME_ENABLED__) {
+  void import("../../piAssistantWorkspaceRegistration").then((module) =>
+    module.registerPiAssistantWorkspaceSurfaces(),
+  );
+}
+
 configureAssistantWorkspacePublicationShellHost({
   logAssistantWorkspaceDebug,
   postShellMessage,
@@ -308,21 +363,31 @@ configureAssistantWorkspacePublicationShellHost({
   getWorkspaceHost: (win) => hosts.get(win),
 });
 configureAssistantWorkspaceActionRouterShellHost({
-  piConversationsSurface: () => ({
-    adapter: PI_CONVERSATIONS_WORKSPACE_ADAPTER,
-  }),
-  piConversationCoordinator: () => getPiConversationCoordinator(),
-  piSkillRunsSurface: () => ({
-    adapter: PI_SKILL_RUNS_WORKSPACE_ADAPTER,
-  }),
-  piSkillRunCoordinator: () => getPiSkillRunCoordinator(),
+  piConversationsSurface: () =>
+    requirePiAssistantWorkspaceBindings().conversationsSurface(),
+  piConversationCoordinator: () =>
+    requirePiAssistantWorkspaceBindings().conversationCoordinator(),
+  piSkillRunsSurface: () =>
+    requirePiAssistantWorkspaceBindings().skillRunsSurface(),
+  piSkillRunCoordinator: () =>
+    requirePiAssistantWorkspaceBindings().skillRunCoordinator(),
   // C18 diagnostic export stays a lazy edge: the audit module is only loaded
   // when the user actually triggers an export from a product surface.
   exportPiDiagnostics: async (args) => {
-    const { exportDiagnostics } = await import("../../piRuntimeAudit");
-    return exportDiagnostics(args.scope, args.targetPath);
+    if (
+      typeof __PI_RUNTIME_ENABLED__ === "undefined" ||
+      __PI_RUNTIME_ENABLED__
+    ) {
+      const { exportDiagnostics } = await import("../../piRuntimeAudit");
+      return exportDiagnostics(args.scope, args.targetPath);
+    }
+    throw new Error("pi_runtime_control_build");
   },
-  setPiSkillRunActionNotice,
+  setPiSkillRunActionNotice: (requestId, code) =>
+    requirePiAssistantWorkspaceBindings().setSkillRunActionNotice(
+      requestId,
+      code,
+    ),
   localizeString: (key, fallback) => localize(key as any, fallback),
   openBackendManager: openBackendManagerDialog,
   logAssistantWorkspaceDebug,
@@ -334,25 +399,6 @@ configureAssistantWorkspaceActionRouterShellHost({
 // Interactive Pi Skill Run admission focuses once through the coordinator's
 // launch hook; the snapshot window main captured at admission wins, and only
 // a missing snapshot falls back to the current main window.
-getPiSkillRunCoordinator().setLaunchFocus(async (requestId, window) => {
-  await focusPiSkillRunWorkspace(
-    requestId,
-    (window as _ZoteroTypes.MainWindow | undefined) || undefined,
-  );
-});
-// Local-network approval reuses the same window-scoped dialog ACP uses, so a
-// local endpoint never becomes an unapproved implicit grant. The coordinator
-// passes the turn's transient origin window; only a missing one falls back to
-// the current main window, resolved per request rather than at module load.
-getPiSkillRunCoordinator().setLocalNetworkAuthorizer(
-  async (endpoint, window) => {
-    const win =
-      (window as _ZoteroTypes.MainWindow | undefined) ||
-      (Zotero.getMainWindow?.() as _ZoteroTypes.MainWindow | undefined);
-    return win ? buildPiLocalNetworkAuthorizer({ win })(endpoint) : false;
-  },
-);
-
 function logAssistantWorkspaceDebug(
   host: AssistantWorkspaceHostRuntime,
   stage: string,
@@ -585,7 +631,7 @@ function maybeShowAcpSkillWaitingToasts(host: AssistantWorkspaceHostRuntime) {
 async function maybeShowPiSkillRunWaitingToasts(
   host: AssistantWorkspaceHostRuntime,
 ) {
-  const owners = await getPiSkillRunCoordinator().list();
+  const owners = await requirePiAssistantWorkspaceBindings().listSkillRuns();
   maybeShowSkillRunWaitingToasts(
     host,
     "pi-skill-run",
@@ -1748,6 +1794,16 @@ export function installAssistantWorkspaceSidebarShell(
     scopeKey: host.scopeKey,
     getActiveOwner(source) {
       if (!host.activeTarget || host.activeTab !== source) return null;
+      if (source === "pi-conversations") {
+        return requirePiAssistantWorkspaceBindings()
+          .conversationsSurface()
+          .adapter.selectedOwner();
+      }
+      if (source === "pi-skill-runs") {
+        return requirePiAssistantWorkspaceBindings()
+          .skillRunsSurface()
+          .adapter.selectedOwner();
+      }
       if (source === "acp-chat") {
         const active = getActiveAcpChatOwner();
         return active.backendId && active.conversationId
@@ -1787,6 +1843,34 @@ export function installAssistantWorkspaceSidebarShell(
       const target = host.activeTarget;
       if (!target || host.activeTab !== owner.source) return;
       const request = transcriptRebasePageRequest(owner, pageKey);
+      if (owner.source === "pi-conversations") {
+        const adapter =
+          requirePiAssistantWorkspaceBindings().conversationsSurface().adapter;
+        if (adapter.selectedOwner()?.ownerKey !== owner.ownerKey) return;
+        void host.publicationRuntime?.requestTranscriptPage({
+          adapter,
+          owner,
+          context: undefined,
+          request: { cursor: request.cursor, limit: request.limit },
+          cause: "rebase",
+          force: true,
+        });
+        return;
+      }
+      if (owner.source === "pi-skill-runs") {
+        const adapter =
+          requirePiAssistantWorkspaceBindings().skillRunsSurface().adapter;
+        if (adapter.selectedOwner()?.ownerKey !== owner.ownerKey) return;
+        void host.publicationRuntime?.requestTranscriptPage({
+          adapter,
+          owner,
+          context: undefined,
+          request: { cursor: request.cursor, limit: request.limit },
+          cause: "rebase",
+          force: true,
+        });
+        return;
+      }
       if (owner.source === "acp-chat") {
         if (getActiveAcpChatOwnerKey() !== owner.ownerKey) return;
         void host.publicationRuntime?.requestTranscriptPage({
@@ -1962,8 +2046,8 @@ export function installAssistantWorkspaceSidebarShell(
       scheduleAcpSkillRunPublications(host, change);
     },
   );
-  host.removePiSkillRunSubscription = getPiSkillRunCoordinator().subscribe(
-    (change) => {
+  host.removePiSkillRunSubscription =
+    requirePiAssistantWorkspaceBindings().subscribeSkillRuns((change) => {
       const backgroundOnly = change.kinds.every(
         (kind) => kind === "transcript" || kind === "resources",
       );
@@ -1972,8 +2056,19 @@ export function installAssistantWorkspaceSidebarShell(
         updateAssistantAttentionIndicator(host);
       }
       schedulePiSkillRunPublications(host, change);
-    },
-  );
+    });
+  host.removePiConversationSubscription = requirePiAssistantWorkspaceBindings()
+    .conversationCoordinator()
+    .subscribe((change) => {
+      if (change.kinds.some((kind) => kind !== "transcript"))
+        updateAssistantAttentionIndicator(host);
+      host.publicationRuntime?.schedule({
+        adapter:
+          requirePiAssistantWorkspaceBindings().conversationsSurface().adapter,
+        change,
+        context: { executionDisplayMode: getAssistantExecutionDisplayMode() },
+      });
+    });
   host.removeSkillRunnerWorkspaceSubscription =
     subscribeSkillRunnerWorkspaceChanges((change) => {
       scheduleSkillRunnerPublications(host, change);
@@ -2062,6 +2157,7 @@ export function removeAssistantWorkspaceSidebarShell(
   host.removeAcpChatPanelSubscription?.();
   host.removeAcpSkillRunSubscription?.();
   host.removePiSkillRunSubscription?.();
+  host.removePiConversationSubscription?.();
   host.removeSkillRunnerWorkspaceSubscription?.();
   host.removeTaskSubscription?.();
   host.removeWorkflowQueueSubscription?.();
@@ -2122,7 +2218,7 @@ export async function openAssistantWorkspaceSidebar(args?: {
     await selectAcpSkillRun(args.requestId);
   }
   if (host.activeTab === "pi-skill-runs" && args?.requestId) {
-    await getPiSkillRunCoordinator().select(args.requestId);
+    await requirePiAssistantWorkspaceBindings().selectSkillRun(args.requestId);
   }
   const target = args?.target || resolvePreferredTarget(win);
   const activated = await activateTarget(host, target);

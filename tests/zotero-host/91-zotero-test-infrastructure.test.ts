@@ -480,12 +480,33 @@ describe("zotero test infrastructure helpers", function () {
       await writeFile(checkpointPath, "system-e2e:hb:03", "utf8");
 
       assert.equal(await admitted, "held");
+
+      // A checkpoint holding a different operation must never release the
+      // restart: the gate is identity-bound, not content-agnostic.
+      const stalePath = path.join(root, "pi-admission.held");
+      await writeFile(stalePath, "system-e2e:pi:05", "utf8");
+      let gateError: unknown;
+      try {
+        await waitForSystemE2EAdmissionCheckpoint({
+          checkpointPath: stalePath,
+          operationId: "system-e2e:pi:99",
+          timeoutMs: 120,
+          pollIntervalMs: 5,
+        });
+      } catch (error) {
+        gateError = error;
+      }
+      assert.match(
+        String((gateError as Error)?.message),
+        /system_e2e_restart_admission_timeout/,
+      );
     });
 
     it("accepts the Phase 2 restart cases and preserves the relaunch environment", async function () {
       for (const [caseId, operationId] of [
         ["AC-05", "system-e2e:ac:05"],
         ["SR-02", "system-e2e:sr:02"],
+        ["PI-05", "system-e2e:pi:05"],
       ]) {
         assert.deepEqual(
           parseSystemE2ERestartRequest({
@@ -825,6 +846,7 @@ describe("zotero test infrastructure helpers", function () {
         "PM",
         "CG",
         "HB",
+        "PI",
       ]);
       assert.deepEqual(
         validateFamilyDeclarations(Object.values(PHASE1_FAMILY_DECLARATIONS)),
@@ -842,6 +864,10 @@ describe("zotero test infrastructure helpers", function () {
       assert.deepEqual(PHASE1_FAMILY_DECLARATIONS.RH.carryOver, []);
       assert.deepEqual(PHASE1_FAMILY_DECLARATIONS.PA.carryOver, []);
       assert.deepEqual(PHASE1_FAMILY_DECLARATIONS.CG.carryOver, []);
+      assert.deepEqual(PHASE1_FAMILY_DECLARATIONS.PI.carryOver, [
+        "pi-skill-run-owner",
+        "pi-restart-hold",
+      ]);
     });
 
     it("accepts carry-over only within its declaring family", function () {
@@ -867,6 +893,7 @@ describe("zotero test infrastructure helpers", function () {
         "PM",
         "CG",
         "HB",
+        "PI",
       ]);
       assert.deepEqual(resolvePhase1FamilySelection("PM,SL,PM"), ["SL", "PM"]);
       assert.throws(

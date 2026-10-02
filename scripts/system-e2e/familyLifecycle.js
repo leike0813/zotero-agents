@@ -1,0 +1,184 @@
+export const PHASE1_FAMILY_DECLARATIONS = {
+    SL: {
+        familyId: "SL",
+        owner: "synthesis-sidecar-runtime-lifecycle",
+        namespace: ["system-e2e:sl:"],
+        ownedState: [
+            "sidecar-process",
+            "sidecar-discovery",
+            "sidecar-launch-input",
+            "sidecar-ready-generation",
+        ],
+        carryOver: ["sidecar-ready-generation"],
+    },
+    RH: {
+        familyId: "RH",
+        owner: "reverse-host-boundary",
+        namespace: ["system-e2e:rh:"],
+        ownedState: [
+            "synthetic-reference-items",
+            "reference-refresh-operation",
+            "reference-checkpoint",
+        ],
+        carryOver: [],
+    },
+    PA: {
+        familyId: "PA",
+        owner: "provenance-and-canonical-artifact-classification",
+        namespace: ["system-e2e:pa:"],
+        ownedState: ["historical-topic-source", "malformed-artifact"],
+        carryOver: [],
+    },
+    PM: {
+        familyId: "PM",
+        owner: "public-maintenance-lifecycle",
+        namespace: ["system-e2e:pm:"],
+        ownedState: [
+            "synthetic-reference-items",
+            "maintenance-operation",
+            "maintenance-checkpoint",
+            "reference-checkpoint",
+        ],
+        carryOver: ["maintenance-operation"],
+    },
+    CG: {
+        familyId: "CG",
+        owner: "citation-graph-application",
+        namespace: ["system-e2e:cg:"],
+        ownedState: [
+            "citation-graph-view",
+            "citation-graph-rebuild",
+            "graph-basis-items",
+        ],
+        carryOver: [],
+    },
+    HB: {
+        familyId: "HB",
+        owner: "host-bridge-canonical-mutation-authority",
+        namespace: ["system-e2e:hb:"],
+        ownedState: [
+            "synthetic-note",
+            "canonical-mutation-operation",
+            "host-bridge-owner",
+        ],
+        carryOver: ["canonical-mutation-operation"],
+    },
+    PI: {
+        familyId: "PI",
+        owner: "builtin-pi-runtime",
+        namespace: ["system-e2e:pi:"],
+        ownedState: [
+            "pi-conversation-owner",
+            "pi-skill-run-owner",
+            "pi-transcript",
+            "pi-restart-hold",
+        ],
+        carryOver: ["pi-skill-run-owner", "pi-restart-hold"],
+    },
+};
+export function resolvePhase1FamilySelection(requested) {
+    const available = Object.keys(PHASE1_FAMILY_DECLARATIONS);
+    const values = String(requested || "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
+    if (values.length === 0)
+        return available;
+    const selected = new Set(values);
+    if (values.some((value) => !(value in PHASE1_FAMILY_DECLARATIONS))) {
+        throw new Error("family_selection_invalid");
+    }
+    return available.filter((familyId) => selected.has(familyId));
+}
+function nonemptyStrings(values) {
+    return (Array.isArray(values) &&
+        values.length > 0 &&
+        values.every((value) => typeof value === "string" && value.trim()));
+}
+export function validateFamilyDeclarations(declarations) {
+    const ids = new Set();
+    for (const declaration of declarations) {
+        if (!declaration.familyId?.trim() ||
+            !declaration.owner?.trim() ||
+            !nonemptyStrings(declaration.namespace) ||
+            !nonemptyStrings(declaration.ownedState) ||
+            ids.has(declaration.familyId)) {
+            throw new Error("family_declaration_invalid");
+        }
+        ids.add(declaration.familyId);
+        if ((declaration.carryOver || []).some((state) => !declaration.ownedState.includes(state))) {
+            throw new Error("family_carry_over_not_owned");
+        }
+    }
+    return declarations;
+}
+function healthPassed(result) {
+    return (result.status === "passed" &&
+        result.hostResponsive &&
+        result.pluginResponsive &&
+        result.sidecarReady &&
+        result.undeclaredOperations === 0 &&
+        result.managedProcesses === 0 &&
+        result.residualOwnedState.length === 0);
+}
+export async function runFamilyLifecycle(args) {
+    validateFamilyDeclarations([args.declaration]);
+    const transitions = ["family-start", "family-cases"];
+    let result = "passed";
+    try {
+        await args.execute();
+    }
+    catch (error) {
+        result = "failed";
+        // A swallowed execute error leaves the family record with only
+        // `result: failed`, which is useless for diagnosis; surface the message on
+        // the runner output while the manifest keeps its sanitized shape.
+        console.error(`[system-e2e] family ${args.declaration.familyId} execute failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    transitions.push("family-cleanup");
+    let cleanup;
+    try {
+        cleanup = await args.cleanup();
+    }
+    catch (error) {
+        // A cleanup that throws is a failed cleanup. Letting it escape would fail
+        // the runner test without any family record, which is exactly the gap the
+        // manifest reads as a complete run.
+        cleanup = "failed";
+        console.error(`[system-e2e] family cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (cleanup !== "passed") {
+        return {
+            result: "failed",
+            abort: true,
+            abortCode: cleanup === "indeterminate"
+                ? "family_cleanup_indeterminate"
+                : "family_cleanup_failed",
+            cleanup,
+            health: "indeterminate",
+            transitions,
+        };
+    }
+    transitions.push("health-gate");
+    const health = await args.healthGate();
+    transitions.push("family-end");
+    if (!healthPassed(health)) {
+        return {
+            result: "failed",
+            abort: true,
+            abortCode: health.status === "indeterminate"
+                ? "suite_health_indeterminate"
+                : "suite_health_failed",
+            cleanup,
+            health: health.status,
+            transitions,
+        };
+    }
+    return {
+        result,
+        abort: false,
+        cleanup,
+        health: health.status,
+        transitions,
+    };
+}

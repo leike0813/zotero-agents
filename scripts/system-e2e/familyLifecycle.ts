@@ -6,7 +6,7 @@ export type FamilyDeclaration = {
   carryOver?: string[];
 };
 
-export type Phase1FamilyId = "SL" | "RH" | "PA" | "PM" | "CG" | "HB";
+export type Phase1FamilyId = "SL" | "RH" | "PA" | "PM" | "CG" | "HB" | "PI";
 
 export const PHASE1_FAMILY_DECLARATIONS: Record<
   Phase1FamilyId,
@@ -75,6 +75,18 @@ export const PHASE1_FAMILY_DECLARATIONS: Record<
       "host-bridge-owner",
     ],
     carryOver: ["canonical-mutation-operation"],
+  },
+  PI: {
+    familyId: "PI",
+    owner: "builtin-pi-runtime",
+    namespace: ["system-e2e:pi:"],
+    ownedState: [
+      "pi-conversation-owner",
+      "pi-skill-run-owner",
+      "pi-transcript",
+      "pi-restart-hold",
+    ],
+    carryOver: ["pi-skill-run-owner", "pi-restart-hold"],
   },
 };
 
@@ -163,8 +175,16 @@ export async function runFamilyLifecycle(args: {
   let result: "passed" | "failed" = "passed";
   try {
     await args.execute();
-  } catch {
+  } catch (error) {
     result = "failed";
+    // A swallowed execute error leaves the family record with only
+    // `result: failed`, which is useless for diagnosis; surface the message on
+    // the runner output while the manifest keeps its sanitized shape.
+    console.error(
+      `[system-e2e] family ${args.declaration.familyId} execute failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
   }
   transitions.push("family-cleanup");
   let cleanup: "passed" | "failed" | "indeterminate";

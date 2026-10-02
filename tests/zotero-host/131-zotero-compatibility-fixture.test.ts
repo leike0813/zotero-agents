@@ -18,6 +18,7 @@ import {
   persistCompatibilityHostFactsEvent,
   resolveLocalArchiveCommandLocation,
   resolveZipExtractionCommand,
+  readPiUpgradeBaseline,
   resolveCompatibilityTarget,
   runOwnedCommand,
   validateArchiveEntries,
@@ -134,12 +135,12 @@ describe("Zotero compatibility fixture contracts", function () {
       const buildFingerprint = "c".repeat(64);
       const bundleId = "d".repeat(64);
       const cell: CompatibilityExecutionCell = {
-        id: "acceptance-zotero-10-linux-x64-e2e-sl-rh-pa-pm-cg-hb",
+        id: "acceptance-zotero-10-linux-x64-e2e-sl-rh-pa-pm-cg-hb-pi",
         lane: "acceptance",
         targetId: "zotero-10-linux-x64",
         version: "10.0.1",
         platform: "linux-x64",
-        families: ["SL", "RH", "PA", "PM", "CG", "HB"],
+        families: ["SL", "RH", "PA", "PM", "CG", "HB", "PI"],
         runnerEnvironment: { os: "linux", image: "ubuntu-24.04" },
         fixtureScale: "committed-seed",
         sidecarStartupModel: "pinned-universal-xpi",
@@ -193,6 +194,12 @@ describe("Zotero compatibility fixture contracts", function () {
         "HB-01",
         "HB-02",
         "HB-03",
+        "PI-01",
+        "PI-02",
+        "PI-03",
+        "PI-04",
+        "PI-05",
+        "PI-05-safe",
       ];
       const manifest: RunManifest = {
         ...baseManifest,
@@ -221,9 +228,22 @@ describe("Zotero compatibility fixture contracts", function () {
       const input = { candidate, receipt, manifest, runtime };
 
       assert.deepEqual(evaluateCandidateCell(input), []);
+      assert.include(
+        evaluateCandidateCell({
+          ...input,
+          manifest: {
+            ...manifest,
+            families: manifest.families.filter(
+              (entry) => entry.caseId !== "PI-05-safe",
+            ),
+          },
+        }),
+        "run_incomplete",
+        "unknown holds alone cannot certify safe Auto recovery",
+      );
       const windowsCell = {
         ...cell,
-        id: "acceptance-zotero-10-windows-x64-e2e-sl-rh-pa-pm-cg-hb",
+        id: "acceptance-zotero-10-windows-x64-e2e-sl-rh-pa-pm-cg-hb-pi",
         targetId: "zotero-10-windows-x64",
         platform: "windows-x64" as const,
         runnerEnvironment: { os: "windows", image: "windows-2025" },
@@ -329,6 +349,50 @@ describe("Zotero compatibility fixture contracts", function () {
     });
   });
 
+  describe("Pi upgrade baseline manifest", function () {
+    it("reads the pinned identity and rejects a digest mismatch", async function () {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-baseline-"));
+      try {
+        const xpiPath = path.join(dir, "baseline-v0.9.0.xpi");
+        await fs.writeFile(xpiPath, "baseline-bytes", "utf8");
+        const digest = createHash("sha256")
+          .update("baseline-bytes")
+          .digest("hex");
+        await fs.writeFile(
+          path.join(dir, "baseline.json"),
+          JSON.stringify({
+            schema: "zotero-agents.pi-upgrade-baseline.v1",
+            sourceCommit: "9218f30899e47d6e9b852dec978be81b1f802c2f",
+            version: "0.9.0",
+            buildMode: "production",
+            xpiSha256: digest,
+            artifact: xpiPath,
+          }),
+        );
+        const baseline = await readPiUpgradeBaseline(xpiPath);
+        assert.equal(
+          baseline.sourceCommit,
+          "9218f30899e47d6e9b852dec978be81b1f802c2f",
+        );
+        assert.equal(baseline.version, "0.9.0");
+        assert.equal(baseline.xpiSha256, digest);
+        await fs.writeFile(xpiPath, "tampered", "utf8");
+        let error: unknown;
+        try {
+          await readPiUpgradeBaseline(xpiPath);
+        } catch (caught) {
+          error = caught;
+        }
+        assert.match(
+          String((error as Error)?.message),
+          /pi_upgrade_baseline_digest_mismatch/,
+        );
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
   describe("compatibility worker membership", function () {
     it("keeps a Windows sidecar launch config under the path limit", function () {
       if (process.platform !== "win32") this.skip();
@@ -431,20 +495,10 @@ describe("Zotero compatibility fixture contracts", function () {
         );
         await fs.mkdir(path.dirname(testFile), { recursive: true });
         await fs.writeFile(testFile, "export {};\n", "utf8");
-        for (const name of [
-          "300-gold.zotero.test.ts",
-          "301-foundation.zotero.test.ts",
-          "302-recovery.zotero.test.ts",
-          "303-phase2.zotero.test.ts",
-        ]) {
-          await fs.writeFile(
-            path.join(path.dirname(testFile), name),
-            "export {};\n",
-          );
-        }
         for (const relative of [
           "tests/fixtures",
           "tests/helpers",
+          "tests/runtime",
           "src",
           "scripts",
           "packages",
@@ -457,11 +511,7 @@ describe("Zotero compatibility fixture contracts", function () {
           "utf8",
         );
 
-        await materializeCompatibilityTestWorkspace(
-          projectRoot,
-          runRoot,
-          "acceptance",
-        );
+        await materializeCompatibilityTestWorkspace(projectRoot, runRoot);
 
         assert.isFalse(
           (await fs.lstat(path.join(runRoot, "tests/zotero"))).isSymbolicLink(),
@@ -473,33 +523,33 @@ describe("Zotero compatibility fixture contracts", function () {
           ),
           "export {};\n",
         );
-        assert.isTrue(
-          (
-            await fs.lstat(path.join(runRoot, "tests/fixtures"))
-          ).isSymbolicLink(),
-        );
-        assert.deepEqual(
-          (
-            await fs.readdir(path.join(runRoot, "tests/zotero/e2e/acceptance"))
-          ).sort(),
-          [
-            "300-gold.zotero.test.ts",
-            "301-foundation.zotero.test.ts",
-            "302-recovery.zotero.test.ts",
-          ],
-        );
+        // Each shared project input is staged as a directory link, including
+        // `tests/runtime`, whose helper modules the copied E2E tests import by
+        // relative path and which must therefore resolve inside the run root.
+        for (const relative of [
+          "tests/fixtures",
+          "tests/helpers",
+          "tests/runtime",
+          "src",
+          "scripts",
+          "packages",
+        ]) {
+          assert.isTrue(
+            (await fs.lstat(path.join(runRoot, relative))).isSymbolicLink(),
+            `${relative} must be staged as a directory link`,
+          );
+        }
         assert.deepEqual(
           resolveCompatibilityWorkerEntries(
             "behavior",
             ["tests/zotero/setup", "tests/zotero/e2e/full"],
             "e2e",
             true,
-            "acceptance",
           ),
           [
             "tests/zotero/compatibility/xpi",
             "tests/zotero/setup",
-            "tests/zotero/e2e/acceptance",
+            "tests/zotero/e2e/full",
           ],
         );
       } finally {
@@ -1607,6 +1657,37 @@ describe("Zotero compatibility fixture contracts", function () {
         ),
         event.data,
       );
+    });
+
+    it("preserves concurrent installed XPI phase observations", async function () {
+      await Promise.all([
+        persistCompatibilityHostFactsEvent(tempRoot, {
+          type: "debug",
+          data: {
+            kind: "zotero-compatibility-xpi-phase",
+            phase: "pi-xpi-fresh",
+            status: "passed",
+          },
+        }),
+        persistCompatibilityHostFactsEvent(tempRoot, {
+          type: "debug",
+          data: {
+            kind: "zotero-compatibility-xpi-phase",
+            phase: "pi-xpi-upgrade",
+            status: "skipped",
+          },
+        }),
+      ]);
+      const record = JSON.parse(
+        await fs.readFile(
+          path.join(tempRoot, "diagnostics/pi-xpi-phases.json"),
+          "utf8",
+        ),
+      );
+      assert.sameDeepMembers(record.phases, [
+        { phase: "pi-xpi-fresh", status: "passed" },
+        { phase: "pi-xpi-upgrade", status: "skipped" },
+      ]);
     });
 
     it("creates disjoint state roots for each run", async function () {

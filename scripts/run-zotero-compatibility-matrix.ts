@@ -14,6 +14,10 @@ import {
   createRunLayout,
   loadCompatibilityManifest,
   materializeZoteroHostForRun,
+  PI_E2E_PHASE_CASES,
+  PI_E2E_PHASES,
+  PI_XPI_PHASES,
+  readPiUpgradeBaseline,
   resolveCompatibilityTarget,
   runOwnedCommand,
   sha256File,
@@ -26,6 +30,7 @@ import {
   type CompatibilityReceipt,
   type CompatibilityScenarioFamily,
   type CompatibilitySuite,
+  type PiUpgradeEvidence,
 } from "./zotero-compatibility-fixture";
 import {
   inspectDirectSynthesisBundle,
@@ -70,6 +75,7 @@ type CliOptions = {
   fixtureScale: CompatibilityFixtureScale;
   blocking: boolean;
   installCandidateXpi: boolean;
+  previousXpiPath: string;
   dryRun: boolean;
   json: boolean;
 };
@@ -125,6 +131,9 @@ export function parseCompatibilityCliArgs(args: string[]): CliOptions {
       "committed-seed") as CompatibilityFixtureScale,
     blocking: process.env.ZOTERO_COMPAT_BLOCKING === "true",
     installCandidateXpi: false,
+    previousXpiPath: String(
+      process.env.ZOTERO_COMPAT_PREVIOUS_XPI_PATH || "",
+    ).trim(),
     dryRun: false,
     json: false,
   };
@@ -133,6 +142,10 @@ export function parseCompatibilityCliArgs(args: string[]): CliOptions {
     if (arg === "--dry-run") options.dryRun = true;
     else if (arg === "--install-candidate-xpi")
       options.installCandidateXpi = true;
+    else if (arg.startsWith("--previous-xpi="))
+      options.previousXpiPath = path.resolve(arg.slice(15));
+    else if (arg === "--previous-xpi")
+      options.previousXpiPath = path.resolve(valueAfter(args, index++, arg));
     else if (arg === "--json") options.json = true;
     else if (arg.startsWith("--gate="))
       options.gate = arg.slice(7) as CompatibilityE2ELane;
@@ -233,6 +246,16 @@ export function parseCompatibilityCliArgs(args: string[]): CliOptions {
     !options.installCandidateXpi
   ) {
     throw new Error("Acceptance requires candidate XPI installation");
+  }
+  // The baseline upgrade is an XPI smoke path: the candidate is installed by
+  // the XPI suite itself, never pre-staged ahead of the baseline. It is not the
+  // e2e `--install-candidate-xpi` flow, so the two flags stay independent.
+  if (
+    options.previousXpiPath &&
+    !["prepare", "matrix"].includes(options.command) &&
+    options.mode !== "xpi-smoke"
+  ) {
+    throw new Error("Baseline upgrade requires an XPI smoke run");
   }
   if (
     !["committed-seed", "stress", "large-gold"].includes(options.fixtureScale)
@@ -397,6 +420,50 @@ async function finishReceipt(
   await writeCompatibilityReceipt(receiptPath, receipt);
 }
 
+type RunManifestFamilyRecord = {
+  familyId?: string;
+  caseId?: string;
+  result?: string;
+};
+
+async function readRunManifestFamilies(
+  manifestPath: string,
+): Promise<RunManifestFamilyRecord[]> {
+  const value = JSON.parse(await fs.readFile(manifestPath, "utf8")) as {
+    families?: unknown;
+  };
+  return Array.isArray(value?.families)
+    ? (value.families as RunManifestFamilyRecord[])
+    : [];
+}
+
+function piE2EPhaseStatus(
+  families: readonly RunManifestFamilyRecord[],
+  caseIds: readonly string[],
+): "passed" | "failed" | "skipped" {
+  const entries = caseIds.map((caseId) =>
+    families.filter(
+      (family) => family.caseId === caseId && family.familyId === "PI",
+    ),
+  );
+  if (
+    entries.some(
+      (group) =>
+        group.length > 1 || group.some((entry) => entry.result !== "passed"),
+    )
+  )
+    return "failed";
+  return entries.some((group) => !group.length) ? "skipped" : "passed";
+}
+
+async function readJsonIfPresent<T>(filePath: string): Promise<T | undefined> {
+  try {
+    return JSON.parse(await fs.readFile(filePath, "utf8")) as T;
+  } catch {
+    return undefined;
+  }
+}
+
 async function runWorker(args: {
   options: CliOptions;
   binaryPath: string;
@@ -404,6 +471,9 @@ async function runWorker(args: {
   layout: Awaited<ReturnType<typeof createRunLayout>>;
   domain: CliOptions["domain"];
 }) {
+  const upgradeBaseline = args.options.previousXpiPath
+    ? await readPiUpgradeBaseline(args.options.previousXpiPath)
+    : undefined;
   const stdoutPath = path.join(args.layout.diagnostics, "runner.stdout.log");
   const stderrPath = path.join(args.layout.diagnostics, "runner.stderr.log");
   const result = await runOwnedCommand({
@@ -422,10 +492,20 @@ async function runWorker(args: {
       ZOTERO_COMPAT_BUILD_ROOT: args.options.buildRoot,
       ZOTERO_COMPAT_XPI_PATH: args.xpiPath,
       ZOTERO_COMPAT_MODE: args.options.mode,
+      ZOTERO_SYSTEM_E2E_NODE_PATH: process.execPath,
+      ...(upgradeBaseline
+        ? {
+            ZOTERO_PI_UPGRADE_BASELINE_COMMIT: upgradeBaseline.sourceCommit,
+            ZOTERO_PI_UPGRADE_BASELINE_SHA256: upgradeBaseline.xpiSha256,
+          }
+        : {}),
       ZOTERO_COMPAT_PREBUILT_ARTIFACTS: "1",
       ZOTERO_COMPAT_INSTALL_CANDIDATE_XPI: args.options.installCandidateXpi
         ? "1"
         : "0",
+      ...(args.options.previousXpiPath
+        ? { ZOTERO_COMPAT_PREVIOUS_XPI_PATH: args.options.previousXpiPath }
+        : {}),
       ZOTERO_TEST_MODE: args.options.suite,
       ZOTERO_TEST_DOMAIN: args.domain,
       ZOTERO_SYSTEM_E2E_FAMILIES: args.options.families.join(","),
@@ -619,11 +699,90 @@ async function runCell(options: CliOptions): Promise<string> {
             await fs.readFile(worker.stdoutPath, "utf8"),
           ),
         });
+        // The PI suite is a named set of full-behavior groups, not an
+        // undifferentiated `test-e2e` pass. Each group carries the manifest
+        // family result the plugin actually recorded, so the aggregator reads
+        // one stable phase name per group instead of inferring it.
+        const piFamilies = await readRunManifestFamilies(
+          path.resolve(
+            PROJECT_ROOT,
+            receipt.execution.cell.runManifestReference,
+          ),
+        );
+        for (const phase of PI_E2E_PHASES) {
+          const status = piE2EPhaseStatus(
+            piFamilies,
+            PI_E2E_PHASE_CASES[phase],
+          );
+          receipt.phases.push({
+            phase,
+            status,
+            durationMs: worker.result.durationMs,
+          });
+          if (options.families.includes("PI") && status !== "passed")
+            receipt.errors.push({
+              code:
+                status === "failed"
+                  ? "pi_behavior_failed"
+                  : "pi_behavior_missing",
+              phase,
+            });
+        }
+      }
+      if (options.mode === "xpi-smoke") {
+        const xpiPhases = await readJsonIfPresent<{
+          phases?: Array<{ phase?: string; status?: string }>;
+        }>(path.join(segment.diagnostics, "pi-xpi-phases.json"));
+        for (const phase of PI_XPI_PHASES) {
+          const observed = xpiPhases?.phases?.find(
+            (entry) => entry.phase === phase,
+          );
+          receipt.phases.push({
+            phase,
+            status:
+              observed?.status === "passed"
+                ? "passed"
+                : observed?.status === "failed"
+                  ? "failed"
+                  : "skipped",
+            durationMs: worker.result.durationMs,
+          });
+        }
+        const upgrade = await readJsonIfPresent<PiUpgradeEvidence>(
+          path.join(segment.diagnostics, "pi-upgrade.json"),
+        );
+        if (upgrade) receipt.piUpgrade = upgrade;
+        if (options.previousXpiPath) {
+          try {
+            const baseline = await readPiUpgradeBaseline(
+              options.previousXpiPath,
+            );
+            if (
+              !upgrade ||
+              upgrade.baselineCommit !== baseline.sourceCommit ||
+              upgrade.baselineVersion !== baseline.version ||
+              upgrade.baselineXpiSha256 !== baseline.xpiSha256
+            ) {
+              receipt.errors.push({
+                code: "pi_upgrade_baseline_mismatch",
+                phase: "pi-xpi-upgrade",
+              });
+            }
+          } catch (error) {
+            receipt.errors.push({
+              code: "pi_upgrade_baseline_unreadable",
+              phase: "pi-xpi-upgrade",
+              message: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
       }
       receipt.phases.push({
         phase: options.mode === "xpi-smoke" ? "xpi-smoke" : `test-${domain}`,
         status:
-          worker.result.exitCode === 0 && !worker.result.timedOut
+          worker.result.exitCode === 0 &&
+          !worker.result.timedOut &&
+          receipt.errors.length === 0
             ? "passed"
             : "failed",
         durationMs: worker.result.durationMs,

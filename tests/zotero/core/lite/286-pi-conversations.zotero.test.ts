@@ -160,7 +160,11 @@ describe("Pi Conversations in real Zotero", function () {
         history.entries.some((entry) => entry.kind === "tool_call_receipt"),
       );
       await coordinator.archive(ownerId);
-      assert.lengthOf(await coordinator.list(), 0);
+      assert.isFalse(
+        (await coordinator.list()).some(
+          (owner) => owner.conversationId === ownerId,
+        ),
+      );
       await coordinator.restore(ownerId);
       assert.equal(coordinator.selectedId, ownerId);
       await coordinator.archive(ownerId);

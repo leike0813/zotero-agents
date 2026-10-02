@@ -4,6 +4,7 @@ import {
   listBackendsForWorkflow,
 } from "../../../backends/registry";
 import type { BackendInstance } from "../../../backends/types";
+import { compatibleBackendTypesForManifest } from "../../../workflows/manifestContract";
 import { resolveBackendDisplayName } from "../../../backends/displayName";
 import {
   resolveProvider,
@@ -843,18 +844,11 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
     : isSkillRunnerContractWorkflow(args.workflow)
       ? await listBackendsForWorkflow(args.workflow)
       : await listBackendsForProvider(manifestProviderId);
+  const compatibleTypes = compatibleBackendTypesForManifest(
+    args.workflow.manifest,
+  );
   const availableBackends = rawCandidateBackends.filter((backend) => {
-    if (isSkillRunnerSequenceWorkflow(args.workflow)) {
-      const backendType = String(backend.type || "").trim();
-      if (backendType !== "skillrunner" && backendType !== ACP_BACKEND_TYPE) {
-        return false;
-      }
-    } else if (isSkillRunnerJobWorkflow(args.workflow)) {
-      const backendType = String(backend.type || "").trim();
-      if (backendType !== "skillrunner" && backendType !== ACP_BACKEND_TYPE) {
-        return false;
-      }
-    } else if (String(backend.type || "").trim() !== manifestProviderId) {
+    if (!compatibleTypes.includes(String(backend.type || "").trim())) {
       return false;
     }
     const backendId = String(backend.id || "").trim();

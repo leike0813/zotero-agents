@@ -1,0 +1,115 @@
+import { getBaseName } from "../../../utils/path";
+import { readRuntimeTextFile, RUNTIME_TREE_POLICIES, scanRuntimeTree, } from "../../runtimePersistence";
+function normalizeString(value) {
+    return String(value || "").trim();
+}
+function isRecord(value) {
+    return !!value && typeof value === "object" && !Array.isArray(value);
+}
+function resolveResultJsonFilename(args) {
+    const entrypoint = isRecord(args.runnerJson.entrypoint)
+        ? args.runnerJson.entrypoint
+        : {};
+    const declared = normalizeString(entrypoint.result_json_filename);
+    if (declared) {
+        return getBaseName(declared) || `${args.skillId}.result.json`;
+    }
+    return `${args.skillId}.result.json`;
+}
+async function collectCandidatePaths(args) {
+    const candidates = [];
+    const manifest = await scanRuntimeTree(args.workspaceDir, RUNTIME_TREE_POLICIES["workspace-result"]);
+    for (const entry of manifest.entries) {
+        if (entry.kind !== "file" ||
+            getBaseName(entry.absolutePath) !== args.filename) {
+            continue;
+        }
+        candidates.push({
+            path: entry.absolutePath,
+            relpath: entry.relativePath,
+            mtime: Number(entry.mtime || 0) || 0,
+        });
+    }
+    return candidates.sort((left, right) => {
+        if (right.mtime !== left.mtime) {
+            return right.mtime - left.mtime;
+        }
+        const depth = left.relpath.split("/").length - right.relpath.split("/").length;
+        if (depth !== 0) {
+            return depth;
+        }
+        return left.relpath.localeCompare(right.relpath);
+    });
+}
+export async function resolveAcpSkillResultFileFallback(args) {
+    const filename = resolveResultJsonFilename({
+        skillId: args.skillId,
+        runnerJson: args.runnerJson,
+    });
+    const candidates = await collectCandidatePaths({
+        workspaceDir: args.workspaceDir,
+        filename,
+    });
+    if (!candidates.length) {
+        return {
+            warnings: [
+                {
+                    code: "OUTPUT_RESULT_FILE_DECLARED_NOT_FOUND",
+                    detail: `expected=${filename}`,
+                },
+            ],
+        };
+    }
+    const warnings = [];
+    const selected = candidates[0];
+    if (candidates.length > 1) {
+        warnings.push({
+            code: "OUTPUT_RESULT_FILE_MULTIPLE_CANDIDATES",
+            detail: `expected=${filename} selected=${selected.relpath} candidates=${candidates.length}`,
+        });
+    }
+    let payload;
+    try {
+        payload = JSON.parse(await readRuntimeTextFile(selected.path));
+    }
+    catch {
+        warnings.push({
+            code: "OUTPUT_RESULT_FILE_INVALID_JSON",
+            detail: `path=${selected.relpath}`,
+        });
+        return {
+            selectedPath: selected.relpath,
+            warnings,
+        };
+    }
+    if (!isRecord(payload)) {
+        warnings.push({
+            code: "OUTPUT_RESULT_FILE_INVALID_JSON",
+            detail: `path=${selected.relpath}`,
+        });
+        return {
+            selectedPath: selected.relpath,
+            warnings,
+        };
+    }
+    const validation = await args.validator(payload);
+    if (!validation.ok || !isRecord(validation.resultJson)) {
+        warnings.push({
+            code: "OUTPUT_RESULT_FILE_SCHEMA_INVALID",
+            detail: `path=${selected.relpath} errors=${validation.errors.join(" | ")}`,
+        });
+        return {
+            selectedPath: selected.relpath,
+            warnings,
+        };
+    }
+    warnings.push({
+        code: "OUTPUT_RECOVERED_FROM_RESULT_FILE",
+        detail: `path=${selected.relpath}`,
+    });
+    return {
+        payload: { ...validation.resultJson },
+        selectedPath: selected.relpath,
+        warnings,
+    };
+}

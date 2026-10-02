@@ -255,6 +255,8 @@ async function openPiProviderStream(
           apiKey,
           signal,
           cacheRetention: "short",
+          reasoning:
+            selection.reasoning === "off" ? undefined : selection.reasoning,
           ...(selection.api === "google-generative-ai"
             ? {}
             : { fetch: requestFetch }),

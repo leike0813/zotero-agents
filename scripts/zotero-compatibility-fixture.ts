@@ -187,6 +187,87 @@ export type CompatibilityError = {
   message?: string;
 };
 
+/**
+ * Machine-observed upgrade evidence for the C20 XPI upgrade path. The suite
+ * records what it saw while the baseline (previous) XPI was the active plugin
+ * and what the candidate preserved after the upgrade; the aggregator consumes
+ * this instead of guessing the baseline identity from build metadata.
+ */
+export type PiUpgradeEvidence = {
+  baselineCommit: string;
+  baselineVersion: string;
+  baselineXpiSha256: string;
+  seededWithInstalledBaseline: boolean;
+  legacyPreserved: boolean;
+};
+
+export type PiUpgradeBaseline = {
+  sourceCommit: string;
+  version: string;
+  xpiSha256: string;
+  artifact: string;
+};
+
+/**
+ * Reads the pinned baseline identity that accompanies the previous XPI. The
+ * commit and digest are manifest input, never a literal duplicated in a suite;
+ * the digest is re-derived from the artifact bytes before it is trusted.
+ */
+export async function readPiUpgradeBaseline(
+  previousXpiPath: string,
+): Promise<PiUpgradeBaseline> {
+  const resolvedXpi = path.resolve(previousXpiPath);
+  const manifestPath = path.join(path.dirname(resolvedXpi), "baseline.json");
+  const raw = JSON.parse(await fs.readFile(manifestPath, "utf8")) as Record<
+    string,
+    unknown
+  > | null;
+  const value = {
+    sourceCommit: String(raw?.sourceCommit || "").trim(),
+    version: String(raw?.version || "").trim(),
+    xpiSha256: String(raw?.xpiSha256 || "").trim(),
+    artifact: String(raw?.artifact || "").trim(),
+  };
+  for (const field of ["sourceCommit", "version", "xpiSha256"] as const) {
+    if (!value[field]) throw new Error(`pi_upgrade_baseline_missing:${field}`);
+  }
+  if (!/^[a-f0-9]{40}$/.test(value.sourceCommit)) {
+    throw new Error("pi_upgrade_baseline_commit_invalid");
+  }
+  if (!/^[a-f0-9]{64}$/.test(value.xpiSha256)) {
+    throw new Error("pi_upgrade_baseline_digest_invalid");
+  }
+  const actual = await sha256File(resolvedXpi);
+  if (actual !== value.xpiSha256) {
+    throw new Error("pi_upgrade_baseline_digest_mismatch");
+  }
+  return value as PiUpgradeBaseline;
+}
+
+export const PI_E2E_PHASES = [
+  "pi-conversation",
+  "pi-interruption",
+  "pi-auto-skill-run",
+  "pi-interactive-skill-run",
+  "pi-restart-recovery",
+] as const;
+
+export const PI_XPI_PHASES = ["pi-xpi-fresh", "pi-xpi-upgrade"] as const;
+
+export type PiE2EPhase = (typeof PI_E2E_PHASES)[number];
+export type PiXpiPhase = (typeof PI_XPI_PHASES)[number];
+
+/** Case id per PI E2E phase, as emitted in the run manifest family records. */
+export const PI_E2E_PHASE_CASES: Readonly<
+  Record<PiE2EPhase, readonly string[]>
+> = {
+  "pi-conversation": ["PI-01"],
+  "pi-interruption": ["PI-02"],
+  "pi-auto-skill-run": ["PI-03"],
+  "pi-interactive-skill-run": ["PI-04"],
+  "pi-restart-recovery": ["PI-05", "PI-05-safe"],
+};
+
 export type CompatibilityReceipt = {
   schemaId: "zotero-agents.zotero-compatibility-receipt.v1";
   runId: string;
@@ -214,6 +295,11 @@ export type CompatibilityReceipt = {
     domain?: CompatibilityDomain;
     cell?: CompatibilityExecutionCell;
   };
+  /**
+   * Present only for an XPI cell that ran the baseline upgrade path. Absent
+   * means the upgrade path was not exercised; it is never fabricated.
+   */
+  piUpgrade?: PiUpgradeEvidence;
   status: "running" | "passed" | "failed";
   phases: Array<{
     phase: string;
@@ -492,7 +578,15 @@ export function buildCompatibilityPlan(
   }
   if (gate === "acceptance") {
     for (const targetId of releaseE2ETargets) {
-      addE2ECell("acceptance", targetId, ["SL", "RH", "PA", "PM", "CG", "HB"]);
+      addE2ECell("acceptance", targetId, [
+        "SL",
+        "RH",
+        "PA",
+        "PM",
+        "CG",
+        "HB",
+        "PI",
+      ]);
     }
     return cells;
   }
@@ -1233,26 +1327,93 @@ export async function persistCompatibilityHostFactsEvent(
   runRoot: string,
   event: unknown,
 ): Promise<boolean> {
+  return persistCompatibilityEvidenceEvent(runRoot, event);
+}
+
+/**
+ * Records the plugin-observed compatibility evidence a worker emits during a
+ * run: host facts, per-path XPI phase markers and the C20 upgrade evidence.
+ * Each kind owns exactly one file under `<runRoot>/diagnostics`, so the matrix
+ * reads a stable, machine-observed projection rather than parsing logs.
+ */
+let compatibilityEvidenceTail: Promise<unknown> = Promise.resolve();
+
+export function persistCompatibilityEvidenceEvent(
+  runRoot: string,
+  event: unknown,
+): Promise<boolean> {
+  const persisted = compatibilityEvidenceTail.then(() =>
+    writeCompatibilityEvidenceEvent(runRoot, event),
+  );
+  compatibilityEvidenceTail = persisted.catch(() => undefined);
+  return persisted;
+}
+
+async function writeCompatibilityEvidenceEvent(
+  runRoot: string,
+  event: unknown,
+): Promise<boolean> {
   const envelope = event as { type?: unknown; data?: unknown } | null;
   const data = envelope?.data as { kind?: unknown } | null;
-  if (
-    envelope?.type !== "debug" ||
-    data?.kind !== "zotero-compatibility-host-facts"
-  ) {
-    return false;
+  if (envelope?.type !== "debug" || !data) return false;
+  const diagnostics = path.join(path.resolve(runRoot), "diagnostics");
+  const write = async (name: string, value: unknown) => {
+    await fs.mkdir(diagnostics, { recursive: true });
+    await fs.writeFile(
+      path.join(diagnostics, name),
+      `${JSON.stringify(value, null, 2)}\n`,
+      "utf8",
+    );
+  };
+  if (data.kind === "zotero-compatibility-host-facts") {
+    await write("host-facts.json", data);
+    return true;
   }
-  const hostFactsPath = path.join(
-    path.resolve(runRoot),
-    "diagnostics",
-    "host-facts.json",
-  );
-  await fs.mkdir(path.dirname(hostFactsPath), { recursive: true });
-  await fs.writeFile(
-    hostFactsPath,
-    `${JSON.stringify(data, null, 2)}\n`,
-    "utf8",
-  );
-  return true;
+  if (data.kind === "zotero-compatibility-xpi-phase") {
+    const phase = String((data as { phase?: unknown }).phase || "").trim();
+    const status = String((data as { status?: unknown }).status || "").trim();
+    if (
+      !(PI_XPI_PHASES as readonly string[]).includes(phase) ||
+      !["passed", "failed", "skipped"].includes(status)
+    ) {
+      return false;
+    }
+    const phasesPath = path.join(diagnostics, "pi-xpi-phases.json");
+    let phases: Array<{ phase: string; status: string }> = [];
+    try {
+      const existing = JSON.parse(await fs.readFile(phasesPath, "utf8"));
+      if (Array.isArray(existing?.phases)) phases = existing.phases;
+    } catch {
+      // First phase marker of the run.
+    }
+    phases = [
+      ...phases.filter((entry) => entry.phase !== phase),
+      { phase, status },
+    ];
+    await write("pi-xpi-phases.json", {
+      schemaId: "zotero-agents.pi-xpi-phases.v1",
+      phases,
+    });
+    return true;
+  }
+  if (data.kind === "zotero-compatibility-pi-upgrade") {
+    const evidence = (data as { upgrade?: unknown }).upgrade as
+      | Partial<PiUpgradeEvidence>
+      | undefined;
+    if (
+      !evidence ||
+      typeof evidence.baselineCommit !== "string" ||
+      typeof evidence.baselineVersion !== "string" ||
+      typeof evidence.baselineXpiSha256 !== "string" ||
+      typeof evidence.seededWithInstalledBaseline !== "boolean" ||
+      typeof evidence.legacyPreserved !== "boolean"
+    ) {
+      return false;
+    }
+    await write("pi-upgrade.json", evidence);
+    return true;
+  }
+  return false;
 }
 
 export async function createRunLayout(

@@ -212,8 +212,6 @@ type State = {
   budgetMs?: number;
   /** Admission-time Workflow reservation identity for slot restoration. */
   reservation?: PiWorkflowReservation;
-  /** A run continuing after a restart runs on the background lane. */
-  recovered?: boolean;
   canContinueRecovery?: boolean;
   /** Permanent deletion was requested; the owner accepts no new work. */
   deleting?: boolean;
@@ -647,6 +645,16 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
     }
     states.set(requestId, state);
     publishProjection(state);
+    return state;
+  }
+  async function loadPaused(
+    requestId: string,
+    status: "waiting_permission" | "waiting_user" | "suspended",
+  ) {
+    const state = await load(requestId);
+    // A visible wait can precede the turn's final checkpoint. User actions
+    // continue only after that work settles; cancel still bypasses this wait.
+    if (state.status === status) await state.active?.catch(() => undefined);
     return state;
   }
   async function setStatus(
@@ -1758,6 +1766,7 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
   async function start(
     state: State,
     text?: string,
+    startupContinuation = false,
   ): Promise<ProviderExecutionResult> {
     if (disposed) throw new Error("pi_skill_run_shutdown");
     if (state.outcome) return state.outcome;
@@ -1775,7 +1784,7 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
         // A previously running owner is admitted only through recovery, which
         // has already judged its checkpoint safe. Every other status is busy.
         const admissible = ["queued", "suspended"];
-        if (fresh.status === "running" && state.recovered)
+        if (fresh.status === "running" && startupContinuation)
           admissible.push("running");
         if (fresh.outcome || fresh.sealed || !admissible.includes(fresh.status))
           throw new Error("pi_skill_run_busy");
@@ -1800,12 +1809,13 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
       const controller = new Controller();
       state.abort = () => controller.abort();
       state.suspend = () => controller.abort();
-      // A resumed run rejoins foreground capacity under its recorded
-      // remainder; a safe startup continuation joins the background lane.
+      // Auto work and safe startup continuations preserve foreground slots.
       await admit(
         state,
         turnId,
-        state.recovered ? "background" : "foreground",
+        startupContinuation || state.mode === "auto"
+          ? "background"
+          : "foreground",
         controller.signal,
       );
       state.model = options.resolveModel
@@ -2199,7 +2209,7 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
       throw new Error("interaction_payload_invalid");
     const mutationEntryId = `interaction-mutation-${(await digest(payload.mutationId)).slice(7)}`;
     return serialize(requestId, async () => {
-      const state = await load(requestId);
+      const state = await loadPaused(requestId, "waiting_user");
       const fingerprint = await digest({ action, payload });
       let revision = 0;
       let resume = false;
@@ -2360,7 +2370,7 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
       throw new Error("interaction_payload_invalid");
     const mutationEntryId = `interaction-mutation-${(await digest(payload.mutationId)).slice(7)}`;
     return serialize(requestId, async () => {
-      const state = await load(requestId);
+      const state = await loadPaused(requestId, "waiting_user");
       const fingerprint = await digest({ action: "files", payload, sources });
       let revision = 0;
       let committedBatch: UserInteractionBatchV1 | undefined;
@@ -2461,7 +2471,7 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
     decision: "approve" | "deny",
   ) {
     return serialize(requestId, async () => {
-      const state = await load(requestId);
+      const state = await loadPaused(requestId, "waiting_permission");
       if (state.status !== "waiting_permission" || state.active)
         throw new Error("pi_permission_not_pending");
       const pending = state.pending.find((item) => item.call.callId === callId);
@@ -2979,9 +2989,8 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
         // Safe continuation: the same request identity, its recorded
         // remaining budget and the restored reservation. Startup never waits
         // for it, so a long run does not delay the process.
-        state.recovered = true;
         state.status = "suspended";
-        void start(state).catch(() => undefined);
+        void start(state, undefined, true).catch(() => undefined);
         summary.continued++;
       } catch {
         summary.holds++;
@@ -3002,9 +3011,17 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
     leases.get(requestId)?.release();
     leases.delete(requestId);
     await markPiSkillRunDeleting(requestId, options.root);
-    return cleanupPiSkillRun(ref(requestId), options.root, {
+    const result = await cleanupPiSkillRun(ref(requestId), options.root, {
       isPhysicallyOccupied: (target) => lifecycle.hasPhysicalHold(target),
     });
+    // Only a proven removal drops the in-memory owner; a pending cleanup keeps
+    // its state, files and navigation selection so a retry can still finish.
+    if (result.status === "deleted") {
+      states.delete(requestId);
+      if (selectedId === requestId) selectedId = null;
+      emit(requestId, ["navigation", "control"]);
+    }
+    return result;
   }
 
   async function claimApply(requestId: string) {
@@ -3203,7 +3220,6 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
     const checkpoint = await recoveryContinuation(state);
     if (!checkpoint) throw new Error("pi_skill_run_recovery_unavailable");
     state.checkpoint = checkpoint;
-    state.recovered = false;
     if (state.status === "recovery_required")
       await setStatus(state, "suspended");
     return start(state);
@@ -3401,7 +3417,7 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
       await setStatus(state, "suspended");
     },
     async reply(requestId: string, text: string) {
-      const state = await load(requestId);
+      const state = await loadPaused(requestId, "suspended");
       if (state.deleting) throw new Error("pi_skill_run_deleting");
       if (state.status !== "suspended" || !text.trim() || state.active)
         throw new Error("pi_skill_run_not_replyable");
@@ -3497,6 +3513,8 @@ export function getPiSkillRunCoordinator() {
 }
 export const claimPiSkillRunApply = (requestId: string) =>
   getPiSkillRunCoordinator().claimApply(requestId);
+export const readPiSkillRunProviderResult = (requestId: string) =>
+  getPiSkillRunCoordinator().readProviderResult(requestId);
 export const recordPiSkillRunApplyReceipt = (
   requestId: string,
   receipt: { status: "succeeded" | "failed" | "skipped"; code?: string },

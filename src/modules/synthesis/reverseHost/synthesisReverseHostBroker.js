@@ -1,0 +1,172 @@
+import { SYNTHESIS_REVERSE_HOST_CAPABILITIES, SynthesisClientError, rebuildSynthesisReverseHostCall, rebuildSynthesisReverseHostResult, synthesisReverseHostCallTimeoutMs, } from "../../../../packages/synthesis-contracts/src";
+import { timingSafeEqualString } from "../../../utils/timingSafeEqual";
+import { createSynthesisSidecarTraceContext, recordSynthesisSidecarTraceEvent, } from "../sidecar/synthesisSidecarTrace";
+const textEncoder = new TextEncoder();
+function diagnosticToken(value) {
+    const token = typeof value === "string" ? value : "";
+    return /^[a-z][a-z0-9_]{0,63}$/u.test(token) ? token : "";
+}
+function failure(code, reason) {
+    throw new SynthesisClientError(code, reason, { reason });
+}
+function isEffect(capability) {
+    return capability.startsWith("effects.");
+}
+function callIdentity(call) {
+    return JSON.stringify({
+        capability: call.capability,
+        payload: call.payload,
+    });
+}
+function assertCompleteHandlers(handlers) {
+    const actual = Object.keys(handlers).sort();
+    const expected = [...SYNTHESIS_REVERSE_HOST_CAPABILITIES].sort();
+    if (actual.length !== expected.length ||
+        actual.some((capability, index) => capability !== expected[index] ||
+            typeof handlers[capability] !==
+                "function")) {
+        failure("invalid_request", "reverse_host_handlers_incomplete");
+    }
+}
+export function createSynthesisReverseHostBroker(options) {
+    assertCompleteHandlers(options.handlers);
+    let active = true;
+    const completedEffects = new Map();
+    const inFlightEffects = new Map();
+    async function execute(call) {
+        const startedAt = options.now();
+        const trace = createSynthesisSidecarTraceContext({ parent: call.trace });
+        const record = (event) => {
+            const retained = recordSynthesisSidecarTraceEvent(event);
+            if (retained)
+                options.recordTraceEvent?.(retained);
+        };
+        record({
+            context: trace,
+            source: "host",
+            boundary: "reverse-host",
+            phase: "handler",
+            outcome: "started",
+            identities: { capability: call.capability },
+        });
+        try {
+            if (!(await options.authorizeCapability(call))) {
+                failure("unavailable", "permission_denied");
+            }
+            const handler = options.handlers[call.capability];
+            const result = rebuildSynthesisReverseHostResult(call.capability, await handler(call.payload, {
+                requestId: call.requestId,
+                operationId: call.operationId,
+                deadlineAtMs: call.deadlineAtMs,
+            }), call.payload);
+            record({
+                context: trace,
+                source: "host",
+                boundary: "reverse-host",
+                phase: "handler-terminal",
+                outcome: "succeeded",
+                identities: { capability: call.capability },
+                metrics: {
+                    durationMs: Math.max(0, options.now() - startedAt),
+                    responseBytes: textEncoder.encode(JSON.stringify(result)).byteLength,
+                },
+            });
+            return result;
+        }
+        catch (error) {
+            const errorRecord = error && typeof error === "object"
+                ? error
+                : null;
+            const details = errorRecord?.details &&
+                typeof errorRecord.details === "object" &&
+                !Array.isArray(errorRecord.details)
+                ? errorRecord.details
+                : null;
+            const code = (error instanceof SynthesisClientError
+                ? error.code
+                : diagnosticToken(errorRecord?.code)) ||
+                "reverse_host_handler_failed";
+            const reason = diagnosticToken(details?.reason);
+            record({
+                context: trace,
+                source: "host",
+                boundary: "reverse-host",
+                phase: "handler-terminal",
+                outcome: error instanceof SynthesisClientError && error.code === "timeout"
+                    ? "timed-out"
+                    : "failed",
+                code,
+                identities: {
+                    capability: call.capability,
+                    ...(reason ? { reason } : {}),
+                },
+                metrics: { durationMs: Math.max(0, options.now() - startedAt) },
+            });
+            throw error;
+        }
+    }
+    async function dispatch(input) {
+        if (!active) {
+            failure("unavailable", "reverse_host_disposed");
+        }
+        if (!timingSafeEqualString(input.authorizationToken, options.authorizationToken)) {
+            failure("unavailable", "reverse_host_unauthorized");
+        }
+        const call = rebuildSynthesisReverseHostCall(input.call);
+        const serviceInstanceId = typeof options.serviceInstanceId === "function"
+            ? options.serviceInstanceId()
+            : options.serviceInstanceId;
+        const instanceMatches = serviceInstanceId === call.serviceInstanceId ||
+            (!serviceInstanceId &&
+                options.allowUnboundServiceInstance === true &&
+                call.serviceInstanceId.length > 0);
+        if (call.profileId !== options.profileId || !instanceMatches) {
+            failure("unavailable", "reverse_host_stale_instance");
+        }
+        const now = options.now();
+        if (call.deadlineAtMs <= now ||
+            call.deadlineAtMs >
+                now + synthesisReverseHostCallTimeoutMs(call.capability)) {
+            failure("timeout", "reverse_host_deadline_invalid");
+        }
+        if (!options.isHostConnected()) {
+            failure("unavailable", "reverse_host_disconnected");
+        }
+        if (!isEffect(call.capability)) {
+            return execute(call);
+        }
+        const identity = callIdentity(call);
+        const completed = completedEffects.get(call.operationId);
+        if (completed) {
+            if (completed.callIdentity !== identity) {
+                failure("conflict", "reverse_host_operation_conflict");
+            }
+            return completed.result;
+        }
+        const inFlight = inFlightEffects.get(call.operationId);
+        if (inFlight) {
+            return inFlight;
+        }
+        const operation = execute(call)
+            .then((result) => {
+            completedEffects.set(call.operationId, {
+                callIdentity: identity,
+                result,
+            });
+            return result;
+        })
+            .finally(() => {
+            inFlightEffects.delete(call.operationId);
+        });
+        inFlightEffects.set(call.operationId, operation);
+        return operation;
+    }
+    return {
+        dispatch,
+        dispose() {
+            active = false;
+            completedEffects.clear();
+            inFlightEffects.clear();
+        },
+    };
+}

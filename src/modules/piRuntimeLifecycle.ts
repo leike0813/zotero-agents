@@ -1,11 +1,42 @@
 import type { PiExecutionCheckpoint } from "./piOwnerPersistence";
 import type { PiOwnerRef } from "./piTranscriptStore";
 import { resolveNativeAbortControllerConstructor } from "../utils/wait";
+import { record as recordPiRuntimeAudit } from "./piRuntimeAudit";
+
+declare const __PI_RUNTIME_CAPACITY__: number;
 
 const HOUR_MS = 60 * 60 * 1000;
 export const PI_SHUTDOWN_BUDGET_MS = 15_000;
 export const PI_PROVIDER_INACTIVITY_MS = 5 * 60 * 1000;
 export const PI_PROVIDER_HARD_LIMIT_MS = HOUR_MS;
+/**
+ * Accepted active-turn capacities. Production ships the default until a
+ * performance run selects a higher passing value on Windows and Linux.
+ */
+export const PI_RUNTIME_CAPACITY_OPTIONS = [4, 6, 8, 12] as const;
+export const PI_RUNTIME_CAPACITY_DEFAULT = 12;
+/** Slots kept free so a foreground turn never waits behind background work. */
+export const PI_RUNTIME_FOREGROUND_RESERVE = 2;
+
+/**
+ * Resolves the active-turn capacity. The value comes from the build-only
+ * `__PI_RUNTIME_CAPACITY__` define or an explicit factory option; anything
+ * outside the accepted set keeps the shipped default.
+ */
+export function resolvePiRuntimeCapacity(value: unknown): number {
+  return PI_RUNTIME_CAPACITY_OPTIONS.includes(
+    value as (typeof PI_RUNTIME_CAPACITY_OPTIONS)[number],
+  )
+    ? (value as number)
+    : PI_RUNTIME_CAPACITY_DEFAULT;
+}
+
+function builtPiRuntimeCapacity(): number | undefined {
+  return typeof __PI_RUNTIME_CAPACITY__ === "number"
+    ? __PI_RUNTIME_CAPACITY__
+    : undefined;
+}
+
 export type PiPhysicalSettlement = "settled" | "unknown";
 
 export type PiExecutionLease = {
@@ -29,8 +60,14 @@ export function createPiRuntimeLifecycle(
   options: {
     monotonicNow?: () => number;
     wallNow?: () => number;
+    /** Explicit capacity for performance exploration; production uses the define. */
+    capacity?: number;
   } = {},
 ) {
+  const capacity = resolvePiRuntimeCapacity(
+    options.capacity ?? builtPiRuntimeCapacity(),
+  );
+  const backgroundCapacity = capacity - PI_RUNTIME_FOREGROUND_RESERVE;
   const monotonicNow =
     options.monotonicNow ??
     (() => {
@@ -65,6 +102,8 @@ export function createPiRuntimeLifecycle(
     Admission["lane"],
     {
       input: Admission;
+      queuedAt: number;
+      reservedAvailable: boolean;
       resolve(lease: PiExecutionLease): void;
       reject(error: Error): void;
       detach(): void;
@@ -73,12 +112,12 @@ export function createPiRuntimeLifecycle(
 
   const pump = () => {
     if (closed) return;
-    while (active.size < 12) {
+    while (active.size < capacity) {
       const backgroundCount = [...active].filter(
         (entry) => entry.lane === "background",
       ).length;
       const backgroundReady =
-        queues.background.length > 0 && backgroundCount < 10;
+        queues.background.length > 0 && backgroundCount < backgroundCapacity;
       const lane: Admission["lane"] =
         queues.foreground.length &&
         (!backgroundReady || nextLane === "foreground")
@@ -86,7 +125,7 @@ export function createPiRuntimeLifecycle(
           : "background";
       if (
         !queues[lane].length ||
-        (lane === "background" && backgroundCount >= 10)
+        (lane === "background" && backgroundCount >= backgroundCapacity)
       )
         break;
       const pending = queues[lane].shift()!;
@@ -114,6 +153,18 @@ export function createPiRuntimeLifecycle(
       let physical = 0;
       const entry = { lane, owner: input.owner, abort };
       active.add(entry);
+      recordPiRuntimeAudit({
+        operation: "queue.capacity",
+        origin: "runtime",
+        correlation: { turnId: input.turnId },
+        attributes: {
+          lane,
+          capacity,
+          activeCount: active.size,
+          waitMs: Math.max(0, started - pending.queuedAt),
+          reservedAvailable: pending.reservedAvailable,
+        },
+      });
       nextLane = lane === "foreground" ? "background" : "foreground";
       input.signal?.addEventListener("abort", abort, { once: true });
       const timer = setTimeout(abort, Math.max(0, budgetMs - elapsedMs));
@@ -197,6 +248,8 @@ export function createPiRuntimeLifecycle(
         };
         const pending = {
           input,
+          queuedAt: monotonicNow(),
+          reservedAvailable: active.size < capacity,
           resolve,
           reject,
           detach: () => input.signal?.removeEventListener("abort", abort),
@@ -219,6 +272,15 @@ export function createPiRuntimeLifecycle(
           (entry.owner.kind === owner.kind &&
             entry.owner.ownerId === owner.ownerId),
       );
+    },
+    get activeCount() {
+      return active.size;
+    },
+    get capacity() {
+      return capacity;
+    },
+    get backgroundCapacity() {
+      return backgroundCapacity;
     },
     maintain(task: () => Promise<void>): Promise<void> {
       if (closed) return Promise.resolve();

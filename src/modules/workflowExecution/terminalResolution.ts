@@ -394,9 +394,7 @@ export function resolveWorkflowJobTerminalResolution(args: {
           },
         };
       }
-      return localSucceededReady
-        ? { kind: "local-ready", slotStatus: "succeeded" }
-        : { kind: "pending", slotStatus: "succeeded" };
+      return { kind: "local-ready", slotStatus: "succeeded" };
     }
     return { kind: "pending", slotStatus: canonicalSlotStatus };
   }

@@ -1,0 +1,547 @@
+import { appendRuntimeLog } from "../modules/runtimeLogManager";
+import { emitVerboseConsole } from "../modules/diagnosticVerbosity";
+import { normalizeStatusWithGuard, validateTransition, } from "../modules/skillRunner/run/skillRunnerProviderStateMachine";
+import { coerceRecoverableSkillRunnerState, getSkillRunnerRequestIdFromJob, hasRecoverableSkillRunnerRequest, isNonRecoverableSkillRunnerFailure, } from "../modules/skillRunner/run/skillRunnerRecoverableState";
+import { settleSkillRunnerRunAsFailed } from "../modules/skillRunner/run/skillRunnerRunSettlement";
+import { applySkillRunnerRunEvent, getSkillRunnerRunRecordByRequest, } from "../modules/skillRunner/run/skillRunnerRunStore";
+const JOB_META_LIFECYCLE_STATES = new Set([
+    "pre_request_id",
+    "request_creating",
+    "uploading",
+    "queued",
+    "running",
+    "waiting_user",
+    "waiting_auth",
+    "succeeded",
+    "failed",
+    "canceled",
+]);
+const JOB_META_STRING_FIELDS = [
+    "runId",
+    "workflowRunId",
+    "localRunId",
+    "workflowLabel",
+    "taskName",
+    "inputUnitIdentity",
+    "inputUnitLabel",
+    "skillName",
+    "skillLabel",
+    "skillId",
+    "sequenceStepId",
+    "sequenceJobId",
+    "sequenceStepSkillId",
+    "sequenceStepSkillName",
+    "engine",
+    "executionMode",
+    "providerId",
+    "requestKind",
+    "requestId",
+    "backendId",
+    "backendType",
+    "backendBaseUrl",
+    "skillRunnerSubmitPhase",
+    "skillRunnerSubmitStartedAt",
+    "skillRunnerSubmitTimeoutAt",
+    "skillRunnerSubmitError",
+];
+const JOB_META_INTEGER_FIELDS = [
+    "sequenceStepIndex",
+    "targetParentID",
+    "inputMemberCount",
+];
+const JOB_META_BOOLEAN_FIELDS = [
+    "skillRunnerRequestReady",
+    "skillRunnerTerminalRunError",
+];
+function normalizeJobMetaBoolean(value) {
+    if (typeof value === "boolean") {
+        return value;
+    }
+    if (typeof value !== "string") {
+        return undefined;
+    }
+    const normalized = value.trim().toLowerCase();
+    if (["1", "true", "yes", "on"].includes(normalized)) {
+        return true;
+    }
+    if (["0", "false", "no", "off"].includes(normalized)) {
+        return false;
+    }
+    return undefined;
+}
+export function normalizeJobRecordMeta(meta) {
+    const normalized = { ...(meta || {}) };
+    for (const key of JOB_META_STRING_FIELDS) {
+        const value = normalized[key];
+        if (typeof value === "string") {
+            const trimmed = value.trim();
+            if (trimmed) {
+                normalized[key] = trimmed;
+            }
+            else {
+                delete normalized[key];
+            }
+        }
+    }
+    const lifecycleState = normalized.skillRunnerLifecycleState;
+    if (typeof lifecycleState === "string") {
+        const trimmed = lifecycleState.trim();
+        if (JOB_META_LIFECYCLE_STATES.has(trimmed)) {
+            normalized.skillRunnerLifecycleState = trimmed;
+        }
+        else {
+            delete normalized.skillRunnerLifecycleState;
+        }
+    }
+    else if (typeof lifecycleState !== "undefined") {
+        delete normalized.skillRunnerLifecycleState;
+    }
+    for (const key of JOB_META_INTEGER_FIELDS) {
+        const value = normalized[key];
+        if (typeof value === "number" && Number.isFinite(value)) {
+            normalized[key] = Math.floor(value);
+        }
+        else if (typeof value !== "undefined") {
+            delete normalized[key];
+        }
+    }
+    for (const key of JOB_META_BOOLEAN_FIELDS) {
+        const value = normalizeJobMetaBoolean(normalized[key]);
+        if (typeof value === "boolean") {
+            normalized[key] = value;
+        }
+        else if (typeof normalized[key] !== "undefined") {
+            delete normalized[key];
+        }
+    }
+    if (Array.isArray(normalized.inputMemberIdentities)) {
+        normalized.inputMemberIdentities = Array.from(new Set(normalized.inputMemberIdentities
+            .map((value) => String(value || "").trim())
+            .filter(Boolean)));
+    }
+    else if (typeof normalized.inputMemberIdentities !== "undefined") {
+        delete normalized.inputMemberIdentities;
+    }
+    return normalized;
+}
+function getExecutionResultRecord(result) {
+    return result && typeof result === "object" && !Array.isArray(result)
+        ? result
+        : null;
+}
+function getExecutionResultStatus(result) {
+    const record = getExecutionResultRecord(result);
+    return String(record?.status || "").trim();
+}
+function getExecutionResultError(result) {
+    const record = getExecutionResultRecord(result);
+    return String(record?.error || "").trim();
+}
+export class JobQueueManager {
+    concurrency;
+    executeJob;
+    onJobUpdated;
+    onJobProgress;
+    jobs = new Map();
+    pendingIds = [];
+    runningCount = 0;
+    nextId = 1;
+    idleWaiters = [];
+    constructor(config) {
+        this.concurrency = Math.max(1, config.concurrency);
+        this.executeJob = config.executeJob;
+        this.onJobUpdated = config.onJobUpdated;
+        this.onJobProgress = config.onJobProgress;
+    }
+    enqueue(args) {
+        const now = new Date().toISOString();
+        const id = `job-${this.nextId++}`;
+        const job = {
+            id,
+            workflowId: args.workflowId,
+            request: args.request,
+            meta: normalizeJobRecordMeta(args.meta),
+            state: "queued",
+            createdAt: now,
+            updatedAt: now,
+        };
+        this.jobs.set(id, job);
+        this.emitJobUpdated(job);
+        appendRuntimeLog({
+            level: "info",
+            scope: "job",
+            workflowId: job.workflowId,
+            backendId: String(job.meta.backendId || "").trim() || undefined,
+            backendType: String(job.meta.backendType || "").trim() || undefined,
+            providerId: String(job.meta.providerId || "").trim() || undefined,
+            runId: String(job.meta.runId || "").trim() || undefined,
+            jobId: job.id,
+            component: "job-queue",
+            operation: "enqueue",
+            phase: "queued",
+            stage: "queue-queued",
+            message: "job queued",
+            details: {
+                runId: String(job.meta.runId || ""),
+            },
+        });
+        this.pendingIds.push(id);
+        void Promise.resolve().then(() => this.drain());
+        return id;
+    }
+    getJob(jobId) {
+        const value = this.jobs.get(jobId);
+        if (!value) {
+            return null;
+        }
+        return { ...value };
+    }
+    listJobs() {
+        return Array.from(this.jobs.values()).map((job) => ({ ...job }));
+    }
+    async waitForIdle() {
+        if (this.runningCount === 0 && this.pendingIds.length === 0) {
+            return;
+        }
+        await new Promise((resolve) => {
+            this.idleWaiters.push(resolve);
+        });
+    }
+    touch(job) {
+        job.updatedAt = new Date().toISOString();
+    }
+    emitJobUpdated(job) {
+        if (!this.onJobUpdated) {
+            return;
+        }
+        this.onJobUpdated({
+            ...job,
+            meta: { ...job.meta },
+        });
+    }
+    resolveIdleIfNeeded() {
+        if (this.runningCount !== 0 || this.pendingIds.length !== 0) {
+            return;
+        }
+        const waiters = [...this.idleWaiters];
+        this.idleWaiters = [];
+        for (const waiter of waiters) {
+            waiter();
+        }
+    }
+    async runOne(jobId) {
+        const job = this.jobs.get(jobId);
+        if (!job) {
+            return;
+        }
+        job.state = "running";
+        this.touch(job);
+        this.emitJobUpdated(job);
+        appendRuntimeLog({
+            level: "info",
+            scope: "job",
+            workflowId: job.workflowId,
+            backendId: String(job.meta.backendId || "").trim() || undefined,
+            backendType: String(job.meta.backendType || "").trim() || undefined,
+            providerId: String(job.meta.providerId || "").trim() || undefined,
+            runId: String(job.meta.runId || "").trim() || undefined,
+            jobId: job.id,
+            component: "job-queue",
+            operation: "dispatch",
+            phase: "start",
+            stage: "dispatch-start",
+            message: "provider dispatch started",
+        });
+        this.runningCount += 1;
+        try {
+            const executionResult = await this.executeJob({ ...job }, {
+                reportProgress: (event) => {
+                    if (!event || typeof event !== "object") {
+                        return;
+                    }
+                    this.onJobProgress?.(job, event);
+                    this.touch(job);
+                    this.emitJobUpdated(job);
+                    appendRuntimeLog({
+                        level: "debug",
+                        scope: "job",
+                        workflowId: job.workflowId,
+                        backendId: String(job.meta.backendId || "").trim() || undefined,
+                        backendType: String(job.meta.backendType || "").trim() || undefined,
+                        providerId: String(job.meta.providerId || "").trim() || undefined,
+                        runId: String(job.meta.runId || "").trim() || undefined,
+                        jobId: job.id,
+                        requestId: String(job.meta.requestId || "").trim() || undefined,
+                        component: "job-queue",
+                        operation: "dispatch-progress",
+                        phase: "running",
+                        stage: "dispatch-progress",
+                        message: `provider progress: ${String(event.type || "unknown")}`,
+                        details: event,
+                    });
+                },
+            });
+            job.result = executionResult;
+            const executionStatus = getExecutionResultStatus(executionResult);
+            if (executionStatus === "deferred") {
+                const requestId = String(executionResult.requestId ||
+                    job.meta.requestId ||
+                    "").trim();
+                const backendStatus = String(executionResult.backendStatus || "").trim();
+                const normalized = normalizeStatusWithGuard({
+                    value: backendStatus,
+                    fallback: "running",
+                    requestId: requestId || undefined,
+                });
+                this.appendStateMachineWarning({
+                    job,
+                    requestId: requestId || undefined,
+                    violation: normalized.violation,
+                });
+                const transition = validateTransition({
+                    prev: job.state,
+                    next: normalized.status,
+                    requestId: requestId || undefined,
+                });
+                this.appendStateMachineWarning({
+                    job,
+                    requestId: requestId || undefined,
+                    violation: transition.violation,
+                });
+                job.state = transition.ok ? transition.nextState : transition.prevState;
+            }
+            else if (executionStatus === "failed" ||
+                executionStatus === "canceled") {
+                job.state = executionStatus;
+                job.error =
+                    getExecutionResultError(executionResult) ||
+                        (executionStatus === "canceled"
+                            ? "provider execution canceled"
+                            : "provider execution failed");
+            }
+            else {
+                job.state = "succeeded";
+            }
+            this.touch(job);
+            this.emitJobUpdated(job);
+            const requestId = String(executionResult?.requestId || "").trim();
+            const stage = executionStatus === "deferred"
+                ? "dispatch-deferred"
+                : executionStatus === "failed"
+                    ? "dispatch-failed"
+                    : executionStatus === "canceled"
+                        ? "dispatch-canceled"
+                        : "dispatch-succeeded";
+            appendRuntimeLog({
+                level: "info",
+                scope: "job",
+                workflowId: job.workflowId,
+                backendId: String(job.meta.backendId || "").trim() || undefined,
+                backendType: String(job.meta.backendType || "").trim() || undefined,
+                providerId: String(job.meta.providerId || "").trim() || undefined,
+                runId: String(job.meta.runId || "").trim() || undefined,
+                jobId: job.id,
+                requestId: requestId || undefined,
+                component: "job-queue",
+                operation: "dispatch-complete",
+                phase: stage === "dispatch-deferred" ? "deferred" : "terminal",
+                stage,
+                message: stage === "dispatch-deferred"
+                    ? "provider dispatch deferred to backend reconciler"
+                    : stage === "dispatch-failed"
+                        ? "provider dispatch finished with terminal failure"
+                        : stage === "dispatch-canceled"
+                            ? "provider dispatch finished with cancellation"
+                            : "provider dispatch finished",
+            });
+        }
+        catch (error) {
+            this.logJobError(job, error);
+            job.error = error instanceof Error ? error.message : String(error);
+            const requestId = getSkillRunnerRequestIdFromJob(job);
+            const isSkillRunnerJob = String(job.meta.backendType || "").trim() === "skillrunner" &&
+                String(job.meta.requestKind || "").trim() === "skillrunner.job.v1";
+            if (isSkillRunnerJob) {
+                job.meta.skillRunnerSubmitError = job.error;
+                if (!requestId) {
+                    job.meta.skillRunnerLifecycleState = "failed";
+                    job.meta.skillRunnerSubmitPhase =
+                        String(job.meta.skillRunnerSubmitPhase || "").trim() ||
+                            "request_creating";
+                }
+                else if (!(job.meta.skillRunnerRequestReady === true ||
+                    String(job.meta.skillRunnerRequestReady || "").trim() === "true")) {
+                    job.meta.skillRunnerLifecycleState = "failed";
+                    job.meta.skillRunnerSubmitPhase =
+                        String(job.meta.skillRunnerSubmitPhase || "").trim() || "uploading";
+                }
+            }
+            if (requestId && isNonRecoverableSkillRunnerFailure(error)) {
+                job.meta.skillRunnerTerminalRunError = true;
+                job.state = "failed";
+                this.touch(job);
+                this.emitJobUpdated(job);
+                settleSkillRunnerRunAsFailed({
+                    backendId: String(job.meta.backendId || "").trim(),
+                    backendType: String(job.meta.backendType || "").trim(),
+                    providerId: String(job.meta.providerId || "").trim() || "skillrunner",
+                    workflowId: job.workflowId,
+                    runId: String(job.meta.runId || "").trim(),
+                    jobId: job.id,
+                    requestId,
+                    reason: job.error,
+                    source: "job-queue-dispatch",
+                    error,
+                    updatedAt: job.updatedAt,
+                });
+                appendRuntimeLog({
+                    level: "error",
+                    scope: "job",
+                    workflowId: job.workflowId,
+                    backendId: String(job.meta.backendId || "").trim() || undefined,
+                    backendType: String(job.meta.backendType || "").trim() || undefined,
+                    providerId: String(job.meta.providerId || "").trim() || undefined,
+                    runId: String(job.meta.runId || "").trim() || undefined,
+                    jobId: job.id,
+                    requestId,
+                    component: "job-queue",
+                    operation: "dispatch-failed-terminal-run",
+                    phase: "terminal",
+                    stage: "dispatch-failed-terminal-run",
+                    message: "provider dispatch failed after request creation with terminal run-level error",
+                    error,
+                });
+                return;
+            }
+            if (hasRecoverableSkillRunnerRequest(job)) {
+                job.state = coerceRecoverableSkillRunnerState(job.state);
+                this.touch(job);
+                this.emitJobUpdated(job);
+                const runRecord = getSkillRunnerRunRecordByRequest({
+                    backendId: String(job.meta.backendId || "").trim(),
+                    requestId,
+                });
+                if (runRecord) {
+                    applySkillRunnerRunEvent({
+                        type: "run.observer_detached",
+                        runKey: runRecord.runKey,
+                        backendId: runRecord.backendId,
+                        requestId,
+                        error,
+                        source: "job-queue-dispatch",
+                        updatedAt: job.updatedAt,
+                    });
+                }
+                appendRuntimeLog({
+                    level: "warn",
+                    scope: "job",
+                    workflowId: job.workflowId,
+                    backendId: String(job.meta.backendId || "").trim() || undefined,
+                    backendType: String(job.meta.backendType || "").trim() || undefined,
+                    providerId: String(job.meta.providerId || "").trim() || undefined,
+                    runId: String(job.meta.runId || "").trim() || undefined,
+                    jobId: job.id,
+                    requestId: requestId || undefined,
+                    component: "job-queue",
+                    operation: "dispatch-failed-recoverable",
+                    phase: "reconcile",
+                    stage: "dispatch-failed-recoverable",
+                    message: "provider dispatch failed after request creation; keeping recoverable non-terminal state",
+                    error,
+                    details: {
+                        preservedState: job.state,
+                    },
+                });
+            }
+            else {
+                job.state = "failed";
+                this.touch(job);
+                this.emitJobUpdated(job);
+                if (isSkillRunnerJob && requestId) {
+                    settleSkillRunnerRunAsFailed({
+                        backendId: String(job.meta.backendId || "").trim(),
+                        backendType: String(job.meta.backendType || "").trim(),
+                        providerId: String(job.meta.providerId || "").trim() || "skillrunner",
+                        workflowId: job.workflowId,
+                        runId: String(job.meta.runId || "").trim(),
+                        jobId: job.id,
+                        requestId,
+                        reason: job.error,
+                        source: "job-queue-dispatch-pre-ready",
+                        error,
+                        updatedAt: job.updatedAt,
+                    });
+                }
+                appendRuntimeLog({
+                    level: "error",
+                    scope: "job",
+                    workflowId: job.workflowId,
+                    backendId: String(job.meta.backendId || "").trim() || undefined,
+                    backendType: String(job.meta.backendType || "").trim() || undefined,
+                    providerId: String(job.meta.providerId || "").trim() || undefined,
+                    runId: String(job.meta.runId || "").trim() || undefined,
+                    jobId: job.id,
+                    requestId: requestId || undefined,
+                    component: "job-queue",
+                    operation: "dispatch-failed",
+                    phase: "terminal",
+                    stage: "dispatch-failed",
+                    message: "provider dispatch failed",
+                    error,
+                });
+            }
+        }
+        finally {
+            this.runningCount -= 1;
+        }
+    }
+    logJobError(job, error) {
+        const label = `[workflow-job-error] workflow=${job.workflowId} job=${job.id}`;
+        const runtime = globalThis;
+        try {
+            emitVerboseConsole("error", label, error);
+        }
+        catch {
+            // ignore logging failures
+        }
+        if (typeof runtime.Zotero?.logError === "function") {
+            const normalized = error instanceof Error ? error : new Error(String(error));
+            runtime.Zotero.logError(normalized);
+        }
+    }
+    appendStateMachineWarning(args) {
+        if (!args.violation) {
+            return;
+        }
+        appendRuntimeLog({
+            level: "warn",
+            scope: "state-machine",
+            workflowId: args.job.workflowId,
+            backendId: String(args.job.meta.backendId || "").trim() || undefined,
+            backendType: String(args.job.meta.backendType || "").trim() || undefined,
+            providerId: String(args.job.meta.providerId || "").trim() || undefined,
+            runId: String(args.job.meta.runId || "").trim() || undefined,
+            jobId: args.job.id,
+            requestId: args.requestId,
+            component: "job-queue",
+            operation: "state-machine-guard",
+            phase: "running",
+            stage: "state-machine-guard",
+            message: "state machine guard degraded runtime state",
+            details: args.violation,
+        });
+    }
+    async drain() {
+        while (this.runningCount < this.concurrency && this.pendingIds.length > 0) {
+            const nextJobId = this.pendingIds.shift();
+            if (!nextJobId) {
+                break;
+            }
+            void this.runOne(nextJobId).then(() => {
+                void this.drain();
+                this.resolveIdleIfNeeded();
+            });
+        }
+        this.resolveIdleIfNeeded();
+    }
+}

@@ -1,7 +1,7 @@
 {
   "name": "zotero-agents",
   "type": "module",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "An all-in-one agentic workbench for your Zotero library",
   "config": {
     "addonName": "Zotero Agents",
@@ -34,6 +34,8 @@
     "build": "npm run build:help-docs && npm run check:synthesis-engine && npm run check:synthesis-contracts && npm run check:synthesis-repository && npm run check:synthesis-application && zotero-plugin build && tsc --noEmit && tsc --noEmit -p tsconfig.sidebar.json && tsc --noEmit -p tsconfig.dashboard.json && tsc --noEmit -p tsconfig.synthesis.json",
     "check:pi-mcp-browser-bundle": "tsx scripts/check-pi-mcp-browser-bundle.ts",
     "build:help-docs": "tsx scripts/build-help-docs.ts",
+    "check:pi-runtime-acceptance": "tsx scripts/check-pi-runtime-acceptance.ts",
+    "measure:pi-runtime-bundle": "tsx scripts/measure-pi-runtime-bundle.ts",
     "check:help-docs": "tsx scripts/build-help-docs.ts --check",
     "harness:ui": "tsx scripts/ui-harness-serve.ts",
     "clear:acp-chat": "tsx scripts/clear-acp-chat-records.ts",

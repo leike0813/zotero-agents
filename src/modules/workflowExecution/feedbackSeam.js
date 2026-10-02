@@ -1,0 +1,422 @@
+import { buildWorkflowFinishMessage, buildWorkflowJobToastMessage, buildWorkflowStartToastMessage, buildWorkflowWaitingToastMessage, } from "./workflowExecuteMessage";
+import { config } from "../../../package.json";
+import { resolveAddonName, resolveAddonRef, resolveToolkitMember, } from "../../utils/runtimeBridge";
+import { appendNotificationHubEvent, resetNotificationHubForTests, } from "../notificationHub";
+import { appendRuntimeLog } from "../runtimeLogManager";
+import { createWorkflowHostError } from "../../workflows/workflowHostErrorContract";
+const WORKFLOW_TOAST_CLOSE_DELAY_MS = 2000;
+const MAX_VISIBLE_WORKFLOW_TOASTS = 3;
+const DEFAULT_WORKFLOW_TOAST_DEDUP_WINDOW_MS = 5000;
+const visibleWorkflowToasts = [];
+const recentWorkflowToastDedup = new Map();
+const workflowCallerToastStates = new Map();
+function resolveProgressWindowCtor() {
+    return resolveToolkitMember("ProgressWindow");
+}
+function closeProgressWindow(win) {
+    try {
+        if (typeof win.close === "function") {
+            win.close();
+        }
+    }
+    catch {
+        // ignore close failures
+    }
+}
+function enforceVisibleWorkflowToastLimit(maxVisible) {
+    while (visibleWorkflowToasts.length >= maxVisible) {
+        const oldest = visibleWorkflowToasts.shift();
+        if (oldest) {
+            closeProgressWindow(oldest);
+        }
+    }
+}
+const STICKY_BOUNDED_TOAST_OPTIONS = {
+    sticky: true,
+    bounded: true,
+};
+const BOUNDED_TOAST_OPTIONS = {
+    bounded: true,
+};
+const WORKFLOW_TOAST_EMOJI_PREFIXES = ["🚀", "⏳", "✅", "❌", "⏹️", "🔌"];
+export function resetWorkflowToastStateForTests() {
+    visibleWorkflowToasts.splice(0, visibleWorkflowToasts.length);
+    recentWorkflowToastDedup.clear();
+    for (const state of workflowCallerToastStates.values()) {
+        for (const timer of state.timers)
+            clearTimeout(timer);
+    }
+    workflowCallerToastStates.clear();
+    resetNotificationHubForTests();
+}
+export function createWorkflowNotificationOwner(args) {
+    const callerScope = args.callerScope || {};
+    return {
+        toast(input) {
+            if (args.interactionMode !== "interactive") {
+                appendRuntimeLog({
+                    level: "warn",
+                    scope: "hook",
+                    stage: "workflow-host.notifications",
+                    message: "Denied non-interactive workflow toast request",
+                });
+                throw createWorkflowHostError("interaction_required", "notifications.toast requires an interactive Workflow Host", { member: "notifications.toast" });
+            }
+            const text = typeof input?.text === "string" ? input.text.trim() : "";
+            const type = input?.type ?? "default";
+            if (!text || !["default", "success", "error"].includes(type)) {
+                throw createWorkflowHostError("invalid_request", "Workflow toast request is invalid", { reason: "invalid_value", field: !text ? "text" : "type" });
+            }
+            if (input.text.length > 4096) {
+                throw createWorkflowHostError("resource_limited", "Workflow toast text exceeds the character limit", { resource: "characters", limit: 4096, observed: input.text.length });
+            }
+            const state = workflowCallerToastStates.get(callerScope) || {
+                visible: 0,
+                timers: new Set(),
+            };
+            workflowCallerToastStates.set(callerScope, state);
+            if (state.visible >= 5) {
+                throw createWorkflowHostError("resource_limited", "Workflow caller already has five visible toasts", { resource: "entries", limit: 5, observed: state.visible });
+            }
+            const shown = showWorkflowToast({
+                text,
+                type,
+                source: "workflow-host",
+                owner: "workflow",
+                scope: "workflow-host-api",
+            });
+            if (shown) {
+                state.visible += 1;
+                const timer = setTimeout(() => {
+                    state.timers.delete(timer);
+                    state.visible = Math.max(0, state.visible - 1);
+                }, WORKFLOW_TOAST_CLOSE_DELAY_MS);
+                state.timers.add(timer);
+            }
+        },
+    };
+}
+export function closeVisibleWorkflowToasts() {
+    const toasts = visibleWorkflowToasts.splice(0, visibleWorkflowToasts.length);
+    recentWorkflowToastDedup.clear();
+    for (const toast of toasts) {
+        closeProgressWindow(toast);
+    }
+}
+function shouldSuppressDuplicateWorkflowToast(payload) {
+    const key = String(payload.dedupKey || "").trim();
+    if (!key) {
+        return false;
+    }
+    const now = Date.now();
+    const windowMs = Math.max(0, Number(payload.dedupWindowMs || DEFAULT_WORKFLOW_TOAST_DEDUP_WINDOW_MS));
+    const lastShownAt = recentWorkflowToastDedup.get(key) || 0;
+    if (windowMs > 0 && now - lastShownAt < windowMs) {
+        return true;
+    }
+    recentWorkflowToastDedup.set(key, now);
+    return false;
+}
+function workflowToastSeverity(payload) {
+    if (payload.semantic === "error" || payload.type === "error") {
+        return "error";
+    }
+    if (payload.semantic === "success" || payload.type === "success") {
+        return "success";
+    }
+    if (payload.semantic === "waiting") {
+        return "warning";
+    }
+    return "info";
+}
+function workflowToastEventType(payload) {
+    const semantic = String(payload.semantic || payload.type || "default")
+        .trim()
+        .replace(/[^a-z0-9_.-]+/gi, "-")
+        .toLowerCase();
+    return `toast.${semantic || "default"}`;
+}
+function resolveWorkflowToastEmoji(payload) {
+    if (payload.semantic === "start") {
+        return "🚀";
+    }
+    if (payload.semantic === "waiting") {
+        return "⏳";
+    }
+    if (payload.semantic === "canceled") {
+        return "⏹️";
+    }
+    if (payload.semantic === "runtime" ||
+        String(payload.type) === "skillrunner-backend") {
+        return "🔌";
+    }
+    if (payload.semantic === "success" || payload.type === "success") {
+        return "✅";
+    }
+    if (payload.semantic === "error" || payload.type === "error") {
+        return "❌";
+    }
+    return "";
+}
+function formatWorkflowToastText(payload) {
+    const text = String(payload.text || "").trim();
+    if (!text ||
+        WORKFLOW_TOAST_EMOJI_PREFIXES.some((prefix) => text.startsWith(prefix))) {
+        return text;
+    }
+    const emoji = resolveWorkflowToastEmoji(payload);
+    return emoji ? `${emoji} ${text}` : text;
+}
+function resolveWorkflowToastIconURI() {
+    const addonRef = resolveAddonRef(config.addonRef);
+    return addonRef
+        ? `chrome://${addonRef}/content/icons/favicon.png`
+        : undefined;
+}
+function configureWorkflowToastIcon(ProgressWindow, iconURI) {
+    if (!iconURI || typeof ProgressWindow.setIconURI !== "function") {
+        return;
+    }
+    try {
+        for (const type of ["default", "success", "error"]) {
+            ProgressWindow.setIconURI(type, iconURI);
+        }
+    }
+    catch {
+        // ignore icon registration failures
+    }
+}
+function refreshWorkflowToastIcons(win) {
+    if (typeof win.updateIcons !== "function") {
+        return;
+    }
+    const refresh = () => {
+        try {
+            win.updateIcons?.();
+        }
+        catch {
+            // ignore toast icon refresh failures
+        }
+    };
+    refresh();
+    setTimeout(refresh, 100);
+    setTimeout(refresh, 500);
+}
+export function showWorkflowToast(payload, options = {}) {
+    const duplicateByDedupKey = shouldSuppressDuplicateWorkflowToast(payload);
+    const hubResult = appendNotificationHubEvent({
+        type: workflowToastEventType(payload),
+        severity: workflowToastSeverity(payload),
+        summary: payload.text,
+        text: payload.text,
+        source: payload.source || "zotero-toast",
+        owner: payload.owner || "workflow",
+        scope: payload.scope || "workflow-feedback",
+        semantic: payload.semantic || payload.type,
+        displayGroupKey: payload.displayGroupKey,
+        dedupKey: payload.dedupKey,
+        relatedHandles: payload.relatedHandles,
+        metadata: payload.metadata,
+        displayRequested: options.display !== false,
+        suppressDisplay: duplicateByDedupKey,
+        suppressionWindowMs: payload.dedupWindowMs,
+    });
+    if (!hubResult.shouldDisplay) {
+        return undefined;
+    }
+    const ProgressWindow = resolveProgressWindowCtor();
+    if (!ProgressWindow) {
+        return undefined;
+    }
+    const addonName = resolveAddonName("Zotero Agents");
+    const iconURI = resolveWorkflowToastIconURI();
+    const sticky = options.sticky === true;
+    const closeTime = sticky ? 0 : WORKFLOW_TOAST_CLOSE_DELAY_MS;
+    const maxVisible = Math.max(1, Math.floor(Number(options.maxVisible || MAX_VISIBLE_WORKFLOW_TOASTS)));
+    try {
+        if (options.bounded) {
+            enforceVisibleWorkflowToastLimit(maxVisible);
+        }
+        configureWorkflowToastIcon(ProgressWindow, iconURI);
+        const win = new ProgressWindow(addonName, {
+            closeOnClick: true,
+            closeTime,
+        });
+        const text = formatWorkflowToastText(payload);
+        const shown = win
+            .createLine({
+            text,
+            type: payload.type || "default",
+            icon: iconURI,
+            progress: 100,
+        })
+            .show(closeTime);
+        refreshWorkflowToastIcons(shown);
+        if (!sticky && typeof shown.startCloseTimer === "function") {
+            shown.startCloseTimer(WORKFLOW_TOAST_CLOSE_DELAY_MS);
+        }
+        if (options.bounded) {
+            visibleWorkflowToasts.push(shown);
+        }
+        return shown;
+    }
+    catch {
+        // ignore toast failures
+        return undefined;
+    }
+}
+export function showWorkflowProgressToast(args) {
+    const ProgressWindow = resolveProgressWindowCtor();
+    if (!ProgressWindow) {
+        return undefined;
+    }
+    const addonName = resolveAddonName("Zotero Agents");
+    const iconURI = resolveWorkflowToastIconURI();
+    try {
+        enforceVisibleWorkflowToastLimit(MAX_VISIBLE_WORKFLOW_TOASTS);
+        configureWorkflowToastIcon(ProgressWindow, iconURI);
+        const shown = new ProgressWindow(addonName, {
+            closeOnClick: true,
+            closeTime: -1,
+        })
+            .createLine({
+            text: args.text,
+            type: args.type || "default",
+            icon: iconURI,
+            progress: Math.max(0, Math.min(100, Number(args.progress || 0))),
+        })
+            .show(0);
+        refreshWorkflowToastIcons(shown);
+        visibleWorkflowToasts.push(shown);
+        return {
+            update: (update) => {
+                shown.changeLine?.({
+                    ...(typeof update.text === "string" ? { text: update.text } : {}),
+                    ...(typeof update.progress === "number"
+                        ? {
+                            progress: Math.max(0, Math.min(100, Math.floor(update.progress))),
+                        }
+                        : {}),
+                });
+            },
+            close: () => {
+                const index = visibleWorkflowToasts.indexOf(shown);
+                if (index >= 0) {
+                    visibleWorkflowToasts.splice(index, 1);
+                }
+                closeProgressWindow(shown);
+            },
+        };
+    }
+    catch {
+        return undefined;
+    }
+}
+export function alertWindow(win, message) {
+    void win;
+    showWorkflowToast({
+        text: message,
+        type: "default",
+        source: "zotero-alert-window",
+        owner: "workflow",
+        scope: "workflow-feedback",
+    }, STICKY_BOUNDED_TOAST_OPTIONS);
+}
+const defaultFeedbackDeps = {
+    showToast: showWorkflowToast,
+    alertWindow,
+};
+export function emitWorkflowStartToast(args, deps = {}) {
+    const resolved = {
+        ...defaultFeedbackDeps,
+        ...deps,
+    };
+    resolved.showToast({
+        text: buildWorkflowStartToastMessage({
+            workflowLabel: args.workflowLabel,
+            totalJobs: args.totalJobs,
+        }, args.messageFormatter),
+        type: "default",
+        semantic: "start",
+        owner: "workflow",
+        scope: "workflow-run",
+        displayGroupKey: `workflow:${args.workflowLabel}:start`,
+    }, BOUNDED_TOAST_OPTIONS);
+}
+export function emitWorkflowWaitingToast(args, deps = {}) {
+    const resolved = {
+        ...defaultFeedbackDeps,
+        ...deps,
+    };
+    resolved.showToast({
+        text: buildWorkflowWaitingToastMessage({
+            workflowLabel: args.workflowLabel,
+            pendingJobs: args.pendingJobs,
+        }, args.messageFormatter),
+        type: "default",
+        semantic: "waiting",
+        owner: "workflow",
+        scope: "workflow-run",
+        displayGroupKey: `workflow:${args.workflowLabel}:waiting`,
+    }, STICKY_BOUNDED_TOAST_OPTIONS);
+}
+export function emitWorkflowJobToasts(args, deps = {}) {
+    const resolved = {
+        ...defaultFeedbackDeps,
+        ...deps,
+    };
+    for (const outcome of args.outcomes) {
+        resolved.showToast({
+            text: buildWorkflowJobToastMessage({
+                workflowLabel: args.workflowLabel,
+                taskLabel: outcome.taskLabel,
+                index: outcome.index + 1,
+                total: args.totalJobs,
+                succeeded: outcome.succeeded,
+                reason: outcome.reason,
+            }, args.messageFormatter),
+            type: outcome.succeeded ? "success" : "error",
+            semantic: outcome.terminalState === "canceled"
+                ? "canceled"
+                : outcome.succeeded
+                    ? "success"
+                    : "error",
+            owner: "workflow",
+            scope: "workflow-job",
+            displayGroupKey: `workflow-job:${outcome.jobId}:${outcome.terminalState || (outcome.succeeded ? "succeeded" : "failed")}`,
+            relatedHandles: {
+                workflowJobId: outcome.jobId,
+                requestId: outcome.requestId,
+                sequenceRunId: outcome.sequenceRunId,
+            },
+        }, STICKY_BOUNDED_TOAST_OPTIONS);
+    }
+}
+export function selectWorkflowJobOutcomesForToasts(args) {
+    return args.outcomes.filter((outcome) => !outcome.succeeded);
+}
+export function shouldEmitWorkflowFinishSummaryToast(args) {
+    void args;
+    return true;
+}
+export function emitWorkflowFinishSummary(args, deps = {}) {
+    const resolved = {
+        ...defaultFeedbackDeps,
+        ...deps,
+    };
+    void args.win;
+    resolved.showToast({
+        text: buildWorkflowFinishMessage({
+            workflowLabel: args.workflowLabel,
+            succeeded: args.succeeded,
+            failed: args.failed,
+            skipped: args.skipped,
+            failureReasons: args.failureReasons,
+        }, args.messageFormatter),
+        type: args.failed > 0 ? "error" : "success",
+        semantic: args.failed > 0 ? "error" : "success",
+        owner: "workflow",
+        scope: "workflow-run",
+        displayGroupKey: `workflow:${args.workflowLabel}:finish`,
+    }, STICKY_BOUNDED_TOAST_OPTIONS);
+}

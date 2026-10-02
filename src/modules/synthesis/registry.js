@@ -1,0 +1,271 @@
+import { validateSourceReferenceArtifact, validateCitationAnalysisArtifact, } from "../../../packages/synthesis-contracts/src/sourceReferenceArtifact";
+import { getRuntimePersistencePaths } from "../runtimePersistence";
+import { parseLiteratureScore, } from "../../shared/literatureScore";
+import { SYNTHESIS_PAPER_ARTIFACT_PAYLOAD_TYPES, SYNTHESIS_PAPER_ARTIFACT_TYPES, } from "../../../packages/synthesis-contracts/src/literatureArtifacts";
+import { hashCanonicalJson, hashMarkdown } from "./foundation";
+export const PAPER_ARTIFACT_TYPES = SYNTHESIS_PAPER_ARTIFACT_TYPES;
+export const PAPER_ARTIFACT_PAYLOAD_TYPES = {
+    ...SYNTHESIS_PAPER_ARTIFACT_PAYLOAD_TYPES,
+};
+function normalizeString(value) {
+    return String(value || "").trim();
+}
+function normalizeStringList(values) {
+    return Array.from(new Set((values || []).map((entry) => normalizeString(entry)).filter(Boolean))).sort((left, right) => left.localeCompare(right));
+}
+function pushNormalizedIsbn(values, seen, candidate) {
+    const normalized = normalizeString(candidate)
+        .toLocaleUpperCase("en-US")
+        .replace(/^ISBN(?:-1[03])?:/i, "")
+        .replace(/[^0-9X]/g, "");
+    if ((normalized.length === 10 || normalized.length === 13) &&
+        !seen.has(normalized)) {
+        seen.add(normalized);
+        values.push(normalized);
+    }
+}
+export function normalizeIsbnValues(value) {
+    const text = normalizeString(value).toLocaleUpperCase("en-US");
+    const values = [];
+    const seen = new Set();
+    if (!text) {
+        return values;
+    }
+    const isbn13Pattern = /97[89](?:[-\s]?\d){10}/g;
+    const remaining = text.replace(isbn13Pattern, (match) => {
+        pushNormalizedIsbn(values, seen, match);
+        return " ".repeat(match.length);
+    });
+    const isbn10Pattern = /(?:\d[-\s]?){9}[\dX]/g;
+    remaining.replace(isbn10Pattern, (match) => {
+        pushNormalizedIsbn(values, seen, match);
+        return match;
+    });
+    if (!values.length) {
+        pushNormalizedIsbn(values, seen, text);
+    }
+    return values.sort((left, right) => left.localeCompare(right));
+}
+export function normalizeIsbnValue(value) {
+    return normalizeIsbnValues(value).join(" ");
+}
+function normalizeLibraryId(value) {
+    const number = Number(value);
+    return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
+}
+export function buildReferenceSidecarMetadataFingerprintPayload(input) {
+    return {
+        title: normalizeString(input.title),
+        year: normalizeString(input.year),
+        item_type: normalizeString(input.itemType ?? input.item_type),
+        creators: normalizeStringList(input.creators),
+        tags: normalizeStringList(input.tags),
+        collections: normalizeStringList(input.collections),
+        doi: normalizeString(input.doi),
+        arxiv: normalizeString(input.arxiv),
+        isbn: normalizeIsbnValue(input.isbn),
+        url: normalizeString(input.url),
+    };
+}
+function artifactLabel(type) {
+    if (type === "citation_analysis") {
+        return "citation analysis";
+    }
+    if (type === "literature_score") {
+        return "literature score";
+    }
+    return type;
+}
+function missingDiagnostic(type) {
+    return {
+        code: "payload_missing",
+        artifact_type: type,
+        message: `${artifactLabel(type)} payload is missing`,
+    };
+}
+function decodeFailedDiagnostic(type, message) {
+    return {
+        code: "payload_decode_failed",
+        artifact_type: type,
+        message,
+    };
+}
+function duplicateDiagnostic(type, count) {
+    return {
+        code: "duplicate_payload_candidates",
+        artifact_type: type,
+        message: `${count} candidates found for ${type}`,
+    };
+}
+function buildMissingArtifact(type) {
+    const diagnostic = missingDiagnostic(type);
+    return {
+        type,
+        payload_type: PAPER_ARTIFACT_PAYLOAD_TYPES[type],
+        status: "missing",
+        diagnostics: [diagnostic],
+    };
+}
+function discoverArtifact(type, notes) {
+    const payloadType = PAPER_ARTIFACT_PAYLOAD_TYPES[type];
+    const candidates = notes.filter((note) => note.noteKind === type.replaceAll("_", "-"));
+    if (!candidates.length)
+        return buildMissingArtifact(type);
+    if (candidates.length > 1) {
+        return {
+            type,
+            payload_type: payloadType,
+            status: "error",
+            diagnostics: [duplicateDiagnostic(type, candidates.length)],
+        };
+    }
+    const note = candidates[0];
+    const payload = note.payload;
+    const markdown = payload && typeof payload === "object" && !Array.isArray(payload)
+        ? payload.markdown
+        : undefined;
+    const valid = !note.issue &&
+        (type === "digest"
+            ? typeof markdown === "string" && !!markdown.trim()
+            : type === "references"
+                ? validateSourceReferenceArtifact(payload).ok
+                : type === "citation_analysis"
+                    ? validateCitationAnalysisArtifact(payload).ok
+                    : !!parseLiteratureScore(payload));
+    return {
+        type,
+        payload_type: payloadType,
+        status: valid ? "available" : "error",
+        note_key: note.key,
+        note_title: normalizeString(note.title),
+        ...(valid
+            ? {
+                hash: type === "digest"
+                    ? hashMarkdown(markdown)
+                    : hashCanonicalJson(payload),
+            }
+            : {}),
+        updated_at: normalizeString(note.updatedAt),
+        diagnostics: valid
+            ? []
+            : [
+                decodeFailedDiagnostic(type, note.issue || "Canonical artifact validation failed"),
+            ],
+    };
+}
+function artifactCoverageForArtifacts(artifacts) {
+    const statuses = Object.values(artifacts).map((entry) => entry.status);
+    const available = statuses.filter((entry) => entry === "available").length;
+    return available === statuses.length
+        ? "complete"
+        : available === 0
+            ? "missing"
+            : "partial";
+}
+function latestUpdatedAt(values) {
+    return values
+        .map(normalizeString)
+        .filter(Boolean)
+        .sort((left, right) => right.localeCompare(left))[0];
+}
+function buildFacet(value, status, updatedAt) {
+    return {
+        hash: hashCanonicalJson(value),
+        status,
+        updated_at: normalizeString(updatedAt) || undefined,
+    };
+}
+function facetStatusFromCoverage(coverage) {
+    if (coverage === "complete") {
+        return "ready";
+    }
+    return coverage;
+}
+function buildRegistryFacets(args) {
+    const identity = {
+        library_id: normalizeLibraryId(args.input.libraryId),
+        item_key: normalizeString(args.input.itemKey),
+        paper_ref: `${normalizeLibraryId(args.input.libraryId)}:${normalizeString(args.input.itemKey)}`,
+        citekey: normalizeString(args.input.citekey),
+        date_added: normalizeString(args.input.dateAdded),
+    };
+    const metadata = buildReferenceSidecarMetadataFingerprintPayload(args.input);
+    const artifact = Object.fromEntries(Object.entries(args.artifacts).map(([type, row]) => [
+        type,
+        {
+            status: row.status,
+            hash: normalizeString(row.hash),
+            payload_type: row.payload_type,
+            note_key: normalizeString(row.note_key),
+        },
+    ]));
+    const reference = {
+        references_status: args.artifacts.references.status,
+        references_hash: normalizeString(args.artifacts.references.hash),
+        citation_analysis_status: args.artifacts.citation_analysis.status,
+        citation_analysis_hash: normalizeString(args.artifacts.citation_analysis.hash),
+    };
+    const artifactUpdatedAt = latestUpdatedAt(Object.values(args.artifacts).map((row) => row.updated_at));
+    return {
+        identity: buildFacet(identity, "ready", args.input.dateAdded),
+        metadata: buildFacet(metadata, "ready"),
+        artifact: buildFacet(artifact, facetStatusFromCoverage(args.artifactCoverage), artifactUpdatedAt),
+        reference: buildFacet(reference, args.artifacts.references.status === "available" ? "ready" : "missing", latestUpdatedAt([
+            args.artifacts.references.updated_at,
+            args.artifacts.citation_analysis.updated_at,
+        ])),
+        topic_usage: buildFacet({ topic_ids: [] }, "unknown"),
+    };
+}
+export function buildReferenceSidecarIndexRow(input) {
+    const libraryId = normalizeLibraryId(input.libraryId);
+    const itemKey = normalizeString(input.itemKey);
+    if (!libraryId) {
+        throw new Error("libraryId must be a positive integer");
+    }
+    if (!itemKey) {
+        throw new Error("itemKey must be non-empty");
+    }
+    const notes = input.notes || [];
+    const artifacts = Object.fromEntries(PAPER_ARTIFACT_TYPES.map((type) => [type, discoverArtifact(type, notes)]));
+    const diagnostics = Object.values(artifacts).flatMap((artifact) => artifact.diagnostics);
+    const artifactCoverage = artifactCoverageForArtifacts(artifacts);
+    const facets = buildRegistryFacets({
+        input,
+        artifacts,
+        artifactCoverage,
+    });
+    const rowWithoutHash = {
+        paper_ref: `${libraryId}:${itemKey}`,
+        library_id: libraryId,
+        item_key: itemKey,
+        title: normalizeString(input.title),
+        year: normalizeString(input.year),
+        item_type: normalizeString(input.itemType),
+        tags: normalizeStringList(input.tags),
+        collections: normalizeStringList(input.collections),
+        artifacts,
+        artifactCoverage,
+        diagnostics,
+        facets,
+    };
+    return {
+        ...rowWithoutHash,
+        row_hash: hashCanonicalJson(rowWithoutHash),
+    };
+}
+export function buildReferenceSidecarIndexRows(inputs) {
+    return [...inputs]
+        .sort((left, right) => {
+        const library = normalizeLibraryId(left.libraryId) -
+            normalizeLibraryId(right.libraryId);
+        if (library !== 0) {
+            return library;
+        }
+        return normalizeString(left.itemKey).localeCompare(normalizeString(right.itemKey));
+    })
+        .map(buildReferenceSidecarIndexRow);
+}
+export function buildSynthesisLayerDbPath(runtimeRoot) {
+    return getRuntimePersistencePaths(runtimeRoot).synthesisDbPath;
+}

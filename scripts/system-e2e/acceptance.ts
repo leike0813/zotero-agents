@@ -7,9 +7,10 @@ import {
 } from "../../packages/synthesis-contracts/src/sidecarRuntimeBundle";
 import { computeSynthesisSidecarRuntimeBundleId } from "../synthesis/synthesis-sidecar-runtime-release-governance";
 import { readZipArchiveEntries } from "../zip-archive";
-import type {
-  CompatibilityPlanCell,
-  CompatibilityReceipt,
+import {
+  PI_E2E_PHASE_CASES,
+  type CompatibilityPlanCell,
+  type CompatibilityReceipt,
 } from "../zotero-compatibility-fixture";
 import {
   PHASE1_FAMILY_DECLARATIONS,
@@ -19,9 +20,9 @@ import type { RunManifest } from "./manifest";
 import type { CellRuntimeEvidence } from "./runtimeEvidence";
 
 const REQUIRED_CASE_IDS =
-  "SL-01 SL-02 SL-03 RH-01 RH-02 PA-01 PA-02 PM-01 PM-02 PM-03 PM-04 CG-01 HB-01 HB-02 HB-03".split(
-    " ",
-  );
+  "SL-01 SL-02 SL-03 RH-01 RH-02 PA-01 PA-02 PM-01 PM-02 PM-03 PM-04 CG-01 HB-01 HB-02 HB-03"
+    .split(" ")
+    .concat(Object.values(PI_E2E_PHASE_CASES).flat());
 
 /** Reads the seven manifest identities and verifies every packaged file. */
 export function readCandidateXpi(xpiPath: string) {

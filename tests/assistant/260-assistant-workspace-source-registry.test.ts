@@ -37,6 +37,7 @@ describe("assistant workspace shell lane memory", function () {
       '<nav id="assistant-workspace-sources"></nav>',
       '<div id="assistant-workspace-loading"></div>',
       '<button id="assistant-workspace-close"></button>',
+      '<iframe id="assistant-frame-pi-conversations"></iframe>',
     ].join("");
     // Acknowledge the shell's host handshake so it stops retrying (the retry
     // timer would otherwise fire after the DOM globals are restored).
@@ -51,6 +52,177 @@ describe("assistant workspace shell lane memory", function () {
 
   after(function () {
     restoreSidebarDomGlobals();
+  });
+
+  // Root cause regression: the shell validator used to accept only the ACP
+  // children plus an implicit SkillRunner fallback, so every Pi child action
+  // (including the transcript ACK) was dropped by owner. Drive the real tab
+  // control and the real child bridge instead of calling the runtime directly.
+  it("forwards a Pi child action and rejects a mismatched Pi owner", async function () {
+    const document = environment.document;
+    const sources = document.getElementById("assistant-workspace-sources");
+    assert.ok(sources, "shell must render source navigation");
+    const host: unknown[] = [];
+    // jsdom has an opaque origin, so the shell's lane memory needs a store.
+    const storageStub = {
+      getItem: () => null,
+      setItem: () => undefined,
+      removeItem: () => undefined,
+    };
+    for (const key of ["localStorage", "sessionStorage"]) {
+      Object.defineProperty(environment.window, key, {
+        value: storageStub,
+        configurable: true,
+      });
+    }
+    (environment.window as unknown as Record<string, unknown>)[
+      ASSISTANT_WORKSPACE_SHELL_BRIDGE_KEY
+    ] = {
+      postMessage: (_type: unknown, payload: unknown) => {
+        host.push(payload);
+        return { ok: true };
+      },
+    };
+
+    const tab = sources!.querySelector("#assistant-tab-pi-conversations");
+    assert.ok(tab, "missing pi-conversations tab");
+    (tab as HTMLElement).click();
+
+    const frame = document.getElementById(
+      "assistant-frame-pi-conversations",
+    ) as HTMLIFrameElement | null;
+    const childWindow = frame?.contentWindow as unknown as Record<
+      string,
+      unknown
+    > | null;
+    if (childWindow) {
+      for (const key of ["localStorage", "sessionStorage"]) {
+        Object.defineProperty(childWindow, key, {
+          value: storageStub,
+          configurable: true,
+        });
+      }
+    }
+    frame?.dispatchEvent(new environment.window.Event("load"));
+    const frameWindow = childWindow;
+    assert.ok(frameWindow, "pi-conversations frame must exist");
+    const bridge = Object.keys(frameWindow!)
+      .map((key) => frameWindow![key])
+      .find(
+        (entry) =>
+          entry &&
+          typeof (entry as { sendAction?: unknown }).sendAction === "function",
+      ) as { sendAction: (envelope: unknown) => void } | undefined;
+    assert.ok(bridge, "child bridge must be installed for the Pi tab");
+
+    const owner = {
+      source: "pi-conversations",
+      ownerKey: "conversation-1",
+      conversationId: "conversation-1",
+    };
+    const before = host.length;
+    bridge!.sendAction({
+      source: "pi-conversations",
+      action: "ready",
+      actionId: "ready-1",
+      owner,
+      payload: {},
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.isAbove(
+      host.length,
+      before,
+      "a valid Pi envelope must not be dropped",
+    );
+
+    const afterValid = host.length;
+    bridge!.sendAction({
+      source: "pi-conversations",
+      action: "ready",
+      actionId: "ready-2",
+      owner: { ...owner, ownerKey: "mismatched-owner" },
+      payload: {},
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(
+      host.length,
+      afterValid,
+      "a mismatched Pi owner must be rejected",
+    );
+  });
+
+  // Child-side half of the same root cause: the page request builder used to
+  // reject every Pi owner, so a Pi child could never ask for its page.
+  it("canonicalizes Pi owners for a page request and rejects mismatched ones", async function () {
+    const { createPageRequest } =
+      (await import("../../src/sidebar/assistantWorkspaceAcpChild.js")) as {
+        createPageRequest: (
+          owner: unknown,
+          cursor: unknown,
+          limit: unknown,
+        ) => { owner: unknown; request: unknown } | null;
+      };
+
+    const conversation = createPageRequest(
+      {
+        source: "pi-conversations",
+        ownerKey: "conversation-1",
+        conversationId: "conversation-1",
+      },
+      null,
+      50,
+    );
+    assert.deepEqual(conversation, {
+      owner: {
+        source: "pi-conversations",
+        ownerKey: "conversation-1",
+        conversationId: "conversation-1",
+      },
+      request: { cursor: null, limit: 50 },
+    });
+
+    const skillRun = createPageRequest(
+      {
+        source: "pi-skill-runs",
+        ownerKey: "request-1",
+        requestId: "request-1",
+      },
+      4,
+      20,
+    );
+    assert.deepEqual(skillRun, {
+      owner: {
+        source: "pi-skill-runs",
+        ownerKey: "request-1",
+        requestId: "request-1",
+      },
+      request: { cursor: 4, limit: 20 },
+    });
+
+    assert.isNull(
+      createPageRequest(
+        {
+          source: "pi-conversations",
+          ownerKey: "mismatched-owner",
+          conversationId: "conversation-1",
+        },
+        null,
+        50,
+      ),
+      "a mismatched Pi conversation owner must not produce a page request",
+    );
+    assert.isNull(
+      createPageRequest(
+        {
+          source: "pi-skill-runs",
+          ownerKey: "mismatched-owner",
+          requestId: "request-1",
+        },
+        null,
+        50,
+      ),
+      "a mismatched Pi skill-run owner must not produce a page request",
+    );
   });
 
   it("restores the source remembered per lane and keeps the map window-local", function () {

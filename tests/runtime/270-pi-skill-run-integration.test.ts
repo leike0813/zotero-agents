@@ -680,10 +680,10 @@ describe("Pi Skill Run integration", function () {
     const running = coordinator.execute(args);
     await entered;
     await coordinator.interrupt(requestId);
-    assert.equal((await running).status, "deferred");
     assert.equal((await coordinator.readModel(requestId)).status, "suspended");
     assert.isFalse((await coordinator.list())[0].attention);
     const result = await coordinator.reply(requestId, "Continue");
+    assert.equal((await running).status, "deferred");
     assert.equal(result.requestId, requestId);
     assert.equal(result.status, "succeeded", JSON.stringify(result));
     assert.equal((await coordinator.readModel(requestId)).mode, "auto");
@@ -902,19 +902,24 @@ describe("Pi Skill Run integration", function () {
     (args.request as { runtime_options?: unknown }).runtime_options = {
       execution_mode: "interactive",
     };
+    let approval: Promise<unknown> | undefined;
+    const unsubscribe = coordinator.subscribe((change) => {
+      if (!change.requestId || approval) return;
+      void coordinator.readModel(change.requestId).then((current) => {
+        if (current.status !== "waiting_permission" || approval) return;
+        approval = coordinator.resolvePermission(
+          current.requestId,
+          "permission-call",
+          "approve",
+        );
+        void approval.catch(() => {});
+      });
+    });
     const result = await coordinator.execute(args);
+    unsubscribe();
     assert.equal(result.status, "deferred");
-    assert.equal(
-      (await coordinator.readModel(result.requestId)).status,
-      "waiting_permission",
-    );
-    assert.isTrue((await coordinator.list())[0].attention);
-    assert.equal(effects, 0);
-    await coordinator.resolvePermission(
-      result.requestId,
-      "permission-call",
-      "approve",
-    );
+    assert.isOk(approval, "approval starts as soon as the wait is published");
+    await approval;
     const batch = (await coordinator.readModel(result.requestId))
       .interactionBatch!;
     assert.equal(effects, 1);

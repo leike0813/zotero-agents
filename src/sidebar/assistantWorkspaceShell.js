@@ -297,12 +297,23 @@ function validAcpChildEnvelope(tab, value) {
               "ownerKey,requestId,source" &&
             String(owner.ownerKey || "") ===
               String(owner.requestId || "").trim()
-          : Object.keys(owner).sort().join(",") ===
-              "ownerKey,requestId,runKey,source" &&
-            String(owner.runKey || "").trim() &&
-            String(owner.ownerKey || "") ===
-              (String(owner.requestId || "").trim() ||
-                String(owner.runKey || "").trim())));
+          : tab === "pi-conversations"
+            ? Object.keys(owner).sort().join(",") ===
+                "conversationId,ownerKey,source" &&
+              String(owner.ownerKey || "") ===
+                String(owner.conversationId || "").trim()
+            : tab === "pi-skill-runs"
+              ? Object.keys(owner).sort().join(",") ===
+                  "ownerKey,requestId,source" &&
+                String(owner.ownerKey || "") ===
+                  String(owner.requestId || "").trim()
+              : tab === "skillrunner" &&
+                Object.keys(owner).sort().join(",") ===
+                  "ownerKey,requestId,runKey,source" &&
+                String(owner.runKey || "").trim() &&
+                String(owner.ownerKey || "") ===
+                  (String(owner.requestId || "").trim() ||
+                    String(owner.runKey || "").trim())));
   return (
     Object.keys(value).sort().join(",") ===
       "action,actionId,owner,payload,source" &&

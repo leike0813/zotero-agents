@@ -1,0 +1,2758 @@
+import { rebuildSynthesisHostItemRefs } from "../../../packages/synthesis-contracts/src/index";
+import { projectCitationGraphVisibility } from "../../shared/citationGraphVisualRules";
+const HOST_COMMANDS = [
+    "openTopicArtifact",
+    "exportTopicSynthesisReport",
+    "exportTopicDetailHtml",
+    "runSynthesizeTopic",
+    "openZoteroItem",
+    "runMissingArtifactWorkflow",
+    "runRegistryItemWorkflow",
+    "openPreferences",
+    "manualRecomputeLayout",
+    "runTagBootstrapper",
+    "validateTagVocabulary",
+    "importTagVocabulary",
+    "previewTagVocabularyImport",
+    "applyTagVocabularyImport",
+    "exportTagVocabulary",
+    "updateStagedTagSuggestion",
+    "updateTagVocabularyEntry",
+    "deleteTagVocabularyEntry",
+    "promoteStagedTagSuggestions",
+    "discardStagedTagSuggestions",
+    "clearStagedTagSuggestions",
+    "rebuildTagVocabularyIndex",
+    "rebuildConceptKbIndex",
+    "deleteConceptEntry",
+    "applyConceptReviewAction",
+    "updateConceptDisplayText",
+    "rebuildTopicGraphIndex",
+    "acceptTopicGraphRelation",
+    "rejectTopicGraphRelation",
+    "applyTopicGraphReviewAction",
+    "rejectTopicDiscoveryHint",
+    "restoreTopicDiscoveryHint",
+    "refreshReferenceSidecarNow",
+    "retryReferenceSidecarRefresh",
+    "runAdvancedReferenceMatchingNow",
+    "retryAdvancedReferenceMatching",
+    "applyReferenceMatchProposalAction",
+    "applyReferenceMatchProposalActions",
+    "applyCanonicalRevisionReviewAction",
+    "mergeEffectiveCanonicalReference",
+    "applyCanonicalRevisionMergeRequests",
+    "updateCanonicalReferenceMetadata",
+    "archiveCanonicalReference",
+    "refreshCitationGraphCacheIncrementalNow",
+    "rebuildCitationGraphCacheNow",
+    "retryCitationGraphCacheRebuild",
+    "deleteTopicArtifact",
+    "purgeDeletedTopicArtifacts",
+    "submitTopicSynthesisUpdate",
+    "resolveTopicPaperDigest",
+    "syncWebDavNow",
+    "pauseWebDavSync",
+    "resumeWebDavSync",
+    "retryWebDavSync",
+    "resolveWebDavSyncConflict",
+];
+const COMMAND_LABELS = {
+    openTopicArtifact: "Open topic",
+    exportTopicSynthesisReport: "Export report",
+    exportTopicDetailHtml: "Export topic HTML",
+    runSynthesizeTopic: "Create topic",
+    openZoteroItem: "Open Zotero item",
+    runMissingArtifactWorkflow: "Run workflow",
+    runRegistryItemWorkflow: "Run item workflow",
+    openPreferences: "Open preferences",
+    manualRecomputeLayout: "Rebuild graph layout",
+    runTagBootstrapper: "Bootstrap tags",
+    validateTagVocabulary: "Validate tags",
+    importTagVocabulary: "Import tags",
+    previewTagVocabularyImport: "Preview tag import",
+    applyTagVocabularyImport: "Apply tag import",
+    exportTagVocabulary: "Export tags",
+    updateStagedTagSuggestion: "Update staged tag",
+    updateTagVocabularyEntry: "Update vocabulary tag",
+    deleteTagVocabularyEntry: "Delete vocabulary tag",
+    promoteStagedTagSuggestions: "Promote staged tags",
+    discardStagedTagSuggestions: "Discard staged tags",
+    clearStagedTagSuggestions: "Clear staged tags",
+    rebuildTagVocabularyIndex: "Rebuild tag index",
+    rebuildConceptKbIndex: "Rebuild concept index",
+    deleteConceptEntry: "Delete concept",
+    applyConceptReviewAction: "Apply concept review",
+    updateConceptDisplayText: "Update concept text",
+    rebuildTopicGraphIndex: "Rebuild topic graph index",
+    acceptTopicGraphRelation: "Accept topic relation",
+    rejectTopicGraphRelation: "Reject topic relation",
+    applyTopicGraphReviewAction: "Apply topic graph review",
+    rejectTopicDiscoveryHint: "Reject discovery hint",
+    restoreTopicDiscoveryHint: "Restore discovery hint",
+    refreshReferenceSidecarNow: "Refresh reference sidecar",
+    retryReferenceSidecarRefresh: "Retry reference sidecar refresh",
+    runAdvancedReferenceMatchingNow: "Run advanced reference matching",
+    retryAdvancedReferenceMatching: "Retry advanced reference matching",
+    applyReferenceMatchProposalAction: "Apply reference match proposal",
+    applyReferenceMatchProposalActions: "Apply reference match proposals",
+    applyCanonicalRevisionReviewAction: "Apply canonical revision review",
+    mergeEffectiveCanonicalReference: "Merge canonical reference",
+    applyCanonicalRevisionMergeRequests: "Apply canonical merge requests",
+    updateCanonicalReferenceMetadata: "Update canonical reference metadata",
+    archiveCanonicalReference: "Archive canonical reference",
+    refreshCitationGraphCacheIncrementalNow: "Refresh citation graph cache incrementally",
+    rebuildCitationGraphCacheNow: "Rebuild citation graph cache",
+    retryCitationGraphCacheRebuild: "Retry citation graph cache rebuild",
+    deleteTopicArtifact: "Delete topic artifact",
+    purgeDeletedTopicArtifacts: "Purge deleted artifacts",
+    submitTopicSynthesisUpdate: "Update topic synthesis",
+    resolveTopicPaperDigest: "Open paper digest",
+    syncWebDavNow: "WebDAV sync now",
+    pauseWebDavSync: "Pause WebDAV sync",
+    resumeWebDavSync: "Resume WebDAV sync",
+    retryWebDavSync: "Retry WebDAV sync",
+    resolveWebDavSyncConflict: "Resolve WebDAV conflict",
+};
+function cleanString(value) {
+    return String(value || "").trim();
+}
+function cleanNumber(value, fallback) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : fallback;
+}
+function keyPart(value, fallback = "all") {
+    return cleanString(value).replace(/\s+/g, "_") || fallback;
+}
+export function getSynthesisUiOperationKey(command, args = {}) {
+    switch (command) {
+        case "manualRecomputeLayout":
+            return `${command}:${normalizeLayoutAlgorithm(args.algorithm || args.preset)}`;
+        case "applyConceptReviewAction":
+            return `${command}:${keyPart(args.reviewId)}`;
+        case "deleteConceptEntry":
+            return `${command}:${keyPart(Array.isArray(args.conceptIds) ? args.conceptIds.join("_") : args.conceptId)}`;
+        case "applyTopicGraphReviewAction":
+            return `${command}:${keyPart(args.reviewId)}`;
+        case "applyReferenceMatchProposalAction":
+            return `${command}:${keyPart(args.proposalId)}`;
+        case "applyCanonicalRevisionReviewAction":
+            return `${command}:${keyPart(args.reviewItemId || args.proposalId)}`;
+        case "applyReferenceMatchProposalActions":
+            return command;
+        case "acceptTopicGraphRelation":
+        case "rejectTopicGraphRelation":
+            return `decideTopicGraphRelation:${keyPart(args.edgeId)}`;
+        case "rejectTopicDiscoveryHint":
+        case "restoreTopicDiscoveryHint":
+            return `topicDiscoveryHint:${keyPart(args.hintId)}`;
+        case "applyTagVocabularyImport":
+            return `${command}:${keyPart(args.action)}`;
+        case "updateStagedTagSuggestion":
+        case "updateTagVocabularyEntry":
+        case "deleteTagVocabularyEntry":
+            return `${command}:${keyPart(args.originalTag || args.tag)}`;
+        case "promoteStagedTagSuggestions":
+        case "discardStagedTagSuggestions":
+            return `${command}:${keyPart(args.tag || (Array.isArray(args.tags) ? args.tags.join("_") : ""))}`;
+        case "submitTopicSynthesisUpdate":
+            return `${command}:${keyPart(args.topicId)}:${keyPart(args.language, "auto")}`;
+        case "openTopicArtifact":
+        case "exportTopicSynthesisReport":
+        case "exportTopicDetailHtml":
+        case "deleteTopicArtifact":
+        case "resolveTopicPaperDigest":
+            return `${command}:${keyPart(args.topicId)}`;
+        default:
+            return command;
+    }
+}
+export function getSynthesisUiOperationLabel(command) {
+    return COMMAND_LABELS[command] || command;
+}
+function includesText(haystack, needle) {
+    const query = needle.toLowerCase();
+    if (!query) {
+        return true;
+    }
+    return String(haystack || "")
+        .toLowerCase()
+        .includes(query);
+}
+function normalizeTab(value) {
+    const tab = cleanString(value);
+    if (tab === "overview" ||
+        tab === "artifacts" ||
+        tab === "registry" ||
+        tab === "reviews" ||
+        tab === "tags" ||
+        tab === "concepts" ||
+        tab === "graph" ||
+        tab === "reader") {
+        return tab;
+    }
+    return "overview";
+}
+function normalizeNonReaderTab(value) {
+    const tab = normalizeTab(value);
+    return tab === "reader" ? "artifacts" : tab;
+}
+function normalizeCoverage(value) {
+    const normalized = cleanString(value);
+    if (normalized === "complete" ||
+        normalized === "partial" ||
+        normalized === "missing") {
+        return normalized;
+    }
+    return "missing";
+}
+function normalizeSourceMaterialsStatus(value) {
+    const normalized = cleanString(value);
+    if (normalized === "complete" ||
+        normalized === "partial" ||
+        normalized === "missing") {
+        return normalized;
+    }
+    return "missing";
+}
+function normalizeFreshness(value) {
+    const normalized = cleanString(value);
+    if (normalized === "fresh" ||
+        normalized === "stale" ||
+        normalized === "dirty" ||
+        normalized === "queued" ||
+        normalized === "running" ||
+        normalized === "failed" ||
+        normalized === "unknown") {
+        return normalized;
+    }
+    return "unknown";
+}
+function normalizeDiscoveryStatus(value) {
+    const normalized = cleanString(value);
+    if (normalized === "none" ||
+        normalized === "candidates" ||
+        normalized === "rejected" ||
+        normalized === "unknown") {
+        return normalized;
+    }
+    return "none";
+}
+function normalizeCacheReadiness(value) {
+    const normalized = cleanString(value);
+    if (normalized === "missing" ||
+        normalized === "refreshing" ||
+        normalized === "ready" ||
+        normalized === "stale" ||
+        normalized === "failed") {
+        return normalized;
+    }
+    if (normalized === "running") {
+        return "refreshing";
+    }
+    if (normalized === "dirty" || normalized === "unknown") {
+        return "stale";
+    }
+    return "missing";
+}
+function normalizeRegistryScopeFilter(value) {
+    const normalized = cleanString(value);
+    if (normalized === "all" ||
+        normalized === "library" ||
+        normalized === "referenced") {
+        return normalized;
+    }
+    if (normalized === "reference-only") {
+        return "referenced";
+    }
+    return "library";
+}
+function normalizeBindingStatusFilter(value) {
+    const normalized = cleanString(value);
+    if (normalized === "auto" ||
+        normalized === "confirmed" ||
+        normalized === "matched") {
+        return "accepted";
+    }
+    if (normalized === "unresolved" || normalized === "suggested") {
+        return "candidate";
+    }
+    if (normalized === "needs_attention") {
+        return "stale_target";
+    }
+    if (normalized === "unbound" ||
+        normalized === "candidate" ||
+        normalized === "accepted" ||
+        normalized === "rejected" ||
+        normalized === "stale_target") {
+        return normalized;
+    }
+    return "all";
+}
+function normalizeReferenceBindingStatus(value) {
+    const normalized = normalizeBindingStatusFilter(value);
+    return normalized === "all" || normalized === "unbound"
+        ? undefined
+        : normalized;
+}
+function normalizeLayoutAlgorithm(value) {
+    const algorithm = cleanString(value);
+    if (algorithm === "radial" || algorithm === "components") {
+        return algorithm;
+    }
+    return "force";
+}
+function normalizeStringList(values) {
+    return Array.from(new Set(Array.isArray(values)
+        ? values.map((entry) => cleanString(entry)).filter(Boolean)
+        : [])).sort((left, right) => left.localeCompare(right));
+}
+function normalizeExpandedRows(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return {};
+    }
+    const rows = {};
+    Object.entries(value).forEach(([key, expanded]) => {
+        const normalizedKey = cleanString(key);
+        if (normalizedKey && expanded === true) {
+            rows[normalizedKey] = true;
+        }
+    });
+    return rows;
+}
+function normalizeEditingStagedTag(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return undefined;
+    }
+    const row = value;
+    const originalTag = cleanString(row.originalTag);
+    if (!originalTag) {
+        return undefined;
+    }
+    const status = cleanString(row.status);
+    const normalizedStatus = status === "pending" || status === "saved" || status === "failed"
+        ? status
+        : "idle";
+    const draftFacet = cleanString(row.draftFacet);
+    return {
+        originalTag,
+        draftTag: cleanString(row.draftTag),
+        ...(draftFacet ? { draftFacet } : {}),
+        draftNote: cleanString(row.draftNote),
+        status: normalizedStatus,
+        error: cleanString(row.error) || undefined,
+    };
+}
+function normalizeEditingVocabularyTag(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return undefined;
+    }
+    const row = value;
+    const originalTag = cleanString(row.originalTag);
+    if (!originalTag) {
+        return undefined;
+    }
+    const status = cleanString(row.status);
+    const normalizedStatus = status === "pending" || status === "saved" || status === "failed"
+        ? status
+        : "idle";
+    return {
+        originalTag,
+        draftTag: cleanString(row.draftTag),
+        draftFacet: cleanString(row.draftFacet) || "topic",
+        draftNote: cleanString(row.draftNote),
+        status: normalizedStatus,
+        error: cleanString(row.error) || undefined,
+    };
+}
+function normalizeSyncDiagnostics(values) {
+    if (!Array.isArray(values)) {
+        return [];
+    }
+    return values
+        .map((entry) => {
+        if (!entry || typeof entry !== "object") {
+            return null;
+        }
+        const row = entry;
+        const severity = cleanString(row.severity);
+        return {
+            code: cleanString(row.code),
+            severity: severity === "error" || severity === "warning"
+                ? severity
+                : "info",
+            message: cleanString(row.message),
+        };
+    })
+        .filter((entry) => Boolean(entry?.code));
+}
+function normalizeSyncStatus(value) {
+    const status = cleanString(value);
+    if (status === "missing_root" ||
+        status === "divergent" ||
+        status === "index_dirty" ||
+        status === "check_skipped") {
+        return status;
+    }
+    return "ready";
+}
+function normalizeDurableSyncQueueState(value) {
+    const state = cleanString(value);
+    if (state === "queued" ||
+        state === "syncing" ||
+        state === "blocked_conflict" ||
+        state === "failed_retryable" ||
+        state === "failed_permanent" ||
+        state === "disabled") {
+        return state;
+    }
+    return "idle";
+}
+function normalizeDurableSyncStatus(value) {
+    const input = value && typeof value === "object"
+        ? value
+        : {};
+    const conflictReport = input.conflict_report && typeof input.conflict_report === "object"
+        ? input.conflict_report
+        : {};
+    const conflicts = Array.isArray(conflictReport.conflicts)
+        ? conflictReport.conflicts
+        : [];
+    const lastRun = input.last_run && typeof input.last_run === "object"
+        ? input.last_run
+        : {};
+    const connectionTest = input.connection_test && typeof input.connection_test === "object"
+        ? input.connection_test
+        : undefined;
+    return {
+        queue_state: normalizeDurableSyncQueueState(input.queue_state),
+        paused: Boolean(input.paused),
+        adapter_configured: Boolean(input.adapter_configured),
+        config_status: cleanString(input.config_status) || undefined,
+        base_url: cleanString(input.base_url) || undefined,
+        remote_path: cleanString(input.remote_path) || undefined,
+        connection_test: connectionTest
+            ? {
+                ok: Boolean(connectionTest.ok),
+                tested_at: cleanString(connectionTest.tested_at) || undefined,
+                diagnostics: normalizeSyncDiagnostics(connectionTest.diagnostics),
+            }
+            : undefined,
+        last_run_status: cleanString(lastRun.status) || undefined,
+        last_run_at: cleanString(lastRun.completed_at) || undefined,
+        conflict_count: conflicts.length,
+        conflict_assets: conflicts
+            .map((entry) => {
+            if (!entry || typeof entry !== "object") {
+                return null;
+            }
+            const row = entry;
+            return {
+                asset_path: cleanString(row.asset_path),
+                reason: cleanString(row.reason),
+                base_hash: cleanString(row.base_hash) || undefined,
+                local_hash: cleanString(row.local_hash) || undefined,
+                remote_hash: cleanString(row.remote_hash) || undefined,
+            };
+        })
+            .filter((entry) => Boolean(entry?.asset_path))
+            .sort((left, right) => left.asset_path.localeCompare(right.asset_path)),
+        conflictActions: normalizeStringList(input.conflictActions || input.conflict_actions),
+        diagnostics: normalizeSyncDiagnostics(input.diagnostics),
+        allowedActions: normalizeStringList(input.allowedActions || input.allowed_actions),
+    };
+}
+function normalizeCacheStatus(value, fallbackCacheKey) {
+    if (!value || typeof value !== "object") {
+        return {
+            cache_key: fallbackCacheKey,
+            status: "missing",
+            diagnostics: [],
+            allowedActions: [],
+        };
+    }
+    const input = value;
+    return {
+        cache_key: cleanString(input.cache_key) || fallbackCacheKey,
+        status: normalizeCacheReadiness(input.status),
+        source_hash: cleanString(input.source_hash) || undefined,
+        basis_hash: cleanString(input.basis_hash) || undefined,
+        refreshed_at: cleanString(input.refreshed_at) || undefined,
+        updated_at: cleanString(input.updated_at) || undefined,
+        diagnostics: normalizeSyncDiagnostics(input.diagnostics),
+        allowedActions: normalizeStringList(input.allowed_actions),
+    };
+}
+function normalizeConflictCandidates(values) {
+    if (!Array.isArray(values)) {
+        return [];
+    }
+    return values
+        .map((entry) => {
+        if (!entry || typeof entry !== "object") {
+            return null;
+        }
+        const row = entry;
+        return {
+            id: cleanString(row.id),
+            topic_id: cleanString(row.topic_id),
+            created_at: cleanString(row.created_at),
+            bundle_hash: cleanString(row.bundle_hash),
+            reason: cleanString(row.reason),
+            status: row.status === "cleared" ? "cleared" : "open",
+        };
+    })
+        .filter((entry) => Boolean(entry?.id && entry.status === "open"))
+        .sort((left, right) => right.created_at.localeCompare(left.created_at) ||
+        left.id.localeCompare(right.id));
+}
+function normalizeDeletedArtifactRows(values) {
+    if (!Array.isArray(values)) {
+        return [];
+    }
+    return values
+        .map((entry) => {
+        if (!entry || typeof entry !== "object") {
+            return null;
+        }
+        const row = entry;
+        return {
+            topic_id: cleanString(row.topic_id),
+            title: cleanString(row.title) || cleanString(row.topic_id),
+            deleted_at: cleanString(row.deleted_at),
+        };
+    })
+        .filter((entry) => Boolean(entry?.topic_id))
+        .sort((left, right) => right.deleted_at.localeCompare(left.deleted_at) ||
+        left.topic_id.localeCompare(right.topic_id));
+}
+function deriveUpdateIntent(row) {
+    const language = cleanString(row.language) || "auto";
+    const staleReasons = normalizeStringList(row.stale_reasons);
+    const dirtyReasons = normalizeStringList(row.dirty_reasons);
+    const missingSections = normalizeStringList(row.missing_sections);
+    const candidateCount = Math.max(0, Math.floor(cleanNumber(row.candidate_count, 0)));
+    if (row.freshness === "dirty" ||
+        row.freshness === "failed" ||
+        row.status === "legacy_invalid" ||
+        dirtyReasons.length > 0) {
+        return {
+            topicId: row.id,
+            language,
+            updateScope: "repair",
+            updateMode: "update_full",
+            updateReason: dirtyReasons[0] || row.status || "dirty",
+            actionLabel: "Update",
+            changedSections: [],
+        };
+    }
+    if (row.freshness === "queued" || row.freshness === "running") {
+        return {
+            topicId: row.id,
+            language,
+            updateScope: "maintenance",
+            updateMode: "auto",
+            updateReason: row.freshness,
+            actionLabel: "Update",
+            changedSections: [],
+            blocked: true,
+        };
+    }
+    if (row.source_materials_status !== "complete" ||
+        missingSections.length > 0) {
+        const section = missingSections[0] === "coverage"
+            ? "source_materials"
+            : missingSections[0] || "source_materials";
+        return {
+            topicId: row.id,
+            language,
+            updateScope: section,
+            updateMode: "update_patch",
+            updateReason: missingSections.length
+                ? "incomplete_sections"
+                : "source_materials_incomplete",
+            actionLabel: "Update",
+            changedSections: missingSections.length
+                ? missingSections.map((entry) => entry === "coverage" ? "source_materials" : entry)
+                : ["source_materials", "diagnostics"],
+        };
+    }
+    if (row.freshness === "stale" || staleReasons.length > 0) {
+        return {
+            topicId: row.id,
+            language,
+            updateScope: "auto",
+            updateMode: "auto",
+            updateReason: staleReasons[0] || "stale",
+            actionLabel: "Update",
+            changedSections: [],
+        };
+    }
+    if (candidateCount > 0) {
+        return {
+            topicId: row.id,
+            language,
+            updateScope: "discovery",
+            updateMode: "update_full",
+            updateReason: "discovery_candidates",
+            actionLabel: "Update",
+            changedSections: [],
+        };
+    }
+    return undefined;
+}
+function normalizeReviewTab(value) {
+    const normalized = cleanString(value);
+    if (normalized === "concepts" || normalized === "topic_graph") {
+        return normalized;
+    }
+    return "reference_matching";
+}
+function normalizeReviewStatusFilter(value) {
+    const normalized = cleanString(value);
+    if (normalized === "all" ||
+        normalized === "accepted" ||
+        normalized === "rejected" ||
+        normalized === "superseded" ||
+        normalized === "retargeted") {
+        return normalized;
+    }
+    return "open";
+}
+function normalizeReviewKindFilter(value) {
+    const normalized = cleanString(value);
+    if (normalized === "zotero_binding" ||
+        normalized === "canonical_merge" ||
+        normalized === "canonical_revision") {
+        return normalized;
+    }
+    return "all";
+}
+function normalizeReviewConfidenceFilter(value) {
+    const normalized = cleanString(value);
+    if (normalized === "deterministic" ||
+        normalized === "high" ||
+        normalized === "medium" ||
+        normalized === "low" ||
+        normalized === "review") {
+        return normalized;
+    }
+    return "all";
+}
+function normalizeArtifactRows(rows) {
+    return [...(rows || [])]
+        .map((row) => {
+        const normalized = {
+            id: cleanString(row.id),
+            title: cleanString(row.title) || cleanString(row.id),
+            kind: "topic_synthesis",
+            source_materials_status: normalizeSourceMaterialsStatus(row.source_materials_status),
+            source_materials_percent: Math.max(0, Math.min(100, Math.floor(cleanNumber(row.source_materials_percent, 0)))),
+            freshness: normalizeFreshness(row.freshness),
+            updated_at: cleanString(row.updated_at) || undefined,
+            definition: cleanString(row.definition) || undefined,
+            markdown_preview: cleanString(row.markdown_preview) || undefined,
+            paper_count: Math.max(0, Math.floor(cleanNumber(row.paper_count, 0))),
+            summary: cleanString(row.summary) || undefined,
+            status: cleanString(row.status) || undefined,
+            readerMode: cleanString(row.readerMode) || undefined,
+            language: cleanString(row.language) || undefined,
+            external_literature_count: Math.max(0, Math.floor(cleanNumber(row.external_literature_count, 0))),
+            discovery_status: normalizeDiscoveryStatus(row.discovery_status),
+            candidate_count: Math.max(0, Math.floor(cleanNumber(row.candidate_count, 0))),
+            stale_reasons: normalizeStringList(row.stale_reasons),
+            dirty_reasons: normalizeStringList(row.dirty_reasons),
+            missing_sections: normalizeStringList(row.missing_sections),
+        };
+        return {
+            ...normalized,
+            updateIntent: row.updateIntent || deriveUpdateIntent(normalized),
+        };
+    })
+        .filter((row) => row.id)
+        .sort((left, right) => left.title.localeCompare(right.title) ||
+        left.id.localeCompare(right.id));
+}
+function normalizeRegistryReferences(rows) {
+    return [...(rows || [])]
+        .map((row) => {
+        const binding = cleanString(row.target_binding);
+        const targetBinding = binding === "library" || binding === "external" ? binding : "none";
+        return {
+            reference_instance_id: cleanString(row.reference_instance_id),
+            reference_index: Math.max(0, Math.floor(cleanNumber(row.reference_index, 0))),
+            title: cleanString(row.title) ||
+                cleanString(row.raw_reference) ||
+                cleanString(row.reference_instance_id),
+            year: cleanString(row.year) || undefined,
+            raw_reference: cleanString(row.raw_reference) || undefined,
+            confidence: cleanString(row.confidence) || undefined,
+            target_literature_item_id: cleanString(row.target_literature_item_id) || undefined,
+            target_title: cleanString(row.target_title) || undefined,
+            target_paper_ref: cleanString(row.target_paper_ref) || undefined,
+            target_binding: targetBinding,
+            binding_status: normalizeReferenceBindingStatus(row.binding_status),
+        };
+    })
+        .filter((row) => row.reference_instance_id)
+        .sort((left, right) => left.reference_index - right.reference_index ||
+        left.reference_instance_id.localeCompare(right.reference_instance_id));
+}
+function normalizeRegistryRows(rows) {
+    return [...(rows || [])]
+        .map((row) => {
+        const missing = normalizeStringList(row.missing_artifacts);
+        const indexScope = row.index_scope === "referenced" ? "referenced" : "library";
+        return {
+            libraryId: Math.max(0, Math.floor(cleanNumber(row.libraryId, 0))) || undefined,
+            itemKey: cleanString(row.itemKey) || undefined,
+            paper_ref: cleanString(row.paper_ref),
+            title: cleanString(row.title) || cleanString(row.paper_ref),
+            year: cleanString(row.year) || undefined,
+            artifactCoverage: normalizeCoverage(row.artifactCoverage),
+            ratingScore: typeof row.ratingScore === "number" &&
+                Number.isFinite(row.ratingScore) &&
+                row.ratingScore >= 0 &&
+                row.ratingScore <= 100
+                ? row.ratingScore
+                : undefined,
+            missing_artifacts: missing,
+            index_scope: indexScope,
+            literature_item_id: cleanString(row.literature_item_id) || undefined,
+            reference_count: Math.max(0, Math.floor(cleanNumber(row.reference_count, 0))),
+            unbound_reference_count: Math.max(0, Math.floor(cleanNumber(row.unbound_reference_count, 0))),
+            referenced_by_count: Math.max(0, Math.floor(cleanNumber(row.referenced_by_count, 0))),
+            references: normalizeRegistryReferences(row.references),
+            needsTagRegulation: row.needsTagRegulation === true,
+        };
+    })
+        .filter((row) => row.paper_ref)
+        .sort((left, right) => left.title.localeCompare(right.title) ||
+        left.paper_ref.localeCompare(right.paper_ref));
+}
+function normalizeCleanupProposals(rows) {
+    return [...(rows || [])]
+        .map((row) => ({
+        proposal_id: cleanString(row.proposal_id),
+        status: row.status === "resolved" ||
+            row.status === "deferred" ||
+            row.status === "blocked_by_upstream_review" ||
+            row.status === "superseded" ||
+            row.status === "retargeted" ||
+            row.status === "approved" ||
+            row.status === "rejected" ||
+            row.status === "skipped"
+            ? row.status
+            : "open",
+        kind: cleanString(row.kind) || undefined,
+        review_kind: cleanString(row.review_kind) || undefined,
+        priority: Math.max(0, Math.floor(Number(row.priority) || 0)),
+        blocked_by_review_item_id: cleanString(row.blocked_by_review_item_id) || undefined,
+        source_paper_ref: cleanString(row.source_paper_ref),
+        source_paper_title: cleanString(row.source_paper_title) || undefined,
+        reference_instance_id: cleanString(row.reference_instance_id) || undefined,
+        provisional_key: cleanString(row.provisional_key) || undefined,
+        reference_title: cleanString(row.reference_title) || undefined,
+        reference_raw: cleanString(row.reference_raw) || undefined,
+        target_paper_ref: cleanString(row.target_paper_ref) || undefined,
+        target_paper_title: cleanString(row.target_paper_title) || undefined,
+        target_literature_item_id: cleanString(row.target_literature_item_id) || undefined,
+        target_work_id: cleanString(row.target_work_id) || undefined,
+        target_work_title: cleanString(row.target_work_title) || undefined,
+        reason: cleanString(row.reason),
+        diagnostics: Array.isArray(row.diagnostics) ? row.diagnostics : [],
+        decision_summary: cleanString(row.decision_summary) || undefined,
+        updated_at: cleanString(row.updated_at) || undefined,
+    }))
+        .filter((row) => row.proposal_id)
+        .sort((left, right) => left.proposal_id.localeCompare(right.proposal_id));
+}
+function normalizeReferenceMatchProposals(rows) {
+    const statusRank = (status) => status === "open"
+        ? 0
+        : status === "accepted"
+            ? 1
+            : status === "rejected"
+                ? 2
+                : 3;
+    return [...(rows || [])]
+        .map((row) => ({
+        proposal_id: cleanString(row.proposal_id),
+        kind: row.kind === "canonical_merge"
+            ? "canonical_merge"
+            : "zotero_binding",
+        status: row.status === "accepted" ||
+            row.status === "rejected" ||
+            row.status === "superseded" ||
+            row.status === "retargeted"
+            ? row.status
+            : "open",
+        source_canonical_reference_id: cleanString(row.source_canonical_reference_id),
+        source_effective_canonical_reference_id: cleanString(row.source_effective_canonical_reference_id) || undefined,
+        source_projected_literature_item_id: cleanString(row.source_projected_literature_item_id) || undefined,
+        source_raw_reference_ids: normalizeStringList(row.source_raw_reference_ids),
+        target_canonical_reference_id: cleanString(row.target_canonical_reference_id) || undefined,
+        target_effective_canonical_reference_id: cleanString(row.target_effective_canonical_reference_id) || undefined,
+        target_projected_literature_item_id: cleanString(row.target_projected_literature_item_id) || undefined,
+        target_library_id: Math.max(0, Math.floor(Number(row.target_library_id) || 0)),
+        target_item_key: cleanString(row.target_item_key) || undefined,
+        confidence: cleanString(row.confidence) || undefined,
+        score: cleanNumber(row.score, 0),
+        reasons: normalizeStringList(row.reasons),
+        evidence: row.evidence && typeof row.evidence === "object"
+            ? row.evidence
+            : {},
+        diagnostics: Array.isArray(row.diagnostics) ? row.diagnostics : [],
+        updated_at: cleanString(row.updated_at) || undefined,
+    }))
+        .filter((row) => row.proposal_id && row.source_canonical_reference_id)
+        .sort((left, right) => statusRank(left.status) - statusRank(right.status) ||
+        (right.updated_at || "").localeCompare(left.updated_at || "") ||
+        left.proposal_id.localeCompare(right.proposal_id));
+}
+function normalizeReferenceMatchTargetCandidates(rows) {
+    return [...(rows || [])]
+        .map((row) => {
+        if (row.kind === "canonical_reference") {
+            return {
+                kind: "canonical_reference",
+                canonicalReferenceId: cleanString(row.canonicalReferenceId),
+                title: cleanString(row.title) ||
+                    cleanString(row.canonicalReferenceId) ||
+                    "Untitled canonical",
+                year: cleanString(row.year) || undefined,
+                rawReferenceIds: normalizeStringList(row.rawReferenceIds),
+                bindingStatus: normalizeReferenceBindingStatus(row.bindingStatus),
+                bindingTarget: row.bindingTarget
+                    ? {
+                        libraryId: Math.max(0, Math.floor(Number(row.bindingTarget.libraryId) || 0)),
+                        itemKey: cleanString(row.bindingTarget.itemKey),
+                        paperRef: cleanString(row.bindingTarget.paperRef) || undefined,
+                    }
+                    : undefined,
+            };
+        }
+        return {
+            kind: "zotero_item",
+            libraryId: Math.max(0, Math.floor(Number(row.libraryId) || 0)),
+            itemKey: cleanString(row.itemKey),
+            title: cleanString(row.title) || cleanString(row.itemKey) || "Untitled",
+            year: cleanString(row.year) || undefined,
+            paperRef: cleanString(row.paperRef) || undefined,
+        };
+    })
+        .filter((row) => row.kind === "canonical_reference"
+        ? Boolean(row.canonicalReferenceId)
+        : Boolean(row.itemKey))
+        .sort((left, right) => {
+        const leftTitle = cleanString(left.title).toLocaleLowerCase();
+        const rightTitle = cleanString(right.title).toLocaleLowerCase();
+        return (leftTitle.localeCompare(rightTitle) ||
+            (left.kind === "canonical_reference"
+                ? left.canonicalReferenceId
+                : `${left.libraryId}:${left.itemKey}`).localeCompare(right.kind === "canonical_reference"
+                ? right.canonicalReferenceId
+                : `${right.libraryId}:${right.itemKey}`));
+    });
+}
+function normalizeCanonicalActionAvailability(value) {
+    const row = value && typeof value === "object"
+        ? value
+        : {};
+    return {
+        allowed: Boolean(row.allowed),
+        reason: cleanString(row.reason) || undefined,
+        blockers: normalizeStringList(row.blockers),
+    };
+}
+function normalizeCanonicalReferenceRows(rows) {
+    return [...(rows || [])]
+        .map((row) => {
+        const effectiveCanonicalId = cleanString(row.effective_canonical_id);
+        const projectedLiteratureItemId = cleanString(row.projected_literature_item_id) || effectiveCanonicalId;
+        const actionAvailability = row.action_availability && typeof row.action_availability === "object"
+            ? row.action_availability
+            : {};
+        const binding = row.binding && typeof row.binding === "object"
+            ? {
+                libraryId: Math.max(0, Math.floor(Number(row.binding.libraryId) || 0)),
+                itemKey: cleanString(row.binding.itemKey),
+                paperRef: cleanString(row.binding.paperRef),
+                title: cleanString(row.binding.title) || undefined,
+                status: normalizeReferenceBindingStatus(row.binding.status),
+            }
+            : undefined;
+        return {
+            row_id: cleanString(row.row_id) ||
+                projectedLiteratureItemId ||
+                effectiveCanonicalId,
+            effective_canonical_id: effectiveCanonicalId,
+            projected_literature_item_id: projectedLiteratureItemId,
+            title: cleanString(row.title) ||
+                projectedLiteratureItemId ||
+                effectiveCanonicalId,
+            normalized_title: cleanString(row.normalized_title) || undefined,
+            year: cleanString(row.year) || undefined,
+            authors: normalizeStringList(row.authors),
+            identifiers: row.identifiers && typeof row.identifiers === "object"
+                ? row.identifiers
+                : undefined,
+            identifiers_list: Array.isArray(row.identifiers_list)
+                ? row.identifiers_list
+                    .filter((entry) => entry && typeof entry === "object")
+                    .map((entry) => ({
+                    kind: cleanString(entry.kind),
+                    value: cleanString(entry.value),
+                }))
+                    .filter((entry) => entry.kind && entry.value)
+                : undefined,
+            binding: binding?.itemKey
+                ? {
+                    ...binding,
+                    paperRef: binding.paperRef || `${binding.libraryId}:${binding.itemKey}`,
+                }
+                : undefined,
+            raw_reference_count: Math.max(0, Math.floor(Number(row.raw_reference_count) || 0)),
+            raw_reference_samples: Array.isArray(row.raw_reference_samples)
+                ? row.raw_reference_samples
+                : [],
+            physical_canonical_ids: normalizeStringList(row.physical_canonical_ids),
+            effective_canonical_ids: normalizeStringList(row.effective_canonical_ids),
+            incoming_redirects: Array.isArray(row.incoming_redirects)
+                ? row.incoming_redirects
+                : [],
+            outgoing_redirects: Array.isArray(row.outgoing_redirects)
+                ? row.outgoing_redirects
+                : [],
+            related_proposals: Array.isArray(row.related_proposals)
+                ? row.related_proposals
+                : [],
+            duplicate_peers: Array.isArray(row.duplicate_peers)
+                ? row.duplicate_peers
+                : [],
+            incoming_redirect_count: Math.max(0, Math.floor(Number(row.incoming_redirect_count) || 0)),
+            outgoing_redirect_count: Math.max(0, Math.floor(Number(row.outgoing_redirect_count) || 0)),
+            proposal_count: Math.max(0, Math.floor(Number(row.proposal_count) || 0)),
+            open_proposal_count: Math.max(0, Math.floor(Number(row.open_proposal_count) || 0)),
+            graph_node_id: cleanString(row.graph_node_id) || undefined,
+            graph_in_degree: Math.max(0, Math.floor(Number(row.graph_in_degree) || 0)),
+            graph_out_degree: Math.max(0, Math.floor(Number(row.graph_out_degree) || 0)),
+            possible_duplicate_group: cleanString(row.possible_duplicate_group) || undefined,
+            action_availability: {
+                merge: normalizeCanonicalActionAvailability(actionAvailability.merge),
+                edit: normalizeCanonicalActionAvailability(actionAvailability.edit),
+                archive: normalizeCanonicalActionAvailability(actionAvailability.archive),
+            },
+            diagnostics: Array.isArray(row.diagnostics) ? row.diagnostics : [],
+        };
+    })
+        .filter((row) => row.effective_canonical_id && row.projected_literature_item_id)
+        .sort((left, right) => left.title.localeCompare(right.title, undefined, {
+        sensitivity: "base",
+    }) ||
+        (left.year || "").localeCompare(right.year || "") ||
+        left.projected_literature_item_id.localeCompare(right.projected_literature_item_id));
+}
+function filterCanonicalReferenceRows(rows, filters) {
+    const query = cleanString(filters.canonicalSearch || filters.search)
+        .toLowerCase()
+        .trim();
+    return rows.filter((row) => {
+        if (query &&
+            ![
+                row.title,
+                row.year,
+                row.effective_canonical_id,
+                row.projected_literature_item_id,
+                ...(row.physical_canonical_ids || []),
+            ]
+                .join(" ")
+                .toLowerCase()
+                .includes(query)) {
+            return false;
+        }
+        if (filters.canonicalBinding === "bound" && !row.binding)
+            return false;
+        if (filters.canonicalBinding === "external" && row.binding)
+            return false;
+        if (filters.canonicalGraph === "visible" && !row.graph_node_id)
+            return false;
+        if (filters.canonicalGraph === "not_in_graph" && row.graph_node_id) {
+            return false;
+        }
+        if (filters.canonicalRedirects === "has_redirects" &&
+            row.incoming_redirect_count + row.outgoing_redirect_count <= 0) {
+            return false;
+        }
+        if (filters.canonicalProposals === "has_proposals" &&
+            row.proposal_count <= 0) {
+            return false;
+        }
+        if (filters.canonicalDuplicates === "possible_duplicate" &&
+            !row.possible_duplicate_group) {
+            return false;
+        }
+        return true;
+    });
+}
+function normalizeTagWarnings(values) {
+    if (!Array.isArray(values)) {
+        return [];
+    }
+    return values
+        .map((entry) => {
+        if (!entry || typeof entry !== "object") {
+            return null;
+        }
+        const row = entry;
+        const code = cleanString(row.code);
+        if (!code) {
+            return null;
+        }
+        return {
+            code,
+            severity: row.severity === "error" ? "error" : "warning",
+            tag: cleanString(row.tag) || undefined,
+            message: cleanString(row.message) || code,
+        };
+    })
+        .filter((entry) => Boolean(entry));
+}
+function normalizeTagRows(rows, warnings) {
+    const warningsByTag = new Map();
+    for (const warning of warnings) {
+        const tag = cleanString(warning.tag);
+        if (!tag) {
+            continue;
+        }
+        warningsByTag.set(tag, [...(warningsByTag.get(tag) || []), warning]);
+    }
+    return [...(rows || [])]
+        .map((row) => {
+        const tag = cleanString(row.tag);
+        const facet = cleanString(row.facet) || tag.split(":")[0] || "unknown";
+        return {
+            tag,
+            facet,
+            note: cleanString(row.note) || undefined,
+            source: cleanString(row.source) || undefined,
+            deprecated: Boolean(row.deprecated),
+            replacement: cleanString(row.replacement) || undefined,
+            aliases: normalizeStringList(row.aliases),
+            abbrev: normalizeStringList(row.abbrev),
+            usage_count: Math.max(0, Math.floor(cleanNumber(row.usage_count, 0))),
+            last_synced_at: cleanString(row.last_synced_at) || undefined,
+            validation_warnings: warningsByTag.get(tag) || [],
+            builtin: isBuiltinStatusTag(tag),
+        };
+    })
+        .filter((row) => row.tag)
+        .sort((left, right) => left.facet.localeCompare(right.facet) ||
+        left.tag.localeCompare(right.tag));
+}
+function normalizeStableItemRefs(value) {
+    try {
+        return rebuildSynthesisHostItemRefs(value, "staged.parent_bindings");
+    }
+    catch {
+        return [];
+    }
+}
+function normalizeStagedTagRows(rows) {
+    return [...(rows || [])]
+        .map((row) => {
+        const tag = cleanString(row.tag);
+        const facet = cleanString(row.facet) || tag.split(":")[0] || "unknown";
+        const parentBindings = normalizeStableItemRefs(row.parent_bindings);
+        return {
+            tag,
+            facet,
+            note: cleanString(row.note) || undefined,
+            source_flow: cleanString(row.source_flow) || undefined,
+            parent_bindings: parentBindings,
+            parent_count: parentBindings.length,
+            created_at: cleanString(row.created_at) || undefined,
+            updated_at: cleanString(row.updated_at) || undefined,
+        };
+    })
+        .filter((row) => row.tag)
+        .sort((left, right) => left.facet.localeCompare(right.facet) ||
+        left.tag.localeCompare(right.tag));
+}
+function normalizeTagImportPreview(preview, warnings) {
+    if (!preview || typeof preview !== "object") {
+        return undefined;
+    }
+    const row = preview;
+    return {
+        builtins: Array.isArray(row.builtins)
+            ? row.builtins
+                .map((entry) => ({
+                tag: cleanString(entry?.tag),
+                local: normalizeTagRows([entry?.local], warnings)[0],
+                imported: normalizeTagRows([entry?.imported], warnings)[0],
+            }))
+                .filter((entry) => entry.tag && entry.local && entry.imported)
+            : [],
+        additions: normalizeTagRows(row.additions, warnings),
+        unchanged: normalizeTagRows(row.unchanged, warnings),
+        conflicts: Array.isArray(row.conflicts)
+            ? row.conflicts
+                .map((entry) => ({
+                tag: cleanString(entry?.tag),
+                local: normalizeTagRows([entry?.local], warnings)[0],
+                imported: normalizeTagRows([entry?.imported], warnings)[0],
+            }))
+                .filter((entry) => entry.tag && entry.local && entry.imported)
+            : [],
+        warnings: normalizeTagWarnings(row.warnings),
+    };
+}
+function normalizeTopicGraphRelation(value) {
+    const relation = cleanString(value);
+    if (relation === "broader_than" ||
+        relation === "related_to" ||
+        relation === "overlaps_with" ||
+        relation === "contrasts_with") {
+        return relation;
+    }
+    return undefined;
+}
+function normalizeTopicGraphStatus(value) {
+    const status = cleanString(value);
+    if (status === "confirmed" ||
+        status === "rejected" ||
+        status === "stale" ||
+        status === "deleted") {
+        return status;
+    }
+    return "suggested";
+}
+function normalizeTopicGraphMode(value) {
+    const mode = cleanString(value);
+    if (mode === "neighborhood" || mode === "unplaced") {
+        return mode;
+    }
+    return "hierarchy";
+}
+function normalizeTopicGraphNodes(nodes) {
+    return [...(nodes || [])]
+        .map((node) => {
+        const topicId = cleanString(node.topic_id);
+        const definitionStatus = cleanString(node.definition_status);
+        const nodeType = node.node_type === "materialized" ? "materialized" : "placeholder";
+        return {
+            topic_id: topicId,
+            title: cleanString(node.title) || topicId,
+            short_definition: cleanString(node.short_definition) || undefined,
+            definition: cleanString(node.definition) || undefined,
+            summary: cleanString(node.summary) || undefined,
+            aliases: normalizeStringList(node.aliases),
+            node_type: nodeType,
+            definition_status: definitionStatus === "has_synthesis" ||
+                definitionStatus === "deleted" ||
+                definitionStatus === "stale"
+                ? definitionStatus
+                : "placeholder",
+            current_artifact_path: cleanString(node.current_artifact_path) || undefined,
+            is_root: Boolean(node.is_root),
+            level: node.level === "top"
+                ? "top"
+                : "normal",
+            paper_count: Math.max(0, Math.floor(cleanNumber(node.paper_count, 0))),
+            last_synthesis_at: cleanString(node.last_synthesis_at) || undefined,
+            relation_statuses: normalizeStringList(node.relation_statuses).filter((entry) => ["suggested", "confirmed", "rejected", "stale", "deleted"].includes(entry)),
+        };
+    })
+        .filter((node) => node.topic_id)
+        .sort((left, right) => left.title.localeCompare(right.title) ||
+        left.topic_id.localeCompare(right.topic_id));
+}
+function normalizeTopicGraphEdges(edges) {
+    return [...(edges || [])]
+        .map((edge) => {
+        const relation = normalizeTopicGraphRelation(edge.relation);
+        const source = cleanString(edge.source_topic_id);
+        const target = cleanString(edge.target_topic_id);
+        const confidence = cleanNumber(edge.confidence, Number.NaN);
+        if (!relation) {
+            return null;
+        }
+        return {
+            edge_id: cleanString(edge.edge_id) || `edge:${relation}:${source}:${target}`,
+            source_topic_id: source,
+            target_topic_id: target,
+            relation,
+            status: normalizeTopicGraphStatus(edge.status),
+            ...(Number.isFinite(confidence) ? { confidence } : {}),
+            provenance: Array.isArray(edge.provenance) ? edge.provenance : [],
+            evidence_refs: Array.isArray(edge.evidence_refs)
+                ? edge.evidence_refs
+                : [],
+        };
+    })
+        .filter((edge) => Boolean(edge?.edge_id && edge.source_topic_id && edge.target_topic_id))
+        .sort((left, right) => left.edge_id.localeCompare(right.edge_id));
+}
+function normalizeTopicGraphReviewStatus(value) {
+    const status = cleanString(value);
+    if (status === "approved" || status === "rejected" || status === "deleted") {
+        return status;
+    }
+    return "open";
+}
+function normalizeTopicGraphReviewItems(rows) {
+    return [...(rows || [])]
+        .map((row) => {
+        const relation = normalizeTopicGraphRelation(row.relation);
+        const confidence = cleanNumber(row.confidence, Number.NaN);
+        return relation
+            ? {
+                review_id: cleanString(row.review_id),
+                status: normalizeTopicGraphReviewStatus(row.status),
+                source_topic_id: cleanString(row.source_topic_id),
+                target_topic_id: cleanString(row.target_topic_id),
+                relation,
+                ...(cleanString(row.target_title)
+                    ? { target_title: cleanString(row.target_title) }
+                    : {}),
+                ...(Number.isFinite(confidence) ? { confidence } : {}),
+                provenance: Array.isArray(row.provenance) ? row.provenance : [],
+                evidence_refs: Array.isArray(row.evidence_refs)
+                    ? row.evidence_refs
+                    : [],
+                diagnostics: Array.isArray(row.diagnostics) ? row.diagnostics : [],
+            }
+            : null;
+    })
+        .filter((row) => !!row?.review_id && !!row.source_topic_id && !!row.target_topic_id)
+        .sort((left, right) => left.status.localeCompare(right.status) ||
+        left.review_id.localeCompare(right.review_id));
+}
+function attachTopicGraphStatuses(nodes, edges) {
+    const statusesByTopic = new Map();
+    for (const edge of edges) {
+        for (const topicId of [edge.source_topic_id, edge.target_topic_id]) {
+            statusesByTopic.set(topicId, statusesByTopic.get(topicId) || new Set());
+            statusesByTopic.get(topicId)?.add(edge.status);
+        }
+    }
+    return nodes.map((node) => ({
+        ...node,
+        relation_statuses: [...(statusesByTopic.get(node.topic_id) || [])].sort(),
+    }));
+}
+function topicGraphInspector(nodes, edges, reviewItems, selectedTopicId) {
+    const byId = new Map(nodes.map((node) => [node.topic_id, node]));
+    const topic = byId.get(cleanString(selectedTopicId)) ||
+        nodes.find((node) => node.definition_status !== "deleted") ||
+        nodes[0];
+    if (!topic) {
+        return {
+            parents: [],
+            children: [],
+            related: [],
+            suggestedRelations: [],
+            relationReviewItems: [],
+            suggestedCount: 0,
+        };
+    }
+    const parents = [];
+    const children = [];
+    const related = [];
+    const suggestedRelations = [];
+    for (const edge of edges) {
+        if (edge.status === "rejected" || edge.status === "deleted") {
+            continue;
+        }
+        if (edge.relation === "broader_than") {
+            if (edge.target_topic_id === topic.topic_id) {
+                const parent = byId.get(edge.source_topic_id);
+                if (parent) {
+                    parents.push(parent);
+                    if (edge.status === "suggested") {
+                        suggestedRelations.push({
+                            edge_id: edge.edge_id,
+                            relation: edge.relation,
+                            status: "suggested",
+                            node: parent,
+                            source_topic_id: edge.source_topic_id,
+                            target_topic_id: edge.target_topic_id,
+                            ...(edge.confidence !== undefined
+                                ? { confidence: edge.confidence }
+                                : {}),
+                            provenance: edge.provenance || [],
+                            evidence_refs: edge.evidence_refs || [],
+                        });
+                    }
+                }
+            }
+            else if (edge.source_topic_id === topic.topic_id) {
+                const child = byId.get(edge.target_topic_id);
+                if (child) {
+                    children.push(child);
+                    if (edge.status === "suggested") {
+                        suggestedRelations.push({
+                            edge_id: edge.edge_id,
+                            relation: edge.relation,
+                            status: "suggested",
+                            node: child,
+                            source_topic_id: edge.source_topic_id,
+                            target_topic_id: edge.target_topic_id,
+                            ...(edge.confidence !== undefined
+                                ? { confidence: edge.confidence }
+                                : {}),
+                            provenance: edge.provenance || [],
+                            evidence_refs: edge.evidence_refs || [],
+                        });
+                    }
+                }
+            }
+            continue;
+        }
+        const oppositeId = edge.source_topic_id === topic.topic_id
+            ? edge.target_topic_id
+            : edge.target_topic_id === topic.topic_id
+                ? edge.source_topic_id
+                : "";
+        const node = byId.get(oppositeId);
+        if (node) {
+            related.push({ relation: edge.relation, status: edge.status, node });
+            if (edge.status === "suggested") {
+                suggestedRelations.push({
+                    edge_id: edge.edge_id,
+                    relation: edge.relation,
+                    status: "suggested",
+                    node,
+                    source_topic_id: edge.source_topic_id,
+                    target_topic_id: edge.target_topic_id,
+                    ...(edge.confidence !== undefined
+                        ? { confidence: edge.confidence }
+                        : {}),
+                    provenance: edge.provenance || [],
+                    evidence_refs: edge.evidence_refs || [],
+                });
+            }
+        }
+    }
+    const relationReviewItems = reviewItems.filter((item) => item.status === "open" &&
+        (item.source_topic_id === topic.topic_id ||
+            item.target_topic_id === topic.topic_id));
+    return {
+        topic,
+        parents,
+        children,
+        related,
+        suggestedRelations,
+        relationReviewItems,
+        suggestedCount: suggestedRelations.length + relationReviewItems.length,
+    };
+}
+function filterTopicGraph(nodes, edges, reviewItems, filters) {
+    const inspector = topicGraphInspector(nodes, edges, reviewItems, filters.selectedTopicId);
+    let visibleNodes = nodes.filter((node) => node.definition_status !== "deleted" &&
+        includesText(`${node.title} ${node.topic_id} ${node.aliases.join(" ")}`, filters.search));
+    if (filters.mode === "unplaced") {
+        const parented = new Set(edges
+            .filter((edge) => edge.relation === "broader_than" &&
+            edge.status !== "rejected" &&
+            edge.status !== "deleted")
+            .map((edge) => edge.target_topic_id));
+        visibleNodes = visibleNodes.filter((node) => !node.is_root && node.level !== "top" && !parented.has(node.topic_id));
+    }
+    else if (filters.mode === "neighborhood" && inspector.topic) {
+        const ids = new Set([
+            inspector.topic.topic_id,
+            ...inspector.parents.map((node) => node.topic_id),
+            ...inspector.children.map((node) => node.topic_id),
+            ...inspector.related.map((entry) => entry.node.topic_id),
+        ]);
+        visibleNodes = visibleNodes.filter((node) => ids.has(node.topic_id));
+    }
+    const visibleIds = new Set(visibleNodes.map((node) => node.topic_id));
+    const visibleEdges = edges.filter((edge) => edge.status !== "rejected" &&
+        edge.status !== "deleted" &&
+        visibleIds.has(edge.source_topic_id) &&
+        visibleIds.has(edge.target_topic_id));
+    return { visibleNodes, visibleEdges, inspector };
+}
+function normalizeConceptStatus(value) {
+    const status = cleanString(value);
+    if (status === "review" || status === "deprecated") {
+        return status;
+    }
+    return "active";
+}
+function normalizeConceptConfidence(value) {
+    const confidence = cleanString(value);
+    if (confidence === "high" || confidence === "low") {
+        return confidence;
+    }
+    return "medium";
+}
+function normalizeConceptRows(rows) {
+    return [...(rows || [])]
+        .map((row) => ({
+        concept_id: cleanString(row.concept_id),
+        label: cleanString(row.label) || cleanString(row.concept_id),
+        aliases: normalizeStringList(row.aliases),
+        concept_type: cleanString(row.concept_type) || "concept",
+        domain: cleanString(row.domain) || "general",
+        status: normalizeConceptStatus(row.status),
+        short_definition: cleanString(row.short_definition) || undefined,
+        definition: cleanString(row.definition) || undefined,
+        usage_note: cleanString(row.usage_note) || undefined,
+        editorial_note: cleanString(row.editorial_note) || undefined,
+        sense_ids: normalizeStringList(row.sense_ids),
+    }))
+        .filter((row) => row.concept_id)
+        .sort((left, right) => left.label.localeCompare(right.label) ||
+        left.concept_id.localeCompare(right.concept_id));
+}
+function normalizeConceptSenseRows(rows) {
+    return [...(rows || [])]
+        .map((row) => ({
+        sense_id: cleanString(row.sense_id),
+        concept_id: cleanString(row.concept_id),
+        label: cleanString(row.label) || cleanString(row.sense_id),
+        aliases: normalizeStringList(row.aliases),
+        domain: cleanString(row.domain) || "general",
+        short_definition: cleanString(row.short_definition),
+        definition: cleanString(row.definition),
+        confidence: normalizeConceptConfidence(row.confidence),
+        source_topic_ids: normalizeStringList(row.source_topic_ids),
+    }))
+        .filter((row) => row.sense_id && row.concept_id)
+        .sort((left, right) => left.label.localeCompare(right.label) ||
+        left.sense_id.localeCompare(right.sense_id));
+}
+function normalizeConceptAliasRows(rows) {
+    return [...(rows || [])]
+        .map((row) => ({
+        alias_id: cleanString(row.alias_id),
+        alias: cleanString(row.alias),
+        normalized: cleanString(row.normalized) || cleanString(row.alias).toLowerCase(),
+        concept_id: cleanString(row.concept_id),
+        sense_id: cleanString(row.sense_id) || undefined,
+        status: normalizeConceptStatus(row.status),
+        confidence: normalizeConceptConfidence(row.confidence),
+    }))
+        .filter((row) => row.alias_id && row.alias && row.concept_id)
+        .sort((left, right) => left.normalized.localeCompare(right.normalized) ||
+        left.alias_id.localeCompare(right.alias_id));
+}
+function normalizeConceptOverlayEntries(entries) {
+    return [...(entries || [])]
+        .map((entry) => ({
+        concept_id: cleanString(entry.concept_id),
+        sense_id: cleanString(entry.sense_id) || undefined,
+        alias: cleanString(entry.alias),
+        label: cleanString(entry.label) || cleanString(entry.alias),
+        short_definition: cleanString(entry.short_definition) || undefined,
+        definition: cleanString(entry.definition) || undefined,
+        confidence: normalizeConceptConfidence(entry.confidence),
+    }))
+        .filter((entry) => entry.concept_id && entry.alias && entry.confidence !== "low")
+        .sort((left, right) => right.alias.length - left.alias.length ||
+        left.alias.localeCompare(right.alias));
+}
+function normalizeConceptReviewStatus(value) {
+    const status = cleanString(value);
+    if (status === "approved" || status === "merged" || status === "rejected") {
+        return status;
+    }
+    return "open";
+}
+function normalizeConceptReviewReason(value) {
+    const reason = cleanString(value);
+    if (reason === "ambiguous_concept_match" ||
+        reason === "alias_conflict" ||
+        reason === "alias_equivalence_audit") {
+        return reason;
+    }
+    return "low_confidence_concept";
+}
+function normalizeConceptReviewItems(rows) {
+    return [...(rows || [])]
+        .map((row) => {
+        const proposal = row.proposal && typeof row.proposal === "object"
+            ? row.proposal
+            : {};
+        const auditAlias = row.audit_alias || proposal.audit_alias;
+        return {
+            review_id: cleanString(row.review_id),
+            status: normalizeConceptReviewStatus(row.status),
+            reason: normalizeConceptReviewReason(row.reason),
+            topic_id: cleanString(row.topic_id),
+            label: cleanString(row.label) || cleanString(row.review_id),
+            short_definition: cleanString(row.short_definition || proposal.short_definition) || undefined,
+            definition: cleanString(row.definition || proposal.definition) ||
+                undefined,
+            concept_type: cleanString(row.concept_type || proposal.concept_type) ||
+                undefined,
+            domain: cleanString(row.domain || proposal.domain) || undefined,
+            topic_relevance: row.topic_relevance || proposal.topic_relevance,
+            evidence: row.evidence || proposal.evidence,
+            diagnostics: Array.isArray(row.diagnostics)
+                ? row.diagnostics
+                : [],
+            confidence: normalizeConceptConfidence(row.confidence),
+            candidate_concept_ids: normalizeStringList(row.candidate_concept_ids),
+            audit_alias: auditAlias && typeof auditAlias === "object"
+                ? {
+                    alias_id: cleanString(auditAlias.alias_id),
+                    alias: cleanString(auditAlias.alias),
+                    normalized: cleanString(auditAlias.normalized),
+                    concept_id: cleanString(auditAlias.concept_id),
+                    sense_id: cleanString(auditAlias.sense_id) || undefined,
+                }
+                : undefined,
+        };
+    })
+        .filter((row) => row.review_id)
+        .sort((left, right) => left.status.localeCompare(right.status) ||
+        left.label.localeCompare(right.label) ||
+        left.review_id.localeCompare(right.review_id));
+}
+function filterConcepts(rows, senses, filters) {
+    const topicConceptIds = new Set(filters.topicId === "all"
+        ? []
+        : senses
+            .filter((sense) => sense.source_topic_ids.includes(filters.topicId))
+            .map((sense) => sense.concept_id));
+    return rows.filter((row) => {
+        if (!includesText(`${row.label} ${row.concept_id} ${row.aliases.join(" ")} ${row.short_definition || ""} ${row.definition || ""}`, filters.search)) {
+            return false;
+        }
+        if (filters.conceptType !== "all" &&
+            row.concept_type !== filters.conceptType) {
+            return false;
+        }
+        if (filters.status !== "all" && row.status !== filters.status) {
+            return false;
+        }
+        if (filters.topicId !== "all" && !topicConceptIds.has(row.concept_id)) {
+            return false;
+        }
+        return true;
+    });
+}
+function normalizeGraphNodes(nodes) {
+    return [...(nodes || [])]
+        .map((node) => {
+        const rawKind = cleanString(node.kind);
+        const kind = rawKind === "external_reference" || rawKind === "unresolved_reference"
+            ? rawKind
+            : "library_paper";
+        const metrics = normalizeGraphNodeMetrics(node.metrics);
+        const externalDegree = typeof node.external_degree === "number"
+            ? Math.max(0, Math.floor(node.external_degree))
+            : undefined;
+        const hoverOnly = node.visibility === "hover_only" ||
+            (kind !== "library_paper" &&
+                externalDegree !== undefined &&
+                externalDegree <= 1);
+        return {
+            id: cleanString(node.id),
+            label: cleanString(node.label) || cleanString(node.id),
+            kind,
+            year: cleanString(node.year) || undefined,
+            authors: normalizeStringList(node.authors),
+            tags: normalizeStringList(node.tags),
+            collections: normalizeStringList(node.collections),
+            x: typeof node.x === "number" ? node.x : undefined,
+            y: typeof node.y === "number" ? node.y : undefined,
+            low_signal: Boolean(node.low_signal),
+            external_degree: externalDegree,
+            visibility: hoverOnly ? "hover_only" : "default",
+            display_tier: hoverOnly
+                ? "single_external"
+                : node.display_tier === "shared_external" ||
+                    node.display_tier === "single_external"
+                    ? node.display_tier
+                    : kind === "library_paper"
+                        ? "library"
+                        : "shared_external",
+            ...(metrics ? { metrics } : {}),
+        };
+    })
+        .filter((node) => node.id)
+        .sort((left, right) => left.label.localeCompare(right.label) ||
+        left.id.localeCompare(right.id));
+}
+function normalizeGraphWindow(page, loadedNodes, loadedEdges) {
+    const status = cleanString(page?.windowStatus);
+    const hasMore = Boolean(page?.hasMore);
+    return {
+        nextCursor: cleanString(page?.nextCursor) || undefined,
+        hasMore,
+        totalNodes: Math.max(0, Math.floor(cleanNumber(page?.totalNodes, loadedNodes))),
+        totalEdges: Math.max(0, Math.floor(cleanNumber(page?.totalEdges, loadedEdges))),
+        totalHoverNodes: Math.max(0, Math.floor(cleanNumber(page?.totalHoverNodes, 0))),
+        totalHoverEdges: Math.max(0, Math.floor(cleanNumber(page?.totalHoverEdges, 0))),
+        loadedNodes,
+        loadedEdges,
+        querySignature: cleanString(page?.querySignature),
+        status: status === "paused" || status === "failed" || status === "complete"
+            ? status
+            : hasMore
+                ? "loading"
+                : "complete",
+        roleOptions: normalizeStringList(Array.isArray(page?.roleOptions) ? page.roleOptions : []),
+    };
+}
+function normalizeGraphNodeMetrics(metrics) {
+    if (!metrics || typeof metrics !== "object") {
+        return undefined;
+    }
+    const normalized = {};
+    if (typeof metrics.internal_in_degree === "number") {
+        normalized.internal_in_degree = Math.max(0, Math.floor(cleanNumber(metrics.internal_in_degree, 0)));
+    }
+    if (typeof metrics.internal_out_degree === "number") {
+        normalized.internal_out_degree = Math.max(0, Math.floor(cleanNumber(metrics.internal_out_degree, 0)));
+    }
+    return Object.keys(normalized).length ? normalized : undefined;
+}
+function normalizeGraphEdges(edges) {
+    return [...(edges || [])]
+        .map((edge) => ({
+        id: cleanString(edge.id),
+        source: cleanString(edge.source),
+        target: cleanString(edge.target),
+        primary_role: cleanString(edge.primary_role) || undefined,
+        mention_count: Math.max(0, Math.floor(cleanNumber(edge.mention_count, 0))),
+        visibility: edge.visibility === "hover_only"
+            ? "hover_only"
+            : "default",
+    }))
+        .filter((edge) => edge.id && edge.source && edge.target)
+        .sort((left, right) => left.id.localeCompare(right.id));
+}
+function normalizeGraphTopicScopes(scopes) {
+    return [...(scopes || [])]
+        .map((scope) => {
+        const topicId = cleanString(scope.topicId);
+        return {
+            topicId,
+            title: cleanString(scope.title) || topicId,
+            paperRefs: normalizeStringList(scope.paperRefs),
+            nodeIds: normalizeStringList(scope.nodeIds),
+        };
+    })
+        .filter((scope) => scope.topicId)
+        .sort((left, right) => left.title.localeCompare(right.title) ||
+        left.topicId.localeCompare(right.topicId));
+}
+function normalizeSelectedElement(value) {
+    if (!value || typeof value !== "object") {
+        return undefined;
+    }
+    const candidate = value;
+    const kind = cleanString(candidate.kind);
+    const id = cleanString(candidate.id);
+    if (!id || (kind !== "node" && kind !== "edge")) {
+        return undefined;
+    }
+    return { kind, id };
+}
+export function createDefaultSynthesisUiState() {
+    return {
+        selectedTab: "overview",
+        artifacts: {
+            search: "",
+            sourceMaterials: "all",
+            freshness: "all",
+            sort: "title",
+            viewMode: "graph",
+        },
+        registry: {
+            activeIndexTool: "none",
+            search: "",
+            scope: "library",
+            artifactCoverage: "all",
+            bindingStatus: "all",
+            canonicalSearch: "",
+            canonicalBinding: "all",
+            canonicalGraph: "all",
+            canonicalRedirects: "all",
+            canonicalProposals: "all",
+            canonicalDuplicates: "all",
+            reviewDrawerOpen: true,
+            reviewDrawerIndex: 0,
+            expandedSourceRefs: [],
+        },
+        reviews: {
+            activeTab: "reference_matching",
+            search: "",
+            status: "open",
+            kind: "all",
+            confidence: "all",
+        },
+        tags: {
+            search: "",
+            facet: "all",
+            status: "all",
+            view: "vocabulary",
+            stagedSearch: "",
+            stagedFacet: "all",
+            selectedStagedTags: [],
+            selectedVocabularyTags: [],
+            density: "compact",
+            expandedRows: {},
+            importDraft: "",
+        },
+        topicGraph: {
+            mode: "hierarchy",
+            search: "",
+        },
+        concepts: {
+            search: "",
+            conceptType: "all",
+            status: "all",
+            topicId: "all",
+            overlayEnabled: true,
+            reviewMergeTargets: {},
+        },
+        graph: {
+            search: "",
+            role: "all",
+            topicId: "all",
+            layoutAlgorithm: "force",
+            neighborhoodDepth: 1,
+            nodeKinds: [
+                "library_paper",
+                "external_reference",
+                "unresolved_reference",
+            ],
+            showLowSignalReferences: false,
+        },
+        reader: {
+            topicId: "",
+            previousTab: "artifacts",
+        },
+    };
+}
+export function mergeSynthesisUiSnapshotInput(base, patch) {
+    if (!base) {
+        return { ...(patch || { libraryId: 1 }) };
+    }
+    if (!patch) {
+        return { ...base };
+    }
+    const merged = {
+        ...base,
+        ...patch,
+        libraryId: patch.libraryId || base.libraryId,
+    };
+    [
+        "maintenance",
+        "storage",
+        "preferences",
+        "sync",
+        "deletedArtifacts",
+        "registry",
+        "reviews",
+        "tags",
+        "topicGraph",
+        "concepts",
+        "graph",
+    ].forEach((key) => {
+        const baseValue = base[key];
+        const patchValue = patch[key];
+        if (baseValue &&
+            patchValue &&
+            typeof baseValue === "object" &&
+            typeof patchValue === "object" &&
+            !Array.isArray(baseValue) &&
+            !Array.isArray(patchValue)) {
+            merged[key] = {
+                ...baseValue,
+                ...patchValue,
+            };
+        }
+    });
+    return merged;
+}
+function filterArtifacts(rows, filters) {
+    const filtered = rows.filter((row) => {
+        if (!includesText(`${row.title} ${row.id} ${row.definition || ""}`, filters.search)) {
+            return false;
+        }
+        if (filters.sourceMaterials !== "all" &&
+            row.source_materials_status !== filters.sourceMaterials) {
+            return false;
+        }
+        if (filters.freshness !== "all" && row.freshness !== filters.freshness) {
+            return false;
+        }
+        return true;
+    });
+    return filtered.sort((left, right) => {
+        if (filters.sort === "paper_count") {
+            return ((right.paper_count || 0) - (left.paper_count || 0) ||
+                left.title.localeCompare(right.title) ||
+                left.id.localeCompare(right.id));
+        }
+        if (filters.sort === "updated_at") {
+            return (String(right.updated_at || "").localeCompare(String(left.updated_at || "")) ||
+                left.title.localeCompare(right.title) ||
+                left.id.localeCompare(right.id));
+        }
+        return (left.title.localeCompare(right.title) || left.id.localeCompare(right.id));
+    });
+}
+function filterRegistry(rows, filters) {
+    const scopeFilter = normalizeRegistryScopeFilter(filters.scope);
+    return rows.filter((row) => {
+        if (!includesText(`${row.title} ${row.paper_ref} ${row.year || ""} ${(row.references || [])
+            .map((reference) => `${reference.title} ${reference.raw_reference || ""} ${reference.target_title || ""}`)
+            .join(" ")}`, filters.search)) {
+            return false;
+        }
+        if (scopeFilter !== "referenced" &&
+            filters.artifactCoverage !== "all" &&
+            row.artifactCoverage !== filters.artifactCoverage) {
+            return false;
+        }
+        if (scopeFilter === "library" && row.index_scope === "referenced") {
+            return false;
+        }
+        if (scopeFilter === "referenced") {
+            const references = row.references || [];
+            if (!references.length) {
+                return false;
+            }
+            if (filters.bindingStatus !== "all") {
+                if (filters.bindingStatus === "unbound") {
+                    return references.some((reference) => !reference.binding_status);
+                }
+                return references.some((reference) => reference.binding_status === filters.bindingStatus);
+            }
+        }
+        return true;
+    });
+}
+function filterTags(rows, filters) {
+    return rows.filter((row) => {
+        if (!includesText(`${row.tag} ${row.facet} ${row.note || ""} ${row.aliases.join(" ")} ${row.abbrev.join(" ")}`, filters.search)) {
+            return false;
+        }
+        if (filters.facet !== "all" && row.facet !== filters.facet) {
+            return false;
+        }
+        if (filters.status === "active" && row.deprecated) {
+            return false;
+        }
+        if (filters.status === "deprecated" && !row.deprecated) {
+            return false;
+        }
+        if (filters.status === "warning" && row.validation_warnings.length === 0) {
+            return false;
+        }
+        return true;
+    });
+}
+function filterStagedTags(rows, filters) {
+    return rows.filter((row) => {
+        if (!includesText(`${row.tag} ${row.facet} ${row.note || ""} ${row.source_flow || ""}`, filters.stagedSearch)) {
+            return false;
+        }
+        if (filters.stagedFacet !== "all" && row.facet !== filters.stagedFacet) {
+            return false;
+        }
+        return true;
+    });
+}
+function filterGraph(nodes, edges, filters, topicScopes = []) {
+    const projection = projectCitationGraphVisibility({
+        nodes,
+        edges,
+        filters,
+        topicScopes,
+    });
+    return {
+        visibleNodes: projection.defaultNodes,
+        visibleEdges: projection.defaultEdges,
+        hoverOnlyNodes: projection.hoverOnlyNodes,
+        hoverOnlyEdges: projection.hoverOnlyEdges,
+    };
+}
+function normalizeLatestUsableEntry(value) {
+    if (!value || typeof value !== "object") {
+        return undefined;
+    }
+    const input = value;
+    return {
+        updated_at: cleanString(input.updated_at) || undefined,
+        age_ms: Number.isFinite(Number(input.age_ms))
+            ? Math.max(0, Math.floor(Number(input.age_ms)))
+            : undefined,
+        graph_hash: cleanString(input.graph_hash) || undefined,
+    };
+}
+function normalizeMaintenanceSummary(input) {
+    const status = cleanString(input?.status);
+    const normalizedStatus = [
+        "stale",
+        "partial",
+        "missing",
+        "queued",
+        "running",
+        "failed",
+    ].includes(status)
+        ? status
+        : "ready";
+    return {
+        status: normalizedStatus,
+        latestUsable: {
+            referenceSidecar: normalizeLatestUsableEntry(input?.latestUsable?.referenceSidecar),
+            citationGraph: normalizeLatestUsableEntry(input?.latestUsable?.citationGraph),
+        },
+        pendingDirtyCount: Math.max(0, Math.floor(cleanNumber(input?.pendingDirtyCount, 0))),
+        activeWorkerCount: Math.max(0, Math.floor(cleanNumber(input?.activeWorkerCount, 0))),
+        activeWorkerKind: cleanString(input?.activeWorkerKind) || undefined,
+        canonicalSyncPending: Boolean(input?.canonicalSyncPending),
+        canonicalEpoch: Math.max(0, Math.floor(cleanNumber(input?.canonicalEpoch, 0))),
+        lastFailure: input?.lastFailure,
+        stale: normalizeStringList(input?.stale),
+        partial: normalizeStringList(input?.partial),
+        missing: normalizeStringList(input?.missing),
+        recommendedCommands: normalizeStringList(input?.recommendedCommands),
+        diagnostics: normalizeSyncDiagnostics(input?.diagnostics),
+    };
+}
+function normalizeBackgroundJobStatus(value) {
+    const status = cleanString(value);
+    if (status === "submitted" ||
+        status === "queued" ||
+        status === "running" ||
+        status === "waiting" ||
+        status === "failed") {
+        return status;
+    }
+    return undefined;
+}
+function normalizeBackgroundJobSource(value) {
+    const source = cleanString(value);
+    if (source === "workbench" ||
+        source === "operation" ||
+        source === "reference_sidecar_refresh" ||
+        source === "citation_graph_cache_rebuild" ||
+        source === "citation_graph_layout" ||
+        source === "webdav_sync" ||
+        source === "canonical_maintenance") {
+        return source;
+    }
+    return "workbench";
+}
+function normalizeBackgroundJobProgress(value) {
+    if (!value || typeof value !== "object") {
+        return undefined;
+    }
+    const input = value;
+    const label = cleanString(input.label) || undefined;
+    if (cleanString(input.mode) === "determinate") {
+        const total = Math.max(0, Math.floor(cleanNumber(input.total, 0)));
+        const current = Math.max(0, Math.floor(cleanNumber(input.current, 0)));
+        const percentSource = cleanNumber(input.percent, Number.NaN);
+        const percent = Number.isFinite(percentSource) && percentSource >= 0
+            ? percentSource
+            : total > 0
+                ? (Math.min(current, total) / total) * 100
+                : Number.NaN;
+        if (!Number.isFinite(percent)) {
+            return label
+                ? { mode: "indeterminate", label }
+                : { mode: "indeterminate" };
+        }
+        return {
+            mode: "determinate",
+            percent: Math.max(0, Math.min(100, Math.round(percent))),
+            current: total > 0 ? Math.min(current, total) : undefined,
+            total: total > 0 ? total : undefined,
+            label,
+        };
+    }
+    return label ? { mode: "indeterminate", label } : { mode: "indeterminate" };
+}
+function normalizeBackgroundJobRows(values) {
+    if (!Array.isArray(values)) {
+        return [];
+    }
+    const rows = new Map();
+    for (const entry of values) {
+        if (!entry || typeof entry !== "object") {
+            continue;
+        }
+        const input = entry;
+        const jobId = cleanString(input.job_id);
+        const label = cleanString(input.label);
+        if (!jobId || !label) {
+            continue;
+        }
+        const status = normalizeBackgroundJobStatus(input.status);
+        if (!status) {
+            continue;
+        }
+        const command = cleanString(input.command);
+        const targetTab = cleanString(input.targetTab)
+            ? normalizeTab(input.targetTab)
+            : undefined;
+        const row = {
+            job_id: jobId,
+            source: normalizeBackgroundJobSource(input.source),
+            status,
+            label,
+            detail: cleanString(input.detail) || undefined,
+            updated_at: cleanString(input.updated_at) || undefined,
+            command: HOST_COMMANDS.includes(command) ? command : undefined,
+            targetTab,
+            progress: normalizeBackgroundJobProgress(input.progress),
+        };
+        const existing = rows.get(row.job_id);
+        if (!existing ||
+            cleanString(row.updated_at).localeCompare(cleanString(existing.updated_at)) >= 0) {
+            rows.set(row.job_id, row);
+        }
+    }
+    return Array.from(rows.values()).sort((left, right) => cleanString(right.updated_at).localeCompare(cleanString(left.updated_at)));
+}
+function summarizeBackgroundJobs(rows) {
+    const activeRows = rows.filter((row) => row.status !== "failed");
+    const running = rows.filter((row) => row.status === "running");
+    const waiting = rows.filter((row) => row.status === "waiting");
+    const queued = rows.filter((row) => row.status === "queued");
+    const submitted = rows.filter((row) => row.status === "submitted");
+    const failed = rows.filter((row) => row.status === "failed");
+    return {
+        rows,
+        activeCount: activeRows.length,
+        submittedCount: submitted.length,
+        queuedCount: queued.length,
+        runningCount: running.length,
+        waitingCount: waiting.length,
+        failedCount: failed.length,
+        primaryJob: running[0] || waiting[0] || queued[0] || submitted[0] || failed[0],
+    };
+}
+function normalizeActionOperation(input) {
+    if (!input || typeof input !== "object") {
+        return undefined;
+    }
+    const row = input;
+    const command = cleanString(row.command);
+    if (!HOST_COMMANDS.includes(command)) {
+        return undefined;
+    }
+    const status = cleanString(row.status);
+    const normalizedStatus = [
+        "pending",
+        "running",
+        "queued",
+        "completed",
+        "failed",
+    ].includes(status)
+        ? status
+        : "pending";
+    return {
+        key: cleanString(row.key) ||
+            getSynthesisUiOperationKey(command, {}),
+        command,
+        status: normalizedStatus,
+        label: cleanString(row.label) || getSynthesisUiOperationLabel(command),
+        started_at: cleanString(row.started_at) || undefined,
+        completed_at: cleanString(row.completed_at) || undefined,
+        message: cleanString(row.message) || undefined,
+    };
+}
+function normalizeActionStatus(input) {
+    const inFlight = Array.isArray(input?.inFlight)
+        ? input?.inFlight.map(normalizeActionOperation).filter(Boolean)
+        : [];
+    const warnings = Array.isArray(input?.warnings)
+        ? input?.warnings.map(normalizeActionOperation).filter(Boolean)
+        : [];
+    return {
+        inFlight: inFlight,
+        lastCompleted: normalizeActionOperation(input?.lastCompleted),
+        lastFailed: normalizeActionOperation(input?.lastFailed),
+        warnings: warnings,
+    };
+}
+function openStatusCount(rows) {
+    return rows.filter((row) => cleanString(row.status) === "open").length;
+}
+function normalizeReviewSummary(input, fallback) {
+    const referenceMatchingCount = Math.max(0, Math.floor(Math.max(cleanNumber(input?.referenceMatchingCount, 0), fallback.referenceMatchingCount)));
+    const conceptCount = Math.max(0, Math.floor(Math.max(cleanNumber(input?.conceptCount, 0), fallback.conceptCount)));
+    const topicGraphCount = Math.max(0, Math.floor(Math.max(cleanNumber(input?.topicGraphCount, 0), fallback.topicGraphCount)));
+    const indexCount = Math.max(0, Math.floor(Math.max(cleanNumber(input?.indexCount, 0), fallback.indexCount || referenceMatchingCount)));
+    const computedOpenCount = indexCount + conceptCount + topicGraphCount;
+    const openCount = Math.max(0, Math.floor(Math.max(cleanNumber(input?.openCount, 0), computedOpenCount)));
+    return {
+        openCount,
+        indexCount,
+        referenceMatchingCount,
+        conceptCount,
+        topicGraphCount,
+    };
+}
+export function buildSynthesisUiSnapshot(input, state = createDefaultSynthesisUiState()) {
+    const artifactRows = normalizeArtifactRows(input.artifacts);
+    const registryRows = normalizeRegistryRows(input.registry?.rows);
+    const cleanupProposals = normalizeCleanupProposals(input.registry?.cleanupProposals);
+    const matchProposals = normalizeReferenceMatchProposals(input.registry?.matchProposals);
+    const matchTargetCandidates = normalizeReferenceMatchTargetCandidates(input.registry?.matchTargetCandidates);
+    const canonicalRows = normalizeCanonicalReferenceRows(input.registry?.canonicalRows);
+    const tagWarnings = normalizeTagWarnings(input.tags?.validationWarnings);
+    const tagRows = normalizeTagRows(input.tags?.entries, tagWarnings);
+    const stagedTagRows = normalizeStagedTagRows(input.tags?.staged);
+    const tagFacets = normalizeStringList(input.tags?.protocol?.facets || tagRows.map((row) => row.facet));
+    const stagedTagFacets = normalizeStringList(stagedTagRows.map((row) => row.facet));
+    const visibleTagRows = filterTags(tagRows, state.tags);
+    const visibleStagedTagRows = filterStagedTags(stagedTagRows, state.tags);
+    const selectedTag = tagRows.find((row) => row.tag === state.tags.selectedTag) ||
+        visibleTagRows[0];
+    const topicGraphEdges = normalizeTopicGraphEdges(input.topicGraph?.edges).filter((edge) => edge.status !== "deleted");
+    const topicGraphNodes = attachTopicGraphStatuses(normalizeTopicGraphNodes(input.topicGraph?.nodes), topicGraphEdges);
+    const topicGraphReviewItems = normalizeTopicGraphReviewItems(input.topicGraph?.reviewItems).filter((item) => item.status !== "deleted");
+    const filteredTopicGraph = filterTopicGraph(topicGraphNodes, topicGraphEdges, topicGraphReviewItems, state.topicGraph);
+    const conceptRows = normalizeConceptRows(input.concepts?.concepts);
+    const conceptSenses = normalizeConceptSenseRows(input.concepts?.senses);
+    const conceptAliases = normalizeConceptAliasRows(input.concepts?.aliases);
+    const conceptReviewItems = normalizeConceptReviewItems(input.concepts?.reviewItems);
+    const visibleConceptRows = filterConcepts(conceptRows, conceptSenses, state.concepts);
+    const selectedConcept = conceptRows.find((row) => row.concept_id === state.concepts.selectedConceptId) || visibleConceptRows[0];
+    const conceptTypes = normalizeStringList(conceptRows.map((row) => row.concept_type));
+    const graphNodes = normalizeGraphNodes([
+        ...(input.graph?.nodes || []),
+        ...(input.graph?.hoverOnlyNodes || []),
+    ]);
+    const graphEdges = normalizeGraphEdges([
+        ...(input.graph?.edges || []),
+        ...(input.graph?.hoverOnlyEdges || []),
+    ]);
+    const graphTopicScopes = normalizeGraphTopicScopes(input.graph?.topicScopes);
+    const graphNodeById = new Map(graphNodes.map((node) => [node.id, node]));
+    const graphEdgeById = new Map(graphEdges.map((edge) => [edge.id, edge]));
+    const normalizedGraphNodes = Array.from(graphNodeById.values());
+    const hoverOnlyGraphNodeIds = new Set(normalizedGraphNodes
+        .filter((node) => node.visibility === "hover_only")
+        .map((node) => node.id));
+    const normalizedGraphEdges = Array.from(graphEdgeById.values()).map((edge) => hoverOnlyGraphNodeIds.has(edge.source) ||
+        hoverOnlyGraphNodeIds.has(edge.target)
+        ? { ...edge, visibility: "hover_only" }
+        : edge);
+    const deletedArtifactRows = normalizeDeletedArtifactRows(input.deletedArtifacts?.rows);
+    const filteredGraph = filterGraph(normalizedGraphNodes, normalizedGraphEdges, state.graph, graphTopicScopes);
+    const backgroundJobRows = normalizeBackgroundJobRows(input.maintenance?.backgroundJobs);
+    const fallbackReviewSummary = {
+        referenceMatchingCount: openStatusCount(matchProposals),
+        indexCount: openStatusCount(cleanupProposals) + openStatusCount(matchProposals),
+        conceptCount: openStatusCount(conceptReviewItems),
+        topicGraphCount: openStatusCount(topicGraphReviewItems),
+        openCount: 0,
+    };
+    fallbackReviewSummary.openCount =
+        fallbackReviewSummary.indexCount +
+            fallbackReviewSummary.conceptCount +
+            fallbackReviewSummary.topicGraphCount;
+    const reviewSummary = normalizeReviewSummary(input.reviews?.summary, fallbackReviewSummary);
+    return {
+        libraryId: Math.max(0, Math.floor(cleanNumber(input.libraryId, 0))),
+        selectedTab: normalizeTab(state.selectedTab),
+        ...(input.sidecarStatus
+            ? { sidecarStatus: { ...input.sidecarStatus } }
+            : {}),
+        actions: normalizeActionStatus(input.actions),
+        maintenance: {
+            summary: normalizeMaintenanceSummary(input.maintenance?.summary),
+            backgroundJobs: summarizeBackgroundJobs(backgroundJobRows),
+        },
+        storage: {
+            rootPath: cleanString(input.storage?.rootPath) || undefined,
+            rootState: input.storage?.rootState === "ready" ||
+                input.storage?.rootState === "missing"
+                ? input.storage.rootState
+                : "unbound",
+        },
+        preferences: {
+            sourceWatchEnabled: Boolean(input.preferences?.sourceWatchEnabled),
+            registryAutoRebuild: Boolean(input.preferences?.registryAutoRebuild),
+            graphRebuildMode: input.preferences?.graphRebuildMode === "idle" ||
+                input.preferences?.graphRebuildMode === "auto"
+                ? input.preferences.graphRebuildMode
+                : "off",
+            stalenessScanEnabled: Boolean(input.preferences?.stalenessScanEnabled),
+            debounceMs: Math.max(0, Math.floor(cleanNumber(input.preferences?.debounceMs, 0))),
+            startupHashCheck: Boolean(input.preferences?.startupHashCheck),
+        },
+        sync: {
+            status: normalizeSyncStatus(input.sync?.status),
+            diagnostics: normalizeSyncDiagnostics(input.sync?.diagnostics),
+            allowedActions: normalizeStringList(input.sync?.allowedActions),
+            requiresConfirmation: Boolean(input.sync?.requiresConfirmation),
+            webdav: normalizeDurableSyncStatus(input.sync?.webdav),
+        },
+        conflicts: {
+            candidates: normalizeConflictCandidates(input.conflicts),
+        },
+        deletedArtifacts: {
+            count: deletedArtifactRows.length,
+            rows: deletedArtifactRows,
+        },
+        artifacts: {
+            filters: { ...state.artifacts },
+            rows: artifactRows,
+            visibleRows: filterArtifacts(artifactRows, state.artifacts),
+        },
+        registry: {
+            filters: { ...state.registry },
+            rows: registryRows,
+            visibleRows: filterRegistry(registryRows, state.registry),
+            cleanupProposals,
+            matchProposals,
+            matchTargetCandidates,
+            canonicalRows,
+            visibleCanonicalRows: filterCanonicalReferenceRows(canonicalRows, state.registry),
+            canonicalDiagnostics: Array.isArray(input.registry?.canonicalDiagnostics)
+                ? input.registry.canonicalDiagnostics
+                : [],
+            cacheStatus: normalizeCacheStatus(input.registry?.cacheStatus, "reference-sidecar:library"),
+        },
+        reviews: {
+            filters: { ...state.reviews },
+            summary: reviewSummary,
+        },
+        tags: {
+            filters: { ...state.tags },
+            facets: tagFacets,
+            rows: tagRows,
+            visibleRows: visibleTagRows,
+            stagedRows: stagedTagRows,
+            visibleStagedRows: visibleStagedTagRows,
+            stagedCount: stagedTagRows.length,
+            stagedFacets: stagedTagFacets,
+            selected: selectedTag,
+            validationWarnings: tagWarnings,
+            projection: {
+                target: cleanString(input.tags?.projection?.target) || "tag-index",
+                stale: Boolean(input.tags?.projection?.stale),
+                last_rebuild_at: cleanString(input.tags?.projection?.last_rebuild_at) || undefined,
+                diagnostics: Array.isArray(input.tags?.projection?.diagnostics)
+                    ? input.tags?.projection?.diagnostics || []
+                    : [],
+            },
+            manifest: input.tags?.manifest && typeof input.tags.manifest === "object"
+                ? { ...input.tags.manifest }
+                : {},
+            importDraft: cleanString(input.tags?.importDraft) || state.tags.importDraft,
+            importPreview: normalizeTagImportPreview(input.tags?.importPreview, tagWarnings),
+        },
+        topicGraph: {
+            filters: { ...state.topicGraph },
+            nodes: topicGraphNodes,
+            edges: topicGraphEdges,
+            reviewItems: topicGraphReviewItems,
+            visibleNodes: filteredTopicGraph.visibleNodes,
+            visibleEdges: filteredTopicGraph.visibleEdges,
+            inspector: filteredTopicGraph.inspector,
+            manifest: input.topicGraph?.manifest &&
+                typeof input.topicGraph.manifest === "object"
+                ? { ...input.topicGraph.manifest }
+                : {},
+            projection: {
+                target: cleanString(input.topicGraph?.projection?.target) ||
+                    "topic-graph-index",
+                stale: Boolean(input.topicGraph?.projection?.stale),
+                last_rebuild_at: cleanString(input.topicGraph?.projection?.last_rebuild_at) ||
+                    undefined,
+                diagnostics: Array.isArray(input.topicGraph?.projection?.diagnostics)
+                    ? input.topicGraph?.projection?.diagnostics || []
+                    : [],
+            },
+            diagnostics: Array.isArray(input.topicGraph?.diagnostics)
+                ? input.topicGraph?.diagnostics || []
+                : [],
+        },
+        concepts: {
+            filters: { ...state.concepts },
+            rows: conceptRows,
+            visibleRows: visibleConceptRows,
+            selected: selectedConcept,
+            senses: conceptSenses,
+            aliases: conceptAliases,
+            relations: Array.isArray(input.concepts?.relations)
+                ? input.concepts?.relations || []
+                : [],
+            reviewItems: conceptReviewItems,
+            overlayEntries: normalizeConceptOverlayEntries(state.concepts.overlayEnabled ? input.concepts?.overlayEntries : []),
+            conceptTypes,
+            projection: {
+                target: cleanString(input.concepts?.projection?.target) || "concept-kb-index",
+                stale: Boolean(input.concepts?.projection?.stale),
+                last_rebuild_at: cleanString(input.concepts?.projection?.last_rebuild_at) || undefined,
+                diagnostics: Array.isArray(input.concepts?.projection?.diagnostics)
+                    ? input.concepts?.projection?.diagnostics || []
+                    : [],
+            },
+            manifest: input.concepts?.manifest && typeof input.concepts.manifest === "object"
+                ? { ...input.concepts.manifest }
+                : {},
+            diagnostics: Array.isArray(input.concepts?.diagnostics)
+                ? input.concepts?.diagnostics || []
+                : [],
+        },
+        graph: {
+            filters: {
+                search: state.graph.search,
+                role: state.graph.role,
+                topicId: state.graph.topicId || "all",
+                layoutAlgorithm: normalizeLayoutAlgorithm(state.graph.layoutAlgorithm),
+                neighborhoodDepth: state.graph.neighborhoodDepth,
+                nodeKinds: [...state.graph.nodeKinds],
+                showLowSignalReferences: state.graph.showLowSignalReferences,
+            },
+            graph_hash: cleanString(input.graph?.graph_hash),
+            layoutStatus: input.graph?.layoutStatus === "ready" ||
+                input.graph?.layoutStatus === "refreshing" ||
+                input.graph?.layoutStatus === "stale" ||
+                input.graph?.layoutStatus === "failed"
+                ? input.graph.layoutStatus
+                : "missing",
+            layoutAlgorithm: normalizeLayoutAlgorithm(state.graph.layoutAlgorithm),
+            nodeKinds: [...state.graph.nodeKinds],
+            showLowSignalReferences: state.graph.showLowSignalReferences,
+            selectedElement: state.graph.selectedElement,
+            topicScopes: graphTopicScopes,
+            selectedTopicScope: state.graph.topicId === "all"
+                ? undefined
+                : graphTopicScopes.find((scope) => scope.topicId === state.graph.topicId),
+            nodes: normalizedGraphNodes,
+            edges: normalizedGraphEdges,
+            hoverOnlyNodes: filteredGraph.hoverOnlyNodes,
+            hoverOnlyEdges: filteredGraph.hoverOnlyEdges,
+            diagnostics: input.graph?.diagnostics && typeof input.graph.diagnostics === "object"
+                ? { ...input.graph.diagnostics }
+                : {},
+            window: normalizeGraphWindow(input.graph?.page, normalizedGraphNodes.length, normalizedGraphEdges.length),
+            visibleNodes: filteredGraph.visibleNodes,
+            visibleEdges: filteredGraph.visibleEdges,
+        },
+        reader: {
+            topicId: cleanString(state.reader.topicId),
+            previousTab: normalizeNonReaderTab(state.reader.previousTab),
+        },
+        hostCommands: [...HOST_COMMANDS],
+    };
+}
+export function normalizeSynthesisUiSnapshot(input) {
+    return buildSynthesisUiSnapshot(input, createDefaultSynthesisUiState());
+}
+function normalizeAllOrCoverage(value) {
+    return cleanString(value) === "all" ? "all" : normalizeCoverage(value);
+}
+function normalizeAllOrSourceMaterials(value) {
+    return cleanString(value) === "all"
+        ? "all"
+        : normalizeSourceMaterialsStatus(value);
+}
+function normalizeAllOrFreshness(value) {
+    return cleanString(value) === "all" ? "all" : normalizeFreshness(value);
+}
+function normalizeArtifactSort(value) {
+    const normalized = cleanString(value);
+    if (normalized === "paper_count" || normalized === "updated_at") {
+        return normalized;
+    }
+    return "title";
+}
+function normalizeArtifactViewMode(value) {
+    const mode = cleanString(value);
+    if (mode === "list" || mode === "grid") {
+        return mode;
+    }
+    return "graph";
+}
+export function applySynthesisUiAction(state, envelope) {
+    const action = cleanString(envelope.action);
+    const payload = envelope.payload || {};
+    const next = {
+        selectedTab: state.selectedTab,
+        artifacts: { ...state.artifacts },
+        registry: { ...state.registry },
+        reviews: { ...state.reviews },
+        tags: { ...state.tags },
+        topicGraph: { ...state.topicGraph },
+        concepts: { ...state.concepts },
+        graph: { ...state.graph },
+        reader: { ...state.reader },
+    };
+    if (action === "ready" || action === "refresh") {
+        return { handled: true, state: next };
+    }
+    if (action === "selectTab") {
+        next.selectedTab = normalizeTab(payload.tab);
+        if (next.selectedTab !== "reader") {
+            next.reader.previousTab = next.selectedTab;
+        }
+        return { handled: true, state: next };
+    }
+    if (action === "showArtifactReader") {
+        const topicId = cleanString(payload.topicId);
+        if (!topicId) {
+            return { handled: false, state: next, reason: "invalid_payload" };
+        }
+        next.reader.topicId = topicId;
+        next.reader.previousTab =
+            "previousTab" in payload
+                ? normalizeNonReaderTab(payload.previousTab)
+                : state.selectedTab === "reader"
+                    ? normalizeNonReaderTab(state.reader.previousTab)
+                    : normalizeNonReaderTab(state.selectedTab);
+        next.selectedTab = "reader";
+        return { handled: true, state: next };
+    }
+    if (action === "closeArtifactReader") {
+        next.selectedTab = normalizeNonReaderTab(state.reader.previousTab);
+        next.reader.topicId = "";
+        return { handled: true, state: next };
+    }
+    if (action === "setFilters") {
+        if (payload.artifacts && typeof payload.artifacts === "object") {
+            const filters = payload.artifacts;
+            if ("search" in filters) {
+                next.artifacts.search = cleanString(filters.search);
+            }
+            if ("sourceMaterials" in filters) {
+                next.artifacts.sourceMaterials = normalizeAllOrSourceMaterials(filters.sourceMaterials);
+            }
+            if ("freshness" in filters) {
+                next.artifacts.freshness = normalizeAllOrFreshness(filters.freshness);
+            }
+            if ("sort" in filters) {
+                next.artifacts.sort = normalizeArtifactSort(filters.sort);
+            }
+            if ("viewMode" in filters) {
+                next.artifacts.viewMode = normalizeArtifactViewMode(filters.viewMode);
+            }
+        }
+        if (payload.registry && typeof payload.registry === "object") {
+            const filters = payload.registry;
+            if ("activeIndexTool" in filters) {
+                next.registry.activeIndexTool =
+                    filters.activeIndexTool === "revise_canonicals"
+                        ? "revise_canonicals"
+                        : "none";
+            }
+            if ("search" in filters) {
+                next.registry.search = cleanString(filters.search);
+            }
+            if ("canonicalSearch" in filters) {
+                next.registry.canonicalSearch = cleanString(filters.canonicalSearch);
+            }
+            if ("canonicalBinding" in filters) {
+                const value = cleanString(filters.canonicalBinding);
+                next.registry.canonicalBinding =
+                    value === "bound" || value === "external" ? value : "all";
+            }
+            if ("canonicalGraph" in filters) {
+                const value = cleanString(filters.canonicalGraph);
+                next.registry.canonicalGraph =
+                    value === "visible" || value === "not_in_graph" ? value : "all";
+            }
+            if ("canonicalRedirects" in filters) {
+                next.registry.canonicalRedirects =
+                    cleanString(filters.canonicalRedirects) === "has_redirects"
+                        ? "has_redirects"
+                        : "all";
+            }
+            if ("canonicalProposals" in filters) {
+                next.registry.canonicalProposals =
+                    cleanString(filters.canonicalProposals) === "has_proposals"
+                        ? "has_proposals"
+                        : "all";
+            }
+            if ("canonicalDuplicates" in filters) {
+                next.registry.canonicalDuplicates =
+                    cleanString(filters.canonicalDuplicates) === "possible_duplicate"
+                        ? "possible_duplicate"
+                        : "all";
+            }
+            if ("selectedCanonicalRowId" in filters) {
+                const rowId = cleanString(filters.selectedCanonicalRowId);
+                if (rowId)
+                    next.registry.selectedCanonicalRowId = rowId;
+                else
+                    delete next.registry.selectedCanonicalRowId;
+            }
+            if ("scope" in filters) {
+                next.registry.scope = normalizeRegistryScopeFilter(filters.scope);
+                if (next.registry.scope === "referenced") {
+                    next.registry.artifactCoverage = "all";
+                }
+                else {
+                    next.registry.bindingStatus = "all";
+                }
+            }
+            if ("artifactCoverage" in filters) {
+                next.registry.artifactCoverage = normalizeAllOrCoverage(filters.artifactCoverage);
+                if (next.registry.scope === "referenced") {
+                    next.registry.artifactCoverage = "all";
+                }
+            }
+            if ("bindingStatus" in filters) {
+                next.registry.bindingStatus = normalizeBindingStatusFilter(filters.bindingStatus);
+                if (next.registry.scope !== "referenced") {
+                    next.registry.bindingStatus = "all";
+                }
+            }
+            if ("reviewDrawerOpen" in filters) {
+                next.registry.reviewDrawerOpen = Boolean(filters.reviewDrawerOpen);
+            }
+            if ("reviewDrawerIndex" in filters) {
+                next.registry.reviewDrawerIndex = Math.max(0, Math.floor(cleanNumber(filters.reviewDrawerIndex, 0)));
+            }
+            if ("expandedSourceRefs" in filters) {
+                next.registry.expandedSourceRefs = normalizeStringList(filters.expandedSourceRefs);
+            }
+        }
+        if (payload.reviews && typeof payload.reviews === "object") {
+            const filters = payload.reviews;
+            if ("activeTab" in filters) {
+                next.reviews.activeTab = normalizeReviewTab(filters.activeTab);
+            }
+            if ("search" in filters) {
+                next.reviews.search = cleanString(filters.search);
+            }
+            if ("status" in filters) {
+                next.reviews.status = normalizeReviewStatusFilter(filters.status);
+            }
+            if ("kind" in filters) {
+                next.reviews.kind = normalizeReviewKindFilter(filters.kind);
+            }
+            if ("confidence" in filters) {
+                next.reviews.confidence = normalizeReviewConfidenceFilter(filters.confidence);
+            }
+        }
+        if (payload.tags && typeof payload.tags === "object") {
+            const filters = payload.tags;
+            if ("search" in filters) {
+                next.tags.search = cleanString(filters.search);
+            }
+            if ("facet" in filters) {
+                next.tags.facet = cleanString(filters.facet) || "all";
+            }
+            if ("status" in filters) {
+                const status = cleanString(filters.status);
+                next.tags.status =
+                    status === "active" || status === "deprecated" || status === "warning"
+                        ? status
+                        : "all";
+            }
+            if ("view" in filters) {
+                const view = cleanString(filters.view);
+                next.tags.view = view === "staged" ? "staged" : "vocabulary";
+            }
+            if ("stagedSearch" in filters) {
+                next.tags.stagedSearch = cleanString(filters.stagedSearch);
+            }
+            if ("stagedFacet" in filters) {
+                next.tags.stagedFacet = cleanString(filters.stagedFacet) || "all";
+            }
+            if ("selectedStagedTags" in filters) {
+                next.tags.selectedStagedTags = normalizeStringList(filters.selectedStagedTags);
+            }
+            if ("selectedVocabularyTags" in filters) {
+                next.tags.selectedVocabularyTags = normalizeStringList(filters.selectedVocabularyTags);
+            }
+            if ("density" in filters) {
+                const density = cleanString(filters.density);
+                next.tags.density =
+                    density === "comfortable" ? "comfortable" : "compact";
+            }
+            if ("editingStagedTag" in filters) {
+                next.tags.editingStagedTag = normalizeEditingStagedTag(filters.editingStagedTag);
+            }
+            if ("editingVocabularyTag" in filters) {
+                next.tags.editingVocabularyTag = normalizeEditingVocabularyTag(filters.editingVocabularyTag);
+            }
+            if ("expandedRows" in filters) {
+                next.tags.expandedRows = normalizeExpandedRows(filters.expandedRows);
+            }
+            if ("importDraft" in filters) {
+                next.tags.importDraft = cleanString(filters.importDraft);
+            }
+        }
+        if (payload.topicGraph && typeof payload.topicGraph === "object") {
+            const filters = payload.topicGraph;
+            if ("search" in filters) {
+                next.topicGraph.search = cleanString(filters.search);
+            }
+            if ("mode" in filters) {
+                next.topicGraph.mode = normalizeTopicGraphMode(filters.mode);
+            }
+            if ("selectedTopicId" in filters) {
+                const topicId = cleanString(filters.selectedTopicId);
+                if (topicId)
+                    next.topicGraph.selectedTopicId = topicId;
+                else
+                    delete next.topicGraph.selectedTopicId;
+            }
+        }
+        if (payload.concepts && typeof payload.concepts === "object") {
+            const filters = payload.concepts;
+            if ("search" in filters) {
+                next.concepts.search = cleanString(filters.search);
+            }
+            if ("conceptType" in filters) {
+                next.concepts.conceptType = cleanString(filters.conceptType) || "all";
+            }
+            if ("status" in filters) {
+                const status = cleanString(filters.status);
+                next.concepts.status =
+                    status === "active" || status === "review" || status === "deprecated"
+                        ? status
+                        : "all";
+            }
+            if ("topicId" in filters) {
+                next.concepts.topicId = cleanString(filters.topicId) || "all";
+            }
+            if ("overlayEnabled" in filters) {
+                next.concepts.overlayEnabled = Boolean(filters.overlayEnabled);
+            }
+            if ("selectedConceptId" in filters) {
+                const conceptId = cleanString(filters.selectedConceptId);
+                if (conceptId)
+                    next.concepts.selectedConceptId = conceptId;
+                else
+                    delete next.concepts.selectedConceptId;
+            }
+            if ("reviewMergeTargets" in filters &&
+                filters.reviewMergeTargets &&
+                typeof filters.reviewMergeTargets === "object") {
+                next.concepts.reviewMergeTargets = Object.fromEntries(Object.entries(filters.reviewMergeTargets)
+                    .map(([key, value]) => [cleanString(key), cleanString(value)])
+                    .filter(([key, value]) => key && value));
+            }
+        }
+        if (payload.graph && typeof payload.graph === "object") {
+            const filters = payload.graph;
+            if ("search" in filters) {
+                next.graph.search = cleanString(filters.search);
+            }
+            if ("role" in filters) {
+                next.graph.role = cleanString(filters.role) || "all";
+            }
+            if ("topicId" in filters) {
+                next.graph.topicId = cleanString(filters.topicId) || "all";
+                delete next.graph.selectedElement;
+            }
+        }
+        return { handled: true, state: next };
+    }
+    if (action === "selectTag") {
+        const tag = cleanString(payload.tag);
+        next.selectedTab = "tags";
+        next.reader.previousTab = "tags";
+        if (tag)
+            next.tags.selectedTag = tag;
+        else
+            delete next.tags.selectedTag;
+        return { handled: true, state: next };
+    }
+    if (action === "setTopicGraphView") {
+        if ("mode" in payload) {
+            next.topicGraph.mode = normalizeTopicGraphMode(payload.mode);
+        }
+        if ("search" in payload) {
+            next.topicGraph.search = cleanString(payload.search);
+        }
+        if ("selectedTopicId" in payload) {
+            const topicId = cleanString(payload.selectedTopicId);
+            if (topicId)
+                next.topicGraph.selectedTopicId = topicId;
+            else
+                delete next.topicGraph.selectedTopicId;
+        }
+        return { handled: true, state: next };
+    }
+    if (action === "selectConcept") {
+        const conceptId = cleanString(payload.conceptId);
+        next.selectedTab = "concepts";
+        next.reader.previousTab = "concepts";
+        if (conceptId)
+            next.concepts.selectedConceptId = conceptId;
+        else
+            delete next.concepts.selectedConceptId;
+        return { handled: true, state: next };
+    }
+    if (action === "setConceptOverlay") {
+        next.concepts.overlayEnabled = Boolean(payload.enabled);
+        return { handled: true, state: next };
+    }
+    if (action === "setGraphView") {
+        if ("layoutAlgorithm" in payload) {
+            next.graph.layoutAlgorithm = normalizeLayoutAlgorithm(payload.layoutAlgorithm);
+        }
+        if ("layoutPreset" in payload) {
+            next.graph.layoutAlgorithm = normalizeLayoutAlgorithm(payload.layoutPreset);
+        }
+        if ("role" in payload) {
+            next.graph.role = cleanString(payload.role) || "all";
+        }
+        if ("topicId" in payload) {
+            next.graph.topicId = cleanString(payload.topicId) || "all";
+            delete next.graph.selectedElement;
+        }
+        if (Array.isArray(payload.nodeKinds)) {
+            const allowed = [
+                "library_paper",
+                "external_reference",
+                "unresolved_reference",
+            ];
+            const normalized = Array.from(new Set(payload.nodeKinds
+                .map(cleanString)
+                .filter((entry) => allowed.includes(entry)))).sort((left, right) => left.localeCompare(right));
+            next.graph.nodeKinds = normalized.length ? normalized : allowed;
+        }
+        if ("showLowSignalReferences" in payload) {
+            next.graph.showLowSignalReferences = Boolean(payload.showLowSignalReferences);
+        }
+        if ("selectedElement" in payload) {
+            const selectedElement = normalizeSelectedElement(payload.selectedElement);
+            if (selectedElement)
+                next.graph.selectedElement = selectedElement;
+            else
+                delete next.graph.selectedElement;
+        }
+        if ("neighborhoodDepth" in payload) {
+            next.graph.neighborhoodDepth = Math.max(0, Math.min(4, Math.floor(cleanNumber(payload.neighborhoodDepth, 1))));
+        }
+        return { handled: true, state: next };
+    }
+    if (action === "hostCommand") {
+        const command = cleanString(payload.command);
+        if (!HOST_COMMANDS.includes(command)) {
+            return {
+                handled: false,
+                state: next,
+                reason: "unknown_host_command",
+            };
+        }
+        const args = payload.args && typeof payload.args === "object"
+            ? { ...payload.args }
+            : {};
+        return {
+            handled: true,
+            state: next,
+            hostCommand: {
+                command,
+                args,
+            },
+        };
+    }
+    return { handled: false, state: next, reason: "unknown_action" };
+}
+import { isBuiltinStatusTag } from "./builtinTagPolicy";

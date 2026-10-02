@@ -50,6 +50,42 @@ async function startup({ id, version, resourceURI, rootURI }, reason) {
     resourceURI: resourceURI?.spec,
     rootPath: resolveAddonRootPath(rootURI),
   };
+  const { ConsoleAPI } = ChromeUtils.importESModule(
+    "resource://gre/modules/Console.sys.mjs",
+  );
+  // SDK diagnostics can contain provider responses; keep this console silent.
+  ctx.console = new ConsoleAPI({ maxLogLevel: "off" });
+  // Provider streams and tool validation use native Gecko Web APIs in the
+  // plugin scope, independently of the lifetime of any UI window.
+  const web = Components.utils.Sandbox(
+    Services.scriptSecurityManager.getSystemPrincipal(),
+    {
+      wantGlobalProperties: [
+        "fetch",
+        "FormData",
+        "ReadableStream",
+        "TextEncoder",
+        "TextDecoder",
+        "structuredClone",
+      ],
+    },
+  );
+  for (const name of [
+    "Headers",
+    "Request",
+    "Response",
+    "FormData",
+    "ReadableStream",
+    "TextEncoder",
+    "TextDecoder",
+    "structuredClone",
+  ]) {
+    ctx[name] = web[name];
+  }
+  ctx.fetch = web.fetch;
+  // Native clones belong to the Web API sandbox; tools consume plugin objects.
+  ctx.structuredClone = (value, options) =>
+    Components.utils.cloneInto(web.structuredClone(value, options), ctx);
   ctx._globalThis = ctx;
 
   Services.scriptloader.loadSubScript(

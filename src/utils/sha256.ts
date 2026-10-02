@@ -7,7 +7,7 @@ const dynamicImport: DynamicImport = new Function(
 
 type MozillaCryptoHash = {
   init: (algorithm: unknown) => void;
-  update: (bytes: number[], length: number) => void;
+  update: (bytes: Uint8Array, length: number) => void;
   finish: (ascii: boolean) => string;
 };
 
@@ -52,7 +52,7 @@ export async function createSha256Accumulator(): Promise<
     hash.init(nsICryptoHash.SHA256);
     return {
       update(bytes) {
-        hash.update(Array.from(bytes), bytes.byteLength);
+        hash.update(bytes, bytes.byteLength);
       },
       digestHex() {
         return bytesToHex(

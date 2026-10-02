@@ -3,7 +3,11 @@ import {
   getBundledProviders,
 } from "@oh-my-pi/pi-catalog/models";
 import { parseDocument } from "yaml";
-import { getPiCredentialRevision, readPiCredential } from "./piCredentialStore";
+import {
+  getPiCredentialRevision,
+  getPiCredentialIdentityRevision,
+  readPiCredential,
+} from "./piCredentialStore";
 import { resolvePiOpenAICodexAccess } from "./piOpenAICodexAuth";
 import { PiModelStreamFailure } from "./piRuntime";
 import { classifyPiEndpoint } from "./piProviderConfiguration";
@@ -41,6 +45,28 @@ const REASONING = new Set([
 ]);
 const CACHE_VERSION = 1;
 const CATALOG_VERSION = "18.0.11";
+// Account discovery is shared by settings and product owners, while loading
+// the catalog remains offline. Credential replacement invalidates the facts.
+const codexDiscoveries = new Map<
+  string,
+  {
+    identityRevision: string;
+    models: PiCatalogModel[];
+  }
+>();
+
+function currentCodexModels() {
+  const models: PiCatalogModel[] = [];
+  for (const [credentialId, discovery] of codexDiscoveries) {
+    if (
+      getPiCredentialIdentityRevision(credentialId, "model-provider") !==
+      discovery.identityRevision
+    ) {
+      codexDiscoveries.delete(credentialId);
+    } else models.push(...discovery.models);
+  }
+  return models;
+}
 
 function string(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -267,9 +293,11 @@ export async function loadPiModelCatalog(
   } catch {
     /* No valid cache; bundled metadata remains available. */
   }
+  const discovered = currentCodexModels();
+  const models = [...bundledModels(), ...overlay, ...discovered];
   return {
-    revision: await revision(overlay),
-    models: [...bundledModels(), ...overlay],
+    revision: await revision(models),
+    models,
     overlayStatus: overlay.length ? "cached" : "none",
   };
 }
@@ -282,7 +310,8 @@ export async function refreshPiModelCatalog(
   const raw = await readRuntimeTextFile(overlayPath);
   if (!raw) return loadPiModelCatalog(args);
   const overlay = normalizePiModelOverlay(raw);
-  const rev = await revision(overlay);
+  const models = [...bundledModels(), ...overlay, ...currentCodexModels()];
+  const rev = await revision(models);
   const path = cachePath(args.root);
   await ensureRuntimeDirectoryStrict(
     getRuntimePersistencePaths(args.root).cacheDir,
@@ -293,7 +322,7 @@ export async function refreshPiModelCatalog(
   );
   return {
     revision: rev,
-    models: [...bundledModels(), ...overlay],
+    models,
     overlayStatus: "refreshed",
   };
 }
@@ -302,6 +331,7 @@ export async function removePiCodexCredentialModels(
   catalog: PiCatalog,
   credentialId: string,
 ): Promise<PiCatalog> {
+  codexDiscoveries.delete(credentialId);
   const models = catalog.models.filter(
     (model) => model.credentialRef !== credentialId,
   );
@@ -318,6 +348,10 @@ export async function refreshPiCodexModelCatalog(
       args.signal,
     );
     const credentialRevision = getPiCredentialRevision(
+      args.credentialId,
+      "model-provider",
+    );
+    const identityRevision = getPiCredentialIdentityRevision(
       args.credentialId,
       "model-provider",
     );
@@ -421,8 +455,9 @@ export async function refreshPiCodexModelCatalog(
         credentialRef: args.credentialId,
       });
     }
+    const shared = await loadPiModelCatalog();
     const models = [
-      ...catalog.models.filter(
+      ...shared.models.filter(
         (model) => model.credentialRef !== args.credentialId,
       ),
       ...discovered,
@@ -431,13 +466,18 @@ export async function refreshPiCodexModelCatalog(
     if (
       args.signal.aborted ||
       !credentialRevision ||
+      !identityRevision ||
       getPiCredentialRevision(args.credentialId, "model-provider") !==
         credentialRevision
     )
       throw new PiModelStreamFailure(
         args.signal.aborted ? "aborted" : "credential_missing",
       );
-    return { ...catalog, models, revision: catalogRevision };
+    codexDiscoveries.set(args.credentialId, {
+      identityRevision,
+      models: discovered,
+    });
+    return { ...shared, models, revision: catalogRevision };
   } catch (error) {
     if (error instanceof PiModelStreamFailure) throw error;
     throw new PiModelStreamFailure(

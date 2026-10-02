@@ -401,6 +401,7 @@ function observeWorkflowRunTerminal(args: {
       return;
     }
     let settled = false;
+    let dispatchSettled = false;
     let removeSkillRunnerSubscription: () => void = () => {};
     let removeAcpSubscription: () => void = () => {};
     let removeSequenceSubscription: () => void = () => {};
@@ -448,7 +449,11 @@ function observeWorkflowRunTerminal(args: {
       }
       if (
         !settled &&
-        observations.every((observation) => observation.kind !== "pending")
+        observations.every(
+          (observation) =>
+            observation.kind !== "pending" &&
+            (dispatchSettled || observation.kind !== "local-ready"),
+        )
       ) {
         settle();
       }
@@ -469,24 +474,33 @@ function observeWorkflowRunTerminal(args: {
     );
     // Built-in Pi Skill Runs seal in the owner; the Workflow owns apply, so a
     // seal must re-drive terminal resolution instead of orphaning the run.
-    void import("../../modules/piSkillRun")
-      .then((module) => {
-        if (settled) {
-          return;
-        }
-        const subscribe = (
-          module as {
-            subscribePiSkillRunChanges?: (
-              listener: (change: unknown) => void,
-            ) => () => void;
+    if (
+      typeof __PI_RUNTIME_ENABLED__ === "undefined" ||
+      __PI_RUNTIME_ENABLED__
+    ) {
+      void import("../../modules/piSkillRun")
+        .then((module) => {
+          if (settled) {
+            return;
           }
-        ).subscribePiSkillRunChanges;
-        if (typeof subscribe === "function") {
-          removeBuiltinPiSubscription = subscribe(() => check());
-        }
-      })
-      .catch(() => undefined);
-    void args.idlePromise.then(check, check);
+          const subscribe = (
+            module as {
+              subscribePiSkillRunChanges?: (
+                listener: (change: unknown) => void,
+              ) => () => void;
+            }
+          ).subscribePiSkillRunChanges;
+          if (typeof subscribe === "function") {
+            removeBuiltinPiSubscription = subscribe(() => check());
+          }
+        })
+        .catch(() => undefined);
+    }
+    const dispatched = () => {
+      dispatchSettled = true;
+      check();
+    };
+    void args.idlePromise.then(dispatched, dispatched);
     check();
   });
 }

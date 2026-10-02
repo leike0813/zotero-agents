@@ -580,13 +580,16 @@ describe("workflow execution seams", function () {
         reason: "skill_run_recovery_required",
       },
     });
-    assert.deepEqual(resolve({ status: "succeeded", applyState: "succeeded" }), {
-      kind: "canonical-ready",
-      slotStatus: "succeeded",
-      outcome: { terminalState: "succeeded", requestId },
-    });
+    assert.deepEqual(
+      resolve({ status: "succeeded", applyState: "succeeded" }),
+      {
+        kind: "canonical-ready",
+        slotStatus: "succeeded",
+        outcome: { terminalState: "succeeded", requestId },
+      },
+    );
     assert.deepEqual(resolve({ status: "succeeded" }), {
-      kind: "pending",
+      kind: "local-ready",
       slotStatus: "succeeded",
     });
   });
@@ -3641,6 +3644,68 @@ describe("workflow execution seams", function () {
     });
   });
 
+  it("waits for provider dispatch settlement before exposing a sealed owner to apply", async function () {
+    let releaseDispatch!: () => void;
+    const dispatch = new Promise<void>((resolve) => {
+      releaseDispatch = resolve;
+    });
+    const runState = runWorkflowExecutionSeam(
+      {
+        prepared: {
+          workflow: {
+            manifest: {
+              id: "sealed-before-dispatch",
+              label: "Sealed before dispatch",
+            },
+          } as any,
+          requests: [{ kind: "skillrunner.job.v1", skill_id: "deterministic" }],
+          candidateSkipped: 0,
+          executionContext: {
+            providerId: "builtin-pi",
+            requestKind: "skillrunner.job.v1",
+            providerOptions: {},
+            backend: {
+              id: "builtin-pi",
+              type: "builtin-pi",
+              baseUrl: "local://builtin-pi",
+            },
+          },
+        },
+      },
+      {
+        executeWithProvider: async () => {
+          await dispatch;
+          return {
+            status: "succeeded",
+            requestId: "sealed-owner",
+            fetchType: "result",
+            resultJson: {},
+            responseJson: {},
+          };
+        },
+        resolveWorkflowJobTerminalResolution: () => ({
+          kind: "local-ready",
+          slotStatus: "succeeded",
+        }),
+      },
+    );
+    let terminalSettled = false;
+    void runState.terminalPromise.then(() => {
+      terminalSettled = true;
+    });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      assert.isFalse(
+        terminalSettled,
+        "apply must wait for the queue's provider result",
+      );
+    } finally {
+      releaseDispatch();
+      await runState.terminalPromise;
+    }
+    assert.equal(runState.queue.getJob(runState.jobIds[0])?.state, "succeeded");
+  });
+
   it("settles terminal observation when an admitted queue job is missing", async function () {
     const runState = runWorkflowExecutionSeam(
       {
@@ -5912,7 +5977,9 @@ describe("workflow execution seams", function () {
                 provider: "skillrunner",
               },
             } as any,
-            requests: [{ kind: "skillrunner.job.v1", skill_id: "deterministic" }],
+            requests: [
+              { kind: "skillrunner.job.v1", skill_id: "deterministic" },
+            ],
             skillDisplayById: {},
             candidateSkipped: 0,
             executionContext: {

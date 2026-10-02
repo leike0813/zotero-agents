@@ -164,8 +164,8 @@ describe("workflow host api archive facade", function () {
                 init(algorithm: unknown) {
                   initializedWith = algorithm;
                 },
-                update(bytes: number[], length: number) {
-                  updatedBytes = bytes;
+                update(bytes: ArrayLike<number>, length: number) {
+                  updatedBytes = Array.from(bytes);
                   updatedLength = length;
                 },
                 finish(ascii: boolean) {

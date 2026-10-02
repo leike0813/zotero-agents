@@ -1,0 +1,167 @@
+import { getString } from "./locale";
+function normalizeLocale(value) {
+    return String(value || "")
+        .trim()
+        .toLowerCase();
+}
+export function canonicalizeLocale(value) {
+    const locale = String(value || "")
+        .trim()
+        .replace(/_/g, "-");
+    if (!locale) {
+        return "en-US";
+    }
+    try {
+        return Intl.getCanonicalLocales(locale)[0] || "en-US";
+    }
+    catch {
+        return "en-US";
+    }
+}
+export function resolveRuntimeLocale(locale) {
+    const explicit = normalizeLocale(locale);
+    if (explicit) {
+        return explicit;
+    }
+    const runtime = globalThis;
+    const fromZotero = normalizeLocale(runtime.Zotero?.locale);
+    if (fromZotero) {
+        return fromZotero;
+    }
+    const fromNavigator = normalizeLocale(runtime.navigator?.language);
+    if (fromNavigator) {
+        return fromNavigator;
+    }
+    return "en-us";
+}
+export function isZhLocale(locale) {
+    const normalized = normalizeLocale(locale || resolveRuntimeLocale());
+    return normalized.startsWith("zh");
+}
+export function fallbackByLocale(args) {
+    if (isZhLocale(args.locale)) {
+        return args.zhCN;
+    }
+    return args.enUS;
+}
+function looksLikeUnresolvedLocalizationValue(value, key) {
+    const normalizedValue = String(value || "").trim();
+    const normalizedKey = String(key || "").trim();
+    if (!normalizedValue) {
+        return true;
+    }
+    if (!normalizedKey) {
+        return false;
+    }
+    if (normalizedValue === normalizedKey) {
+        return true;
+    }
+    // getString unresolved shape: "<addonRef>-<key>"
+    if (normalizedValue.endsWith(`-${normalizedKey}`)) {
+        return true;
+    }
+    return false;
+}
+export function getStringWithLocaleFallback(args) {
+    let localized = "";
+    try {
+        const runtime = globalThis;
+        if (runtime.addon) {
+            localized = String(args.values
+                ? getString(args.key, { args: args.values })
+                : getString(args.key)).trim();
+        }
+    }
+    catch {
+        localized = "";
+    }
+    if (looksLikeUnresolvedLocalizationValue(localized, args.key)) {
+        return fallbackByLocale({
+            zhCN: args.fallback.zhCN,
+            enUS: args.fallback.enUS,
+            locale: args.locale,
+        });
+    }
+    return localized;
+}
+const managedLocalBackendDisplayNameFallback = {
+    zhCN: "本地后端",
+    enUS: "Local Backend",
+};
+const managedLocalRuntimeToastFallback = {
+    "runtime-up": {
+        zhCN: "本地后端已启动。",
+        enUS: "Local backend started.",
+    },
+    "runtime-down": {
+        zhCN: "本地后端已停止。",
+        enUS: "Local backend stopped.",
+    },
+    "runtime-abnormal-stop": {
+        zhCN: "本地后端异常停止。",
+        enUS: "Local backend stopped unexpectedly.",
+    },
+};
+export function resolveManagedLocalBackendDisplayNameText() {
+    return getStringWithLocaleFallback({
+        key: "backend-display-local-skillrunner",
+        fallback: managedLocalBackendDisplayNameFallback,
+    });
+}
+export function resolveManagedLocalRuntimeToastText(kind) {
+    if (kind === "runtime-up") {
+        return getStringWithLocaleFallback({
+            key: "skillrunner-local-runtime-toast-up",
+            fallback: managedLocalRuntimeToastFallback["runtime-up"],
+        });
+    }
+    if (kind === "runtime-down") {
+        return getStringWithLocaleFallback({
+            key: "skillrunner-local-runtime-toast-down",
+            fallback: managedLocalRuntimeToastFallback["runtime-down"],
+        });
+    }
+    return getStringWithLocaleFallback({
+        key: "skillrunner-local-runtime-toast-abnormal-stop",
+        fallback: managedLocalRuntimeToastFallback["runtime-abnormal-stop"],
+    });
+}
+export function resolveSkillRunnerBackendCommunicationFailedToastText(backendDisplayName) {
+    const normalizedDisplayName = String(backendDisplayName || "").trim() || "unknown";
+    return getStringWithLocaleFallback({
+        key: "skillrunner-backend-communication-failed",
+        fallback: {
+            zhCN: `与后端${normalizedDisplayName}通信失败`,
+            enUS: `Failed to communicate with backend ${normalizedDisplayName}`,
+        },
+        values: {
+            backend: normalizedDisplayName,
+        },
+    });
+}
+export function resolveSkillRunnerBackendUnavailableToastText(backendDisplayName) {
+    const normalizedDisplayName = String(backendDisplayName || "").trim() || "unknown";
+    return getStringWithLocaleFallback({
+        key: "skillrunner-backend-unavailable-toast",
+        fallback: {
+            zhCN: `后端${normalizedDisplayName}暂时不可达，请稍后再试。`,
+            enUS: `Backend ${normalizedDisplayName} is temporarily unreachable. Please try again later.`,
+        },
+        values: {
+            backend: normalizedDisplayName,
+        },
+    });
+}
+export function resolveSkillRunnerBackendAutoDisabledToastText(backendDisplayName) {
+    const normalizedDisplayName = String(backendDisplayName || "").trim() || "unknown";
+    return getStringWithLocaleFallback({
+        key: "skillrunner-backend-auto-disabled-toast",
+        fallback: {
+            zhCN: `后端${normalizedDisplayName}已在 6 小时未成功连接后自动禁用。请在后端管理器中重新启用后再探测。`,
+            enUS: `Backend ${normalizedDisplayName} was disabled after 6 hours without a successful connection. Re-enable it in Backend Manager to probe again.`,
+        },
+        values: {
+            backend: normalizedDisplayName,
+        },
+    });
+}

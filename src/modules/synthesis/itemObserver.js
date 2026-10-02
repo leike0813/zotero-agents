@@ -1,0 +1,134 @@
+import { getDefaultSynthesisClient } from "../synthesisClient/defaultClient";
+import { parseNoteKind } from "../zoteroHost/notePayloadCodec";
+function cleanString(value) {
+    return String(value || "").trim();
+}
+function normalizeLibraryId(value) {
+    const parsed = Math.floor(Number(value));
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+function isObject(value) {
+    return !!value && typeof value === "object" && !Array.isArray(value);
+}
+function relatedItemKeyFromExtra(extraRow) {
+    for (const key of [
+        "relatedItemKey",
+        "related_item_key",
+        "targetItemKey",
+        "target_item_key",
+    ]) {
+        const value = cleanString(extraRow[key]);
+        if (value) {
+            return value;
+        }
+    }
+    const related = extraRow.relatedItem || extraRow.targetItem;
+    if (isObject(related)) {
+        return cleanString(related.key);
+    }
+    return "";
+}
+function resolveItem(id) {
+    const zotero = globalThis.Zotero;
+    try {
+        return zotero?.Items?.get?.(Number(id)) || null;
+    }
+    catch {
+        return null;
+    }
+}
+function shouldInspectNotifierEcho(event) {
+    const normalized = cleanString(event).toLowerCase();
+    return normalized === "modify" || normalized === "refresh";
+}
+function shouldInvalidateLibraryReadModel(event) {
+    const normalized = cleanString(event).toLowerCase();
+    return (normalized === "add" ||
+        normalized === "modify" ||
+        normalized === "delete" ||
+        normalized === "trash" ||
+        normalized === "refresh" ||
+        normalized === "remove" ||
+        normalized === "erase");
+}
+function extraRowForId(extraData, id) {
+    const extra = extraData?.[String(id)];
+    return isObject(extra) ? extra : {};
+}
+function isChildItemType(value) {
+    const normalized = cleanString(value).toLowerCase();
+    return normalized === "attachment" || normalized === "note";
+}
+function isLiteratureScoreNote(item) {
+    try {
+        return (typeof item?.isNote === "function" &&
+            item.isNote() &&
+            parseNoteKind(item.getNote?.()) === "literature-score");
+    }
+    catch {
+        return false;
+    }
+}
+function isLiteratureScoreChildChange(id, extraRow) {
+    const item = resolveItem(id);
+    if (isLiteratureScoreNote(item)) {
+        return true;
+    }
+    const parentID = Number(item?.parentID || item?.parentItemID || 0) ||
+        Number(extraRow.parentID || extraRow.parentItemID || 0);
+    return parentID > 0 && isLiteratureScoreNote(resolveItem(parentID));
+}
+export function isSynthesisLiteratureScoreInvalidationEvent(args) {
+    if (cleanString(args.type) !== "item") {
+        return false;
+    }
+    return (args.ids || []).some((id) => isLiteratureScoreChildChange(id, extraRowForId(args.extraData, id)));
+}
+export function isSynthesisLibraryReadModelInvalidationEvent(args) {
+    if (cleanString(args.type) !== "item") {
+        return false;
+    }
+    if (!shouldInvalidateLibraryReadModel(args.event)) {
+        return false;
+    }
+    const ids = args.ids || [];
+    if (!ids.length) {
+        return true;
+    }
+    return ids.some((id) => {
+        const extraRow = extraRowForId(args.extraData, id);
+        const itemType = extraRow.itemType || extraRow.item_type || extraRow.type || "";
+        return (!isChildItemType(itemType) || isLiteratureScoreChildChange(id, extraRow));
+    });
+}
+export async function recordSynthesisZoteroItemNotifications(args) {
+    if (cleanString(args.type) !== "item") {
+        return { recorded: 0 };
+    }
+    if (!shouldInspectNotifierEcho(args.event)) {
+        return { recorded: 0 };
+    }
+    const client = args.client || (await getDefaultSynthesisClient());
+    const recorded = 0;
+    for (const id of args.ids || []) {
+        const item = resolveItem(id);
+        const extraRow = extraRowForId(args.extraData, id);
+        const itemKey = cleanString(item?.key) || cleanString(extraRow.key) || cleanString(id);
+        if (!itemKey) {
+            continue;
+        }
+        const libraryId = normalizeLibraryId(item?.libraryID) ||
+            normalizeLibraryId(extraRow.libraryID);
+        if (libraryId) {
+            const echo = await client.notifications.consumeRelatedItemsSyncEcho({
+                libraryId,
+                itemKey,
+                relatedItemKey: relatedItemKeyFromExtra(extraRow) || undefined,
+            });
+            if (echo.consumed) {
+                continue;
+            }
+        }
+    }
+    return { recorded };
+}

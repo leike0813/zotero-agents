@@ -82,9 +82,10 @@ describe("Pi API-key Provider execution", function () {
         headers: { "content-type": "text/event-stream" },
       });
     };
-    const source = createPiProviderModelSource(selection, {
-      fetch: fetchFixture,
-    });
+    const source = createPiProviderModelSource(
+      { ...selection, reasoning: "low" },
+      { fetch: fetchFixture },
+    );
     const deltas: string[] = [];
     for await (const delta of source({
       systemPrompt: "",
@@ -94,6 +95,7 @@ describe("Pi API-key Provider execution", function () {
       deltas.push(delta);
     assert.equal(deltas.join(""), "hello");
     assert.lengthOf(requests, 1);
+    assert.equal((await requests[0].clone().json()).reasoning_effort, "low");
     assert.equal(new URL(requests[0].url).origin, "https://provider.example");
     assert.equal(
       requests[0].headers.get("authorization"),

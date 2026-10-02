@@ -4,6 +4,15 @@ import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 import semver from "semver";
+import {
+  buildPiAcceptanceReport,
+  collectPiCandidate,
+  type PiAcceptanceReport,
+} from "./check-pi-runtime-acceptance";
+import {
+  loadCompatibilityManifest,
+  sha256File,
+} from "./zotero-compatibility-fixture";
 
 export type ReleaseGateNextAction =
   | "resolve_blockers"
@@ -68,6 +77,7 @@ export type ReleaseGateReport = {
     test_node_full_passed: boolean;
     lint_check_passed: boolean;
   };
+  pi_acceptance?: { required: boolean; accepted: boolean };
   remotes: ReleaseGateRemoteState[];
   local_tag: {
     exists: boolean;
@@ -95,6 +105,8 @@ export type ReleaseGateArgs = {
   lintCheckPassed?: boolean;
   contentPackageReleaseVerified?: boolean;
   repo?: string;
+  piAcceptancePath?: string;
+  piXpiPath?: string;
 };
 
 const execFileAsync = promisify(execFile);
@@ -482,6 +494,47 @@ export async function analyzeReleaseGate(
     : { exists: false, status: "missing" as const };
 
   const blockers: ReleaseGateBlocker[] = [];
+  const piRequired = Boolean(
+    targetVersion &&
+    semver.valid(targetVersion.replace(/^v/i, "")) &&
+    semver.gte(targetVersion.replace(/^v/i, ""), "0.10.0"),
+  );
+  let piAccepted = false;
+  if (piRequired) {
+    if (args.piAcceptancePath && args.piXpiPath) {
+      try {
+        const input: PiAcceptanceReport = JSON.parse(
+          await fs.readFile(args.piAcceptancePath, "utf8"),
+        );
+        const checked = buildPiAcceptanceReport(
+          input.candidate,
+          await loadCompatibilityManifest(
+            "tests/zotero/compatibility-matrix.json",
+          ),
+          input.items.flatMap((item) => item.attempts),
+        );
+        const actual = await collectPiCandidate(
+          args.piXpiPath,
+          checked.candidate.capacity,
+        );
+        piAccepted =
+          input.schema === checked.schema &&
+          checked.accepted &&
+          checked.candidate.sourceCommit === head.stdout.trim() &&
+          actual.dirty === false &&
+          actual.version === checked.candidate.version &&
+          checked.candidate.xpiSha256 === (await sha256File(args.piXpiPath));
+      } catch {
+        piAccepted = false;
+      }
+    }
+    if (!piAccepted)
+      addBlocker(
+        blockers,
+        "pi_acceptance_required",
+        "Complete matching Pi candidate acceptance evidence is required.",
+      );
+  }
   const currentBranch = branch.ok ? branch.stdout.trim() : "";
   if (!branch.ok || currentBranch !== "main") {
     addBlocker(blockers, "not_on_main", "Release must run from main.", {
@@ -649,6 +702,9 @@ export async function analyzeReleaseGate(
       test_node_full_passed: args.testNodeFullPassed === true,
       lint_check_passed: args.lintCheckPassed === true,
     },
+    ...(piRequired
+      ? { pi_acceptance: { required: true, accepted: piAccepted } }
+      : {}),
     remotes,
     local_tag: localTag,
     github_release: githubRelease,
@@ -671,6 +727,18 @@ export function parseReleaseGateCliArgs(argv: string[]): ReleaseGateArgs {
   const args: ReleaseGateArgs = {};
   for (let index = 0; index < argv.length; ) {
     const entry = argv[index] || "";
+    if (entry === "--pi-acceptance" || entry.startsWith("--pi-acceptance=")) {
+      const option = readOptionValue(argv, index, "--pi-acceptance");
+      args.piAcceptancePath = option.value;
+      index += option.consumed;
+      continue;
+    }
+    if (entry === "--pi-xpi" || entry.startsWith("--pi-xpi=")) {
+      const option = readOptionValue(argv, index, "--pi-xpi");
+      args.piXpiPath = option.value;
+      index += option.consumed;
+      continue;
+    }
     if (entry === "--target" || entry.startsWith("--target=")) {
       const option = readOptionValue(argv, index, "--target");
       args.targetVersion = option.value;
