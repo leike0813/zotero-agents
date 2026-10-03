@@ -1,6 +1,6 @@
 # 内置 Pi Agent Runtime 工作交接
 
-- 状态核对：2026-10-02
+- 状态核对：2026-10-03
 - 工作分支：`dev-agent-harness`
 - 实施路线：[地图 #10](https://github.com/leike0813/zotero-agents/issues/10)、[执行计划 #26](https://github.com/leike0813/zotero-agents/issues/26)
 - 已实现并归档：W0 C01（提交 `fbd297d4`）、W1 C02（`1da0cd84`）、W1 C03（`ef91407c`）、W1 C07（`f5ce9fe6`）、W1 C09（`5077c7b3`）、W2 C04（`f88e2825`）、W2 C06（`2bb22e90`）、W2 C08（实现 `fe6a5a51`，归档 `ad671f6f4`）、W2 C10（实现 `78023c716`、`a8602bc77`，归档 `2026-09-29`）、W2 C12（归档 `2026-09-29`）、C08 受管文件补齐与 W3 C13（均归档 `2026-09-29`）；见 [C08 补齐](../openspec/changes/archive/2026-09-29-complete-pi-managed-workspace-operations/)、[C12 OpenSpec 归档](../openspec/changes/archive/2026-09-29-establish-pi-zotero-tool-catalog/)与 [C13 OpenSpec 归档](../openspec/changes/archive/2026-09-29-add-pi-zotero-read-tools/)。
@@ -234,7 +234,7 @@ git show research/pi-agent-sandbox-models:artifact/pi-agent-runtime/sandbox-and-
 
 ## 当前工作区状态
 
-C20 [`verify-builtin-pi-runtime-release`](../openspec/changes/verify-builtin-pi-runtime-release/) 正在实施，尚未通过最终验收。用户指定 `dev@9218f30899e47d6e9b852dec978be81b1f802c2f` 为 v0.9.0 升级基线，本地已从该源码构建 XPI，SHA-256 为 `d524554a87c913ca503ac1875160ab8eb4ce44c759acb5e9c235c1c8b7405655`。聚合、release gate、Pi 排除控制与连续容量 probe 已接入现有工具链；安装升级、完整行为和负载仍按实际运行逐项验证。命令和人工 inventory 见 [验收 runbook](../docs/dev/pi-runtime-acceptance.md)。
+C20 [`verify-builtin-pi-runtime-release`](../openspec/changes/verify-builtin-pi-runtime-release/) 正在实施，尚未通过最终验收。当前 Windows 工作区 HEAD 为 `da5ae640ff7dfb70870b3f7e32316dcfa48a77bb`，用户仅授权本地开发验证。用户指定 `dev@9218f30899e47d6e9b852dec978be81b1f802c2f` 为 v0.9.0 升级基线，本机重新导出构建的 XPI SHA-256 为 `b0750bfe57f794352b0a18de90c8a7da31d5c64cf1e7d1d6f4ae4736b945c527`。聚合、release gate、Pi 排除控制与连续容量 probe 已接入现有工具链。命令和人工 inventory 见 [验收 runbook](../docs/dev/pi-runtime-acceptance.md)。下文 Linux 数值是此前会话历史记录，其原始工件在本机不存在，不能认证当前源码。
 
 2026-10-02 已重收本地证据。用户批准 Auto（含显式继续）进入 background，Conversation/Interactive 保持 foreground，安全启动续跑保持 background；统一准入点已修改。恢复边界修复后相关测试 49 项通过；完整 Node 首轮 27/28 的 archive mock 类型断言修正后，第二轮一次通过 28/28。生产 build、四份类型配置、lint、browser guard 和 strict 通过。Linux Zotero 7.0.32/9.0.6/10.0.1 的 Pi 五组行为、两次真实重启、固定基线 XPI fresh/upgrade 及 core/UI/workflow 完整矩阵均通过同一 dirty 候选，SHA-256 为 `338a1695dfa22c7ee81fec920f7b03718ee13b13502798fd5132ac443f03b9cc`。三个版本均为 core 237、UI 9、workflow 5 passed。首轮 Zotero 10 core 的全局列表断言失败和修正后的全域重跑均保留。现有默认 12 未被伪造为实测选择。
 
@@ -246,9 +246,11 @@ Linux 容量 4 第三轮 lag p95 114 ms、最大 1,358 ms 超限，失败保留�
 
 容量探索后复核发现 Interactive 启动恢复标记会影响后续用户继续；现改为单次续跑参数并删除 owner 标记。既有恢复用例扩展后先失败，三个相关测试文件共 49 项通过。四个容量记录保留旧候选身份，不认证修复后新候选；新的包体和 Linux 完整矩阵已收集，clean final workload 须重测。
 
-Windows 实机容量与其余 Windows 验收由用户明确保留到另一台 Windows 主机推进；对应 mandatory evidence 保持缺失。当前工作树未提交，不能认证 clean final candidate。`r4-development-summary.json`/`.md` 保留 66 个尝试，CLI 返回 2、accepted false，缺项与 dirty/mismatching 尝试均未豁免。C20 为 6/13 项完成，保持开放；没有发布、提交、规格同步或归档。
+Windows 本地验证已修复重启 owner 清理、profile 快照、原生只读目录删除和 XPC 文件流释放。最终源码的 Zotero 7.0.32、9.0.6、10.0.1 完整 core/UI/workflow 均为 237/9/5 passed；三版 Pi 五组和两次实际重启全部通过，cleanup complete。最终 full/Pi receipt 分别为 7：`f26a17b0`/`94b9900f`，9：`5c53918b`/`49c6de9f`，10：`1b5ba72a`/`29a7e8c7`。PI-04 改为等待公开 `waiting_user` 与 collecting 同时就绪，Windows 10 的失败尝试保留。Windows Node 第三轮一次通过 28/28，最后文件流改动后共享文件/persistence 38 项通过；生产 build、四份类型配置、lint/browser guard 与 strict 通过。
 
-本轮日志/receipt 保存在 `.scaffold/pi-acceptance/`，结果与候选绑定见 [C20 verification](../openspec/changes/verify-builtin-pi-runtime-release/verification.md)。592 个误 emit 的未跟踪 JS 原样保留，测试使用过滤源码副本。共享宿主启动脚本导致的一次并行版本串用已弃作证据，之后宿主和容量严格串行；保留失败与弃用原因。
+Windows 包体第三轮修正 scaffold 输出路径分隔符后，同输入、浏览器 guard、完整排除和三项预算全部通过，raw/gzip/XPI 增量为 `16,306,697` / `927,397` / `965,112` bytes；测量候选与主开发 XPI 不同，分别保留身份。七平台 Synthesis 工件仍过期，用户不授权远程预构建，仅本地源码编译 Windows sidecar 用于开发 add-on。正式安装/升级、双平台容量与 clean final candidate 仍缺前置条件。一次扩大 E2E 运行出现 SR-03 重复终态事件并中断，已定位为 ledger 对账与 job 轮询两个观察者同时发布，store 缺事件幂等；原 receipt 保持 running，不能作为全量 E2E 通过。最终开发聚合 `windows-development-summary.json/.md` 保留 25 份宿主 receipt、41 次证据尝试，`accepted:false`，dirty 尝试不满足正式 gate。C20 保持 6/13，没有发布、提交、规格同步或归档。
+
+本轮日志保存在 `.scaffold/pi-acceptance/`，原始宿主 receipt 在本机 `zc` run root，结果与候选绑定见 [C20 verification](../openspec/changes/verify-builtin-pi-runtime-release/verification.md)。用户已授权删除 592 个误生成 JS；逐项核实 TS twin、新增来源和工作区真实路径后用内置 patch 移除，根 `tsconfig.json` 默认 `noEmit` 防止重现。手写 JS 保留。共享宿主启动脚本导致的历史并行版本串用已弃作证据，之后宿主和容量严格串行；保留失败与弃用原因。
 
 C16 的固定基线为 `4d95a25c`，实现提交为 `b6cc7f48`，change 已同步并归档。C11 实现提交为 `2fa6bc0c`；C14 实现提交为 `64ea8d16`，14/14 任务完成并归档。C15 以 `64ea8d1699293820941767f75733fa5ab1048329` 为固定基线，9/9 任务完成，四份规格已同步并归档。C17 以 `24f6dabae9f5e1a9387bf03ce17c0d2ca52c13ef` 为固定基线，10/10 任务完成，两份规格已同步并归档为 `2026-10-01-integrate-pi-skill-runs`。C18 以 `b26824f2572c6258d7fcd15fb807dcc610f143e3` 为固定基线，11/11 任务完成，相关 Node、lint、build 和真实宿主验证通过，四份主规格已同步并归档为 `2026-10-01-add-pi-observability-and-audit`。实现没有新增提交。C19 以 `7efd7044def0f91e3d99805ca1df149fe9845f4d` 为固定基线，13/13 任务完成，7 份主规格已同步并归档（见下）；实现没有新增提交。以最新 `git status` 辨别所有权，不覆盖并行改动。
 

@@ -258,7 +258,11 @@ function readXpcFileChunks(
         },
         onStopRequest(_request: unknown, status: number) {
           try {
-            asyncInput.close?.();
+            try {
+              asyncInput.close?.();
+            } finally {
+              fileInput.close?.();
+            }
           } catch {
             // Best-effort stream cleanup.
           }

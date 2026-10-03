@@ -587,27 +587,15 @@ async function terminateMock(mock: Child) {
   const exited = new Promise<void>((resolve) =>
     mock.once("exit", () => resolve()),
   );
-  const killed = new Promise<void>((resolve, reject) => {
-    if (process.platform === "win32") {
-      const killer = spawn("taskkill", ["/PID", String(mock.pid), "/T", "/F"], {
-        stdio: "ignore",
-      });
-      killer.on("error", reject);
-      killer.on("exit", (code) =>
-        code === 0
-          ? resolve()
-          : reject(new Error(`mock_skillrunner_taskkill_failed:${code}`)),
-      );
-      return;
-    }
+  if (process.platform === "win32") {
+    mock.kill("SIGKILL");
+  } else {
     try {
       process.kill(-mock.pid!, "SIGKILL");
     } catch {
       mock.kill("SIGKILL");
     }
-    resolve();
-  });
-  await killed;
+  }
   await Promise.race([
     exited,
     new Promise<never>((_, reject) =>
@@ -623,26 +611,9 @@ export function terminateExactProcess(processId: number) {
   if (processId === process.pid) {
     throw new Error("system_e2e_restart_refused_runner_pid");
   }
-  if (process.platform !== "win32") {
-    process.kill(processId, "SIGKILL");
-    return waitForExactProcessExit(processId);
-  }
-  return new Promise<void>((resolve, reject) => {
-    // The controlled fault is the death of the owning Zotero process alone. A
-    // tree kill would also hard-kill the sidecar child, which on POSIX observes
-    // parent-pipe EOF and exits through its own cleanup path instead, so the
-    // Windows fault has to stay the same shape.
-    const killer = spawn("taskkill", ["/PID", String(processId), "/F"], {
-      stdio: "ignore",
-      windowsHide: true,
-    });
-    killer.on("error", reject);
-    killer.on("exit", (code) =>
-      code === 0
-        ? resolve()
-        : reject(new Error(`system_e2e_restart_taskkill_failed:${code}`)),
-    );
-  }).then(() => waitForExactProcessExit(processId));
+  // Kill only the owner; its sidecar must observe EOF and clean up itself.
+  process.kill(processId, "SIGKILL");
+  return waitForExactProcessExit(processId);
 }
 
 async function waitForExactProcessExit(processId: number) {
@@ -658,7 +629,7 @@ async function waitForExactProcessExit(processId: number) {
   throw new Error("system_e2e_restart_process_still_alive");
 }
 
-async function snapshotSystemE2EScaffold(scaffoldRoot: string) {
+export async function snapshotSystemE2EScaffold(scaffoldRoot: string) {
   const resumeRoot = await mkdtemp(
     path.join(os.tmpdir(), "zotero-agents-system-e2e-resume-"),
   );
@@ -667,6 +638,15 @@ async function snapshotSystemE2EScaffold(scaffoldRoot: string) {
       cp(path.join(scaffoldRoot, name), path.join(resumeRoot, name), {
         recursive: true,
         force: true,
+        // Debugger state and Mozilla locks belong to the old process.
+        filter: (source) =>
+          name !== "profile" ||
+          ![
+            "parent.lock",
+            ".parentlock",
+            "lock",
+            "chrome_debugger_profile",
+          ].includes(path.basename(source)),
       }),
     ),
   );

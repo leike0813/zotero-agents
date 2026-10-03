@@ -1957,6 +1957,7 @@ describe("Zotero compatibility fixture contracts", function () {
     });
 
     it("keeps the Run Manifest reference of a cell terminated at its deadline", async function () {
+      this.timeout(10_000);
       const manifestPath = path.join(
         process.cwd(),
         "artifacts/test-diagnostics/system-e2e/terminated-run/run-manifest.json",

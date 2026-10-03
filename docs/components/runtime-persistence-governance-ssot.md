@@ -77,6 +77,11 @@ Components streams themselves. Adapter lookup remains late-bound on each
 operation so a cached Workflow Host projection cannot retain stale runtime
 globals.
 
+Windows removal uses Gecko's readonly retry. If recursive directory removal
+fails, the adapter verifies the directory's path identity before removing its
+children through the same native operation. Locked paths retain the bounded
+retry window and remain failures if removal cannot complete.
+
 The module exposes two failure semantics intentionally:
 
 - tolerant operations support cache, cleanup, and optional persistence paths

@@ -12,7 +12,9 @@ import { startLongLivedProcess } from "../../../../src/platform/longLivedProcess
 import { shutdownWindowsStdioBridgeService } from "../../../../src/platform/windowsStdioBridgeService";
 import { defaultAcpRuntimeDependencyProbe } from "../../../../src/modules/acp/skillRun/acpRuntimeDependencyWrapper";
 import {
+  removeRuntimePath,
   runtimePathExists,
+  setRuntimeFilePermissions,
   writeRuntimeTextFile,
 } from "../../../../src/modules/runtimePersistence";
 
@@ -76,13 +78,24 @@ describe("runtime platform services in Zotero", function () {
   });
 
   it("writes native runtime files through Zotero filesystem APIs", async function () {
-    const root = getZoteroTempDirectoryPath();
-    const target = joinNativePath(
-      root,
-      `zs-platform-runtime-${Date.now()}.txt`,
+    this.timeout(10000);
+    const root = joinNativePath(
+      getZoteroTempDirectoryPath(),
+      `zs-platform-runtime-${Date.now()}`,
     );
+    const target = joinNativePath(root, "readonly.txt");
     await writeRuntimeTextFile(target, "ok");
     assert.isTrue(await runtimePathExists(target));
+    assert.isTrue(await setRuntimeFilePermissions(target, 0o444));
+    try {
+      assert.isTrue(await removeRuntimePath(root));
+      assert.isFalse(await runtimePathExists(root));
+    } finally {
+      if (await runtimePathExists(target)) {
+        await setRuntimeFilePermissions(target, 0o600);
+        await removeRuntimePath(root);
+      }
+    }
   });
 
   it("initializes the startup command registry without requiring every command", async function () {

@@ -136,6 +136,10 @@ describe("zotero test background cleanup harness", function () {
 
   it("awaits async reconciler reset before subsequent cleanup steps", async function () {
     const calls: string[] = [];
+    let signalStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      signalStarted = resolve;
+    });
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
@@ -152,6 +156,7 @@ describe("zotero test background cleanup harness", function () {
       },
       resetSkillRunnerTaskReconcilerForTests: async () => {
         calls.push("resetSkillRunnerTaskReconcilerForTests:start");
+        signalStarted();
         await gate;
         calls.push("resetSkillRunnerTaskReconcilerForTests:end");
       },
@@ -161,14 +166,7 @@ describe("zotero test background cleanup harness", function () {
     });
 
     const cleanupPromise = cleanupBackgroundRuntimeForZoteroTests();
-    // Pi surfaces are disposed ahead of these steps, so the poll budget covers
-    // those awaited disposals as well.
-    for (let attempt = 0; attempt < 200; attempt += 1) {
-      if (calls.includes("resetSkillRunnerTaskReconcilerForTests:start")) {
-        break;
-      }
-      await Promise.resolve();
-    }
+    await started;
     assert.deepEqual(calls, [
       "resetSkillRunnerRunDialogForTests",
       "resetTaskDashboardHostForTests",

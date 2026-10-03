@@ -634,7 +634,10 @@ describe("System E2E Phase 3 builtin Pi runtime", function () {
           | undefined;
         for (let attempt = 0; attempt < 480 && !batch; attempt += 1) {
           const model = await coordinator.readModel(requestId);
-          if (model.interactionBatch?.status === "collecting") {
+          if (
+            model.status === "waiting_user" &&
+            model.interactionBatch?.status === "collecting"
+          ) {
             batch = model.interactionBatch as never;
             break;
           }

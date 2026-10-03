@@ -1,6 +1,6 @@
 # C20 开发验证记录
 
-2026-10-02 继续验证。C20 未完成，以下均为 dirty 工作树的开发证据，不认证正式候选。HEAD 为 `76d308399e0d89a991383eb16af6a6af5edb3f14`；升级基线固定为 `dev@9218f30899e47d6e9b852dec978be81b1f802c2f`，本地 v0.9.0 XPI SHA-256 为 `d524554a87c913ca503ac1875160ab8eb4ce44c759acb5e9c235c1c8b7405655`。
+2026-10-03 继续 Windows 本地验证。C20 未完成，以下开发证据不认证正式候选。当前 HEAD 为 `da5ae640ff7dfb70870b3f7e32316dcfa48a77bb`；升级基线固定为 `dev@9218f30899e47d6e9b852dec978be81b1f802c2f`。本机重新导出并构建的 v0.9.0 XPI SHA-256 为 `b0750bfe57f794352b0a18de90c8a7da31d5c64cf1e7d1d6f4ae4736b945c527`，身份见 `baseline.json`。下文 Linux 记录是此前会话的历史结果；对应原始工件在本机不存在，不能认证当前源码。
 
 本轮日志与 receipt 保存于 `.scaffold/pi-acceptance/`，不依赖 `/tmp`。旧临时日志已随宿主重启丢失，不能继续用来证明通过。失败、重跑及弃用尝试均保留，未修改原始 receipt。
 
@@ -83,6 +83,50 @@ Linux 4/6/8/12 探索以实际记录为准，记录于 `auto-lane-capacity-runs/
 
 Windows 矩阵、process canary、容量与真实账号人工 inventory 仍按用户决定延期。此前 Codex/MiniMax test-bundle smoke 原始日志和 C05 临时 profile 已丢失；脱敏观察不替代新运行、安装 XPI 或带 confirmer 的 manual receipt。
 
-592 个未跟踪 emitted JS（均有 TS twin）仍保留，清单为 `emitted-js-inventory.json`；宿主与完整 Node 使用 `.scaffold/test/pi-c20-paused-source-1790892470772` 排除这些文件的源码副本。一次在原工作树执行的 lint 扫到这些生成文件，已停止；源码副本的完整 lint 重跑通过（`c20-auto-lane-lint-copy.log`）。没有删除、提交、切换分支、同步规格、归档或发布。任务 2.2–2.3、3.3–3.4、4.1–4.3 保持待办；最终还需 clean 候选、候选匹配的重测与完整聚合通过。
+此前 592 个 emitted JS 在当前 HEAD 已被跟踪。用户授权核实后移除：逐项确认同名 TS、均为 `76d308399..HEAD` 新增且真实路径位于工作区后，使用内置 patch 删除；清单为 `windows-emitted-js-inventory.json`。根 `tsconfig.json` 默认 `noEmit` 防止再次生成，未删除手写 JS。原工作区完整 lint 已通过（`windows-cleaned-lint.log`），默认 `tsc` 通过且无新 JS（`windows-noemit-default.log`）。任务 2.2–2.3、3.3–3.4、4.1–4.3 保持待办。
+
+## Windows 本地接续
+
+用户仅授权本地开发验证，不授权远程七平台预构建。七平台 Synthesis source fingerprint 首轮期望 `3756740d8b915e08d8c9415b2121b3807cc97746581b6950be58f64e229185b0`；最终复核期望 `e6395bdd86d61ce597ea4f49007e6c76c884656c6f936624f3f009d6c5f8e7cd`，现有资产为 `74fc56c1bf04d0dcfd571ba42abbc8fb042d8119a6c0cd88a178e652b88a4f18`，freshness 均失败（`windows-sidecar-freshness.log`、`windows-sidecar-freshness-r2.log`）。已从当前源码本地构建 Windows sidecar 并通过现有 prepare 暂存，供临时 add-on 行为测试。未将其作为七平台正式 XPI；没有 dispatch、同步远程资产、提交或发布。
+
+Windows Zotero 10 使用矩阵固定的 10.0.1 官方归档，经现有 acquire 校验。首次原工作树运行因 TS/JS 输出冲突失败；过滤副本运行在 `taskkill` 处失败。改用 Node 原生精确 PID kill 并保留退出观察，mock Windows 清理也使用原生 kill；POSIX mock 进程组清理保持原路径。真实重启随后暴露 profile 的 `parent.lock` EBUSY、debugger 遥测临时文件 ENOENT。共享快照函数排除 Mozilla 锁与独立 `chrome_debugger_profile`，保留宿主 profile 和 data；沿用现有用例记录 red/green，最终重启定向 5 passing，格式与 ESLint 通过。
+
+Windows Zotero 10 的修复后 receipt `zotero-10-windows-x64-04c44bb3`、Zotero 7 receipt `zotero-7-windows-x64-9b2ca5a1`、Zotero 9 receipt `zotero-9-windows-x64-ab4170df` 均通过 Pi 五组、unknown no-replay 和安全 checkpoint 的两次真实重启，cleanup complete。原始 receipt 在本机 `zc` run root，输出日志分别为 `windows-10-pi-behavior-r5.log`、`windows-zotero-7-windows-x64-pi-r1.log`、`windows-zotero-9-windows-x64-pi-r1.log`。这些是 dirty 开发 add-on 行为证据，XPI 摘要不能证明暂存的本地 sidecar 已装入该包。
+
+失败尝试完整保留：`c513563b`（输出冲突）、`e7df104e`（taskkill）、`c4c859f7`（Interactive 定向通过但旧 cleanup 失败）、`d3eb0858`（锁文件）、`2ee7bf16`（debugger 临时文件）。不把定向 Interactive 或任一首轮失败改成全组通过。
+
+Windows 完整 Node 首轮 24/28，清理后第二轮 25/28（`windows-node-full-r2.log`）；失败为 workflow-engine、workbench 的默认 2 秒超时，以及 background cleanup 测试。workbench 分片重跑通过；workflow-engine 重跑出现另一条 10 秒交互续跑超时，该用例定向 1 passing（`windows-workflow-interactive-focused.log`）。全量通过仍未成立。Assistant Workspace identity、Pi 执行、安全/故障和 acceptance tooling 分片在第二轮通过。
+
+workflow-engine 第四轮分片通过（`windows-node-workflow-engine-r4.log`）。background cleanup 的微任务忙等改为等待现有 stub 的开始信号，消除异步 import 尚未完成时的错误判断；随后真实进程树截止用例单独复现默认 2 秒超时。该测试现允许 10 秒执行，产品的 500 ms 截止与 500 ms graceful 参数保持原值，定向 1 passing（`windows-deadline-focused-green.log`）；zotero-host 第四轮 17 文件分片通过（`windows-node-zotero-host-r4.log`）。
+
+Windows Node 第三轮全量一次 28/28 分片通过（`windows-node-full-r3.log`、exit 0）。该轮启动早于最后的 XPC stream 关闭改动；改动后共享文件/persistence 两文件 38 passing（`windows-native-files-node.log`），measurement/acceptance 两文件 18 passing（`windows-final-measure-tooling.log`）。生产 `windows-native-stream-build.log` 含四份 TypeScript 与 workspace 检查通过，完整 lint 与 OpenSpec strict 通过（`windows-final-lint.log`、`windows-final-openspec.log`），测量路径修复的格式/ESLint 通过。生成的 `typings/i10n.d.ts` 和 help manifest 时间戳已恢复到原始内容。
+
+Windows 10 完整 core 首轮 `zotero-10-windows-x64-18589521` 为 231 passed、6 failed，UI/workflow 未执行。只读文件导致递归删除失败：复用 platform services 的真实宿主用例先记录红测 `cc36d901`；首个重跑 `b01f89bd` 仍使用旧插件，重建后的 `64edd748` 证明单独设置 `retryReadonly` 也不足。Gecko 的 [RemoveSync](https://github.com/mozilla/gecko-dev/blob/master/xpcom/ioutils/IOUtils.cpp) 仅重试根路径的 readonly 属性，目录非空提前返回。共享 `removeRuntimePath` 现用原生 readonly retry，并在 Windows 目录删除失败时先核实路径身份，再逐项删除子路径，保留原有 5 秒重试窗口。真实宿主 `b5923a90` 为 1 passing（`windows-readonly-cleanup-green-r3.log`）。
+
+该修复后的完整 core 重跑，Windows 10 `c5c05877` 和 Windows 9 `34da5ab0` 均为 233 passed、4 failed，完整失败 receipt 保留。剩余错误是生成产物晋升和审计导出临时文件的 `NS_ERROR_FILE_IS_LOCKED`，并使注释导出失败。共享 XPC 读取器的完成回调现显式关闭底层文件流，沿用现有 Trusted Native、Native catalog 与 Audit 用例验证；移动与摘要校验顺序保持原契约。最终重建后的结果另行记录。
+
+Windows 7 `ef639dce` 在同轮完整 core/UI/workflow 通过（237/9/5，cleanup complete）。最终 stream 修复后的 Windows 10 定向 receipt `2833bf86` 为 21 passing，覆盖生成产物晋升、注释导出、审计导出与只读清理，cleanup complete。主开发 XPI SHA-256 为 `20f365559fc6fe0cdd8acce4e649711186c446b74c515ebea8106b48db2a696a`；prepare 暂存的本地 Windows sidecar 与正式包内七平台工件仍须区分。
+
+Windows 10 最终完整 core/UI/workflow receipt `1b5ba72a` 通过（237/9/5，cleanup complete）。随后 `9f9b3592` 的 Pi 重收遗漏 runbook 指定的 grep，实际进入 Phase 2 套件：SR-03 出现重复 `run.terminal_client_error` 事件，运行在 ACP owner restart 阶段中断。原始 receipt 仍为 `running`、无最终 cleanup，保持原样；原始日志和中断原因见 `windows-expanded-e2e-interrupted.json`。该记录不能证明完整 E2E 或 Pi 五组通过。后续定向重跑使用已有 `System E2E (runner foundation|Phase 3 builtin Pi runtime)` grep，完整 E2E 的 Phase 2 失败单独保留。
+
+Windows 10 定向 Pi receipt `c1d49c98` 的 Conversation、interrupt、Auto 与 restart 通过，Interactive 在提交时返回 `interaction_not_collecting`，cleanup complete。测试只等待了 batch collecting，早于 owner 发布 `waiting_user`；现有 PI-04 用例改为同时等待两个公开就绪状态，生产 CAS 与时限不变。修改后的三版 Windows Pi 五组及两次实际重启全部通过，完整 core/UI/workflow 均为 237/9/5 passed，所有最终 receipt 均 cleanup complete：
+
+| 宿主 | 完整 core/UI/workflow receipt | Pi 定向 receipt |
+| --- | --- | --- |
+| Windows Zotero 7.0.32 | `f26a17b0` | `94b9900f` |
+| Windows Zotero 9.0.6 | `5c53918b` | `49c6de9f` |
+| Windows Zotero 10.0.1 | `1b5ba72a` | `29a7e8c7` |
+
+根类型和受影响文件 ESLint 通过（`windows-final-types-r2.log`、`windows-final-eslint-r2.log`），测试格式通过（`windows-pi-ready-format.log`）。以上是开发 add-on 的 core/UI/workflow 与 Pi 定向证据，不是正式安装 XPI 或完整 E2E 通过。
+
+SR-03 的只读定位确认是产品重复发布：`skillRunnerTaskReconciler` 与仍在执行的 job 轮询均观察到 404，经 `settleSkillRunnerRunAsFailed` 发布 `run.terminal_client_error`。`skillRunnerRunStore` 仅吸收状态退回，重复 failed→failed 仍各追加独立 event ID。现有 SR-03/SR-02 断言一次终态收敛；Node reducer 与 reconciler 用例尚未覆盖两个观察者的事件去重。修复应在共享终态事件归约处处理，并扩展既有 reducer 用例；本次 Pi 本地验证没有扩大修改 SkillRunner 产品行为，完整 E2E 仍未通过。
+
+生产 build、四份类型配置和 browser guard 已通过。第一次 Windows 包体对照 raw/gzip/XPI 增量为 `16,311,526` / `928,552` / `966,161` bytes，三项在预算内，guard 和完整排除通过，但 `sameInputs:false` 与 dirty 使 CLI 返回 2（`windows-bundle.json`）；保留该失败，待生成类型和测试源稳定后串行重测。
+
+串行包体第二轮仍 `sameInputs:false`（`windows-bundle-r2.json`）：Windows 输出目录使用反斜杠，scaffold 的 glob 未发现 locale，生成类型变空；两份包中的 FTL 也未完成 namespace 转换。测量器在传递输出目录时转换为正斜杠，复用既有 scaffold 构建。恢复原类型后第三轮 raw/gzip/XPI 增量为 `16,306,697` / `927,397` / `965,112` bytes；`sameInputs:true`、browser guard、完整排除与三项预算全部通过。CLI 返回 2，仅保留 `dirty-worktree`（`windows-bundle-r3.json`/`windows-bundle-r3-record.json`）。测量候选 XPI SHA-256 为 `616641f1b5d11df849e9bf2f3ea1f8c00d6208b40dec76bf0f835588c0647cd3`，与主开发 XPI 不同，不能合并认证；首两轮 candidate/control XPI 另保存在 `windows-bundle-r1-artifacts/`、`windows-bundle-r2-artifacts/`。
+
+本机 WSL Ubuntu 缺少 Linux Node、Rust 与显示测试工具，旧 Linux receipt/容量原始工件也未迁入本机。正式安装/升级、双平台容量共同选择、clean 最终候选与 final workload、人工 inventory 仍缺失；不能据此完成 C20、同步规格或归档。
+
+最终开发聚合已执行 `npx tsx .scaffold/pi-acceptance/collect-windows-development.mts`，返回 2：`accepted:false`、46 项、41 次证据尝试、25 份宿主 receipt（`windows-development-collect.log`）。JSON/Markdown 为 `windows-development-summary.json`/`windows-development-summary.md`，原始副本和索引为 `windows-receipts/`/`windows-attempt-index.json`。dirty 开发尝试保留在 attempts 中，不能满足正式 gate；包体对照候选与主开发 XPI 摘要不同，也不能合并认证。Windows stdio canary 的 7 次开发证据来自真实宿主 stdout 的三项通过，未用 Node mock 替代。中断的 `9f9b3592` 原 receipt 与保存副本逐字节一致，仍为 running/cleanup incomplete。最终生成类型与 help manifest 无差异，文档格式、OpenSpec strict 与 `git diff --check` 通过。C20 保持 6/13。
 
 本轮一次进程环境查询意外将含凭据字段展开到工具输出。未将这些值写入验收工件，已停止这种读取；后续只提取所需非凭据字段，建议轮换受影响的环境凭据。

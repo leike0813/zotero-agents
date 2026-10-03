@@ -11,6 +11,7 @@ import {
   parseSystemE2EPeerRestartRequest,
   buildSystemE2EResumeEnvironment,
   terminateExactProcess,
+  snapshotSystemE2EScaffold,
   parseWrappedTestInvocation,
   normalizeTestDomain,
   resolveMockSkillRunnerPort,
@@ -415,6 +416,36 @@ describe("zotero test infrastructure helpers", function () {
         path.join(resumeRoot, "profile", "prefs.js"),
         "preserved-profile",
       );
+
+      const debuggerProfile = path.join(
+        resumeRoot,
+        "profile",
+        "chrome_debugger_profile",
+      );
+      await mkdir(debuggerProfile, { recursive: true });
+      await writeFile(
+        path.join(debuggerProfile, "prefs.js"),
+        "debugger-profile",
+      );
+      for (const name of ["parent.lock", ".parentlock", "lock"])
+        await writeFile(path.join(resumeRoot, "profile", name), name);
+      const snapshot = await snapshotSystemE2EScaffold(resumeRoot);
+      try {
+        const copied = await readdir(path.join(snapshot, "profile"));
+        assert.equal(
+          await readFile(path.join(snapshot, "profile", "prefs.js"), "utf8"),
+          "preserved-profile",
+        );
+        for (const name of [
+          "parent.lock",
+          ".parentlock",
+          "lock",
+          "chrome_debugger_profile",
+        ])
+          assert.notInclude(copied, name);
+      } finally {
+        await rm(snapshot, { recursive: true, force: true });
+      }
 
       const staged = await stageZoteroE2EFixture({
         domain: "e2e",

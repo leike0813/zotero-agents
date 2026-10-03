@@ -2049,16 +2049,35 @@ export async function removeRuntimePath(pathRaw: string) {
     };
   };
   let attempt: (() => Promise<void>) | null = null;
+  const removeWithIo = async (target: string): Promise<void> => {
+    const options = {
+      recursive: true,
+      ignoreAbsent: true,
+      retryReadonly: true,
+    };
+    try {
+      await runtime.IOUtils!.remove!(target, options);
+    } catch (error) {
+      // Gecko's readonly retry applies only to the removed path, not children.
+      if (
+        getPlatform() !== "win32" ||
+        !(await statRuntimePathStrict(target)).isDir
+      ) {
+        throw error;
+      }
+      await resolveRuntimePathIdentity({ root: target, path: target });
+      for (const child of await listRuntimeChildrenStrict(target)) {
+        await removeWithIo(child);
+      }
+      await runtime.IOUtils!.remove!(target, options);
+    }
+  };
   if (
     typeof runtime.IOUtils?.remove === "function" &&
     typeof runtime.IOUtils.exists === "function" &&
     (await runtime.IOUtils.exists(path).catch(() => false))
   ) {
-    attempt = () =>
-      runtime.IOUtils!.remove!(path, {
-        recursive: true,
-        ignoreAbsent: true,
-      });
+    attempt = () => removeWithIo(path);
   } else {
     const fs = await tryNodeFs();
     if (fs) {
@@ -2075,11 +2094,7 @@ export async function removeRuntimePath(pathRaw: string) {
       ) {
         return false;
       }
-      attempt = () =>
-        runtime.IOUtils!.remove!(path, {
-          recursive: true,
-          ignoreAbsent: true,
-        });
+      attempt = () => removeWithIo(path);
     } else if (typeof runtime.OS?.File?.removeDir === "function") {
       attempt = () =>
         runtime.OS!.File!.removeDir!(path, { ignoreAbsent: true });

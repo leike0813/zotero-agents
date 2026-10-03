@@ -17,6 +17,8 @@ C20 的验收依据是 [#26](https://github.com/leike0813/zotero-agents/issues/2
 5. 用固定默认容量构建 clean 最终 XPI，重新运行 mandatory automated 验收并在两平台执行 final workload。exploration 只能支撑容量选择，不能认证最终候选。
 6. 逐项采集人工 receipt，聚合 JSON/Markdown；任何 required missing/failed/not_applicable 都阻止验收。发布是独立授权步骤。
 
+matrix worker 复用 `build-root` 中已构建的插件。修改生产模块后先运行生产 `npm run build`，再运行 `npm run test:zotero:compatibility:prepare -- --gate=main --build-root=.scaffold/build`，使本地行为测试加载新插件与当前源码的本机 sidecar。正式 XPI 按下方安装候选命令准备。
+
 ## 收集命令
 
 构建对照使用独立输出目录，测量期间保持源码和测试定义不变。构建控制只用于这对工件。
@@ -39,6 +41,8 @@ npm run test:zotero:compatibility:run -- \
 `--families=PI` 只筛 compatibility worker 的 Phase 1 family，不限制 full E2E 中的其他 test suites。开发行为定向运行使用 `ZOTERO_TEST_GREP='System E2E (runner foundation|Phase 3 builtin Pi runtime)'`，保留 foundation 的实际宿主身份。安装链还须在 grep 中保留 `formal XPI compatibility smoke`。`release` gate 只接受 tag 候选；开发行为使用 main gate，安装完整候选使用 acceptance gate，不伪造 tag。XPI smoke 的升级路径使用 main gate，基线先于候选安装。
 
 同一源码副本中的宿主运行须串行：wrapper 使用该副本的 `.scaffold/zotero-stderr-drain.sh`，并行运行会覆盖重启入口，导致版本串用。容量测量期间也不得并行运行其它宿主或构建负载。
+
+Windows wrapper 只终止待重启的 Zotero owner，并观察其退出；sidecar 自行处理父输入关闭。重启快照保留数据库和宿主 profile，排除 Mozilla 进程锁与独立的 `chrome_debugger_profile`。包体对照构建须与会加载构建配置的 Node/宿主测试串行，避免生成类型变化使 `sameInputs` 失效。根 TypeScript 配置默认 `noEmit`，检查命令不得生成与 TS 并存的 JS。
 
 容量探索每轮约 19 分钟。逐轮将 `PI_RUNTIME_CAPACITY` 设为 4、6、8、12，构建后读取该 XPI 的 SHA-256。安装候选中的 Synthesis bundle 必须与当前源码及已暂存 bundle 匹配；所有七平台 manifest 的身份也须一致。当前开发 E2E 使用本地编译 sidecar，正式 XPI smoke 使用候选自带资产，两类证据不能混用。容量 probe 不会安装 XPI，必须由现有 compatibility worker 先执行安装链。
 

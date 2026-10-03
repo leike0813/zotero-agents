@@ -320,7 +320,7 @@ async function runScaffoldBuild(args: {
     maxBuffer: 64 * 1024 * 1024,
     env: {
       ...process.env,
-      [PLUGIN_BUILD_DIST_ENV]: relativeDist,
+      [PLUGIN_BUILD_DIST_ENV]: relativeDist.replace(/\\/g, "/"),
       [DEBUG_MODE_ENV]: "0",
       [PI_RUNTIME_BUILD_ENV]: args.control.enabled ? "1" : "0",
       [PI_RUNTIME_CAPACITY_ENV]: String(args.control.capacity),
