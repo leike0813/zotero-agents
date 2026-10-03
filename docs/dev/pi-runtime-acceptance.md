@@ -8,6 +8,8 @@ C20 的验收依据是 [#26](https://github.com/leike0813/zotero-agents/issues/2
 
 本阶段使用 dirty 工作树获得开发证据。具体命令、版本、失败尝试及待补矩阵见 `openspec/changes/upgrade-builtin-pi-runtime/verification.md`，不得据此完成 C20。
 
+Windows 7.0.32、9.0.6、10.0.1 的升级阶段 core 准入各为 74 pass，证据保留于 `.scaffold/pi-upgrade/windows-evidence/`。macOS 10 x64/arm64 保持 missing / nonblocking visibility。Windows 的 `ZOTERO_TEST_ENTRY` 须使用正斜杠路径，例如 `(Join-Path $env:TEMP 'pi-upgrade-20261003-windows').Replace('\','/')`；反斜杠会使 scaffold 的 glob 漏收入口，只有 host-facts 的通过不能计入 Pi 准入。本机矩阵缓存使用 `D:/Workspace/Artifact/Zotero-Skills/zotero-hosts-cache`，其中 Zotero 10 是矩阵固定的 10.0.1；手工实机树中的 10.0.2 不替代它。
+
 定向 core 用例可经现有 `ZOTERO_TEST_ENTRY` 覆盖入口组合：276 Runtime、278 Provider configuration、280 Provider execution、281 Preparation。临时入口放在非隐藏目录，使用这些现有文件的绝对 import；worker 自动附加 compatibility probe。检查日志确实执行 Pi 用例，不能把只有 host-facts 的通过当成 SDK 验证。某个未提交原型依赖临时工作区未映射的目录时，保留原型与失败尝试，使用入口覆盖隔离本次用例。完整 owner 行为仍使用现有 `tests/zotero/e2e/full` 和 compatibility worker，并先 prepare 当前源码编译的 Synthesis sidecar。
 
 ## 固定升级基线

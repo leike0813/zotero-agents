@@ -21,5 +21,5 @@
 
 - [x] 4.1 Run applicable Node suites, lint, production build/type checks and browser guard; record commands/results and change-specific limitations in verification.md and the acceptance runbook.
 - [x] 4.2 Run actual SDK/runtime/preparation/Provider cases on Linux Zotero 7.0.32, 9.0.6 and 10.0.1 using existing isolated runners; retain observed versions and results.
-- [ ] 4.3 Run the corresponding Windows three-version admission and retain nonblocking macOS visibility; missing evidence remains pending and cannot complete the change.
+- [x] 4.3 Run the corresponding Windows three-version admission and retain nonblocking macOS visibility; missing evidence remains pending and cannot complete the change.
 - [x] 4.4 Run existing full PI owner integration and browser/bundle budget evidence for this stage; preserve failures and distinguish these results from C20 clean final-candidate acceptance.

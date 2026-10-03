@@ -82,11 +82,39 @@ Receipt `zotero-10-linux-x64-8c3e674c` **passed**，实际 Zotero **10.0.1**。C
 
 这些宿主 receipt 的插件摘要为 `4e3cb8ed6ea164db48999f1e3c287a883eb9da18293db93780fb9dbe232fba52`。包体对照会独立构建自己的 candidate/control 并保留各自摘要，不将两次构建混作同一候选。
 
+## Windows 宿主证据
+
+2026-10-03 在 Windows x64 工作树补齐任务 4.3，HEAD `70f1c4272411ab268df423aafdf23e5c366c1ee6`。本机最初安装的 core/ai 仍为 0.84.4；经用户明确授权执行 `npm ci --ignore-scripts --no-audit --no-fund` 后，`npm ls` 确认为 core/ai **1.0.0**、OMP catalog **18.0.11**，manifest 和 lock 无改动。`npm run build` 通过生产打包及全部 TypeScript 检查；构建只产生 help-docs manifest 的生成时间变更。
+
+复用非隐藏临时入口 import 现有 276/278/280/281 core 文件，使用既有 compatibility worker 自动附加 host probe。Windows 入口使用正斜杠，以符合 scaffold 的 glob 输入。以下 PowerShell 命令按三版本串行执行，`<matrix-target>` 分别为 `zotero-7-windows-x64`、`zotero-9-windows-x64`、`zotero-10-windows-x64`：
+
+```powershell
+$env:ZOTERO_TEST_ENTRY = (Join-Path $env:TEMP 'pi-upgrade-20261003-windows').Replace('\','/')
+$env:ZOTERO_TEST_GREP = 'compatibility host facts|PiRuntime|Pi Turn Preparation|Pi Web external trust preparation|Pi API-key Provider|Pi provider configuration'
+npm run test:zotero:compatibility:run -- --gate=main --target=<matrix-target> --mode=behavior --suite=lite --domain=core --cache-root=D:/Workspace/Artifact/Zotero-Skills/zotero-hosts-cache --runs-root=C:/Users/leike/zu
+```
+
+独立 compatibility 缓存提供矩阵要求的 10.0.1；手工实机安装树中的 10.0.2 未用于本次准入。runner 校验官方归档摘要及安装版本，为每次运行复制独立安装树和测试 profile。
+
+| Matrix target | 实际版本 | BuildID | Core | Run ID 后缀 |
+| --- | --- | --- | --- | --- |
+| zotero-7-windows-x64 | 7.0.32 | `20260114201345` | 74 pass | `430a89f3` |
+| zotero-9-windows-x64 | 9.0.6 | `20260707151128` | 74 pass | `7606c153` |
+| zotero-10-windows-x64 | 10.0.1 | `20260824184713` | 74 pass | `7bf863dc` |
+
+三份 receipt 均为 **passed**、errors 为空、cleanup complete，无强制终止。日志均包含 prepared instructions/executable tools 替换、完整工具描述/参数估算，以及加密所选凭据的浏览器 Provider 用例。三次使用相同插件摘要 `eb09fcd3e30de03570cebf7eaca9125dc0eced92a7191adb793bb18f37045851`，构建身份为 Pi enabled、capacity 12、debug true、dirty。测试加载当前源码的临时插件及测试包，未执行 C20 的正式 XPI 安装/升级验收。
+
+原始 receipt 和 segment diagnostics 已复制保留在 `.scaffold/pi-upgrade/windows-evidence/<runId>/`，临时入口副本保留在 `entry/suite.test.ts`。依赖同步、构建、三版本运行与浏览器检查日志保留在同一 evidence 根目录。`npm run check:pi-mcp-browser-bundle` 通过，Pi MCP bundle 为 1,759,230 bytes，插件无 legacy MCP SDK。
+
+本机 `npm run test:node -- --shard=runtime-provider-execution` 通过全部 18 个测试文件，exit 0，覆盖 Runtime、Provider、Preparation、工具与 owner 集成及物理 settlement；日志为 `node-runtime-provider-execution.log`。三个记录文件的定向 Prettier 检查与 `openspec validate upgrade-builtin-pi-runtime --strict` 通过，OpenSpec apply 状态为 **all_done，12/12**。本次未改生产源码或测试定义，manifest/lock 摘要保持不变。
+
+首轮 `zotero-7-windows-x64-69948775` 的 receipt 虽为 passed，但反斜杠入口未被 glob 收集，只运行 1 个 host-facts 用例；该次不计入 Pi 准入。原始记录保留，正斜杠入口重跑的 `430a89f3` 才是有效证据。
+
 ## 失败与证据缺口
 
 - 全量 Node 首轮有 4 个默认 2 秒超时：UI readonly harness 的 publication 初始化与 DB 映射、Literature Search Ingest 的参数及结果验证。未改测试或阈值，串行重跑对应完整分片均通过；首轮失败与两个重跑日志保留在本地 evidence，不能将其表述为首次全绿。
 - `zotero-7-linux-x64-040e21f8`、`zotero-9-linux-x64-4f7a5893`：测试包构建失败，原因是已有未提交 SIWC 原型引用 artifacts，而临时 worker 未映射该目录；未运行 SDK，不能作为 SDK 失败或通过。
 - `zotero-7-linux-x64-bba35dff`：receipt 通过但只执行了 1 个 host-facts 用例。隐藏目录中的临时入口被 glob 跳过；该尝试不计入 Pi 验证。移到非隐藏临时目录后重新执行 74 个用例。
-- Windows 7.0.32/9.0.6/10.0.1：**missing / blocking**。当前 Linux 会话没有 Windows 宿主执行环境，任务 4.3 保持未完成；Linux 结果不能替代它们。
+- Windows 7.0.32/9.0.6/10.0.1 的原始 **missing / blocking** 缺口已由上述三份 Windows 实机 receipt 补齐，任务 4.3 完成。
 - macOS Zotero 10 x64/arm64：**missing / nonblocking visibility**。保留可见性，不标记通过。
 - C20 的 clean final candidate、安装/升级 XPI、容量探索及最终 workload、真实账号/搜索人工 receipt 仍按其原任务处理。此 change 不完成 C20。
