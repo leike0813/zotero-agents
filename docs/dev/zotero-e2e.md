@@ -137,7 +137,7 @@ npm run start:direct -- --capture-native-crash
 
 ### 真实桌面启动方式下的 full dump 取证
 
-项目入口（`start:direct --capture-native-crash` 与 CG-02 runner）只能保证脚本启动下的取证链。关键问题在 Windows 上常常来自桌面图标的真实启动方式：终端启动与桌面图标启动在 PATH、profile、Zotero 启动器参数等方面可能不一致，需要走桌面入口本身。
+项目入口（`start:direct --capture-native-crash` 与 CG-02 runner）负责脚本启动下的取证链。真实桌面环境使用 Mozilla 原生处理器和 Zotero 专属 Windows WER 配置两条路径；终端与桌面入口的 PATH、profile 和启动器参数可能不同，因此验收必须使用当前实际安装的 Zotero。环境变量或注册表配置正确，只能证明配置已启用，不能证明崩溃时已经成功写出 full dump。
 
 要在真实启动方式下生成 Mozilla full dump，必须把以下三个环境变量注入到被启动的 Zotero 子进程，并且不能设置 `MOZ_CRASHREPORTER_DISABLE`：
 
@@ -147,7 +147,7 @@ MOZ_CRASHREPORTER_NO_REPORT=1
 MOZ_CRASHREPORTER_FULLDUMP=1
 ```
 
-桌面图标启动的进程无法预传环境变量，所以做法是临时写到当前 Windows 用户的“环境变量”：
+桌面图标启动时使用当前 Windows 用户的环境变量：
 
 1. 在“系统属性 → 高级 → 环境变量 → 当前用户的用户变量”里新增上述三条（值为 `1`），确认不存在 `MOZ_CRASHREPORTER_DISABLE`。
 2. 完全退出所有 Zotero 进程（任务管理器确认残留进程数为 0，否则新启动请求会转交给旧进程，旧进程不会继承新变量）。
@@ -156,29 +156,45 @@ MOZ_CRASHREPORTER_FULLDUMP=1
    `%APPDATA%\Zotero\Zotero\Profiles\<当前 profile>\minidumps\`
    通常是一对同名的 `.dmp` 与 `.extra`。多个 profile 共存时，可读 `%APPDATA%\Zotero\Zotero\profiles.ini` 确认桌面启动使用哪一个；Zotero 10 也可能在 `%APPDATA%\Zotero\Zotero\Crash Reports\pending\` 留有等待上报的副本。
 
-需要回避污染安装树时，先在临时 profile 复现；若只能动真实 profile，复现后清理该 profile 的 `minidumps/` 与 `Crash Reports/`。当前 Zotero profile 的具体路径可在 `%APPDATA%\Zotero\Zotero\profiles.ini` 的 `Default=1` 或 `StartWithLastProfile` 中核对。
+真实库与 profile 只作为只读来源，受控崩溃必须在 `.scaffold/test` 下的副本上进行，并把副本的 data 路径改为测试副本、关闭同步与自动更新。当前 Zotero profile 路径由 `%APPDATA%\Zotero\Zotero\profiles.ini` 和实际进程的启动参数核对；profile chooser 启动时，`Default=1` 不能单独证明实际使用的 profile。自然发生的桌面崩溃所产生的原始 dump、`.extra` 和 CDB 输出仅保留本机，不上传仓库或 CI。
 
 ## 用脚本查询与切换
 
-仓库内 `scripts/zotero-native-crash-env.ps1` 封装了上述状态查询和切换：
+仓库内 `scripts/zotero-native-crash-env.ps1` 查询两条路径的配置，分别启用、恢复，并验证实际 dump：
 
 ```pwsh
 # 查看当前状态
-pwsh -NoProfile -File scripts/zotero-native-crash-env.ps1 -Action status
+pwsh -NoProfile -File scripts/zotero-native-crash-env.ps1 -Action status -AsJson
 
-# 启用：设置 MOZ_CRASHREPORTER/NO_REPORT/FULLDUMP=1，自动删除 MOZ_CRASHREPORTER_DISABLE
+# 在普通用户终端启用 Mozilla 变量
 pwsh -NoProfile -File scripts/zotero-native-crash-env.ps1 -Action enable
 
-# 关闭取证：清理三条变量
-pwsh -NoProfile -File scripts/zotero-native-crash-env.ps1 -Action disable
+# 在普通用户终端准备 WER 落盘目录
+New-Item -ItemType Directory -Force -Path (Join-Path $env:LOCALAPPDATA 'Zotero Agents/crash-captures/desktop-wer')
 
-# 只看不改：附加 -WhatIf
-pwsh -NoProfile -File scripts/zotero-native-crash-env.ps1 -Action enable -WhatIf
+# 无副作用预览；无需管理员权限
+pwsh -NoProfile -File scripts/zotero-native-crash-env.ps1 -Action enable -Target Wer -WhatIf
+
+# 在 64 位管理员终端仅配置 WER
+pwsh -NoProfile -File scripts/zotero-native-crash-env.ps1 -Action enable -Target Wer
+
+# 检查实际生成的文件；只有完整内存转储返回退出码 0
+pwsh -NoProfile -File scripts/zotero-native-crash-env.ps1 -Action verify -DumpPath 'C:\path\to\capture.dmp' -AsJson
+
+# 在管理员终端恢复 WER 原值；在普通用户终端关闭 Mozilla 变量
+pwsh -NoProfile -File scripts/zotero-native-crash-env.ps1 -Action disable -Target Wer
+pwsh -NoProfile -File scripts/zotero-native-crash-env.ps1 -Action disable
 ```
 
-脚本只动当前用户的用户变量；运行后仍需注销登录，下次桌面启动的 Zotero 子进程才会拿到新值。机器级 `MOZ_CRASHREPORTER_DISABLE` 仍由安装程序控制。
+Mozilla 操作只改变当前用户的三条变量和用户级 `MOZ_CRASHREPORTER_DISABLE`；变量改变后需要重新登录，让桌面进程继承新值。状态同时报告机器级禁用变量，机器级值不由此脚本修改。使用另一个管理员账户提权时，只执行 `-Target Wer`，避免把 Mozilla 变量写入管理员账户。
 
-桌面入口下不便调整变量时，可对真实 Zotero 主进程附加 ProcDump（例如 `procdump -ma -e 1 -f "" <pid>`）拿 full dump；但它只能捕获附加之后的崩溃，附加前发生的崩溃会丢失。
+WER 仅管理 `HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\zotero.exe` 中的三个值：`DumpType=2`（DWORD）、`DumpCount=3`（DWORD）及 `DumpFolder=%LOCALAPPDATA%\Zotero Agents\crash-captures\desktop-wer`（REG_EXPAND_SZ）。首次应用前把原值、类型及是否存在备份到 `%ProgramData%\Zotero Agents\crash-capture-config\zotero-localdumps.json`；重复启用保留首次备份，关闭时恢复原值。外部修改了受管理值时，脚本以 `wer_configuration_conflict` 拒绝覆盖并保留备份，不改 WER 全局设置或其它应用的设置。`-WhatIf` 不创建备份、不写注册表或用户变量。
+
+[微软 LocalDumps 文档](https://learn.microsoft.com/en-us/windows/win32/wer/collecting-user-mode-dumps) 明确说明该功能不支持应用自行实现的崩溃报告；因此 Zotero 原生处理器未写出时，WER 能否捕获必须实测。受控验收沿用现有启动工具，在当前 Zotero 的隔离副本中分别启用原生处理器和仅对测试子进程设置 `MOZ_CRASHREPORTER_DISABLE=1`，通过 `about:crashparent` 触发崩溃。对每轮新增 dump 运行 `verify`，并由 CDB 读取异常现场；不以文件扩展名、文件大小或“已启用”状态代替验收。`verify` 检查文件结构和 `MiniDumpWithFullMemory` 标志，小型或损坏文件退出码为 2，路径等操作错误为 1。
+
+2026-10-03 的本机验收使用实际安装的 Zotero 10.0.5，在触发前由进程内记录确认隔离 profile 和 data 路径。Mozilla 与 WER 两条路径均生成了包含 `MiniDumpWithFullMemory` 的转储，且 CDB 能读取异常现场。WER 轮次仅在测试子进程中设置禁用变量，未改变用户或机器环境变量；验收没有附加原生调试器。原始证据保存在 `%LOCALAPPDATA%\Zotero Agents\crash-captures\desktop-acceptance-20261003-174843`，WER 文件保存在 `desktop-wer`。这项验收证明受控崩溃的两条捕获路径可用；当天自然崩溃的原生处理器失效原因仍未复现，不能据此断言所有异常都会被捕获。`status` 中的 `CaptureVerified=false` 始终表示配置查询本身不提供实机验收证据。
+
+WER 实机验收失败时，可使用微软便携 ProcDump 对真实桌面主进程运行 `procdump64 -ma -e <pid> <本机私有目录>`。按实际安装路径和主窗口确认宿主 PID，不能使用立即退出的启动器 PID 或泛匹配进程名；每次 Zotero 重启都需重新绑定。该方式会附加调试器，只捕获附加后的未处理异常，验收时需记录其对时序的影响；不使用全局 postmortem 注册或无过滤的 first-chance 捕获。生成文件仍须验证完整内存标志和 CDB 可读性。
 
 `scripts/run-zotero-test-with-mock.ts` 会把 Zotero 的 stderr 重定向到 `.scaffold/zotero-stderr.log`：测试脚手架的 `spawn(path, args, { env })` 只给 stdout 挂了 reader，从不读取 Zotero 的 stderr 管道，因此一旦 stderr 突发超过 socket 缓冲（Zotero 9/10 Linux 上 GTK 图标断言会一次写出上百 KB），Zotero 主线程就会阻塞在 `write(2)` 上，JS 定时器全部停止，整轮运行只能被外部超时杀掉。测试入口据此生成 `.scaffold/zotero-stderr-drain.sh`，把对应二进制换成 `exec <real> "$@" 2>>'<log>'`；Windows 上无法用脚本 shim，保持原路径。调整 Zotero 启动方式时不要绕过这个 shim。
 
