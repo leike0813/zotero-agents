@@ -49,6 +49,14 @@ const selection: PiModelSelectionSnapshot = {
 };
 const COMPLETIONS_SSE =
   'data: {"id":"a","object":"chat.completion.chunk","created":1,"model":"fixture-model","choices":[{"index":0,"delta":{"content":"hello"},"finish_reason":null}]}\n\ndata: {"id":"a","object":"chat.completion.chunk","created":1,"model":"fixture-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n';
+const USAGE_SSE =
+  'data: {"id":"a","object":"chat.completion.chunk","created":1,"model":"fixture-model","choices":[{"index":0,"delta":{"content":"hello"},"finish_reason":null}]}\n\ndata: {"id":"a","object":"chat.completion.chunk","created":1,"model":"fixture-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":1000,"completion_tokens":500}}\n\ndata: [DONE]\n\n';
+const RATES = {
+  input: 1,
+  output: 2,
+  cacheRead: 0.5,
+  cacheWrite: 1.5,
+};
 
 describe("Pi API-key Provider execution", function () {
   let prior: string;
@@ -483,5 +491,287 @@ describe("Pi API-key Provider execution", function () {
       // one still streams normally.
       assert.equal(await collect(source), "hello");
     });
+  });
+
+  // Change B: the provider consumes the frozen selection it was given. It maps
+  // only understood declarative facts, never remote headers, and it enforces the
+  // serialized request bounds that the SDK does not enforce itself.
+  it("maps understood frozen metadata into the request and reports the real usage", async function () {
+    await putPiCredential({
+      id: "fixture-key",
+      label: "Fixture",
+      material: { kind: "api-key", secret: "fixture-secret" },
+    });
+    const requests: Request[] = [];
+    const priced = {
+      ...selection,
+      reasoning: "low" as const,
+      metadata: {
+        cost: RATES,
+        promptCache: { short: 300, long: 3600 },
+        inputLimits: { maxRequestBytes: 65536 },
+        thinkingLevelMap: { low: "think-low" },
+        compat: {
+          supportsStore: false,
+          maxTokensField: "max_tokens",
+          remoteOnlyKey: "not-understood",
+        },
+        knowledge: {
+          context: "known" as const,
+          output: "known" as const,
+          input: "known" as const,
+          tools: "unknown" as const,
+          reasoning: "known" as const,
+        },
+        provenance: {
+          source: "official" as const,
+          revision: "sha256-1",
+          schemaVersion: 1,
+        },
+      },
+    };
+    const prepared = createPiProviderSource(priced, {
+      fetch: async (input, init) => {
+        requests.push(new Request(input, init));
+        return new Response(USAGE_SSE, {
+          headers: { "content-type": "text/event-stream" },
+        });
+      },
+    });
+    assert.equal(prepared.model.cost.input, RATES.input);
+    assert.deepEqual(prepared.model.thinkingLevelMap, { low: "think-low" });
+    assert.deepEqual(prepared.model.promptCache, { short: 300, long: 3600 });
+    assert.deepEqual(prepared.model.inputLimits, priced.metadata.inputLimits);
+    assert.deepEqual(prepared.model.compat, {
+      supportsStore: false,
+      maxTokensField: "max_tokens",
+    });
+    // Remote metadata never becomes a request header or a routing privilege.
+    assert.isUndefined((prepared.model as { headers?: unknown }).headers);
+
+    const result = await (
+      await prepared.source({
+        sessionId: "priced",
+        turnId: "turn",
+        invocationId: "priced:0",
+        model: prepared.model,
+        signal: new AbortController().signal,
+        context: normalizeContext({
+          systemPrompt: "",
+          messages: [{ role: "user", content: "hi", timestamp: 0 }],
+        }),
+      })
+    ).result();
+    assert.equal(result.stopReason, "stop");
+    assert.equal(result.usage.input, 1000);
+    assert.equal(result.usage.output, 500);
+    // The frozen rates, not a fabricated zero, price the obtained usage.
+    assert.closeTo(result.usage.cost.input, 0.001, 1e-9);
+    assert.closeTo(result.usage.cost.output, 0.001, 1e-9);
+
+    const body = await requests[0].clone().json();
+    // The thinking map, the compat flag and the max-token field all come from
+    // the frozen selection rather than from this provider's defaults.
+    assert.equal(body.reasoning_effort, "think-low");
+    assert.isUndefined(body.store);
+    assert.equal(body.max_tokens, selection.policy.maxTokens);
+    assert.isUndefined(body.max_completion_tokens);
+  });
+
+  it("refuses a request that exceeds a known serialized byte or image bound before transport", async function () {
+    await putPiCredential({
+      id: "fixture-key",
+      label: "Fixture",
+      material: { kind: "api-key", secret: "fixture-secret" },
+    });
+    let called = false;
+    const fetchFixture: typeof fetch = async () => {
+      called = true;
+      return new Response(COMPLETIONS_SSE, {
+        headers: { "content-type": "text/event-stream" },
+      });
+    };
+    const bytes = createPiProviderModelSource(
+      {
+        ...selection,
+        metadata: { inputLimits: { maxRequestBytes: 16 } },
+      },
+      { fetch: fetchFixture },
+    );
+    try {
+      await collect(bytes);
+      assert.fail("Expected the frozen request bound to refuse the request");
+    } catch (error) {
+      assert.include(String(error), "unsupported_model");
+    }
+    assert.isFalse(called);
+
+    const images = createPiProviderSource(
+      {
+        ...selection,
+        policy: { ...selection.policy, input: ["text", "image"] },
+        metadata: { inputLimits: { images: { maxPerRequest: 1 } } },
+      },
+      { fetch: fetchFixture },
+    );
+    try {
+      await images.source({
+        sessionId: "images",
+        turnId: "turn",
+        invocationId: "images:0",
+        model: images.model,
+        signal: new AbortController().signal,
+        context: normalizeContext({
+          systemPrompt: "",
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: "compare" },
+                { type: "image", data: "AAAA", mimeType: "image/png" },
+                { type: "image", data: "BBBB", mimeType: "image/png" },
+              ],
+              timestamp: 0,
+            },
+          ],
+        }),
+      });
+      assert.fail("Expected the frozen image bound to refuse the request");
+    } catch (error) {
+      assert.include(String(error), "unsupported_model");
+    }
+    assert.isFalse(called);
+  });
+
+  it("refuses an explicitly unsupported reasoning level from the frozen thinking map", async function () {
+    let called = false;
+    const source = createPiProviderModelSource(
+      {
+        ...selection,
+        reasoning: "high",
+        metadata: { thinkingLevelMap: { high: null } },
+      },
+      {
+        fetch: async () => {
+          called = true;
+          return new Response(COMPLETIONS_SSE, {
+            headers: { "content-type": "text/event-stream" },
+          });
+        },
+      },
+    );
+    try {
+      await collect(source);
+      assert.fail("Expected the unsupported reasoning level to be refused");
+    } catch (error) {
+      assert.include(String(error), "unsupported_model");
+    }
+    assert.isFalse(called);
+  });
+
+  it("reports the applicable frozen price, and no price at all when there is none", function () {
+    // A selection with no declared price stays unknown; the typed zero rates on
+    // the SDK model are never handed out as a price.
+    assert.isNull(createPiProviderSource(selection, {}).pricing);
+    const priced = {
+      ...selection,
+      metadata: {
+        cost: { ...RATES, tiers: [{ inputTokensAbove: 1000, ...RATES }] },
+      },
+    };
+    assert.deepEqual(createPiProviderSource(priced, {}).pricing, {
+      ...RATES,
+      tiers: [{ inputTokensAbove: 1000, ...RATES }],
+    });
+    // A snapshot frozen before the metadata field kept the same price on the
+    // policy it was frozen with.
+    const legacy = {
+      ...selection,
+      policy: { ...selection.policy, cost: RATES },
+    };
+    assert.deepEqual(createPiProviderSource(legacy, {}).pricing, RATES);
+  });
+
+  it("keeps the reported usage of a failed stream instead of a synthetic zero", async function () {
+    await putPiCredential({
+      id: "fixture-key",
+      label: "Fixture",
+      material: { kind: "api-key", secret: "fixture-secret" },
+    });
+    // The provider reported usage, then the stream ended without completing.
+    const truncated =
+      'data: {"id":"a","object":"chat.completion.chunk","created":1,"model":"fixture-model","choices":[{"index":0,"delta":{"content":"hello"},"finish_reason":null}]}\n\ndata: {"id":"a","object":"chat.completion.chunk","created":1,"model":"fixture-model","choices":[{"index":0,"delta":{},"finish_reason":null}],"usage":{"prompt_tokens":700,"completion_tokens":300}}\n\n';
+    const prepared = createPiProviderSource(
+      { ...selection, metadata: { cost: RATES } },
+      {
+        fetch: async () =>
+          new Response(truncated, {
+            headers: { "content-type": "text/event-stream" },
+          }),
+      },
+    );
+    const result = await (
+      await prepared.source({
+        sessionId: "truncated",
+        turnId: "turn",
+        invocationId: "truncated:0",
+        model: prepared.model,
+        signal: new AbortController().signal,
+        context: normalizeContext({
+          systemPrompt: "",
+          messages: [{ role: "user", content: "hi", timestamp: 0 }],
+        }),
+      })
+    ).result();
+    assert.equal(result.stopReason, "error");
+    assert.equal(result.usage.input, 700);
+    assert.equal(result.usage.output, 300);
+    assert.isTrue(prepared.usageKnown(result));
+    // A truncated stream is still priced from the frozen rates, never claimed
+    // as free.
+    assert.closeTo(result.usage.cost.input, 0.0007, 1e-9);
+  });
+
+  it("tells reported token evidence apart from the SDK's default zeros", async function () {
+    await putPiCredential({
+      id: "fixture-key",
+      label: "Fixture",
+      material: { kind: "api-key", secret: "fixture-secret" },
+    });
+    const run = async (body: string) => {
+      const prepared = createPiProviderSource(
+        { ...selection, metadata: { cost: RATES } },
+        {
+          fetch: async () =>
+            new Response(body, {
+              headers: { "content-type": "text/event-stream" },
+            }),
+        },
+      );
+      const result = await (
+        await prepared.source({
+          sessionId: "evidence",
+          turnId: "turn",
+          invocationId: "evidence:0",
+          model: prepared.model,
+          signal: new AbortController().signal,
+          context: normalizeContext({
+            systemPrompt: "",
+            messages: [{ role: "user", content: "hi", timestamp: 0 }],
+          }),
+        })
+      ).result();
+      return { result, usageKnown: prepared.usageKnown(result) };
+    };
+    // A completed response that reported usage is real evidence.
+    const reported = await run(USAGE_SSE);
+    assert.equal(reported.result.stopReason, "stop");
+    assert.isTrue(reported.usageKnown);
+    // A completed response without any usage field is indistinguishable from
+    // the SDK's zero default, so it stays unknown instead of a recorded zero.
+    const silent = await run(COMPLETIONS_SSE);
+    assert.equal(silent.result.stopReason, "stop");
+    assert.equal(silent.result.usage.input, 0);
+    assert.isFalse(silent.usageKnown);
   });
 });

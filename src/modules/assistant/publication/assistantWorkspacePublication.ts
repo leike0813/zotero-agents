@@ -957,6 +957,7 @@ export const ASSISTANT_WORKSPACE_DETAILS_FIELD_REGISTRY = {
   "request-id": { labelPath: "fields.requestId" },
   "usage-main": { labelPath: "fields.usageMain" },
   "usage-title": { labelPath: "fields.usageTitle" },
+  "usage-compaction": { labelPath: "fields.usageCompaction" },
   "task-key": { labelPath: "fields.taskKey" },
   status: { labelPath: "fields.status" },
   terminal: { labelPath: "fields.terminal" },

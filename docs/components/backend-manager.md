@@ -15,7 +15,11 @@
 
 已选配置的凭据引用随宿主 snapshot 更新；页面仅在用户未另选凭据且 provider、认证类型仍匹配时同步该引用。登录后的保存保留新关联的凭据和其它未保存字段，用户手动改选的凭据优先保留。
 
-此页维护多份 Pi 模型 Provider 配置。用户可选择目录 provider 和模型、显式认证类型、凭据引用、reasoning、可选自定义端点及 API dialect；配置与凭据删除互不级联。页面显示配置与目录状态、已保存凭据的脱敏元数据，并提供全局、Pi Conversation、Pi Skill Run 默认项和 `models.yml` 的只读导入/刷新。模型候选按 provider 查询，一次最多返回 100 条，避免把完整目录投影进页面。
+此页维护多份 Pi 模型 Provider 配置。用户可选择目录 provider 和模型、显式认证类型、凭据引用、reasoning、可选自定义端点及 API dialect；配置与凭据删除互不级联。页面显示配置与目录状态、已保存凭据的脱敏元数据，并提供全局、Pi Conversation、Pi Skill Run 默认项、`models.yml` 的只读导入/刷新与显式移除。模型候选按 provider 查询，一次最多返回 100 条，避免把完整目录投影进页面。
+
+「Model catalog」区域只接收宿主投影的白名单来源状态：来源（内置种子、官方目录、上一份目录）、独立 revision、检查与更新时间、自动更新开关、是否可恢复、overlay 状态和所选账户的发现状态。完整目录、凭据和私有路径都不进入页面。
+
+公共更新、自动更新开关、恢复上一份目录和 overlay 移除各带独立请求 ID；页面只认领最后一次请求的结果，被取代的结果不会覆盖较新的状态。失败时保留仍可用的目录数据，只显示安全的结构化码，不回显可能包含本地路径的异常文本。目录状态或候选在表单编辑期间变化不会重置未保存的草稿、默认值或已选配置；消失的候选也不会回退到首个剩余项。窗口卸载只解除对目录的订阅，不取消其它窗口共享的更新请求。
 
 C04 在此页提供 API key 的录入、替换和清除。密码输入框在提交时立即清空，宿主只把密钥交给加密凭据库；页面快照仍只有掩码元数据。用户可对已保存配置手动发起一次短连接测试，结果只显示脱敏状态码，不保存测试会话。C05 为已保存的 OpenAI Codex 配置提供设备码登录、取消、重连和本地断开：验证码只在当前请求的页面暂态显示，由宿主打开固定验证地址；登录成功才写入加密凭据并更新配置引用。Pi 配置及 MCP 来源中的选择项由页面内的 Preact 按钮列表呈现，避免 Zotero 独立弹窗中的原生选择菜单无法用鼠标展开。配置允许不完整地保存，但禁用、缺少匹配类型的凭据或目录中不存在的模型不能成为可运行默认项。
 
@@ -32,6 +36,7 @@ Pi 模型目录由 `src/modules/piModelCatalog.ts` 持有。配置和基础目�
 ## 验证入口
 
 - `tests/dashboard/251-dashboard-backend-manager.test.ts`：页面动作、区域身份和三个原有页的行为。
+- `tests/zotero/ui/lite/278-pi-provider-configuration.zotero.test.ts`：真实宿主中目录控件与未保存草稿的共存。
 - `tests/runtime/57-backend-manager-risk-regression.test.ts`：Backend Profile 既有保存及副作用边界。
 - `tests/runtime/242-pi-provider-configuration.test.ts` 至 `244-pi-credential-store.test.ts`：Pi 选择、目录、凭据行为。
 - `tests/runtime/246-pi-api-key-provider-execution.test.ts`、`tests/tooling/246-pi-provider-env-guard.test.ts`：模型流、脱敏失败和浏览器构建边界。

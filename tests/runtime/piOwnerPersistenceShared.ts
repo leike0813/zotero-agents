@@ -216,10 +216,23 @@ export function piOwnerPersistenceSharedTests(getRoot: () => string) {
           ],
           frozen: {
             model: {
-              selectionRef: "config-1",
+              selectionId: "selection-1",
+              bindingRevision: 1,
+              configurationId: "config-1",
               provider: "fixture",
               modelId: "fixture-model",
               api: "openai-completions",
+              reasoning: "off",
+              authVariant: "none",
+              catalogRevision: "catalog-1",
+              adapterVersion: "adapter-1",
+              runtimeVersion: "runtime-1",
+              policy: {
+                contextWindow: 8192,
+                maxTokens: 1024,
+                input: ["text"],
+                supportsTools: true,
+              },
             },
             resources: [{ ref: "1:ABC", kind: "selection" }],
           },
@@ -288,11 +301,16 @@ export function piOwnerPersistenceSharedTests(getRoot: () => string) {
         {
           kind: "title_usage",
           payload: {
+            purpose: "title",
+            invocationId: "invocation-title",
             titleRevision: 1,
             inputTokens: 4,
             outputTokens: 8,
             totalTokens: 12,
             cost: 0.001,
+            costEstimate: 0.001,
+            costState: "estimated",
+            usageKnown: true,
           },
         },
         root,
@@ -331,6 +349,9 @@ export function piOwnerPersistenceSharedTests(getRoot: () => string) {
               cacheWrite: 3,
               totalTokens: 15,
               cost: { total: 0.002 },
+              costEstimate: 0.002,
+              costState: "estimated",
+              usageKnown: true,
             },
           },
         },
@@ -366,6 +387,7 @@ export function piOwnerPersistenceSharedTests(getRoot: () => string) {
       assert.equal(facts?.usageTotals.cost, 0.002);
       assert.equal(facts?.usageTotals.titleTokens, 12);
       assert.equal(facts?.usageTotals.titleCost, 0.001);
+      assert.equal(facts?.usageTotals.costUnknown, 0);
 
       // An unprovable effect survives restart as state_unknown.
       await appendPiConversationFact(

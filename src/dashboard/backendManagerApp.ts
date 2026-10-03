@@ -44,6 +44,27 @@ import {
 const PROVIDER_ORDER = ["acp", "skillrunner", "generic-http"];
 const PI_SECTION = "builtin-agent";
 
+const PI_CATALOG_SOURCE_MESSAGES = {
+  refreshPublic: (labels?: BackendManagerLabels) =>
+    labels?.piCatalogUpdated || "Catalog updated",
+  autoUpdate: (labels?: BackendManagerLabels) =>
+    labels?.piCatalogUpdated || "Catalog updated",
+  restore: (labels?: BackendManagerLabels) =>
+    labels?.piCatalogRestored || "Previous catalog restored",
+  removeOverlay: (labels?: BackendManagerLabels) =>
+    labels?.piOverlayRemoved || "Overlay removed",
+} as const;
+
+const PI_CATALOG_SOURCE_ACTIONS = new Map<
+  string,
+  "refreshPublic" | "autoUpdate" | "restore" | "removeOverlay"
+>([
+  ["pi-catalog-refresh-public", "refreshPublic"],
+  ["pi-catalog-set-auto-update", "autoUpdate"],
+  ["pi-catalog-restore-previous", "restore"],
+  ["pi-catalog-remove-overlay", "removeOverlay"],
+]);
+
 export type BackendManagerActionSender = BackendManagerActionHandler;
 
 export function sendBackendManagerAction<
@@ -228,6 +249,12 @@ export function createBackendManagerController(
   const webTestRequestIds: Record<string, string> = {};
   let lastPiTestRequestId = "";
   let lastPiCatalogRequestId = "";
+  // One outstanding request id per directory control, so a superseded result
+  // cannot repaint a newer one.
+  const piCatalogRequest: Record<
+    "refreshPublic" | "autoUpdate" | "restore" | "removeOverlay",
+    string
+  > = { refreshPublic: "", autoUpdate: "", restore: "", removeOverlay: "" };
   let disposed = false;
 
   function isSkillRunnerReachable(row: BackendManagerDraftRow): boolean {
@@ -522,6 +549,19 @@ export function createBackendManagerController(
         } else {
           showStatusMessage(String(payload.error || "Test failed"), "error");
         }
+        return;
+      }
+      if (PI_CATALOG_SOURCE_ACTIONS.has(action)) {
+        const key = PI_CATALOG_SOURCE_ACTIONS.get(action)!;
+        if (String(payload.requestId || "") !== piCatalogRequest[key]) return;
+        const labels = state.snapshot?.labels;
+        showStatusMessage(
+          payload.ok === true
+            ? (PI_CATALOG_SOURCE_MESSAGES[key](labels) as string)
+            : (labels?.piCatalogUnavailable as string) ||
+                "Catalog update unavailable",
+          payload.ok === true ? "success" : "error",
+        );
         return;
       }
       if (
@@ -830,6 +870,31 @@ export function createBackendManagerController(
     },
     refreshPiOverlay(path) {
       deps.sendAction("pi-refresh-overlay", { path });
+    },
+    refreshPiPublicCatalog() {
+      piCatalogRequest.refreshPublic = String(++piTestSequence);
+      deps.sendAction("pi-catalog-refresh-public", {
+        requestId: piCatalogRequest.refreshPublic,
+      });
+    },
+    setPiCatalogAutoUpdate(enabled: boolean) {
+      piCatalogRequest.autoUpdate = String(++piTestSequence);
+      deps.sendAction("pi-catalog-set-auto-update", {
+        enabled,
+        requestId: piCatalogRequest.autoUpdate,
+      });
+    },
+    restorePiPreviousCatalog() {
+      piCatalogRequest.restore = String(++piTestSequence);
+      deps.sendAction("pi-catalog-restore-previous", {
+        requestId: piCatalogRequest.restore,
+      });
+    },
+    removePiCatalogOverlay() {
+      piCatalogRequest.removeOverlay = String(++piTestSequence);
+      deps.sendAction("pi-catalog-remove-overlay", {
+        requestId: piCatalogRequest.removeOverlay,
+      });
     },
     queryPiCatalog(provider, query, credentialId) {
       lastPiCatalogRequestId = String(++piTestSequence);

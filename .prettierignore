@@ -21,6 +21,8 @@ rust/zotero-bridge/src/agent-surface.json
 skills_builtin
 skills_src
 workflows_builtin
+src/config/piModelCatalogSeed.json
+src/config/piModelCatalogMigration.json
 
 # Openspec artifacts (proposals, designs, specs, tasks)
 openspec/changes

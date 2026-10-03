@@ -19,6 +19,7 @@ import {
   commitPiOwnerFacts,
   readPiOwnerTranscriptSnapshot,
   createPiOwnerPreparationAdapter,
+  piOwnerUsageTotalsFor,
   assessPiOwnerRecovery,
   cleanupPiSkillRun,
   listPiOwnerInventory,
@@ -76,10 +77,18 @@ import {
   type PiRuntimeToolCall,
   type PiRuntimeToolResult,
   type PiRuntimeLoopGuardState,
+  unknownPiRuntimeUsage,
 } from "./piRuntime";
 import { loadPiModelCatalog } from "./piModelCatalog";
 import { listPiCredentials } from "./piCredentialStore";
 import { resolvePiModelSelection } from "./piProviderConfiguration";
+import {
+  piSkillRunUsageView,
+  projectPiCanonicalSelection,
+  readPiCanonicalSelection,
+  type PiCanonicalSelection,
+  type PiSkillRunUsageView,
+} from "../shared/piUsageContract";
 import {
   createPiProviderSource,
   createPiProviderModelSource,
@@ -167,6 +176,12 @@ type Options = {
   ) => Promise<PreparedSkillRun>;
   resolveModel?: (selection?: PiSelection) => Promise<PiModelSelectionSnapshot>;
   execution?: (model: PiModelSelectionSnapshot) => Execution;
+  /**
+   * The structured provider used for a compaction summary. It is separate from
+   * `execution` because a compaction is an auxiliary invocation with its own
+   * selection, and it is what makes the summary's real usage observable.
+   */
+  compactionExecution?: (model: PiModelSelectionSnapshot) => Execution;
   definitions?: (requestId: string) => Promise<PiGatewayToolDefinition[]>;
   launchFocus?: (requestId: string, window?: unknown) => Promise<void> | void;
   authorizeLocalNetwork?: (
@@ -194,7 +209,15 @@ type State = {
   /** Admission-time workspace binding, present even when preparation fails. */
   workspace?: AcpSkillRunnerWorkspace;
   model?: PiModelSelectionSnapshot;
+  /**
+   * The last turn's canonical safe evidence, read back after a restore. It is
+   * display-only: the next turn revalidates its own choice against current
+   * metadata rather than trusting this record.
+   */
+  restoredSelection?: PiCanonicalSelection;
   selection?: PiSelection;
+  /** Bounded safe usage projection rebuilt from the canonical facts. */
+  usage: PiSkillRunUsageView;
   pending: PiGatewayPendingCall[];
   interactionBatch?: UserInteractionBatchV1;
   guard: PiRuntimeLoopGuardState;
@@ -414,6 +437,7 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
       pending: [],
       guard: { invocations: 0, toolAttempts: 0, cycles: [] },
       counts: { user: 0, assistant: 0, tool: 0, thought: 0 },
+      usage: piSkillRunUsageView(piOwnerUsageTotalsFor(entries)),
       draftReceipts: Object.create(null),
     };
     for (const entry of entries) {
@@ -426,7 +450,10 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
         state.failureId = undefined;
         state.failureCode = undefined;
         state.turnId = String(payload.turnId);
-        state.model = payload.model as PiModelSelectionSnapshot;
+        state.restoredSelection =
+          readPiCanonicalSelection(payload.model) ?? undefined;
+        // A turn records safe evidence only; the live selection is always
+        // re-resolved at the start of the turn that uses it.
       } else if (entry.kind === "failure_observed") {
         if (typeof payload.failureId === "string") {
           state.failureId = payload.failureId;
@@ -1500,36 +1527,116 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
         },
         estimate: estimator.estimate,
         async summarize(input) {
-          let text = "";
-          const source = createPiProviderModelSource(input.model, {
-            authorizeLocalNetwork: async (endpoint) =>
-              endpoint === state.localEndpoint,
-          });
-          for await (const part of source({
-            systemPrompt: input.prompt,
-            messages: [
+          const Controller = resolveNativeAbortControllerConstructor();
+          if (!Controller) throw new Error("pi_signal_unavailable");
+          const controller = new Controller();
+          if (signal?.aborted) controller.abort();
+          const onAbort = () => controller.abort();
+          signal?.addEventListener("abort", onAbort, { once: true });
+          const messages = [
+            {
+              role: "user" as const,
+              text: JSON.stringify({
+                messages: input.summaryInput,
+                schemaVersion: 1,
+                inputDigest: input.inputDigest,
+                coveredEntryIds: input.coveredEntryIds,
+                retainedEntryIds: input.retainedEntryIds,
+              }),
+            },
+          ];
+          let output = "";
+          const selectionRef = (
+            await fact(
+              state.requestId,
+              "model_selection",
               {
-                role: "user",
-                text: JSON.stringify({
-                  messages: input.summaryInput,
-                  schemaVersion: 1,
-                  inputDigest: input.inputDigest,
-                  coveredEntryIds: input.coveredEntryIds,
-                  retainedEntryIds: input.retainedEntryIds,
-                }),
+                purpose: "compaction",
+                model: projectPiCanonicalSelection(input.model),
               },
-            ],
-            signal,
-          })) {
-            text += part;
-            if (text.length > 256 * 1024)
-              throw new Error("pi_summary_too_large");
+              state.turnId,
+            )
+          ).entryId;
+          let invocationId = id("compaction");
+          let usage = unknownPiRuntimeUsage();
+          try {
+            // The structured provider reports the invocation's real terminal
+            // usage. The legacy text-delta seam has none, so its compaction stays
+            // explicitly unknown instead of being estimated from the summary.
+            const structured = options.compactionExecution
+              ? options.compactionExecution(input.model)
+              : options.execution
+                ? undefined
+                : createPiProviderSource(input.model, {
+                    authorizeLocalNetwork: async (endpoint) =>
+                      endpoint === state.localEndpoint,
+                  });
+            if (structured) {
+              const session = new PiRuntime().openSession({
+                sessionId: `${state.requestId}:compaction:${invocationId}`,
+                ...structured,
+              });
+              const turn = session.runTurn({
+                turnId: `${state.turnId}:compaction`,
+                messages,
+                systemPrompt: input.prompt,
+                onEvent: (event) => {
+                  if (event.kind === "assistant_message") {
+                    output += event.text;
+                    usage = event.usage;
+                    invocationId = event.invocationId;
+                  } else if (
+                    event.kind === "invocation_terminal" &&
+                    event.usage
+                  ) {
+                    usage = event.usage;
+                    invocationId = event.invocationId;
+                  }
+                },
+              });
+              controller.signal.addEventListener("abort", () => turn.abort(), {
+                once: true,
+              });
+              if (controller.signal.aborted) turn.abort();
+              leases.get(state.requestId)?.trackPhysical(turn.settled);
+              const result = await turn.result;
+              session.dispose();
+              if (result.status !== "completed")
+                throw new Error("pi_summary_failed");
+            } else {
+              const source = createPiProviderModelSource(input.model, {
+                authorizeLocalNetwork: async (endpoint) =>
+                  endpoint === state.localEndpoint,
+              });
+              for await (const part of source({
+                systemPrompt: input.prompt,
+                messages,
+                signal: controller.signal,
+              })) {
+                output += part;
+                if (output.length > 256 * 1024)
+                  throw new Error("pi_summary_too_large");
+              }
+            }
+            return JSON.parse(output) as PiCompactionSummary;
+          } finally {
+            signal?.removeEventListener("abort", onAbort);
+            await fact(
+              state.requestId,
+              "compaction_usage",
+              { purpose: "compaction", invocationId, selectionRef, usage },
+              state.turnId,
+            );
+            state.usage.compaction += usage.totalTokens;
+            if (usage.costEstimate === null) state.usage.costUnknown += 1;
+            else state.usage.compactionCost += usage.costEstimate;
           }
-          return JSON.parse(text) as PiCompactionSummary;
         },
       },
     );
-    if (prepared.status === "failed") throw new Error(prepared.failure.code);
+    if (prepared.status === "failed") {
+      throw new Error(prepared.failure.code);
+    }
     const context = prepared.context;
     return {
       systemPrompt: context.blocks.map((block) => block.text).join("\n\n"),
@@ -1826,6 +1933,21 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
             catalog: await loadPiModelCatalog(),
             credentials: listPiCredentials(),
           });
+      /**
+       * A run admitted through a default anchors the choice it actually made.
+       * The next turn revalidates this choice against current metadata instead
+       * of following a default that has since moved; an explicit user change
+       * is never overwritten, and no effect, budget or lease is touched.
+       */
+      if (!state.selection) {
+        const anchored: PiSelection = {
+          configurationId: state.model.configurationId,
+          modelId: state.model.modelId,
+          reasoning: state.model.reasoning,
+        };
+        await fact(state.requestId, "skill_run_selection", anchored);
+        state.selection = anchored;
+      }
       if (
         state.model.requiresLocalNetwork &&
         state.localEndpoint !== state.model.baseUrl
@@ -1885,7 +2007,9 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
         {
           turnId,
           preparedDigest: state.prepared!.provenance.snapshotDigest,
-          model: state.model,
+          // Canonical safe selection evidence, written once per turn. The
+          // endpoint and the credential stay in the binding.
+          model: json(projectPiCanonicalSelection(state.model)),
         },
         turnId,
       );
@@ -1994,9 +2118,16 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
               {
                 invocationId: event.invocationId,
                 stopReason: event.stopReason,
+                ...(event.usage ? { usage: event.usage, purpose: "main" } : {}),
               },
               turnId,
             );
+            if (event.usage) {
+              state.usage.main += event.usage.totalTokens;
+              if (event.usage.costEstimate === null)
+                state.usage.costUnknown += 1;
+              else state.usage.cost += event.usage.costEstimate;
+            }
           } else if (event.kind === "assistant_message") {
             await fact(
               state.requestId,
@@ -2011,6 +2142,10 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
                   })),
                 ),
                 usage: event.usage,
+                // The contribution identity keeps one invocation's usage and
+                // cost a single canonical fact across replays and rebuilds.
+                invocationId: event.invocationId,
+                purpose: "main",
               },
               turnId,
               assistantId,
@@ -2025,6 +2160,11 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
               state.counts.thought++;
             }
             state.counts.assistant++;
+            // The SDK cost block reports zero for an unmapped target, so the
+            // run's running total follows the project estimate instead.
+            if (event.usage.costEstimate === null) state.usage.costUnknown += 1;
+            else state.usage.cost += event.usage.costEstimate;
+            state.usage.main += event.usage.totalTokens;
             emit(state.requestId, ["transcript"], {
               sourceEventSeq: ++state.revision,
             });
@@ -3238,7 +3378,8 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
       turnId: state.turnId,
       revision: state.revision,
       counts: state.counts,
-      model: state.model,
+      model: state.model ?? state.restoredSelection,
+      usage: state.usage,
       pending: state.pending,
       interactionBatch: state.interactionBatch,
       failure: state.failure,

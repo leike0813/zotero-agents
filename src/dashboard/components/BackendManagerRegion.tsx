@@ -250,6 +250,10 @@ export type BackendManagerRegionHandlers = {
   deletePiConfiguration(id: string): void;
   setPiDefaults(defaults: PiProviderDefaults): void;
   refreshPiOverlay(path: string): void;
+  refreshPiPublicCatalog(): void;
+  setPiCatalogAutoUpdate(enabled: boolean): void;
+  restorePiPreviousCatalog(): void;
+  removePiCatalogOverlay(): void;
   queryPiCatalog(provider: string, query: string, credentialId?: string): void;
   refreshPiCodexModels(configurationId: string): void;
   putPiCredential(input: { id: string; label: string; secret: string }): void;
@@ -1213,6 +1217,99 @@ function PiWebSourcesPanel(props: {
   );
 }
 
+/**
+ * Bounded directory source facts plus the explicit source actions. The full
+ * catalog is never projected here: only the whitelisted state the host sent,
+ * so a status or candidate change cannot disturb the configuration draft.
+ */
+function PiCatalogSourcePanel(props: {
+  value: BackendManagerBuiltinAgentSnapshot;
+  labels: BackendManagerLabels;
+  handlers: BackendManagerRegionHandlers;
+}) {
+  const { value, labels, handlers } = props;
+  const state = value.catalog.state;
+  if (!state) return null;
+  const sourceLabel =
+    state.source === "seed"
+      ? labelText(labels, "piCatalogSourceSeed", "Bundled seed")
+      : state.source === "previous"
+        ? labelText(labels, "piCatalogSourcePrevious", "Previous catalog")
+        : labelText(labels, "piCatalogSourceCurrent", "Official catalog");
+  const statusLabel =
+    state.status === "checking"
+      ? labelText(labels, "piCatalogStatusChecking", "Checking for updates")
+      : state.status === "offline"
+        ? labelText(labels, "piCatalogStatusOffline", "Offline")
+        : state.status === "failed"
+          ? labelText(labels, "piCatalogStatusFailed", "Update failed")
+          : "";
+  return (
+    <section
+      class="backend-pi-catalog"
+      data-pi-catalog-source={state.source}
+      data-pi-catalog-status={state.status}
+    >
+      <h3>{labelText(labels, "piCatalog", "Model catalog")}</h3>
+      <p class="backend-pi-catalog-summary" data-pi-catalog-summary>
+        {[sourceLabel, statusLabel, state.revision].filter(Boolean).join(" · ")}
+      </p>
+      {state.error ? (
+        <p class="backend-pi-catalog-error" data-pi-catalog-error role="status">
+          {labelText(labels, "piCatalogRetained", "Showing retained catalog")}
+        </p>
+      ) : null}
+      <label class="backend-checkbox-field">
+        <input
+          type="checkbox"
+          data-pi-field="catalog-auto-update"
+          checked={state.autoUpdate}
+          onChange={(event) =>
+            handlers.setPiCatalogAutoUpdate(
+              (event.target as HTMLInputElement).checked,
+            )
+          }
+        />
+        <span>
+          {labelText(labels, "piCatalogAutoUpdate", "Automatic updates")}
+        </span>
+      </label>
+      {state.checkedAt || state.updatedAt ? (
+        <p class="backend-pi-catalog-times">
+          {state.checkedAt ? (
+            <time data-pi-catalog-checked={state.checkedAt}>
+              {state.checkedAt}
+            </time>
+          ) : null}
+          {state.updatedAt ? (
+            <time data-pi-catalog-updated={state.updatedAt}>
+              {state.updatedAt}
+            </time>
+          ) : null}
+        </p>
+      ) : null}
+      <button
+        type="button"
+        class="backend-button"
+        data-pi-action="catalog-refresh-public"
+        disabled={state.status === "checking"}
+        onClick={() => handlers.refreshPiPublicCatalog()}
+      >
+        {labelText(labels, "piCatalogRefreshPublic", "Update now")}
+      </button>
+      <button
+        type="button"
+        class="backend-button"
+        data-pi-action="catalog-restore-previous"
+        disabled={!state.canRestore}
+        onClick={() => handlers.restorePiPreviousCatalog()}
+      >
+        {labelText(labels, "piCatalogRestore", "Restore previous catalog")}
+      </button>
+    </section>
+  );
+}
+
 function PiConfigurationPanel(props: {
   value: BackendManagerBuiltinAgentSnapshot;
   labels: BackendManagerLabels;
@@ -1352,7 +1449,11 @@ function PiConfigurationPanel(props: {
           {labelText(labels, "piExportDiagnostics", "Export diagnostics")}
         </button>
       </header>
-      <p class="backend-pi-status" role="status">
+      <p
+        class="backend-pi-status"
+        role="status"
+        data-pi-catalog-phase={value.catalog.status}
+      >
         {value.catalog.modelCount} {labelText(labels, "piModels", "models")} ·{" "}
         {labelText(
           labels,
@@ -1368,6 +1469,7 @@ function PiConfigurationPanel(props: {
               : "Catalog unavailable",
         )}
       </p>
+      <PiCatalogSourcePanel value={value} labels={labels} handlers={handlers} />
       {value.configurations.every(
         (entry) => value.configurationStatus[entry.id] !== "configured",
       ) ? (
@@ -1740,6 +1842,15 @@ function PiConfigurationPanel(props: {
           onClick={() => handlers.refreshPiOverlay(overlayPath)}
         >
           {labelText(labels, "piRefresh", "Import / refresh")}
+        </button>
+        <button
+          type="button"
+          class="backend-button danger"
+          data-pi-action="overlay-remove"
+          disabled={value.catalog.state?.overlayStatus === "none"}
+          onClick={() => handlers.removePiCatalogOverlay()}
+        >
+          {labelText(labels, "piOverlayRemove", "Remove overlay")}
         </button>
       </section>
       <PiMcpSourcesPanel value={value} labels={labels} handlers={handlers} />

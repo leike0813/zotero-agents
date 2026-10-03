@@ -40,6 +40,13 @@ import {
   PI_PROVIDER_HARD_LIMIT_MS,
   PI_PROVIDER_INACTIVITY_MS,
 } from "./piRuntimeLifecycle";
+import {
+  hasPiReportedUsage,
+  estimatePiInvocationCost,
+  readPiFrozenPricing,
+  type PiCostState,
+} from "../shared/piUsageContract";
+import type { PiModelCost } from "../shared/piProviderContract";
 
 export type PiModelFailureCode =
   | "credential_missing"
@@ -95,7 +102,17 @@ export type PiRuntimeUsage = {
   output: number;
   cacheRead: number;
   cacheWrite: number;
+  cacheWrite1h?: number;
   totalTokens: number;
+  /**
+   * Project estimate from the selection's frozen applicable rates. It is
+   * separate from the SDK's own cost block, which reports only what the
+   * provider priced and therefore reads as zero for every unmapped target.
+   */
+  costEstimate: number | null;
+  costState: PiCostState;
+  /** Whether the provider actually reported token facts for this invocation. */
+  usageKnown: boolean;
   cost: {
     input: number;
     output: number;
@@ -273,9 +290,23 @@ export type PiRuntimeProviderRequest = {
   context: TranscriptContext;
   signal: AbortSignal;
 };
-export type PiRuntimeProviderSource = (
-  request: PiRuntimeProviderRequest,
-) => AssistantMessageEventStream | Promise<AssistantMessageEventStream>;
+/**
+ * Conservative evidence that a reported usage is a real measurement. The SDK
+ * cannot tell a genuinely all-zero invocation from an absent one, so a source
+ * that cannot prove otherwise leaves the invocation explicitly unknown.
+ */
+export type PiRuntimeUsageEvidence = (usage: Usage) => boolean;
+export type PiRuntimeProviderSource = {
+  (
+    request: PiRuntimeProviderRequest,
+  ): AssistantMessageEventStream | Promise<AssistantMessageEventStream>;
+  /**
+   * Optional: a source that can distinguish a measured usage from a missing one
+   * supplies it here. Absent means the Runtime cannot tell, and the cost of
+   * every invocation stays unknown rather than being presented as free.
+   */
+  usageKnown?: PiRuntimeUsageEvidence;
+};
 
 export type PiTurnFailureCode =
   | "model_failed"
@@ -328,6 +359,7 @@ export type PiRuntimeEvent = {
       kind: "invocation_terminal";
       invocationId: string;
       stopReason: PiRuntimeStopReason;
+      usage?: PiRuntimeUsage;
     }
   | { kind: "terminal"; result: PiTurnResult }
 );
@@ -360,6 +392,7 @@ type PiRuntimeEventPayload =
       kind: "invocation_terminal";
       invocationId: string;
       stopReason: PiRuntimeStopReason;
+      usage?: PiRuntimeUsage;
     }
   | { kind: "terminal"; result: PiTurnResult };
 
@@ -415,6 +448,14 @@ export type PiRuntimeSessionOptions =
       model: Model<string>;
       source: PiRuntimeProviderSource;
       audit?: PiRuntimeAuditContext;
+      /**
+       * The declared price frozen for this selection, or `null` when the
+       * selection declares no applicable public API price. The SDK model's
+       * cost block is a type artifact and is never used here: absent pricing
+       * keeps every estimate unknown and is never read as a zero price.
+       */
+      pricing?: PiModelCost | null;
+      usageKnown?: (message: AssistantMessage) => boolean;
       /** Deterministic timeout seam; production uses the fixed lifecycle limits. */
       providerTimeouts?: { inactivityMs: number; hardMs: number };
     };
@@ -423,6 +464,8 @@ export type PiRuntimeScriptedTurn = {
   text?: string;
   thinking?: string;
   toolCalls?: readonly PiRuntimeToolCall[];
+  /** Token facts the provider really reported for this step. */
+  usage?: Usage;
 };
 
 const EMPTY_USAGE: Usage = {
@@ -452,6 +495,7 @@ function assistantMessage(
   content: AssistantMessage["content"],
   stopReason: AssistantMessage["stopReason"],
   errorMessage?: string,
+  usage: Usage = EMPTY_USAGE,
 ): AssistantMessage {
   return {
     role: "assistant",
@@ -459,7 +503,7 @@ function assistantMessage(
     api: model.api,
     provider: model.provider,
     model: model.id,
-    usage: EMPTY_USAGE,
+    usage,
     stopReason,
     ...(errorMessage ? { errorMessage } : {}),
     timestamp: Date.now(),
@@ -484,13 +528,41 @@ function failureStream(
   return stream;
 }
 
-function normalizeUsage(usage: Usage): PiRuntimeUsage {
+/**
+ * One place where an invocation's usage becomes a project fact. A turn that
+ * ran on the text-delta seam never received token facts, so its usage stays
+ * explicitly unknown rather than reading as a free invocation.
+ */
+function normalizeUsage(
+  usage: Usage,
+  basis: { pricing?: PiModelCost | null; usageKnown: boolean },
+): PiRuntimeUsage {
+  const cost = estimatePiInvocationCost({
+    tokens: {
+      input: usage.input,
+      output: usage.output,
+      cacheRead: usage.cacheRead,
+      cacheWrite: usage.cacheWrite,
+      ...(usage.cacheWrite1h !== undefined
+        ? { cacheWrite1h: usage.cacheWrite1h }
+        : {}),
+      totalTokens: usage.totalTokens,
+    },
+    pricing: readPiFrozenPricing(basis.pricing),
+    usageKnown: basis.usageKnown,
+  });
   return {
     input: usage.input,
     output: usage.output,
     cacheRead: usage.cacheRead,
     cacheWrite: usage.cacheWrite,
+    ...(usage.cacheWrite1h !== undefined
+      ? { cacheWrite1h: usage.cacheWrite1h }
+      : {}),
     totalTokens: usage.totalTokens,
+    costEstimate: cost.estimate,
+    costState: cost.state,
+    usageKnown: basis.usageKnown,
     cost: {
       input: usage.cost.input,
       output: usage.cost.output,
@@ -499,6 +571,10 @@ function normalizeUsage(usage: Usage): PiRuntimeUsage {
       total: usage.cost.total,
     },
   };
+}
+
+export function unknownPiRuntimeUsage(): PiRuntimeUsage {
+  return normalizeUsage(EMPTY_USAGE, { usageKnown: false });
 }
 
 function resourceText(resource: PiRuntimeResource): string {
@@ -731,6 +807,10 @@ export function createPiTextProviderSource(options: {
   model?: Model<string>;
 }): { model: Model<string>; source: PiRuntimeProviderSource } {
   const model = options.model ?? DEFAULT_TEXT_MODEL;
+  // A scripted step that declares a usage is the evidence for it. A step that
+  // declares none leaves the invocation unknown rather than reporting a free
+  // zero it never measured.
+  let measured: Usage | undefined;
   const source: PiRuntimeProviderSource = ({ invocationId: id }) => {
     const index = invocationIndex(id);
     const step =
@@ -750,6 +830,7 @@ export function createPiTextProviderSource(options: {
     const toolUse = (step.toolCalls?.length ?? 0) > 0;
     const stopReason = toolUse ? ("toolUse" as const) : ("stop" as const);
     const stream = createAssistantMessageEventStream();
+    measured = step.usage;
     stream.push({
       type: "start",
       partial: assistantMessage(model, [], "pending"),
@@ -764,10 +845,17 @@ export function createPiTextProviderSource(options: {
     stream.push({
       type: "done",
       reason: stopReason,
-      message: assistantMessage(model, content, stopReason),
+      message: assistantMessage(
+        model,
+        content,
+        stopReason,
+        undefined,
+        measured,
+      ),
     });
     return stream;
   };
+  source.usageKnown = (usage) => !!measured && usage === measured;
   return { model, source };
 }
 
@@ -993,6 +1081,18 @@ export class PiRuntime {
       "modelStream" in options ? options.modelStream : undefined;
     const model = "source" in options ? options.model : DEFAULT_TEXT_MODEL;
     const source = "source" in options ? options.source : undefined;
+    // Usage is only "known" when the source can prove it measured one. The
+    // legacy text-delta seam reports none, and a source without evidence cannot
+    // tell an absent usage from an all-zero one, so both stay unknown.
+    const usageBasis = {
+      pricing: "pricing" in options ? (options.pricing ?? null) : null,
+      usageKnown: (message: AssistantMessage) =>
+        ("usageKnown" in options && options.usageKnown
+          ? options.usageKnown(message)
+          : source?.usageKnown
+            ? source.usageKnown(message.usage)
+            : !!source && hasPiReportedUsage(message.usage)) === true,
+    };
     const agentSource: PiRuntimeProviderSource | undefined = source
       ? source
       : textStream
@@ -1626,6 +1726,10 @@ export class PiRuntime {
           if (nativeFailure) failure = nativeFailureCode;
           const text = contentText(message.content);
           if (text) finalText = text;
+          const usage = normalizeUsage(message.usage, {
+            pricing: usageBasis.pricing,
+            usageKnown: usageBasis.usageKnown(message),
+          });
           if (
             message.stopReason !== "error" &&
             message.stopReason !== "aborted"
@@ -1636,7 +1740,7 @@ export class PiRuntime {
               text,
               thinking: thinkingText(message.content),
               toolCalls: toolCallsOf(message.content),
-              usage: normalizeUsage(message.usage),
+              usage,
               stopReason: message.stopReason as PiRuntimeStopReason,
             });
           if (invocationStarted && !invocationSettled) {
@@ -1645,6 +1749,10 @@ export class PiRuntime {
               kind: "invocation_terminal",
               invocationId,
               stopReason: message.stopReason as PiRuntimeStopReason,
+              ...(message.stopReason === "error" ||
+              message.stopReason === "aborted"
+                ? { usage }
+                : {}),
             });
             auditRecord({
               operation: "model.invocation_terminal",
@@ -1689,6 +1797,10 @@ export class PiRuntime {
             kind: "invocation_terminal",
             invocationId,
             stopReason: "aborted",
+            usage: normalizeUsage(EMPTY_USAGE, {
+              pricing: usageBasis.pricing,
+              usageKnown: false,
+            }),
           });
           auditRecord({
             operation: "model.invocation_terminal",

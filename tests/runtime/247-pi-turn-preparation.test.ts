@@ -1415,3 +1415,81 @@ function compactPorts(
       })),
   };
 }
+
+describe("Pi turn preparation selection evidence", function () {
+  const selected: PiModelSelectionSnapshot = {
+    ...model,
+    selectionId: "selection-safe-ref",
+    bindingRevision: 4,
+    metadata: {
+      availability: "available",
+      knowledge: { context: "known", output: "known", tools: "unknown" },
+      thinkingLevelMap: { high: "high", max: null },
+      cost: {
+        input: 3,
+        output: 15,
+        cacheRead: 0.3,
+        cacheWrite: 3.75,
+        tiers: [
+          {
+            input: 6,
+            output: 30,
+            cacheRead: 0.6,
+            cacheWrite: 7.5,
+            inputTokensAbove: 200000,
+          },
+        ],
+      },
+      inputLimits: { maxRequestBytes: 2000000 },
+      compat: { openai: true },
+      provenance: {
+        source: "official",
+        revision: "sha256-abc",
+        schemaVersion: 1,
+        minimumPiVersion: "0.80.7",
+      },
+    },
+  };
+
+  it("references the safe selection identity without copying the directory", async function () {
+    const input = fixture();
+    input.frozen.model = selected;
+    const result = await preparePiTurn(input, ports());
+    assert.equal(result.status, "ready");
+    if (result.status !== "ready") return;
+    assert.equal(result.record.invocationId, "invocation-1");
+    assert.equal(result.record.model.selectionId, "selection-safe-ref");
+    assert.equal(result.record.model.bindingRevision, 4);
+    // The binding keeps the endpoint and the credential; preparation keeps a
+    // reference and the frozen model identity, never either of them.
+    const serialized = JSON.stringify(result.record);
+    assert.notInclude(serialized, "secret-reference");
+    assert.notInclude(serialized, "provider.example");
+  });
+
+  it("records the auxiliary purpose and selection of a manual compaction", async function () {
+    const input = compactFixture();
+    input.frozen.model = selected;
+    input.intent = "manual_compaction";
+    input.ownerIdle = true;
+    input.manualCompactionModel = { ...selected, modelId: "alternate" };
+    const records: unknown[] = [];
+    const result = await preparePiTurn(input, compactPorts(records));
+    assert.equal(result.status, "compacted");
+    const record = records[0] as {
+      model: { modelId: string; selectionId?: string };
+      compaction?: { originalSelectionId?: string };
+    };
+    assert.equal(record.model.modelId, "alternate");
+    assert.equal(record.model.selectionId, "selection-safe-ref");
+    assert.equal(record.compaction?.originalSelectionId, "selection-safe-ref");
+  });
+
+  it("omits an absent selection identity instead of inventing one", async function () {
+    const result = await preparePiTurn(fixture(), ports());
+    assert.equal(result.status, "ready");
+    if (result.status !== "ready") return;
+    assert.isUndefined(result.record.model.selectionId);
+    assert.isUndefined(result.record.model.bindingRevision);
+  });
+});

@@ -9,6 +9,16 @@ import {
   statRuntimePathStrict,
 } from "./runtimePersistence";
 import {
+  emptyPiPurposeUsageTotals,
+  PI_COST_CALCULATION_VERSION,
+  readPiCanonicalSelection,
+  type PiCanonicalSelection,
+  type PiInvocationCost,
+  type PiInvocationPurpose,
+  type PiPurposeUsageTotals,
+  type PiUsageTokens,
+} from "../shared/piUsageContract";
+import {
   deletePiConversationMetadata,
   deletePiOwnerRegistry,
   getPiConversationCleanupReceipt,
@@ -1476,12 +1486,12 @@ export type PiConversationDeleteResult =
   | { status: "deleted"; receipt: PiConversationCleanupReceipt }
   | { status: "cleanup_pending"; conversationId: string };
 export type PiConversationFrozenTurn = {
-  model?: {
-    selectionRef: string;
-    provider: string;
-    modelId: string;
-    api: string;
-  };
+  /**
+   * Canonical safe selection evidence for the turn, written once at the
+   * boundary. The endpoint and the credential stay in the binding, so this
+   * record is interpretable on its own long after the directory moved on.
+   */
+  model?: PiCanonicalSelection;
   resources?: {
     ref: string;
     kind: string;
@@ -1591,6 +1601,31 @@ const TITLE_USAGE_KEYS: Record<PiConversationUsageField, string> = {
   cost: "titleCost",
 };
 
+const COMPACTION_USAGE_KEYS: Record<PiConversationUsageField, string> = {
+  input: "compactionInput",
+  output: "compactionOutput",
+  cacheRead: "compactionCacheRead",
+  cacheWrite: "compactionCacheWrite",
+  totalTokens: "compactionTokens",
+  cost: "compactionCost",
+};
+
+const PURPOSE_USAGE_KEYS: Record<
+  PiInvocationPurpose,
+  Record<PiConversationUsageField, string>
+> = {
+  main: {
+    input: "input",
+    output: "output",
+    cacheRead: "cacheRead",
+    cacheWrite: "cacheWrite",
+    totalTokens: "totalTokens",
+    cost: "cost",
+  },
+  title: TITLE_USAGE_KEYS,
+  compaction: COMPACTION_USAGE_KEYS,
+};
+
 function readPiConversationUsageFields(
   value: unknown,
 ): PiConversationUsageFields | null {
@@ -1651,6 +1686,103 @@ function toPiConversationUsage(
   };
 }
 
+type PiUsageContribution = {
+  purpose: PiInvocationPurpose;
+  invocationId?: string;
+  fields: PiConversationUsageFields;
+  cost: PiInvocationCost;
+};
+
+/**
+ * A persisted estimate is a historical fact. An entry without an explicit cost
+ * state predates pricing: it contributes its tokens but never a price, and it
+ * is never backfilled from a later catalog rate.
+ */
+function readPersistedCost(source: Record<string, unknown>): PiInvocationCost {
+  const estimate = source.costEstimate;
+  const state = source.costState;
+  if (
+    source.usageKnown === false ||
+    (state !== "estimated" && state !== "free") ||
+    typeof estimate !== "number" ||
+    !Number.isFinite(estimate) ||
+    estimate < 0
+  )
+    return {
+      estimate: null,
+      state: "unknown",
+      version: PI_COST_CALCULATION_VERSION,
+    };
+  return { estimate, state, version: PI_COST_CALCULATION_VERSION };
+}
+
+function readPiUsageContribution(
+  kind: string,
+  entryId: string,
+  payload: Record<string, unknown> | null,
+): PiUsageContribution | null {
+  const purpose: PiInvocationPurpose =
+    kind === "title_usage"
+      ? "title"
+      : kind === "compaction_usage"
+        ? "compaction"
+        : "main";
+  // Main invocations nest their usage under the message; auxiliary purposes
+  // keep the legacy top-level token spellings but may nest it too.
+  const nested = payload?.usage as Record<string, unknown> | undefined;
+  const holder =
+    nested && typeof nested === "object" && !Array.isArray(nested)
+      ? nested
+      : purpose === "main"
+        ? undefined
+        : payload;
+  if (!holder || typeof holder !== "object" || Array.isArray(holder))
+    return null;
+  const fields = readPiConversationUsageFields(holder);
+  if (!fields) return null;
+  const invocationId =
+    typeof payload?.invocationId === "string" && payload.invocationId
+      ? payload.invocationId
+      : undefined;
+  return {
+    purpose,
+    invocationId: invocationId ?? entryId,
+    fields,
+    cost: readPersistedCost(holder),
+  };
+}
+
+/**
+ * The one per-purpose aggregation over canonical usage facts. Both owner kinds
+ * project from it: a Conversation flattens it into its durable scalar columns,
+ * a Skill Run exposes it as its bounded safe view. Neither recomputes a cost.
+ */
+export function piOwnerUsageTotalsFor(
+  entries: readonly PiTranscriptEntry[],
+): PiPurposeUsageTotals {
+  const totals = emptyPiPurposeUsageTotals();
+  const counted = new Set<string>();
+  for (const entry of entries) {
+    const contribution = readPiUsageContribution(
+      entry.kind,
+      entry.entryId,
+      entry.payload as Record<string, unknown> | null,
+    );
+    if (!contribution || counted.has(contribution.invocationId!)) continue;
+    // One contribution per invocation identity: a replayed or re-published
+    // fact can never inflate an owner's usage.
+    counted.add(contribution.invocationId!);
+    const purpose = totals[contribution.purpose];
+    for (const field of USAGE_DECLARED_FIELDS) {
+      if (field === "cost") continue;
+      purpose[field] += contribution.fields[field] ?? 0;
+    }
+    if (contribution.cost.estimate === null) purpose.costUnknown += 1;
+    else purpose.cost += contribution.cost.estimate;
+  }
+  return totals;
+}
+
 // Durable scalar projection for cheap restart hydration: no message bodies,
 // only rebuildable counts, the latest turn status and bounded usage scalars.
 function piConversationProjectionFor(
@@ -1661,6 +1793,7 @@ function piConversationProjectionFor(
   let latestTurnStatus: string | null = null;
   let usage: PiConversationUsage | null = null;
   const usageTotals: Record<string, number> = {};
+  let latestMain: PiUsageContribution | null = null;
   for (const entry of inspection.entries) {
     const payload = entry.payload as Record<string, unknown> | null;
     if (entry.kind === "message") {
@@ -1691,24 +1824,33 @@ function piConversationProjectionFor(
           ? "state_unknown"
           : (status ?? outcome);
     }
-    const modelFields = readPiConversationUsageFields(payload?.usage);
-    if (modelFields) {
-      usage = toPiConversationUsage(modelFields);
-      for (const field of USAGE_DECLARED_FIELDS)
-        usageTotals[field] =
-          (usageTotals[field] ?? 0) + (modelFields[field] ?? 0);
-    }
-    if (entry.kind === "title_usage") {
-      // Title usage is a top-level token fact, kept distinct from model usage.
-      const titleFields = readPiConversationUsageFields(payload);
-      if (titleFields)
-        for (const field of USAGE_DECLARED_FIELDS) {
-          const key = TITLE_USAGE_KEYS[field];
-          usageTotals[key] =
-            (usageTotals[key] ?? 0) + (titleFields[field] ?? 0);
-        }
-    }
+    const contribution = readPiUsageContribution(
+      entry.kind,
+      entry.entryId,
+      payload,
+    );
+    if (contribution?.purpose === "main") latestMain = contribution;
   }
+  // `cost` stays the known subtotal; `costUnknown` carries its own
+  // incompleteness so a display can never present a partial sum as final.
+  const purposeTotals = piOwnerUsageTotalsFor(inspection.entries);
+  let contributions = 0;
+  for (const [purpose, keys] of Object.entries(PURPOSE_USAGE_KEYS) as [
+    PiInvocationPurpose,
+    Record<PiConversationUsageField, string>,
+  ][]) {
+    const totals = purposeTotals[purpose];
+    if (!Object.values(totals).some((value) => value !== 0)) continue;
+    contributions += 1;
+    for (const field of USAGE_DECLARED_FIELDS)
+      usageTotals[keys[field]] = totals[field];
+  }
+  if (contributions)
+    usageTotals.costUnknown =
+      purposeTotals.main.costUnknown +
+      purposeTotals.title.costUnknown +
+      purposeTotals.compaction.costUnknown;
+  if (latestMain) usage = toPiConversationUsage(latestMain.fields);
   const basis = transcriptBasisOf(inspection);
   return {
     counts,
@@ -1756,24 +1898,9 @@ function sanitizeFrozenTurn(
 ): PiConversationFrozenTurn {
   const result: PiConversationFrozenTurn = {};
   if (frozen.model) {
-    const model = frozen.model;
-    if (
-      typeof model.selectionRef !== "string" ||
-      !model.selectionRef ||
-      typeof model.provider !== "string" ||
-      !model.provider ||
-      typeof model.modelId !== "string" ||
-      !model.modelId ||
-      typeof model.api !== "string" ||
-      !model.api
-    )
-      throw new Error("pi_conversation_frozen_model_invalid");
-    result.model = {
-      selectionRef: model.selectionRef,
-      provider: model.provider,
-      modelId: model.modelId,
-      api: model.api,
-    };
+    const model = readPiCanonicalSelection(frozen.model);
+    if (!model) throw new Error("pi_conversation_frozen_model_invalid");
+    result.model = model;
   }
   if (frozen.resources) {
     if (!Array.isArray(frozen.resources))
@@ -2052,11 +2179,15 @@ export async function admitPiConversationTurn(
           inspection.entries.length + 1
         }`,
         kind: "turn_started",
-        payload: {
-          schemaVersion: 1,
-          turnId: admission.turnId,
-          ...(frozen ? frozen : {}),
-        },
+        // The canonical store is JSON: the frozen selection is deep-frozen in
+        // memory and serialized exactly as its safe evidence.
+        payload: JSON.parse(
+          JSON.stringify({
+            schemaVersion: 1,
+            turnId: admission.turnId,
+            ...(frozen ?? {}),
+          }),
+        ) as JsonValue,
         turnId: admission.turnId,
       },
     ];

@@ -11,6 +11,7 @@
 - [x] 2.1 Integrate deterministic Provider and PI family in existing full runner and matrix, preserving suite membership and isolation; verify tooling and mock tests.
 - [ ] 2.2 Add five production Pi behavior groups and installed XPI Conversation/Auto chains with actual restart and unknown no-replay; verify real-host full runs.
 - [ ] 2.3 Build fixed dev v0.9.0 baseline, seed legacy configuration/history through that installed plugin and verify candidate upgrade preservation; retain digest-bound receipts.
+- [ ] 2.4 Include Change B's independent directory in the same installed candidate: actual-host official HTTP, fixed-runtime directory A-to-B, binding/unknown capability preservation, frozen turn/preparation metadata and main/compaction/title usage completeness. Local directed core evidence does not replace the six-host installed XPI matrix or upgrade receipts.
 
 ## 3. Size and performance
 

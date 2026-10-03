@@ -1,0 +1,100 @@
+name: Pi Model Catalog Compatibility
+
+on:
+  schedule:
+    # Daily outside the upstream publish window; supply checks never block a
+    # release and never message anyone outside this repository's issues.
+    - cron: "37 4 * * *"
+  workflow_dispatch:
+    inputs:
+      runtime:
+        description: Extra exact Pi runtime version to monitor
+        required: false
+        type: string
+      released_runtime:
+        description: Released client runtime version from its published manifest
+        required: false
+        type: string
+
+concurrency:
+  group: pi-model-catalog-compatibility
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      issues: write
+    outputs:
+      report: ${{ steps.report.outputs.report }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+      - run: npm ci
+      - id: report
+        shell: bash
+        env:
+          PI_CATALOG_REPORT: ${{ runner.temp }}/pi-model-catalog-report.json
+          INPUT_RUNTIME: ${{ inputs.runtime }}
+          INPUT_RELEASED_RUNTIME: ${{ inputs.released_runtime }}
+        run: |
+          set -uo pipefail
+          args=(--out "$PI_CATALOG_REPORT")
+          for version in "$INPUT_RUNTIME" "$INPUT_RELEASED_RUNTIME"; do
+            [[ -n "$version" ]] && args+=(--runtime "$version")
+          done
+          npm run check:pi-model-catalog -- "${args[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+          status=${PIPESTATUS[0]}
+          echo "exit-code=$status" >> "$GITHUB_STEP_SUMMARY"
+          echo "report=$PI_CATALOG_REPORT" >> "$GITHUB_OUTPUT"
+          exit "$status"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pi-model-catalog-report-${{ github.run_id }}
+          path: ${{ runner.temp }}/pi-model-catalog-report.json
+          if-no-files-found: warn
+      - name: Report supply failures as one de-duplicated issue
+        if: failure()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PI_CATALOG_REPORT: ${{ runner.temp }}/pi-model-catalog-report.json
+        run: |
+          set -uo pipefail
+          if [[ ! -s "$PI_CATALOG_REPORT" ]]; then
+            echo "No compatibility report was produced; the run failed before classification." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          supply=$(jq '[.runtimes[] | select(.classification != "compatible" and .classification != "network")] | length' "$PI_CATALOG_REPORT")
+          if [[ "$supply" == "0" ]]; then
+            echo "Only transient network classifications; no issue is opened." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          {
+            echo "Official Pi model catalog supply is no longer usable by a shipped runtime."
+            echo
+            echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo "Checked at: $(jq -r .checkedAt "$PI_CATALOG_REPORT")"
+            echo
+            echo "| Runtime | Classification | Reason | HTTP | Revision | Minimum |"
+            echo "| --- | --- | --- | --- | --- | --- |"
+            jq -r '.runtimes[] | "| " + .runtimeVersion + " | " + .classification + " | " + .reason + " | " + ((.httpStatus // "-") | tostring) + " | " + (.revision // "-") + " | " + (.minimumPiVersion // "-") + " |"' "$PI_CATALOG_REPORT"
+            echo
+            echo "Reproduce locally: npx tsx scripts/pi-model-catalog.ts check"
+            echo "Response bodies are never stored in this issue."
+          } > "$RUNNER_TEMP/issue-body.md"
+          existing=$(gh issue list --state open --search "in:title Pi model catalog supply" --json number --jq '.[0].number // empty')
+          if [[ -n "$existing" ]]; then
+            gh issue comment "$existing" --body-file "$RUNNER_TEMP/issue-body.md"
+          else
+            gh issue create --title "Pi model catalog supply is incompatible with a shipped runtime" --body-file "$RUNNER_TEMP/issue-body.md"
+          fi

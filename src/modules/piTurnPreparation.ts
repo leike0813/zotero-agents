@@ -233,6 +233,13 @@ export type TurnPreparationRecord = {
     catalogRevision: string;
     adapterVersion: string;
     runtimeVersion: string;
+    /**
+     * Safe reference to the turn's frozen selection. The canonical selection
+     * evidence is written once at the turn boundary; preparation stores this
+     * identity so a record never re-states the binding or the directory.
+     */
+    selectionId?: string;
+    bindingRevision?: number;
   };
   budget: PiPreparedContext["budget"] & {
     policyVersion: string;
@@ -257,6 +264,8 @@ export type TurnPreparationRecord = {
     retainedEntryIds: string[];
     originalProvider: string;
     originalModelId: string;
+    /** Selection the turn belonged to, when that turn carried one. */
+    originalSelectionId?: string;
   };
   createdAt: string;
 };
@@ -363,10 +372,12 @@ export const PI_TRANSCRIPT_NON_CONTEXT_KINDS: ReadonlySet<string> = new Set([
   "tool_preflight_cleanup_pending",
   "failure_observed",
   "turn_started",
+  "model_selection",
   "turn_terminal",
   "thought",
   "conversation_metadata",
   "title_usage",
+  "compaction_usage",
   "turn_preparation",
   "model_invocation_started",
   "model_invocation_terminal",
@@ -1137,6 +1148,12 @@ function recordFor(
       catalogRevision: model.catalogRevision,
       adapterVersion: model.adapterVersion,
       runtimeVersion: model.runtimeVersion,
+      ...(nonempty(model.selectionId)
+        ? { selectionId: model.selectionId }
+        : {}),
+      ...(Number.isSafeInteger(model.bindingRevision)
+        ? { bindingRevision: model.bindingRevision as number }
+        : {}),
     },
     budget: {
       ...context.budget,
@@ -1358,6 +1375,9 @@ async function run(
           retainedEntryIds: retainedIds,
           originalProvider: input.frozen.model.provider,
           originalModelId: input.frozen.model.modelId,
+          ...(nonempty(input.frozen.model.selectionId)
+            ? { originalSelectionId: input.frozen.model.selectionId }
+            : {}),
         },
         attempt,
         commitBasis,

@@ -19,6 +19,7 @@ import { readOwnerAudit } from "./piOwnerAuditRead";
 import { resetPiRuntimeAuditForTests } from "../../src/modules/piRuntimeAudit";
 import { setRuntimeLogDiagnosticMode } from "../../src/modules/runtimeLogManager";
 import { joinPath } from "../../src/utils/path";
+import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 
 const model: PiModelSelectionSnapshot = {
   configurationId: "test",
@@ -1325,6 +1326,342 @@ describe("Pi Skill Run integration", function () {
         (entry) => entry.operation === "execution.canceled",
       ),
       1,
+    );
+    await coordinator.dispose();
+  });
+
+  it("anchors a run to the selection it actually made when the default moves", async function () {
+    let current: PiModelSelectionSnapshot = model;
+    const resolved: (string | undefined)[] = [];
+    let requestId = "";
+    let release!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let first = true;
+    const coordinator = createPiSkillRunCoordinator({
+      root,
+      prepare,
+      resolveModel: async (ownerSelection) => {
+        resolved.push(ownerSelection?.modelId);
+        return ownerSelection
+          ? { ...current, modelId: ownerSelection.modelId! }
+          : current;
+      },
+      definitions: async () => [],
+      execution: () => {
+        if (!first)
+          return createPiTextProviderSource({
+            steps: [
+              {
+                toolCalls: [
+                  {
+                    callId: "anchored-submit",
+                    name: "submit_skill_result",
+                    arguments: { protocolVersion: 1, result: { ok: true } },
+                  },
+                ],
+              },
+              { text: "Done" },
+            ],
+          });
+        first = false;
+        const execution = createPiTextProviderSource({
+          steps: [{ text: "done" }],
+        });
+        return {
+          model: execution.model,
+          source: async (input) => {
+            release();
+            await new Promise<void>((resolve) =>
+              input.signal.addEventListener("abort", () => resolve(), {
+                once: true,
+              }),
+            );
+            return execution.source(input);
+          },
+        };
+      },
+    });
+    const args = request();
+    args.onProgress = (event) => {
+      if (event.type === "request-created") requestId = String(event.requestId);
+    };
+    const running = coordinator.execute(args);
+    await entered;
+    await coordinator.interrupt(requestId);
+    // The default moves after admission; the owner's own choice is what the
+    // next turn must revalidate.
+    current = { ...model, modelId: "other-default" };
+    await coordinator.reply(requestId, "Continue");
+    assert.equal((await running).status, "deferred");
+    assert.isFalse(
+      resolved.includes("other-default"),
+      "a moved default never redirects a saved owner",
+    );
+    const selectionFact = (
+      await inspectPiOwner({ kind: "skill_run", ownerId: requestId }, root)
+    ).entries.find((entry) => entry.kind === "skill_run_selection");
+    assert.isOk(
+      selectionFact,
+      "the actual choice is anchored durably on the owner",
+    );
+    assert.equal(
+      (selectionFact!.payload as { modelId: string }).modelId,
+      "test",
+    );
+    await coordinator.dispose();
+  });
+
+  it("revalidates its selection on a permission continuation instead of reusing the frozen model", async function () {
+    this.timeout(30_000);
+    let requestId = "";
+    let turns = 0;
+    const permissionTool = {
+      capabilityId: "compaction-effect",
+      name: "approved_effect",
+      description: "Controlled effect",
+      schema: { type: "object" },
+      minimumEffects: ["external-mutation" as const],
+      maxResultBytes: 1024,
+      classify: () => ({
+        effects: ["external-mutation" as const],
+        authorizationKeys: [],
+        resourceKeys: ["external"],
+        cost: 1,
+      }),
+      execute: async () => ({
+        status: "completed" as const,
+        effectCertainty: "confirmed_complete" as const,
+        value: { ok: true },
+      }),
+    };
+    const readTool = {
+      capabilityId: "compaction-read",
+      name: "read_managed",
+      description: "Bounded read",
+      schema: { type: "object" },
+      minimumEffects: ["bounded-read"] as const,
+      maxResultBytes: 1024,
+      classify: () => ({
+        effects: ["bounded-read"] as const,
+        authorizationKeys: [],
+        resourceKeys: [],
+        cost: 1,
+      }),
+      execute: async () => ({
+        status: "completed" as const,
+        effectCertainty: "not_applicable" as const,
+        value: { ok: true },
+      }),
+    };
+    // A distinct capability needs its own grant, so the run can pause twice
+    // and build history across two settled turns.
+    const secondGate = {
+      ...permissionTool,
+      capabilityId: "compaction-effect-2",
+      name: "approved_effect_2",
+    };
+    const coordinator = createPiSkillRunCoordinator({
+      root,
+      prepare,
+      // A deliberately small window so the next turn must compact, and a
+      // catalog revision that moves between the two turns.
+      resolveModel: async () => {
+        return {
+          ...model,
+          catalogRevision: `catalog-${turns + 1}`,
+          selectionId: `selection-${turns + 1}`,
+          // A small output reserve leaves a tight input budget, so the
+          // continuation must compact while every individual unit still fits.
+          policy: model.policy,
+        };
+      },
+      definitions: async () => [readTool, permissionTool, secondGate],
+      execution: () =>
+        createPiTextProviderSource({
+          steps:
+            turns++ === 0
+              ? [
+                  {
+                    toolCalls: [
+                      {
+                        callId: "compaction-call",
+                        name: "approved_effect",
+                        arguments: {},
+                      },
+                      {
+                        callId: "history-question",
+                        name: "ask_user",
+                        arguments: {
+                          questions: [{ kind: "text", prompt: "Go on?" }],
+                        },
+                      },
+                    ],
+                  },
+                ]
+              : [
+                  {
+                    toolCalls: [
+                      {
+                        callId: "compacted-submit",
+                        name: "submit_skill_result",
+                        arguments: { protocolVersion: 1, result: { ok: true } },
+                      },
+                    ],
+                  },
+                  { text: "Done" },
+                ],
+        }),
+      compactionExecution: () => {
+        const base = createPiTextProviderSource({ steps: [{ text: "" }] });
+        return {
+          model: base.model,
+          source: async (request) => {
+            const payload = JSON.parse(
+              (request.context.messages.at(-1) as { content: string }).content,
+            ) as Record<string, unknown>;
+            const summary = JSON.stringify({
+              schemaVersion: 1,
+              inputDigest: payload.inputDigest,
+              coveredEntryIds: payload.coveredEntryIds,
+              retainedEntryIds: payload.retainedEntryIds,
+              goals: ["Condensed run history"],
+              decisions: [],
+              constraints: [],
+              unfinishedWork: [],
+              artifactRefs: [],
+              effectReceiptRefs: [],
+              unresolved: [],
+              facts: [],
+            });
+            const message = {
+              role: "assistant" as const,
+              content: [{ type: "text" as const, text: summary }],
+              api: model.api,
+              provider: model.provider,
+              model: model.modelId,
+              stopReason: "stop" as const,
+              timestamp: 0,
+            };
+            const stream = createAssistantMessageEventStream();
+            stream.push({
+              type: "start",
+              partial: { ...message, stopReason: "pending" as const },
+            });
+            stream.push({
+              type: "done",
+              reason: "stop",
+              message: {
+                ...message,
+                usage: {
+                  input: 640,
+                  output: 40,
+                  cacheRead: 0,
+                  cacheWrite: 0,
+                  totalTokens: 680,
+                  cost: {
+                    input: 0,
+                    output: 0,
+                    cacheRead: 0,
+                    cacheWrite: 0,
+                    total: 0,
+                  },
+                },
+              },
+            });
+            return stream;
+          },
+        };
+      },
+    });
+    const args = request();
+    args.onProgress = (event) => {
+      if (event.type === "request-created") requestId = String(event.requestId);
+    };
+    (args.request as { runtime_options?: unknown }).runtime_options = {
+      execution_mode: "interactive",
+    };
+    let approval: Promise<unknown> | undefined;
+    const unsubscribe = coordinator.subscribe((change) => {
+      if (!change.requestId || approval) return;
+      void coordinator.readModel(change.requestId).then((current) => {
+        if (
+          current.status !== "waiting_permission" ||
+          approval ||
+          !current.pending[0]
+        )
+          return;
+        approval = coordinator.resolvePermission(
+          current.requestId,
+          current.pending[0].call.callId,
+          "approve",
+        );
+        void approval.catch(() => {});
+      });
+    });
+    const result = await coordinator.execute(args);
+    unsubscribe();
+    assert.equal(result.status, "deferred");
+    await approval;
+    const waiting = await coordinator.readModel(result.requestId);
+    assert.isOk(
+      waiting.interactionBatch,
+      "the run also published its question",
+    );
+    await coordinator.declineInteraction(result.requestId, {
+      batchId: waiting.interactionBatch!.batchId,
+      baseRevision: waiting.interactionBatch!.revision,
+      mutationId: "decline-history",
+    });
+    for (let attempt = 0; attempt < 600; attempt++) {
+      const current = await coordinator.readProviderResult(result.requestId);
+      if (current.status !== "deferred") break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.equal(
+      (await coordinator.readProviderResult(result.requestId)).status,
+      "succeeded",
+    );
+    const skillRunEntries = (
+      await inspectPiOwner(
+        { kind: "skill_run", ownerId: result.requestId },
+        root,
+      )
+    ).entries;
+    // A permission continuation is a new turn. It revalidates the choice
+    // against current metadata instead of reusing the model the previous turn
+    // froze in memory.
+    const started = skillRunEntries
+      .filter((entry) => entry.kind === "turn_started")
+      .map(
+        (entry) =>
+          (
+            entry.payload as {
+              model?: { catalogRevision: string; selectionId?: string };
+            }
+          ).model,
+      );
+    assert.deepEqual(
+      started.map((item) => item?.selectionId),
+      ["selection-1", "selection-2"],
+    );
+    // Each turn stores safe evidence: no endpoint and no credential.
+    for (const entry of skillRunEntries.filter(
+      (candidate) => candidate.kind === "turn_started",
+    )) {
+      const serialized = JSON.stringify(entry.payload);
+      assert.notInclude(serialized, "baseUrl");
+      assert.notInclude(serialized, "credentialRef");
+      assert.notInclude(serialized, "example.test");
+    }
+    const view = await coordinator.readModel(result.requestId);
+    assert.isNumber(view.usage.main);
+    assert.isNumber(view.usage.costUnknown);
+    assert.equal(view.usage.compaction, 0);
+    assert.deepEqual(
+      started.map((item) => item?.catalogRevision),
+      ["catalog-1", "catalog-2"],
     );
     await coordinator.dispose();
   });

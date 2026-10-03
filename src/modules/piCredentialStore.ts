@@ -23,6 +23,26 @@ export type PiCredentialReadResult =
 const KEY_META = "pi.credential.key.v1";
 const EMPTY: CredentialDocument = { version: 1, records: {} };
 let writeQueue: Promise<unknown> = Promise.resolve();
+const identityListeners = new Set<
+  (id: string, namespace: PiCredentialNamespace) => void
+>();
+export function subscribePiCredentialIdentityChange(
+  listener: (id: string, namespace: PiCredentialNamespace) => void,
+) {
+  identityListeners.add(listener);
+  return () => {
+    identityListeners.delete(listener);
+  };
+}
+function notifyIdentityChange(id: string, namespace: PiCredentialNamespace) {
+  for (const listener of identityListeners) {
+    try {
+      listener(id, namespace);
+    } catch {
+      /* Observers cannot change credential persistence. */
+    }
+  }
+}
 
 function encode(bytes: Uint8Array): string {
   let raw = "";
@@ -225,6 +245,7 @@ export function putPiCredential(args: {
     };
     if (args.signal?.aborted) throw new Error("Pi credential write canceled");
     setPref("piCredentialEncryptedJson", JSON.stringify(doc));
+    if (!args.preserveIdentity) notifyIdentityChange(id, namespace);
     return metadata;
   });
 }
@@ -301,5 +322,6 @@ export function deletePiCredential(
       throw new Error("Pi credential namespace mismatch");
     delete doc.records[id];
     setPref("piCredentialEncryptedJson", JSON.stringify(doc));
+    notifyIdentityChange(id, namespace);
   });
 }

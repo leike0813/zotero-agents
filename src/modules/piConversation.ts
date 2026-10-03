@@ -37,7 +37,12 @@ import {
   type PiRuntimeMessage,
   type PiRuntimeResource,
   type PiRuntimeSessionOptions,
+  unknownPiRuntimeUsage,
 } from "./piRuntime";
+import {
+  projectPiCanonicalSelection,
+  type PiCostState,
+} from "../shared/piUsageContract";
 import {
   failureEffectCertainty,
   freezePiToolGatewayTurn,
@@ -136,6 +141,14 @@ type Options = {
   execution?: (
     selection: PiModelSelectionSnapshot,
   ) => Omit<Extract<PiRuntimeSessionOptions, { source: unknown }>, "sessionId">;
+  /**
+   * The structured provider used for a compaction summary. It is separate from
+   * `execution` because a compaction is an auxiliary invocation with its own
+   * selection, and it is what makes the summary's real usage observable.
+   */
+  compactionExecution?: (
+    selection: PiModelSelectionSnapshot,
+  ) => Omit<Extract<PiRuntimeSessionOptions, { source: unknown }>, "sessionId">;
   definitions?: (conversationId: string) => Promise<PiGatewayToolDefinition[]>;
 };
 type LocalNetworkAuthorizer = (endpoint: string) => Promise<boolean>;
@@ -208,10 +221,14 @@ export function createPiConversationCoordinator(options: Options = {}) {
       usage: {
         main: number;
         title: number;
+        compaction: number;
         input: number;
         output: number;
         cost: number;
         titleCost: number;
+        compactionCost: number;
+        /** Contributions whose cost could not be priced; keeps the total honest. */
+        costUnknown: number;
       };
     }
   >();
@@ -242,10 +259,13 @@ export function createPiConversationCoordinator(options: Options = {}) {
         usage: {
           main: persisted?.usageTotals.totalTokens || 0,
           title: persisted?.usageTotals.titleTokens || 0,
+          compaction: persisted?.usageTotals.compactionTokens || 0,
           input: persisted?.usageTotals.input || 0,
           output: persisted?.usageTotals.output || 0,
           cost: persisted?.usageTotals.cost || 0,
           titleCost: persisted?.usageTotals.titleCost || 0,
+          compactionCost: persisted?.usageTotals.compactionCost || 0,
+          costUnknown: persisted?.usageTotals.costUnknown || 0,
         },
       };
       states.set(conversationId, current);
@@ -1123,37 +1143,112 @@ export function createPiConversationCoordinator(options: Options = {}) {
         const onAbort = () => controller.abort();
         signal?.addEventListener("abort", onAbort, { once: true });
         if (signal?.aborted) controller.abort();
-        const source = modelSource(
-          input.model,
-          state(conversationId).localEndpoint,
-        );
         let output = "";
+        const selectionRef = (
+          await fact(
+            conversationId,
+            "model_selection",
+            {
+              purpose: "compaction",
+              model: json(projectPiCanonicalSelection(input.model)),
+            },
+            turnId,
+          )
+        ).entry.entryId;
+        let invocationId = id("compaction");
+        let usage = unknownPiRuntimeUsage();
         try {
-          for await (const part of source({
-            systemPrompt: input.prompt,
-            messages: [
-              {
-                role: "user",
-                text: JSON.stringify({
-                  messages: input.summaryInput,
-                  schemaVersion: 1,
-                  inputDigest: input.inputDigest,
-                  coveredEntryIds: input.coveredEntryIds,
-                  retainedEntryIds: input.retainedEntryIds,
-                }),
+          const messages = [
+            {
+              role: "user" as const,
+              text: JSON.stringify({
+                messages: input.summaryInput,
+                schemaVersion: 1,
+                inputDigest: input.inputDigest,
+                coveredEntryIds: input.coveredEntryIds,
+                retainedEntryIds: input.retainedEntryIds,
+              }),
+            },
+          ];
+          // The structured provider reports the invocation's real terminal
+          // usage. The legacy text-delta seam has none, so its compaction
+          // stays explicitly unknown instead of being estimated from text.
+          const structured = options.compactionExecution
+            ? options.compactionExecution(input.model)
+            : options.modelSource
+              ? undefined
+              : createPiProviderSource(
+                  input.model,
+                  providerAdmission(conversationId),
+                );
+          if (structured) {
+            const session = new PiRuntime().openSession({
+              sessionId: `${conversationId}:compaction:${invocationId}`,
+              ...structured,
+            });
+            const turn = session.runTurn({
+              turnId: `${turnId}:compaction`,
+              messages,
+              systemPrompt: input.prompt,
+              onEvent: (event) => {
+                if (event.kind === "assistant_message") {
+                  output += event.text;
+                  usage = event.usage;
+                  invocationId = event.invocationId;
+                } else if (
+                  event.kind === "invocation_terminal" &&
+                  event.usage
+                ) {
+                  usage = event.usage;
+                  invocationId = event.invocationId;
+                }
               },
-            ],
-            signal: controller.signal,
-          })) {
-            output += part;
-            if (output.length > 256 * 1024) {
-              controller.abort();
-              throw new Error("pi_summary_too_large");
+            });
+            controller.signal.addEventListener("abort", () => turn.abort(), {
+              once: true,
+            });
+            if (controller.signal.aborted) turn.abort();
+            leaseOf.get(conversationId)?.trackPhysical(turn.settled);
+            const result = await turn.result;
+            session.dispose();
+            if (result.status !== "completed")
+              throw new Error("pi_summary_failed");
+          } else {
+            const source = modelSource(
+              input.model,
+              state(conversationId).localEndpoint,
+            );
+            for await (const part of source({
+              systemPrompt: input.prompt,
+              messages,
+              signal: controller.signal,
+            })) {
+              output += part;
+              if (output.length > 256 * 1024) {
+                controller.abort();
+                throw new Error("pi_summary_too_large");
+              }
             }
           }
           return JSON.parse(output) as PiCompactionSummary;
         } finally {
           signal?.removeEventListener("abort", onAbort);
+          await fact(
+            conversationId,
+            "compaction_usage",
+            {
+              purpose: "compaction",
+              intent,
+              invocationId,
+              selectionRef,
+              usage,
+            },
+            turnId,
+          );
+          const current = state(conversationId).usage;
+          current.compaction += usage.totalTokens;
+          if (usage.costEstimate === null) current.costUnknown += 1;
+          else current.compactionCost += usage.costEstimate;
         }
       },
     };
@@ -1381,6 +1476,10 @@ export function createPiConversationCoordinator(options: Options = {}) {
                 text: event.text,
                 toolCalls,
                 usage: event.usage,
+                // The contribution identity keeps one invocation's usage and
+                // cost a single canonical fact across replays and rebuilds.
+                invocationId: event.invocationId,
+                purpose: "main",
               },
               turnId,
               current.itemId,
@@ -1388,7 +1487,11 @@ export function createPiConversationCoordinator(options: Options = {}) {
             current.usage.main += event.usage.totalTokens;
             current.usage.input += event.usage.input;
             current.usage.output += event.usage.output;
-            current.usage.cost += event.usage.cost.total;
+            // The SDK cost block reports zero for an unmapped target, so the
+            // owner's running total follows the project estimate instead.
+            if (event.usage.costEstimate === null)
+              current.usage.costUnknown += 1;
+            else current.usage.cost += event.usage.costEstimate;
             if (event.thinking) {
               const thought = await fact(
                 conversationId,
@@ -1443,9 +1546,18 @@ export function createPiConversationCoordinator(options: Options = {}) {
               {
                 invocationId: event.invocationId,
                 stopReason: event.stopReason,
+                ...(event.usage ? { usage: event.usage, purpose: "main" } : {}),
               },
               turnId,
             );
+            if (event.usage) {
+              current.usage.main += event.usage.totalTokens;
+              current.usage.input += event.usage.input;
+              current.usage.output += event.usage.output;
+              if (event.usage.costEstimate === null)
+                current.usage.costUnknown += 1;
+              else current.usage.cost += event.usage.costEstimate;
+            }
           }
         } catch {
           current.failure = "persistence_failed";
@@ -1685,6 +1797,18 @@ export function createPiConversationCoordinator(options: Options = {}) {
       const model = await resolveModel(
         owner.selection ? JSON.parse(owner.selection) : undefined,
       );
+      // A turn that inherited a default anchors the choice it actually made.
+      // A later default change then revalidates this choice instead of
+      // silently switching a saved owner; an explicit user change is never
+      // overwritten.
+      if (!owner.selection)
+        await updatePiConversationMetadata(conversationId, {
+          selection: JSON.stringify({
+            configurationId: model.configurationId,
+            modelId: model.modelId,
+            reasoning: model.reasoning,
+          } satisfies PiSelection),
+        });
       checkPreflight();
       await authorizeModel(conversationId, model, authorizeLocalNetwork);
       checkPreflight();
@@ -1781,12 +1905,8 @@ export function createPiConversationCoordinator(options: Options = {}) {
             },
           ],
           frozen: {
-            model: {
-              selectionRef: model.configurationId,
-              provider: model.provider,
-              modelId: model.modelId,
-              api: model.api,
-            },
+            // Canonical safe selection evidence, written once for this turn.
+            model: projectPiCanonicalSelection(model),
             resources: accepted.map((resource) => ({
               ref: resource.ref,
               kind: resource.kind,
@@ -2095,6 +2215,11 @@ export function createPiConversationCoordinator(options: Options = {}) {
       let inputTokens = 0;
       let outputTokens = 0;
       let cost = 0;
+      let titleInvocationId: string | undefined;
+      let titleSelectionRef: string | undefined;
+      let titleCostEstimate: number | null = null;
+      let titleCostState: PiCostState = "unknown";
+      let titleUsageKnown = false;
       let provider = "";
       let modelId = "";
       let failure: string | undefined;
@@ -2123,6 +2248,17 @@ export function createPiConversationCoordinator(options: Options = {}) {
         if (!localApproved) throw new Error("pi_local_network_unapproved");
         provider = model.provider;
         modelId = model.modelId;
+        titleSelectionRef = (
+          await fact(
+            conversationId,
+            "model_selection",
+            {
+              purpose: "title",
+              model: json(projectPiCanonicalSelection(model)),
+            },
+            titleTurnId,
+          )
+        ).entry.entryId;
         const session = options.execution
           ? new PiRuntime().openSession({
               sessionId: `${conversationId}:title`,
@@ -2216,15 +2352,24 @@ export function createPiConversationCoordinator(options: Options = {}) {
               inputTokens += event.usage.input;
               outputTokens += event.usage.output;
               cost += event.usage.cost.total;
+              titleInvocationId = event.invocationId;
+              titleCostEstimate = event.usage.costEstimate;
+              titleCostState = event.usage.costState;
+              titleUsageKnown = event.usage.usageKnown;
+            } else if (event.kind === "invocation_terminal" && event.usage) {
+              usage += event.usage.totalTokens;
+              inputTokens += event.usage.input;
+              outputTokens += event.usage.output;
+              titleInvocationId = event.invocationId;
+              titleCostEstimate = event.usage.costEstimate;
+              titleCostState = event.usage.costState;
+              titleUsageKnown = event.usage.usageKnown;
             }
           },
         });
         controller.signal.addEventListener("abort", () => turn.abort(), {
           once: true,
         });
-        // The title's real completion is the provider's exit, not the bounded
-        // logical result, so a deletion that deferred on this work waits on the
-        // physical fact instead of the answer it was already given.
         // The title's real completion is the provider's exit, not the
         // bounded logical result. Registering it is what lets a permanent
         // delete finish: without it the lease looks permanently occupied and
@@ -2271,14 +2416,22 @@ export function createPiConversationCoordinator(options: Options = {}) {
         // otherwise resurrect an owner the user already asked to delete.
         if (fresh && ["active", "archived"].includes(fresh.lifecycle)) {
           state(conversationId).usage.title += usage;
-          state(conversationId).usage.titleCost += cost;
+          if (titleCostEstimate === null)
+            state(conversationId).usage.costUnknown += 1;
+          else state(conversationId).usage.titleCost += titleCostEstimate;
           await fact(conversationId, "title_usage", {
+            purpose: "title",
+            invocationId: titleInvocationId,
+            selectionRef: titleSelectionRef,
             provider,
             modelId,
             inputTokens,
             outputTokens,
             totalTokens: usage,
             cost,
+            costEstimate: titleCostEstimate,
+            costState: titleCostState,
+            usageKnown: titleUsageKnown,
             ...(failure ? { failure } : {}),
           }).catch(() => {});
           emit(conversationId, ["navigation", "presentation", "details"]);

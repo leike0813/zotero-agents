@@ -210,6 +210,68 @@ describe("Pi Conversation titles", function () {
     await coordinator.dispose();
   });
 
+  it("keeps an unpriced title unknown and never folds it into the main total", async function () {
+    setAuxiliaryDefault(true);
+    const coordinator = createPiConversationCoordinator({
+      root,
+      resolveModel: async (selection) =>
+        selection?.configurationId === "aux" ? AUX_MODEL : MAIN_MODEL,
+      execution: (selection) =>
+        createPiTextProviderSource({
+          steps: [
+            {
+              text:
+                selection.configurationId === "aux"
+                  ? "Generated Title"
+                  : "Assistant reply",
+              usage: {
+                input: 120,
+                output: 20,
+                cacheRead: 0,
+                cacheWrite: 0,
+                totalTokens: 140,
+                cost: {
+                  input: 0,
+                  output: 0,
+                  cacheRead: 0,
+                  cacheWrite: 0,
+                  total: 0,
+                },
+              },
+            },
+          ],
+        }),
+      definitions: async () => [],
+    });
+    await coordinator.create();
+    const conversationId = coordinator.selectedId!;
+    await (
+      await coordinator.send(conversationId, "Explain quantum tunneling")
+    ).result;
+    await coordinator.waitForTitle(conversationId);
+    const view = await coordinator.readModel(conversationId);
+    // No selection in this fixture declares a price, so the title's cost stays
+    // unknown: it is not a zero, and it is never folded into the main total.
+    assert.equal(view.usage.titleCost, 0);
+    assert.equal(view.usage.cost, 0);
+    assert.equal(view.usage.costUnknown, 2);
+    const usage = (
+      await inspectPiOwner(
+        { kind: "conversation", ownerId: conversationId },
+        root,
+      )
+    ).entries.find((entry) => entry.kind === "title_usage");
+    const payload = usage!.payload as {
+      purpose: string;
+      costEstimate: number | null;
+      costState: string;
+    };
+    assert.equal(payload.purpose, "title");
+    assert.isNull(payload.costEstimate);
+    assert.equal(payload.costState, "unknown");
+    await coordinator.dispose();
+  });
+
   const fallbackCases: Array<{ text: string; title: string; why: string }> = [
     {
       text: "Summarize battery chemistry",

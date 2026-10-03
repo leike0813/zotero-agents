@@ -406,6 +406,10 @@ export type BackendManagerActionName =
   | "pi-set-defaults"
   | "pi-refresh-overlay"
   | "pi-catalog-query"
+  | "pi-catalog-refresh-public"
+  | "pi-catalog-set-auto-update"
+  | "pi-catalog-restore-previous"
+  | "pi-catalog-remove-overlay"
   | "pi-put-credential"
   | "pi-delete-credential"
   | "pi-test-connection"
@@ -478,6 +482,11 @@ export type BackendManagerBuiltinAgentSnapshot = {
     modelCount: number;
     providers: string[];
     error?: string;
+    /**
+     * Bounded, safe public/overlay/account source state. Never carries the
+     * directory itself, credentials or private paths.
+     */
+    state?: import("./piProviderContract").PiCatalogSourceState;
   };
   models: Array<
     Pick<
@@ -534,6 +543,19 @@ export type BackendManagerActionPayloadMap = {
     provider: string;
     query: string;
     credentialId?: string;
+    requestId: string;
+  }>;
+  "pi-catalog-refresh-public": DashboardActionPayloadShape<{
+    requestId: string;
+  }>;
+  "pi-catalog-set-auto-update": DashboardActionPayloadShape<{
+    enabled: boolean;
+    requestId: string;
+  }>;
+  "pi-catalog-restore-previous": DashboardActionPayloadShape<{
+    requestId: string;
+  }>;
+  "pi-catalog-remove-overlay": DashboardActionPayloadShape<{
     requestId: string;
   }>;
   "pi-codex-refresh-models": DashboardActionPayloadShape<{

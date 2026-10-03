@@ -60,6 +60,7 @@ import type {
   BackendManagerBuiltinAgentSnapshot,
 } from "../../../shared/dashboardWireContract";
 import type { PiCatalog } from "../../piModelCatalog";
+import type { PiCatalogSourceState } from "../../../shared/piProviderContract";
 import { type PiMcpSource } from "../../piMcpSourceRegistry";
 import { type PiWebSource } from "../../../shared/piWebSourceContract";
 import {
@@ -244,6 +245,149 @@ const HTML_NS = "http://www.w3.org/1999/xhtml";
 let activeBackendManagerFrameWindow: Window | null = null;
 let activePiCatalog: PiCatalog | null = null;
 let activePiCatalogError = "";
+
+/**
+ * Safe projection of the catalog source state, kept next to the catalog so a
+ * failure can never drop it.
+ */
+let activePiCatalogState: PiCatalogSourceState | undefined;
+
+/** Single writer for the catalog pair so state can never drift from data. */
+function adoptPiCatalog(catalog: PiCatalog | null) {
+  activePiCatalog = catalog;
+  activePiCatalogState = projectPiCatalogSourceState(catalog?.state);
+}
+
+/**
+ * The Backend Manager is a safety boundary for the directory: the page may see
+ * only whitelisted source facts. Anything unrecognised is dropped rather than
+ * passed through, because the catalog owner re-normalizes an untrusted
+ * persisted cache before it reaches this module.
+ */
+function projectPiCatalogSourceState(
+  state: PiCatalog["state"],
+): PiCatalogSourceState | undefined {
+  if (!state || typeof state !== "object") return undefined;
+  const oneOf = <T extends string>(value: unknown, allowed: readonly T[]) =>
+    typeof value === "string" && allowed.includes(value as T)
+      ? (value as T)
+      : undefined;
+  const time = (value: unknown) =>
+    typeof value === "string" && value.length <= 64 ? value : undefined;
+  const source = oneOf(state.source, ["seed", "current", "previous"] as const);
+  const status = oneOf(state.status, [
+    "idle",
+    "checking",
+    "offline",
+    "failed",
+  ] as const);
+  if (!source || !status) return undefined;
+  const error = oneOf(state.error, [
+    "network",
+    "timeout",
+    "canceled",
+    "too_large",
+    "incompatible",
+    "invalid",
+    "persistence",
+    "closed",
+  ] as const);
+  const overlayStatus = oneOf(state.overlayStatus, [
+    "none",
+    "cached",
+    "refreshed",
+    "failed",
+  ] as const);
+  const accounts: NonNullable<PiCatalogSourceState["accounts"]> = {};
+  for (const [id, account] of Object.entries(state.accounts || {}).slice(
+    0,
+    50,
+  )) {
+    const accountStatus = oneOf(account?.status, [
+      "idle",
+      "checking",
+      "failed",
+    ] as const);
+    const accountError = oneOf(account?.error, [
+      "provider_auth_failed",
+      "credential_missing",
+      "network",
+      "timeout",
+      "too_large",
+    ] as const);
+    if (!id || !accountStatus) continue;
+    accounts[id] = {
+      status: accountStatus,
+      ...(time(account?.checkedAt)
+        ? { checkedAt: time(account.checkedAt) }
+        : {}),
+      ...(accountError ? { error: accountError } : {}),
+    };
+  }
+  return {
+    source,
+    revision:
+      typeof state.revision === "string" ? state.revision.slice(0, 128) : "",
+    schemaVersion:
+      typeof state.schemaVersion === "number" &&
+      Number.isFinite(state.schemaVersion)
+        ? state.schemaVersion
+        : 0,
+    runtimeVersion:
+      typeof state.runtimeVersion === "string"
+        ? state.runtimeVersion.slice(0, 32)
+        : "",
+    status,
+    ...(error ? { error } : {}),
+    ...(time(state.checkedAt) ? { checkedAt: time(state.checkedAt) } : {}),
+    ...(time(state.updatedAt) ? { updatedAt: time(state.updatedAt) } : {}),
+    autoUpdate: state.autoUpdate !== false,
+    canRestore: state.canRestore === true,
+    overlayStatus: overlayStatus || "none",
+    ...(Object.keys(accounts).length ? { accounts } : {}),
+  };
+}
+
+/** Bounded failure code; raw catalog errors may name private paths. */
+function safePiCatalogFailureCode(error: unknown): string {
+  const code =
+    error && typeof error === "object" && "code" in error
+      ? String((error as { code?: unknown }).code || "")
+      : "";
+  return /^[a-z][a-z0-9_]{0,39}$/.test(code) ? code : "catalog_unavailable";
+}
+
+const PI_CATALOG_SOURCE_ACTIONS = new Set<string>([
+  "pi-catalog-refresh-public",
+  "pi-catalog-set-auto-update",
+  "pi-catalog-restore-previous",
+  "pi-catalog-remove-overlay",
+]);
+
+async function runPiCatalogSourceAction(
+  action: string,
+  payload: Record<string, unknown>,
+  signal: AbortSignal | undefined,
+): Promise<{ catalog: PiCatalog; ok: boolean; code?: string }> {
+  const catalog = await requireBackendManagerPi().loadPiModelCatalog();
+  let next: PiCatalog;
+  if (action === "pi-catalog-refresh-public")
+    next = await catalog.refreshPiPublicModelCatalog({ signal });
+  else if (action === "pi-catalog-set-auto-update")
+    next = await catalog.setPiModelCatalogAutoUpdate(payload.enabled === true);
+  else if (action === "pi-catalog-restore-previous")
+    next = await catalog.restorePiPreviousModelCatalog();
+  else next = await catalog.removePiModelOverlay();
+  // A public refresh resolves with the retained catalog instead of throwing,
+  // so its failure has to be read off the returned state rather than assumed.
+  const code =
+    action === "pi-catalog-refresh-public"
+      ? projectPiCatalogSourceState(next.state)?.error
+      : undefined;
+  return code
+    ? { catalog: next, ok: false, code }
+    : { catalog: next, ok: true };
+}
 
 function createHtmlElement<K extends keyof HTMLElementTagNameMap>(
   doc: Document,
@@ -2695,6 +2839,70 @@ function buildBackendManagerLabels() {
       "backend-manager-pi-refresh",
       "Import / refresh",
     ),
+    piCatalog: localizeBackendManager(
+      "backend-manager-pi-catalog",
+      "Model catalog",
+    ),
+    piCatalogSourceSeed: localizeBackendManager(
+      "backend-manager-pi-catalog-source-seed",
+      "Bundled seed",
+    ),
+    piCatalogSourceCurrent: localizeBackendManager(
+      "backend-manager-pi-catalog-source-current",
+      "Official catalog",
+    ),
+    piCatalogSourcePrevious: localizeBackendManager(
+      "backend-manager-pi-catalog-source-previous",
+      "Previous catalog",
+    ),
+    piCatalogStatusChecking: localizeBackendManager(
+      "backend-manager-pi-catalog-checking",
+      "Checking for updates",
+    ),
+    piCatalogStatusOffline: localizeBackendManager(
+      "backend-manager-pi-catalog-offline",
+      "Offline",
+    ),
+    piCatalogStatusFailed: localizeBackendManager(
+      "backend-manager-pi-catalog-failed",
+      "Update failed",
+    ),
+    piCatalogRetained: localizeBackendManager(
+      "backend-manager-pi-catalog-retained",
+      "Showing retained catalog",
+    ),
+    piCatalogAutoUpdate: localizeBackendManager(
+      "backend-manager-pi-catalog-auto-update",
+      "Automatic updates",
+    ),
+    piCatalogRefreshPublic: localizeBackendManager(
+      "backend-manager-pi-catalog-refresh",
+      "Update now",
+    ),
+    piCatalogUpdated: localizeBackendManager(
+      "backend-manager-pi-catalog-updated",
+      "Catalog updated",
+    ),
+    piCatalogRestore: localizeBackendManager(
+      "backend-manager-pi-catalog-restore",
+      "Restore previous catalog",
+    ),
+    piCatalogRestored: localizeBackendManager(
+      "backend-manager-pi-catalog-restored",
+      "Previous catalog restored",
+    ),
+    piOverlayRemove: localizeBackendManager(
+      "backend-manager-pi-overlay-remove",
+      "Remove overlay",
+    ),
+    piOverlayRemoved: localizeBackendManager(
+      "backend-manager-pi-overlay-removed",
+      "Overlay removed",
+    ),
+    piCatalogUnavailable: localizeBackendManager(
+      "backend-manager-pi-catalog-unavailable",
+      "Catalog update unavailable",
+    ),
     addProfile: localizeBackendManager(
       "backend-manager-provider-add",
       "Add { $provider } Profile",
@@ -3022,6 +3230,7 @@ function buildBackendManagerSnapshot(
             ).sort()
           : [],
         ...(activePiCatalogError ? { error: activePiCatalogError } : {}),
+        ...(activePiCatalogState ? { state: activePiCatalogState } : {}),
       },
       models: [],
     },
@@ -3116,9 +3325,13 @@ export async function openBackendManagerDialog(
   }
   activePiCatalog = null;
   activePiCatalogError = "";
+  activePiCatalogState = undefined;
   let activePiCodexLogin:
     | { requestId: string; credentialId: string; controller: AbortController }
     | undefined;
+  let removePiCatalogSubscription: (() => void) | undefined;
+  let piCatalogObserverClosed = false;
+  let piCatalogActionController: AbortController | undefined;
 
   const alertWindow = getAlertWindow(args?.window);
   const initialProviderType = normalizeBackendManagerProviderType(
@@ -3229,7 +3442,7 @@ export async function openBackendManagerDialog(
             current?.credentialRef !== configuration.credentialRef
           )
             throw new Error("Provider unavailable");
-          activePiCatalog = next;
+          adoptPiCatalog(next);
           activePiCatalogError = "";
         } finally {
           clearTimeout(timeout);
@@ -3266,23 +3479,34 @@ export async function openBackendManagerDialog(
           pushSnapshot("backend-manager-dialog:init");
           void (async () => {
             try {
-              const { loadPiModelCatalog, refreshPiModelCatalog } =
+              // Configuration loading stays offline on the adopted cache; the
+              // overlay is only re-read by an explicit user refresh.
+              const { loadPiModelCatalog } =
                 await requireBackendManagerPi().loadPiModelCatalog();
-              try {
-                activePiCatalog = await refreshPiModelCatalog({
-                  overlayPath:
-                    loadPiProviderConfigurationState().overlayPath || undefined,
-                });
-                activePiCatalogError = "";
-              } catch {
-                activePiCatalog = await loadPiModelCatalog();
-                activePiCatalogError = "Catalog overlay could not be loaded";
-              }
+              adoptPiCatalog(await loadPiModelCatalog());
+              activePiCatalogError = "";
             } catch {
-              activePiCatalog = null;
+              adoptPiCatalog(null);
               activePiCatalogError = "Model catalog is unavailable";
             }
             pushSnapshot("backend-manager-dialog:snapshot");
+            // Lifecycle-owned checks publish here; this window only observes
+            // and unsubscribes on unload.
+            try {
+              const { subscribePiModelCatalog } =
+                await requireBackendManagerPi().loadPiModelCatalog();
+              const unsubscribe = subscribePiModelCatalog((next: PiCatalog) => {
+                adoptPiCatalog(next);
+                activePiCatalogError = "";
+                pushSnapshot("backend-manager-dialog:snapshot");
+              });
+              // The window may have closed while the lazy edge resolved.
+              if (piCatalogObserverClosed) unsubscribe();
+              else removePiCatalogSubscription = unsubscribe;
+            } catch {
+              // Offline-only observation: a window without the observer still
+              // serves explicit user actions.
+            }
           })();
           return;
         }
@@ -3443,11 +3667,13 @@ export async function openBackendManagerDialog(
                 await deletePiCredential(credentialId);
                 catalogController?.abort();
                 if (activePiCatalog)
-                  activePiCatalog = await (
-                    await requireBackendManagerPi().loadPiModelCatalog()
-                  ).removePiCodexCredentialModels(
-                    activePiCatalog,
-                    credentialId,
+                  adoptPiCatalog(
+                    await (
+                      await requireBackendManagerPi().loadPiModelCatalog()
+                    ).removePiCodexCredentialModels(
+                      activePiCatalog,
+                      credentialId,
+                    ),
                   );
               } else if (action === "pi-codex-refresh-models") {
                 await refreshCodexModels(String(payload.configurationId || ""));
@@ -3473,11 +3699,49 @@ export async function openBackendManagerDialog(
                 const { refreshPiModelCatalog } =
                   await requireBackendManagerPi().loadPiModelCatalog();
                 const path = String(payload.path || "").trim();
-                activePiCatalog = await refreshPiModelCatalog({
-                  overlayPath: path || undefined,
-                });
+                adoptPiCatalog(
+                  await refreshPiModelCatalog({
+                    overlayPath: path || undefined,
+                  }),
+                );
                 setPiOverlayPath(path);
                 activePiCatalogError = "";
+              } else if (PI_CATALOG_SOURCE_ACTIONS.has(action)) {
+                const requestId = String(payload.requestId || "");
+                if (!requestId) throw new Error("Request id is required");
+                const AbortControllerCtor =
+                  resolveNativeAbortControllerConstructor(dialogWindow);
+                if (!AbortControllerCtor)
+                  throw new Error("Provider unavailable");
+                // Source-scoped joining: the signal releases this window's
+                // waiter. The owner only cancels once no waiter remains, so
+                // another window's pending update survives our unload.
+                piCatalogActionController?.abort();
+                const controller = new AbortControllerCtor();
+                piCatalogActionController = controller;
+                let outcome!: Awaited<
+                  ReturnType<typeof runPiCatalogSourceAction>
+                >;
+                try {
+                  outcome = await runPiCatalogSourceAction(
+                    action,
+                    payload,
+                    controller.signal,
+                  );
+                } finally {
+                  if (piCatalogActionController === controller)
+                    piCatalogActionController = undefined;
+                }
+                adoptPiCatalog(outcome.catalog);
+                activePiCatalogError = "";
+                postToFrame("backend-manager-dialog:action-result", {
+                  action,
+                  requestId,
+                  ok: outcome.ok,
+                  ...(outcome.code ? { error: outcome.code } : {}),
+                });
+                pushSnapshot("backend-manager-dialog:snapshot");
+                return;
               } else if (action === "pi-put-credential") {
                 await putPiCredential({
                   id: String(payload.id || "").trim() || randomId(),
@@ -3715,6 +3979,7 @@ export async function openBackendManagerDialog(
                 action === "pi-delete-credential" ||
                 action === "pi-test-connection" ||
                 action === "pi-export-diagnostics";
+              const catalogSourceAction = PI_CATALOG_SOURCE_ACTIONS.has(action);
               const authFailure =
                 action === "pi-codex-connect" &&
                 error instanceof
@@ -3758,18 +4023,23 @@ export async function openBackendManagerDialog(
                       requestId: String(payload.requestId || ""),
                       code: failureCode,
                     }
-                  : {
-                      error: action.startsWith("pi-mcp-")
-                        ? error instanceof Error &&
-                          /^(mcp_[a-z0-9_]+|oauth_not_supported)$/.test(
-                            error.message,
-                          )
-                          ? error.message
-                          : "mcp_source_unavailable"
-                        : sensitive
-                          ? "Pi action failed"
-                          : String(error),
-                    }),
+                  : catalogSourceAction
+                    ? {
+                        requestId: String(payload.requestId || ""),
+                        error: safePiCatalogFailureCode(error),
+                      }
+                    : {
+                        error: action.startsWith("pi-mcp-")
+                          ? error instanceof Error &&
+                            /^(mcp_[a-z0-9_]+|oauth_not_supported)$/.test(
+                              error.message,
+                            )
+                            ? error.message
+                            : "mcp_source_unavailable"
+                          : sensitive
+                            ? "Pi action failed"
+                            : String(error),
+                      }),
               });
             }
           })();
@@ -4006,6 +4276,15 @@ export async function openBackendManagerDialog(
     },
     unloadCallback: () => {
       activePiCodexLogin?.controller.abort();
+      // Releases this window's waiter on a shared public request; the owner
+      // cancels only when no authorized waiter remains.
+      piCatalogActionController?.abort();
+      piCatalogActionController = undefined;
+      // Releasing the observer, never the shared source work: other windows
+      // may still be waiting on the same public request.
+      removePiCatalogSubscription?.();
+      removePiCatalogSubscription = undefined;
+      piCatalogObserverClosed = true;
       if (removeMessageListener) {
         removeMessageListener();
         removeMessageListener = undefined;

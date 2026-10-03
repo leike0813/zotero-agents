@@ -11,6 +11,7 @@ import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStor
 import { installPluginStateNodeSqliteAdapter } from "../helpers/pluginStateNodeSqliteAdapter";
 import type { PiModelSelectionSnapshot } from "../../src/shared/piProviderContract";
 import { createPiTextProviderSource } from "../../src/modules/piRuntime";
+import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import {
   createPiConversationWorkspaceSurfaceAdapter,
   createPiConversationWorkspaceOwner,
@@ -376,6 +377,58 @@ describe("Pi Conversation integration", function () {
     await coordinator.dispose();
   });
 
+  it("anchors a new turn to the last actual selection when the default moves", async function () {
+    let current: PiModelSelectionSnapshot = model;
+    const resolved: string[] = [];
+    const coordinator = createPiConversationCoordinator({
+      root,
+      // Mirrors the production resolver: an explicit owner selection wins over
+      // whatever the global default currently is.
+      resolveModel: async (ownerSelection) => {
+        resolved.push(ownerSelection?.modelId ?? current.modelId);
+        return ownerSelection
+          ? {
+              ...current,
+              modelId: ownerSelection.modelId!,
+              selectionId: "selection-anchored",
+            }
+          : current;
+      },
+      definitions: async () => [],
+      modelSource: () =>
+        async function* () {
+          yield "Answer";
+        },
+    });
+    await coordinator.create();
+    const id = coordinator.selectedId!;
+    assert.equal(
+      (await (await coordinator.send(id, "First")).result).status,
+      "completed",
+    );
+    // The default moves while the owner is saved and no explicit change exists.
+    current = {
+      ...model,
+      modelId: "other-default",
+      catalogRevision: "catalog-2",
+    };
+    await (
+      await coordinator.send(id, "Second")
+    ).result;
+    assert.notInclude(resolved, "other-default");
+    assert.equal(resolved.at(-1), "test");
+    const selections = (
+      await inspectPiOwner({ kind: "conversation", ownerId: id }, root)
+    ).entries
+      .filter((entry) => entry.kind === "turn_started")
+      .map((entry) => (entry.payload as { model?: { modelId: string } }).model);
+    assert.deepEqual(
+      selections.map((item) => item?.modelId),
+      ["test", "test"],
+    );
+    await coordinator.dispose();
+  });
+
   it("compacts settled history and uses the committed summary in the next invocation", async function () {
     const contexts: string[][] = [];
     const coordinator = createPiConversationCoordinator({
@@ -427,6 +480,110 @@ describe("Pi Conversation integration", function () {
     assert.isTrue(
       contexts.at(-1)!.some((text) => text.includes("Condensed history")),
     );
+    await coordinator.dispose();
+  });
+
+  it("records the real structured terminal of a compaction instead of estimating tokens", async function () {
+    const coordinator = createPiConversationCoordinator({
+      root,
+      resolveModel: async () => model,
+      definitions: async () => [],
+      modelSource: () =>
+        async function* () {
+          yield "Answer";
+        },
+      compactionExecution: () => {
+        const base = createPiTextProviderSource({ steps: [{ text: "" }] });
+        return {
+          model: base.model,
+          source: async (request) => {
+            const payload = JSON.parse(
+              (request.context.messages.at(-1) as { content: string }).content,
+            ) as Record<string, unknown>;
+            const summary = JSON.stringify({
+              schemaVersion: 1,
+              inputDigest: payload.inputDigest,
+              coveredEntryIds: payload.coveredEntryIds,
+              retainedEntryIds: payload.retainedEntryIds,
+              goals: ["Condensed history"],
+              decisions: [],
+              constraints: [],
+              unfinishedWork: [],
+              artifactRefs: [],
+              effectReceiptRefs: [],
+              unresolved: [],
+              facts: [],
+            });
+            const message = {
+              role: "assistant" as const,
+              content: [{ type: "text" as const, text: summary }],
+              api: model.api,
+              provider: model.provider,
+              model: model.modelId,
+              stopReason: "stop" as const,
+              timestamp: 0,
+            };
+            const stream = createAssistantMessageEventStream();
+            stream.push({
+              type: "start",
+              partial: { ...message, stopReason: "pending" as const },
+            });
+            stream.push({
+              type: "text_delta",
+              contentIndex: 0,
+              delta: summary,
+              partial: { ...message, stopReason: "pending" as const },
+            });
+            stream.push({
+              type: "done",
+              reason: "stop",
+              message: {
+                ...message,
+                usage: {
+                  input: 800,
+                  output: 120,
+                  cacheRead: 0,
+                  cacheWrite: 0,
+                  totalTokens: 920,
+                  cost: {
+                    input: 0,
+                    output: 0,
+                    cacheRead: 0,
+                    cacheWrite: 0,
+                    total: 0,
+                  },
+                },
+              },
+            });
+            return stream;
+          },
+        };
+      },
+    });
+    await coordinator.create();
+    const id = coordinator.selectedId!;
+    await (
+      await coordinator.send(id, "First")
+    ).result;
+    await coordinator.compact(id);
+    const usageFact = (
+      await inspectPiOwner({ kind: "conversation", ownerId: id }, root)
+    ).entries.find((entry) => entry.kind === "compaction_usage");
+    assert.isOk(usageFact, "compaction publishes its own usage fact");
+    const payload = usageFact!.payload as {
+      purpose: string;
+      selectionRef: string;
+      usage: Record<string, unknown>;
+    };
+    assert.equal(payload.purpose, "compaction");
+    assert.equal(payload.usage.input, 800);
+    assert.equal(payload.usage.totalTokens, 920);
+    assert.isTrue(payload.usage.usageKnown);
+    const selection = (
+      await inspectPiOwner({ kind: "conversation", ownerId: id }, root)
+    ).entries.find((entry) => entry.entryId === payload.selectionRef);
+    assert.equal(selection?.kind, "model_selection");
+    assert.notInclude(JSON.stringify(selection?.payload), "baseUrl");
     await coordinator.dispose();
   });
 
@@ -507,6 +664,103 @@ describe("Pi Conversation integration", function () {
         await inspectPiOwner({ kind: "conversation", ownerId: id }, root)
       ).entries.some((entry) => entry.kind === "compaction"),
     );
+    await coordinator.dispose();
+  });
+
+  it("revalidates its selection on a permission continuation instead of reusing the frozen model", async function () {
+    let catalogRevision = "catalog-1";
+    const resolved: string[] = [];
+    const coordinator = createPiConversationCoordinator({
+      root,
+      resolveModel: async (ownerSelection) => {
+        resolved.push(catalogRevision);
+        return {
+          ...model,
+          catalogRevision,
+          selectionId: `selection-${catalogRevision}`,
+        };
+      },
+      definitions: async () => [
+        {
+          capabilityId: "test.write",
+          name: "write_fact",
+          description: "Apply a controlled effect",
+          schema: { type: "object", additionalProperties: false },
+          minimumEffects: ["external-mutation"],
+          maxResultBytes: 1024,
+          classify: () => ({
+            effects: ["external-mutation"],
+            authorizationKeys: [],
+            resourceKeys: ["external"],
+            cost: 1,
+          }),
+          execute: async () => ({
+            status: "completed",
+            effectCertainty: "confirmed_complete",
+            value: { ok: true },
+          }),
+        },
+      ],
+      execution: () =>
+        createPiTextProviderSource({
+          steps: [
+            {
+              text: "Working",
+              toolCalls: [
+                { callId: "write-1", name: "write_fact", arguments: {} },
+              ],
+            },
+            { text: "Finished" },
+          ],
+        }),
+    });
+    await coordinator.create();
+    const id = coordinator.selectedId!;
+    assert.equal(
+      (await (await coordinator.send(id, "First")).result).status,
+      "waiting_permission",
+    );
+    // The owner is waiting on a permission decision. The directory moves while
+    // it waits, exactly as it would across a restart.
+    catalogRevision = "catalog-2";
+    const held = await coordinator.readModel(id);
+    const call = held.pending[0];
+    assert.isOk(call, "the owner is holding a tool call");
+    const continued = await coordinator.permission(
+      id,
+      call!.call.callId,
+      "approve",
+    );
+    assert.isOk(continued);
+    await continued!.result;
+    const ownerEntries = async () =>
+      (await inspectPiOwner({ kind: "conversation", ownerId: id }, root))
+        .entries;
+    // The continuation is the same turn. Its boundary re-states no selection:
+    // the turn keeps the model it froze instead of re-resolving one.
+    const continuedBoundaries = (await ownerEntries()).filter(
+      (entry) => entry.kind === "turn_started",
+    );
+    assert.lengthOf(continuedBoundaries, 2);
+    assert.isUndefined(
+      (continuedBoundaries[1].payload as { model?: unknown }).model,
+    );
+    await (
+      await coordinator.send(id, "Second")
+    ).result;
+    const started = (await ownerEntries())
+      .filter((entry) => entry.kind === "turn_started")
+      .map(
+        (entry) =>
+          (entry.payload as { model?: { catalogRevision: string } }).model,
+      );
+    assert.deepEqual(
+      started.map((item) => item?.catalogRevision),
+      ["catalog-1", undefined, "catalog-2"],
+    );
+    // The new turn revalidated current metadata; it never replayed the model
+    // the previous turn froze in memory.
+    assert.deepEqual([...new Set(resolved)], ["catalog-1", "catalog-2"]);
     await coordinator.dispose();
   });
 
@@ -1199,6 +1453,68 @@ describe("Pi Conversation integration", function () {
       2,
     );
     assert.notInclude(JSON.stringify(entries), "Late");
+    await coordinator.dispose();
+  });
+
+  it("shows an unknown owner cost instead of a free total and keeps the usage rows", async function () {
+    const coordinator = createPiConversationCoordinator({
+      root,
+      resolveModel: async () => model,
+      definitions: async () => [],
+      execution: () =>
+        createPiTextProviderSource({
+          steps: [
+            {
+              text: "Answer",
+              usage: {
+                input: 900,
+                output: 100,
+                cacheRead: 0,
+                cacheWrite: 0,
+                totalTokens: 1000,
+                cost: {
+                  input: 0,
+                  output: 0,
+                  cacheRead: 0,
+                  cacheWrite: 0,
+                  total: 0,
+                },
+              },
+            },
+          ],
+        }),
+    });
+    await coordinator.create();
+    const id = coordinator.selectedId!;
+    assert.equal(
+      (await (await coordinator.send(id, "First")).result).status,
+      "completed",
+    );
+    const surface = createPiConversationWorkspaceSurfaceAdapter(coordinator);
+    const regions = await surface.readOwnerRegions({
+      owner: createPiConversationWorkspaceOwner(id),
+      kinds: ["owner-presentation", "owner-details"],
+    });
+    const presentation = regions["owner-presentation"] as {
+      usage: { used: number; costText: string | null };
+    };
+    const details = regions["owner-details"] as {
+      sections: { items: { fieldId: string; value: string }[] }[];
+    };
+    // No price applies to this selection, so the owner is never shown a total
+    // that silently reads as free.
+    assert.isNull(presentation.usage.costText);
+    assert.equal(presentation.usage.used, 1000);
+    const usageRows = details.sections
+      .find((section) =>
+        section.items.some((item) => item.fieldId === "usage-main"),
+      )
+      ?.items.map((item) => item.fieldId);
+    assert.deepEqual(usageRows, [
+      "usage-main",
+      "usage-title",
+      "usage-compaction",
+    ]);
     await coordinator.dispose();
   });
 });

@@ -1,5 +1,8 @@
 import { assert } from "chai";
-import { getCurrentTools } from "@earendil-works/pi-ai";
+import {
+  getCurrentTools,
+  createAssistantMessageEventStream,
+} from "@earendil-works/pi-ai";
 import {
   createPiRuntimeLoopGuard,
   createPiTextProviderSource,
@@ -8,6 +11,7 @@ import {
   type PiTurnResult,
 } from "../../src/modules/piRuntime";
 import { fauxTurn } from "../fixtures/pi/fauxTurn";
+import { estimatePiInvocationCost } from "../../src/shared/piUsageContract";
 import { createPiOwner } from "../../src/modules/piOwnerPersistence";
 import { piOwnerPaths } from "../../src/modules/piTranscriptStore";
 import {
@@ -1436,5 +1440,347 @@ describe("PiRuntime whole-run LoopGuard", function () {
     release();
     assert.deepEqual(await turn.result, { status: "suspended" });
     session.dispose();
+  });
+});
+
+describe("PiRuntime invocation usage accounting", function () {
+  it("records reported usage on a failed invocation without creating an assistant message", async function () {
+    const declared = createPiTextProviderSource({
+      steps: [
+        {
+          usage: {
+            input: 100,
+            output: 10,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 110,
+            cost: {
+              input: 0,
+              output: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+              total: 0,
+            },
+          },
+        },
+      ],
+    });
+    const session = new PiRuntime().openSession({
+      sessionId: "failed-usage",
+      model: declared.model,
+      pricing: { input: 2, output: 4, cacheRead: 1, cacheWrite: 3 },
+      source: async (request) => {
+        const stream = createAssistantMessageEventStream();
+        for await (const event of await declared.source(request)) {
+          if (event.type === "done")
+            stream.push({
+              type: "error",
+              reason: "error",
+              error: {
+                ...event.message,
+                stopReason: "error",
+                errorMessage: "provider_stream_error",
+              },
+            });
+          else stream.push(event);
+        }
+        return stream;
+      },
+    });
+    const events: PiRuntimeEvent[] = [];
+    const turn = session.runTurn({
+      turnId: "failure",
+      messages: [{ role: "user", text: "go" }],
+      onEvent: (event) => {
+        events.push(event);
+      },
+    });
+    assert.equal((await turn.result).status, "failed");
+    assert.isFalse(events.some((event) => event.kind === "assistant_message"));
+    const terminal = events.find(
+      (event) => event.kind === "invocation_terminal",
+    ) as PiRuntimeEvent & {
+      usage?: {
+        totalTokens: number;
+        costEstimate: number;
+        usageKnown: boolean;
+      };
+    };
+    assert.equal(terminal.usage?.totalTokens, 110);
+    assert.isTrue(terminal.usage?.usageKnown);
+    assert.closeTo(terminal.usage!.costEstimate, 240 / 1e6, 1e-12);
+    session.dispose();
+  });
+  it("prices tiers on the full prompt above the threshold and preserves long cache writes", function () {
+    const pricing = {
+      input: 2,
+      output: 4,
+      cacheRead: 1,
+      cacheWrite: 3,
+      tiers: [
+        {
+          inputTokensAbove: 100,
+          input: 4,
+          output: 8,
+          cacheRead: 2,
+          cacheWrite: 6,
+        },
+      ],
+    };
+    const tokens = {
+      input: 90,
+      output: 10,
+      cacheRead: 10,
+      cacheWrite: 0,
+      totalTokens: 110,
+    };
+    assert.closeTo(
+      estimatePiInvocationCost({ tokens, pricing, usageKnown: true }).estimate!,
+      230 / 1e6,
+      1e-12,
+    );
+    assert.closeTo(
+      estimatePiInvocationCost({
+        tokens: { ...tokens, cacheRead: 11 },
+        pricing,
+        usageKnown: true,
+      }).estimate!,
+      462 / 1e6,
+      1e-12,
+    );
+    assert.closeTo(
+      estimatePiInvocationCost({
+        tokens: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 100,
+          cacheWrite1h: 50,
+          totalTokens: 100,
+        },
+        pricing,
+        usageKnown: true,
+      }).estimate!,
+      350 / 1e6,
+      1e-12,
+    );
+  });
+  const REPORTED = {
+    input: 1_000_000,
+    output: 500_000,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 1_500_000,
+  };
+  const RATES = { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 };
+
+  async function usageOf(
+    options: {
+      usage?: typeof REPORTED;
+      pricing?: (typeof RATES & { tiers?: readonly unknown[] }) | null;
+    } = {},
+  ) {
+    const { model, source } = createPiTextProviderSource({
+      steps: [
+        {
+          text: "ok",
+          ...(options.usage
+            ? {
+                usage: {
+                  ...options.usage,
+                  cost: {
+                    input: 0,
+                    output: 0,
+                    cacheRead: 0,
+                    cacheWrite: 0,
+                    total: 0,
+                  },
+                },
+              }
+            : {}),
+        },
+      ],
+    });
+    const session = new PiRuntime().openSession({
+      sessionId: "s-usage",
+      model,
+      source,
+      ...(options.pricing !== undefined ? { pricing: options.pricing } : {}),
+    });
+    const events: PiRuntimeEvent[] = [];
+    const turn = session.runTurn({
+      turnId: "t-usage",
+      messages: [{ role: "user", text: "hi" }],
+      onEvent: (event) => {
+        events.push(event);
+      },
+    });
+    assert.equal((await turn.result).status, "completed");
+    session.dispose();
+    const assistant = events.find(
+      (event) => event.kind === "assistant_message",
+    );
+    assert.isOk(assistant, "one assistant message is published");
+    return (assistant as PiRuntimeEvent & { usage: unknown }).usage as {
+      input: number;
+      output: number;
+      totalTokens: number;
+      cost: { total: number };
+      costEstimate: number | null;
+      costState: string;
+      usageKnown: boolean;
+    };
+  }
+
+  it("estimates a settled invocation from the frozen applicable rates", async function () {
+    const usage = await usageOf({ usage: REPORTED, pricing: RATES });
+    assert.isTrue(usage.usageKnown);
+    assert.equal(usage.totalTokens, 1_500_000);
+    // 1M input at $3 plus 0.5M output at $15.
+    assert.closeTo(usage.costEstimate!, 10.5, 1e-9);
+    assert.equal(usage.costState, "estimated");
+  });
+
+  it("applies the highest reached tier to the whole request", async function () {
+    const usage = await usageOf({
+      usage: REPORTED,
+      pricing: {
+        ...RATES,
+        tiers: [
+          { ...RATES, inputTokensAbove: 0 },
+          { ...RATES, inputTokensAbove: 800_000, output: 30 },
+        ],
+      },
+    });
+    assert.closeTo(usage.costEstimate!, 18, 1e-9);
+  });
+
+  it("keeps an explicit zero rate a zero estimate rather than unknown", async function () {
+    const usage = await usageOf({
+      usage: REPORTED,
+      pricing: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    });
+    assert.equal(usage.costEstimate, 0);
+    assert.equal(usage.costState, "free");
+  });
+
+  it("leaves the estimate unknown when the selection declares no price", async function () {
+    const usage = await usageOf({ usage: REPORTED, pricing: null });
+    assert.equal(usage.costEstimate, null);
+    assert.equal(usage.costState, "unknown");
+    assert.isTrue(usage.usageKnown);
+    // The SDK's own numeric cost structure is untouched by the project estimate.
+    assert.isNumber(usage.cost.total);
+  });
+
+  it("leaves the estimate unknown when the selection declares no pricing at all", async function () {
+    const usage = await usageOf({ usage: REPORTED });
+    assert.equal(usage.costEstimate, null);
+    assert.equal(usage.costState, "unknown");
+  });
+
+  it("marks usage unknown on the text-delta seam instead of reporting free work", async function () {
+    const session = new PiRuntime().openSession({
+      sessionId: "s-usage-text",
+      modelStream: async function* () {
+        yield "ok";
+      },
+    });
+    const events: PiRuntimeEvent[] = [];
+    const turn = session.runTurn({
+      turnId: "t-usage-text",
+      messages: [{ role: "user", text: "hi" }],
+      onEvent: (event) => {
+        events.push(event);
+      },
+    });
+    assert.equal((await turn.result).status, "completed");
+    session.dispose();
+    const usage = (events.find(
+      (event) => event.kind === "assistant_message",
+    ) as (PiRuntimeEvent & { usage: Record<string, unknown> }) | undefined)!
+      .usage;
+    assert.isFalse(usage.usageKnown);
+    assert.isNull(usage.costEstimate);
+    assert.equal(usage.costState, "unknown");
+  });
+
+  it("keeps an all-zero structured report unknown without usage evidence", async function () {
+    const { model, source } = createPiTextProviderSource({
+      steps: [{ text: "ok" }],
+    });
+    // A source that cannot tell an absent usage from a measured zero says so.
+    const session = new PiRuntime().openSession({
+      sessionId: "s-usage-no-evidence",
+      model,
+      source: Object.assign(source, { usageKnown: undefined }),
+      pricing: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+    });
+    const events: PiRuntimeEvent[] = [];
+    const turn = session.runTurn({
+      turnId: "t-usage-no-evidence",
+      messages: [{ role: "user", text: "hi" }],
+      onEvent: (event) => {
+        events.push(event);
+      },
+    });
+    assert.equal((await turn.result).status, "completed");
+    session.dispose();
+    const usage = (events.find(
+      (event) => event.kind === "assistant_message",
+    ) as (PiRuntimeEvent & { usage: Record<string, unknown> }) | undefined)!
+      .usage;
+    assert.isFalse(usage.usageKnown);
+    assert.isNull(usage.costEstimate);
+    assert.equal(usage.costState, "unknown");
+  });
+
+  it("accepts a source that can prove a measured all-zero usage", async function () {
+    const { model, source } = createPiTextProviderSource({
+      steps: [
+        {
+          text: "ok",
+          usage: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 0,
+            cost: {
+              input: 0,
+              output: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+              total: 0,
+            },
+          },
+        },
+      ],
+    });
+    const session = new PiRuntime().openSession({
+      sessionId: "s-usage-evidence",
+      model,
+      source,
+      pricing: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    });
+    const events: PiRuntimeEvent[] = [];
+    const turn = session.runTurn({
+      turnId: "t-usage-evidence",
+      messages: [{ role: "user", text: "hi" }],
+      onEvent: (event) => {
+        events.push(event);
+      },
+    });
+    assert.equal((await turn.result).status, "completed");
+    session.dispose();
+    const usage = (events.find(
+      (event) => event.kind === "assistant_message",
+    ) as (PiRuntimeEvent & { usage: Record<string, unknown> }) | undefined)!
+      .usage;
+    // Proven measurement plus an explicit zero rate is a real zero, not an
+    // unknown: the caller proved both facts.
+    assert.isTrue(usage.usageKnown);
+    assert.equal(usage.costEstimate, 0);
+    assert.equal(usage.costState, "free");
   });
 });

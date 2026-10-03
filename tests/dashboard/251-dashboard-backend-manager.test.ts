@@ -517,6 +517,304 @@ describe("dashboard backend-manager page (src/dashboard)", function () {
     assert.equal(page.controller.state.rows.length, 3);
   });
 
+  it("publishes bounded directory state and correlates every directory action", async function () {
+    const page = createPage();
+    initPage(page, {
+      builtinAgent: {
+        configurations: [],
+        configurationStatus: {},
+        credentials: [],
+        mcpSources: [],
+        mcpCredentials: [],
+        mcpDiscovered: {},
+        defaults: {},
+        overlayPath: "/data/omp/models.yml",
+        catalog: {
+          status: "ready",
+          revision: "sha256-current",
+          modelCount: 12,
+          providers: ["openai"],
+          state: {
+            source: "current",
+            revision: "sha256-current",
+            schemaVersion: 1,
+            runtimeVersion: "1.0.0",
+            status: "idle",
+            checkedAt: "2026-10-03T01:00:00.000Z",
+            updatedAt: "2026-10-03T00:00:00.000Z",
+            autoUpdate: true,
+            canRestore: false,
+            overlayStatus: "cached",
+          },
+        },
+        models: [],
+      },
+    });
+    const tabs = Array.from(
+      page.root.querySelectorAll(".backend-provider-tab"),
+    );
+    clickButton(tabs[tabs.length - 1]);
+    assert.include(
+      page.root.querySelector("[data-pi-catalog-summary]")?.textContent || "",
+      "sha256-current",
+    );
+    // Only safe source state reaches the page: no directory models, no secrets,
+    // no private overlay path.
+    assert.notInclude(page.root.textContent || "", "/data/omp/models.yml");
+
+    clickButton(
+      page.root.querySelector("[data-pi-action='catalog-refresh-public']"),
+    );
+    clickButton(
+      page.root.querySelector("[data-pi-action='catalog-refresh-public']"),
+    );
+    const refreshes = page.actions.filter(
+      (entry) => entry.action === "pi-catalog-refresh-public",
+    );
+    assert.lengthOf(refreshes, 2);
+    assert.notEqual(
+      refreshes[0].payload.requestId,
+      refreshes[1].payload.requestId,
+    );
+
+    // A superseded result must not paint over a newer one.
+    page.controller.handleMessage({
+      type: "backend-manager-dialog:action-result",
+      payload: {
+        action: "pi-catalog-refresh-public",
+        ok: true,
+        requestId: refreshes[0].payload.requestId,
+      },
+    });
+    assert.notInclude(
+      page.controller.state.statusMessage?.text || "",
+      "Catalog updated",
+    );
+    page.controller.handleMessage({
+      type: "backend-manager-dialog:action-result",
+      payload: {
+        action: "pi-catalog-refresh-public",
+        ok: true,
+        requestId: refreshes[1].payload.requestId,
+      },
+    });
+    assert.include(
+      page.controller.state.statusMessage?.text || "",
+      "Catalog updated",
+    );
+
+    const autoUpdate = page.root.querySelector(
+      "[data-pi-field='catalog-auto-update']",
+    ) as HTMLInputElement;
+    assert.isTrue(autoUpdate.checked);
+    autoUpdate.checked = false;
+    autoUpdate.dispatchEvent(new window.Event("change", { bubbles: true }));
+    const auto = page.actions.find(
+      (entry) => entry.action === "pi-catalog-set-auto-update",
+    );
+    assert.isOk(auto);
+    assert.isFalse(auto?.payload.enabled);
+    assert.isOk(auto?.payload.requestId);
+
+    // Recovery stays unavailable until the owner reports a previous snapshot.
+    const restore = page.root.querySelector(
+      "[data-pi-action='catalog-restore-previous']",
+    ) as HTMLButtonElement;
+    assert.isTrue(restore.disabled);
+    page.controller.handleMessage({
+      type: "backend-manager-dialog:snapshot",
+      payload: {
+        ...page.controller.state.snapshot!,
+        builtinAgent: {
+          ...page.controller.state.snapshot!.builtinAgent!,
+          catalog: {
+            ...page.controller.state.snapshot!.builtinAgent!.catalog,
+            state: {
+              ...page.controller.state.snapshot!.builtinAgent!.catalog.state!,
+              canRestore: true,
+            },
+          },
+        },
+      },
+    });
+    clickButton(
+      page.root.querySelector("[data-pi-action='catalog-restore-previous']"),
+    );
+    assert.isOk(
+      page.actions.find(
+        (entry) => entry.action === "pi-catalog-restore-previous",
+      )?.payload.requestId,
+    );
+    clickButton(page.root.querySelector("[data-pi-action='overlay-remove']"));
+    assert.isOk(
+      page.actions.find((entry) => entry.action === "pi-catalog-remove-overlay")
+        ?.payload.requestId,
+    );
+
+    // A refresh that resolves with retained data must still report failure,
+    // and only the safe state code may reach the page.
+    page.controller.handleMessage({
+      type: "backend-manager-dialog:action-result",
+      payload: {
+        action: "pi-catalog-refresh-public",
+        ok: false,
+        error: "network",
+        requestId: refreshes[1].payload.requestId,
+      },
+    });
+    assert.include(
+      page.root.querySelector("[data-pi-catalog-summary]")?.textContent || "",
+      "sha256-current",
+    );
+    assert.include(
+      page.root.querySelector(".backend-footer-status")?.textContent || "",
+      "unavailable",
+    );
+    assert.notInclude(page.root.textContent || "", "TypeError");
+  });
+
+  it("keeps an unsaved draft, defaults and selection when the directory changes", async function () {
+    const page = createPage();
+    initPage(page, {
+      builtinAgent: {
+        configurations: [
+          {
+            id: "pi-config",
+            label: "Pi",
+            provider: "openai",
+            modelId: "chosen-model",
+            authVariant: "api-key",
+            enabled: true,
+          },
+        ],
+        configurationStatus: { "pi-config": "configured" },
+        credentials: [],
+        mcpSources: [],
+        mcpCredentials: [],
+        mcpDiscovered: {},
+        defaults: { global: { configurationId: "pi-config" } },
+        overlayPath: "",
+        catalog: {
+          status: "ready",
+          revision: "sha256-current",
+          modelCount: 2,
+          providers: ["openai"],
+          state: {
+            source: "current",
+            revision: "sha256-current",
+            schemaVersion: 1,
+            runtimeVersion: "1.0.0",
+            status: "idle",
+            autoUpdate: true,
+            canRestore: true,
+            overlayStatus: "none",
+          },
+        },
+        models: [
+          { provider: "openai", id: "chosen-model", name: "Chosen" },
+          { provider: "openai", id: "other-model", name: "Other" },
+        ],
+      },
+    });
+    const tabs = Array.from(
+      page.root.querySelectorAll(".backend-provider-tab"),
+    );
+    clickButton(tabs[tabs.length - 1]);
+    clickButton(page.root.querySelector("[data-pi-field='configuration']"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    clickButton(page.root.querySelector("[data-choice-value='pi-config']"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fireInput(page.root.querySelector("[data-pi-field='label']")!, "Unsaved");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const regions = {
+      header: page.root.querySelector('[data-region-mount="header"]')!,
+      footer: page.root.querySelector('[data-region-mount="footer"]')!,
+    };
+    const captured = captureRegionSubtrees(regions);
+
+    // A lifecycle check publishes "checking" through the subscriber.
+    page.controller.handleMessage({
+      type: "backend-manager-dialog:snapshot",
+      payload: {
+        ...page.controller.state.snapshot!,
+        builtinAgent: {
+          ...page.controller.state.snapshot!.builtinAgent!,
+          catalog: {
+            ...page.controller.state.snapshot!.builtinAgent!.catalog,
+            state: {
+              ...page.controller.state.snapshot!.builtinAgent!.catalog.state!,
+              status: "checking",
+            },
+          },
+        },
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(
+      (page.root.querySelector("[data-pi-field='label']") as HTMLInputElement)
+        .value,
+      "Unsaved",
+    );
+    assert.isTrue(
+      (
+        page.root.querySelector(
+          "[data-pi-action='catalog-refresh-public']",
+        ) as HTMLButtonElement
+      ).disabled,
+    );
+
+    // The candidate disappears and the directory falls back to the seed.
+    page.controller.handleMessage({
+      type: "backend-manager-dialog:snapshot",
+      payload: {
+        ...page.controller.state.snapshot!,
+        builtinAgent: {
+          ...page.controller.state.snapshot!.builtinAgent!,
+          catalog: {
+            status: "ready",
+            revision: "seed",
+            modelCount: 1,
+            providers: ["openai"],
+            state: {
+              source: "seed",
+              revision: "seed",
+              schemaVersion: 1,
+              runtimeVersion: "1.0.0",
+              status: "offline",
+              error: "network",
+              autoUpdate: false,
+              canRestore: true,
+              overlayStatus: "none",
+            },
+          },
+          models: [{ provider: "openai", id: "other-model", name: "Other" }],
+        },
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(
+      (page.root.querySelector("[data-pi-field='label']") as HTMLInputElement)
+        .value,
+      "Unsaved",
+    );
+    // A vanished candidate is never silently replaced by the first remaining one.
+    assert.equal(
+      (page.root.querySelector("[data-pi-field='modelId']") as HTMLInputElement)
+        .value,
+      "chosen-model",
+    );
+    assert.equal(
+      page.root
+        .querySelector("[data-pi-field='configuration']")
+        ?.getAttribute("aria-label"),
+      "Configurations: Pi",
+    );
+    assert.isOk(page.root.querySelector("[data-pi-catalog-error]"));
+    assertRegionSubtreesPreserved(regions, captured);
+  });
+
   it("shows only the current Codex device code and keeps it out of snapshots", async function () {
     const page = createPage();
     initPage(page, {

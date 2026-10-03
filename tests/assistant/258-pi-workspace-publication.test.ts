@@ -476,14 +476,24 @@ describe("Pi Conversation workspace publication", function () {
     };
     mutable.readModel = async () => ({
       ...model,
-      usage: { main: 100, title: 20, input: 0, output: 0 },
+      usage: {
+        main: 100,
+        title: 20,
+        compaction: 5,
+        input: 0,
+        output: 0,
+        cost: 0,
+        titleCost: 0,
+        compactionCost: 0,
+        costUnknown: 0,
+      },
     });
 
     const regions = await adapter.readOwnerRegions({
       owner,
       kinds: ["owner-presentation", "owner-details"],
     });
-    assert.equal(regions["owner-presentation"]?.usage?.used, 120);
+    assert.equal(regions["owner-presentation"]?.usage?.used, 125);
     const usage = regions["owner-details"]!.sections.find(
       (section) => section.sectionId === "usage",
     )!;
@@ -492,6 +502,7 @@ describe("Pi Conversation workspace publication", function () {
     );
     assert.equal(byField.get("usage-main"), "100");
     assert.equal(byField.get("usage-title"), "20");
+    assert.equal(byField.get("usage-compaction"), "5");
 
     await coordinator.dispose();
   });

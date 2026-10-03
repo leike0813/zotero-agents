@@ -268,12 +268,17 @@ This is a single-context repository using a root `CONTEXT.md` and root `docs/adr
 - 插件浏览器包只允许精确的 `provider-env.js → node:fs` 不可达导入 guard；其它 Node/Bun builtin 继续由浏览器构建拒绝。Provider 版本或导入图变动后，重跑构建和真实 Zotero 定向用例。
 - Codex 模型发现经 `piModelCatalog.ts` 使用所选加密凭据查询官方接口；用户登录或显式刷新触发网络，配置加载保持离线。发现事实按凭据隔离，删除与替换更新目录 revision 并拒绝迟到结果；缺失输出上限保持未知，由已知上下文约束输出预留。
 - Codex 授权请求在显示设备码后保持同一请求、窗口与插件实例，直到完成或用户明确取消；活动授权中的重复连接保留当前请求。
+- 独立公共模型目录由 `piModelCatalog.ts` 持有 current/previous/seed、已采用 overlay、账户发现及发布串行；`piModelCatalogData.ts` 与其共享元数据模块 `src/shared/piModelMetadata.ts` 是插件与维护工具共同使用的归一化事实源。配置加载保持离线，公共 HTTP 使用实际 Runtime 版本、30 秒和 8 MiB 上限；自动检查按上次尝试计时，间隔四小时。
+- 公共成功空快照替换整个公共目录；失败保留已采用数据。恢复先持久化再关闭自动更新，既有退休事实继续生效。overlay 只覆盖显式字段且不能放宽限制；源文件丢失时保留已采用声明，直到显式移除。账户事实按凭据身份隔离，身份替换及 shutdown 后的迟到结果不能发布。
+- 连接目标由版本化 binding 持有，目录更新不得改变已保存连接的 API/端点或重新绑定凭据。原目标无法可靠迁移时保留配置、默认选择和凭据，以 `repairRequired` 阻止新 turn；既有已配置描述独立保留，不进入公共推荐目录。
 
 # Pi Turn Preparation 硬约束
 
 - 每次 Pi 模型调用前由 `piTurnPreparation.ts` 从 C02 canonical transcript 的已选活动路径重建 context；同一 turn 的续调用沿用冻结的模型、工具和资源事实。C02 持有 transcript 与压缩 CAS，C07 持有工具合同。
 - 压缩只在已结算的 durable 边界运行，保留完整语义单元和当前 turn 输入；摘要经 schema、覆盖范围、摘要输入和预算校验后，凭 revision 与 active leaf 提交。失败保留原路径。
 - 普通模型与压缩调用前先持久化版本化 preparation record，只记录安全引用、摘要、版本和 token 统计；完整消息、凭据、授权头和用户文件绝对路径留在各自事实源或暂态 context 中。
+- 每个 turn 的适用模型元数据在调用前冻结，canonical selection 仅保存安全事实及 binding revision，preparation 与 invocation 引用该记录。新 turn 重新校验 owner 上次实际选择；同一 turn 的工具续调用和自动压缩沿用冻结事实。
+- 模型调用按 main/compaction/title 目的记录实际用量，费用仅按当次冻结费率估算；缺失用量或价格保持未知，聚合保留不完整状态。历史投影不得使用当前目录重算费用。
 
 # Pi Skill Run 执行硬约束
 

@@ -345,7 +345,20 @@ export function createPiSkillRunsWorkspaceSurfaceAdapter(
                   ]
                 : []),
             ],
-            usage: null,
+            usage: {
+              used: model.usage.main + model.usage.compaction,
+              limit: model.model?.policy?.contextWindow || 0,
+              // A run that could not price an invocation never shows a total
+              // that would read as free.
+              costText:
+                model.usage.costUnknown > 0
+                  ? null
+                  : model.usage.cost + model.usage.compactionCost > 0
+                    ? `$${(
+                        model.usage.cost + model.usage.compactionCost
+                      ).toFixed(4)}`
+                    : null,
+            },
           }),
           "owner-details": () => {
             const item = (
@@ -372,6 +385,14 @@ export function createPiSkillRunsWorkspaceSurfaceAdapter(
                     item("model", model.model?.modelId),
                     item("run-error", model.failure),
                   ].filter((entry) => entry.value),
+                },
+                {
+                  sectionId: "usage" as const,
+                  collapsed: false,
+                  items: [
+                    item("usage-main", model.usage.main),
+                    item("usage-compaction", model.usage.compaction),
+                  ].filter((entry) => entry.value !== "0"),
                 },
                 {
                   sectionId: "validation" as const,

@@ -317,12 +317,23 @@ export function createPiConversationWorkspaceSurfaceAdapter(
                 ]
               : [],
             usage: {
-              used: model.usage.main + model.usage.title,
+              used:
+                model.usage.main + model.usage.title + model.usage.compaction,
               limit: model.model?.policy.contextWindow || 0,
+              // A cost the owner could not price is never rendered as free.
               costText:
-                model.usage.cost + model.usage.titleCost > 0
-                  ? `$${(model.usage.cost + model.usage.titleCost).toFixed(4)}`
-                  : null,
+                model.usage.costUnknown > 0
+                  ? null
+                  : model.usage.cost +
+                        model.usage.titleCost +
+                        model.usage.compactionCost >
+                      0
+                    ? `$${(
+                        model.usage.cost +
+                        model.usage.titleCost +
+                        model.usage.compactionCost
+                      ).toFixed(4)}`
+                    : null,
             },
           }),
           "owner-details": () => ({
@@ -354,6 +365,11 @@ export function createPiConversationWorkspaceSurfaceAdapter(
                   {
                     fieldId: "usage-title",
                     value: String(model.usage.title),
+                    format: "text",
+                  },
+                  {
+                    fieldId: "usage-compaction",
+                    value: String(model.usage.compaction),
                     format: "text",
                   },
                 ],

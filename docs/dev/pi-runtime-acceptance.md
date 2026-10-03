@@ -4,7 +4,7 @@ C20 的验收依据是 [#26](https://github.com/leike0813/zotero-agents/issues/2
 
 ## Pi SDK 升级阶段
 
-`upgrade-builtin-pi-runtime` 固定 core/ai 为 1.0.0。Runtime 的每次 `prepareRequest` 返回完整归一化消息与执行工具，`finishTurn` 按项目等待、未知效果和取消状态结束循环；估算器使用 Pi AI 的完整指令、工具声明与消息。执行版本从根依赖声明读取，历史冻结选择不改写。模型目录独立更新、ChatGPT 登录和搜索迁移由后续 change 承担。
+`upgrade-builtin-pi-runtime` 固定 core/ai 为 1.0.0。Runtime 的每次 `prepareRequest` 返回完整归一化消息与执行工具，`finishTurn` 按项目等待、未知效果和取消状态结束循环；估算器使用 Pi AI 的完整指令、工具声明与消息。执行版本从根依赖声明读取，历史冻结选择不改写。模型目录独立更新由 `decouple-builtin-pi-model-catalog` 实现；ChatGPT 登录和搜索迁移仍由对应后续 change 承担。
 
 本阶段使用 dirty 工作树获得开发证据。具体命令、版本、失败尝试及待补矩阵见 `openspec/changes/upgrade-builtin-pi-runtime/verification.md`，不得据此完成 C20。
 
@@ -115,6 +115,31 @@ npm run check:pi-runtime-acceptance -- \
 可重复提供 `--receipt`、`--bundle` 和 `--performance`；缺失必需项返回 2，输入失败返回 1。输入只有手工确认时才填写 `confirmer`，脚本不会自动生成人工通过。JSON 保存全部尝试，Markdown 列出 blocking/status/attempt count。不能删除失败再把重跑描述为首次通过。
 
 现有 coordinator 使用 `--pi-acceptance .scaffold/pi-acceptance/summary.json --pi-xpi .scaffold/build/zotero-agents.xpi`。它重新计算 summary gates，并核对当前 HEAD 和实际 XPI 字节；Node full/lint、Host Bridge 和 content gates 仍独立生效。不得用一个 `--passed` 开关替代这些证据。
+
+## 官方模型目录维护
+
+Change B 把模型目录从随插件打包的 OMP 依赖换成 pi.dev 官方公开供给加固定 seed。目录身份是官方 `x-pi-model-catalog-revision`，与插件版本无关：在同一候选、同一 Runtime 版本上切换目录快照 A→B，观察后续新 turn 采用新元数据、当前 turn 与历史费用保持冻结。这里的 A/B 是目录快照；v0.9.0 基线 XPI 到候选 XPI 的安装升级仍按上面的独立安装链采集。
+
+维护工具是 `scripts/pi-model-catalog.ts`，三条命令都经 `src/modules/piModelCatalogData.ts` 的同一 normalizer：`check` 联网读取指定运行版本的官方目录，`check-seed` 离线校验内置 seed 或已准备工件，`prepare-seed` 把固定的官方原始输入与 provenance 写成新工件目录。请求固定为 `https://pi.dev/api/models?pi-version=<actual>&types=chat,image,classifier`，显式版本跳过 UA 推导，不带凭据且拒绝重定向。运行版本必须是精确 `X.Y.Z`，不接受 latest、范围或预发布猜测。
+
+```shell
+npm run check:pi-model-catalog -- --out .scaffold/pi-catalog/report.json
+npm run check:pi-model-catalog-seed -- --out .scaffold/pi-catalog/seed.json
+npm run prepare:pi-model-catalog-seed -- \
+  --input <downloaded-official-input.json> \
+  --revision <x-pi-model-catalog-revision> \
+  --minimum-pi-version <x-pi-model-catalog-minimum-version> \
+  --runtime <exact-runtime-version> \
+  --out .scaffold/pi-catalog/seed-artifact
+```
+
+`prepare-seed` 把原始字节和 provenance（source URL、runtime、revision、最低版本）写成指定的新文件或目录，已存在则失败；采用工件仍是审阅后的普通改动，不存在自动 seed PR。分类分开报告：`incompatible`（该版本无兼容目录，或官方最低版本高于本运行）、`schema`（必需响应头缺失，或载荷无法被同一 normalizer 解释）、`unsupported`（501 预留路由、400/401/403 请求被拒）、`network`（传输、超时、超大响应、5xx）。空目录是合法成功状态，不是故障：监测只报告事实，不另设供给健康门禁。退出码 0 全部兼容，2 供给失败，3 仅网络失败，1 输入或用法失败。
+
+2026-10-03 在本机对 1.0.0 与 0.80.7 实测：两者同为 `compatible`，revision `sha256-d28b6de6…`、最低版本 0.80.7、1529 条 chat 模型 / 41 个 provider，与内置 seed 一致；`0.80.6` 返回 404 并归为 `incompatible`。`prepare-seed` 产物的原始字节与下载文件逐字节相同。
+
+每日监测由 `.github/workflows/pi-model-catalog-compatibility.yml` 的 cron 与 workflow_dispatch 执行：candidate 取源码 manifest 的 core 精确版本；released 是事实——从最新已发布 tag 的 `package.json` 读出的 Pi SDK 精确版本，没有目录客户端的 tag（含无发布客户端）就只用 candidate，不用插件版本或 latest 推断。版本去重后逐个检查。失败沿既有 GitHub issue 流程去重——命中同名开放 issue 时追加评论，否则新建；只有 `incompatible` / `schema` / `unsupported` 开 issue，纯网络失败只记录。除该 issue 外不自动发消息，不自建镜像，不自动升级 SDK。
+
+本地开发证据包括既有 core/UI runner 中的官方 HTTP、固定 Runtime 下的目录 A→B、冻结选择和未保存配置保留。详情与实际宿主身份见 `openspec/changes/decouple-builtin-pi-model-catalog/verification.md`。这些运行加载工作树测试包；正式安装 XPI 的证据仍须由现有 E2E 与 compatibility runner 采集，绑定 clean commit、候选 XPI SHA-256、宿主身份和实际官方 HTTP 结果，并核对返回 revision 与该候选的 seed/缓存 revision。C20 仍未完成：完整 clean-candidate 宿主矩阵与人工 receipt 仍归 C20，SIWC 属于 Change C，本节开发结果不能勾选正式宿主或账号验收任务。
 
 ## 人工 inventory
 

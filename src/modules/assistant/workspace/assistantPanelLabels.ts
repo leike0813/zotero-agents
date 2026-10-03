@@ -295,6 +295,10 @@ export function buildAssistantPanelLabels() {
       emptyContexts: l("assistant-panel-drawer-empty-contexts", "No entries."),
       usageMain: l("assistant-panel-field-usage-main", "Main usage"),
       usageTitle: l("assistant-panel-field-usage-title", "Title usage"),
+      usageCompaction: l(
+        "assistant-panel-field-usage-compaction",
+        "Compaction usage",
+      ),
     },
     details: {
       title: l("assistant-panel-details-title", "Details"),

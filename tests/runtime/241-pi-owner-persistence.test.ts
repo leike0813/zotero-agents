@@ -53,6 +53,26 @@ async function rejectsWith(promise: Promise<unknown>, pattern: RegExp) {
   assert.fail(`expected rejection matching ${pattern}`);
 }
 
+const SAFE_SELECTION = {
+  selectionId: "selection-safe-ref",
+  bindingRevision: 3,
+  configurationId: "config-1",
+  provider: "openai",
+  modelId: "gpt-fixture",
+  api: "openai-responses",
+  reasoning: "high",
+  authVariant: "api-key",
+  catalogRevision: "catalog-7",
+  adapterVersion: "adapter-1",
+  runtimeVersion: "runtime-1",
+  policy: {
+    contextWindow: 128000,
+    maxTokens: 16000,
+    input: ["text", "image"],
+    supportsTools: true,
+  },
+};
+
 describe("Pi owner persistence in Node", function () {
   let root: string;
   let prior: string | undefined;
@@ -200,6 +220,290 @@ describe("Pi owner persistence in Node", function () {
     await fs.rm(path.join(dir, "index.jsonl"));
     assert.equal((await readPiOwnerPage(owner, {}, root)).entries.length, 1);
     assert.isTrue((await fs.stat(path.join(dir, "index.jsonl"))).isFile());
+  });
+
+  it("refuses a turn whose selection metadata this project does not understand", async function () {
+    const created = await createPiConversationOwner(
+      { conversationId: "unsafe-metadata" },
+      root,
+    );
+    await rejectsWith(
+      admitPiConversationTurn(
+        created.ref,
+        {
+          turnId: "turn-1",
+          expectedBasis: { revision: 0, activeLeaf: null },
+          entries: [
+            {
+              entryId: "u1",
+              kind: "message",
+              payload: { role: "user", text: "hello" },
+            },
+          ],
+          frozen: {
+            model: {
+              ...SAFE_SELECTION,
+              metadata: {
+                // A declared value carrying an undeclared nested object could
+                // smuggle an endpoint or a secret-bearing path past the
+                // canonical boundary.
+                inputLimits: {
+                  maxRequestBytes: "not-a-number",
+                  secret: "https://user:token@example.test",
+                },
+              },
+            },
+          },
+        },
+        root,
+      ),
+      /pi_conversation_frozen_model_invalid/,
+    );
+  });
+
+  it("keeps an unpriced legacy invocation unknown instead of free", async function () {
+    installPluginStateNodeSqliteAdapter();
+    const created = await createPiConversationOwner(
+      { conversationId: "legacy-usage" },
+      root,
+    );
+    await appendPiConversationFact(
+      created.ref,
+      {
+        kind: "message",
+        payload: {
+          role: "assistant",
+          text: "hi",
+          // The SDK always reported a zero cost block; that is not a price.
+          usage: {
+            input: 100,
+            output: 20,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 120,
+            cost: {
+              input: 0,
+              output: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+              total: 0,
+            },
+          },
+        },
+      },
+      root,
+    );
+    const facts = getPiConversationReadFacts("legacy-usage")!;
+    assert.equal(facts.usageTotals.totalTokens, 120);
+    assert.equal(facts.usageTotals.cost, 0);
+    assert.equal(facts.usageTotals.costUnknown, 1);
+  });
+
+  it("prices a settled invocation and keeps each purpose separate", async function () {
+    installPluginStateNodeSqliteAdapter();
+    const created = await createPiConversationOwner(
+      { conversationId: "priced-usage" },
+      root,
+    );
+    const usage = (estimate: number, tokens: number) => ({
+      input: tokens,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: tokens,
+      costEstimate: estimate,
+      costState: "estimated",
+      usageKnown: true,
+      cost: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        total: 0,
+      },
+    });
+    await appendPiConversationFact(
+      created.ref,
+      {
+        kind: "message",
+        payload: {
+          role: "assistant",
+          text: "answer",
+          invocationId: "inv-main-1",
+          usage: usage(0.25, 1000),
+        },
+      },
+      root,
+    );
+    await appendPiConversationFact(
+      created.ref,
+      {
+        kind: "model_invocation_terminal",
+        payload: {
+          invocationId: "failed-invocation",
+          stopReason: "error",
+          purpose: "main",
+          usage: usage(0.5, 2000),
+        },
+      },
+      root,
+    );
+    await appendPiConversationFact(
+      created.ref,
+      {
+        kind: "compaction_usage",
+        payload: {
+          purpose: "compaction",
+          invocationId: "inv-compact-1",
+          usage: usage(0.75, 3000),
+        },
+      },
+      root,
+    );
+    await appendPiConversationFact(
+      created.ref,
+      {
+        kind: "title_usage",
+        payload: {
+          purpose: "title",
+          invocationId: "inv-title-1",
+          provider: "openai",
+          modelId: "gpt-fixture",
+          inputTokens: 200,
+          outputTokens: 10,
+          totalTokens: 210,
+          costEstimate: 0.05,
+          costState: "estimated",
+          usageKnown: true,
+        },
+      },
+      root,
+    );
+    const facts = getPiConversationReadFacts("priced-usage")!;
+    assert.equal(facts.usageTotals.cost, 0.75);
+    assert.equal(facts.usageTotals.compactionCost, 0.75);
+    assert.equal(facts.usageTotals.titleCost, 0.05);
+    assert.equal(facts.usageTotals.totalTokens, 3000);
+    assert.equal(facts.usageTotals.compactionTokens, 3000);
+    assert.equal(facts.usageTotals.titleTokens, 210);
+    assert.equal(facts.usageTotals.costUnknown, 0);
+  });
+
+  it("deduplicates a repeated invocation identity and survives a rebuild", async function () {
+    installPluginStateNodeSqliteAdapter();
+    const created = await createPiConversationOwner(
+      { conversationId: "invocation-dedup" },
+      root,
+    );
+    const usage = {
+      input: 400,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 400,
+      costEstimate: 0.4,
+      costState: "estimated",
+      usageKnown: true,
+      cost: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        total: 0,
+      },
+    };
+    for (const entryId of ["m1", "m2"]) {
+      await appendPiConversationFact(
+        created.ref,
+        {
+          entryId,
+          kind: "message",
+          payload: {
+            role: "assistant",
+            text: "same invocation",
+            invocationId: "inv-duplicated",
+            usage,
+          },
+        },
+        root,
+      );
+    }
+    const projected = getPiConversationReadFacts("invocation-dedup")!;
+    assert.equal(projected.usageTotals.totalTokens, 400);
+    assert.equal(projected.usageTotals.cost, 0.4);
+    await rebuildPiOwnerProjections(created.ref, root);
+    const rebuilt = getPiConversationReadFacts("invocation-dedup")!;
+    assert.equal(rebuilt.usageTotals.totalTokens, 400);
+    assert.equal(rebuilt.usageTotals.cost, 0.4);
+    assert.equal(rebuilt.usageTotals.costUnknown, 0);
+  });
+
+  it("keeps a mixed owner incomplete rather than reporting a smaller complete total", async function () {
+    installPluginStateNodeSqliteAdapter();
+    const created = await createPiConversationOwner(
+      { conversationId: "mixed-usage" },
+      root,
+    );
+    await appendPiConversationFact(
+      created.ref,
+      {
+        kind: "message",
+        payload: {
+          role: "assistant",
+          text: "priced",
+          invocationId: "inv-priced",
+          usage: {
+            input: 1000,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 1000,
+            costEstimate: 0.3,
+            costState: "estimated",
+            usageKnown: true,
+            cost: {
+              input: 0,
+              output: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+              total: 0,
+            },
+          },
+        },
+      },
+      root,
+    );
+    await appendPiConversationFact(
+      created.ref,
+      {
+        kind: "compaction_usage",
+        payload: {
+          purpose: "compaction",
+          invocationId: "inv-unpriced",
+          usage: {
+            input: 500,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 500,
+            costEstimate: null,
+            costState: "unknown",
+            usageKnown: true,
+            cost: {
+              input: 0,
+              output: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+              total: 0,
+            },
+          },
+        },
+      },
+      root,
+    );
+    const facts = getPiConversationReadFacts("mixed-usage")!;
+    assert.equal(facts.usageTotals.cost, 0.3);
+    assert.equal(facts.usageTotals.costUnknown, 1);
   });
 
   it("rebuilds a failed SQLite projection from canonical JSONL", async function () {
@@ -423,6 +727,100 @@ describe("Pi owner persistence in Node", function () {
       -1,
     )?.entryId;
     assert.equal(snapshot.activeLeaf, tail);
+  });
+
+  it("stores the canonical safe selection once at the turn boundary", async function () {
+    const created = await createPiConversationOwner(
+      { conversationId: "selection-evidence" },
+      root,
+    );
+    const admitted = await admitPiConversationTurn(
+      created.ref,
+      {
+        turnId: "turn-1",
+        expectedBasis: { revision: 0, activeLeaf: null },
+        entries: [
+          {
+            entryId: "u1",
+            kind: "message",
+            payload: { role: "user", text: "hello" },
+          },
+        ],
+        frozen: {
+          model: {
+            selectionId: "selection-safe-ref",
+            bindingRevision: 3,
+            configurationId: "config-1",
+            provider: "openai",
+            modelId: "gpt-fixture",
+            api: "openai-responses",
+            reasoning: "high",
+            authVariant: "api-key",
+            catalogRevision: "catalog-7",
+            adapterVersion: "adapter-1",
+            runtimeVersion: "runtime-1",
+            policy: {
+              contextWindow: 128000,
+              maxTokens: 16000,
+              input: ["text", "image"],
+              supportsTools: true,
+            },
+            metadata: {
+              availability: "available",
+              knowledge: { context: "known", output: "known" },
+              thinkingLevelMap: { high: "high", max: null },
+              cost: {
+                input: 3,
+                output: 15,
+                cacheRead: 0.3,
+                cacheWrite: 3.75,
+              },
+              inputLimits: { maxRequestBytes: 2000000 },
+              compat: { openai: true },
+              provenance: {
+                source: "official",
+                revision: "sha256-abc",
+                schemaVersion: 1,
+              },
+            },
+          },
+        },
+      },
+      root,
+    );
+    const started = admitted.entries.find(
+      (entry) => entry.kind === "turn_started",
+    );
+    assert.isOk(started);
+    const frozen = (started!.payload as { model?: Record<string, unknown> })
+      .model!;
+    assert.equal(frozen.selectionId, "selection-safe-ref");
+    assert.equal(frozen.bindingRevision, 3);
+    assert.equal(frozen.modelId, "gpt-fixture");
+    assert.deepEqual((frozen.metadata as { provenance: unknown }).provenance, {
+      source: "official",
+      revision: "sha256-abc",
+      schemaVersion: 1,
+    });
+    // The declared per-million price is kept verbatim, so a later estimate
+    // uses the turn's own rate rather than whatever the directory publishes.
+    assert.deepEqual((frozen.metadata as { cost: unknown }).cost, {
+      input: 3,
+      output: 15,
+      cacheRead: 0.3,
+      cacheWrite: 3.75,
+    });
+    // The binding owns the endpoint and the credential; the canonical record
+    // is safe by itself and is written exactly once per turn.
+    const serialized = JSON.stringify(started!.payload);
+    assert.notInclude(serialized, "baseUrl");
+    assert.notInclude(serialized, "credentialRef");
+    assert.lengthOf(
+      (await inspectPiOwner(created.ref, root)).entries.filter(
+        (entry) => entry.kind === "turn_started",
+      ),
+      1,
+    );
   });
 
   it("retains one receipt identity when it is published again after later facts", async function () {

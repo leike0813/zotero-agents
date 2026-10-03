@@ -895,6 +895,8 @@ async function onStartup() {
     const { initializePiStateTables } =
       await import("./modules/pluginStateStore");
     await initializePiStateTables();
+    const { startPiModelCatalog } = await import("./modules/piModelCatalog");
+    await startPiModelCatalog();
     // Register the Pi Assistant Workspace surfaces before the runtime
     // lifecycle starts, so no Pi owner can publish into an unbound shell.
     const { registerPiAssistantWorkspaceSurfaces } =
@@ -1222,6 +1224,9 @@ async function onShutdown(): Promise<void> {
     piLifecycle!.getPiRuntimeLifecycle().closeAdmission();
     workflowSubmissionQueue.setPiAdmissionBarrier(true);
     piOwnersStopping = Promise.all([
+      import("./modules/piModelCatalog").then((module) =>
+        module.shutdownPiModelCatalog({ deadline: pluginShutdownDeadline }),
+      ),
       import("./modules/piConversation").then((module) =>
         module.shutdownPiConversations(pluginShutdownDeadline),
       ),

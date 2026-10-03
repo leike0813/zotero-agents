@@ -614,7 +614,8 @@
 }
 
 .backend-pi-defaults,
-.backend-pi-overlay {
+.backend-pi-overlay,
+.backend-pi-catalog {
   display: grid;
   gap: 10px;
   padding-top: 14px;
@@ -623,6 +624,30 @@
 
 .backend-pi-overlay .backend-input {
   width: 100%;
+}
+
+.backend-pi-catalog-summary,
+.backend-pi-catalog-times {
+  margin: 0;
+  color: var(--zs-muted);
+}
+
+.backend-pi-catalog-times {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 0.9em;
+}
+
+.backend-pi-catalog-error {
+  margin: 0;
+  color: var(--zs-danger);
+}
+
+.backend-pi-catalog .backend-checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .backend-pi-web {
   display: grid;

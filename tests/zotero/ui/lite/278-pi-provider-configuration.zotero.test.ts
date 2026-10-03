@@ -151,6 +151,92 @@ describe("Built-in Agent Backend Manager page in real Zotero", function () {
     }
   });
 
+  it("keeps the open form while the directory controls are used", async function () {
+    this.timeout(30_000);
+    const plugin = (Zotero as any)[config.addonInstance];
+    const piBefore = String(getPref("piProviderConfigurationJson") || "");
+    const overlayBefore = String(getPref("piModelCatalogOverlayPath") || "");
+    const opened = plugin.hooks.onPrefsEvent("openBackendManager", {
+      window: Zotero.getMainWindow(),
+    });
+    try {
+      let frame: HTMLIFrameElement | null = null;
+      for (let i = 0; i < 100; i++) {
+        frame = plugin.data.dialog?.window?.document.querySelector(
+          "[data-zs-role='backend-manager-dialog-frame']",
+        ) as HTMLIFrameElement | null;
+        if (
+          frame?.contentDocument?.querySelectorAll(".backend-provider-tab")
+            .length === 4
+        )
+          break;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      const doc = frame!.contentDocument!;
+      (doc.querySelectorAll(".backend-provider-tab")[3] as HTMLElement).click();
+      // The host pushes ":init" before the offline catalog load resolves, so the
+      // directory controls only exist once that load has settled.
+      for (
+        let i = 0;
+        i < 60 &&
+        doc
+          .querySelector("[data-pi-catalog-phase]")
+          ?.getAttribute("data-pi-catalog-phase") === "loading";
+        i++
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      assert.notEqual(
+        doc
+          .querySelector("[data-pi-catalog-phase]")
+          ?.getAttribute("data-pi-catalog-phase"),
+        "loading",
+        "catalog load did not settle",
+      );
+      // Recovery is unavailable until the owner holds a previous snapshot.
+      const restore = doc.querySelector(
+        "[data-pi-action='catalog-restore-previous']",
+      ) as HTMLButtonElement | null;
+      if (restore) assert.isTrue(restore.disabled);
+      assert.isOk(
+        doc.querySelector("[data-pi-action='catalog-refresh-public']"),
+      );
+      assert.isOk(doc.querySelector("[data-pi-action='overlay-remove']"));
+      // The page never receives the private overlay path.
+      if (overlayBefore) {
+        assert.notInclude(doc.body.textContent || "", overlayBefore);
+      }
+      const label = doc.querySelector(
+        "[data-pi-field='label']",
+      ) as HTMLInputElement;
+      label.value = "Unsaved fixture";
+      label.dispatchEvent(
+        new frame!.contentWindow!.Event("input", { bubbles: true }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const autoUpdate = doc.querySelector(
+        "[data-pi-field='catalog-auto-update']",
+      ) as HTMLInputElement | null;
+      if (autoUpdate) {
+        autoUpdate.checked = !autoUpdate.checked;
+        autoUpdate.dispatchEvent(
+          new frame!.contentWindow!.Event("change", { bubbles: true }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+      assert.equal(
+        (doc.querySelector("[data-pi-field='label']") as HTMLInputElement)
+          .value,
+        "Unsaved fixture",
+      );
+    } finally {
+      setPref("piProviderConfigurationJson", piBefore);
+      setPref("piModelCatalogOverlayPath", overlayBefore);
+      plugin.data.dialog?.window?.close();
+      await opened;
+    }
+  });
+
   it("shows the independent fourth page", async function () {
     this.timeout(30_000);
     const plugin = (Zotero as any)[config.addonInstance];
