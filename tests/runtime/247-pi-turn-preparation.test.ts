@@ -1,5 +1,7 @@
 import { assert } from "chai";
+import manifest from "../../package.json";
 import {
+  createPiNativeEstimator,
   preparePiTitleInvocation,
   preparePiTurn,
   type PiTurnPreparationInput,
@@ -191,6 +193,81 @@ function ports(records: unknown[] = []): PiTurnPreparationPorts {
 }
 
 describe("Pi Turn Preparation shared behavior", function () {
+  it("estimates complete tool descriptions and call arguments", async function () {
+    const estimator = createPiNativeEstimator();
+    const input: Parameters<PiTurnPreparationPorts["estimate"]>[0] = {
+      blocks: [],
+      messages: [],
+      model,
+      tools: {
+        digest: "tools",
+        tools: [
+          {
+            capabilityId: "read",
+            name: "read",
+            description: "Read",
+            schema: { type: "object" },
+          },
+        ],
+      },
+    };
+    const base = await estimator.estimate(input);
+    const described = await estimator.estimate({
+      ...input,
+      tools: {
+        ...input.tools,
+        tools: [{ ...input.tools.tools[0], description: "Read".repeat(500) }],
+      },
+    });
+    assert.isAbove(described, base);
+    const call = (
+      text: string,
+    ): Parameters<PiTurnPreparationPorts["estimate"]>[0] => ({
+      ...input,
+      messages: [
+        {
+          role: "assistant",
+          text: "",
+          entryIds: ["call"],
+          toolCalls: [
+            {
+              callId: "call",
+              name: "read",
+              argumentsDigest: "args",
+              arguments: { text },
+            },
+          ],
+        },
+      ],
+    });
+    assert.isAbove(
+      await estimator.estimate(call("x".repeat(2000))),
+      await estimator.estimate(call("x")),
+    );
+    const preparation = fixture();
+    preparation.frozen.policy.estimator = estimator;
+    const result = await preparePiTurn(preparation, {
+      ...ports(),
+      estimator,
+      estimate: estimator.estimate,
+    });
+    assert.equal(result.status, "ready");
+    if (result.status === "ready") {
+      assert.equal(
+        result.record.budget.estimatorId,
+        "pi-ai:estimate-context-tokens",
+      );
+      assert.equal(
+        result.record.budget.estimatorVersion,
+        manifest.dependencies["@earendil-works/pi-ai"],
+      );
+      // Preparation retains the frozen historical selection rather than
+      // rewriting its execution versions to the newly installed SDK.
+      assert.equal(result.record.model.runtimeVersion, model.runtimeVersion);
+      assert.equal(result.record.model.adapterVersion, model.adapterVersion);
+    }
+  });
+
   it("uses authoritative late tool evidence only for its original turn and call", async function () {
     const input = fixture();
     input.frozen.resources.userFiles = [];

@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import manifest from "../../package.json";
 import { getPref, setPref } from "../../src/utils/prefs";
 import {
   deletePiProviderConfiguration,
@@ -145,6 +146,15 @@ describe("Pi provider configuration", function () {
     assert.equal(selected.configurationId, "b");
     assert.equal(selected.credentialRef, "key-b");
     assert.equal(selected.reasoning, "high");
+    assert.equal(
+      selected.runtimeVersion,
+      manifest.dependencies["@earendil-works/pi-agent-core"],
+    );
+    assert.equal(
+      selected.adapterVersion,
+      manifest.dependencies["@earendil-works/pi-ai"],
+    );
+    assert.equal(selected.catalogRevision, "rev-1");
     assert.isTrue(Object.isFrozen(selected));
     assert.notInclude(JSON.stringify(selected), "secret-B");
     deletePiProviderConfiguration("b");

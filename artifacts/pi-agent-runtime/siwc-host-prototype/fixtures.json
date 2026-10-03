@@ -1,0 +1,86 @@
+{
+  "notice": "PUBLIC RFC VECTOR AND SYNTHETIC JWT FIXTURES ONLY; NO REAL ACCOUNT OR PRIVATE KEYS",
+  "source": "https://www.rfc-editor.org/rfc/rfc7515#appendix-A.2",
+  "rfc": {
+    "jwk": {
+      "kty": "RSA",
+      "n": "ofgWCuLjybRlzo0tZWJjNiuSfb4p4fAkd_wWJcyQoTbji9k0l8W26mPddxHmfHQp-Vaw-4qPCJrcS2mJPMEzP1Pt0Bm4d4QlL-yRT-SFd2lZS-pCgNMsD1W_YpRPEwOWvG6b32690r2jZ47soMZo9wGzjb_7OMg0LOL-bSf63kpaSHSXndS5z5rexMdbBYUsLA9e-KXBdQOS-UTo7WTBEMa2R2CapHg665xsmtdVMTBQY4uDZlxvb3qCo5ZwKh9kG4LT6_I5IhlJH7aGhyxXFvUK-DWNmoudF8NAco9_h9iaGNj8q2ethFkMLs91kzk2PAcDTW9gb54h4FRWyuXpoQ",
+      "e": "AQAB",
+      "alg": "RS256",
+      "use": "sig"
+    },
+    "input": "eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlfQ",
+    "signature": "cC4hiUPoj9Eetdgtv3hF80EGrhuB__dzERat0XF9g2VtQgr9PJbu3XOiZj5RZmh7AAuHIm4Bh-0Qc_lF5YKt_O8W2Fp5jujGbds9uJdbF9CUAr7t1dnZcAcQjbKBYNX4BAynRFdiuB--f_nZLgrnbyTyWzO75vRK5h6xBArLIARNPvkSjtQBMHlb1L07Qe7K0GarZRmB_eSN9383LcOLn6_dO--xi12jzDwusC-eOkHWEsqtFZESc6BfI7noOPqvhJ1phCnvWh6IeYI2w9QOYEUipUTI8np6LbgGY9Fs98rqVt5AXLIhWkWywlVmtVrBp0igcN_IoypGlUPQGe77Rw"
+  },
+  "expected": {
+    "issuer": "https://issuer.example.invalid",
+    "audience": "prototype-client",
+    "nonce": "synthetic-nonce",
+    "now": 1800000000
+  },
+  "keys": [
+    {
+      "kty": "RSA",
+      "n": "zwVI5UZflFxJzr4T6wbh9sw7lb-HoiCGKrApNjkO0NME2HMJtmCcQuI31D9TX94mppHE1NW0lGRds2hHiAXFsU6obeq43m8kT7HXHsrPslNCWaNV76SEZ6SoytWq-7aFGm7AbFx8jQUpKnsC1s5n6XzJS6IaOcMWze6UtG_7wQq1HCUcDSDlVV1P8utCrZy4koLIdgo_IWSotwLDQd4UZqhaEQBp22Mh-hl2EgI3Ug76JYjCYetyEpALa0htvGvyvIxbrr972dZ9iZ4RRpI8PghErdsdzEvAGe75bpkuK1kflCyWirKwjimpbiF3qXqA3p5dykQ56OOojjn-fyC_qw",
+      "e": "AQAB",
+      "kid": "first",
+      "alg": "RS256",
+      "use": "sig"
+    },
+    {
+      "kty": "RSA",
+      "n": "puWJn14s2-ofc5FGCZh2PjgkAAZ9fx-Z76VSskkfXMgDuiJ0d3J9RN0JUUwsRUCCPUy_sD8hGI8Ctz5FUFxXCSKTVpHVIb1yCpMUub4ft7eVt0YgZU-lZr7bMtz6j-rPB4uMMMg5WuOGchYnlQ-n_ztkPMBhDqcXg7PdAw9URDbqlOv8JyRlPBE88WxhZeVE5wSePLr5ZKkY7nzBy4wOhugpz7Nq3fo6IoXJcxjWec2lX4YKm93JV646ECfM8w6K8ASLutt_kfPRPFfwXQmF0V6pUpliJCkEFJyguYYu-JZpzmrdVJC9VZ-rW-3EY6eZuLZxr4Cg-PCS8jbokkJLNQ",
+      "e": "AQAB",
+      "kid": "rotated",
+      "alg": "RS256",
+      "use": "sig"
+    }
+  ],
+  "cases": [
+    {
+      "name": "valid",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpcnN0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5leGFtcGxlLmludmFsaWQiLCJhdWQiOiJwcm90b3R5cGUtY2xpZW50Iiwic3ViIjoicHJvdG90eXBlLXN1YmplY3QiLCJleHAiOjE4MDAwMDAzMDAsIm5vbmNlIjoic3ludGhldGljLW5vbmNlIn0.kYgZlbMcuoWCG0A2S7CC5NiZpYqx2dvarNVJmzp2nYPf39is77MOukbF7nlBA53Repfc7Hn7rr-7z7F8jc28E7RJTFQYevMWAUFrQ5iIW4oWE5epVtomauvb9RBBdldcEyy9P3iT3MNgCXESM2QTyqhSXXvI5i3wkkSN-3fyc1QmtoVUr5mAkiosM4aKjirAucKJq8_3nTOjdp9kgHBAEzMimFruFW-z-0rhT4FP3nK_6nh4sJm-hbaPyiMHXaazu5swcs4h39aakZqr-qSYI7Zlo9xDlUBBvSmQntYq6W8GawpgZXeLa3sXiVtrlAarnCOlCNsOFx59ojdI17T6Lw",
+      "expected": "accepted"
+    },
+    {
+      "name": "signature",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpcnN0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5leGFtcGxlLmludmFsaWQiLCJhdWQiOiJwcm90b3R5cGUtY2xpZW50Iiwic3ViIjoicHJvdG90eXBlLXN1YmplY3QiLCJleHAiOjE4MDAwMDAzMDAsIm5vbmNlIjoic3ludGhldGljLW5vbmNlIn0.kIgZlbMcuoWCG0A2S7CC5NiZpYqx2dvarNVJmzp2nYPf39is77MOukbF7nlBA53Repfc7Hn7rr-7z7F8jc28E7RJTFQYevMWAUFrQ5iIW4oWE5epVtomauvb9RBBdldcEyy9P3iT3MNgCXESM2QTyqhSXXvI5i3wkkSN-3fyc1QmtoVUr5mAkiosM4aKjirAucKJq8_3nTOjdp9kgHBAEzMimFruFW-z-0rhT4FP3nK_6nh4sJm-hbaPyiMHXaazu5swcs4h39aakZqr-qSYI7Zlo9xDlUBBvSmQntYq6W8GawpgZXeLa3sXiVtrlAarnCOlCNsOFx59ojdI17T6Lw",
+      "expected": "signature"
+    },
+    {
+      "name": "issuer",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpcnN0In0.eyJpc3MiOiJodHRwczovL3dyb25nLmV4YW1wbGUuaW52YWxpZCIsImF1ZCI6InByb3RvdHlwZS1jbGllbnQiLCJzdWIiOiJwcm90b3R5cGUtc3ViamVjdCIsImV4cCI6MTgwMDAwMDMwMCwibm9uY2UiOiJzeW50aGV0aWMtbm9uY2UifQ.MU0A9wLekZ396a16z5vf-sHYJ5DA67O5KslCFcuubrTqGmW7xgN3wiwlGVQFzE9QX3sBZyjnxi4Gqs5CQLOdhJYMmsUILleL_7FwbqgExpsTTgoPOUOvfRsFed2ihQu0uJX_xDLUtXxBCRPYtd1MtOVxFKXT8UsagzCtPEA2dFHmSSqHBwSl9i06Ba5Hq-oXuhfMB7HfYodfQLNycFDTfWyaoleHOaZN0pqVr7NT3Z4Q__sRYc_18qlMoF6KNPZHYBw4LmPjHc1kCJ76FCVkaV6i0sYs95fHaHt4v3xB3PfYfRPTBkrYJwoxQ-IOlDzZ6aky7fidYCThLwfyZnVhrQ",
+      "expected": "issuer"
+    },
+    {
+      "name": "audience",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpcnN0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5leGFtcGxlLmludmFsaWQiLCJhdWQiOiJvdGhlci1jbGllbnQiLCJzdWIiOiJwcm90b3R5cGUtc3ViamVjdCIsImV4cCI6MTgwMDAwMDMwMCwibm9uY2UiOiJzeW50aGV0aWMtbm9uY2UifQ.Rey0rMDmDtn3VWQ2cT4Gxr4B0CJkSw-XV9h1ak2qjnQu0OtHd413j38wheJDPhIPDg0fGx3EhHusS3FyEQ_pOM_oWxPEaIK1UtHFisLtGD0MgueNc-PfUyuQOU9UflSweQzLl6rBcPCZRsWICWx_Y27w20auLaZGt6jT6-Zuz0xp1GG3IDAVC6CtK5kgCxRT9ceFKcWhPpgAP7yqdA1cFDYRbGURkMXYX7Gd_uVgj4arSlsKZRk2CxUoGr6t68OQwFru48jEmsQFR0TnFuXtdsGlRJ6MbYdjdgaweNK_wUcMZuIt9eIGjGajAD7gwUD9F94TzyaC7n85U9CYxn6xgg",
+      "expected": "audience"
+    },
+    {
+      "name": "expiry",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpcnN0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5leGFtcGxlLmludmFsaWQiLCJhdWQiOiJwcm90b3R5cGUtY2xpZW50Iiwic3ViIjoicHJvdG90eXBlLXN1YmplY3QiLCJleHAiOjE3OTk5OTk5OTksIm5vbmNlIjoic3ludGhldGljLW5vbmNlIn0.vlbS4T2SeKGYXYJVWcR0Zk8rI6iEzZiQTGiVmz7HRfSpsXizd5jg9g2TB9mYO6nX0mqUQnA_6oAVfpOVYaB0adOlci6vjcfDqRC2aaGYyTuEQqXC778zo3SNqKHAT8t1gi4eE2dQJ28C1hwDw3qhTgxekZZ004rDtGx5SbBNQK5I085QAeeuVeOCu3z80EAyadfanYK0iuXC6p39OyVe--40F0t5KdoIrN5qnGochnxWsCj7mFNqS9PE4H4u3kbxkPEgdwvA_P2Ptq3X4Ow6Y-d6uTvUG2rHl0TVO9nkO7iAsH8CiijQNLzTo49inwWaegcMZnpUsQHO-06B6hQ2JQ",
+      "expected": "expiry"
+    },
+    {
+      "name": "nonce",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpcnN0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5leGFtcGxlLmludmFsaWQiLCJhdWQiOiJwcm90b3R5cGUtY2xpZW50Iiwic3ViIjoicHJvdG90eXBlLXN1YmplY3QiLCJleHAiOjE4MDAwMDAzMDAsIm5vbmNlIjoid3Jvbmctbm9uY2UifQ.HNJobS-1Ffy46tAYZvqextu9WfpxKxlsUMiLwAwWvY9rNuVpwpkxiICXzV29ekvTOOyuHL52c_aB6LdmK4hxIStoRrchqDaNLmccYUZqa5_kA-pEPHLYigEHoYV6Ni4_58f1gaKc7P7_PHaWiWgx5EX12Klj7MlGWAs114733mG07cfRtyXLc5fMemEgUVs40oYoIjxWlh_y4hYgg0zzoXf3cahHzZTCz-reyS9b_W72fMmEoX3Mp_7LOVeDCw9T7yuejYDmk3dk1Rs77EhH9_mfiQnWAGg1Y6oxZBy1kB6kogFRHZx_TeFgeyj9LpeKXSowdfG2m4ooJTYGUaoa-Q",
+      "expected": "nonce"
+    },
+    {
+      "name": "algorithm",
+      "token": "eyJhbGciOiJIUzI1NiIsImtpZCI6ImZpcnN0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5leGFtcGxlLmludmFsaWQiLCJhdWQiOiJwcm90b3R5cGUtY2xpZW50Iiwic3ViIjoicHJvdG90eXBlLXN1YmplY3QiLCJleHAiOjE4MDAwMDAzMDAsIm5vbmNlIjoic3ludGhldGljLW5vbmNlIn0.Ibii9lkm7Fowj_SVa81gtNgwtDJtWWuRxwdbkefGxwgQpsEhqFt0BvXMvfqiVjxL8ogEb6e1oR3KlbdCItmPZ6zQvglBoKCoSVb0_FqhNgIMtR3ToIdwhakiL_70oDkmuceviMp1UhX4038fJUouaOfu3NZGpB5E4k-zAgxHR-UVcPQ3dGDnfm9AxlaUn56yMBlpR9M07HBTJP79NNcik5ajbztGTukGgjsSwLh4nbbRUoWfaWe4Ly5_BitAPljGLEe17H7J0a5WrWLb9Ig3y2p_ijE36CRUydlG9DlQ04PFsceLUtsVfItZJg2S3jLc4x8vqyAbMcKkvYZocqDQKA",
+      "expected": "algorithm"
+    },
+    {
+      "name": "rotated",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6InJvdGF0ZWQifQ.eyJpc3MiOiJodHRwczovL2lzc3Vlci5leGFtcGxlLmludmFsaWQiLCJhdWQiOiJwcm90b3R5cGUtY2xpZW50Iiwic3ViIjoicHJvdG90eXBlLXN1YmplY3QiLCJleHAiOjE4MDAwMDAzMDAsIm5vbmNlIjoic3ludGhldGljLW5vbmNlIn0.hOdBzKwvoyx09VKeCSPetXFfQOfMOIFO3W4PhSUWdgZRl6xxHbew4k1uV9pc4Me1HTlRrWI911a_oPTC99fyKUwUdSVSR2lIJqkUDJzgABqARJyZl8uXusr8NTyyxiAmsFPwOmRJy9YtMMBSNbktQlikMd56F_dSiqKk1O9GR7JMQeVptRlKaxp4pzaPhhvtI45Xu5od2-mRDyPXGpsNbTIqNSPSU__3Xk-j8CCqc6HodgeL8EnGkIR6Rr5vP_iJDLhSH5OR9ddObndcMrBZKB4oyWe85vUxxIB9y5IWkTD7CgXqYLzm5UXQWeSyFIaiQsLkOusGtxFbJORtTOOsTA",
+      "expected": "accepted"
+    },
+    {
+      "name": "missing-key",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImFic2VudCJ9.eyJpc3MiOiJodHRwczovL2lzc3Vlci5leGFtcGxlLmludmFsaWQiLCJhdWQiOiJwcm90b3R5cGUtY2xpZW50Iiwic3ViIjoicHJvdG90eXBlLXN1YmplY3QiLCJleHAiOjE4MDAwMDAzMDAsIm5vbmNlIjoic3ludGhldGljLW5vbmNlIn0.gDR7baNDR78CaZflKr40LO5wkDoHPA3D9bj_E7YBmxkcguhlRxYryLdoOGKhBofmgLluw6asGTvZGFZ1gvv74isxIcdnl7FQ6dg5GqXeQLLiRnf7_qFxo7VTZufC_3_iuhk2xs2mkHQMABxVs-Tcix5v2xrHjG024gfBjFXozOyv9ZapK8aLBte_rCYIfTUMPQKvmNArxrZlliVFbBxsXd3ckFH0BUlsIc08f_smBoXNef1k-mLMlqMPtBtRp5AG52atruAwhb_MzeDtr3rN--PnUPcJMB235qPbiidB0SS3VdsAH0pMNQSu_eo_CAw8rxY7qk0_GKjcYoWmeAHDHg",
+      "expected": "key"
+    }
+  ]
+}

@@ -8,9 +8,11 @@ import {
   createAssistantMessageEventStream,
   contentText,
   EventStream,
+  getCurrentSystemPrompt,
+  normalizeContext,
   type AssistantMessage,
   type AssistantMessageEventStream,
-  type Context,
+  type TranscriptContext,
   type Message,
   type Model,
   type TextContent,
@@ -268,7 +270,7 @@ export type PiRuntimeProviderRequest = {
   turnId: string;
   invocationId: string;
   model: Model<string>;
-  context: Context;
+  context: TranscriptContext;
   signal: AbortSignal;
 };
 export type PiRuntimeProviderSource = (
@@ -505,9 +507,9 @@ function resourceText(resource: PiRuntimeResource): string {
     : resource.ref;
 }
 
-function argumentsRecord(value: JsonValue): Record<string, unknown> {
+function argumentsRecord(value: JsonValue): Record<string, JsonValue> {
   return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
+    ? value
     : {};
 }
 
@@ -611,14 +613,6 @@ function toolCallsOf(
   return calls;
 }
 
-function nativeTool(tool: PiRuntimeTool): Tool {
-  return {
-    name: tool.name,
-    description: tool.description,
-    parameters: tool.schema as unknown as Tool["parameters"],
-  };
-}
-
 function nativeToolDefinition(
   tool: PiRuntimeTool,
   execute: AgentTool["execute"],
@@ -638,22 +632,8 @@ function nativeToolDefinition(
   };
 }
 
-function buildContext(
-  plan: PiRuntimeInvocationPlan,
-  base: Context,
-  model: Model<string>,
-): Context {
-  return {
-    systemPrompt: plan.systemPrompt ?? base.systemPrompt,
-    messages: plan.messages
-      ? plan.messages.map((message) => toNativeMessage(message, model))
-      : base.messages,
-    tools: plan.tools ? plan.tools.map(nativeTool) : base.tools,
-  };
-}
-
 function projectContextInput(
-  context: Context,
+  context: TranscriptContext,
   signal: AbortSignal,
 ): PiRuntimeModelInput {
   const messages: PiRuntimeModelInput["messages"][number][] = [];
@@ -661,7 +641,11 @@ function projectContextInput(
     if (message.role === "user" || message.role === "assistant")
       messages.push({ role: message.role, text: contentText(message.content) });
   }
-  return { systemPrompt: context.systemPrompt ?? "", messages, signal };
+  return {
+    systemPrompt: getCurrentSystemPrompt(context.messages),
+    messages,
+    signal,
+  };
 }
 
 function streamFrom(modelStream: PiRuntimeModelSource): StreamFn {
@@ -1061,12 +1045,18 @@ export class PiRuntime {
         },
       });
       agent.state.model = DEFAULT_TEXT_MODEL;
-      agent.state.systemPrompt = input.systemPrompt ?? "";
+      agent.state.messages = normalizeContext({
+        systemPrompt: input.systemPrompt ?? "",
+        messages: agent.state.messages.filter(
+          (message) => message.role !== "system",
+        ) as Message[],
+      }).messages;
       agent.state.tools = [];
       agent.streamFunction = streamFrom(textStream);
       agent.transformContext = undefined;
       agent.beforeToolCall = undefined;
-      agent.shouldStopAfterTurn = undefined;
+      agent.prepareRequest = undefined;
+      agent.finishTurn = undefined;
       const events = new EventStream<PiRuntimeEvent, PiTurnResult>(
         (event) => event.kind === "terminal",
         (event) =>
@@ -1183,7 +1173,6 @@ export class PiRuntime {
       const loopGuard = createPiRuntimeLoopGuard(input.loopGuard);
       let invocationCount = 0;
       let invocationId = "";
-      let pendingPlan: PiRuntimeInvocationPlan | undefined;
       let finalText = "";
       let batchAssistant: AssistantMessage | undefined;
       let batchCalls: PiRuntimeToolCall[] = [];
@@ -1330,12 +1319,11 @@ export class PiRuntime {
             );
         })());
       const toolExecute =
-        (name: string): AgentTool["execute"] =>
+        (tool: PiRuntimeTool): AgentTool["execute"] =>
         async (callId, params, signal) => {
+          const name = tool.name;
           const abortSignal = signal ?? agent.signal!;
           if (!input.executeTools) {
-            const tool = (input.tools ?? []).find((item) => item.name === name);
-            if (!tool) return { content: [], details: {}, isError: true };
             const outcome = await tool.execute({
               callId,
               name,
@@ -1365,14 +1353,17 @@ export class PiRuntime {
           };
         };
       agent.state.model = model;
-      agent.state.systemPrompt = input.systemPrompt ?? "";
-      agent.state.messages = input.messages.length
-        ? input.messages.map((message) => toNativeMessage(message, model))
-        : [{ role: "user", content: "", timestamp: Date.now() }];
       agent.state.tools = (input.tools ?? []).map((tool) =>
-        nativeToolDefinition(tool, toolExecute(tool.name)),
+        nativeToolDefinition(tool, toolExecute(tool)),
       );
-      agent.transformContext = async (messages, signal) => {
+      agent.state.messages = normalizeContext({
+        systemPrompt: input.systemPrompt ?? "",
+        messages: input.messages.length
+          ? input.messages.map((message) => toNativeMessage(message, model))
+          : [{ role: "user", content: "", timestamp: Date.now() }],
+        tools: agent.state.tools,
+      }).messages;
+      agent.prepareRequest = async ({ context }, signal) => {
         const index = invocationCount++;
         invocationId = input.turnId + ":invocation:" + index;
         invocationIndexValue = index;
@@ -1380,33 +1371,55 @@ export class PiRuntime {
         invocationSettled = false;
         invocationSuppressed = false;
         prepareFailed = false;
-        pendingPlan = undefined;
         guardBlocked = false;
-        if (suppressing || suspending) return messages;
+        if (suppressing || suspending) return;
         if (loopGuard.isInvocationBlocked() || loopGuard.isCycleBlocked()) {
           guardBlocked = true;
           failure = "agent_loop_limit_exceeded";
           invocationSuppressed = true;
-          return messages;
+          return;
         }
-        if (!input.prepareInvocation) return messages;
+        if (!input.prepareInvocation) return;
         try {
           const plan = await input.prepareInvocation({
             turnId: input.turnId,
             invocationId,
             invocationIndex: index,
-            messages: messages
+            messages: context.messages
               .map(projectNativeMessage)
               .filter((message): message is PiRuntimeMessage => !!message),
             signal: signal ?? agent.signal!,
           });
-          pendingPlan = plan ?? undefined;
+          if (!plan) return;
+          const tools = plan.tools
+            ? plan.tools.map((tool) =>
+                nativeToolDefinition(tool, toolExecute(tool)),
+              )
+            : context.tools;
+          // SDK system/tool deltas are transient. Each prepared request owns a
+          // fresh declaration set while canonical user/assistant/tool history stays intact.
+          return {
+            context: {
+              messages: normalizeContext({
+                systemPrompt:
+                  plan.systemPrompt ?? getCurrentSystemPrompt(context.messages),
+                messages: plan.messages
+                  ? plan.messages.map((message) =>
+                      toNativeMessage(message, model),
+                    )
+                  : (context.messages.filter(
+                      (message) => message.role !== "system",
+                    ) as Message[]),
+                tools,
+              }).messages,
+              tools,
+            },
+          };
         } catch (error) {
           prepareFailed = true;
           invocationSuppressed = true;
           failure = "preparation_failed";
         }
-        return messages;
       };
       agent.streamFunction = async (streamModel, context, streamOptions) => {
         const signal = streamOptions?.signal ?? agent.signal;
@@ -1421,13 +1434,6 @@ export class PiRuntime {
           failure = "provider_stream_error";
           return failureStream(streamModel, "provider_stream_error");
         }
-        const outbound = pendingPlan
-          ? buildContext(pendingPlan, context, streamModel)
-          : context;
-        if (pendingPlan?.tools)
-          agent.state.tools = pendingPlan.tools.map((tool) =>
-            nativeToolDefinition(tool, toolExecute(tool.name)),
-          );
         try {
           await loopGuard.commitInvocation();
         } catch {
@@ -1507,7 +1513,7 @@ export class PiRuntime {
                 turnId: input.turnId,
                 invocationId,
                 model: streamModel,
-                context: outbound,
+                context,
                 signal,
               });
               for await (const event of provider) {
@@ -1576,7 +1582,7 @@ export class PiRuntime {
         });
         return undefined;
       };
-      agent.shouldStopAfterTurn = () =>
+      agent.finishTurn = () =>
         suppressing ||
         suspending ||
         guardBlocked ||
@@ -1584,7 +1590,9 @@ export class PiRuntime {
         batchUnknown ||
         batchWaitingUser ||
         batchSuspendedRun ||
-        batchLimitExceeded;
+        batchLimitExceeded
+          ? { action: "end" }
+          : undefined;
       const unsubscribe = agent.subscribe(async (event) => {
         if (terminal || (suppressing && event.type !== "tool_execution_end"))
           return;

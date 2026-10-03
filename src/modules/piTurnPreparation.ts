@@ -1,8 +1,11 @@
+import { estimateContextTokens } from "@earendil-works/pi-ai/utils/estimate";
 import {
-  estimateContextTokens,
-  type AgentMessage,
-} from "@earendil-works/pi-agent-core";
-import type { AssistantMessage } from "@earendil-works/pi-ai";
+  normalizeContext,
+  type AssistantMessage,
+  type Message,
+  type Tool,
+} from "@earendil-works/pi-ai";
+import { PI_PROVIDER_ADAPTER_VERSION } from "../config/piRuntimeBuild";
 import type { PiModelSelectionSnapshot } from "../shared/piProviderContract";
 import type { PiTranscriptEntry, PiOwnerRef } from "./piTranscriptStore";
 import type { PiGatewayTurn } from "./piToolGateway";
@@ -1474,7 +1477,7 @@ export function createPiNativeEstimator(): {
   const assistant = (
     content: AssistantMessage["content"],
     stopReason: AssistantMessage["stopReason"],
-  ): AgentMessage => ({
+  ): Message => ({
     role: "assistant",
     content,
     api: "estimator",
@@ -1484,7 +1487,7 @@ export function createPiNativeEstimator(): {
     stopReason,
     timestamp: 0,
   });
-  const toNative = (message: PiPreparedMessage): AgentMessage => {
+  const toNative = (message: PiPreparedMessage): Message => {
     if (message.role === "assistant") {
       const content: AssistantMessage["content"] = [];
       if (message.text) content.push({ type: "text", text: message.text });
@@ -1493,7 +1496,12 @@ export function createPiNativeEstimator(): {
           type: "toolCall",
           id: call.callId,
           name: call.name,
-          arguments: {},
+          arguments:
+            call.arguments &&
+            typeof call.arguments === "object" &&
+            !Array.isArray(call.arguments)
+              ? call.arguments
+              : {},
         });
       return assistant(content, "stop");
     }
@@ -1509,27 +1517,21 @@ export function createPiNativeEstimator(): {
     return { role: "user", content: message.text, timestamp: 0 };
   };
   return {
-    id: "pi-agent-core:estimate-context-tokens",
-    version: "0.84.4",
+    id: "pi-ai:estimate-context-tokens",
+    version: PI_PROVIDER_ADAPTER_VERSION,
     mode: "estimated",
     estimate: async ({ blocks, messages, tools }) => {
-      const list: AgentMessage[] = [];
-      const prefix = blocks.map((block) => block.text).join("\n\n");
-      if (prefix) list.push({ role: "user", content: prefix, timestamp: 0 });
-      if (tools.tools.length)
-        list.push(
-          assistant(
-            tools.tools.map((tool) => ({
-              type: "toolCall" as const,
-              id: "tool:" + tool.name,
-              name: tool.name,
-              arguments: tool.schema,
-            })),
-            "toolUse",
-          ),
-        );
-      for (const message of messages) list.push(toNative(message));
-      return estimateContextTokens(list).tokens;
+      return estimateContextTokens(
+        normalizeContext({
+          systemPrompt: blocks.map((block) => block.text).join("\n\n"),
+          messages: messages.map(toNative),
+          tools: tools.tools.map((tool) => ({
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.schema as Tool["parameters"],
+          })),
+        }),
+      ).tokens;
     },
   };
 }

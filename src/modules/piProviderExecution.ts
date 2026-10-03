@@ -5,7 +5,10 @@ import type {
   Model,
   ProviderStreams,
 } from "@earendil-works/pi-ai";
-import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import {
+  createAssistantMessageEventStream,
+  normalizeContext,
+} from "@earendil-works/pi-ai";
 import { streamSimple as streamOpenAIResponses } from "@earendil-works/pi-ai/api/openai-responses";
 import { streamSimple as streamOpenAICompletions } from "@earendil-works/pi-ai/api/openai-completions";
 import { streamSimple as streamAnthropicMessages } from "@earendil-works/pi-ai/api/anthropic-messages";
@@ -240,9 +243,10 @@ async function openPiProviderStream(
       throw new PiModelStreamFailure(failureCode);
     }
   };
+  const transcript = normalizeContext(context);
   const events =
     selection.api === "openai-codex-responses"
-      ? streamCodex(model as Model<"openai-codex-responses">, context, {
+      ? streamCodex(model as Model<"openai-codex-responses">, transcript, {
           apiKey,
           signal,
           cacheRetention: "short",
@@ -251,7 +255,7 @@ async function openPiProviderStream(
             selection.reasoning === "off" ? "none" : selection.reasoning,
           fetch: requestFetch,
         })
-      : stream(model, context, {
+      : stream(model, transcript, {
           apiKey,
           signal,
           cacheRetention: "short",

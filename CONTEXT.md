@@ -67,7 +67,7 @@ Pi Runtime Turn 中一次具有独立身份的模型 Provider 调用，是 usage
 _Avoid_: Pi Runtime Turn、完整 Agent 请求
 
 **Pi Model Provider Configuration（Pi 模型 Provider 配置）**：
-内置 Pi Agent Runtime 使用的、独立于既有 Backend Profile 的模型 Provider endpoint、模型默认项与凭据引用配置实体。
+内置 Pi Agent Runtime 使用的、独立于既有 Backend Profile 的配置实体，明确绑定模型 Provider 的连接目标、认证变体、模型默认项与凭据引用。
 _Avoid_: Pi Provider Configuration、Backend Profile、Provider Profile
 
 **Zotero Agents Pi Runtime Defaults（Zotero Agents Pi 运行时默认项）**：
@@ -86,16 +86,28 @@ _Avoid_: Oh My Pi auth store、Backend Profile 凭据、配置内明文 secret
 由 Pi Model Provider Configuration 对应的模型 Provider 授权流程产生、可刷新并由 Built-in Agent Credential Store 持有的凭据。
 _Avoid_: OAuth token、登录 session
 
+**ChatGPT Registration（ChatGPT 注册）**：
+归属于已验证 ChatGPT 账户身份及签发的 client ID 的授权注册，区分同一账户在不同授权 workspace 下的连接。
+_Avoid_: email account、Codex session
+
+**ChatGPT Agent Host（ChatGPT 宿主）**：
+以稳定安装身份区分的 Zotero Agents 本地运行环境；同一宿主可使用不同的 ChatGPT 注册，其身份独立于账户选择。
+_Avoid_: ChatGPT account、临时授权请求
+
 **Pi Model Catalog（Pi 模型目录）**：
-描述 Pi provider/model 及其调用能力、限制、默认选项和宿主可用性的版本化目录；其来源包括 OMP bundled catalog 与受控的 Pi Catalog Overlay。
+描述 Pi provider/model 的身份、调用与推理能力、限制、定价和默认选项的版本化目录；目录事实与本项目对模型可用性的判断相区分。目录版本描述模型元数据的变化，与插件本体版本是不同的版本维度。
 _Avoid_: live model list、provider profile model cache
 
 **Pi Catalog Overlay（Pi 目录覆盖层）**：
-由 OMP `models.yml` 提供、经 Zotero Agents 规范化的只读 provider/model 声明；它只能补充或显式导入配置，不携带 OMP 凭据、环境变量、命令或运行时发现语义。
+由用户显式提供、经 Zotero Agents 规范化的只读模型声明，按字段补充或覆盖适用的目录事实；它描述模型，不表示账户可见性、凭据或执行权限。
 _Avoid_: models.yml credential、OMP provider registry
 
+**Pi Account Model Discovery（Pi 账户模型发现）**：
+归属于特定凭据身份和认证变体的模型可见性与描述事实，表示对应账户在发现时返回的结果。
+_Avoid_: public model catalog、实时账户权限
+
 **Pi Model Selection Snapshot（Pi 模型选择快照）**：
-为一次 Pi Runtime Turn 确定并冻结的 Pi Model Provider Configuration、model 与模型运行选项集合。
+为一次 Pi Runtime Turn 确定并冻结的配置身份、模型元数据、运行选项及来源版本集合，是该轮模型调用与费用估算共同采用的依据。
 _Avoid_: current model setting、live provider selection
 
 **Pi Reasoning Level（Pi 推理级别）**：

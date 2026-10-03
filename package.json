@@ -173,8 +173,8 @@
     "docs:serve": "cd site && npx docusaurus serve"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.84.4",
-    "@earendil-works/pi-ai": "0.84.4",
+    "@earendil-works/pi-agent-core": "1.0.0",
+    "@earendil-works/pi-ai": "1.0.0",
     "@modelcontextprotocol/client": "2.0.0",
     "@modelcontextprotocol/core": "2.0.0",
     "@oh-my-pi/pi-catalog": "18.0.11",

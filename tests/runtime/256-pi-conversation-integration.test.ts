@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { assert } from "chai";
+import { getCurrentTools } from "@earendil-works/pi-ai";
 import { readOwnerAudit } from "./piOwnerAuditRead";
 import { createPiConversationCoordinator } from "../../src/modules/piConversation";
 import { inspectPiOwner } from "../../src/modules/piOwnerPersistence";
@@ -694,7 +695,9 @@ describe("Pi Conversation integration", function () {
             source: (input) => {
               if (iteration === 2 || (iteration === 1 && !sourceValid))
                 assert.notInclude(
-                  input.context.tools?.map((tool) => tool.name) || [],
+                  getCurrentTools(input.context.messages).map(
+                    (tool) => tool.name,
+                  ),
                   "navigate",
                   "model only sees the effective catalog",
                 );

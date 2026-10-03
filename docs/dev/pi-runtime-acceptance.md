@@ -2,6 +2,14 @@
 
 C20 的验收依据是 [#26](https://github.com/leike0813/zotero-agents/issues/26#issuecomment-5551922404)。矩阵目标只读取 `tests/zotero/compatibility-matrix.json`。当前工作树中的开发运行可定位问题；正式证据必须绑定 clean commit、正式 XPI SHA-256、宿主和测试配置。
 
+## Pi SDK 升级阶段
+
+`upgrade-builtin-pi-runtime` 固定 core/ai 为 1.0.0。Runtime 的每次 `prepareRequest` 返回完整归一化消息与执行工具，`finishTurn` 按项目等待、未知效果和取消状态结束循环；估算器使用 Pi AI 的完整指令、工具声明与消息。执行版本从根依赖声明读取，历史冻结选择不改写。模型目录独立更新、ChatGPT 登录和搜索迁移由后续 change 承担。
+
+本阶段使用 dirty 工作树获得开发证据。具体命令、版本、失败尝试及待补矩阵见 `openspec/changes/upgrade-builtin-pi-runtime/verification.md`，不得据此完成 C20。
+
+定向 core 用例可经现有 `ZOTERO_TEST_ENTRY` 覆盖入口组合：276 Runtime、278 Provider configuration、280 Provider execution、281 Preparation。临时入口放在非隐藏目录，使用这些现有文件的绝对 import；worker 自动附加 compatibility probe。检查日志确实执行 Pi 用例，不能把只有 host-facts 的通过当成 SDK 验证。某个未提交原型依赖临时工作区未映射的目录时，保留原型与失败尝试，使用入口覆盖隔离本次用例。完整 owner 行为仍使用现有 `tests/zotero/e2e/full` 和 compatibility worker，并先 prepare 当前源码编译的 Synthesis sidecar。
+
 ## 固定升级基线
 
 用户指定当前 dev HEAD `9218f30899e47d6e9b852dec978be81b1f802c2f` 为 v0.9.0 基线。从该 commit 导出到临时目录，使用既有构建工具运行 `zotero-plugin build`，保留 v0.9.0 XPI、摘要和构建身份。禁止以历史 GitHub artifact 或当前 Pi 分支生成的 v0.9.0 文件替代。

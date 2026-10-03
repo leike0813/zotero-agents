@@ -80,6 +80,8 @@ artifacts/literature-deep-reading-detr-sample/visual-regression/latest/
 .zotero-skills-runtime/
 .zotero-agents/
 
+.playwright-mcp/
+
 *-safeBackup-*
 .opencode
 

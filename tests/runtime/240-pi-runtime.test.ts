@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { getCurrentTools } from "@earendil-works/pi-ai";
 import {
   createPiRuntimeLoopGuard,
   createPiTextProviderSource,
@@ -403,6 +404,91 @@ describe("PiRuntime transient turn", function () {
   });
 });
 describe("PiRuntime structured agent turn", function () {
+  it("replaces prepared instructions and executable tools on every request", async function () {
+    const base = createPiTextProviderSource({
+      steps: [
+        {
+          toolCalls: [{ callId: "read", name: "prepared_read", arguments: {} }],
+        },
+        {
+          toolCalls: [
+            { callId: "write", name: "prepared_write", arguments: {} },
+          ],
+        },
+        { text: "done" },
+      ],
+    });
+    const requests: string[] = [];
+    const declaredTools: string[][] = [];
+    const executed: string[] = [];
+    const preparedHistory: string[] = [];
+    const session = new PiRuntime().openSession({
+      sessionId: "prepared-replacement",
+      model: base.model,
+      source: (request) => {
+        requests.push(JSON.stringify(request.context));
+        declaredTools.push(
+          getCurrentTools(request.context.messages).map((tool) => tool.name),
+        );
+        return base.source(request);
+      },
+    });
+    const turn = session.runTurn({
+      turnId: "prepared-replacement",
+      systemPrompt: "stale-instructions",
+      messages: [{ role: "user", text: "go" }],
+      tools: [
+        {
+          name: "stale_tool",
+          description: "Stale",
+          schema: { type: "object" },
+          execute: async () => {
+            throw new Error("stale_tool_executed");
+          },
+        },
+      ],
+      prepareInvocation: ({ invocationIndex, messages }) => {
+        preparedHistory.push(JSON.stringify(messages));
+        const name = invocationIndex === 0 ? "prepared_read" : "prepared_write";
+        return {
+          systemPrompt: "prepared-instructions-" + invocationIndex,
+          tools:
+            invocationIndex < 2
+              ? [
+                  {
+                    name,
+                    description: "Prepared",
+                    schema: { type: "object" },
+                    execute: async () => {
+                      executed.push(name);
+                      return { text: name + "-result" };
+                    },
+                  },
+                ]
+              : [],
+        };
+      },
+    });
+    assert.equal((await turn.result).status, "completed");
+    assert.deepEqual(executed, ["prepared_read", "prepared_write"]);
+    assert.deepEqual(declaredTools, [
+      ["prepared_read"],
+      ["prepared_write"],
+      [],
+    ]);
+    assert.lengthOf(requests, 3);
+    requests.forEach((request, index) => {
+      assert.include(request, "prepared-instructions-" + index);
+      assert.notInclude(request, "stale-instructions");
+      assert.notInclude(request, "stale_tool");
+      if (index)
+        assert.notInclude(request, "prepared-instructions-" + (index - 1));
+    });
+    assert.include(preparedHistory[1], "prepared_read-result");
+    assert.notInclude(preparedHistory.join(""), '"role":"system"');
+    session.dispose();
+  });
+
   it("runs one whole tool batch through the seam with structured events and usage", async function () {
     const { model, source } = createPiTextProviderSource({
       steps: [

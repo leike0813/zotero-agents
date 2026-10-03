@@ -1,3 +1,5 @@
+import manifest from "../../package.json";
+
 /** Pi entry footprint budgets defined by the C20 acceptance specification. */
 export const PI_BUNDLE_LIMITS = {
   rawBytes: 20 * 1024 ** 2,
@@ -73,3 +75,8 @@ export function toPiBundleEvidence(measurement: {
     excludedFully: measurement.excludedFully,
   };
 }
+/** Execution identities follow the exact admitted dependencies, independent of catalog revision. */
+export const PI_RUNTIME_VERSION =
+  manifest.dependencies["@earendil-works/pi-agent-core"];
+export const PI_PROVIDER_ADAPTER_VERSION =
+  manifest.dependencies["@earendil-works/pi-ai"];

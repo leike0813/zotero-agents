@@ -1,0 +1,189 @@
+{
+  "kind": "siwc-host-capability-prototype",
+  "host": {
+    "version": "10.0.3",
+    "platform": "Linux",
+    "gecko": "140.15.0"
+  },
+  "realAccountAccessed": false,
+  "crypto": [
+    {
+      "name": "random-state-nonce",
+      "passed": true
+    },
+    {
+      "name": "pkce-rfc7636-s256",
+      "passed": true
+    },
+    {
+      "name": "rfc7515-rs256-valid",
+      "passed": true
+    },
+    {
+      "name": "rfc7515-rs256-invalid",
+      "passed": true
+    },
+    {
+      "name": "jwt-valid",
+      "passed": true,
+      "observation": "accepted"
+    },
+    {
+      "name": "jwt-signature",
+      "passed": true,
+      "observation": "signature"
+    },
+    {
+      "name": "jwt-issuer",
+      "passed": true,
+      "observation": "issuer"
+    },
+    {
+      "name": "jwt-audience",
+      "passed": true,
+      "observation": "audience"
+    },
+    {
+      "name": "jwks-cache-reuse",
+      "passed": true
+    },
+    {
+      "name": "jwt-expiry",
+      "passed": true,
+      "observation": "expiry"
+    },
+    {
+      "name": "jwt-nonce",
+      "passed": true,
+      "observation": "nonce"
+    },
+    {
+      "name": "jwt-algorithm",
+      "passed": true,
+      "observation": "algorithm"
+    },
+    {
+      "name": "jwt-rotated",
+      "passed": true,
+      "observation": "accepted"
+    },
+    {
+      "name": "jwks-rotation-one-refresh",
+      "passed": true
+    },
+    {
+      "name": "jwt-missing-key",
+      "passed": true,
+      "observation": "key"
+    },
+    {
+      "name": "jwks-unknown-kid-one-refresh",
+      "passed": true
+    }
+  ],
+  "loopback": [
+    {
+      "name": "occupied-port-fallback",
+      "passed": true
+    },
+    {
+      "name": "wrong-state-rejected",
+      "passed": true
+    },
+    {
+      "name": "old-request-state-rejected",
+      "passed": true
+    },
+    {
+      "name": "valid-callback-http",
+      "passed": true
+    },
+    {
+      "name": "valid-callback-single-commit",
+      "passed": true
+    },
+    {
+      "name": "duplicate-callback-rejected",
+      "passed": true
+    },
+    {
+      "name": "attempt-uri-stable",
+      "passed": true
+    },
+    {
+      "name": "listener-stop-observed",
+      "passed": true
+    },
+    {
+      "name": "closed-listener-reconnect-refused",
+      "passed": true
+    },
+    {
+      "name": "late-result-canceled-rejected",
+      "passed": true
+    },
+    {
+      "name": "late-result-window_closed-rejected",
+      "passed": true
+    },
+    {
+      "name": "late-result-shutdown-rejected",
+      "passed": true
+    },
+    {
+      "name": "late-result-timeout-rejected",
+      "passed": true
+    },
+    {
+      "name": "system-browser-loopback",
+      "passed": true
+    },
+    {
+      "name": "browser-connections-drained",
+      "passed": true
+    },
+    {
+      "name": "partial-http-connection-accepted",
+      "passed": true
+    },
+    {
+      "name": "accepted-connection-peer-closure",
+      "passed": true
+    },
+    {
+      "name": "accepted-connection-bounded-close",
+      "passed": true
+    }
+  ],
+  "passed": true,
+  "evidence": {
+    "observedAt": "2026-10-03T08:29:37.659Z",
+    "sourceCommit": "0c14475d3031144aa3759e1f71f3046895f1e314",
+    "sourceState": "working-tree prototype; not a committed candidate",
+    "files": [
+      {
+        "path": "artifacts/pi-agent-runtime/siwc-host-prototype/probe.ts",
+        "sha256": "8f508460a8f71487d86ec2ea7b635d4e0bbef07916744a45d4925bd5cfb3eee8"
+      },
+      {
+        "path": "artifacts/pi-agent-runtime/siwc-host-prototype/fixtures.json",
+        "sha256": "ae130c3425e2ae5ee425346d939a1188f6ca7835679710974d8382472039db4d"
+      },
+      {
+        "path": "tests/zotero/core/lite/290-siwc-host-prototype.zotero.test.ts",
+        "sha256": "afe3137c0eeff448307d543a0f76a727aec7db6788ac145ba740c8a0c4c75a31"
+      },
+      {
+        "path": ".scaffold/test/resource/content/units/core/lite/290-siwc-host-prototype.zotero.test.js",
+        "sha256": "35c22a5d0a2c2124ee508141003e22cc5c8f69d712250b08a3e83b36d68f6cb2"
+      }
+    ],
+    "hostDirectoryLabel": "10.0.2",
+    "actualHostVersion": "10.0.3",
+    "declaredAppBuildId": "20260917164854",
+    "runner": "npm run test:zotero:case -- lite core",
+    "suiteGrep": "^Wayfinder69 prototype ",
+    "optIn": "ZOTERO_SIWC_HOST_PROTOTYPE=1",
+    "realAccountAccessed": false
+  }
+}

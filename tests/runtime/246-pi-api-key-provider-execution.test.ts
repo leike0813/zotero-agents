@@ -1,7 +1,11 @@
 import { assert } from "chai";
 import { getPref, setPref } from "../../src/utils/prefs";
 import { putPiCredential } from "../../src/modules/piCredentialStore";
-import { createPiProviderModelSource } from "../../src/modules/piProviderExecution";
+import {
+  createPiProviderModelSource,
+  createPiProviderSource,
+} from "../../src/modules/piProviderExecution";
+import { normalizeContext, Type } from "@earendil-works/pi-ai";
 import { PiRuntime } from "../../src/modules/piRuntime";
 import type { PiModelSelectionSnapshot } from "../../src/shared/piProviderContract";
 import type { PiRuntimeAuditContext } from "../../src/modules/piRuntimeAudit";
@@ -88,19 +92,54 @@ describe("Pi API-key Provider execution", function () {
     );
     const deltas: string[] = [];
     for await (const delta of source({
-      systemPrompt: "",
+      systemPrompt: "prepared-instructions",
       messages: [{ role: "user", text: "hi" }],
       signal: new AbortController().signal,
     }))
       deltas.push(delta);
     assert.equal(deltas.join(""), "hello");
     assert.lengthOf(requests, 1);
-    assert.equal((await requests[0].clone().json()).reasoning_effort, "low");
+    const body = await requests[0].clone().json();
+    assert.equal(body.reasoning_effort, "low");
     assert.equal(new URL(requests[0].url).origin, "https://provider.example");
     assert.equal(
       requests[0].headers.get("authorization"),
       "Bearer fixture-secret",
     );
+    // The structured path already carries SDK system messages. Normalizing it
+    // again must preserve each instruction and tool declaration once.
+    const prepared = createPiProviderSource(selection, { fetch: fetchFixture });
+    const stream = await prepared.source({
+      sessionId: "prepared",
+      turnId: "prepared",
+      invocationId: "prepared:0",
+      model: prepared.model,
+      signal: new AbortController().signal,
+      context: normalizeContext({
+        systemPrompt: "prepared-instructions",
+        messages: [{ role: "user", content: "hi", timestamp: 0 }],
+        tools: [
+          {
+            name: "read",
+            description: "Read a document",
+            parameters: Type.Object({}),
+          },
+        ],
+      }),
+    });
+    assert.equal((await stream.result()).stopReason, "stop");
+    const preparedBody = await requests[1].clone().json();
+    for (const requestBody of [body, preparedBody]) {
+      const instructions = requestBody.messages.filter(
+        (message: { role: string }) =>
+          message.role === "system" || message.role === "developer",
+      );
+      assert.lengthOf(instructions, 1);
+      assert.equal(instructions[0].content, "prepared-instructions");
+    }
+    assert.lengthOf(preparedBody.tools, 1);
+    assert.equal(preparedBody.tools[0].function.name, "read");
+    assert.equal(preparedBody.tools[0].function.description, "Read a document");
   });
 
   it("does not send ambient authorization to an explicitly keyless endpoint", async function () {

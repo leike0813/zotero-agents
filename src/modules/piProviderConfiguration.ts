@@ -1,4 +1,8 @@
 import { getPref, setPref } from "../utils/prefs";
+import {
+  PI_RUNTIME_VERSION,
+  PI_PROVIDER_ADAPTER_VERSION,
+} from "../config/piRuntimeBuild";
 import type { PiCatalog, PiCatalogModel } from "./piModelCatalog";
 import type {
   PiReasoningLevel,
@@ -403,8 +407,8 @@ export function resolvePiModelSelection(args: {
     baseUrl: config.baseUrl || model.baseUrl,
     reasoning,
     catalogRevision: args.catalog.revision,
-    adapterVersion: "0.84.4",
-    runtimeVersion: "0.84.4",
+    adapterVersion: PI_PROVIDER_ADAPTER_VERSION,
+    runtimeVersion: PI_RUNTIME_VERSION,
     requiresLocalNetwork:
       config.requiresLocalNetwork ||
       (!!model.baseUrl &&
