@@ -119,6 +119,14 @@ Zotero 9 分类使用同一命令，只替换为 `windows-x64\9.0.6` 的安装�
 
 金例 refresh 覆盖真实库规模和附件扫描；超过旧 10 秒边界的确定性回归由 production-client 进程测试提供。Citation Graph 压测在最后一次关闭后额外静默等待 20 秒，并再次检查主窗口和数据库，覆盖延迟崩溃窗口。
 
+Windows 原生取证已复现一种延迟关闭崩溃：ANGLE 释放其 D3D11 模块引用后，宿主持有的 device 继续析构；Intel ControlLib 的卸载链使 `d3d11.dll` 在析构尚未返回时卸载，随后执行已释放的代码地址。仅跳过 Sigma 主动 `loseContext` 仍复现相同异常；在同一金例和真实鼠标路径中额外持有 D3D11 模块引用，释放链仍发生而宿主保持正常。这些证据支持模块与对象生命周期不一致，尚不能确定 Gecko、ANGLE 与驱动各自的最终修复责任。
+
+插件在创建 Windows Synthesis browser 前，通过 Gecko ctypes 从 System32 加载 D3D11，并用 `GetModuleHandleExW(PIN | FROM_ADDRESS)` 固定代码映像到进程退出；普通加载引用与 ctypes library 当次释放。该进程级保护由 `src/platform/windowsGraphicsRuntime.ts` 持有，页面和插件卸载仍照常清理 WebGL context、GPU 对象、监听和计时器。保护失败会中止页面创建。Windows PIN 的生命周期见 [Microsoft API 契约](https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-getmodulehandleexw)。
+
+修复验收必须另起未使用外部模块保活探针的新进程，从当前源码构建 XPI 和本地 sidecar，使用金例副本。先确认 Citation Graph 节点、连线已绘制且刷新完成，再以真实鼠标点击工作台 Tab 的关闭句柄，静默等待至少 20 秒并复查宿主响应和生命周期日志。仅有 canvas、Tab 消失或单元测试通过不能证明原生崩溃已消除。同名插件替换遵循卸载、整个 Zotero 退出、重启、安装的顺序；第一轮修复验收不附加调试器。
+
+2026-10-04 在 Windows、Intel Arc A380 驱动 `32.0.101.8861`、Zotero 10.0.5 上完成三轮金例副本验收：当前源码的生产构建保留 Sigma 主动 `loseContext`，使用本地源码 sidecar，新进程没有外部保活探针或调试器。打开图谱后只读检查 Windows loader，确认 D3D11 的 `LoadCount=0xffffffff`（PIN）；三轮真实鼠标关闭后均正常，驱动模块实际卸载而 D3D11 持续驻留。首轮在用户报告后观察 23 秒，最后一轮在驱动卸载后观察 76 秒，WER 均无新增 dump。该结果只覆盖此设备和宿主版本，不能推断其它显卡、驱动或 Zotero 版本已通过验收；原始截图、loader 记录和诊断材料保留仓库外。
+
 ## 诊断产物
 
 debug 构建会持续写入 `runtime/logs/citation-graph-crash-journal.json`。日志只保存生命周期阶段、布尔资源状态和计数；异常退出后的 active session 会在下次启动标记为 `interrupted`。压测结束时还会把日志复制到 `artifacts/test-diagnostics/citation-graph-crash-journal.json`。

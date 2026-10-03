@@ -201,6 +201,7 @@
 - 页面源码分别由 `src/dashboard/` 与 `src/synthesis/` 持有，HTML 提供固定区域容器；构建产物不得恢复为 `addon/` 下的手写页面实现。
 - 各 Preact 区域仅以自己的可见数据和交互状态比较 signature。日志、trace、graph-page 和 surface 更新不得进入无关 chrome 区域的比较输入。
 - Sigma 实例、camera 与 graph page 累积由 Graph 区域和页面 controller 持有；chrome 更新不得重建 graph 容器。页面卸载必须清理所属监听、observer 和计时器。
+- Windows Synthesis browser 创建前的 D3D11 模块保护由 `src/platform/windowsGraphicsRuntime.ts` 统一执行，OS PIN 保持代码映像到进程退出；其所有权独立于 Tab、窗口和插件 JS 生命周期。涉及原生关闭崩溃的验收须遵循 `docs/dev/zotero-e2e.md` 的真实鼠标与延迟观察流程。
 - Dashboard 与 Synthesis 的跨边界 DTO 以 `src/shared/*WireContract.ts` 为唯一来源；页面重构不得改变宿主 action、snapshot 或消息语义。
 - standalone graph/topic 入口仅组合所需区域，不得导入完整 hosted renderer；文案在 projection/render 阶段解析，Markdown 使用共享 sanitize profile。
 - Synthesis surface 刷新失败必须保留对应 owner 已成功加载的内容与交互状态，错误诊断由 chrome 展示；仅无可用旧数据时显示错误占位符，切换标签后的 shell snapshot 不得充当该 surface 已加载的证据。
