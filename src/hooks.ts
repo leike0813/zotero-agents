@@ -895,6 +895,8 @@ async function onStartup() {
     const { initializePiStateTables } =
       await import("./modules/pluginStateStore");
     await initializePiStateTables();
+    const { initializePiChatGPTAuth } = await import("./modules/piChatGPTAuth");
+    await initializePiChatGPTAuth();
     const { startPiModelCatalog } = await import("./modules/piModelCatalog");
     await startPiModelCatalog();
     // Register the Pi Assistant Workspace surfaces before the runtime
@@ -1224,6 +1226,9 @@ async function onShutdown(): Promise<void> {
     piLifecycle!.getPiRuntimeLifecycle().closeAdmission();
     workflowSubmissionQueue.setPiAdmissionBarrier(true);
     piOwnersStopping = Promise.all([
+      import("./modules/piChatGPTAuth").then((module) =>
+        module.shutdownPiChatGPTAuth(pluginShutdownDeadline),
+      ),
       import("./modules/piModelCatalog").then((module) =>
         module.shutdownPiModelCatalog({ deadline: pluginShutdownDeadline }),
       ),

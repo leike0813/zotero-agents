@@ -7,6 +7,7 @@ import { inspectPiOwner } from "../../src/modules/piOwnerPersistence";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 import { installPluginStateNodeSqliteAdapter } from "../helpers/pluginStateNodeSqliteAdapter";
 import { createPiTextProviderSource } from "../../src/modules/piRuntime";
+import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { getPref, setPref } from "../../src/utils/prefs";
 import type {
   PiModelSelectionSnapshot,
@@ -151,8 +152,8 @@ describe("Pi Conversation titles", function () {
         calls.push(selection);
         return selection?.configurationId === "aux" ? AUX_MODEL : MAIN_MODEL;
       },
-      execution: (selection) =>
-        createPiTextProviderSource({
+      execution: (selection) => {
+        const execution = createPiTextProviderSource({
           steps: [
             {
               text:
@@ -161,7 +162,13 @@ describe("Pi Conversation titles", function () {
                   : "Assistant reply",
             },
           ],
-        }),
+        });
+        execution.source.usageMeasurement = () =>
+          selection.configurationId === "aux"
+            ? { inputTokens: 0, outputTokens: 9, totalTokens: 9 }
+            : { inputTokens: 12, outputTokens: 4, totalTokens: 16 };
+        return execution;
+      },
       definitions: async () => [],
     });
     await coordinator.create();
@@ -179,6 +186,11 @@ describe("Pi Conversation titles", function () {
     );
     assert.property(view.usage, "main");
     assert.property(view.usage, "title");
+    assert.deepEqual(view.usage.purposeTotals.title.measurement, {
+      inputTokens: 0,
+      outputTokens: 9,
+      totalTokens: 9,
+    });
     const entries = (
       await inspectPiOwner(
         { kind: "conversation", ownerId: conversationId },
@@ -193,12 +205,18 @@ describe("Pi Conversation titles", function () {
       inputTokens?: number;
       outputTokens?: number;
       totalTokens?: number;
+      measurement?: Record<string, number>;
     };
     assert.equal(usageRecord.provider, AUX_MODEL.provider);
     assert.equal(usageRecord.modelId, AUX_MODEL.modelId);
     assert.isNumber(usageRecord.inputTokens);
     assert.isNumber(usageRecord.outputTokens);
     assert.isNumber(usageRecord.totalTokens);
+    assert.deepEqual(usageRecord.measurement, {
+      inputTokens: 0,
+      outputTokens: 9,
+      totalTokens: 9,
+    });
     assert.isTrue(
       entries.some(
         (entry) =>
@@ -206,6 +224,117 @@ describe("Pi Conversation titles", function () {
           (entry.payload as { purpose?: string }).purpose === "title",
       ),
       "auxiliary calls have a durable preparation record",
+    );
+    await coordinator.dispose();
+  });
+
+  it("keeps each retried title invocation as one distinct usage contribution", async function () {
+    setAuxiliaryDefault(true);
+    const coordinator = createPiConversationCoordinator({
+      root,
+      resolveModel: async (selection) =>
+        selection?.configurationId === "aux" ? AUX_MODEL : MAIN_MODEL,
+      execution: (selection) => {
+        if (selection.configurationId !== "aux")
+          return createPiTextProviderSource({ steps: [{ text: "Reply" }] });
+        let attempt = 0;
+        return {
+          ...createPiTextProviderSource({ steps: [{ text: "" }] }),
+          source: async (request) => {
+            attempt += 1;
+            if (attempt === 1) {
+              assert.isTrue(
+                await request.onProviderRetry!({
+                  terminal: {
+                    status: "failed",
+                    httpStatus: 503,
+                    code: "provider_unavailable",
+                  },
+                  usage: {
+                    input: 10,
+                    output: 0,
+                    cacheRead: 0,
+                    cacheWrite: 0,
+                    totalTokens: 10,
+                    cost: {
+                      input: 0,
+                      output: 0,
+                      cacheRead: 0,
+                      cacheWrite: 0,
+                      total: 0,
+                    },
+                  },
+                  usageCompleteness: "partial",
+                  usageMeasurement: { inputTokens: 10 },
+                }),
+              );
+            }
+            const stream = createAssistantMessageEventStream();
+            const message = {
+              role: "assistant" as const,
+              content: [{ type: "text" as const, text: "Generated Title" }],
+              api: AUX_MODEL.api,
+              provider: AUX_MODEL.provider,
+              model: AUX_MODEL.modelId,
+              stopReason: "stop" as const,
+              timestamp: 0,
+              usage: {
+                input: 4,
+                output: 6,
+                cacheRead: 0,
+                cacheWrite: 0,
+                totalTokens: 10,
+                cost: {
+                  input: 0,
+                  output: 0,
+                  cacheRead: 0,
+                  cacheWrite: 0,
+                  total: 0,
+                },
+              },
+            };
+            stream.push({
+              type: "start",
+              partial: { ...message, stopReason: "pending" },
+            });
+            stream.push({ type: "done", reason: "stop", message });
+            return stream;
+          },
+        };
+      },
+      definitions: async () => [],
+    });
+    await coordinator.create();
+    const conversationId = coordinator.selectedId!;
+    await (
+      await coordinator.send(conversationId, "Retry title evidence")
+    ).result;
+    await coordinator.waitForTitle(conversationId);
+    const entries = (
+      await inspectPiOwner(
+        { kind: "conversation", ownerId: conversationId },
+        root,
+      )
+    ).entries;
+    const titleFacts = entries.filter((entry) => entry.kind === "title_usage");
+    assert.lengthOf(titleFacts, 2);
+    const facts = titleFacts.map(
+      (entry) =>
+        entry.payload as {
+          invocationId: string;
+          totalTokens: number;
+          measurement?: Record<string, number>;
+          completeness?: string;
+        },
+    );
+    assert.notEqual(facts[0].invocationId, facts[1].invocationId);
+    assert.deepEqual(facts[0].measurement, { inputTokens: 10 });
+    assert.equal(facts[0].completeness, "partial");
+    assert.equal(facts[1].totalTokens, 10);
+    assert.equal(
+      (await coordinator.readModel(conversationId)).usage.purposeTotals.title
+        .totalTokens,
+      20,
     );
     await coordinator.dispose();
   });

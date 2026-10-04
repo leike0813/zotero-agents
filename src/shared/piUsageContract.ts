@@ -31,6 +31,45 @@ export type PiInvocationPurpose = "main" | "compaction" | "title";
  */
 export type PiCostState = "estimated" | "free" | "unknown";
 
+/** Completeness of measurements reported for one physical provider request. */
+export type PiUsageCompleteness = "complete" | "partial" | "unknown";
+
+/** Exact token fields reported by a provider; omitted means unreported, not zero. */
+export type PiUsageMeasurement = Readonly<{
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  cachedTokens?: number;
+  cacheWriteTokens?: number;
+}>;
+export type PiUsageMeasurementField = keyof PiUsageMeasurement;
+
+/** Reads exact reported token fields from durable evidence without filling gaps. */
+export function readPiUsageMeasurement(
+  value: unknown,
+): PiUsageMeasurement | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return;
+  const source = value as Record<string, unknown>;
+  const fields = {
+    inputTokens: "inputTokens",
+    outputTokens: "outputTokens",
+    totalTokens: "totalTokens",
+    cachedTokens: "cachedTokens",
+    cacheWriteTokens: "cacheWriteTokens",
+  } as const;
+  const measurement: Partial<Record<keyof typeof fields, number>> = {};
+  for (const [field, key] of Object.entries(fields) as Array<
+    [keyof typeof fields, (typeof fields)[keyof typeof fields]]
+  >) {
+    const count = source[key];
+    if (count === undefined) continue;
+    if (typeof count !== "number" || !Number.isFinite(count) || count < 0)
+      return;
+    measurement[field] = count;
+  }
+  return measurement;
+}
+
 export type PiUsageTokens = {
   input: number;
   output: number;
@@ -309,7 +348,12 @@ function safeAuthVariants(
     return undefined;
   const variants: PiAuthVariant[] = [];
   for (const item of value) {
-    if (item !== "none" && item !== "api-key" && item !== "openai-codex")
+    if (
+      item !== "none" &&
+      item !== "api-key" &&
+      item !== "chatgpt" &&
+      item !== "openai-codex"
+    )
       return undefined;
     if (!variants.includes(item)) variants.push(item);
   }
@@ -413,7 +457,9 @@ export function readPiCanonicalSelection(
     !provider ||
     !modelId ||
     !api ||
-    !["none", "api-key", "openai-codex"].includes(String(authVariant)) ||
+    !["none", "api-key", "chatgpt", "openai-codex"].includes(
+      String(authVariant),
+    ) ||
     !policy ||
     typeof policy !== "object" ||
     Array.isArray(policy)
@@ -483,6 +529,10 @@ export type PiInvocationUsageEvidence = Readonly<{
   /** Deduplication identity; absent only for legacy facts. */
   invocationId?: string;
   usageKnown: boolean;
+  /** Older evidence has no completeness fact and remains unknown at projection. */
+  completeness?: PiUsageCompleteness;
+  /** Field-level provider measurements; an omitted key was not reported. */
+  measurement?: PiUsageMeasurement;
   usage: PiUsageTokens;
   cost: PiInvocationCost;
 }>;
@@ -512,8 +562,144 @@ export function aggregatePiInvocationCosts(
  */
 export type PiPurposeUsageTotals = Record<
   PiInvocationPurpose,
-  PiUsageTokens & { cost: number; costUnknown: number }
+  PiUsageTokens & {
+    cost: number;
+    costUnknown: number;
+    measurement: PiUsageMeasurement;
+    unreported: Partial<Record<PiUsageMeasurementField, number>>;
+    invocations: number;
+    completeness: PiUsageCompleteness;
+    /** Displayable scalar subtotal, including trusted legacy SDK totals. */
+    visibleTotalTokens: number;
+    /** Calls without a trustworthy total; the subtotal must not look final. */
+    unknownTotalInvocations: number;
+  }
 >;
+
+export type PiUsageDisplaySummary = {
+  hasInvocations: boolean;
+  knownSubtotal: number;
+  unknownInvocations: number;
+};
+
+export type PiUsageOwnerDisplaySummary = {
+  main: PiUsageDisplaySummary;
+  compaction: PiUsageDisplaySummary;
+  title: PiUsageDisplaySummary;
+  owner: PiUsageDisplaySummary;
+};
+
+/** One source for the known subtotal/unknown-total policy used by both owners. */
+export function summarizePiUsageForDisplay(
+  totals: PiPurposeUsageTotals | undefined,
+  options: { includeTitle?: boolean; legacyUnknown?: boolean } = {},
+): PiUsageOwnerDisplaySummary {
+  const purposeSummary = (
+    purpose: PiInvocationPurpose,
+  ): PiUsageDisplaySummary => {
+    const contribution = totals?.[purpose];
+    if (
+      !contribution ||
+      (options.legacyUnknown && contribution.invocations === 0)
+    ) {
+      return options.legacyUnknown
+        ? { hasInvocations: true, knownSubtotal: 0, unknownInvocations: 1 }
+        : { hasInvocations: false, knownSubtotal: 0, unknownInvocations: 0 };
+    }
+    return {
+      hasInvocations: contribution.invocations > 0,
+      knownSubtotal: contribution.visibleTotalTokens,
+      unknownInvocations: contribution.unknownTotalInvocations,
+    };
+  };
+  const main = purposeSummary("main");
+  const compaction = purposeSummary("compaction");
+  const title = purposeSummary("title");
+  const ownerPurposes = options.includeTitle
+    ? [main, compaction, title]
+    : [main, compaction];
+  return {
+    main,
+    compaction,
+    title,
+    owner: {
+      hasInvocations: ownerPurposes.some((purpose) => purpose.hasInvocations),
+      knownSubtotal: ownerPurposes.reduce(
+        (sum, purpose) => sum + purpose.knownSubtotal,
+        0,
+      ),
+      unknownInvocations: ownerPurposes.reduce(
+        (sum, purpose) => sum + purpose.unknownInvocations,
+        0,
+      ),
+    },
+  };
+}
+
+const USAGE_MEASUREMENT_FIELDS: readonly PiUsageMeasurementField[] = [
+  "inputTokens",
+  "outputTokens",
+  "totalTokens",
+  "cachedTokens",
+  "cacheWriteTokens",
+];
+
+/** Adds one canonical invocation without turning omitted fields into zero. */
+export function addPiUsageMeasurement(
+  purpose: PiPurposeUsageTotals[PiInvocationPurpose],
+  measurement: PiUsageMeasurement | undefined,
+  completeness: PiUsageCompleteness,
+  usageKnown: boolean,
+  legacyTotalTokens?: number,
+): void {
+  let measured = false;
+  const measuredFields = { ...purpose.measurement };
+  const unreported = { ...purpose.unreported };
+  for (const field of USAGE_MEASUREMENT_FIELDS) {
+    const value = measurement?.[field];
+    if (value === undefined) {
+      unreported[field] = (unreported[field] || 0) + 1;
+      continue;
+    }
+    measured = true;
+    measuredFields[field] = (measuredFields[field] || 0) + value;
+  }
+  const priorInvocations = purpose.invocations;
+  purpose.invocations += 1;
+  purpose.measurement = measuredFields;
+  purpose.unreported = unreported;
+  if (measurement?.totalTokens !== undefined) {
+    purpose.visibleTotalTokens += measurement.totalTokens;
+  } else if (
+    measurement === undefined &&
+    usageKnown &&
+    typeof legacyTotalTokens === "number" &&
+    Number.isFinite(legacyTotalTokens) &&
+    legacyTotalTokens >= 0
+  ) {
+    // Older trusted SDK sources expose only canonical scalar usage. Preserve
+    // that display contract while keeping the exact measurement absent.
+    purpose.visibleTotalTokens += legacyTotalTokens;
+  } else {
+    purpose.unknownTotalInvocations += 1;
+  }
+  if (priorInvocations === 0) {
+    purpose.completeness =
+      !measured || !usageKnown || completeness === "unknown"
+        ? "unknown"
+        : completeness === "complete"
+          ? "complete"
+          : "partial";
+  } else if (
+    purpose.completeness !== "complete" ||
+    !measured ||
+    !usageKnown ||
+    completeness !== "complete"
+  ) {
+    purpose.completeness =
+      Object.keys(measuredFields).length === 0 ? "unknown" : "partial";
+  }
+}
 
 export function emptyPiPurposeUsageTotals(): PiPurposeUsageTotals {
   const empty = () => ({
@@ -524,6 +710,12 @@ export function emptyPiPurposeUsageTotals(): PiPurposeUsageTotals {
     totalTokens: 0,
     cost: 0,
     costUnknown: 0,
+    measurement: {},
+    unreported: {},
+    invocations: 0,
+    completeness: "unknown" as const,
+    visibleTotalTokens: 0,
+    unknownTotalInvocations: 0,
   });
   return { main: empty(), compaction: empty(), title: empty() };
 }
@@ -538,6 +730,7 @@ export type PiSkillRunUsageView = {
   cost: number;
   compactionCost: number;
   costUnknown: number;
+  purposeTotals: PiPurposeUsageTotals;
 };
 
 export function piSkillRunUsageView(
@@ -549,5 +742,6 @@ export function piSkillRunUsageView(
     cost: totals.main.cost,
     compactionCost: totals.compaction.cost,
     costUnknown: totals.main.costUnknown + totals.compaction.costUnknown,
+    purposeTotals: totals,
   };
 }

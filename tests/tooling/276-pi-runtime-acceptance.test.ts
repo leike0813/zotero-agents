@@ -30,6 +30,46 @@ const loadManifest = () =>
   loadCompatibilityManifest("tests/zotero/compatibility-matrix.json");
 
 describe("Pi runtime acceptance", () => {
+  it("requires ChatGPT completed, usage, continuation and search evidence in the live inventory", async () => {
+    const manifest = await loadManifest();
+    const ids = requiredPiEvidence(manifest).map((item) => item.id);
+    assert.include(ids, "manual:chatgpt-lifecycle");
+    assert.include(ids, "manual:openai-web-chatgpt");
+    assert.notInclude(ids, "manual:codex-lifecycle");
+    const evidence: PiAcceptanceEvidence = {
+      id: "manual:chatgpt-lifecycle",
+      candidate,
+      status: "passed",
+      recordedAt: "2026-10-04T00:00:00Z",
+      environment: "controlled",
+      artifact: "receipts/chatgpt.json",
+      confirmer: "maintainer",
+      manual: {
+        zoteroMajor: 10,
+        observed: [
+          "login",
+          "streaming",
+          "refresh-or-reuse",
+          "logout",
+          "unavailable-after-clear",
+          "reconnect",
+        ],
+        sourceEvidence: ["receipts/chatgpt-observations.json"],
+      },
+    };
+    const status = () =>
+      buildPiAcceptanceReport(candidate, manifest, [evidence]).items.find(
+        (item) => item.id === evidence.id,
+      )!.status;
+    assert.equal(status(), "failed");
+    evidence.manual!.observed.push(
+      "discovery",
+      "function-continuation",
+      "actual-completed",
+      "actual-usage",
+    );
+    assert.equal(status(), "passed");
+  });
   it("reads the packed candidate and rejects control or debug build provenance", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "pi-candidate-"));
     const xpi = path.join(root, "candidate.xpi");

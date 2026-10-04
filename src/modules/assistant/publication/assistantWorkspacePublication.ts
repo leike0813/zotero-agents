@@ -330,6 +330,14 @@ const ASSISTANT_WORKSPACE_ACTION_DEFINITIONS = {
     scope: "selected-owner",
     payloadKeys: [],
   },
+  "enable-pi-skill-run-restart": {
+    scope: "selected-owner",
+    payloadKeys: [],
+  },
+  "disable-pi-skill-run-restart": {
+    scope: "selected-owner",
+    payloadKeys: [],
+  },
   "open-workspace": {
     scope: "selected-owner",
     payloadKeys: [],
@@ -883,6 +891,8 @@ export const ASSISTANT_WORKSPACE_DETAILS_ACTIONS = [
   "delete-conversation",
   "check-owner-recovery",
   "continue-owner-recovery",
+  "enable-pi-skill-run-restart",
+  "disable-pi-skill-run-restart",
 ] as const;
 
 export type AssistantWorkspaceDetailsAction =

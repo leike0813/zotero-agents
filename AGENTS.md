@@ -266,8 +266,11 @@ This is a single-context repository using a root `CONTEXT.md` and root `docs/adr
 - `src/modules/piProviderExecution.ts` 只接受 C03 已解析的冻结选择快照；每次调用仅读取该快照引用的加密凭据，显式无密钥的 OpenAI 兼容自定义端点在发请求前移除授权头。本地端点须先通过调用方的 Local Network 授权。
 - Provider 响应正文、头、原生异常和密钥不得进入 `PiRuntime` 终态、Backend Manager 快照、页面消息或日志；失败只传项目自有的结构化码。连接测试须由用户动作触发，并按请求 ID 关联结果。
 - 插件浏览器包只允许精确的 `provider-env.js → node:fs` 不可达导入 guard；其它 Node/Bun builtin 继续由浏览器构建拒绝。Provider 版本或导入图变动后，重跑构建和真实 Zotero 定向用例。
-- Codex 模型发现经 `piModelCatalog.ts` 使用所选加密凭据查询官方接口；用户登录或显式刷新触发网络，配置加载保持离线。发现事实按凭据隔离，删除与替换更新目录 revision 并拒绝迟到结果；缺失输出上限保持未知，由已知上下文约束输出预留。
-- Codex 授权请求在显示设备码后保持同一请求、窗口与插件实例，直到完成或用户明确取消；活动授权中的重复连接保留当前请求。
+- ChatGPT 模型发现经 `piModelCatalog.ts` 使用所选注册查询官方 `/v1/models`；登录、用户切换注册或显式刷新触发网络，配置加载保持离线。发现事实按凭据身份隔离，删除与替换更新目录 revision 并拒绝迟到结果；上下文须有 SIWC 适用的可靠事实，缺失输出上限保持未知，由已知上下文约束输出预留。
+- `piChatGPTAuth.ts` 持有 profile 稳定 host ID、独立注册、浏览器 PKCE 授权与每次授权的原生 loopback callback；ID token 经官方 JWKS 验签，并验证 issuer、audience、expiry、nonce 和 returning identity。活动注册的重复连接保留当前请求，实际 direct scope 与首次欢迎确认共同决定推理准入。
+- 刷新按注册 single-flight，已发出轮换不因单个等待者取消而丢弃；凭据 CAS 与持久轮换标记阻止删除、替换、退出和 shutdown 后的迟到写入。退出协调最新 refresh token 的撤销，未证实的远端效果保持 unknown，本地清理与认证关闭共用既有 15 秒 shutdown deadline。
+- ChatGPT 只经官方 OpenAI Responses 执行，`piChatGPTProvider.ts` 在 Pi payload/stream hooks 上持有 SIWC 最终 wire、工具命名空间和实际 terminal 证据；只有实际 `response.completed` 且结果校验成功才能交付工具批次。部分文本可见但不进入正常 context，用量保留 complete/partial/unknown，订阅价格保持未知。
+- 订阅额度耗尽按注册持久暂停所有新推理；只有用户显式连接探测的一次实际 completed 请求能解除暂停，不调度计时探测或自动恢复任务。自动 503 重试只限输出前，最多两次，沿用原 turn deadline/lease，每次物理请求各自记录 canonical invocation；搜索和额度恢复探测不重试。
 - 独立公共模型目录由 `piModelCatalog.ts` 持有 current/previous/seed、已采用 overlay、账户发现及发布串行；`piModelCatalogData.ts` 与其共享元数据模块 `src/shared/piModelMetadata.ts` 是插件与维护工具共同使用的归一化事实源。配置加载保持离线，公共 HTTP 使用实际 Runtime 版本、30 秒和 8 MiB 上限；自动检查按上次尝试计时，间隔四小时。
 - 公共成功空快照替换整个公共目录；失败保留已采用数据。恢复先持久化再关闭自动更新，既有退休事实继续生效。overlay 只覆盖显式字段且不能放宽限制；源文件丢失时保留已采用声明，直到显式移除。账户事实按凭据身份隔离，身份替换及 shutdown 后的迟到结果不能发布。
 - 连接目标由版本化 binding 持有，目录更新不得改变已保存连接的 API/端点或重新绑定凭据。原目标无法可靠迁移时保留配置、默认选择和凭据，以 `repairRequired` 阻止新 turn；既有已配置描述独立保留，不进入公共推荐目录。
@@ -286,6 +289,7 @@ This is a single-context repository using a root `CONTEXT.md` and root `docs/adr
 - 成功必须通过独占、schema 有效的 `submit_skill_result` 单次封存；provider outcome、Workflow ApplyReceipt 与 terminal ack 各自持久化。取消不能覆盖封存结果，未知或未结算效果不得重放。
 - `ask_user` 仅用于 Interactive，由共享 `userInteractionContract.ts` 定义多问题、owner 文件引用与 revision CAS；普通工具结算后才能发布等待。Interrupt 保持原 request 并暂停，继续仅接受文本。
 - LoopGuard 按整个 run 累积，在完整批次预检后、首次效果前持久化实际 dispatch 数；被拒、待审批与更新审批不消耗执行额度。known-owner recovery 本身不调度 model/tool；只有此前 running 且安全检查点有效的 run 由 `piRuntimeLifecycle` 启动路径在后台 lane 自动续跑，启动发现、进程清理与回收门槛都由该生命周期持有。
+- ChatGPT Skill Run 的无人值守重启还须具备默认关闭、绑定原任务和注册身份的 canonical 同意；启动前重新验证账户准入。Send、Workflow admission 和显式继续只授权当前连续执行，不能代替未来重启同意；账户身份变化须重新授权，未结算效果仍不得重放。
 
 # Pi Runtime Lifecycle 硬约束
 
@@ -315,7 +319,7 @@ This is a single-context repository using a root `CONTEXT.md` and root `docs/adr
 
 - `piOutboundNetworkPolicy.ts` 是 Web/MCP 出站地址分类的事实源；每次 DNS 的全部 A/AAAA、元数据、Local Network origin 和每次重定向都必须校验，实际 peer 证据缺失时失败关闭。匿名 fetch 不携带凭据、Cookie 或 Referer。
 - `piBrokeredWebTools.ts` 只提供固定的 `web_search` / `web_fetch`；来源顺序、模型配置与凭据 revision 按 turn 冻结。每个来源只发送一次搜索；取消、策略/合同失败或未知效果停止 fallback，逐来源 started/terminal 事实由 canonical transcript 持久化。
-- 原生 grounded search 只使用官方 OpenAI（含 C05 Codex）与 Anthropic API-key 配置；Anthropic 固定官方 Messages API 和基础服务器搜索。没有实际搜索证据不得报告成功，不得从答案猜测引用。
+- 原生 grounded search 使用官方 OpenAI 的 API-key / ChatGPT 配置与 Anthropic API-key 配置；ChatGPT 复用共享 SIWC stream 解析与有界官方 OpenAI 网络操作，Anthropic 固定官方 Messages API 和基础服务器搜索。每个来源只派发一次；没有实际 completed 搜索及引用证据不得报告成功，不得从答案猜测引用。
 - curated MCP 调用前校验所选工具的 schema 和审阅摘要；Brave 启动前读取实际安装包 name/version。保存来源保持离线；主动测试和描述符批准是用户动作。Web 结果始终是 `external_untrusted` 数据，正文和投影有界，密钥、头与原生异常不得进入回执。
 
 # Pi Trusted Native Execution 硬约束

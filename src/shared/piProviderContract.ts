@@ -111,11 +111,15 @@ export type PiCredentialMaterial =
   | { kind: "mcp-secret"; secret: string }
   | { kind: "web-secret"; secret: string }
   | {
-      kind: "openai-codex";
+      kind: "chatgpt";
       access: string;
       refresh: string;
       expiresAt: number;
-      accountId: string;
+      idToken: string;
+      issuer: string;
+      subject: string;
+      clientId: string;
+      scope: string[];
     };
 export type PiCredentialMetadata = {
   id: string;
@@ -133,7 +137,7 @@ export type PiReasoningLevel =
   | "high"
   | "xhigh"
   | "max";
-export type PiAuthVariant = "none" | "api-key" | "openai-codex";
+export type PiAuthVariant = "none" | "api-key" | "chatgpt";
 export type PiApiDialect = "openai-responses" | "openai-completions";
 export type PiProviderConfiguration = {
   id: string;

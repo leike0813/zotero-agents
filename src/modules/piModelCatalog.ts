@@ -5,7 +5,7 @@ import {
   readPiCredential,
   subscribePiCredentialIdentityChange,
 } from "./piCredentialStore";
-import { resolvePiOpenAICodexAccess } from "./piOpenAICodexAuth";
+import { resolvePiChatGPTAccess } from "./piChatGPTAuth";
 import { PiModelStreamFailure } from "./piRuntime";
 import {
   classifyPiEndpoint,
@@ -69,8 +69,14 @@ const ALLOWED_MODEL_KEYS = new Set([
   "promptCache",
   "compat",
   "samplingParams",
+  "authVariants",
 ]);
 const ALLOWED_PROVIDER_KEYS = new Set(["api", "baseUrl", "models"]);
+const CHATGPT_PROVIDER = "openai";
+const CHATGPT_API = "openai-responses";
+const CHATGPT_BASE_URL = "https://api.openai.com/v1";
+const CHATGPT_MODEL_URL = CHATGPT_BASE_URL + "/models";
+const LEGACY_CODEX_AUTH_VARIANT = "openai-codex";
 type PublicSnapshot = {
   raw: unknown;
   revision: string;
@@ -214,14 +220,48 @@ function invalidate(owner: Owner, scope: string) {
     owner.generation.set(scope, scopeGeneration(owner, scope) + 1);
   }
 }
-function currentCodexModels(owner: Owner): PiCatalogModel[] {
+function currentChatGPTModels(
+  owner: Owner,
+  overlay: readonly PiCatalogModel[],
+): PiCatalogModel[] {
   const result: PiCatalogModel[] = [];
+  const overlayModels = overlay.filter((model) =>
+    model.authVariants?.includes("chatgpt"),
+  );
   for (const [id, discovery] of Object.entries(owner.cache.accounts)) {
     if (
       getPiCredentialIdentityRevision(id, "model-provider") ===
       discovery.identityRevision
-    )
-      result.push(...discovery.models);
+    ) {
+      for (const model of discovery.models) {
+        const declared = overlayModels.find(
+          (entry) =>
+            entry.provider === model.provider &&
+            entry.id === model.id &&
+            entry.api === model.api &&
+            entry.baseUrl === model.baseUrl,
+        );
+        if (!declared) {
+          result.push(model);
+          continue;
+        }
+        const merged = mergePiModelOverlay(
+          [{ ...model, source: "official" }],
+          [declared],
+        )[0];
+        result.push({
+          ...merged,
+          name: model.name,
+          provider: model.provider,
+          id: model.id,
+          api: model.api,
+          baseUrl: model.baseUrl,
+          source: "discovered",
+          credentialRef: model.credentialRef,
+          authVariants: ["chatgpt"],
+        });
+      }
+    }
   }
   return result;
 }
@@ -233,10 +273,13 @@ function effective(owner: Owner): PiCatalog {
     ? normalizePiModelOverlay(owner.cache.overlay, base)
     : [];
   const models = [
-    ...mergePiModelOverlay(base, overlay),
-    ...currentCodexModels(owner),
+    ...mergePiModelOverlay(
+      base,
+      overlay.filter((model) => !model.authVariants?.includes("chatgpt")),
+    ),
+    ...currentChatGPTModels(owner, overlay),
   ].map((model) =>
-    owner.cache.retired.includes(modelKey(model))
+    !model.credentialRef && owner.cache.retired.includes(modelKey(model))
       ? { ...model, availability: "retired" as const }
       : model,
   );
@@ -378,6 +421,7 @@ function getOwner(root?: string): Owner {
   };
   owners.set(key, owner);
   owner.loaded = (async () => {
+    let removedLegacyAccountFacts = false;
     const state = loadPiProviderConfigurationState();
     // The migration input supplies only previously saved configurations, never
     // public recommendations or a second maintained directory base.
@@ -430,7 +474,9 @@ function getOwner(root?: string): Owner {
             const base = cache.current ? publicModels(cache.current) : seeded();
             mergePiModelOverlay(
               base,
-              normalizePiModelOverlay(parsed.overlay, base),
+              normalizePiModelOverlay(parsed.overlay, base).filter(
+                (model) => !model.authVariants?.includes("chatgpt"),
+              ),
             );
             cache.overlay = parsed.overlay;
             owner.overlayStatus = "cached";
@@ -446,14 +492,22 @@ function getOwner(root?: string): Owner {
           for (const [id, value] of Object.entries(parsed.accounts)) {
             try {
               const account = value as AccountSnapshot;
+              if (!Array.isArray(account.models))
+                throw new Error("Invalid account cache");
+              const currentModels = account.models.filter(
+                (model) => !isLegacyCodexModel(model),
+              );
+              if (currentModels.length !== account.models.length)
+                removedLegacyAccountFacts = true;
+              if (currentModels.length === 0 && account.models.length > 0)
+                continue;
               if (
                 getPiCredentialIdentityRevision(id, "model-provider") !==
                   account.identityRevision ||
-                !Array.isArray(account.models) ||
-                account.models.length > 1000
+                currentModels.length > 1000
               )
                 continue;
-              const models = validateAccountModels(account.models, id);
+              const models = validateAccountModels(currentModels, id);
               cache.accounts[id] = {
                 identityRevision: account.identityRevision,
                 models,
@@ -469,6 +523,12 @@ function getOwner(root?: string): Owner {
             }
           }
         owner.cache = cache;
+        if (removedLegacyAccountFacts) {
+          cache.epoch++;
+          await persist(owner, cache).catch(() => {
+            owner.error = "persistence";
+          });
+        }
       } else if (parsed?.version === 1 && Array.isArray(parsed.models)) {
         const providers: Record<string, { models: unknown[] }> =
           Object.create(null);
@@ -555,9 +615,31 @@ export function normalizePiModelOverlay(
       const baseUrl = classifyPiEndpoint(
         string(raw.baseUrl || source.baseUrl || original?.baseUrl),
       ).baseUrl;
+      const authVariants: NonNullable<PiCatalogModel["authVariants"]> =
+        raw.authVariants === undefined
+          ? ["none", "api-key"]
+          : (knownStringArray(
+              raw.authVariants,
+              new Set(["none", "api-key", "chatgpt"]),
+              "authVariants",
+            ) as NonNullable<PiCatalogModel["authVariants"]>);
+      const chatGPTTarget = authVariants.includes("chatgpt");
+      if (
+        chatGPTTarget &&
+        (authVariants.length !== 1 ||
+          provider !== CHATGPT_PROVIDER ||
+          raw.api !== CHATGPT_API ||
+          raw.baseUrl !== CHATGPT_BASE_URL)
+      )
+        throw new Error(
+          "ChatGPT overlay facts require an explicit official API target",
+        );
       const metadataInput = {
         ...raw,
-        ...(raw.cost && typeof raw.cost === "object" && original?.cost
+        ...(raw.cost &&
+        typeof raw.cost === "object" &&
+        original?.cost &&
+        !chatGPTTarget
           ? { cost: { ...original.cost, ...raw.cost } }
           : {}),
       };
@@ -620,7 +702,7 @@ export function normalizePiModelOverlay(
         reasoning,
         source: "overlay",
         declaredFields,
-        authVariants: ["none", "api-key"],
+        authVariants,
         knowledge: {
           context: raw.contextWindow === undefined ? "unknown" : "known",
           output: raw.maxTokens === undefined ? "unknown" : "known",
@@ -644,6 +726,14 @@ export function normalizePiModelOverlay(
   return result;
 }
 export async function loadPiModelCatalog(
+  args: { root?: string } = {},
+): Promise<PiCatalog> {
+  const owner = getOwner(args.root);
+  await owner.loaded;
+  return effective(owner);
+}
+/** Wait for cache-load migration so startup can sequence it before owner recovery. */
+export async function cleanupPiChatGPTLegacyCatalog(
   args: { root?: string } = {},
 ): Promise<PiCatalog> {
   const owner = getOwner(args.root);
@@ -684,7 +774,12 @@ export async function refreshPiModelCatalog(
           const base = owner.cache.current
             ? publicModels(owner.cache.current)
             : seeded();
-          mergePiModelOverlay(base, normalizePiModelOverlay(raw, base));
+          mergePiModelOverlay(
+            base,
+            normalizePiModelOverlay(raw, base).filter(
+              (model) => !model.authVariants?.includes("chatgpt"),
+            ),
+          );
           const next = cloneCache(owner);
           if (next.overlay !== raw) next.epoch++;
           next.overlay = raw;
@@ -938,7 +1033,10 @@ export async function refreshPiPublicModelCatalog(
           mergePiModelOverlay(
             snapshot.models,
             owner.cache.overlay
-              ? normalizePiModelOverlay(owner.cache.overlay, snapshot.models)
+              ? normalizePiModelOverlay(
+                  owner.cache.overlay,
+                  snapshot.models,
+                ).filter((model) => !model.authVariants?.includes("chatgpt"))
               : [],
           );
           const next = cloneCache(owner);
@@ -1114,6 +1212,17 @@ export async function shutdownPiModelCatalog(
   ]);
   clearTimeout(timer);
 }
+function isLegacyCodexModel(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const model = value as Record<string, unknown>;
+  return (
+    model.provider === "openai-codex" ||
+    model.api === "openai-codex-responses" ||
+    (Array.isArray(model.authVariants) &&
+      model.authVariants.includes(LEGACY_CODEX_AUTH_VARIANT))
+  );
+}
+
 function validateAccountModels(
   values: PiCatalogModel[],
   credentialId: string,
@@ -1121,45 +1230,47 @@ function validateAccountModels(
   return values.map((model) => {
     if (
       !model ||
-      model.provider !== "openai-codex" ||
-      model.api !== "openai-codex-responses" ||
+      model.provider !== CHATGPT_PROVIDER ||
+      model.api !== CHATGPT_API ||
+      model.baseUrl !== CHATGPT_BASE_URL ||
       model.source !== "discovered" ||
       model.credentialRef !== credentialId ||
+      !model.authVariants?.includes("chatgpt") ||
       !string(model.id)
     )
       throw new Error("Invalid discovered model");
+    const name = typeof model.name === "string" ? model.name : "";
+    if (name.length > 256) throw new Error("Invalid discovered model name");
     const contextWindow = model.contextWindow
       ? positiveInt(model.contextWindow, "contextWindow")
       : 0;
-    const maxTokens = model.maxTokens
-      ? positiveInt(model.maxTokens, "maxTokens")
-      : 0;
+    if (model.maxTokens !== 0) throw new Error("Invalid ChatGPT output limit");
     return {
-      provider: "openai-codex",
+      provider: CHATGPT_PROVIDER,
       id: string(model.id),
-      name: string(model.name).slice(0, 256),
-      api: "openai-codex-responses",
-      baseUrl: "https://chatgpt.com/backend-api",
+      name: name || string(model.id),
+      api: CHATGPT_API,
+      baseUrl: CHATGPT_BASE_URL,
       contextWindow,
-      maxTokens,
-      input: knownStringArray(model.input, new Set(["text", "image"]), "input"),
-      reasoning: knownStringArray(model.reasoning, REASONING, "reasoning"),
-      supportsTools: model.supportsTools === true,
+      maxTokens: 0,
+      input: ["text"],
+      reasoning: ["off"],
+      supportsTools: false,
       source: "discovered",
       credentialRef: credentialId,
-      authVariants: ["openai-codex"],
+      authVariants: ["chatgpt"],
       knowledge: {
         context: contextWindow ? "known" : "unknown",
-        output: maxTokens ? "known" : "unknown",
-        input: model.input.length ? "known" : "unknown",
-        tools: model.supportsTools ? "known" : "unknown",
-        reasoning: model.reasoning.length ? "known" : "unknown",
+        output: "unknown",
+        input: "known",
+        tools: "unknown",
+        reasoning: "unknown",
       },
     };
   });
 }
 
-export async function removePiCodexCredentialModels(
+export async function removePiChatGPTCredentialModels(
   _catalog: PiCatalog,
   credentialId: string,
 ): Promise<PiCatalog> {
@@ -1183,12 +1294,13 @@ export async function removePiCodexCredentialModels(
   });
 }
 
-export async function refreshPiCodexModelCatalog(
+export async function refreshPiChatGPTModelCatalog(
   _catalog: PiCatalog,
   args: {
     credentialId: string;
     signal: AbortSignal;
     fetch?: typeof fetch;
+    resolveAccess?: typeof resolvePiChatGPTAccess;
     root?: string;
   },
 ): Promise<PiCatalog> {
@@ -1207,7 +1319,7 @@ export async function refreshPiCodexModelCatalog(
       };
       publish(owner);
       try {
-        return await performPiCodexModelRefresh(
+        return await performPiChatGPTModelRefresh(
           owner,
           { ...args, signal: controller.signal },
           generation,
@@ -1230,51 +1342,52 @@ export async function refreshPiCodexModelCatalog(
   );
 }
 
-async function performPiCodexModelRefresh(
+async function performPiChatGPTModelRefresh(
   owner: Owner,
   args: {
     credentialId: string;
     signal: AbortSignal;
     fetch?: typeof fetch;
+    resolveAccess?: typeof resolvePiChatGPTAccess;
     root?: string;
   },
   generation: number,
 ): Promise<PiCatalog> {
   try {
-    const access = await resolvePiOpenAICodexAccess(
-      args.credentialId,
-      args.signal,
-    );
-    const credentialRevision = getPiCredentialRevision(
+    const identityRevision = getPiCredentialIdentityRevision(
       args.credentialId,
       "model-provider",
     );
-    const identityRevision = getPiCredentialIdentityRevision(
+    if (!identityRevision) throw new PiModelStreamFailure("credential_missing");
+    const access = await (args.resolveAccess || resolvePiChatGPTAccess)(
+      args.credentialId,
+      args.signal,
+      undefined,
+      { identityRevision },
+    );
+    const credentialRevision = getPiCredentialRevision(
       args.credentialId,
       "model-provider",
     );
     const resolved = await readPiCredential(args.credentialId);
     if (
       !resolved.ok ||
-      resolved.material.kind !== "openai-codex" ||
+      resolved.material.kind !== "chatgpt" ||
       resolved.material.access !== access ||
       getPiCredentialRevision(args.credentialId, "model-provider") !==
-        credentialRevision
+        credentialRevision ||
+      getPiCredentialIdentityRevision(args.credentialId, "model-provider") !==
+        identityRevision
     )
       throw new PiModelStreamFailure("credential_missing");
-    const response = await (args.fetch || globalThis.fetch)(
-      "https://chatgpt.com/backend-api/codex/models?client_version=0.158.0",
-      {
-        headers: {
-          Authorization: `Bearer ${access}`,
-          "ChatGPT-Account-ID": resolved.material.accountId,
-          originator: "codex_cli_rs",
-        },
-        credentials: "omit",
-        redirect: "error",
-        signal: args.signal,
+    const response = await (args.fetch || globalThis.fetch)(CHATGPT_MODEL_URL, {
+      headers: {
+        Authorization: `Bearer ${access}`,
       },
-    );
+      credentials: "omit",
+      redirect: "error",
+      signal: args.signal,
+    });
     if (!response.ok)
       throw new PiModelStreamFailure(
         response.status === 401 || response.status === 403
@@ -1323,48 +1436,33 @@ async function performPiCodexModelRefresh(
     for (const item of data.models) {
       if (!item || typeof item !== "object" || item.visibility !== "list")
         continue;
-      const id = string(item.slug);
-      if (!id || id.length > 128 || seen.has(id))
+      const id = typeof item.slug === "string" ? item.slug : "";
+      if (!id || id.trim() !== id || id.length > 128 || seen.has(id))
         throw new PiModelStreamFailure("provider_http_error");
       seen.add(id);
-      const efforts: unknown[] = Array.isArray(item.supported_reasoning_levels)
-        ? item.supported_reasoning_levels.map(
-            (level: { effort?: unknown }) => level?.effort,
-          )
-        : [];
+      const name =
+        typeof item.display_name === "string" && item.display_name
+          ? item.display_name
+          : id;
+      if (name.length > 256)
+        throw new PiModelStreamFailure("provider_http_error");
       discovered.push({
-        provider: "openai-codex",
+        provider: CHATGPT_PROVIDER,
         id,
-        name: string(item.display_name).slice(0, 256) || id,
-        api: "openai-codex-responses",
-        baseUrl: "https://chatgpt.com/backend-api",
+        name,
+        api: CHATGPT_API,
+        baseUrl: CHATGPT_BASE_URL,
         contextWindow:
           item.context_window === undefined
             ? 0
             : positiveInt(item.context_window, "contextWindow"),
-        maxTokens:
-          item.max_output_tokens === undefined
-            ? 0
-            : positiveInt(item.max_output_tokens, "maxTokens"),
-        input:
-          item.input_modalities === undefined
-            ? []
-            : knownStringArray(
-                item.input_modalities,
-                new Set(["text", "image"]),
-                "input",
-              ),
-        reasoning: [
-          ...new Set(
-            efforts.filter(
-              (level: unknown): level is string =>
-                typeof level === "string" && REASONING.has(level),
-            ),
-          ),
-        ],
-        supportsTools: item.supports_tools === true,
+        maxTokens: 0,
+        input: ["text"],
+        reasoning: ["off"],
+        supportsTools: false,
         source: "discovered",
         credentialRef: args.credentialId,
+        authVariants: ["chatgpt"],
       });
     }
     if (

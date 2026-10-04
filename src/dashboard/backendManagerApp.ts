@@ -26,7 +26,7 @@ import {
   type BackendManagerRowPatch,
   type BackendManagerSnapshot,
   type BackendManagerView,
-  type PiCodexAuthProgress,
+  type PiChatGPTAuthProgress,
 } from "./components/BackendManagerRegion";
 import type {
   BackendManagerBuiltinAgentSnapshot,
@@ -90,7 +90,7 @@ export type BackendManagerControllerState = {
   pendingModelCacheRows: Set<number>;
   skillRunnerReachableById: Record<string, boolean>;
   statusMessage: { text: string; tone: string } | null;
-  codexAuth: PiCodexAuthProgress | null;
+  chatgptAuth: PiChatGPTAuthProgress | null;
   scrollByProvider: Record<string, number>;
   acpPresetDialog: BackendManagerAcpPresetDialogState | null;
   genericHttpPresetDialog: BackendManagerGenericHttpPresetDialogState | null;
@@ -235,7 +235,7 @@ export function createBackendManagerController(
     pendingModelCacheRows: new Set<number>(),
     skillRunnerReachableById: Object.create(null) as Record<string, boolean>,
     statusMessage: null,
-    codexAuth: null,
+    chatgptAuth: null,
     scrollByProvider: Object.create(null) as Record<string, number>,
     acpPresetDialog: null,
     genericHttpPresetDialog: null,
@@ -352,7 +352,8 @@ export function createBackendManagerController(
             labels,
             builtinAgent:
               provider.type === PI_SECTION ? snapshot.builtinAgent : undefined,
-            codexAuth: provider.type === PI_SECTION ? state.codexAuth : null,
+            chatgptAuth:
+              provider.type === PI_SECTION ? state.chatgptAuth : null,
             rows: state.rows
               .map((row, index) => ({ row, index }))
               .filter((entry) => entry.row.type === provider.type)
@@ -463,37 +464,30 @@ export function createBackendManagerController(
   function handleActionResult(payload: Record<string, unknown>): void {
     if (disposed) return;
     const action = String(payload.action || "");
-    if (action === "pi-codex-connect") {
-      if (String(payload.requestId || "") !== state.codexAuth?.requestId)
+    if (action === "pi-chatgpt-connect") {
+      if (String(payload.requestId || "") !== state.chatgptAuth?.requestId)
         return;
-      if (payload.stage === "code") {
-        state.codexAuth = {
-          requestId: state.codexAuth.requestId,
-          stage: "code",
-          verificationUrl: "https://auth.openai.com/codex/device",
-          userCode: String(payload.userCode || "").slice(0, 64),
-        };
+      const status = String(payload.status || "");
+      if (
+        status === "waiting_browser" ||
+        status === "exchanging" ||
+        status === "validating"
+      ) {
+        state.chatgptAuth = { requestId: state.chatgptAuth.requestId, status };
         renderCurrent();
-      } else {
-        state.codexAuth = null;
-        const code = String(payload.code || "");
-        const phase = String(payload.phase || "");
-        const detail = /^[a-z][a-z0-9_]{0,39}$/.test(code)
-          ? ` (${code}${["start", "poll", "exchange", "refresh"].includes(phase) ? `: ${phase}` : ""})`
-          : "";
+      } else if (status === "complete" || status === "failed") {
+        state.chatgptAuth = null;
         showStatusMessage(
-          payload.ok === true
-            ? state.snapshot?.labels.piCodexConnected ||
-                "OpenAI Codex connected"
-            : (state.snapshot?.labels.piCodexFailed ||
-                "OpenAI Codex sign-in failed") + detail,
-          payload.ok === true ? "success" : "error",
+          status === "complete"
+            ? state.snapshot?.labels.piChatGPTConnected || "ChatGPT connected"
+            : state.snapshot?.labels.piChatGPTFailed ||
+                "ChatGPT sign-in failed",
+          status === "complete" ? "success" : "error",
         );
       }
       return;
     }
-    if (action === "pi-codex-cancel" || action === "pi-codex-open-verification")
-      return;
+    if (action === "pi-chatgpt-cancel") return;
     if (action === "pi-test-connection") {
       if (String(payload.requestId || "") !== lastPiTestRequestId) return;
       showStatusMessage(
@@ -912,8 +906,11 @@ export function createBackendManagerController(
         requestId: lastPiCatalogRequestId,
       });
     },
-    refreshPiCodexModels(configurationId) {
-      deps.sendAction("pi-codex-refresh-models", { configurationId });
+    refreshPiChatGPTModels(configurationId, registrationId) {
+      deps.sendAction("pi-chatgpt-refresh-models", {
+        configurationId,
+        registrationId,
+      });
     },
     putPiCredential(input) {
       deps.sendAction("pi-put-credential", input);
@@ -932,35 +929,38 @@ export function createBackendManagerController(
       // The host owns the save picker; a cancelled picker exports nothing.
       deps.sendAction("pi-export-diagnostics", {});
     },
-    connectPiCodex(configurationId, credentialId) {
-      if (state.codexAuth) return;
-      state.codexAuth = {
+    connectPiChatGPT(configurationId, registrationId, reconsent) {
+      if (state.chatgptAuth) return;
+      state.chatgptAuth = {
         requestId: String(++piTestSequence),
-        stage: "pending",
+        status: "waiting_browser",
       };
       renderCurrent();
-      deps.sendAction("pi-codex-connect", {
+      deps.sendAction("pi-chatgpt-connect", {
         configurationId,
-        credentialId: credentialId || "",
-        requestId: state.codexAuth.requestId,
+        registrationId: registrationId || "",
+        requestId: state.chatgptAuth.requestId,
+        ...(reconsent ? { reconsent: true } : {}),
       });
     },
-    cancelPiCodex() {
-      if (!state.codexAuth) return;
-      deps.sendAction("pi-codex-cancel", {
-        requestId: state.codexAuth.requestId,
+    cancelPiChatGPT(requestId) {
+      if (state.chatgptAuth?.requestId !== requestId) return;
+      deps.sendAction("pi-chatgpt-cancel", {
+        requestId: state.chatgptAuth.requestId,
       });
-      state.codexAuth = null;
+      state.chatgptAuth = null;
       renderCurrent();
     },
-    openPiCodexVerification() {
-      if (state.codexAuth?.stage !== "code") return;
-      deps.sendAction("pi-codex-open-verification", {
-        requestId: state.codexAuth.requestId,
+    signOutPiChatGPT(registrationId, remove) {
+      if (state.chatgptAuth) return;
+      deps.sendAction("pi-chatgpt-sign-out", {
+        registrationId,
+        ...(remove ? { remove: true } : {}),
       });
     },
-    disconnectPiCodex(credentialId) {
-      deps.sendAction("pi-codex-disconnect", { credentialId });
+    acceptPiChatGPTWelcome(registrationId) {
+      if (state.chatgptAuth) return;
+      deps.sendAction("pi-chatgpt-accept-welcome", { registrationId });
     },
     upsertMcpSource(source) {
       delete mcpDiscovered[source.id];
@@ -1041,6 +1041,12 @@ export function createBackendManagerController(
       if (statusTimer) {
         clearTimeout(statusTimer);
         statusTimer = null;
+      }
+      if (state.chatgptAuth) {
+        deps.sendAction("pi-chatgpt-cancel", {
+          requestId: state.chatgptAuth.requestId,
+        });
+        state.chatgptAuth = null;
       }
       state.statusMessage = null;
       deps.renderView(null);

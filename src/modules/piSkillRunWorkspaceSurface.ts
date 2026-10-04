@@ -2,6 +2,7 @@ import { getPiSkillRunCoordinator, type PiSkillRunChange } from "./piSkillRun";
 import {
   createFailedTranscriptRegion,
   createReadyTranscriptRegion,
+  type AssistantWorkspaceDetailsAction,
   type AssistantWorkspaceDetailsFieldId,
   type AssistantWorkspaceOwner,
   type AssistantWorkspaceOwnerNavigation,
@@ -18,6 +19,15 @@ import {
 import { createAssistantMessageCounts } from "./assistant/publication/assistantMessageCounts";
 import { getAssistantExecutionDisplayMode } from "./assistant/publication/assistantExecutionDisplayPolicy";
 import { loadPiProviderConfigurationState } from "./piProviderConfiguration";
+import { summarizePiUsageForDisplay } from "../shared/piUsageContract";
+
+function usageLabel(
+  summary: ReturnType<typeof summarizePiUsageForDisplay>["main"],
+) {
+  if (!summary.hasInvocations) return null;
+  if (summary.unknownInvocations === 0) return String(summary.knownSubtotal);
+  return summary.knownSubtotal > 0 ? `${summary.knownSubtotal} + ?` : "?";
+}
 
 export const createPiSkillRunsWorkspaceOwner = (
   requestId: string,
@@ -176,6 +186,16 @@ export function createPiSkillRunsWorkspaceSurfaceAdapter(
       const model = await coordinator.readModel(owner.requestId);
       const terminal = TERMINAL_STATUSES.includes(model.status);
       const busy = model.status === "running";
+      const usageSummary = summarizePiUsageForDisplay(
+        model.usage.purposeTotals,
+      );
+      const used =
+        usageSummary.owner.hasInvocations &&
+        usageSummary.owner.unknownInvocations === 0
+          ? usageSummary.owner.knownSubtotal
+          : null;
+      const mainUsage = usageLabel(usageSummary.main);
+      const compactionUsage = usageLabel(usageSummary.compaction);
       // Text continuation is the suspended-run affordance; a waiting run is
       // answered through the interaction batch instead.
       const replyable = model.status === "suspended";
@@ -199,6 +219,14 @@ export function createPiSkillRunsWorkspaceSurfaceAdapter(
         })),
       });
       const pending = model.pending[0];
+      const restartConsentActions: AssistantWorkspaceDetailsAction[] =
+        model.model?.authVariant === "chatgpt" && model.prepared
+          ? [
+              model.restartConsentEnabled
+                ? "disable-pi-skill-run-restart"
+                : "enable-pi-skill-run-restart",
+            ]
+          : [];
       return readWorkspaceOwnerRegions({
         kinds,
         readers: {
@@ -345,20 +373,23 @@ export function createPiSkillRunsWorkspaceSurfaceAdapter(
                   ]
                 : []),
             ],
-            usage: {
-              used: model.usage.main + model.usage.compaction,
-              limit: model.model?.policy?.contextWindow || 0,
-              // A run that could not price an invocation never shows a total
-              // that would read as free.
-              costText:
-                model.usage.costUnknown > 0
-                  ? null
-                  : model.usage.cost + model.usage.compactionCost > 0
-                    ? `$${(
-                        model.usage.cost + model.usage.compactionCost
-                      ).toFixed(4)}`
-                    : null,
-            },
+            usage:
+              used === null
+                ? null
+                : {
+                    used,
+                    limit: model.model?.policy?.contextWindow || 0,
+                    // A run that could not price an invocation never shows a total
+                    // that would read as free.
+                    costText:
+                      model.usage.costUnknown > 0
+                        ? null
+                        : model.usage.cost + model.usage.compactionCost > 0
+                          ? `$${(
+                              model.usage.cost + model.usage.compactionCost
+                            ).toFixed(4)}`
+                          : null,
+                  },
           }),
           "owner-details": () => {
             const item = (
@@ -390,9 +421,13 @@ export function createPiSkillRunsWorkspaceSurfaceAdapter(
                   sectionId: "usage" as const,
                   collapsed: false,
                   items: [
-                    item("usage-main", model.usage.main),
-                    item("usage-compaction", model.usage.compaction),
-                  ].filter((entry) => entry.value !== "0"),
+                    ...(mainUsage === null
+                      ? []
+                      : [item("usage-main", mainUsage)]),
+                    ...(compactionUsage === null
+                      ? []
+                      : [item("usage-compaction", compactionUsage)]),
+                  ],
                 },
                 {
                   sectionId: "validation" as const,
@@ -409,6 +444,7 @@ export function createPiSkillRunsWorkspaceSurfaceAdapter(
               actions: [
                 "copy-id",
                 "export-diagnostics",
+                ...restartConsentActions,
                 ...(model.status === "recovery_required"
                   ? ["check-owner-recovery" as const]
                   : []),

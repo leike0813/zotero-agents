@@ -70,8 +70,12 @@ _Avoid_: Pi Runtime Turn、完整 Agent 请求
 内置 Pi Agent Runtime 使用的、独立于既有 Backend Profile 的配置实体，明确绑定模型 Provider 的连接目标、认证变体、模型默认项与凭据引用。
 _Avoid_: Pi Provider Configuration、Backend Profile、Provider Profile
 
+**Pi 模型连接（Pi Model Connection）**：
+用户保存的模型服务连接，确定服务商、连接目标和认证方式，可关联多个模型配置。ChatGPT 模型连接引用独立的 ChatGPT 注册，账户登录与模型连接是两个不同的对象。
+_Avoid_: Backend Profile、ChatGPT 注册、单个模型
+
 **Zotero Agents Pi Runtime Defaults（Zotero Agents Pi 运行时默认项）**：
-当前 Zotero profile 中由 Zotero Agents 持有的全局、Pi Conversation 与 Pi Skill Run 默认模型选择；它不表示 pi-coding-agent 或 OMP 的设置。
+当前 Zotero profile 中由 Zotero Agents 持有的通用、Pi Conversation、Pi Skill Run 默认模型选择及可选的自动标题模型。Pi Conversation 和 Pi Skill Run 未设置专用默认时继承通用默认。
 _Avoid_: Pi 设置、OMP config
 
 **Pi Model Provider Auth Variant（Pi 模型 Provider 认证变体）**：
@@ -283,5 +287,9 @@ The sole remote-boundary conversion of process-local attachment DTOs into path-f
 _Avoid_: MCP attachment adapter, localhost path mode, path passthrough
 
 **Pi MCP Tool Source**:
-An explicitly configured outbound MCP endpoint or stdio process whose connection, credentials, selected tool reviews, and runtime catalog belong to the Built-in Agent profile. The registry stores safe references; the live catalog is a turn input, not durable state.
+An explicitly configured outbound MCP endpoint or stdio process supplying tools to the Built-in Pi Agent Runtime. Its connection and credential bindings belong to the Built-in Agent profile; its live tool catalog belongs to individual turns.
 _Avoid_: Inbound Zotero MCP server, model provider, generic backend profile
+
+**Pi Search Source**:
+A configured member of the curated aggregate `web_search` chain with its own connection, enabled state and saved priority. Native search reuses an existing Pi model configuration's credential binding and selects a compatible search model; each turn owns its effective source chain.
+_Avoid_: Anonymous `web_fetch`, arbitrary MCP tool, common default model

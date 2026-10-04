@@ -9,13 +9,17 @@ import {
   statRuntimePathStrict,
 } from "./runtimePersistence";
 import {
+  addPiUsageMeasurement,
   emptyPiPurposeUsageTotals,
   PI_COST_CALCULATION_VERSION,
   readPiCanonicalSelection,
+  readPiUsageMeasurement,
   type PiCanonicalSelection,
   type PiInvocationCost,
   type PiInvocationPurpose,
+  type PiInvocationUsageEvidence,
   type PiPurposeUsageTotals,
+  type PiUsageCompleteness,
   type PiUsageTokens,
 } from "../shared/piUsageContract";
 import {
@@ -1675,6 +1679,9 @@ function readCost(source: Record<string, unknown>): number | null {
 
 function toPiConversationUsage(
   fields: PiConversationUsageFields,
+  measurement: PiUsageContribution["measurement"],
+  completeness: PiUsageCompleteness,
+  purposeTotals: PiPurposeUsageTotals,
 ): PiConversationUsage {
   return {
     input: fields.input ?? 0,
@@ -1683,14 +1690,14 @@ function toPiConversationUsage(
     cacheWrite: fields.cacheWrite ?? 0,
     totalTokens: fields.totalTokens ?? 0,
     cost: fields.cost ?? 0,
+    ...(measurement ? { measurement } : {}),
+    completeness,
+    purposeTotals,
   };
 }
 
-type PiUsageContribution = {
-  purpose: PiInvocationPurpose;
-  invocationId?: string;
+type PiUsageContribution = PiInvocationUsageEvidence & {
   fields: PiConversationUsageFields;
-  cost: PiInvocationCost;
 };
 
 /**
@@ -1738,8 +1745,8 @@ function readPiUsageContribution(
         : payload;
   if (!holder || typeof holder !== "object" || Array.isArray(holder))
     return null;
-  const fields = readPiConversationUsageFields(holder);
-  if (!fields) return null;
+  if (purpose === "main" && !nested) return null;
+  const fields = readPiConversationUsageFields(holder) ?? {};
   const invocationId =
     typeof payload?.invocationId === "string" && payload.invocationId
       ? payload.invocationId
@@ -1747,8 +1754,23 @@ function readPiUsageContribution(
   return {
     purpose,
     invocationId: invocationId ?? entryId,
-    fields,
+    usageKnown: holder.usageKnown !== false,
+    completeness:
+      holder.completeness === "complete" ||
+      holder.completeness === "partial" ||
+      holder.completeness === "unknown"
+        ? (holder.completeness as PiUsageCompleteness)
+        : "unknown",
+    measurement: readPiUsageMeasurement(holder.measurement),
+    usage: {
+      input: fields.input ?? 0,
+      output: fields.output ?? 0,
+      cacheRead: fields.cacheRead ?? 0,
+      cacheWrite: fields.cacheWrite ?? 0,
+      totalTokens: fields.totalTokens ?? 0,
+    },
     cost: readPersistedCost(holder),
+    fields,
   };
 }
 
@@ -1779,6 +1801,13 @@ export function piOwnerUsageTotalsFor(
     }
     if (contribution.cost.estimate === null) purpose.costUnknown += 1;
     else purpose.cost += contribution.cost.estimate;
+    addPiUsageMeasurement(
+      purpose,
+      contribution.measurement,
+      contribution.completeness || "unknown",
+      contribution.usageKnown,
+      contribution.fields.totalTokens,
+    );
   }
   return totals;
 }
@@ -1840,7 +1869,7 @@ function piConversationProjectionFor(
     Record<PiConversationUsageField, string>,
   ][]) {
     const totals = purposeTotals[purpose];
-    if (!Object.values(totals).some((value) => value !== 0)) continue;
+    if (totals.invocations === 0) continue;
     contributions += 1;
     for (const field of USAGE_DECLARED_FIELDS)
       usageTotals[keys[field]] = totals[field];
@@ -1850,7 +1879,16 @@ function piConversationProjectionFor(
       purposeTotals.main.costUnknown +
       purposeTotals.title.costUnknown +
       purposeTotals.compaction.costUnknown;
-  if (latestMain) usage = toPiConversationUsage(latestMain.fields);
+  const hasUsage = Object.values(purposeTotals).some(
+    (totals) => totals.invocations > 0,
+  );
+  if (hasUsage)
+    usage = toPiConversationUsage(
+      latestMain?.fields ?? {},
+      latestMain?.measurement,
+      latestMain?.completeness ?? "unknown",
+      purposeTotals,
+    );
   const basis = transcriptBasisOf(inspection);
   return {
     counts,

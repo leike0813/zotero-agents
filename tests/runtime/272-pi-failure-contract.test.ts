@@ -174,6 +174,21 @@ describe("Pi failure contract", function () {
     assert.equal(unknown.category, "execution");
   });
 
+  it("keeps SIWC incomplete, failed, and absent terminals typed and non-retryable", function () {
+    for (const code of [
+      "provider_response_incomplete",
+      "provider_response_failed",
+      "provider_terminal_missing",
+    ]) {
+      assert.isTrue(isPiFailureCode(code));
+      assert.isFalse(getPiFailurePolicy(code).retryable);
+    }
+    assert.equal(
+      getPiFailurePolicy("provider_terminal_missing").category,
+      "integrity",
+    );
+  });
+
   it("ignores origin so one code classifies identically everywhere", function () {
     assert.deepEqual(
       getPiFailurePolicy("execution_failed", "pi_tool_gateway"),

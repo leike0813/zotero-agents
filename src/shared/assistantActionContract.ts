@@ -141,6 +141,8 @@ export type AssistantWorkspaceActionPayloadMap = {
   // carries a path, a payload or a synthetic outcome.
   "check-owner-recovery": AssistantWorkspaceEmptyActionPayload;
   "continue-owner-recovery": AssistantWorkspaceEmptyActionPayload;
+  "enable-pi-skill-run-restart": AssistantWorkspaceEmptyActionPayload;
+  "disable-pi-skill-run-restart": AssistantWorkspaceEmptyActionPayload;
   "open-workspace": AssistantWorkspaceEmptyActionPayload;
 };
 
@@ -394,7 +396,9 @@ export type PiSkillRunsOnlyAction =
   | "decline"
   | "export-diagnostics"
   | "check-owner-recovery"
-  | "continue-owner-recovery";
+  | "continue-owner-recovery"
+  | "enable-pi-skill-run-restart"
+  | "disable-pi-skill-run-restart";
 
 /**
  * Registry actions a pi-skill-runs child page may send. Pi Skill Runs mirror

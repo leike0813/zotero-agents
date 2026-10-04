@@ -209,6 +209,85 @@ describe("Pi Conversation integration", function () {
     await coordinator.dispose();
   });
 
+  it("retains failed streamed text as visible incomplete history without reusing it", async function () {
+    const contexts: string[][] = [];
+    const coordinator = createPiConversationCoordinator({
+      root,
+      resolveModel: async () => model,
+      execution: () => {
+        const base = createPiTextProviderSource({
+          steps: [{ text: "unfinished answer" }],
+        });
+        return {
+          model: base.model,
+          source: async (request) => {
+            contexts.push(
+              request.context.messages.map((message) =>
+                typeof message.content === "string"
+                  ? message.content
+                  : message.content
+                      .map((part) => (part.type === "text" ? part.text : ""))
+                      .join(""),
+              ),
+            );
+            if (contexts.length > 1) {
+              const recovered = createPiTextProviderSource({
+                steps: [{ text: "Recovered" }],
+              });
+              return recovered.source(request);
+            }
+            const stream = createAssistantMessageEventStream();
+            request.onProviderTerminal?.({
+              status: "incomplete",
+              reason: "max_output_tokens",
+            });
+            for await (const event of await base.source(request))
+              if (event.type === "done")
+                stream.push({
+                  type: "error",
+                  reason: "error",
+                  error: {
+                    ...event.message,
+                    stopReason: "error",
+                    errorMessage: "provider_stream_error",
+                  },
+                });
+              else stream.push(event);
+            return stream;
+          },
+        };
+      },
+      definitions: async () => [],
+    });
+    await coordinator.create();
+    const id = coordinator.selectedId!;
+
+    assert.equal(
+      (await (await coordinator.send(id, "First")).result).status,
+      "failed",
+    );
+    const entries = (
+      await inspectPiOwner({ kind: "conversation", ownerId: id }, root)
+    ).entries;
+    const incomplete = entries.find(
+      (entry) =>
+        entry.kind === "message" &&
+        (entry.payload as { status?: string }).status === "incomplete-visible",
+    );
+    assert.equal(
+      (incomplete?.payload as { text?: string } | undefined)?.text,
+      "unfinished answer",
+    );
+
+    assert.equal(
+      (await (await coordinator.send(id, "Second")).result).status,
+      "completed",
+    );
+    assert.includeMembers(contexts.at(-1)!, ["First", "Second"]);
+    assert.notInclude(contexts.at(-1)!, "unfinished answer");
+    await coordinator.dispose();
+  });
+
   it("requires recovery instead of a fictional terminal when the failure fact cannot commit", async function () {
     const response = createPiTextProviderSource({ steps: [{ text: "nope" }] });
     const coordinator = createPiConversationCoordinator({
@@ -494,9 +573,34 @@ describe("Pi Conversation integration", function () {
         },
       compactionExecution: () => {
         const base = createPiTextProviderSource({ steps: [{ text: "" }] });
-        return {
+        const execution = {
           model: base.model,
           source: async (request) => {
+            assert.isTrue(
+              await request.onProviderRetry!({
+                terminal: {
+                  status: "failed",
+                  httpStatus: 503,
+                  code: "provider_unavailable",
+                },
+                usage: {
+                  input: 80,
+                  output: 0,
+                  cacheRead: 0,
+                  cacheWrite: 0,
+                  totalTokens: 80,
+                  cost: {
+                    input: 0,
+                    output: 0,
+                    cacheRead: 0,
+                    cacheWrite: 0,
+                    total: 0,
+                  },
+                },
+                usageCompleteness: "partial",
+                usageMeasurement: { inputTokens: 80 },
+              }),
+            );
             const payload = JSON.parse(
               (request.context.messages.at(-1) as { content: string }).content,
             ) as Record<string, unknown>;
@@ -558,6 +662,13 @@ describe("Pi Conversation integration", function () {
             return stream;
           },
         };
+        execution.source.usageKnown = () => true;
+        execution.source.usageMeasurement = (message) => ({
+          inputTokens: message.usage.input,
+          outputTokens: message.usage.output,
+          totalTokens: message.usage.totalTokens,
+        });
+        return execution;
       },
     });
     await coordinator.create();
@@ -566,22 +677,38 @@ describe("Pi Conversation integration", function () {
       await coordinator.send(id, "First")
     ).result;
     await coordinator.compact(id);
-    const usageFact = (
+    const usageFacts = (
       await inspectPiOwner({ kind: "conversation", ownerId: id }, root)
-    ).entries.find((entry) => entry.kind === "compaction_usage");
-    assert.isOk(usageFact, "compaction publishes its own usage fact");
-    const payload = usageFact!.payload as {
-      purpose: string;
-      selectionRef: string;
-      usage: Record<string, unknown>;
-    };
-    assert.equal(payload.purpose, "compaction");
-    assert.equal(payload.usage.input, 800);
-    assert.equal(payload.usage.totalTokens, 920);
-    assert.isTrue(payload.usage.usageKnown);
+    ).entries.filter((entry) => entry.kind === "compaction_usage");
+    assert.lengthOf(usageFacts, 2, "each physical invocation is persisted");
+    const payloads = usageFacts.map(
+      (usageFact) =>
+        usageFact.payload as {
+          purpose: string;
+          invocationId: string;
+          selectionRef: string;
+          usage: Record<string, unknown>;
+        },
+    );
+    assert.notEqual(payloads[0].invocationId, payloads[1].invocationId);
+    assert.equal(
+      payloads[0].usage.measurement &&
+        (payloads[0].usage.measurement as Record<string, number>).inputTokens,
+      80,
+    );
+    assert.equal(payloads[0].usage.completeness, "partial");
+    assert.equal(payloads[1].purpose, "compaction");
+    assert.equal(payloads[1].usage.input, 800);
+    assert.equal(payloads[1].usage.totalTokens, 920);
+    assert.isTrue(payloads[1].usage.usageKnown);
+    const usage = (await coordinator.readModel(id)).usage.purposeTotals
+      .compaction;
+    assert.equal(usage.totalTokens, 1000, "the failed attempt is counted once");
+    assert.equal(usage.measurement.inputTokens, 880);
+    assert.equal(usage.unreported.outputTokens, 1);
     const selection = (
       await inspectPiOwner({ kind: "conversation", ownerId: id }, root)
-    ).entries.find((entry) => entry.entryId === payload.selectionRef);
+    ).entries.find((entry) => entry.entryId === payloads[1].selectionRef);
     assert.equal(selection?.kind, "model_selection");
     assert.notInclude(JSON.stringify(selection?.payload), "baseUrl");
     await coordinator.dispose();

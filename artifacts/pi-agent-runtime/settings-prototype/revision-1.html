@@ -1,0 +1,3518 @@
+<!doctype html>
+<!-- THROWAWAY PROTOTYPE: virtual accounts, memory only, no production imports. -->
+<html lang="zh-CN" data-zs-theme="light"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'">
+<title>Zotero Agent 配置 · 交互原型</title>
+<style>:root {
+  color-scheme: light dark;
+  --zs-theme-mode: system;
+  --zs-font-sans:
+    "Aptos", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --zs-font-mono:
+    "Cascadia Code", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --zs-bg: var(--material-background, #f4f7fb);
+  --zs-bg-gradient: linear-gradient(
+    180deg,
+    var(--material-background, #f8fafd) 0%,
+    var(--material-background, #eef3fa) 100%
+  );
+  --zs-panel: var(--material-background, #ffffff);
+  --zs-panel-alt: var(--material-background, #f7fafc);
+  --zs-panel-raised: var(--material-background, #ffffff);
+  --zs-surface-hover: rgba(96, 165, 250, 0.08);
+  --zs-surface-selected: var(--zs-accent-soft);
+  --zs-input-bg: var(--material-background, #ffffff);
+  --zs-overlay: rgba(15, 23, 42, 0.28);
+  --zs-border: var(--theme-border-color, #d6dee8);
+  --zs-border-strong: var(--theme-border-color, #b8c6d8);
+  --zs-text: var(--fill-primary, #172033);
+  --zs-text-soft: var(--fill-secondary, #334155);
+  --zs-muted: var(--fill-secondary, #64748b);
+  --zs-muted-soft: var(--fill-secondary, #94a3b8);
+  --zs-accent: var(--color-accent, #2563eb);
+  --zs-accent-strong: var(--color-accent, #174ea6);
+  --zs-accent-soft: rgba(96, 165, 250, 0.12);
+  --zs-accent-soft-border: rgba(96, 165, 250, 0.24);
+  --zs-success: #15803d;
+  --zs-success-soft: #e7f6ed;
+  --zs-success-border: #9dd7cb;
+  --zs-warning: #b45309;
+  --zs-warning-soft: #fff3e7;
+  --zs-warning-border: #f1d39b;
+  --zs-danger: #b91c1c;
+  --zs-danger-soft: #fff3f3;
+  --zs-danger-border: #e8b3b3;
+  --zs-purple: #7c3aed;
+  --zs-purple-soft: #f2ecff;
+  --zs-selection-bg: rgba(37, 99, 235, 0.26);
+  --zs-selection-text: var(--zs-text);
+  --zs-focus-ring: rgba(37, 99, 235, 0.18);
+  --zs-shadow-subtle: 0 3px 12px rgba(24, 34, 53, 0.08);
+  --zs-shadow-soft: 0 12px 30px rgba(15, 23, 42, 0.1);
+  --zs-shadow-strong: 0 24px 60px rgba(15, 23, 42, 0.22);
+  --zs-radius-sm: 6px;
+  --zs-radius-md: 8px;
+  --zs-radius-lg: 12px;
+  --zs-radius-xl: 16px;
+  --zs-radius-pill: 999px;
+}
+
+:root[data-zs-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-zs-theme="dark"] {
+  color-scheme: dark;
+  --zs-theme-mode: dark;
+  --zs-bg: var(--material-background, #111827);
+  --zs-bg-gradient: linear-gradient(
+    180deg,
+    var(--material-background, #111827) 0%,
+    var(--material-background, #0f172a) 100%
+  );
+  --zs-panel: var(--material-background, #1f2937);
+  --zs-panel-alt: var(--material-background, #17212f);
+  --zs-panel-raised: var(--material-background, #263244);
+  --zs-surface-hover: rgba(96, 165, 250, 0.14);
+  --zs-surface-selected: rgba(96, 165, 250, 0.22);
+  --zs-input-bg: var(--material-background, #111827);
+  --zs-overlay: rgba(2, 6, 23, 0.62);
+  --zs-border: var(--theme-border-color, #354153);
+  --zs-border-strong: var(--theme-border-color, #4b5b70);
+  --zs-text: var(--fill-primary, #eef2f6);
+  --zs-text-soft: var(--fill-secondary, #d7dee8);
+  --zs-muted: var(--fill-secondary, #aab6c5);
+  --zs-muted-soft: var(--fill-secondary, #7f8da0);
+  --zs-accent: var(--color-accent, #60a5fa);
+  --zs-accent-strong: var(--color-accent, #93c5fd);
+  --zs-accent-soft: rgba(96, 165, 250, 0.16);
+  --zs-accent-soft-border: rgba(147, 197, 253, 0.38);
+  --zs-success: #7ed6a5;
+  --zs-success-soft: rgba(34, 197, 94, 0.14);
+  --zs-success-border: rgba(126, 214, 165, 0.42);
+  --zs-warning: #f2a24b;
+  --zs-warning-soft: rgba(245, 158, 11, 0.14);
+  --zs-warning-border: rgba(242, 162, 75, 0.44);
+  --zs-danger: #ff8a80;
+  --zs-danger-soft: rgba(239, 68, 68, 0.14);
+  --zs-danger-border: rgba(255, 138, 128, 0.42);
+  --zs-purple: #c4b5fd;
+  --zs-purple-soft: rgba(124, 58, 237, 0.18);
+  --zs-selection-bg: rgba(96, 165, 250, 0.42);
+  --zs-selection-text: #f8fafc;
+  --zs-focus-ring: rgba(96, 165, 250, 0.26);
+  --zs-shadow-subtle: 0 3px 12px rgba(0, 0, 0, 0.22);
+  --zs-shadow-soft: 0 12px 30px rgba(0, 0, 0, 0.32);
+  --zs-shadow-strong: 0 24px 60px rgba(0, 0, 0, 0.48);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-zs-theme="light"]) {
+    color-scheme: dark;
+    --zs-theme-mode: dark;
+    --zs-bg: var(--material-background, #111827);
+    --zs-bg-gradient: linear-gradient(
+      180deg,
+      var(--material-background, #111827) 0%,
+      var(--material-background, #0f172a) 100%
+    );
+    --zs-panel: var(--material-background, #1f2937);
+    --zs-panel-alt: var(--material-background, #17212f);
+    --zs-panel-raised: var(--material-background, #263244);
+    --zs-surface-hover: rgba(96, 165, 250, 0.14);
+    --zs-surface-selected: rgba(96, 165, 250, 0.22);
+    --zs-input-bg: var(--material-background, #111827);
+    --zs-overlay: rgba(2, 6, 23, 0.62);
+    --zs-border: var(--theme-border-color, #354153);
+    --zs-border-strong: var(--theme-border-color, #4b5b70);
+    --zs-text: var(--fill-primary, #eef2f6);
+    --zs-text-soft: var(--fill-secondary, #d7dee8);
+    --zs-muted: var(--fill-secondary, #aab6c5);
+    --zs-muted-soft: var(--fill-secondary, #7f8da0);
+    --zs-accent: var(--color-accent, #60a5fa);
+    --zs-accent-strong: var(--color-accent, #93c5fd);
+    --zs-accent-soft: rgba(96, 165, 250, 0.16);
+    --zs-accent-soft-border: rgba(147, 197, 253, 0.38);
+    --zs-success: #7ed6a5;
+    --zs-success-soft: rgba(34, 197, 94, 0.14);
+    --zs-success-border: rgba(126, 214, 165, 0.42);
+    --zs-warning: #f2a24b;
+    --zs-warning-soft: rgba(245, 158, 11, 0.14);
+    --zs-warning-border: rgba(242, 162, 75, 0.44);
+    --zs-danger: #ff8a80;
+    --zs-danger-soft: rgba(239, 68, 68, 0.14);
+    --zs-danger-border: rgba(255, 138, 128, 0.42);
+    --zs-purple: #c4b5fd;
+    --zs-purple-soft: rgba(124, 58, 237, 0.18);
+    --zs-selection-bg: rgba(96, 165, 250, 0.42);
+    --zs-selection-text: #f8fafc;
+    --zs-focus-ring: rgba(96, 165, 250, 0.26);
+    --zs-shadow-subtle: 0 3px 12px rgba(0, 0, 0, 0.22);
+    --zs-shadow-soft: 0 12px 30px rgba(0, 0, 0, 0.32);
+    --zs-shadow-strong: 0 24px 60px rgba(0, 0, 0, 0.48);
+  }
+}
+
+html,
+body {
+  background: var(--zs-bg);
+  color: var(--zs-text);
+}
+
+button,
+input,
+textarea,
+select {
+  color-scheme: inherit;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--zs-accent);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--zs-selection-bg);
+  color: var(--zs-selection-text);
+}
+
+::-moz-selection {
+  background: var(--zs-selection-bg);
+  color: var(--zs-selection-text);
+}
+
+/* Shared page-chrome layer for the Dashboard and Synthesis Workbench pages.
+ *
+ * Owns the cross-page design tokens (control colors, text/spacing scales) and
+ * the shared layout patterns (panel header, scroll ownership utilities, empty
+ * state, badge). Color/ radius/ shadow primitives come from theme.css; this
+ * file never hardcodes raw colors outside the token definitions below.
+ *
+ * Scroll ownership model (both pages):
+ *   L0 page root: never scrolls (overflow:hidden), grid carves out chrome.
+ *   L1 chrome: sidebar nav may scroll internally; topbar/statusbar never do.
+ *   L2 panel root: .zs-fill-col — column flex, overflow:hidden, min-height:0;
+ *     fixed zones (panel header, toolbars, filter rows, pagination) never
+ *     scroll with content.
+ *   L3 primary scroll region: exactly one primary content scroll region per
+ *     panel (flex:1; min-height:0; overflow:auto); sticky headers live inside
+ *     it. Dashboard panels use the shared .zs-scroll-region utility;
+ *     Synthesis surfaces keep their own wrappers (.concept-table-wrap,
+ *     .tags-table-wrap) acting as the region under the same model. A table
+ *     wrapper inside a panel region flattens (max-height:none) so it scrolls
+ *     with the region instead of nesting a second scrollbar; only wrappers
+ *     that are their own scroll containers live outside a region.
+ *   L4 bounded secondary areas: sub-panels such as the concept review panel
+ *     (max-height:42%) or the tag import popover (max-height:45%) may keep
+ *     their own bounded scrolling but never carry primary content; drawer/
+ *     popover/dialog bodies and the Sigma canvas manage their own scrolling.
+ */
+
+:root {
+  --zs-control-bg: #dbeafe;
+  --zs-control-hover: #c7dcff;
+  --zs-control-active-bg: #bfdbfe;
+  --zs-control-border: #8fb3f4;
+  --zs-control-disabled-bg: #edf1f6;
+  --zs-control-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+
+  --zs-text-xs: 11px;
+  --zs-text-sm: 12px;
+  --zs-text-md: 13px;
+  --zs-text-lg: 15px;
+
+  --zs-space-1: 4px;
+  --zs-space-2: 8px;
+  --zs-space-3: 12px;
+  --zs-space-4: 16px;
+  --zs-space-5: 24px;
+  --zs-space-6: 32px;
+
+  --zs-badge-accent-bg: var(--zs-accent-soft);
+  --zs-badge-accent-border: var(--zs-accent-soft-border);
+  --zs-badge-accent-text: var(--zs-accent-strong);
+  --zs-badge-success-bg: var(--zs-success-soft);
+  --zs-badge-success-border: var(--zs-success-border);
+  --zs-badge-success-text: var(--zs-success);
+  --zs-badge-warning-bg: var(--zs-warning-soft);
+  --zs-badge-warning-border: var(--zs-warning-border);
+  --zs-badge-warning-text: var(--zs-warning);
+  --zs-badge-danger-bg: var(--zs-danger-soft);
+  --zs-badge-danger-border: var(--zs-danger-border);
+  --zs-badge-danger-text: var(--zs-danger);
+  --zs-badge-muted-bg: var(--zs-panel-alt);
+  --zs-badge-muted-border: var(--zs-border);
+  --zs-badge-muted-text: var(--zs-muted);
+}
+
+:root[data-zs-theme="dark"] {
+  --zs-control-bg: rgba(96, 165, 250, 0.14);
+  --zs-control-hover: rgba(96, 165, 250, 0.22);
+  --zs-control-active-bg: rgba(96, 165, 250, 0.28);
+  --zs-control-border: rgba(147, 197, 253, 0.38);
+  --zs-control-disabled-bg: #17212f;
+  --zs-control-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-zs-theme="light"]) {
+    --zs-control-bg: rgba(96, 165, 250, 0.14);
+    --zs-control-hover: rgba(96, 165, 250, 0.22);
+    --zs-control-active-bg: rgba(96, 165, 250, 0.28);
+    --zs-control-border: rgba(147, 197, 253, 0.38);
+    --zs-control-disabled-bg: #17212f;
+    --zs-control-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+  }
+}
+
+/* Panel header: fixed zone at the top of a panel. Title/subtitle on the
+ * left, an optional back entry first, actions flushed right. */
+.zs-panel-header {
+  display: flex;
+  align-items: center;
+  gap: var(--zs-space-3);
+  flex: none;
+  min-width: 0;
+}
+
+.zs-panel-header-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.zs-panel-header-title {
+  margin: 0;
+  font-size: var(--zs-text-lg);
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--zs-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zs-panel-header-subtitle {
+  font-size: var(--zs-text-sm);
+  color: var(--zs-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zs-panel-header-actions {
+  margin-inline-start: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--zs-space-2);
+  flex: none;
+}
+
+/* Back entry for secondary views (detail pages, document pages). Always the
+ * first element of the panel header, visually distinct from action buttons. */
+.zs-back-link {
+  appearance: none;
+  -moz-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--zs-space-1);
+  flex: none;
+  border: 1px solid transparent;
+  border-radius: var(--zs-radius-md);
+  background: transparent;
+  color: var(--zs-accent);
+  font: inherit;
+  font-size: var(--zs-text-md);
+  padding: 4px 8px;
+  margin-inline-start: -8px;
+  cursor: pointer;
+}
+
+.zs-back-link:hover {
+  background: var(--zs-surface-hover);
+}
+
+.zs-back-link .zs-icon {
+  flex: none;
+}
+
+/* Scroll ownership utilities — see the model description at the top. */
+.zs-fill-col {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.zs-scroll-region {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.zs-panel-fixed {
+  flex: none;
+}
+
+/* Empty state: icon + one-line explanation + optional guidance action. */
+.zs-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--zs-space-2);
+  padding: var(--zs-space-6);
+  color: var(--zs-muted);
+  font-size: var(--zs-text-md);
+  text-align: center;
+}
+
+/* Badge: pill with semantic soft background/border/text. Modifiers:
+ * .zs-badge--accent | --success | --warning | --danger | --muted. */
+.zs-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--zs-space-1);
+  padding: 1px 8px;
+  border-radius: var(--zs-radius-pill);
+  border: 1px solid var(--zs-badge-muted-border);
+  background: var(--zs-badge-muted-bg);
+  color: var(--zs-badge-muted-text);
+  font-size: var(--zs-text-xs);
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.zs-badge--accent {
+  background: var(--zs-badge-accent-bg);
+  border-color: var(--zs-badge-accent-border);
+  color: var(--zs-badge-accent-text);
+}
+
+.zs-badge--success {
+  background: var(--zs-badge-success-bg);
+  border-color: var(--zs-badge-success-border);
+  color: var(--zs-badge-success-text);
+}
+
+.zs-badge--warning {
+  background: var(--zs-badge-warning-bg);
+  border-color: var(--zs-badge-warning-border);
+  color: var(--zs-badge-warning-text);
+}
+
+.zs-badge--danger {
+  background: var(--zs-badge-danger-bg);
+  border-color: var(--zs-badge-danger-border);
+  color: var(--zs-badge-danger-text);
+}
+
+/* Status dot for environment indicators (e.g. the sidecar pill). */
+.zs-status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--zs-muted-soft);
+}
+
+.zs-status-dot--ok {
+  background: var(--zs-success);
+}
+
+.zs-status-dot--warn {
+  background: var(--zs-warning);
+}
+
+.zs-status-dot--error {
+  background: var(--zs-danger);
+}
+
+/* Square icon-only button shared by Dashboard and Synthesis chrome. */
+.zs-icon-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  min-height: 26px;
+  padding: 0;
+}
+
+/* Throwaway layout experiments. Color and control tokens come from shared CSS. */
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  font: 13px/1.55 var(--zs-font-sans);
+}
+button,
+input,
+select {
+  font: inherit;
+}
+button {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+h1 {
+  font-size: 18px;
+  line-height: 1.4;
+}
+h2 {
+  font-size: 17px;
+}
+h3 {
+  font-size: 14px;
+}
+small {
+  font-size: 11px;
+}
+.muted {
+  color: var(--zs-muted);
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.spread {
+  justify-content: space-between;
+}
+.wrap {
+  flex-wrap: wrap;
+}
+.stack {
+  display: grid;
+  gap: 16px;
+}
+.small-stack {
+  display: grid;
+  gap: 8px;
+}
+.button {
+  border: 1px solid var(--zs-border-strong);
+  border-radius: var(--zs-radius-sm);
+  background: var(--zs-panel);
+  padding: 6px 12px;
+  white-space: nowrap;
+  color: var(--zs-text);
+  min-height: 32px;
+}
+.button:hover:not(:disabled) {
+  background: var(--zs-surface-hover);
+}
+.button.primary {
+  background: var(--zs-accent);
+  color: var(--zs-panel);
+  border-color: var(--zs-accent);
+}
+.button.danger {
+  color: var(--zs-danger);
+}
+.button.quiet {
+  border-color: transparent;
+  background: transparent;
+}
+.button.small {
+  min-height: 26px;
+  padding: 3px 9px;
+  font-size: 12px;
+}
+.prototype-page {
+  min-height: 100vh;
+  padding: 18px 24px 80px;
+  background: var(--zs-bg);
+}
+.review-header {
+  max-width: 1180px;
+  margin: 0 auto 14px;
+}
+.review-header h1 {
+  font-size: 16px;
+}
+.review-header .muted {
+  font-size: 12px;
+}
+.prototype-label {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--zs-accent);
+  font-weight: 700;
+}
+.prefs-context {
+  margin: 0 auto 14px;
+  max-width: 1180px;
+  padding: 10px 14px;
+  border: 1px solid var(--zs-border);
+  border-radius: var(--zs-radius-md);
+  background: var(--zs-panel);
+}
+.prefs-context .row {
+  flex-wrap: wrap;
+}
+.prefs-context strong {
+  margin-right: auto;
+}
+.review-controls {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  max-width: 1180px;
+  margin: 0 auto 12px;
+  font-size: 12px;
+}
+.review-controls select {
+  background: var(--zs-panel);
+  padding: 5px;
+  border: 1px solid var(--zs-border);
+  border-radius: 5px;
+}
+.window {
+  max-width: 1180px;
+  height: 700px;
+  margin: 0 auto;
+  border: 1px solid var(--zs-border-strong);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: var(--zs-shadow-soft);
+  display: grid;
+  grid-template-rows: 38px minmax(0, 1fr) 34px;
+  background: var(--zs-panel);
+  position: relative;
+}
+.window.compact {
+  height: 600px;
+  max-width: 900px;
+}
+.window-titlebar {
+  padding: 0 14px;
+  border-bottom: 1px solid var(--zs-border);
+  background: var(--zs-panel-alt);
+}
+.window-titlebar strong {
+  font-size: 12px;
+}
+.window-titlebar .button {
+  font-size: 18px;
+  min-height: 24px;
+  padding: 0 7px;
+}
+.window-layout {
+  display: grid;
+  grid-template-columns: 188px minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+}
+.sidebar {
+  border-right: 1px solid var(--zs-border);
+  background: var(--zs-panel-alt);
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.sidebar-brand {
+  font-size: 16px;
+  font-weight: 650;
+  padding: 0 10px 20px;
+}
+.nav-group {
+  color: var(--zs-muted);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  padding: 17px 10px 5px;
+}
+.nav {
+  background: transparent;
+  border: none;
+  color: var(--zs-text-soft);
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: var(--zs-radius-sm);
+}
+.nav.active {
+  color: var(--zs-accent-strong);
+  background: var(--zs-surface-selected);
+  font-weight: 600;
+}
+.nav:hover {
+  background: var(--zs-surface-hover);
+}
+.nav .number {
+  margin-left: auto;
+  color: var(--zs-muted);
+  font-size: 11px;
+}
+.sidebar-foot {
+  margin-top: auto;
+  padding: 24px 10px 0;
+  font-size: 11px;
+  color: var(--zs-muted);
+}
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.page-header {
+  padding: 23px 28px 19px;
+  border-bottom: 1px solid var(--zs-border);
+  flex: none;
+}
+.page-header p {
+  margin-top: 4px;
+  color: var(--zs-muted);
+  font-size: 12px;
+}
+.page-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 24px 28px;
+}
+.page-actions {
+  flex: none;
+  border-top: 1px solid var(--zs-border);
+  padding: 10px 28px;
+  background: var(--zs-panel);
+}
+.window-status {
+  padding: 7px 14px;
+  border-top: 1px solid var(--zs-border);
+  font-size: 11px;
+  background: var(--zs-panel-alt);
+  color: var(--zs-muted);
+}
+.empty {
+  text-align: center;
+  padding: 50px 16px;
+  max-width: 590px;
+  margin: auto;
+}
+.empty-symbol {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 18px;
+  border: 1px solid var(--zs-accent-soft-border);
+  border-radius: 15px;
+  background: var(--zs-accent-soft);
+  color: var(--zs-accent);
+  display: grid;
+  place-items: center;
+  font-size: 24px;
+}
+.empty h2 {
+  margin-bottom: 9px;
+}
+.empty p {
+  color: var(--zs-muted);
+  margin-bottom: 22px;
+}
+.empty .row {
+  justify-content: center;
+}
+.card {
+  border: 1px solid var(--zs-border);
+  background: var(--zs-panel);
+  border-radius: var(--zs-radius-md);
+  padding: 17px 18px;
+  min-width: 0;
+}
+.card.clickable:hover {
+  border-color: var(--zs-accent-soft-border);
+  background: var(--zs-panel-alt);
+}
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.connection-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.connection-card .actions {
+  padding-top: 13px;
+  border-top: 1px solid var(--zs-border);
+  margin-top: auto;
+}
+.brand-icon {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--zs-border);
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  color: var(--zs-text-soft);
+  flex: none;
+  font-weight: 600;
+  font-size: 13px;
+  background: var(--zs-panel-alt);
+}
+.connection-meta {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.connection-meta p {
+  font-size: 12px;
+  color: var(--zs-muted);
+  overflow-wrap: anywhere;
+}
+.section-intro {
+  font-size: 12px;
+  color: var(--zs-muted);
+  padding-top: 4px;
+}
+.banner {
+  border: 1px solid var(--zs-border);
+  background: var(--zs-panel-alt);
+  padding: 12px 14px;
+  border-radius: var(--zs-radius-sm);
+  font-size: 12px;
+}
+.banner.warning {
+  color: var(--zs-warning);
+  border-color: var(--zs-warning-border);
+  background: var(--zs-warning-soft);
+}
+.banner.success {
+  color: var(--zs-success);
+  border-color: var(--zs-success-border);
+  background: var(--zs-success-soft);
+}
+.banner.error {
+  color: var(--zs-danger);
+  border-color: var(--zs-danger-border);
+  background: var(--zs-danger-soft);
+}
+.banner p {
+  margin-top: 3px;
+}
+.master-detail {
+  display: grid;
+  grid-template-columns: 245px minmax(0, 1fr);
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+.connection-list {
+  min-height: 0;
+  overflow: auto;
+  background: var(--zs-panel-alt);
+  border-right: 1px solid var(--zs-border);
+  padding: 12px;
+}
+.connection-row {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 12px 9px;
+  border-radius: 7px;
+  color: var(--zs-text);
+  margin-bottom: 5px;
+}
+.connection-row.selected {
+  border-color: var(--zs-accent-soft-border);
+  background: var(--zs-panel);
+}
+.connection-row small {
+  display: block;
+  color: var(--zs-muted);
+}
+.detail-content {
+  padding: 24px;
+  min-height: 0;
+  overflow: auto;
+}
+.detail-line {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--zs-border);
+  font-size: 12px;
+}
+.detail-line .muted {
+  min-width: 96px;
+}
+.model-list {
+  border: 1px solid var(--zs-border);
+  border-radius: var(--zs-radius-sm);
+  overflow: hidden;
+}
+.model-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 13px;
+  border-bottom: 1px solid var(--zs-border);
+  font-size: 12px;
+}
+.model-row:last-child {
+  border-bottom: 0;
+}
+.model-row small {
+  color: var(--zs-muted);
+  display: block;
+}
+.hero {
+  border-left: 3px solid var(--zs-accent);
+  padding: 7px 0 7px 20px;
+  margin-bottom: 24px;
+}
+.hero h2 {
+  font-size: 22px;
+  margin-bottom: 6px;
+}
+.steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin: 20px 0;
+  gap: 12px;
+}
+.step {
+  color: var(--zs-muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.step span {
+  border: 1px solid var(--zs-border-strong);
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+.step.complete {
+  color: var(--zs-success);
+}
+.step.current {
+  color: var(--zs-accent);
+  font-weight: 600;
+}
+.setup-choice {
+  width: 100%;
+  text-align: left;
+  padding: 16px;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  border: 1px solid var(--zs-border);
+  border-radius: 8px;
+  background: var(--zs-panel);
+  color: var(--zs-text);
+}
+.setup-choice:hover {
+  border-color: var(--zs-accent);
+}
+.setup-choice small {
+  color: var(--zs-muted);
+  display: block;
+  margin-top: 3px;
+}
+.overview-task {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--zs-border);
+}
+.overview-task:last-child {
+  border: 0;
+}
+.field {
+  display: grid;
+  gap: 5px;
+  position: relative;
+  font-size: 12px;
+  min-width: 0;
+}
+.field input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--zs-border-strong);
+  background: var(--zs-input-bg);
+  color: var(--zs-text);
+  border-radius: 6px;
+}
+.field small {
+  color: var(--zs-muted);
+}
+.field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.choice {
+  position: relative;
+  min-width: 0;
+}
+.choice-trigger {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  gap: 10px;
+  text-align: left;
+}
+.choice-trigger span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.choice-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 100%;
+  max-height: 205px;
+  overflow: auto;
+  z-index: 12;
+  border: 1px solid var(--zs-border-strong);
+  border-radius: 6px;
+  padding: 4px;
+  background: var(--zs-panel);
+  box-shadow: var(--zs-shadow-soft);
+}
+.choice-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  color: var(--zs-text);
+  padding: 7px 10px;
+  white-space: nowrap;
+  border-radius: 4px;
+}
+.choice-menu button:hover {
+  background: var(--zs-surface-selected);
+}
+.choice-menu button[aria-selected="true"] {
+  background: var(--zs-accent-soft);
+  color: var(--zs-accent-strong);
+}
+.default-block {
+  padding: 19px 0;
+  border-bottom: 1px solid var(--zs-border);
+}
+.default-block:first-child {
+  padding-top: 0;
+}
+.default-block:last-child {
+  border-bottom: 0;
+}
+.default-block .field-grid {
+  margin-top: 13px;
+}
+.default-block h3 {
+  font-size: 13px;
+}
+.switch-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+}
+.tab-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 18px;
+}
+.tab-row .active {
+  background: var(--zs-accent-soft);
+  color: var(--zs-accent-strong);
+  border-color: var(--zs-accent-soft-border);
+}
+.source-row {
+  border-top: 1px solid var(--zs-border);
+  padding: 14px 0;
+}
+.source-row:first-child {
+  border-top: 0;
+}
+.modal-overlay {
+  position: absolute;
+  inset: 38px 0 34px;
+  background: var(--zs-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  padding: 18px;
+}
+.modal {
+  display: flex;
+  flex-direction: column;
+  width: 570px;
+  max-width: 100%;
+  max-height: 100%;
+  border: 1px solid var(--zs-border-strong);
+  border-radius: 10px;
+  background: var(--zs-panel);
+  box-shadow: var(--zs-shadow-strong);
+  overflow: hidden;
+}
+.modal.wide {
+  width: 690px;
+}
+.modal-header {
+  padding: 17px 20px;
+  border-bottom: 1px solid var(--zs-border);
+  flex: none;
+}
+.modal-body {
+  padding: 20px;
+  min-height: 0;
+  overflow: auto;
+}
+.modal-footer {
+  padding: 12px 20px;
+  border-top: 1px solid var(--zs-border);
+  flex: none;
+}
+.account-block {
+  padding: 14px;
+  border: 1px solid var(--zs-border);
+  border-radius: 7px;
+  background: var(--zs-panel-alt);
+}
+.auth-progress {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--zs-border);
+  border-top-color: var(--zs-accent);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.modal-footer .muted {
+  margin-right: auto;
+  font-size: 11px;
+}
+.variant-switcher {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 7px;
+  border-radius: 30px;
+  background: var(--zs-text);
+  color: var(--zs-panel);
+  box-shadow: var(--zs-shadow-strong);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  z-index: 50;
+}
+.variant-switcher button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.variant-switcher button.active {
+  background: var(--zs-panel);
+  color: var(--zs-text);
+}
+.review-state {
+  max-width: 1180px;
+  margin: 12px auto 0;
+  font-size: 11px;
+  color: var(--zs-muted);
+}
+.review-state pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 12px;
+  border: 1px solid var(--zs-border);
+  background: var(--zs-panel);
+  max-height: 240px;
+  overflow: auto;
+}
+.closed-window {
+  margin: 0 auto;
+  max-width: 1180px;
+  padding: 100px 20px;
+  text-align: center;
+  border: 1px dashed var(--zs-border-strong);
+}
+@media (max-width: 1020px) {
+  .prototype-page {
+    padding: 14px 12px 80px;
+  }
+  .window-layout {
+    grid-template-columns: 160px minmax(0, 1fr);
+  }
+  .page-content,
+  .page-header {
+    padding: 18px;
+  }
+  .master-detail {
+    grid-template-columns: 205px minmax(0, 1fr);
+  }
+  .detail-content {
+    padding: 18px;
+  }
+}
+@media (max-width: 760px) {
+  .card-grid,
+  .field-grid {
+    grid-template-columns: 1fr;
+  }
+  .master-detail {
+    grid-template-columns: 165px minmax(0, 1fr);
+  }
+  .window-layout {
+    grid-template-columns: 135px minmax(0, 1fr);
+  }
+  .sidebar {
+    padding: 16px 7px;
+  }
+  .nav {
+    padding: 8px;
+  }
+  .variant-switcher button {
+    padding: 5px 8px;
+  }
+  .page-header .row {
+    flex-wrap: wrap;
+  }
+}
+</style></head>
+<body><div id="prototype-root"></div>
+<script>"use strict";
+(() => {
+  // node_modules/preact/dist/preact.module.js
+  var n;
+  var l;
+  var u;
+  var t;
+  var i;
+  var r;
+  var o;
+  var e;
+  var f;
+  var c;
+  var a;
+  var s;
+  var h;
+  var p;
+  var v;
+  var y;
+  var d = {};
+  var w = [];
+  var _ = /acit|ex(?:s|g|n|p|$)|rph|grid|ows|mnc|ntw|ine[ch]|zoo|^ord|itera/i;
+  var g = Array.isArray;
+  function m(n2, l3) {
+    for (var u4 in l3) n2[u4] = l3[u4];
+    return n2;
+  }
+  function b(n2) {
+    n2 && n2.parentNode && n2.parentNode.removeChild(n2);
+  }
+  function k(l3, u4, t3) {
+    var i3, r3, o3, e3 = {};
+    for (o3 in u4) "key" == o3 ? i3 = u4[o3] : "ref" == o3 ? r3 = u4[o3] : e3[o3] = u4[o3];
+    if (arguments.length > 2 && (e3.children = arguments.length > 3 ? n.call(arguments, 2) : t3), "function" == typeof l3 && null != l3.defaultProps) for (o3 in l3.defaultProps) void 0 === e3[o3] && (e3[o3] = l3.defaultProps[o3]);
+    return x(l3, e3, i3, r3, null);
+  }
+  function x(n2, t3, i3, r3, o3) {
+    var e3 = { type: n2, props: t3, key: i3, ref: r3, __k: null, __: null, __b: 0, __e: null, __c: null, constructor: void 0, __v: null == o3 ? ++u : o3, __i: -1, __u: 0 };
+    return null == o3 && null != l.vnode && l.vnode(e3), e3;
+  }
+  function S(n2) {
+    return n2.children;
+  }
+  function C(n2, l3) {
+    this.props = n2, this.context = l3;
+  }
+  function $(n2, l3) {
+    if (null == l3) return n2.__ ? $(n2.__, n2.__i + 1) : null;
+    for (var u4; l3 < n2.__k.length; l3++) if (null != (u4 = n2.__k[l3]) && null != u4.__e) return u4.__e;
+    return "function" == typeof n2.type ? $(n2) : null;
+  }
+  function I(n2) {
+    if (n2.__P && n2.__d) {
+      var u4 = n2.__v, t3 = u4.__e, i3 = [], r3 = [], o3 = m({}, u4);
+      o3.__v = u4.__v + 1, l.vnode && l.vnode(o3), q(n2.__P, o3, u4, n2.__n, n2.__P.namespaceURI, 32 & u4.__u ? [t3] : null, i3, null == t3 ? $(u4) : t3, !!(32 & u4.__u), r3), o3.__v = u4.__v, o3.__.__k[o3.__i] = o3, D(i3, o3, r3), u4.__e = u4.__ = null, o3.__e != t3 && P(o3);
+    }
+  }
+  function P(n2) {
+    if (null != (n2 = n2.__) && null != n2.__c) return n2.__e = n2.__c.base = null, n2.__k.some(function(l3) {
+      if (null != l3 && null != l3.__e) return n2.__e = n2.__c.base = l3.__e;
+    }), P(n2);
+  }
+  function A(n2) {
+    (!n2.__d && (n2.__d = true) && i.push(n2) && !H.__r++ || r != l.debounceRendering) && ((r = l.debounceRendering) || o)(H);
+  }
+  function H() {
+    try {
+      for (var n2, l3 = 1; i.length; ) i.length > l3 && i.sort(e), n2 = i.shift(), l3 = i.length, I(n2);
+    } finally {
+      i.length = H.__r = 0;
+    }
+  }
+  function L(n2, l3, u4, t3, i3, r3, o3, e3, f4, c3, a3) {
+    var s3, h3, p3, v3, y3, _2, g2, m3 = t3 && t3.__k || w, b2 = l3.length;
+    for (f4 = T(u4, l3, m3, f4, b2), s3 = 0; s3 < b2; s3++) null != (p3 = u4.__k[s3]) && (h3 = -1 != p3.__i && m3[p3.__i] || d, p3.__i = s3, _2 = q(n2, p3, h3, i3, r3, o3, e3, f4, c3, a3), v3 = p3.__e, p3.ref && h3.ref != p3.ref && (h3.ref && J(h3.ref, null, p3), a3.push(p3.ref, p3.__c || v3, p3)), null == y3 && null != v3 && (y3 = v3), (g2 = !!(4 & p3.__u)) || h3.__k === p3.__k ? (f4 = j(p3, f4, n2, g2), g2 && h3.__e && (h3.__e = null)) : "function" == typeof p3.type && void 0 !== _2 ? f4 = _2 : v3 && (f4 = v3.nextSibling), p3.__u &= -7);
+    return u4.__e = y3, f4;
+  }
+  function T(n2, l3, u4, t3, i3) {
+    var r3, o3, e3, f4, c3, a3 = u4.length, s3 = a3, h3 = 0;
+    for (n2.__k = new Array(i3), r3 = 0; r3 < i3; r3++) null != (o3 = l3[r3]) && "boolean" != typeof o3 && "function" != typeof o3 ? ("string" == typeof o3 || "number" == typeof o3 || "bigint" == typeof o3 || o3.constructor == String ? o3 = n2.__k[r3] = x(null, o3, null, null, null) : g(o3) ? o3 = n2.__k[r3] = x(S, { children: o3 }, null, null, null) : void 0 === o3.constructor && o3.__b > 0 ? o3 = n2.__k[r3] = x(o3.type, o3.props, o3.key, o3.ref ? o3.ref : null, o3.__v) : n2.__k[r3] = o3, f4 = r3 + h3, o3.__ = n2, o3.__b = n2.__b + 1, e3 = null, -1 != (c3 = o3.__i = O(o3, u4, f4, s3)) && (s3--, (e3 = u4[c3]) && (e3.__u |= 2)), null == e3 || null == e3.__v ? (-1 == c3 && (i3 > a3 ? h3-- : i3 < a3 && h3++), "function" != typeof o3.type && (o3.__u |= 4)) : c3 != f4 && (c3 == f4 - 1 ? h3-- : c3 == f4 + 1 ? h3++ : (c3 > f4 ? h3-- : h3++, o3.__u |= 4))) : n2.__k[r3] = null;
+    if (s3) for (r3 = 0; r3 < a3; r3++) null != (e3 = u4[r3]) && 0 == (2 & e3.__u) && (e3.__e == t3 && (t3 = $(e3)), K(e3, e3));
+    return t3;
+  }
+  function j(n2, l3, u4, t3) {
+    var i3, r3;
+    if ("function" == typeof n2.type) {
+      for (i3 = n2.__k, r3 = 0; i3 && r3 < i3.length; r3++) i3[r3] && (i3[r3].__ = n2, l3 = j(i3[r3], l3, u4, t3));
+      return l3;
+    }
+    n2.__e != l3 && (t3 && (l3 && n2.type && !l3.parentNode && (l3 = $(n2)), u4.insertBefore(n2.__e, l3 || null)), l3 = n2.__e);
+    do {
+      l3 = l3 && l3.nextSibling;
+    } while (null != l3 && 8 == l3.nodeType);
+    return l3;
+  }
+  function O(n2, l3, u4, t3) {
+    var i3, r3, o3, e3 = n2.key, f4 = n2.type, c3 = l3[u4], a3 = null != c3 && 0 == (2 & c3.__u);
+    if (null === c3 && null == e3 || a3 && e3 == c3.key && f4 == c3.type) return u4;
+    if (t3 > (a3 ? 1 : 0)) {
+      for (i3 = u4 - 1, r3 = u4 + 1; i3 >= 0 || r3 < l3.length; ) if (null != (c3 = l3[o3 = i3 >= 0 ? i3-- : r3++]) && 0 == (2 & c3.__u) && e3 == c3.key && f4 == c3.type) return o3;
+    }
+    return -1;
+  }
+  function z(n2, l3, u4) {
+    "-" == l3[0] ? n2.setProperty(l3, null == u4 ? "" : u4) : n2[l3] = null == u4 ? "" : "number" != typeof u4 || _.test(l3) ? u4 : u4 + "px";
+  }
+  function N(n2, l3, u4, t3, i3) {
+    var r3, o3;
+    n: if ("style" == l3) if ("string" == typeof u4) n2.style.cssText = u4;
+    else {
+      if ("string" == typeof t3 && (n2.style.cssText = t3 = ""), t3) for (l3 in t3) u4 && l3 in u4 || z(n2.style, l3, "");
+      if (u4) for (l3 in u4) t3 && u4[l3] == t3[l3] || z(n2.style, l3, u4[l3]);
+    }
+    else if ("o" == l3[0] && "n" == l3[1]) r3 = l3 != (l3 = l3.replace(s, "$1")), o3 = l3.toLowerCase(), l3 = o3 in n2 || "onFocusOut" == l3 || "onFocusIn" == l3 ? o3.slice(2) : l3.slice(2), n2.l || (n2.l = {}), n2.l[l3 + r3] = u4, u4 ? t3 ? u4[a] = t3[a] : (u4[a] = h, n2.addEventListener(l3, r3 ? v : p, r3)) : n2.removeEventListener(l3, r3 ? v : p, r3);
+    else {
+      if ("http://www.w3.org/2000/svg" == i3) l3 = l3.replace(/xlink(H|:h)/, "h").replace(/sName$/, "s");
+      else if ("width" != l3 && "height" != l3 && "href" != l3 && "list" != l3 && "form" != l3 && "tabIndex" != l3 && "download" != l3 && "rowSpan" != l3 && "colSpan" != l3 && "role" != l3 && "popover" != l3 && l3 in n2) try {
+        n2[l3] = null == u4 ? "" : u4;
+        break n;
+      } catch (n3) {
+      }
+      "function" == typeof u4 || (null == u4 || false === u4 && "-" != l3[4] ? n2.removeAttribute(l3) : n2.setAttribute(l3, "popover" == l3 && 1 == u4 ? "" : u4));
+    }
+  }
+  function V(n2) {
+    return function(u4) {
+      if (this.l) {
+        var t3 = this.l[u4.type + n2];
+        if (null == u4[c]) u4[c] = h++;
+        else if (u4[c] < t3[a]) return;
+        return t3(l.event ? l.event(u4) : u4);
+      }
+    };
+  }
+  function q(n2, u4, t3, i3, r3, o3, e3, f4, c3, a3) {
+    var s3, h3, p3, v3, y3, d3, _2, k3, x2, M, $2, I2, P2, A2, H2, T2, j3 = u4.type;
+    if (void 0 !== u4.constructor) return null;
+    128 & t3.__u && (c3 = !!(32 & t3.__u), o3 = [f4 = u4.__e = t3.__e]), (s3 = l.__b) && s3(u4);
+    n: if ("function" == typeof j3) {
+      h3 = e3.length;
+      try {
+        if (x2 = u4.props, M = j3.prototype && j3.prototype.render, $2 = (s3 = j3.contextType) && i3[s3.__c], I2 = s3 ? $2 ? $2.props.value : s3.__ : i3, t3.__c ? k3 = (p3 = u4.__c = t3.__c).__ = p3.__E : (M ? u4.__c = p3 = new j3(x2, I2) : (u4.__c = p3 = new C(x2, I2), p3.constructor = j3, p3.render = Q), $2 && $2.sub(p3), p3.state || (p3.state = {}), p3.__n = i3, v3 = p3.__d = true, p3.__h = [], p3._sb = []), M && null == p3.__s && (p3.__s = p3.state), M && null != j3.getDerivedStateFromProps && (p3.__s == p3.state && (p3.__s = m({}, p3.__s)), m(p3.__s, j3.getDerivedStateFromProps(x2, p3.__s))), y3 = p3.props, d3 = p3.state, p3.__v = u4, v3) M && null == j3.getDerivedStateFromProps && null != p3.componentWillMount && p3.componentWillMount(), M && null != p3.componentDidMount && p3.__h.push(p3.componentDidMount);
+        else {
+          if (M && null == j3.getDerivedStateFromProps && x2 !== y3 && null != p3.componentWillReceiveProps && p3.componentWillReceiveProps(x2, I2), u4.__v == t3.__v || !p3.__e && null != p3.shouldComponentUpdate && false === p3.shouldComponentUpdate(x2, p3.__s, I2)) {
+            u4.__v != t3.__v && (p3.props = x2, p3.state = p3.__s, p3.__d = false), u4.__e = t3.__e, u4.__k = t3.__k, u4.__k.some(function(n3) {
+              n3 && (n3.__ = u4);
+            }), w.push.apply(p3.__h, p3._sb), p3._sb = [], p3.__h.length && e3.push(p3);
+            break n;
+          }
+          null != p3.componentWillUpdate && p3.componentWillUpdate(x2, p3.__s, I2), M && null != p3.componentDidUpdate && p3.__h.push(function() {
+            p3.componentDidUpdate(y3, d3, _2);
+          });
+        }
+        if (p3.context = I2, p3.props = x2, p3.__P = n2, p3.__e = false, P2 = l.__r, A2 = 0, M) p3.state = p3.__s, p3.__d = false, P2 && P2(u4), s3 = p3.render(p3.props, p3.state, p3.context), w.push.apply(p3.__h, p3._sb), p3._sb = [];
+        else do {
+          p3.__d = false, P2 && P2(u4), s3 = p3.render(p3.props, p3.state, p3.context), p3.state = p3.__s;
+        } while (p3.__d && ++A2 < 25);
+        p3.state = p3.__s, null != p3.getChildContext && (i3 = m(m({}, i3), p3.getChildContext())), M && !v3 && null != p3.getSnapshotBeforeUpdate && (_2 = p3.getSnapshotBeforeUpdate(y3, d3)), H2 = null != s3 && s3.type === S && null == s3.key ? E(s3.props.children) : s3, f4 = L(n2, g(H2) ? H2 : [H2], u4, t3, i3, r3, o3, e3, f4, c3, a3), p3.base = u4.__e, u4.__u &= -161, p3.__h.length && e3.push(p3), k3 && (p3.__E = p3.__ = null);
+      } catch (n3) {
+        if (e3.length = h3, u4.__v = null, c3 || null != o3) {
+          if (n3.then) {
+            for (u4.__u |= c3 ? 160 : 128; f4 && 8 == f4.nodeType && f4.nextSibling; ) f4 = f4.nextSibling;
+            null != o3 && (o3[o3.indexOf(f4)] = null), u4.__e = f4;
+          } else if (null != o3) for (T2 = o3.length; T2--; ) b(o3[T2]);
+        } else u4.__e = t3.__e;
+        null == u4.__k && (u4.__k = t3.__k || []), n3.then || B(u4), l.__e(n3, u4, t3);
+      }
+    } else null == o3 && u4.__v == t3.__v ? (u4.__k = t3.__k, u4.__e = t3.__e) : f4 = u4.__e = G(t3.__e, u4, t3, i3, r3, o3, e3, c3, a3);
+    return (s3 = l.diffed) && s3(u4), 128 & u4.__u ? void 0 : f4;
+  }
+  function B(n2) {
+    n2 && (n2.__c && (n2.__c.__e = true), n2.__k && n2.__k.some(B));
+  }
+  function D(n2, u4, t3) {
+    for (var i3 = 0; i3 < t3.length; i3++) J(t3[i3], t3[++i3], t3[++i3]);
+    l.__c && l.__c(u4, n2), n2.some(function(u5) {
+      try {
+        n2 = u5.__h, u5.__h = [], n2.some(function(n3) {
+          n3.call(u5);
+        });
+      } catch (n3) {
+        l.__e(n3, u5.__v);
+      }
+    });
+  }
+  function E(n2) {
+    return "object" != typeof n2 || null == n2 || n2.__b > 0 ? n2 : g(n2) ? n2.map(E) : void 0 !== n2.constructor ? null : m({}, n2);
+  }
+  function G(u4, t3, i3, r3, o3, e3, f4, c3, a3) {
+    var s3, h3, p3, v3, y3, w3, _2, m3 = i3.props || d, k3 = t3.props, x2 = t3.type;
+    if ("svg" == x2 ? o3 = "http://www.w3.org/2000/svg" : "math" == x2 ? o3 = "http://www.w3.org/1998/Math/MathML" : o3 || (o3 = "http://www.w3.org/1999/xhtml"), null != e3) {
+      for (s3 = 0; s3 < e3.length; s3++) if ((y3 = e3[s3]) && "setAttribute" in y3 == !!x2 && (x2 ? y3.localName == x2 : 3 == y3.nodeType)) {
+        u4 = y3, e3[s3] = null;
+        break;
+      }
+    }
+    if (null == u4) {
+      if (null == x2) return document.createTextNode(k3);
+      u4 = document.createElementNS(o3, x2, k3.is && k3), c3 && (l.__m && l.__m(t3, e3), c3 = false), e3 = null;
+    }
+    if (null == x2) m3 === k3 || c3 && u4.data == k3 || (u4.data = k3);
+    else {
+      if (e3 = "textarea" == x2 && null != k3.defaultValue ? null : e3 && n.call(u4.childNodes), !c3 && null != e3) for (m3 = {}, s3 = 0; s3 < u4.attributes.length; s3++) m3[(y3 = u4.attributes[s3]).name] = y3.value;
+      for (s3 in m3) y3 = m3[s3], "dangerouslySetInnerHTML" == s3 ? p3 = y3 : "children" == s3 || s3 in k3 || "value" == s3 && "defaultValue" in k3 || "checked" == s3 && "defaultChecked" in k3 || N(u4, s3, null, y3, o3);
+      for (s3 in k3) y3 = k3[s3], "children" == s3 ? v3 = y3 : "dangerouslySetInnerHTML" == s3 ? h3 = y3 : "value" == s3 ? w3 = y3 : "checked" == s3 ? _2 = y3 : c3 && "function" != typeof y3 || m3[s3] === y3 || N(u4, s3, y3, m3[s3], o3);
+      if (h3) c3 || p3 && (h3.__html == p3.__html || h3.__html == u4.innerHTML) || (u4.innerHTML = h3.__html), t3.__k = [];
+      else if (p3 && (u4.innerHTML = ""), L("template" == t3.type ? u4.content : u4, g(v3) ? v3 : [v3], t3, i3, r3, "foreignObject" == x2 ? "http://www.w3.org/1999/xhtml" : o3, e3, f4, e3 ? e3[0] : i3.__k && $(i3, 0), c3, a3), null != e3) for (s3 = e3.length; s3--; ) b(e3[s3]);
+      c3 && "textarea" != x2 || (s3 = "value", "progress" == x2 && null == w3 ? u4.removeAttribute("value") : null != w3 && (w3 !== u4[s3] || "progress" == x2 && !w3 || "option" == x2 && w3 != m3[s3]) && N(u4, s3, w3, m3[s3], o3), s3 = "checked", null != _2 && _2 != u4[s3] && N(u4, s3, _2, m3[s3], o3));
+    }
+    return u4;
+  }
+  function J(n2, u4, t3) {
+    try {
+      if ("function" == typeof n2) {
+        var i3 = "function" == typeof n2.__u;
+        i3 && n2.__u(), i3 && null == u4 || (n2.__u = n2(u4));
+      } else n2.current = u4;
+    } catch (n3) {
+      l.__e(n3, t3);
+    }
+  }
+  function K(n2, u4, t3) {
+    var i3, r3;
+    if (l.unmount && l.unmount(n2), (i3 = n2.ref) && (i3.current && i3.current != n2.__e || J(i3, null, u4)), null != (i3 = n2.__c)) {
+      if (i3.componentWillUnmount) try {
+        i3.componentWillUnmount();
+      } catch (n3) {
+        l.__e(n3, u4);
+      }
+      i3.base = i3.__P = i3.__n = null;
+    }
+    if (i3 = n2.__k) for (r3 = 0; r3 < i3.length; r3++) i3[r3] && K(i3[r3], u4, t3 || "function" != typeof n2.type);
+    t3 || b(n2.__e), n2.__c = n2.__ = n2.__e = void 0;
+  }
+  function Q(n2, l3, u4) {
+    return this.constructor(n2, u4);
+  }
+  function R(u4, t3, i3) {
+    var r3, o3, e3, f4;
+    t3 == document && (t3 = document.documentElement), l.__ && l.__(u4, t3), o3 = (r3 = "function" == typeof i3) ? null : i3 && i3.__k || t3.__k, e3 = [], f4 = [], q(t3, u4 = (!r3 && i3 || t3).__k = k(S, null, [u4]), o3 || d, d, t3.namespaceURI, !r3 && i3 ? [i3] : o3 ? null : t3.firstChild ? n.call(t3.childNodes) : null, e3, !r3 && i3 ? i3 : o3 ? o3.__e : t3.firstChild, r3, f4), D(e3, u4, f4), u4.props.children = null;
+  }
+  n = w.slice, l = { __e: function(n2, l3, u4, t3) {
+    for (var i3, r3, o3; l3 = l3.__; ) if ((i3 = l3.__c) && !i3.__) try {
+      if ((r3 = i3.constructor) && null != r3.getDerivedStateFromError && (i3.setState(r3.getDerivedStateFromError(n2)), o3 = i3.__d), null != i3.componentDidCatch && (i3.componentDidCatch(n2, t3 || {}), o3 = i3.__d), o3) return i3.__E = i3;
+    } catch (l4) {
+      n2 = l4;
+    }
+    throw n2;
+  } }, u = 0, t = function(n2) {
+    return null != n2 && void 0 === n2.constructor;
+  }, C.prototype.setState = function(n2, l3) {
+    var u4;
+    u4 = null != this.__s && this.__s != this.state ? this.__s : this.__s = m({}, this.state), "function" == typeof n2 && (n2 = n2(m({}, u4), this.props)), n2 && m(u4, n2), null != n2 && this.__v && (l3 && this._sb.push(l3), A(this));
+  }, C.prototype.forceUpdate = function(n2) {
+    this.__v && (this.__e = true, n2 && this.__h.push(n2), A(this));
+  }, C.prototype.render = S, i = [], o = "function" == typeof Promise ? Promise.prototype.then.bind(Promise.resolve()) : setTimeout, e = function(n2, l3) {
+    return n2.__v.__b - l3.__v.__b;
+  }, H.__r = 0, f = Math.random().toString(8), c = "__d" + f, a = "__a" + f, s = /(PointerCapture)$|Capture$/i, h = 0, p = V(false), v = V(true), y = 0;
+
+  // node_modules/preact/hooks/dist/hooks.module.js
+  var t2;
+  var r2;
+  var u2;
+  var i2;
+  var o2 = 0;
+  var f2 = [];
+  var c2 = l;
+  var e2 = c2.__b;
+  var a2 = c2.__r;
+  var v2 = c2.diffed;
+  var l2 = c2.__c;
+  var m2 = c2.unmount;
+  var p2 = c2.__;
+  function s2(n2, t3) {
+    c2.__h && c2.__h(r2, n2, o2 || t3), o2 = 0;
+    var u4 = r2.__H || (r2.__H = { __: [], __h: [] });
+    return n2 >= u4.__.length && u4.__.push({}), u4.__[n2];
+  }
+  function d2(n2) {
+    return o2 = 1, y2(D2, n2);
+  }
+  function y2(n2, u4, i3) {
+    var o3 = s2(t2++, 2);
+    if (o3.t = n2, !o3.__c && (o3.__ = [i3 ? i3(u4) : D2(void 0, u4), function(n3) {
+      var t3 = o3.__N ? o3.__N[0] : o3.__[0], r3 = o3.t(t3, n3);
+      t3 !== r3 && (o3.__N = [r3, o3.__[1]], o3.__c.setState({}));
+    }], o3.__c = r2, !r2.__f)) {
+      var f4 = function(n3, t3, r3) {
+        if (!o3.__c.__H) return true;
+        var u5 = false, i4 = o3.__c.props !== n3;
+        if (o3.__c.__H.__.some(function(n4) {
+          if (n4.__N) {
+            u5 = true;
+            var t4 = n4.__[0];
+            n4.__ = n4.__N, n4.__N = void 0, t4 !== n4.__[0] && (i4 = true);
+          }
+        }), c3) {
+          var f5 = c3.call(this, n3, t3, r3);
+          return u5 ? f5 || i4 : f5;
+        }
+        return !u5 || i4;
+      };
+      r2.__f = true;
+      var c3 = r2.shouldComponentUpdate, e3 = r2.componentWillUpdate;
+      r2.componentWillUpdate = function(n3, t3, r3) {
+        if (this.__e) {
+          var u5 = c3;
+          c3 = void 0, f4(n3, t3, r3), c3 = u5;
+        }
+        e3 && e3.call(this, n3, t3, r3);
+      }, r2.shouldComponentUpdate = f4;
+    }
+    return o3.__N || o3.__;
+  }
+  function h2(n2, u4) {
+    var i3 = s2(t2++, 3);
+    !c2.__s && C2(i3.__H, u4) && (i3.__ = n2, i3.u = u4, r2.__H.__h.push(i3));
+  }
+  function j2() {
+    for (var n2; n2 = f2.shift(); ) {
+      var t3 = n2.__H;
+      if (n2.__P && t3) try {
+        t3.__h.some(z2), t3.__h.some(B2), t3.__h = [];
+      } catch (r3) {
+        t3.__h = [], c2.__e(r3, n2.__v);
+      }
+    }
+  }
+  c2.__b = function(n2) {
+    r2 = null, e2 && e2(n2);
+  }, c2.__ = function(n2, t3) {
+    n2 && t3.__k && t3.__k.__m && (n2.__m = t3.__k.__m), p2 && p2(n2, t3);
+  }, c2.__r = function(n2) {
+    a2 && a2(n2), t2 = 0;
+    var i3 = (r2 = n2.__c).__H;
+    i3 && (u2 === r2 ? (i3.__h = [], r2.__h = [], i3.__.some(function(n3) {
+      n3.__N && (n3.__ = n3.__N), n3.u = n3.__N = void 0;
+    })) : (i3.__h.some(z2), i3.__h.some(B2), i3.__h = [], t2 = 0)), u2 = r2;
+  }, c2.diffed = function(n2) {
+    v2 && v2(n2);
+    var t3 = n2.__c;
+    t3 && t3.__H && (t3.__H.__h.length && (1 !== f2.push(t3) && i2 === c2.requestAnimationFrame || ((i2 = c2.requestAnimationFrame) || w2)(j2)), t3.__H.__.some(function(n3) {
+      n3.u && (n3.__H = n3.u, n3.u = void 0);
+    })), u2 = r2 = null;
+  }, c2.__c = function(n2, t3) {
+    t3.some(function(n3) {
+      try {
+        n3.__h.some(z2), n3.__h = n3.__h.filter(function(n4) {
+          return !n4.__ || B2(n4);
+        });
+      } catch (r3) {
+        t3.some(function(n4) {
+          n4.__h && (n4.__h = []);
+        }), t3 = [], c2.__e(r3, n3.__v);
+      }
+    }), l2 && l2(n2, t3);
+  }, c2.unmount = function(n2) {
+    m2 && m2(n2);
+    var t3, r3 = n2.__c;
+    r3 && r3.__H && (r3.__H.__.some(function(n3) {
+      try {
+        z2(n3);
+      } catch (n4) {
+        t3 = n4;
+      }
+    }), r3.__H = void 0, t3 && c2.__e(t3, r3.__v));
+  };
+  var k2 = "function" == typeof requestAnimationFrame;
+  function w2(n2) {
+    var t3, r3 = function() {
+      clearTimeout(u4), k2 && cancelAnimationFrame(t3), setTimeout(n2);
+    }, u4 = setTimeout(r3, 35);
+    k2 && (t3 = requestAnimationFrame(r3));
+  }
+  function z2(n2) {
+    var t3 = r2, u4 = n2.__c;
+    "function" == typeof u4 && (n2.__c = void 0, u4()), r2 = t3;
+  }
+  function B2(n2) {
+    var t3 = r2;
+    n2.__c = n2.__(), r2 = t3;
+  }
+  function C2(n2, t3) {
+    return !n2 || n2.length !== t3.length || t3.some(function(t4, r3) {
+      return t4 !== n2[r3];
+    });
+  }
+  function D2(n2, t3) {
+    return "function" == typeof t3 ? t3(n2) : t3;
+  }
+
+  // node_modules/preact/jsx-runtime/dist/jsxRuntime.module.js
+  var f3 = 0;
+  function u3(e3, t3, n2, o3, i3, u4) {
+    t3 || (t3 = {});
+    var a3, c3, p3 = t3;
+    if ("ref" in p3) for (c3 in p3 = {}, t3) "ref" == c3 ? a3 = t3[c3] : p3[c3] = t3[c3];
+    var l3 = { type: e3, props: p3, key: n2, ref: a3, __k: null, __: null, __b: 0, __e: null, __c: null, constructor: void 0, __v: --f3, __i: -1, __u: 0, __source: i3, __self: u4 };
+    if ("function" == typeof e3 && (a3 = e3.defaultProps)) for (c3 in a3) void 0 === p3[c3] && (p3[c3] = a3[c3]);
+    return l.vnode && l.vnode(l3), l3;
+  }
+
+  // src/dashboard/prototypes/builtinAgentSettings.prototype.tsx
+  var VARIANTS = {
+    A: "\u5206\u533A\u8BBE\u7F6E",
+    B: "\u8FDE\u63A5\u5DE5\u4F5C\u53F0",
+    C: "\u9996\u6B21\u5F15\u5BFC"
+  };
+  var KIND_LABEL = {
+    chatgpt: "ChatGPT",
+    "api-key": "API Key \u670D\u52A1",
+    custom: "\u81EA\u5B9A\u4E49\u670D\u52A1"
+  };
+  var MODELS = [
+    { id: "alpha", name: "\u793A\u4F8B\u6A21\u578B Alpha", note: "\u901A\u7528\u4EFB\u52A1 \xB7 \u652F\u6301\u63A8\u7406" },
+    { id: "beta", name: "\u793A\u4F8B\u6A21\u578B Beta", note: "\u8F7B\u91CF\u4EFB\u52A1 \xB7 \u5FEB\u901F\u54CD\u5E94" }
+  ];
+  var nextId = 10;
+  var id = (prefix) => `${prefix}-${++nextId}`;
+  var baseConnection = (kind) => ({
+    id: id("connection"),
+    label: kind === "chatgpt" ? "\u6211\u7684 ChatGPT" : kind === "api-key" ? "\u6211\u7684 API \u670D\u52A1" : "\u672C\u5730\u6A21\u578B\u670D\u52A1",
+    kind,
+    provider: "OpenAI",
+    keySaved: false,
+    endpoint: kind === "custom" ? "http://localhost:8000/v1" : "",
+    dialect: "Responses",
+    needsKey: kind !== "custom",
+    localApproved: false,
+    discovery: "idle"
+  });
+  var reg = (key = "registration-personal", workspace = "\u4E2A\u4EBA\u7A7A\u95F4") => ({
+    id: key,
+    email: "reader@example.test",
+    workspace,
+    signedIn: true,
+    permission: true,
+    welcome: true,
+    paused: false,
+    reauthorize: false
+  });
+  function seed() {
+    const registrations = [reg(), reg("registration-research", "\u7814\u7A76\u7A7A\u95F4")];
+    const connections = [
+      {
+        ...baseConnection("chatgpt"),
+        id: "chatgpt-personal",
+        label: "ChatGPT \xB7 \u4E2A\u4EBA",
+        registrationId: registrations[0].id,
+        discovery: "ready"
+      },
+      {
+        ...baseConnection("chatgpt"),
+        id: "chatgpt-research",
+        label: "ChatGPT \xB7 \u7814\u7A76",
+        registrationId: registrations[1].id,
+        discovery: "ready"
+      },
+      {
+        ...baseConnection("api-key"),
+        id: "api-service",
+        label: "OpenAI API",
+        keySaved: true,
+        discovery: "ready"
+      }
+    ];
+    const defaults = {
+      common: {
+        connectionId: connections[0].id,
+        modelId: "alpha",
+        reasoning: "medium"
+      }
+    };
+    return { registrations, connections, defaults };
+  }
+  function connectionState(c3, registrations) {
+    if (c3.kind === "chatgpt") {
+      const r3 = registrations.find((entry) => entry.id === c3.registrationId);
+      if (!r3?.signedIn) return { label: "\u672A\u767B\u5F55", tone: "warning", ready: false };
+      if (r3.reauthorize)
+        return { label: "\u9700\u91CD\u65B0\u6388\u6743", tone: "warning", ready: false };
+      if (!r3.permission)
+        return { label: "\u7F3A\u5C11\u65B9\u6848\u6743\u9650", tone: "warning", ready: false };
+      if (!r3.welcome)
+        return { label: "\u5F85\u786E\u8BA4\u4F7F\u7528\u8BF4\u660E", tone: "warning", ready: false };
+      if (r3.paused) return { label: "\u989D\u5EA6\u6682\u505C", tone: "warning", ready: false };
+    } else {
+      if (c3.needsKey && !c3.keySaved)
+        return { label: "\u9700\u8981 API Key", tone: "warning", ready: false };
+      if (c3.kind === "custom" && !c3.localApproved && isLocal(c3.endpoint))
+        return { label: "\u5F85\u6279\u51C6\u672C\u5730\u8FDE\u63A5", tone: "warning", ready: false };
+    }
+    if (c3.discovery === "idle")
+      return { label: "\u5F85\u83B7\u53D6\u6A21\u578B", tone: "warning", ready: false };
+    if (c3.discovery === "failed")
+      return { label: "\u6A21\u578B\u5237\u65B0\u5931\u8D25", tone: "warning", ready: false };
+    if (c3.discovery === "unknown")
+      return { label: "\u6A21\u578B\u80FD\u529B\u5F85\u786E\u8BA4", tone: "warning", ready: false };
+    return { label: "\u53EF\u4F7F\u7528", tone: "success", ready: true };
+  }
+  function isLocal(value) {
+    return /localhost|127\.0\.0\.1|\[::1\]/i.test(value);
+  }
+  function Button(p3) {
+    return /* @__PURE__ */ u3(
+      "button",
+      {
+        type: "button",
+        title: p3.title,
+        class: `button${p3.primary ? " primary" : ""}${p3.danger ? " danger" : ""}${p3.small ? " small" : ""}`,
+        disabled: p3.disabled,
+        onClick: p3.onClick,
+        children: p3.children
+      }
+    );
+  }
+  function Badge(p3) {
+    return /* @__PURE__ */ u3("span", { class: `zs-badge zs-badge--${p3.tone || "muted"}`, children: p3.children });
+  }
+  function Choice(p3) {
+    const [open, setOpen] = d2(false);
+    return /* @__PURE__ */ u3("div", { class: "choice", children: [
+      /* @__PURE__ */ u3(
+        "button",
+        {
+          type: "button",
+          class: "button choice-trigger",
+          "aria-label": p3.label,
+          "aria-expanded": open,
+          disabled: p3.disabled,
+          onClick: () => setOpen(!open),
+          children: [
+            /* @__PURE__ */ u3("span", { children: p3.options.find((o3) => o3.value === p3.value)?.label || "\u8BF7\u9009\u62E9" }),
+            /* @__PURE__ */ u3("span", { "aria-hidden": "true", children: "\u2304" })
+          ]
+        }
+      ),
+      open && /* @__PURE__ */ u3("div", { role: "listbox", "aria-label": p3.label, class: "choice-menu", children: p3.options.map((o3) => /* @__PURE__ */ u3(
+        "button",
+        {
+          type: "button",
+          role: "option",
+          disabled: o3.disabled,
+          "aria-selected": o3.value === p3.value,
+          onClick: () => {
+            p3.onChange(o3.value);
+            setOpen(false);
+          },
+          children: o3.label
+        },
+        o3.value
+      )) })
+    ] });
+  }
+  function Field(p3) {
+    return /* @__PURE__ */ u3("label", { class: "field", children: [
+      /* @__PURE__ */ u3("span", { children: p3.label }),
+      /* @__PURE__ */ u3(
+        "input",
+        {
+          "aria-label": p3.label,
+          type: p3.type || "text",
+          value: p3.value,
+          onInput: (e3) => p3.onInput(e3.currentTarget.value),
+          autocomplete: "off"
+        }
+      ),
+      p3.help && /* @__PURE__ */ u3("small", { children: p3.help })
+    ] });
+  }
+  function Header(p3) {
+    return /* @__PURE__ */ u3("header", { class: "page-header", children: [
+      /* @__PURE__ */ u3("div", { class: "row spread", children: [
+        /* @__PURE__ */ u3("h2", { children: p3.title }),
+        p3.action
+      ] }),
+      /* @__PURE__ */ u3("p", { children: p3.description })
+    ] });
+  }
+  function Modal(p3) {
+    h2(() => {
+      const before = document.activeElement;
+      document.querySelector("[role=dialog] button, [role=dialog] input")?.focus();
+      const trap = (e3) => {
+        if (e3.key !== "Tab") return;
+        const nodes = Array.from(
+          document.querySelectorAll(
+            "[role=dialog] button:not(:disabled), [role=dialog] input:not(:disabled), [role=dialog] a"
+          )
+        );
+        const first = nodes[0], last = nodes[nodes.length - 1];
+        if (e3.shiftKey && document.activeElement === first) {
+          e3.preventDefault();
+          last?.focus();
+        } else if (!e3.shiftKey && document.activeElement === last) {
+          e3.preventDefault();
+          first?.focus();
+        }
+      };
+      document.addEventListener("keydown", trap);
+      return () => {
+        document.removeEventListener("keydown", trap);
+        before?.focus();
+      };
+    }, []);
+    return /* @__PURE__ */ u3("div", { class: "modal-overlay", children: /* @__PURE__ */ u3(
+      "section",
+      {
+        role: "dialog",
+        "aria-modal": "true",
+        "aria-label": p3.title,
+        class: `modal${p3.wide ? " wide" : ""}`,
+        children: [
+          /* @__PURE__ */ u3("header", { class: "modal-header", children: /* @__PURE__ */ u3("h3", { children: p3.title }) }),
+          /* @__PURE__ */ u3("div", { class: "modal-body stack", children: p3.children }),
+          p3.footer && /* @__PURE__ */ u3("footer", { class: "modal-footer row wrap", children: p3.footer })
+        ]
+      }
+    ) });
+  }
+  function App() {
+    const variantParam = new URLSearchParams(location.search).get(
+      "variant"
+    );
+    const [variant, setVariant] = d2(
+      VARIANTS[variantParam] ? variantParam : "A"
+    );
+    const [page, setPage] = d2(
+      variantParam === "C" ? "overview" : "connections"
+    );
+    const [opened, setOpened] = d2(true);
+    const [compact, setCompact] = d2(false);
+    const [dark, setDark] = d2(false);
+    const [connections, setConnections] = d2([]);
+    const [registrations, setRegistrations] = d2([]);
+    const [defaults, setDefaults] = d2({});
+    const [draftDefaults, setDraftDefaults] = d2({});
+    const [selected, setSelected] = d2("");
+    const [editing, setEditing] = d2(null);
+    const [secret, setSecret] = d2("");
+    const [auth, setAuth] = d2(null);
+    const [addOpen, setAddOpen] = d2(false);
+    const [status, setStatus] = d2("\u5C1A\u672A\u6DFB\u52A0\u6A21\u578B\u8FDE\u63A5");
+    const [scenario, setScenario] = d2("empty");
+    const [testResult, setTestResult] = d2({});
+    const [requestOutcome, setRequestOutcome] = d2("completed");
+    const [toolTab, setToolTab] = d2("mcp");
+    const [sources, setSources] = d2([]);
+    const [sourceDraft, setSourceDraft] = d2(null);
+    const [webSources, setWebSources] = d2([
+      { id: "web-read", label: "\u7F51\u9875\u8BFB\u53D6", enabled: true, tested: false },
+      { id: "web-search", label: "\u641C\u7D22\u670D\u52A1", enabled: false, tested: false }
+    ]);
+    const [autoUpdate, setAutoUpdate] = d2(true);
+    const [catalogVersion, setCatalogVersion] = d2(1);
+    const [overlay, setOverlay] = d2(false);
+    const [preview, setPreview] = d2(false);
+    const [previewChoice, setPreviewChoice] = d2();
+    const [deleteTarget, setDeleteTarget] = d2(null);
+    const dirtyDefaults = JSON.stringify(defaults) !== JSON.stringify(draftDefaults);
+    const chosen = connections.find((c3) => c3.id === selected) || connections[0];
+    const readyConnections = connections.filter(
+      (c3) => connectionState(c3, registrations).ready
+    );
+    const hasDefault = !!defaults.common && readyConnections.some((c3) => c3.id === defaults.common?.connectionId);
+    function changeVariant(v3) {
+      setVariant(v3);
+      const url = new URL(location.href);
+      url.searchParams.set("variant", v3);
+      history.replaceState(null, "", url);
+      if (page === "overview" && v3 !== "C") setPage("connections");
+      else if (v3 === "C" && !connections.length) setPage("overview");
+    }
+    h2(() => {
+      const key = (event) => {
+        if (!(event.key === "ArrowLeft" || event.key === "ArrowRight") || editing || addOpen || sourceDraft || preview || deleteTarget)
+          return;
+        const target = event.target;
+        if (target.closest(
+          "input, textarea, select, [contenteditable], [role=listbox], .choice"
+        ))
+          return;
+        event.preventDefault();
+        const keys = ["A", "B", "C"];
+        changeVariant(
+          keys[(keys.indexOf(variant) + (event.key === "ArrowRight" ? 1 : 2)) % 3]
+        );
+      };
+      window.addEventListener("keydown", key);
+      return () => window.removeEventListener("keydown", key);
+    });
+    h2(() => {
+      document.documentElement.dataset.zsTheme = dark ? "dark" : "light";
+    }, [dark]);
+    function scenarioLoad(value) {
+      setScenario(value);
+      setEditing(null);
+      setAuth(null);
+      setAddOpen(false);
+      setSecret("");
+      setDeleteTarget(null);
+      setPreview(false);
+      setSourceDraft(null);
+      setTestResult({});
+      setOpened(true);
+      const s3 = seed();
+      if (value === "empty") {
+        s3.connections = [];
+        s3.registrations = [];
+        s3.defaults = {};
+      } else if (value !== "multi") {
+        s3.connections = s3.connections.slice(0, 1);
+        s3.registrations = s3.registrations.slice(0, 1);
+        if (value === "permission") s3.registrations[0].permission = false;
+        if (value === "welcome") s3.registrations[0].welcome = false;
+        if (value === "paused") s3.registrations[0].paused = true;
+        if (value === "reauthorize") s3.registrations[0].reauthorize = true;
+        if (value === "signedout") s3.registrations[0].signedIn = false;
+        if (value === "discovery") s3.connections[0].discovery = "failed";
+        if (value === "unknown") s3.connections[0].discovery = "unknown";
+      }
+      setConnections(s3.connections);
+      setRegistrations(s3.registrations);
+      setDefaults(s3.defaults);
+      setDraftDefaults(s3.defaults);
+      setSelected(s3.connections[0]?.id || "");
+      setPage(variant === "C" ? "overview" : "connections");
+      setSources(
+        value === "empty" ? [] : [
+          {
+            id: "source-demo",
+            label: "\u7814\u7A76\u8D44\u6599\u5DE5\u5177",
+            transport: "HTTPS",
+            address: "https://tools.example.test/mcp",
+            approved: false,
+            tested: false,
+            selected: []
+          }
+        ]
+      );
+      setStatus(value === "empty" ? "\u5C1A\u672A\u6DFB\u52A0\u6A21\u578B\u8FDE\u63A5" : "\u5DF2\u8F7D\u5165\u8FDE\u63A5");
+    }
+    function patchConnection(key, patch) {
+      setConnections(
+        (items) => items.map((c3) => c3.id === key ? { ...c3, ...patch } : c3)
+      );
+      setEditing(
+        (current) => current?.id === key ? { ...current, ...patch } : current
+      );
+    }
+    function patchRegistration(key, patch) {
+      setRegistrations(
+        (items) => items.map((r3) => r3.id === key ? { ...r3, ...patch } : r3)
+      );
+    }
+    function addConnection(kind) {
+      setEditing(baseConnection(kind));
+      setSecret("");
+      setAddOpen(false);
+    }
+    function beginLogin(c3) {
+      if (auth) return;
+      setAuth({
+        ownerId: c3.id,
+        registrationId: c3.registrationId || id("registration"),
+        phase: "waiting"
+      });
+      setStatus("\u7B49\u5F85\u6D4F\u89C8\u5668\u767B\u5F55\uFF1B\u53EF\u53D6\u6D88\u672C\u6B21\u767B\u5F55");
+    }
+    function completeLogin(outcome) {
+      if (!auth) return;
+      if (outcome === "failed") {
+        setAuth({ ...auth, phase: "failed" });
+        setStatus("\u672C\u6B21\u767B\u5F55\u5931\u8D25\uFF0C\u53EF\u91CD\u65B0\u767B\u5F55");
+        return;
+      }
+      const previous = registrations.find(
+        (entry) => entry.id === auth.registrationId
+      );
+      const r3 = {
+        ...reg(
+          auth.registrationId,
+          previous?.workspace || (registrations.some((r4) => r4.workspace === "\u4E2A\u4EBA\u7A7A\u95F4") ? "\u7814\u7A76\u7A7A\u95F4" : "\u4E2A\u4EBA\u7A7A\u95F4")
+        ),
+        welcome: previous?.welcome || false,
+        permission: outcome !== "permission"
+      };
+      setRegistrations((items) => [
+        ...items.filter((entry) => entry.id !== r3.id),
+        r3
+      ]);
+      patchConnection(auth.ownerId, { registrationId: r3.id, discovery: "ready" });
+      setAuth(null);
+      setStatus(
+        outcome === "permission" ? "\u5DF2\u767B\u5F55\uFF0C\u4F46\u5C1A\u672A\u83B7\u5F97 ChatGPT \u65B9\u6848\u6743\u9650" : "\u5DF2\u767B\u5F55\uFF0C\u8BF7\u786E\u8BA4\u65B9\u6848\u4F7F\u7528\u8BF4\u660E"
+      );
+    }
+    function cancelLogin() {
+      if (!auth) return;
+      setAuth(null);
+      setStatus("\u767B\u5F55\u5DF2\u53D6\u6D88\uFF0C\u8FDE\u63A5\u914D\u7F6E\u4FDD\u7559");
+    }
+    function closeEditor() {
+      if (editing && auth?.ownerId === editing.id) cancelLogin();
+      setEditing(null);
+      setSecret("");
+    }
+    function saveConnection() {
+      if (!editing || !editing.label.trim()) return;
+      const saved = { ...editing, keySaved: editing.keySaved || !!secret.trim() };
+      if (saved.kind !== "chatgpt" && (!saved.needsKey || saved.keySaved))
+        saved.discovery = "ready";
+      setConnections((items) => [
+        ...items.filter((c3) => c3.id !== saved.id),
+        saved
+      ]);
+      setSelected(saved.id);
+      setPage("connections");
+      setEditing(null);
+      setSecret("");
+      setStatus(`\u5DF2\u4FDD\u5B58\u8FDE\u63A5\u300C${saved.label}\u300D`);
+    }
+    function testConnection(c3) {
+      const r3 = registrations.find((r4) => r4.id === c3.registrationId);
+      if (!connectionState(c3, registrations).ready && !(r3?.paused && r3.signedIn && r3.permission && r3.welcome && !r3.reauthorize && c3.discovery === "ready"))
+        return;
+      const completed = requestOutcome === "completed";
+      if (r3?.paused) {
+        const confirmed = window.confirm(
+          "\u5C06\u7528\u6B64\u8FDE\u63A5\u53D1\u9001\u4E00\u6B21\u77ED\u6A21\u578B\u8BF7\u6C42\uFF0C\u53EF\u80FD\u8BA1\u5165\u65B9\u6848\u7528\u91CF\u3002\u7EE7\u7EED\u68C0\u67E5\u989D\u5EA6\u662F\u5426\u5DF2\u6062\u590D\uFF1F"
+        );
+        if (!confirmed) return;
+        if (completed) patchRegistration(r3.id, { paused: false });
+        setTestResult((items) => ({
+          ...items,
+          [c3.id]: {
+            text: completed ? "\u8BD5\u7528\u8BF7\u6C42\u5DF2\u5B8C\u6210\uFF0C\u6682\u505C\u5DF2\u89E3\u9664\u3002\u5DF2\u6709\u4EFB\u52A1\u4ECD\u9700\u624B\u52A8\u7EE7\u7EED\u3002" : "\u8BD5\u7528\u8BF7\u6C42\u672A\u5B8C\u6210\uFF0C\u6682\u505C\u4FDD\u7559\u3002\u8BF7\u68C0\u67E5\u7528\u91CF\u540E\u518D\u8BD5\u3002",
+            tone: completed ? "success" : "warning"
+          }
+        }));
+      } else if (connectionState(c3, registrations).ready) {
+        const confirmed = window.confirm(
+          "\u5C06\u53D1\u9001\u4E00\u6B21\u77ED\u6A21\u578B\u8BF7\u6C42\uFF0C\u53EF\u80FD\u4EA7\u751F\u7528\u91CF\u3002\u7EE7\u7EED\u6D4B\u8BD5\uFF1F"
+        );
+        if (!confirmed) return;
+        setTestResult((items) => ({
+          ...items,
+          [c3.id]: {
+            text: completed ? "\u6D4B\u8BD5\u8BF7\u6C42\u5DF2\u5B8C\u6210" : "\u6D4B\u8BD5\u8BF7\u6C42\u672A\u5B8C\u6210\uFF0C\u8FDE\u63A5\u914D\u7F6E\u4FDD\u7559\u3002",
+            tone: completed ? "success" : "warning"
+          }
+        }));
+      }
+    }
+    function removeConnection() {
+      if (!deleteTarget) return;
+      const key = deleteTarget.id;
+      setConnections((items) => items.filter((c3) => c3.id !== key));
+      const clear = (current) => Object.fromEntries(
+        Object.entries(current).filter(
+          ([, value]) => value?.connectionId !== key
+        )
+      );
+      setDefaults(clear);
+      setDraftDefaults(clear);
+      setDeleteTarget(null);
+      setStatus("\u8FDE\u63A5\u5DF2\u79FB\u9664\uFF1B\u8D26\u6237\u767B\u5F55\u548C\u5176\u4ED6\u8FDE\u63A5\u4FDD\u7559");
+    }
+    function accountBlock(c3) {
+      const r3 = registrations.find((r4) => r4.id === c3.registrationId);
+      const active = auth?.ownerId === c3.id ? auth : null;
+      return /* @__PURE__ */ u3("div", { class: "account-block stack", children: [
+        r3 ? /* @__PURE__ */ u3("div", { class: "row spread wrap", children: [
+          /* @__PURE__ */ u3("div", { children: [
+            /* @__PURE__ */ u3("strong", { children: r3.email }),
+            /* @__PURE__ */ u3("p", { class: "muted", children: r3.workspace })
+          ] }),
+          /* @__PURE__ */ u3(Badge, { tone: r3.signedIn ? "success" : "warning", children: r3.signedIn ? "\u5DF2\u767B\u5F55" : "\u5DF2\u9000\u51FA" })
+        ] }) : /* @__PURE__ */ u3("div", { children: [
+          /* @__PURE__ */ u3("strong", { children: "\u4F7F\u7528 ChatGPT \u8D26\u6237\u8FDE\u63A5" }),
+          /* @__PURE__ */ u3("p", { class: "muted", children: "\u5728\u6D4F\u89C8\u5668\u4E2D\u767B\u5F55\u5E76\u9009\u62E9\u8981\u6388\u6743\u7684\u7A7A\u95F4\u3002" })
+        ] }),
+        active ? /* @__PURE__ */ u3(S, { children: [
+          /* @__PURE__ */ u3("div", { class: "auth-progress", role: "status", children: [
+            active.phase !== "failed" && /* @__PURE__ */ u3("span", { class: "spinner" }),
+            /* @__PURE__ */ u3("span", { children: active.phase === "waiting" ? "\u7B49\u5F85\u6D4F\u89C8\u5668\u767B\u5F55\u2026" : active.phase === "exchange" ? "\u6B63\u5728\u4EA4\u6362\u6388\u6743\u2026" : active.phase === "verify" ? "\u6B63\u5728\u9A8C\u8BC1\u8D26\u6237\u2026" : "\u767B\u5F55\u672A\u5B8C\u6210\uFF0C\u8BF7\u91CD\u8BD5\u3002" })
+          ] }),
+          /* @__PURE__ */ u3("div", { class: "row", children: [
+            /* @__PURE__ */ u3(Button, { onClick: cancelLogin, children: "\u53D6\u6D88\u767B\u5F55" }),
+            active.phase === "failed" && /* @__PURE__ */ u3(
+              Button,
+              {
+                onClick: () => {
+                  setAuth(null);
+                  setStatus("\u53EF\u4EE5\u91CD\u65B0\u767B\u5F55");
+                },
+                children: "\u8FD4\u56DE"
+              }
+            )
+          ] })
+        ] }) : !r3?.signedIn ? /* @__PURE__ */ u3(Button, { primary: true, disabled: !!auth, onClick: () => beginLogin(c3), children: r3 ? "\u91CD\u65B0\u767B\u5F55 ChatGPT" : "\u4F7F\u7528 ChatGPT \u767B\u5F55" }) : null,
+        r3?.signedIn && !r3.permission && /* @__PURE__ */ u3("div", { class: "banner warning", children: [
+          /* @__PURE__ */ u3("strong", { children: "\u8D26\u6237\u5DF2\u767B\u5F55\uFF0C\u5C1A\u672A\u5141\u8BB8\u4F7F\u7528 ChatGPT \u65B9\u6848" }),
+          /* @__PURE__ */ u3("p", { children: "\u91CD\u65B0\u6388\u6743\u65F6\u5141\u8BB8\u6B64\u5E94\u7528\u4F7F\u7528\u4F60\u7684\u65B9\u6848\uFF0C\u7136\u540E\u8FD4\u56DE\u7EE7\u7EED\u914D\u7F6E\u3002" }),
+          /* @__PURE__ */ u3("div", { class: "row", style: { marginTop: 9 }, children: /* @__PURE__ */ u3(Button, { disabled: !!auth, onClick: () => beginLogin(c3), children: "\u91CD\u65B0\u6388\u6743" }) })
+        ] }),
+        r3?.signedIn && r3.permission && !r3.welcome && /* @__PURE__ */ u3("div", { class: "banner", children: [
+          /* @__PURE__ */ u3("strong", { children: "\u5141\u8BB8 Zotero Agent \u4F7F\u7528\u6B64 ChatGPT \u65B9\u6848\uFF1F" }),
+          /* @__PURE__ */ u3("p", { children: "\u8FD0\u884C\u5BF9\u8BDD\u3001\u5DE5\u4F5C\u6D41\u6216\u8FDE\u63A5\u6D4B\u8BD5\u65F6\u4F1A\u4F7F\u7528\u65B9\u6848\u989D\u5EA6\u3002\u767B\u5F55\u672C\u8EAB\u4E0D\u4F1A\u6267\u884C\u8FD9\u4E9B\u4EFB\u52A1\u3002" }),
+          /* @__PURE__ */ u3("div", { class: "row", style: { marginTop: 10 }, children: /* @__PURE__ */ u3(
+            Button,
+            {
+              primary: true,
+              onClick: () => patchRegistration(r3.id, { welcome: true }),
+              children: "\u786E\u8BA4\u4F7F\u7528\u6B64\u65B9\u6848"
+            }
+          ) })
+        ] }),
+        r3?.signedIn && r3.reauthorize && /* @__PURE__ */ u3("div", { class: "banner warning", children: [
+          /* @__PURE__ */ u3("strong", { children: "\u6388\u6743\u9700\u8981\u66F4\u65B0" }),
+          /* @__PURE__ */ u3("p", { children: "\u6B64\u8D26\u6237\u7684\u65B0\u6A21\u578B\u8BF7\u6C42\u5DF2\u505C\u7528\uFF0C\u8BF7\u91CD\u65B0\u6388\u6743\u3002" }),
+          /* @__PURE__ */ u3(Button, { disabled: !!auth, onClick: () => beginLogin(c3), children: "\u91CD\u65B0\u6388\u6743" })
+        ] }),
+        r3?.signedIn && r3.paused && /* @__PURE__ */ u3("div", { class: "banner warning", children: [
+          /* @__PURE__ */ u3("strong", { children: "\u6B64\u8D26\u6237\u7684\u6A21\u578B\u8C03\u7528\u5DF2\u6682\u505C" }),
+          /* @__PURE__ */ u3("p", { children: "\u68C0\u67E5\u7528\u91CF\u540E\uFF0C\u53EF\u4EE5\u53D1\u9001\u4E00\u6B21\u8BD5\u7528\u8BF7\u6C42\u68C0\u67E5\u662F\u5426\u6062\u590D\u3002\u7CFB\u7EDF\u4E0D\u4F1A\u81EA\u52A8\u6062\u590D\u4EFB\u52A1\u3002" }),
+          /* @__PURE__ */ u3("div", { class: "row wrap", style: { marginTop: 9 }, children: [
+            /* @__PURE__ */ u3(
+              Button,
+              {
+                disabled: !r3.permission || !r3.welcome || r3.reauthorize,
+                onClick: () => testConnection(c3),
+                children: "\u68C0\u67E5\u662F\u5426\u6062\u590D"
+              }
+            ),
+            /* @__PURE__ */ u3(
+              Button,
+              {
+                onClick: () => setStatus("\u8BF7\u5728 ChatGPT \u65B9\u6848\u7528\u91CF\u9875\u67E5\u770B\u6B64\u8D26\u6237\u7684\u989D\u5EA6"),
+                children: "\u7BA1\u7406\u7528\u91CF"
+              }
+            )
+          ] })
+        ] }),
+        r3?.signedIn && /* @__PURE__ */ u3("div", { class: "row wrap", children: [
+          /* @__PURE__ */ u3(
+            Button,
+            {
+              small: true,
+              onClick: () => {
+                if (window.confirm(
+                  "\u9000\u51FA\u6B64\u7A7A\u95F4\u7684\u767B\u5F55\uFF1F\u4F7F\u7528\u8BE5\u6388\u6743\u7684\u8FDE\u63A5\u5C06\u6682\u65F6\u4E0D\u53EF\u7528\u3002"
+                )) {
+                  patchRegistration(r3.id, { signedIn: false, welcome: false });
+                  setStatus("\u5DF2\u6E05\u9664\u672C\u5730\u767B\u5F55\uFF1B\u8FDC\u7AEF\u6388\u6743\u64A4\u9500\u672A\u786E\u8BA4");
+                }
+              },
+              children: "\u9000\u51FA\u767B\u5F55"
+            }
+          ),
+          /* @__PURE__ */ u3(
+            Button,
+            {
+              small: true,
+              onClick: () => setStatus("\u8BF7\u5728 ChatGPT \u65B9\u6848\u7528\u91CF\u9875\u67E5\u770B\u6B64\u8D26\u6237\u7684\u989D\u5EA6"),
+              children: "\u7BA1\u7406\u7528\u91CF"
+            }
+          )
+        ] }),
+        r3 && /* @__PURE__ */ u3("div", { children: /* @__PURE__ */ u3(
+          Button,
+          {
+            small: true,
+            danger: true,
+            onClick: () => {
+              if (!window.confirm(
+                "\u79FB\u9664\u6B64\u8D26\u6237\u7A7A\u95F4\u7684\u6388\u6743\u8BB0\u5F55\uFF1F\u76F8\u5173\u6A21\u578B\u8FDE\u63A5\u4F1A\u4FDD\u7559\uFF0C\u4F46\u9700\u8981\u91CD\u65B0\u767B\u5F55\u3002"
+              ))
+                return;
+              setRegistrations(
+                (items) => items.filter((entry) => entry.id !== r3.id)
+              );
+              setConnections(
+                (items) => items.map(
+                  (entry) => entry.registrationId === r3.id ? { ...entry, registrationId: void 0 } : entry
+                )
+              );
+              setEditing(
+                (current) => current?.registrationId === r3.id ? { ...current, registrationId: void 0 } : current
+              );
+              setStatus("\u5DF2\u79FB\u9664\u672C\u5730\u6388\u6743\u8BB0\u5F55\uFF1B\u8FDC\u7AEF\u64A4\u9500\u672A\u786E\u8BA4");
+            },
+            children: "\u79FB\u9664\u6B64\u6388\u6743"
+          }
+        ) })
+      ] });
+    }
+    function modelBlock(c3) {
+      return /* @__PURE__ */ u3("section", { class: "stack", children: [
+        /* @__PURE__ */ u3("div", { class: "row spread", children: [
+          /* @__PURE__ */ u3("h3", { children: "\u6B64\u8FDE\u63A5\u7684\u6A21\u578B" }),
+          /* @__PURE__ */ u3(
+            Button,
+            {
+              small: true,
+              onClick: () => {
+                patchConnection(c3.id, { discovery: "ready" });
+                setStatus(`\u5DF2\u5237\u65B0\u300C${c3.label}\u300D\u7684\u6A21\u578B`);
+              },
+              children: "\u5237\u65B0\u6A21\u578B"
+            }
+          )
+        ] }),
+        c3.discovery === "failed" && /* @__PURE__ */ u3("div", { class: "banner warning", children: "\u6A21\u578B\u5237\u65B0\u5931\u8D25\u3002\u8D26\u6237\u548C\u5DF2\u4FDD\u5B58\u7684\u6A21\u578B\u9009\u62E9\u4FDD\u7559\uFF0C\u53EF\u518D\u6B21\u5237\u65B0\u3002" }),
+        c3.discovery === "unknown" && /* @__PURE__ */ u3("div", { class: "banner warning", children: "\u8D26\u6237\u53EF\u89C1\u8FD9\u4E9B\u6A21\u578B\uFF0C\u4F46\u5C1A\u7F3A\u6267\u884C\u6240\u9700\u7684\u80FD\u529B\u4FE1\u606F\uFF0C\u6682\u65F6\u4E0D\u80FD\u7528\u4E8E\u65B0\u4EFB\u52A1\u3002" }),
+        c3.discovery === "idle" ? /* @__PURE__ */ u3("p", { class: "muted", children: "\u8FDE\u63A5\u540E\u83B7\u53D6\u6A21\u578B\u5217\u8868\u3002" }) : /* @__PURE__ */ u3("div", { class: "model-list", children: MODELS.map((m3) => /* @__PURE__ */ u3("div", { class: "model-row", children: [
+          /* @__PURE__ */ u3("div", { children: [
+            /* @__PURE__ */ u3("strong", { children: m3.name }),
+            /* @__PURE__ */ u3("small", { children: m3.note })
+          ] }),
+          /* @__PURE__ */ u3(Badge, { tone: c3.discovery === "unknown" ? "warning" : "muted", children: c3.discovery === "unknown" ? "\u4FE1\u606F\u4E0D\u8DB3" : "\u53EF\u9009\u62E9" })
+        ] }, m3.id)) }),
+        /* @__PURE__ */ u3("p", { class: "muted", children: "\u9ED8\u8BA4\u6A21\u578B\u548C\u4F1A\u8BDD\u53EF\u4EE5\u5206\u522B\u9009\u62E9\u8FD9\u91CC\u7684\u6A21\u578B\u3002" })
+      ] });
+    }
+    function connectionDetails(c3) {
+      const state = connectionState(c3, registrations);
+      return /* @__PURE__ */ u3("div", { class: "stack", children: [
+        /* @__PURE__ */ u3("div", { class: "row spread", children: [
+          /* @__PURE__ */ u3("div", { class: "row", children: [
+            /* @__PURE__ */ u3("span", { class: "brand-icon", children: c3.kind === "chatgpt" ? "C" : "API" }),
+            /* @__PURE__ */ u3("div", { children: [
+              /* @__PURE__ */ u3("h3", { children: c3.label }),
+              /* @__PURE__ */ u3("small", { class: "muted", children: KIND_LABEL[c3.kind] })
+            ] })
+          ] }),
+          /* @__PURE__ */ u3(Badge, { tone: state.tone, children: state.label })
+        ] }),
+        c3.kind === "chatgpt" ? accountBlock(c3) : /* @__PURE__ */ u3("div", { class: "small-stack", children: [
+          /* @__PURE__ */ u3("div", { class: "detail-line row", children: [
+            /* @__PURE__ */ u3("span", { class: "muted", children: "\u670D\u52A1" }),
+            /* @__PURE__ */ u3("span", { children: c3.kind === "custom" ? c3.endpoint : c3.provider })
+          ] }),
+          /* @__PURE__ */ u3("div", { class: "detail-line row", children: [
+            /* @__PURE__ */ u3("span", { class: "muted", children: "\u8BA4\u8BC1" }),
+            /* @__PURE__ */ u3("span", { children: c3.needsKey ? c3.keySaved ? "API Key \xB7 \u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" : "\u5C1A\u672A\u586B\u5199 API Key" : "\u65E0\u9700\u5BC6\u94A5" })
+          ] })
+        ] }),
+        modelBlock(c3),
+        testResult[c3.id] && /* @__PURE__ */ u3("div", { role: "status", class: `banner ${testResult[c3.id].tone}`, children: testResult[c3.id].text }),
+        /* @__PURE__ */ u3("div", { class: "row wrap", children: [
+          /* @__PURE__ */ u3(
+            Button,
+            {
+              onClick: () => {
+                setEditing({ ...c3 });
+                setSecret("");
+              },
+              children: "\u7F16\u8F91\u8FDE\u63A5"
+            }
+          ),
+          /* @__PURE__ */ u3(Button, { disabled: !state.ready, onClick: () => testConnection(c3), children: "\u6D4B\u8BD5\u6A21\u578B\u8C03\u7528" }),
+          /* @__PURE__ */ u3(Button, { danger: true, onClick: () => setDeleteTarget(c3), children: "\u79FB\u9664\u8FDE\u63A5" })
+        ] })
+      ] });
+    }
+    function connectionsPage() {
+      return /* @__PURE__ */ u3(S, { children: [
+        /* @__PURE__ */ u3(
+          Header,
+          {
+            title: "\u6A21\u578B\u8FDE\u63A5",
+            description: "\u8FDE\u63A5\u670D\u52A1\u6216\u8D26\u6237\uFF1B\u6A21\u578B\u5728\u9ED8\u8BA4\u9879\u548C\u4F1A\u8BDD\u4E2D\u9009\u62E9\u3002",
+            action: /* @__PURE__ */ u3(Button, { primary: true, onClick: () => setAddOpen(true), children: "\uFF0B \u6DFB\u52A0\u8FDE\u63A5" })
+          }
+        ),
+        !connections.length ? /* @__PURE__ */ u3("div", { class: "page-content", children: /* @__PURE__ */ u3("div", { class: "empty", children: [
+          /* @__PURE__ */ u3("div", { class: "empty-symbol", children: "\u2197" }),
+          /* @__PURE__ */ u3("h2", { children: "\u5148\u8FDE\u63A5\u4E00\u4E2A\u6A21\u578B\u670D\u52A1" }),
+          /* @__PURE__ */ u3("p", { children: "\u4F7F\u7528 ChatGPT \u65B9\u6848\u3001API Key\uFF0C\u6216\u63A5\u5165\u81EA\u5B9A\u4E49\u670D\u52A1\u3002\u8FDE\u63A5\u65F6\u4E0D\u9700\u8981\u5148\u9009\u62E9\u6A21\u578B\u3002" }),
+          /* @__PURE__ */ u3("div", { class: "row wrap", children: [
+            /* @__PURE__ */ u3(Button, { primary: true, onClick: () => addConnection("chatgpt"), children: "\u4F7F\u7528 ChatGPT \u767B\u5F55" }),
+            /* @__PURE__ */ u3(Button, { onClick: () => setAddOpen(true), children: "\u5176\u4ED6\u8FDE\u63A5\u65B9\u5F0F" })
+          ] })
+        ] }) }) : variant === "B" ? /* @__PURE__ */ u3("div", { class: "master-detail", children: [
+          /* @__PURE__ */ u3("div", { class: "connection-list", children: connections.map((c3) => {
+            const state = connectionState(c3, registrations);
+            return /* @__PURE__ */ u3(
+              "button",
+              {
+                type: "button",
+                class: `connection-row${chosen?.id === c3.id ? " selected" : ""}`,
+                onClick: () => setSelected(c3.id),
+                children: [
+                  /* @__PURE__ */ u3("span", { class: "brand-icon", children: c3.kind === "chatgpt" ? "C" : "API" }),
+                  /* @__PURE__ */ u3("span", { children: [
+                    /* @__PURE__ */ u3("strong", { children: c3.label }),
+                    /* @__PURE__ */ u3("small", { children: state.label })
+                  ] })
+                ]
+              },
+              c3.id
+            );
+          }) }),
+          /* @__PURE__ */ u3("div", { class: "detail-content", children: chosen && connectionDetails(chosen) })
+        ] }) : variant === "A" ? /* @__PURE__ */ u3("div", { class: "page-content stack", children: [
+          /* @__PURE__ */ u3("div", { class: "card-grid", children: connections.map((c3) => {
+            const state = connectionState(c3, registrations);
+            const r3 = registrations.find((r4) => r4.id === c3.registrationId);
+            return /* @__PURE__ */ u3("article", { class: "card connection-card", children: [
+              /* @__PURE__ */ u3("div", { class: "row", children: [
+                /* @__PURE__ */ u3("span", { class: "brand-icon", children: c3.kind === "chatgpt" ? "C" : "API" }),
+                /* @__PURE__ */ u3("div", { class: "connection-meta", children: [
+                  /* @__PURE__ */ u3("h3", { children: c3.label }),
+                  /* @__PURE__ */ u3("p", { children: r3 ? `${r3.email} \xB7 ${r3.workspace}` : c3.provider })
+                ] })
+              ] }),
+              /* @__PURE__ */ u3("div", { class: "row spread", children: [
+                /* @__PURE__ */ u3(Badge, { tone: state.tone, children: state.label }),
+                /* @__PURE__ */ u3("small", { class: "muted", children: c3.discovery === "ready" ? "2 \u4E2A\u6A21\u578B" : "\u6A21\u578B\u5F85\u786E\u8BA4" })
+              ] }),
+              /* @__PURE__ */ u3("div", { class: "actions row wrap", children: [
+                /* @__PURE__ */ u3(
+                  Button,
+                  {
+                    small: true,
+                    onClick: () => {
+                      setSelected(c3.id);
+                      setEditing({ ...c3 });
+                      setSecret("");
+                    },
+                    children: "\u7BA1\u7406\u8FDE\u63A5"
+                  }
+                ),
+                /* @__PURE__ */ u3(
+                  Button,
+                  {
+                    small: true,
+                    disabled: !state.ready && !r3?.paused,
+                    onClick: () => testConnection(c3),
+                    children: r3?.paused ? "\u68C0\u67E5\u662F\u5426\u6062\u590D" : "\u6D4B\u8BD5\u8C03\u7528"
+                  }
+                )
+              ] })
+            ] }, c3.id);
+          }) }),
+          /* @__PURE__ */ u3("p", { class: "muted", children: "\u9700\u8981\u66F4\u6362\u5E38\u7528\u6A21\u578B\uFF1F\u524D\u5F80\u5DE6\u4FA7\u300C\u9ED8\u8BA4\u6A21\u578B\u300D\u3002" })
+        ] }) : /* @__PURE__ */ u3("div", { class: "page-content stack", children: [
+          connections.map((c3) => /* @__PURE__ */ u3("div", { class: "card", children: /* @__PURE__ */ u3("div", { class: "row spread wrap", children: [
+            /* @__PURE__ */ u3("div", { class: "row", children: [
+              /* @__PURE__ */ u3("span", { class: "brand-icon", children: c3.kind === "chatgpt" ? "C" : "API" }),
+              /* @__PURE__ */ u3("div", { children: [
+                /* @__PURE__ */ u3("h3", { children: c3.label }),
+                /* @__PURE__ */ u3("small", { class: "muted", children: KIND_LABEL[c3.kind] })
+              ] })
+            ] }),
+            /* @__PURE__ */ u3("div", { class: "row", children: [
+              /* @__PURE__ */ u3(Badge, { tone: connectionState(c3, registrations).tone, children: connectionState(c3, registrations).label }),
+              /* @__PURE__ */ u3(
+                Button,
+                {
+                  onClick: () => {
+                    setEditing({ ...c3 });
+                    setSecret("");
+                  },
+                  children: "\u7BA1\u7406"
+                }
+              )
+            ] })
+          ] }) }, c3.id)),
+          /* @__PURE__ */ u3("div", { class: "banner", children: "\u5DF2\u8FDE\u63A5\u670D\u52A1\u540E\uFF0C\u53EF\u4EE5\u9009\u62E9\u5E38\u7528\u6A21\u578B\uFF0C\u4E5F\u53EF\u4EE5\u7ED9\u4F1A\u8BDD\u548C\u5DE5\u4F5C\u6D41\u5206\u522B\u8BBE\u7F6E\u6A21\u578B\u3002" }),
+          /* @__PURE__ */ u3("div", { children: /* @__PURE__ */ u3(Button, { onClick: () => setPage("defaults"), children: "\u9009\u62E9\u9ED8\u8BA4\u6A21\u578B \u2192" }) })
+        ] })
+      ] });
+    }
+    function selectionRow(key, title, description) {
+      const value = draftDefaults[key];
+      const c3 = connections.find((c4) => c4.id === value?.connectionId);
+      const patch = (next) => setDraftDefaults((d3) => ({ ...d3, [key]: next }));
+      return /* @__PURE__ */ u3("section", { class: "default-block", children: [
+        /* @__PURE__ */ u3("div", { class: "row spread wrap", children: [
+          /* @__PURE__ */ u3("div", { children: [
+            /* @__PURE__ */ u3("h3", { children: title }),
+            /* @__PURE__ */ u3("small", { class: "muted", children: description })
+          ] }),
+          key !== "common" && /* @__PURE__ */ u3("label", { class: "switch-label", children: [
+            /* @__PURE__ */ u3(
+              "input",
+              {
+                type: "checkbox",
+                checked: !!value,
+                onChange: (e3) => patch(
+                  e3.currentTarget.checked ? {
+                    connectionId: defaults.common?.connectionId || readyConnections[0]?.id || "",
+                    modelId: defaults.common?.modelId || "alpha",
+                    reasoning: "medium"
+                  } : void 0
+                )
+              }
+            ),
+            key === "title" ? "\u542F\u7528\u81EA\u52A8\u6807\u9898" : "\u5355\u72EC\u9009\u62E9"
+          ] })
+        ] }),
+        key === "common" || value ? /* @__PURE__ */ u3("div", { class: "field-grid", children: [
+          /* @__PURE__ */ u3("label", { class: "field", children: [
+            /* @__PURE__ */ u3("span", { children: "\u8FDE\u63A5" }),
+            /* @__PURE__ */ u3(
+              Choice,
+              {
+                label: `${title}\u8FDE\u63A5`,
+                value: value?.connectionId || "",
+                options: [
+                  { value: "", label: "\u9009\u62E9\u5DF2\u8FDE\u63A5\u7684\u670D\u52A1" },
+                  ...connections.map((c4) => ({
+                    value: c4.id,
+                    label: `${c4.label}${connectionState(c4, registrations).ready ? "" : ` \xB7 ${connectionState(c4, registrations).label}`}`,
+                    disabled: !connectionState(c4, registrations).ready
+                  }))
+                ],
+                onChange: (connectionId) => patch({ connectionId, modelId: "", reasoning: "medium" })
+              }
+            )
+          ] }),
+          /* @__PURE__ */ u3("label", { class: "field", children: [
+            /* @__PURE__ */ u3("span", { children: "\u6A21\u578B" }),
+            /* @__PURE__ */ u3(
+              Choice,
+              {
+                label: `${title}\u6A21\u578B`,
+                value: value?.modelId || "",
+                disabled: !c3 || !connectionState(c3, registrations).ready,
+                options: [
+                  { value: "", label: "\u9009\u62E9\u6A21\u578B" },
+                  ...MODELS.map((m3) => ({ value: m3.id, label: m3.name }))
+                ],
+                onChange: (modelId) => patch({
+                  connectionId: value?.connectionId || "",
+                  modelId,
+                  reasoning: value?.reasoning || "medium"
+                })
+              }
+            )
+          ] }),
+          /* @__PURE__ */ u3("label", { class: "field", children: [
+            /* @__PURE__ */ u3("span", { children: "\u63A8\u7406\u7EA7\u522B" }),
+            /* @__PURE__ */ u3(
+              Choice,
+              {
+                label: `${title}\u63A8\u7406\u7EA7\u522B`,
+                value: value?.reasoning || "medium",
+                disabled: !value?.modelId,
+                options: [
+                  { value: "low", label: "\u4F4E" },
+                  { value: "medium", label: "\u4E2D" },
+                  { value: "high", label: "\u9AD8" }
+                ],
+                onChange: (reasoning) => patch({ ...value, reasoning })
+              }
+            )
+          ] })
+        ] }) : /* @__PURE__ */ u3("p", { class: "section-intro", children: key === "title" ? "\u672A\u542F\u7528\u81EA\u52A8\u751F\u6210\u4F1A\u8BDD\u6807\u9898\u3002" : "\u4F7F\u7528\u5E38\u7528\u6A21\u578B\u3002" }),
+        c3 && !connectionState(c3, registrations).ready && /* @__PURE__ */ u3("p", { class: "section-intro", children: "\u5DF2\u4FDD\u5B58\u7684\u9009\u62E9\u4FDD\u7559\uFF1B\u8BF7\u5148\u5728\u300C\u6A21\u578B\u8FDE\u63A5\u300D\u5904\u7406\u6B64\u8FDE\u63A5\u7684\u72B6\u6001\u3002" })
+      ] });
+    }
+    const defaultsValid = Object.values(draftDefaults).every(
+      (d3) => !d3 || !!d3.modelId && readyConnections.some((c3) => c3.id === d3.connectionId)
+    );
+    function defaultsPage() {
+      return /* @__PURE__ */ u3(S, { children: [
+        /* @__PURE__ */ u3(
+          Header,
+          {
+            title: "\u9ED8\u8BA4\u6A21\u578B",
+            description: "\u540C\u4E00\u8FDE\u63A5\u4E0B\u7684\u4E0D\u540C\u6A21\u578B\u53EF\u4EE5\u7528\u4E8E\u4E0D\u540C\u4EFB\u52A1\uFF1B\u8BBE\u7F6E\u5F71\u54CD\u540E\u7EED\u7684\u65B0\u8BF7\u6C42\u3002",
+            action: /* @__PURE__ */ u3(
+              Button,
+              {
+                onClick: () => {
+                  setPreviewChoice(defaults.conversation || defaults.common);
+                  setPreview(true);
+                },
+                children: "\u9884\u89C8\u4F1A\u8BDD\u9009\u62E9"
+              }
+            )
+          }
+        ),
+        /* @__PURE__ */ u3("div", { class: "page-content", children: /* @__PURE__ */ u3("div", { class: "stack", children: [
+          !readyConnections.length && /* @__PURE__ */ u3("div", { class: "banner warning", children: "\u6682\u65E0\u53EF\u7528\u8FDE\u63A5\u3002\u8BF7\u5148\u5230\u300C\u6A21\u578B\u8FDE\u63A5\u300D\u767B\u5F55\u6216\u5904\u7406\u8FDE\u63A5\u72B6\u6001\u3002" }),
+          /* @__PURE__ */ u3("div", { children: [
+            selectionRow("common", "\u5E38\u7528\u6A21\u578B", "\u4F1A\u8BDD\u548C\u5DE5\u4F5C\u6D41\u7684\u9ED8\u8BA4\u9009\u62E9"),
+            selectionRow("conversation", "\u4F1A\u8BDD", "\u9700\u8981\u65F6\u8986\u76D6\u5E38\u7528\u6A21\u578B"),
+            selectionRow("skill", "\u5DE5\u4F5C\u6D41", "\u9700\u8981\u65F6\u4E3A\u5DE5\u4F5C\u6D41\u9009\u62E9\u5176\u4ED6\u6A21\u578B"),
+            selectionRow("title", "\u4F1A\u8BDD\u6807\u9898", "\u53EF\u4F7F\u7528\u8F7B\u91CF\u6A21\u578B\u81EA\u52A8\u751F\u6210\u6807\u9898")
+          ] })
+        ] }) }),
+        /* @__PURE__ */ u3("footer", { class: "page-actions row spread", children: [
+          /* @__PURE__ */ u3("span", { class: "muted", children: dirtyDefaults ? "\u6709\u672A\u4FDD\u5B58\u7684\u4FEE\u6539" : "\u9ED8\u8BA4\u6A21\u578B\u5DF2\u4FDD\u5B58" }),
+          /* @__PURE__ */ u3("div", { class: "row", children: [
+            /* @__PURE__ */ u3(
+              Button,
+              {
+                disabled: !dirtyDefaults,
+                onClick: () => setDraftDefaults(defaults),
+                children: "\u64A4\u9500\u4FEE\u6539"
+              }
+            ),
+            /* @__PURE__ */ u3(
+              Button,
+              {
+                primary: true,
+                disabled: !dirtyDefaults || !defaultsValid,
+                onClick: () => {
+                  setDefaults(draftDefaults);
+                  setStatus("\u9ED8\u8BA4\u6A21\u578B\u5DF2\u4FDD\u5B58\uFF0C\u5DF2\u6709\u6D3B\u52A8\u8BF7\u6C42\u4FDD\u6301\u539F\u9009\u62E9");
+                },
+                children: "\u4FDD\u5B58\u9ED8\u8BA4\u6A21\u578B"
+              }
+            )
+          ] })
+        ] })
+      ] });
+    }
+    function overviewPage() {
+      return /* @__PURE__ */ u3(S, { children: [
+        /* @__PURE__ */ u3(
+          Header,
+          {
+            title: "\u5F00\u59CB\u4F7F\u7528",
+            description: "\u5148\u5EFA\u7ACB\u8FDE\u63A5\uFF0C\u518D\u9009\u62E9\u6A21\u578B\uFF1B\u5DE5\u5177\u53EF\u4EE5\u4E4B\u540E\u914D\u7F6E\u3002"
+          }
+        ),
+        /* @__PURE__ */ u3("div", { class: "page-content", children: [
+          /* @__PURE__ */ u3("div", { class: "hero", children: [
+            /* @__PURE__ */ u3("h2", { children: !connections.length ? "\u8BA9 Zotero Agent \u51C6\u5907\u5C31\u7EEA" : hasDefault ? "\u5DF2\u7ECF\u53EF\u4EE5\u5F00\u59CB\u4F7F\u7528" : "\u7EE7\u7EED\u5B8C\u6210\u6A21\u578B\u8BBE\u7F6E" }),
+            /* @__PURE__ */ u3("p", { class: "muted", children: !connections.length ? "\u9009\u62E9\u4F60\u5DF2\u7ECF\u5728\u4F7F\u7528\u7684\u8D26\u6237\u6216\u6A21\u578B\u670D\u52A1\u3002" : hasDefault ? "\u4F60\u53EF\u4EE5\u968F\u65F6\u8C03\u6574\u6A21\u578B\u548C\u6269\u5C55\u5DE5\u5177\u3002" : "\u5B8C\u6210\u8FDE\u63A5\u540E\uFF0C\u9009\u62E9\u4E00\u4E2A\u5E38\u7528\u6A21\u578B\u3002" })
+          ] }),
+          /* @__PURE__ */ u3("div", { class: "steps", children: [
+            /* @__PURE__ */ u3(
+              "div",
+              {
+                class: `step ${readyConnections.length ? "complete" : "current"}`,
+                children: [
+                  /* @__PURE__ */ u3("span", { children: readyConnections.length ? "\u2713" : "1" }),
+                  "\u8FDE\u63A5\u670D\u52A1"
+                ]
+              }
+            ),
+            /* @__PURE__ */ u3(
+              "div",
+              {
+                class: `step ${hasDefault ? "complete" : readyConnections.length ? "current" : ""}`,
+                children: [
+                  /* @__PURE__ */ u3("span", { children: hasDefault ? "\u2713" : "2" }),
+                  "\u9009\u62E9\u6A21\u578B"
+                ]
+              }
+            ),
+            /* @__PURE__ */ u3("div", { class: `step ${hasDefault ? "current" : ""}`, children: [
+              /* @__PURE__ */ u3("span", { children: "3" }),
+              "\u5F00\u59CB\u4F7F\u7528"
+            ] })
+          ] }),
+          !connections.length ? /* @__PURE__ */ u3("div", { class: "stack", children: ["chatgpt", "api-key", "custom"].map((kind) => /* @__PURE__ */ u3(
+            "button",
+            {
+              type: "button",
+              class: "setup-choice",
+              onClick: () => addConnection(kind),
+              children: [
+                /* @__PURE__ */ u3("span", { class: "brand-icon", children: kind === "chatgpt" ? "C" : "API" }),
+                /* @__PURE__ */ u3("span", { children: [
+                  /* @__PURE__ */ u3("strong", { children: kind === "chatgpt" ? "\u4F7F\u7528 ChatGPT \u65B9\u6848" : kind === "api-key" ? "\u4F7F\u7528 API Key" : "\u8FDE\u63A5\u81EA\u5B9A\u4E49\u670D\u52A1" }),
+                  /* @__PURE__ */ u3("small", { children: kind === "chatgpt" ? "\u5728\u6D4F\u89C8\u5668\u4E2D\u767B\u5F55\uFF0C\u65E0\u9700\u5148\u9009\u62E9\u6A21\u578B\u3002" : kind === "api-key" ? "\u8FDE\u63A5\u5DF2\u6709\u7684\u6A21\u578B\u670D\u52A1\u3002" : "\u63A5\u5165\u517C\u5BB9\u63A5\u53E3\u6216\u672C\u5730\u6A21\u578B\u3002" })
+                ] }),
+                /* @__PURE__ */ u3("span", { style: { marginLeft: "auto" }, children: "\u2192" })
+              ]
+            },
+            kind
+          )) }) : /* @__PURE__ */ u3("div", { class: "card", children: [
+            /* @__PURE__ */ u3("div", { class: "overview-task row spread wrap", children: [
+              /* @__PURE__ */ u3("div", { children: [
+                /* @__PURE__ */ u3("h3", { children: "\u6A21\u578B\u8FDE\u63A5" }),
+                /* @__PURE__ */ u3("small", { class: "muted", children: [
+                  readyConnections.length,
+                  " \u4E2A\u53EF\u7528\u8FDE\u63A5\uFF0C\u5171",
+                  " ",
+                  connections.length,
+                  " \u4E2A"
+                ] })
+              ] }),
+              /* @__PURE__ */ u3(Button, { onClick: () => setPage("connections"), children: "\u7BA1\u7406\u8FDE\u63A5" })
+            ] }),
+            /* @__PURE__ */ u3("div", { class: "overview-task row spread wrap", children: [
+              /* @__PURE__ */ u3("div", { children: [
+                /* @__PURE__ */ u3("h3", { children: "\u5E38\u7528\u6A21\u578B" }),
+                /* @__PURE__ */ u3("small", { class: "muted", children: hasDefault ? `${connections.find((c3) => c3.id === defaults.common?.connectionId)?.label} \xB7 ${MODELS.find((m3) => m3.id === defaults.common?.modelId)?.name}` : "\u5C1A\u672A\u8BBE\u7F6E\u53EF\u7528\u7684\u5E38\u7528\u6A21\u578B" })
+              ] }),
+              /* @__PURE__ */ u3(
+                Button,
+                {
+                  primary: !hasDefault,
+                  onClick: () => setPage("defaults"),
+                  children: hasDefault ? "\u8C03\u6574\u6A21\u578B" : "\u9009\u62E9\u6A21\u578B"
+                }
+              )
+            ] }),
+            /* @__PURE__ */ u3("div", { class: "overview-task row spread wrap", children: [
+              /* @__PURE__ */ u3("div", { children: [
+                /* @__PURE__ */ u3("h3", { children: "\u5DE5\u5177\u6765\u6E90" }),
+                /* @__PURE__ */ u3("small", { class: "muted", children: "\u53EF\u9009\uFF0C\u968F\u65F6\u6DFB\u52A0 MCP \u6216\u7F51\u7EDC\u5DE5\u5177" })
+              ] }),
+              /* @__PURE__ */ u3(Button, { onClick: () => setPage("tools"), children: "\u914D\u7F6E\u5DE5\u5177" })
+            ] })
+          ] }),
+          hasDefault && /* @__PURE__ */ u3("div", { style: { marginTop: 18 }, children: /* @__PURE__ */ u3(
+            Button,
+            {
+              primary: true,
+              onClick: () => {
+                setPreviewChoice(defaults.conversation || defaults.common);
+                setPreview(true);
+              },
+              children: "\u6253\u5F00\u4F1A\u8BDD\u6A21\u578B\u9009\u62E9"
+            }
+          ) })
+        ] })
+      ] });
+    }
+    function toolsPage() {
+      return /* @__PURE__ */ u3(S, { children: [
+        /* @__PURE__ */ u3(
+          Header,
+          {
+            title: "\u5DE5\u5177\u6765\u6E90",
+            description: "\u8FDE\u63A5\u5DE5\u5177\u670D\u52A1\uFF0C\u518D\u9009\u62E9\u5141\u8BB8\u4F7F\u7528\u7684\u5DE5\u5177\u3002",
+            action: toolTab === "mcp" && /* @__PURE__ */ u3(
+              Button,
+              {
+                primary: true,
+                onClick: () => setSourceDraft({
+                  id: id("source"),
+                  label: "\u6211\u7684\u5DE5\u5177\u670D\u52A1",
+                  transport: "HTTPS",
+                  address: "",
+                  approved: false,
+                  tested: false,
+                  selected: []
+                }),
+                children: "\uFF0B \u6DFB\u52A0\u6765\u6E90"
+              }
+            )
+          }
+        ),
+        /* @__PURE__ */ u3("div", { class: "page-content", children: [
+          /* @__PURE__ */ u3("div", { class: "tab-row", children: [
+            /* @__PURE__ */ u3(Button, { onClick: () => setToolTab("mcp"), children: /* @__PURE__ */ u3("span", { class: toolTab === "mcp" ? "active" : "", children: "MCP \u5DE5\u5177" }) }),
+            /* @__PURE__ */ u3(Button, { onClick: () => setToolTab("web"), children: /* @__PURE__ */ u3("span", { class: toolTab === "web" ? "active" : "", children: "\u641C\u7D22\u4E0E\u7F51\u9875" }) })
+          ] }),
+          toolTab === "mcp" ? /* @__PURE__ */ u3("div", { class: "stack", children: [
+            !sources.length && /* @__PURE__ */ u3("div", { class: "empty", children: [
+              /* @__PURE__ */ u3("div", { class: "empty-symbol", children: "\uFF0B" }),
+              /* @__PURE__ */ u3("h2", { children: "\u6DFB\u52A0\u5916\u90E8\u5DE5\u5177" }),
+              /* @__PURE__ */ u3("p", { children: "\u8FDE\u63A5 MCP \u5DE5\u5177\u670D\u52A1\uFF0C\u53D1\u73B0\u5E76\u9009\u62E9\u4F60\u9700\u8981\u7684\u5DE5\u5177\u3002" }),
+              /* @__PURE__ */ u3(
+                Button,
+                {
+                  primary: true,
+                  onClick: () => setSourceDraft({
+                    id: id("source"),
+                    label: "\u6211\u7684\u5DE5\u5177\u670D\u52A1",
+                    transport: "HTTPS",
+                    address: "",
+                    approved: false,
+                    tested: false,
+                    selected: []
+                  }),
+                  children: "\u6DFB\u52A0 MCP \u6765\u6E90"
+                }
+              )
+            ] }),
+            sources.map((s3) => /* @__PURE__ */ u3("article", { class: "card stack", children: [
+              /* @__PURE__ */ u3("div", { class: "row spread", children: [
+                /* @__PURE__ */ u3("div", { children: [
+                  /* @__PURE__ */ u3("h3", { children: s3.label }),
+                  /* @__PURE__ */ u3("small", { class: "muted", children: [
+                    s3.transport,
+                    " \xB7 ",
+                    s3.address
+                  ] })
+                ] }),
+                /* @__PURE__ */ u3(Badge, { children: s3.selected.length ? `${s3.selected.length} \u4E2A\u5DE5\u5177\u5DF2\u9009` : s3.tested ? "\u5F85\u9009\u62E9\u5DE5\u5177" : "\u672A\u6D4B\u8BD5" })
+              ] }),
+              /* @__PURE__ */ u3("div", { class: "row wrap", children: [
+                /* @__PURE__ */ u3(
+                  Button,
+                  {
+                    onClick: () => setSources(
+                      (items) => items.map(
+                        (entry) => entry.id === s3.id ? { ...entry, tested: true } : entry
+                      )
+                    ),
+                    children: "\u53D1\u73B0\u5DE5\u5177"
+                  }
+                ),
+                /* @__PURE__ */ u3(Button, { onClick: () => setSourceDraft({ ...s3 }), children: "\u7F16\u8F91\u6765\u6E90" })
+              ] }),
+              s3.tested && /* @__PURE__ */ u3("div", { class: "small-stack", children: [
+                ["\u67E5\u627E\u7814\u7A76\u8D44\u6599", "\u8BFB\u53D6\u8D44\u6599\u6458\u8981"].map((name) => /* @__PURE__ */ u3("label", { class: "switch-label", children: [
+                  /* @__PURE__ */ u3(
+                    "input",
+                    {
+                      type: "checkbox",
+                      checked: s3.selected.includes(name),
+                      onChange: (e3) => setSources(
+                        (items) => items.map(
+                          (entry) => entry.id === s3.id ? {
+                            ...entry,
+                            selected: e3.currentTarget.checked ? [...entry.selected, name] : entry.selected.filter(
+                              (tool) => tool !== name
+                            )
+                          } : entry
+                        )
+                      )
+                    }
+                  ),
+                  name,
+                  /* @__PURE__ */ u3("small", { class: "muted", children: " \xB7 \u53EA\u8BFB" })
+                ] }, name)),
+                /* @__PURE__ */ u3("small", { class: "muted", children: "\u52FE\u9009\u8868\u793A\u5DF2\u5BA1\u9605\u5E76\u5141\u8BB8\u4F7F\u7528\uFF1B\u53D1\u73B0\u5DE5\u5177\u672C\u8EAB\u4E0D\u4EE3\u8868\u6388\u6743\u3002" })
+              ] })
+            ] }, s3.id))
+          ] }) : /* @__PURE__ */ u3("div", { class: "stack", children: [
+            /* @__PURE__ */ u3("div", { class: "banner", children: "\u6765\u6E90\u6309\u987A\u5E8F\u4F7F\u7528\u3002\u914D\u7F6E\u548C\u542F\u7528\u6765\u6E90\u4E0D\u4F1A\u81EA\u52A8\u6267\u884C\u641C\u7D22\u6216\u8FDE\u63A5\u6D4B\u8BD5\u3002" }),
+            /* @__PURE__ */ u3("div", { class: "card", children: webSources.map((s3, index) => /* @__PURE__ */ u3("div", { class: "source-row row spread wrap", children: [
+              /* @__PURE__ */ u3("label", { class: "switch-label", children: [
+                /* @__PURE__ */ u3(
+                  "input",
+                  {
+                    type: "checkbox",
+                    checked: s3.enabled,
+                    onChange: (e3) => setWebSources(
+                      (items) => items.map(
+                        (entry) => entry.id === s3.id ? { ...entry, enabled: e3.currentTarget.checked } : entry
+                      )
+                    )
+                  }
+                ),
+                /* @__PURE__ */ u3("strong", { children: s3.label }),
+                /* @__PURE__ */ u3(Badge, { tone: s3.tested ? "success" : "muted", children: s3.tested ? "\u6D4B\u8BD5\u5DF2\u5B8C\u6210" : "\u672A\u6D4B\u8BD5" })
+              ] }),
+              /* @__PURE__ */ u3("div", { class: "row", children: [
+                /* @__PURE__ */ u3(
+                  Button,
+                  {
+                    small: true,
+                    disabled: !index,
+                    onClick: () => setWebSources((items) => {
+                      const next = [...items];
+                      [next[index - 1], next[index]] = [
+                        next[index],
+                        next[index - 1]
+                      ];
+                      return next;
+                    }),
+                    children: "\u4E0A\u79FB"
+                  }
+                ),
+                /* @__PURE__ */ u3(
+                  Button,
+                  {
+                    small: true,
+                    onClick: () => {
+                      setWebSources(
+                        (items) => items.map(
+                          (entry) => entry.id === s3.id ? { ...entry, tested: true } : entry
+                        )
+                      );
+                      setStatus(`\u300C${s3.label}\u300D\u6D4B\u8BD5\u5DF2\u5B8C\u6210`);
+                    },
+                    children: "\u6D4B\u8BD5\u6765\u6E90"
+                  }
+                )
+              ] })
+            ] }, s3.id)) })
+          ] })
+        ] })
+      ] });
+    }
+    function catalogPage() {
+      return /* @__PURE__ */ u3(S, { children: [
+        /* @__PURE__ */ u3(
+          Header,
+          {
+            title: "\u6A21\u578B\u76EE\u5F55\u4E0E\u7EF4\u62A4",
+            description: "\u7EF4\u62A4\u516C\u5171\u6A21\u578B\u4FE1\u606F\uFF1B\u8D26\u6237\u53EF\u7528\u6A21\u578B\u8BF7\u5728\u5177\u4F53\u8FDE\u63A5\u4E2D\u5237\u65B0\u3002"
+          }
+        ),
+        /* @__PURE__ */ u3("div", { class: "page-content stack", children: [
+          /* @__PURE__ */ u3("section", { class: "card stack", children: [
+            /* @__PURE__ */ u3("div", { class: "row spread", children: [
+              /* @__PURE__ */ u3("h3", { children: "\u516C\u5171\u6A21\u578B\u76EE\u5F55" }),
+              /* @__PURE__ */ u3(Badge, { children: [
+                "\u76EE\u5F55\u7248\u672C ",
+                catalogVersion
+              ] })
+            ] }),
+            /* @__PURE__ */ u3("p", { class: "muted", children: "\u7528\u4E8E\u63CF\u8FF0\u6A21\u578B\u80FD\u529B\u548C\u9650\u5236\uFF1B\u4E0D\u4EE3\u8868\u4F60\u7684\u8D26\u6237\u5DF2\u83B7\u5F97\u8FD9\u4E9B\u6A21\u578B\u3002" }),
+            /* @__PURE__ */ u3("label", { class: "switch-label", children: [
+              /* @__PURE__ */ u3(
+                "input",
+                {
+                  type: "checkbox",
+                  checked: autoUpdate,
+                  onChange: (e3) => setAutoUpdate(e3.currentTarget.checked)
+                }
+              ),
+              "\u81EA\u52A8\u68C0\u67E5\u76EE\u5F55\u66F4\u65B0"
+            ] }),
+            /* @__PURE__ */ u3("div", { class: "row wrap", children: [
+              /* @__PURE__ */ u3(
+                Button,
+                {
+                  onClick: () => {
+                    setCatalogVersion((v3) => v3 + 1);
+                    setStatus("\u516C\u5171\u76EE\u5F55\u5DF2\u66F4\u65B0\uFF0C\u8FDE\u63A5\u548C\u9ED8\u8BA4\u6A21\u578B\u4FDD\u7559");
+                  },
+                  children: "\u68C0\u67E5\u66F4\u65B0"
+                }
+              ),
+              /* @__PURE__ */ u3(
+                Button,
+                {
+                  disabled: catalogVersion <= 1,
+                  onClick: () => {
+                    setCatalogVersion((v3) => v3 - 1);
+                    setAutoUpdate(false);
+                    setStatus("\u5DF2\u6062\u590D\u4E0A\u4E00\u4EFD\u76EE\u5F55\uFF0C\u81EA\u52A8\u66F4\u65B0\u5DF2\u5173\u95ED");
+                  },
+                  children: "\u6062\u590D\u4E0A\u4E00\u4EFD"
+                }
+              )
+            ] })
+          ] }),
+          /* @__PURE__ */ u3("section", { class: "card stack", children: [
+            /* @__PURE__ */ u3("div", { class: "row spread", children: [
+              /* @__PURE__ */ u3("h3", { children: "\u81EA\u5B9A\u4E49\u6A21\u578B\u4FE1\u606F" }),
+              /* @__PURE__ */ u3(Badge, { children: overlay ? "\u5DF2\u5BFC\u5165\u8986\u76D6\u6587\u4EF6" : "\u672A\u5BFC\u5165" })
+            ] }),
+            /* @__PURE__ */ u3("p", { class: "muted", children: "\u901A\u8FC7 models.yml \u8865\u5145\u6A21\u578B\u80FD\u529B\u4FE1\u606F\u3002\u8FDE\u63A5\u5BC6\u94A5\u5728\u6A21\u578B\u8FDE\u63A5\u4E2D\u7BA1\u7406\u3002" }),
+            /* @__PURE__ */ u3("div", { class: "row wrap", children: [
+              /* @__PURE__ */ u3(
+                Button,
+                {
+                  onClick: () => {
+                    setOverlay(true);
+                    setStatus("\u5DF2\u5BFC\u5165\u793A\u4F8B models.yml \u6A21\u578B\u4FE1\u606F");
+                  },
+                  children: overlay ? "\u5237\u65B0\u6587\u4EF6" : "\u5BFC\u5165 models.yml"
+                }
+              ),
+              /* @__PURE__ */ u3(
+                Button,
+                {
+                  disabled: !overlay,
+                  danger: true,
+                  onClick: () => {
+                    setOverlay(false);
+                    setStatus("\u81EA\u5B9A\u4E49\u6A21\u578B\u4FE1\u606F\u5DF2\u79FB\u9664");
+                  },
+                  children: "\u79FB\u9664\u8986\u76D6"
+                }
+              )
+            ] })
+          ] }),
+          /* @__PURE__ */ u3("section", { class: "card stack", children: [
+            /* @__PURE__ */ u3("h3", { children: "\u6545\u969C\u8BCA\u65AD" }),
+            /* @__PURE__ */ u3("p", { class: "muted", children: "\u6309\u9700\u5BFC\u51FA\u8131\u654F\u8FD0\u884C\u8BB0\u5F55\uFF0C\u7528\u4E8E\u5B9A\u4F4D\u8FDE\u63A5\u548C\u6267\u884C\u95EE\u9898\u3002" }),
+            /* @__PURE__ */ u3("div", { children: /* @__PURE__ */ u3(Button, { onClick: () => setStatus("\u8BF7\u9009\u62E9\u8BCA\u65AD\u6587\u4EF6\u7684\u4FDD\u5B58\u4F4D\u7F6E"), children: "\u5BFC\u51FA\u8BCA\u65AD" }) })
+          ] })
+        ] })
+      ] });
+    }
+    const editorRegistration = registrations.find(
+      (r3) => r3.id === editing?.registrationId
+    );
+    const effectiveDraft = editing && {
+      ...editing,
+      keySaved: editing.keySaved || !!secret.trim()
+    };
+    const canSaveConnection = !!editing?.label.trim() && auth?.ownerId !== editing.id && (editing.kind === "chatgpt" || !editing.needsKey || effectiveDraft?.keySaved) && (editing.kind !== "custom" || !!editing.endpoint.trim());
+    const editingExisting = !!editing && connections.some((c3) => c3.id === editing.id);
+    const totalSnapshot = {
+      variant,
+      page,
+      connections,
+      registrations,
+      defaults,
+      draftDefaults,
+      editing,
+      auth,
+      requestOutcome,
+      testResult,
+      sources,
+      webSources,
+      catalog: { autoUpdate, version: catalogVersion, overlay },
+      status
+    };
+    return /* @__PURE__ */ u3("div", { class: "prototype-page", children: [
+      /* @__PURE__ */ u3("header", { class: "review-header row spread wrap", children: [
+        /* @__PURE__ */ u3("div", { children: [
+          /* @__PURE__ */ u3("span", { class: "prototype-label", children: "INTERACTION PROTOTYPE \xB7 \u8BBE\u8BA1\u8BC4\u5BA1" }),
+          /* @__PURE__ */ u3("h1", { children: "Zotero Agent \u72EC\u7ACB\u914D\u7F6E\u7A97\u53E3" }),
+          /* @__PURE__ */ u3("p", { class: "muted", children: "\u865A\u6784\u8D26\u6237\u4E0E\u6A21\u578B \xB7 \u4EC5\u5185\u5B58\u6A21\u62DF \xB7 \u5237\u65B0\u6E05\u7A7A \xB7 \u4E09\u4E2A\u65B9\u6848\u5171\u4EAB\u573A\u666F\u6570\u636E" })
+        ] }),
+        /* @__PURE__ */ u3(Button, { small: true, onClick: () => setDark(!dark), children: dark ? "\u6D45\u8272" : "\u6DF1\u8272" })
+      ] }),
+      /* @__PURE__ */ u3("div", { class: "prefs-context row spread", children: [
+        /* @__PURE__ */ u3("strong", { children: "\u504F\u597D\u8BBE\u7F6E \u203A \u540E\u7AEF" }),
+        /* @__PURE__ */ u3("div", { class: "row", children: [
+          /* @__PURE__ */ u3(Button, { onClick: () => setOpened(true), children: "\u914D\u7F6E Zotero Agent" }),
+          /* @__PURE__ */ u3(
+            Button,
+            {
+              onClick: () => setStatus(
+                "\u73B0\u6709\u540E\u7AEF\u7BA1\u7406\u5668\u7EE7\u7EED\u7BA1\u7406 ACP\u3001SkillRunner \u548C Generic HTTP"
+              ),
+              children: "\u6253\u5F00\u540E\u7AEF\u7BA1\u7406\u5668"
+            }
+          )
+        ] })
+      ] }),
+      /* @__PURE__ */ u3("div", { class: "review-controls", children: [
+        /* @__PURE__ */ u3("strong", { children: "\u8BC4\u5BA1\u573A\u666F" }),
+        /* @__PURE__ */ u3(
+          "select",
+          {
+            "aria-label": "\u8BC4\u5BA1\u573A\u666F",
+            value: scenario,
+            onChange: (e3) => scenarioLoad(e3.currentTarget.value),
+            children: [
+              ["empty", "\u9996\u6B21\u4F7F\u7528 \xB7 \u96F6\u8FDE\u63A5"],
+              ["multi", "\u65E5\u5E38\u4F7F\u7528 \xB7 \u591A\u8FDE\u63A5 / \u540C\u90AE\u7BB1\u4E0D\u540C\u7A7A\u95F4"],
+              ["permission", "\u5DF2\u767B\u5F55 \xB7 \u7F3A\u5C11\u65B9\u6848\u6743\u9650"],
+              ["welcome", "\u5DF2\u767B\u5F55 \xB7 \u5F85\u786E\u8BA4\u4F7F\u7528\u8BF4\u660E"],
+              ["paused", "\u989D\u5EA6\u6682\u505C"],
+              ["reauthorize", "\u9700\u8981\u91CD\u65B0\u6388\u6743"],
+              ["signedout", "\u5DF2\u9000\u51FA\u767B\u5F55"],
+              ["discovery", "\u6A21\u578B\u5237\u65B0\u5931\u8D25"],
+              ["unknown", "\u6A21\u578B\u80FD\u529B\u4FE1\u606F\u4E0D\u8DB3"]
+            ].map(([value, label]) => /* @__PURE__ */ u3("option", { value, children: label }, value))
+          }
+        ),
+        /* @__PURE__ */ u3(Button, { small: true, onClick: () => scenarioLoad(scenario), children: "\u91CD\u7F6E\u573A\u666F" }),
+        /* @__PURE__ */ u3(Button, { small: true, onClick: () => setCompact(!compact), children: compact ? "1180 \xD7 700" : "900 \xD7 600" }),
+        /* @__PURE__ */ u3("label", { children: [
+          "\u6A21\u62DF\u6D4B\u8BD5\u7ED3\u679C",
+          " ",
+          /* @__PURE__ */ u3(
+            "select",
+            {
+              "aria-label": "\u6A21\u62DF\u6D4B\u8BD5\u7ED3\u679C",
+              value: requestOutcome,
+              onChange: (e3) => setRequestOutcome(e3.currentTarget.value),
+              children: [
+                /* @__PURE__ */ u3("option", { value: "completed", children: "\u5B9E\u9645\u5B8C\u6210" }),
+                /* @__PURE__ */ u3("option", { value: "failed", children: "\u8BF7\u6C42\u5931\u8D25" }),
+                /* @__PURE__ */ u3("option", { value: "incomplete", children: "\u4EC5\u90E8\u5206\u54CD\u5E94" })
+              ]
+            }
+          )
+        ] }),
+        auth && /* @__PURE__ */ u3(S, { children: [
+          /* @__PURE__ */ u3("span", { class: "prototype-label", children: "\u6A21\u62DF\u6D4F\u89C8\u5668\u56DE\u8C03" }),
+          /* @__PURE__ */ u3(
+            Button,
+            {
+              small: true,
+              onClick: () => setAuth({ ...auth, phase: "exchange" }),
+              children: "\u4EA4\u6362\u6388\u6743"
+            }
+          ),
+          /* @__PURE__ */ u3(Button, { small: true, onClick: () => setAuth({ ...auth, phase: "verify" }), children: "\u9A8C\u8BC1\u8D26\u6237" }),
+          /* @__PURE__ */ u3(Button, { small: true, onClick: () => completeLogin("success"), children: "\u767B\u5F55\u6210\u529F" }),
+          /* @__PURE__ */ u3(Button, { small: true, onClick: () => completeLogin("permission"), children: "\u7F3A\u5C11\u6743\u9650" }),
+          /* @__PURE__ */ u3(Button, { small: true, onClick: () => completeLogin("failed"), children: "\u767B\u5F55\u5931\u8D25" })
+        ] })
+      ] }),
+      opened ? /* @__PURE__ */ u3(
+        "section",
+        {
+          class: `window variant-${variant}${compact ? " compact" : ""}`,
+          "aria-label": "Zotero Agent \u914D\u7F6E\u7A97\u53E3",
+          children: [
+            /* @__PURE__ */ u3("div", { class: "window-titlebar row spread", children: [
+              /* @__PURE__ */ u3("strong", { children: "Zotero Agent \xB7 \u914D\u7F6E" }),
+              /* @__PURE__ */ u3(
+                "button",
+                {
+                  type: "button",
+                  class: "button quiet",
+                  "aria-label": "\u5173\u95ED\u914D\u7F6E\u7A97\u53E3",
+                  onClick: () => {
+                    if ((dirtyDefaults || editing) && !window.confirm(
+                      "\u653E\u5F03\u672A\u4FDD\u5B58\u7684\u7F16\u8F91\u5E76\u5173\u95ED\uFF1F\u5DF2\u5B8C\u6210\u7684\u767B\u5F55\u4E0D\u4F1A\u64A4\u9500\u3002"
+                    ))
+                      return;
+                    setDraftDefaults(defaults);
+                    closeEditor();
+                    cancelLogin();
+                    setOpened(false);
+                  },
+                  children: "\xD7"
+                }
+              )
+            ] }),
+            /* @__PURE__ */ u3(
+              "div",
+              {
+                class: "window-layout",
+                inert: !!(editing || addOpen || sourceDraft || preview || deleteTarget),
+                children: [
+                  /* @__PURE__ */ u3("nav", { class: "sidebar", "aria-label": "\u914D\u7F6E\u5BFC\u822A", children: [
+                    /* @__PURE__ */ u3("div", { class: "sidebar-brand", children: "Zotero Agent" }),
+                    variant === "C" && /* @__PURE__ */ u3(
+                      "button",
+                      {
+                        type: "button",
+                        class: `nav${page === "overview" ? " active" : ""}`,
+                        onClick: () => setPage("overview"),
+                        children: [
+                          /* @__PURE__ */ u3("span", { children: "\u25CE" }),
+                          "\u5F00\u59CB\u4F7F\u7528"
+                        ]
+                      }
+                    ),
+                    /* @__PURE__ */ u3("div", { class: "nav-group", children: "\u6A21\u578B" }),
+                    [
+                      ["connections", "\u2197", "\u6A21\u578B\u8FDE\u63A5"],
+                      ["defaults", "\u25C8", "\u9ED8\u8BA4\u6A21\u578B"]
+                    ].map(([key, symbol, name]) => /* @__PURE__ */ u3(
+                      "button",
+                      {
+                        type: "button",
+                        class: `nav${page === key ? " active" : ""}`,
+                        onClick: () => setPage(key),
+                        children: [
+                          /* @__PURE__ */ u3("span", { children: symbol }),
+                          name,
+                          key === "connections" && /* @__PURE__ */ u3("span", { class: "number", children: connections.length })
+                        ]
+                      },
+                      key
+                    )),
+                    /* @__PURE__ */ u3("div", { class: "nav-group", children: "\u6269\u5C55" }),
+                    /* @__PURE__ */ u3(
+                      "button",
+                      {
+                        type: "button",
+                        class: `nav${page === "tools" ? " active" : ""}`,
+                        onClick: () => setPage("tools"),
+                        children: [
+                          /* @__PURE__ */ u3("span", { children: "\u229E" }),
+                          "\u5DE5\u5177\u6765\u6E90"
+                        ]
+                      }
+                    ),
+                    /* @__PURE__ */ u3("div", { class: "nav-group", children: "\u9AD8\u7EA7" }),
+                    /* @__PURE__ */ u3(
+                      "button",
+                      {
+                        type: "button",
+                        class: `nav${page === "catalog" ? " active" : ""}`,
+                        onClick: () => setPage("catalog"),
+                        children: [
+                          /* @__PURE__ */ u3("span", { children: "\u2261" }),
+                          "\u76EE\u5F55\u4E0E\u7EF4\u62A4"
+                        ]
+                      }
+                    ),
+                    /* @__PURE__ */ u3("div", { class: "sidebar-foot", children: "\u6A21\u578B\u8FDE\u63A5\u548C\u5DE5\u5177\u6765\u6E90\u72EC\u7ACB\u7BA1\u7406\u3002" })
+                  ] }),
+                  /* @__PURE__ */ u3("main", { class: "main", children: page === "overview" ? overviewPage() : page === "connections" ? connectionsPage() : page === "defaults" ? defaultsPage() : page === "tools" ? toolsPage() : catalogPage() })
+                ]
+              }
+            ),
+            /* @__PURE__ */ u3("footer", { class: "window-status", role: "status", children: status }),
+            addOpen && /* @__PURE__ */ u3(
+              Modal,
+              {
+                title: "\u6DFB\u52A0\u6A21\u578B\u8FDE\u63A5",
+                footer: /* @__PURE__ */ u3(Button, { onClick: () => setAddOpen(false), children: "\u53D6\u6D88" }),
+                children: ["chatgpt", "api-key", "custom"].map((kind) => /* @__PURE__ */ u3(
+                  "button",
+                  {
+                    type: "button",
+                    class: "setup-choice",
+                    onClick: () => addConnection(kind),
+                    children: [
+                      /* @__PURE__ */ u3("span", { class: "brand-icon", children: kind === "chatgpt" ? "C" : "API" }),
+                      /* @__PURE__ */ u3("span", { children: [
+                        /* @__PURE__ */ u3("strong", { children: KIND_LABEL[kind] }),
+                        /* @__PURE__ */ u3("small", { children: kind === "chatgpt" ? "\u4F7F\u7528 ChatGPT \u65B9\u6848\u767B\u5F55" : kind === "api-key" ? "\u4F7F\u7528\u6A21\u578B\u670D\u52A1\u7684 API Key" : "\u517C\u5BB9\u63A5\u53E3\u6216\u672C\u5730\u670D\u52A1" })
+                      ] }),
+                      /* @__PURE__ */ u3("span", { style: { marginLeft: "auto" }, children: "\u2192" })
+                    ]
+                  },
+                  kind
+                ))
+              }
+            ),
+            editing && /* @__PURE__ */ u3(
+              Modal,
+              {
+                title: editingExisting ? `\u7BA1\u7406\u8FDE\u63A5 \xB7 ${editing.label}` : `\u6DFB\u52A0\u8FDE\u63A5 \xB7 ${KIND_LABEL[editing.kind]}`,
+                footer: /* @__PURE__ */ u3(S, { children: [
+                  /* @__PURE__ */ u3("span", { class: "muted", children: editingExisting ? "\u7F16\u8F91\u540E\u4FDD\u5B58\u8FDE\u63A5" : "\u5B8C\u6210\u8FDE\u63A5\u540E\u518D\u9009\u62E9\u6A21\u578B" }),
+                  /* @__PURE__ */ u3(Button, { onClick: closeEditor, children: editingExisting ? "\u53D6\u6D88\u7F16\u8F91" : "\u53D6\u6D88" }),
+                  /* @__PURE__ */ u3(
+                    Button,
+                    {
+                      primary: true,
+                      disabled: !canSaveConnection,
+                      onClick: saveConnection,
+                      children: "\u4FDD\u5B58\u8FDE\u63A5"
+                    }
+                  )
+                ] }),
+                children: [
+                  /* @__PURE__ */ u3(
+                    Field,
+                    {
+                      label: "\u8FDE\u63A5\u540D\u79F0",
+                      value: editing.label,
+                      onInput: (label) => setEditing({ ...editing, label })
+                    }
+                  ),
+                  editing.kind === "chatgpt" ? /* @__PURE__ */ u3(S, { children: [
+                    /* @__PURE__ */ u3("label", { class: "field", children: [
+                      /* @__PURE__ */ u3("span", { children: "ChatGPT \u8D26\u6237\u4E0E\u7A7A\u95F4" }),
+                      /* @__PURE__ */ u3(
+                        Choice,
+                        {
+                          label: "ChatGPT \u8D26\u6237\u4E0E\u7A7A\u95F4",
+                          value: editing.registrationId || "",
+                          disabled: !!auth,
+                          options: [
+                            { value: "", label: "\u8FDE\u63A5\u65B0\u8D26\u6237\u6216\u7A7A\u95F4" },
+                            ...registrations.map((r3) => ({
+                              value: r3.id,
+                              label: `${r3.email} \xB7 ${r3.workspace}${r3.signedIn ? "" : " \xB7 \u5DF2\u9000\u51FA"}`
+                            }))
+                          ],
+                          onChange: (registrationId) => setEditing({
+                            ...editing,
+                            registrationId: registrationId || void 0,
+                            discovery: registrationId ? "ready" : "idle"
+                          })
+                        }
+                      )
+                    ] }),
+                    accountBlock(editing),
+                    editorRegistration?.signedIn && modelBlock(editing)
+                  ] }) : /* @__PURE__ */ u3(S, { children: [
+                    editing.kind === "api-key" && /* @__PURE__ */ u3("label", { class: "field", children: [
+                      /* @__PURE__ */ u3("span", { children: "\u6A21\u578B\u670D\u52A1" }),
+                      /* @__PURE__ */ u3(
+                        Choice,
+                        {
+                          label: "\u6A21\u578B\u670D\u52A1",
+                          value: editing.provider,
+                          options: [
+                            { value: "OpenAI", label: "OpenAI" },
+                            { value: "Anthropic", label: "Anthropic" },
+                            { value: "Google", label: "Google" }
+                          ],
+                          onChange: (provider) => setEditing({ ...editing, provider })
+                        }
+                      )
+                    ] }),
+                    editing.kind === "custom" && /* @__PURE__ */ u3(S, { children: [
+                      /* @__PURE__ */ u3(
+                        Field,
+                        {
+                          label: "\u670D\u52A1\u5730\u5740",
+                          value: editing.endpoint,
+                          onInput: (endpoint) => setEditing({ ...editing, endpoint })
+                        }
+                      ),
+                      /* @__PURE__ */ u3("label", { class: "field", children: [
+                        /* @__PURE__ */ u3("span", { children: "\u63A5\u53E3\u7C7B\u578B" }),
+                        /* @__PURE__ */ u3(
+                          Choice,
+                          {
+                            label: "\u63A5\u53E3\u7C7B\u578B",
+                            value: editing.dialect,
+                            options: [
+                              { value: "Responses", label: "OpenAI Responses" },
+                              {
+                                value: "Completions",
+                                label: "OpenAI Chat Completions"
+                              }
+                            ],
+                            onChange: (dialect) => setEditing({ ...editing, dialect })
+                          }
+                        )
+                      ] }),
+                      /* @__PURE__ */ u3("label", { class: "switch-label", children: [
+                        /* @__PURE__ */ u3(
+                          "input",
+                          {
+                            type: "checkbox",
+                            checked: !editing.needsKey,
+                            onChange: (e3) => setEditing({
+                              ...editing,
+                              needsKey: !e3.currentTarget.checked
+                            })
+                          }
+                        ),
+                        "\u6B64\u670D\u52A1\u65E0\u9700\u5BC6\u94A5"
+                      ] }),
+                      isLocal(editing.endpoint) && /* @__PURE__ */ u3("div", { class: "banner warning", children: [
+                        /* @__PURE__ */ u3("label", { class: "switch-label", children: [
+                          /* @__PURE__ */ u3(
+                            "input",
+                            {
+                              type: "checkbox",
+                              checked: editing.localApproved,
+                              onChange: (e3) => setEditing({
+                                ...editing,
+                                localApproved: e3.currentTarget.checked
+                              })
+                            }
+                          ),
+                          "\u5141\u8BB8\u8FDE\u63A5\u6B64\u672C\u5730\u6A21\u578B\u670D\u52A1"
+                        ] }),
+                        /* @__PURE__ */ u3("p", { children: editing.endpoint })
+                      ] })
+                    ] }),
+                    editing.needsKey && /* @__PURE__ */ u3(
+                      Field,
+                      {
+                        label: editing.keySaved ? "\u66FF\u6362 API Key" : "API Key",
+                        value: secret,
+                        type: "password",
+                        help: editing.keySaved ? "\u5DF2\u4FDD\u5B58\u5BC6\u94A5\uFF1B\u7559\u7A7A\u4FDD\u7559\u539F\u5BC6\u94A5\u3002" : "\u5BC6\u94A5\u4EC5\u7528\u4E8E\u6B64\u6A21\u578B\u670D\u52A1\u3002",
+                        onInput: setSecret
+                      }
+                    ),
+                    /* @__PURE__ */ u3("div", { class: "banner", children: "\u4FDD\u5B58\u8FDE\u63A5\u540E\u83B7\u53D6\u6A21\u578B\uFF0C\u9ED8\u8BA4\u6A21\u578B\u5728\u5DE6\u4FA7\u5355\u72EC\u8BBE\u7F6E\u3002" })
+                  ] }),
+                  editingExisting && /* @__PURE__ */ u3("div", { class: "row wrap", children: [
+                    /* @__PURE__ */ u3(
+                      Button,
+                      {
+                        disabled: !connectionState(editing, registrations).ready,
+                        onClick: () => testConnection(editing),
+                        children: "\u6D4B\u8BD5\u6A21\u578B\u8C03\u7528"
+                      }
+                    ),
+                    /* @__PURE__ */ u3(
+                      Button,
+                      {
+                        danger: true,
+                        onClick: () => {
+                          setDeleteTarget(editing);
+                          closeEditor();
+                        },
+                        children: "\u79FB\u9664\u8FDE\u63A5"
+                      }
+                    )
+                  ] }),
+                  testResult[editing.id] && /* @__PURE__ */ u3(
+                    "div",
+                    {
+                      class: `banner ${testResult[editing.id].tone}`,
+                      role: "status",
+                      children: testResult[editing.id].text
+                    }
+                  )
+                ]
+              }
+            ),
+            sourceDraft && /* @__PURE__ */ u3(
+              Modal,
+              {
+                title: "MCP \u6765\u6E90",
+                footer: /* @__PURE__ */ u3(S, { children: [
+                  /* @__PURE__ */ u3(Button, { onClick: () => setSourceDraft(null), children: "\u53D6\u6D88" }),
+                  /* @__PURE__ */ u3(
+                    Button,
+                    {
+                      primary: true,
+                      disabled: !sourceDraft.label || !sourceDraft.address || isLocal(sourceDraft.address) && !sourceDraft.approved,
+                      onClick: () => {
+                        setSources((items) => [
+                          ...items.filter((s3) => s3.id !== sourceDraft.id),
+                          sourceDraft
+                        ]);
+                        setSourceDraft(null);
+                        setStatus("\u6765\u6E90\u5DF2\u4FDD\u5B58\uFF1B\u8BF7\u53D1\u73B0\u5E76\u5BA1\u9605\u5DE5\u5177");
+                      },
+                      children: "\u4FDD\u5B58\u6765\u6E90"
+                    }
+                  )
+                ] }),
+                children: [
+                  /* @__PURE__ */ u3(
+                    Field,
+                    {
+                      label: "\u6765\u6E90\u540D\u79F0",
+                      value: sourceDraft.label,
+                      onInput: (label) => setSourceDraft({ ...sourceDraft, label })
+                    }
+                  ),
+                  /* @__PURE__ */ u3("label", { class: "field", children: [
+                    /* @__PURE__ */ u3("span", { children: "\u8FDE\u63A5\u65B9\u5F0F" }),
+                    /* @__PURE__ */ u3(
+                      Choice,
+                      {
+                        label: "MCP \u8FDE\u63A5\u65B9\u5F0F",
+                        value: sourceDraft.transport,
+                        options: [
+                          { value: "HTTPS", label: "HTTP / HTTPS" },
+                          { value: "stdio", label: "\u672C\u673A\u7A0B\u5E8F\uFF08stdio\uFF09" }
+                        ],
+                        onChange: (transport) => setSourceDraft({
+                          ...sourceDraft,
+                          transport,
+                          address: "",
+                          tested: false,
+                          selected: []
+                        })
+                      }
+                    )
+                  ] }),
+                  /* @__PURE__ */ u3(
+                    Field,
+                    {
+                      label: sourceDraft.transport === "stdio" ? "\u53EF\u6267\u884C\u7A0B\u5E8F\uFF08\u7EDD\u5BF9\u8DEF\u5F84\uFF09" : "\u670D\u52A1\u5730\u5740",
+                      value: sourceDraft.address,
+                      onInput: (address) => setSourceDraft({
+                        ...sourceDraft,
+                        address,
+                        tested: false,
+                        selected: []
+                      })
+                    }
+                  ),
+                  isLocal(sourceDraft.address) && /* @__PURE__ */ u3("label", { class: "switch-label", children: [
+                    /* @__PURE__ */ u3(
+                      "input",
+                      {
+                        type: "checkbox",
+                        checked: sourceDraft.approved,
+                        onChange: (e3) => setSourceDraft({
+                          ...sourceDraft,
+                          approved: e3.currentTarget.checked
+                        })
+                      }
+                    ),
+                    "\u5141\u8BB8\u8BBF\u95EE\u6B64\u672C\u5730\u5DE5\u5177\u670D\u52A1"
+                  ] }),
+                  /* @__PURE__ */ u3("div", { class: "banner", children: "\u4FDD\u5B58\u4E0D\u4F1A\u8FDE\u63A5\u670D\u52A1\u3002\u4E0B\u4E00\u6B65\u624B\u52A8\u53D1\u73B0\u5DE5\u5177\uFF0C\u5BA1\u9605\u540E\u9009\u62E9\u3002" })
+                ]
+              }
+            ),
+            deleteTarget && /* @__PURE__ */ u3(
+              Modal,
+              {
+                title: "\u79FB\u9664\u6A21\u578B\u8FDE\u63A5",
+                footer: /* @__PURE__ */ u3(S, { children: [
+                  /* @__PURE__ */ u3(Button, { onClick: () => setDeleteTarget(null), children: "\u4FDD\u7559\u8FDE\u63A5" }),
+                  /* @__PURE__ */ u3(Button, { danger: true, onClick: removeConnection, children: "\u79FB\u9664\u8FDE\u63A5" })
+                ] }),
+                children: [
+                  /* @__PURE__ */ u3("p", { children: [
+                    "\u79FB\u9664\u300C",
+                    deleteTarget.label,
+                    "\u300D\uFF1F"
+                  ] }),
+                  /* @__PURE__ */ u3("p", { class: "muted", children: "\u5F15\u7528\u5B83\u7684\u9ED8\u8BA4\u6A21\u578B\u4F1A\u6E05\u9664\u3002\u8D26\u6237\u767B\u5F55\u548C\u5176\u4ED6\u8FDE\u63A5\u4FDD\u7559\uFF0C\u6B63\u5728\u8FDB\u884C\u7684\u8BF7\u6C42\u4E0D\u81EA\u52A8\u91CD\u8DD1\u3002" })
+                ]
+              }
+            ),
+            preview && /* @__PURE__ */ u3(
+              Modal,
+              {
+                title: "\u4F1A\u8BDD\u6A21\u578B\u9009\u62E9",
+                footer: /* @__PURE__ */ u3(Button, { onClick: () => setPreview(false), children: "\u8FD4\u56DE\u914D\u7F6E" }),
+                children: [
+                  /* @__PURE__ */ u3("p", { class: "muted", children: "\u672C\u6B21\u4F1A\u8BDD\u53EF\u4EE5\u72EC\u7ACB\u9009\u62E9\u8FDE\u63A5\u548C\u6A21\u578B\u3002" }),
+                  /* @__PURE__ */ u3("label", { class: "field", children: [
+                    /* @__PURE__ */ u3("span", { children: "\u8FDE\u63A5" }),
+                    /* @__PURE__ */ u3(
+                      Choice,
+                      {
+                        label: "\u4F1A\u8BDD\u8FDE\u63A5",
+                        value: previewChoice?.connectionId || "",
+                        options: [
+                          { value: "", label: "\u9009\u62E9\u8FDE\u63A5" },
+                          ...readyConnections.map((c3) => ({
+                            value: c3.id,
+                            label: c3.label
+                          }))
+                        ],
+                        onChange: (connectionId) => setPreviewChoice({
+                          connectionId,
+                          modelId: "",
+                          reasoning: "medium"
+                        })
+                      }
+                    )
+                  ] }),
+                  /* @__PURE__ */ u3("label", { class: "field", children: [
+                    /* @__PURE__ */ u3("span", { children: "\u6A21\u578B" }),
+                    /* @__PURE__ */ u3(
+                      Choice,
+                      {
+                        label: "\u4F1A\u8BDD\u6A21\u578B",
+                        value: previewChoice?.modelId || "",
+                        disabled: !readyConnections.some(
+                          (c3) => c3.id === previewChoice?.connectionId
+                        ),
+                        options: [
+                          { value: "", label: "\u9009\u62E9\u6A21\u578B" },
+                          ...MODELS.map((m3) => ({ value: m3.id, label: m3.name }))
+                        ],
+                        onChange: (modelId) => setPreviewChoice({
+                          connectionId: previewChoice?.connectionId || "",
+                          modelId,
+                          reasoning: "medium"
+                        })
+                      }
+                    )
+                  ] }),
+                  /* @__PURE__ */ u3("div", { class: "banner", children: previewChoice?.modelId ? `\u5C06\u4F7F\u7528 ${connections.find((c3) => c3.id === previewChoice.connectionId)?.label} \xB7 ${MODELS.find((m3) => m3.id === previewChoice.modelId)?.name}` : "\u9009\u62E9\u540E\u53EF\u5F00\u59CB\u4F1A\u8BDD\u3002" }),
+                  /* @__PURE__ */ u3("small", { class: "muted", children: "\u8FD9\u91CC\u7684\u9009\u62E9\u4E0D\u4FEE\u6539\u5168\u5C40\u9ED8\u8BA4\u6A21\u578B\u3002" })
+                ]
+              }
+            )
+          ]
+        }
+      ) : /* @__PURE__ */ u3("div", { class: "closed-window", children: /* @__PURE__ */ u3("p", { class: "muted", children: "\u914D\u7F6E\u7A97\u53E3\u5DF2\u5173\u95ED\uFF1B\u53EF\u4ECE\u4E0A\u65B9\u504F\u597D\u8BBE\u7F6E\u5165\u53E3\u91CD\u65B0\u6253\u5F00\u3002" }) }),
+      /* @__PURE__ */ u3("details", { class: "review-state", children: [
+        /* @__PURE__ */ u3("summary", { children: "\u539F\u578B\u72B6\u6001\u4E0E\u8BC4\u5BA1\u8FB9\u754C\uFF08\u4EA7\u54C1\u7A97\u53E3\u4E4B\u5916\uFF09" }),
+        /* @__PURE__ */ u3("p", { children: "\u8D26\u6237\u548C\u6A21\u578B\u5747\u4E3A\u865A\u6784\uFF0C\u6240\u6709\u52A8\u4F5C\u4EC5\u6A21\u62DF\uFF1B\u6CA1\u6709\u771F\u5B9E\u7F51\u7EDC\u6216\u6301\u4E45\u5316\u3002\u4E3B\u6D41\u7A0B\u548C\u5E03\u5C40\u53EF\u8BC4\u5BA1\uFF0CMCP/Web \u9AD8\u7EA7\u5B57\u6BB5\u3001\u5BFC\u5165\u5BFC\u51FA\u548C\u8FDC\u7AEF\u5931\u8D25\u7EC6\u8282\u7559\u5F85\u540E\u7EED\u5951\u7EA6\u7968\u8865\u9F50\u3002\u539F\u578B\u4E0D\u4F1A\u89E3\u9664\u771F\u5B9E\u8D26\u6237\u6682\u505C\u6216\u5B8C\u6210\u5B9E\u673A\u9A8C\u6536\u3002" }),
+        /* @__PURE__ */ u3("pre", { id: "prototype-state", children: JSON.stringify(totalSnapshot, null, 2) })
+      ] }),
+      /* @__PURE__ */ u3("div", { class: "variant-switcher", "aria-label": "\u5E03\u5C40\u65B9\u6848\u5207\u6362", children: [
+        /* @__PURE__ */ u3(
+          "button",
+          {
+            type: "button",
+            "aria-label": "\u4E0A\u4E00\u4E2A\u65B9\u6848",
+            onClick: () => changeVariant(
+              ["C", "A", "B"][["A", "B", "C"].indexOf(variant)]
+            ),
+            children: "\u2190"
+          }
+        ),
+        ["A", "B", "C"].map((v3) => /* @__PURE__ */ u3(
+          "button",
+          {
+            type: "button",
+            class: v3 === variant ? "active" : "",
+            "aria-pressed": v3 === variant,
+            onClick: () => changeVariant(v3),
+            children: [
+              v3,
+              " \xB7 ",
+              VARIANTS[v3]
+            ]
+          },
+          v3
+        )),
+        /* @__PURE__ */ u3(
+          "button",
+          {
+            type: "button",
+            "aria-label": "\u4E0B\u4E00\u4E2A\u65B9\u6848",
+            onClick: () => changeVariant(
+              ["B", "C", "A"][["A", "B", "C"].indexOf(variant)]
+            ),
+            children: "\u2192"
+          }
+        )
+      ] })
+    ] });
+  }
+  R(/* @__PURE__ */ u3(App, {}), document.getElementById("prototype-root"));
+})();
+</script>
+</body></html>

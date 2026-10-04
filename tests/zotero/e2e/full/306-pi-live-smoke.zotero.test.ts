@@ -6,16 +6,19 @@ import {
 } from "../../../../src/modules/piCredentialStore";
 import {
   loadPiModelCatalog,
-  refreshPiCodexModelCatalog,
+  refreshPiChatGPTModelCatalog,
   refreshPiModelCatalog,
   type PiCatalog,
 } from "../../../../src/modules/piModelCatalog";
+import { assertPiChatGPTInferenceAllowed } from "../../../../src/modules/piChatGPTAuth";
 import {
   deletePiProviderConfiguration,
   loadPiProviderConfigurationState,
+  PI_REASONING_LEVELS,
   resolvePiModelSelection,
   setPiProviderDefaults,
   upsertPiProviderConfiguration,
+  type PiReasoningLevel,
 } from "../../../../src/modules/piProviderConfiguration";
 import {
   ensureRuntimeDirectoryStrict,
@@ -122,64 +125,111 @@ async function loadMinimaxCatalog(): Promise<PiCatalog> {
   return refreshPiModelCatalog({ overlayPath });
 }
 
-describe("Pi live Codex smoke", function () {
+describe("Pi live ChatGPT smoke", function () {
   this.timeout(180_000);
 
-  it("reuses the copied Codex authorization for a durable streaming turn", async function () {
-    if (readDiagnosticsEnv("ZOTERO_PI_LIVE_SMOKE") !== "codex") this.skip();
+  it("reuses the copied ChatGPT authorization for a durable streaming turn", async function () {
+    if (readDiagnosticsEnv("ZOTERO_PI_LIVE_SMOKE") !== "chatgpt") this.skip();
     assert.equal(Number(String(Zotero.version).split(".")[0]), 10);
     const state = loadPiProviderConfigurationState();
     const credentials = listPiCredentials();
     const configuration = state.configurations.find(
-      (entry) => entry.enabled && entry.authVariant === "openai-codex",
+      (entry) => entry.enabled && entry.authVariant === "chatgpt",
     );
-    assert.isOk(configuration, "copied Codex configuration required");
+    assert.isOk(configuration, "copied ChatGPT configuration required");
     assert.isOk(configuration!.credentialRef);
-    upsertPiProviderConfiguration({
-      ...configuration!,
-      modelId: "gpt-6-luna",
-      reasoning: "low",
-    });
-    const catalog = await refreshPiCodexModelCatalog(
-      await loadPiModelCatalog(),
-      {
-        credentialId: configuration!.credentialRef!,
-        signal: new AbortController().signal,
-      },
-    );
-    setPiProviderDefaults(
-      { conversation: { configurationId: configuration!.id } },
-      credentials,
-      catalog,
-    );
-    const model = resolvePiModelSelection({
-      kind: "conversation",
-      catalog,
-      credentials,
-    });
-    assert.equal(model.modelId, "gpt-6-luna");
-    assert.equal(model.reasoning, "low");
+    const previousDocument = getPref("piProviderConfigurationJson");
     const coordinator = getPiConversationCoordinator();
-    const owner = await coordinator.create();
-    assert.equal(
-      owner.status,
-      "created",
-      "copied default selection must be executable",
-    );
-    if (owner.status !== "created")
-      throw new Error("pi_live_selection_unavailable");
-    const id = owner.conversationId;
+    let id = "";
     let failure: unknown;
     try {
+      const signal = new AbortController().signal;
+      await assertPiChatGPTInferenceAllowed(
+        configuration!.credentialRef!,
+        signal,
+      );
+      const catalog = await refreshPiChatGPTModelCatalog(
+        await loadPiModelCatalog(),
+        {
+          credentialId: configuration!.credentialRef!,
+          signal,
+        },
+      );
+      const discovered = catalog.models.filter(
+        (model) =>
+          model.source === "discovered" &&
+          model.provider === configuration!.provider &&
+          model.credentialRef === configuration!.credentialRef &&
+          model.authVariants?.includes("chatgpt") &&
+          model.knowledge?.context === "known" &&
+          Number.isFinite(model.contextWindow) &&
+          model.contextWindow > 0,
+      );
+      const executable = discovered.flatMap((candidate) =>
+        candidate.reasoning
+          .filter((reasoning): reasoning is PiReasoningLevel =>
+            PI_REASONING_LEVELS.includes(reasoning as PiReasoningLevel),
+          )
+          .flatMap((reasoning) => {
+            try {
+              const selection = resolvePiModelSelection({
+                kind: "conversation",
+                catalog,
+                credentials,
+                explicit: {
+                  configurationId: configuration!.id,
+                  modelId: candidate.id,
+                  reasoning,
+                },
+              });
+              return [{ candidate, selection }];
+            } catch {
+              return [];
+            }
+          }),
+      );
+      assert.isAbove(
+        executable.length,
+        0,
+        "ChatGPT discovery needs a model with known context and executable reasoning metadata",
+      );
+      const { candidate, selection } = executable[0];
+      setPiProviderDefaults(
+        {
+          conversation: {
+            configurationId: configuration!.id,
+            modelId: candidate.id,
+            reasoning: selection.reasoning,
+          },
+        },
+        credentials,
+        catalog,
+      );
+      const model = resolvePiModelSelection({
+        kind: "conversation",
+        catalog,
+        credentials,
+      });
+      assert.equal(model.modelId, candidate.id);
+      assert.equal(model.reasoning, selection.reasoning);
+      const owner = await coordinator.create();
+      assert.equal(
+        owner.status,
+        "created",
+        "copied default selection must be executable",
+      );
+      if (owner.status !== "created")
+        throw new Error("pi_live_selection_unavailable");
+      id = owner.conversationId;
       await assertDurableStreamingTurn(
         id,
         "Reply with a short greeting. Do not call tools.",
       );
       await emitZoteroTestDebug({
         kind: "pi-live-smoke-observation",
-        source: "openai-codex",
-        modelId: "gpt-6-luna",
-        reasoning: "low",
+        source: "chatgpt",
+        modelId: model.modelId,
+        reasoning: model.reasoning,
         zoteroMajor: 10,
         observed: ["refresh-or-reuse", "streaming"],
         status: "passed",
@@ -188,12 +238,15 @@ describe("Pi live Codex smoke", function () {
     } catch (error) {
       failure = error;
     } finally {
-      try {
-        await coordinator.archive(id);
-        await coordinator.delete(id);
-      } catch (error) {
-        failure ??= error;
+      if (id) {
+        try {
+          await coordinator.archive(id);
+          await coordinator.delete(id);
+        } catch (error) {
+          failure ??= error;
+        }
       }
+      setPref("piProviderConfigurationJson", previousDocument);
     }
     if (failure) throw failure;
   });
@@ -307,7 +360,7 @@ describe("Pi live MiniMax smoke", function () {
           else setPref("piProviderConfigurationJson", previousDocument);
         } catch {
           // Previous defaults can reference a configuration whose catalog
-          // entry only exists after runtime discovery (for example Codex);
+          // entry only exists after runtime discovery (for example ChatGPT);
           // restore the exact persisted document when the setter cannot
           // validate them.
           setPref("piProviderConfigurationJson", previousDocument);

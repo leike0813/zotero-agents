@@ -143,6 +143,31 @@ describe("Pi owner recovery inventory and hold-safe cleanup", function () {
     assert.deepEqual(inventory, [skillRun("registry-only")]);
   });
 
+  it("keeps incomplete assistant text visible in the canonical owner page", async function () {
+    const ref = await admitSkillRun("incomplete-visible", root);
+    await appendPiOwnerFact(
+      ref,
+      {
+        kind: "message",
+        payload: {
+          role: "assistant",
+          text: "unfinished response",
+          status: "incomplete-visible",
+        },
+      },
+      root,
+    );
+
+    const page = await readPiOwnerPage(ref, {}, root);
+
+    const message = page.entries.find((entry) => entry.kind === "message");
+    assert.isDefined(message);
+    assert.equal(
+      (message?.payload as { status?: string }).status,
+      "incomplete-visible",
+    );
+  });
+
   it("throws when the canonical owner directory cannot be read", async function () {
     // A file where the owner kind directory belongs cannot be listed.
     const ownersDir = getRuntimePersistencePaths(root).piOwnersDir;

@@ -74,15 +74,25 @@ import {
   PiRuntimeToolAttemptLimitError,
   createPiRuntimeLoopGuard,
   type PiRuntimeSessionOptions,
+  type PiRuntimeUsage,
+  type PiProviderTerminal,
   type PiRuntimeToolCall,
   type PiRuntimeToolResult,
   type PiRuntimeLoopGuardState,
   unknownPiRuntimeUsage,
 } from "./piRuntime";
 import { loadPiModelCatalog } from "./piModelCatalog";
-import { listPiCredentials } from "./piCredentialStore";
+import {
+  getPiCredentialIdentityRevision,
+  listPiCredentials,
+} from "./piCredentialStore";
+import {
+  assertPiChatGPTInferenceAllowed,
+  listPiChatGPTRegistrations,
+} from "./piChatGPTAuth";
 import { resolvePiModelSelection } from "./piProviderConfiguration";
 import {
+  addPiUsageMeasurement,
   piSkillRunUsageView,
   projectPiCanonicalSelection,
   readPiCanonicalSelection,
@@ -209,6 +219,11 @@ type State = {
   /** Admission-time workspace binding, present even when preparation fails. */
   workspace?: AcpSkillRunnerWorkspace;
   model?: PiModelSelectionSnapshot;
+  restartConsent?: {
+    taskScope: string;
+    credentialRef: string;
+    identityRevision: string;
+  };
   /**
    * The last turn's canonical safe evidence, read back after a restore. It is
    * display-only: the next turn revalidates its own choice against current
@@ -218,6 +233,7 @@ type State = {
   selection?: PiSelection;
   /** Bounded safe usage projection rebuilt from the canonical facts. */
   usage: PiSkillRunUsageView;
+  usageInvocationIds: Set<string>;
   pending: PiGatewayPendingCall[];
   interactionBatch?: UserInteractionBatchV1;
   guard: PiRuntimeLoopGuardState;
@@ -379,7 +395,32 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
       options.root,
     );
     const state = states.get(requestId);
-    if (state) state.updatedAt = result.entry.createdAt;
+    if (state) {
+      state.updatedAt = result.entry.createdAt;
+      const contribution = piOwnerUsageTotalsFor([result.entry]);
+      for (const purpose of ["main", "compaction", "title"] as const) {
+        const delta = contribution[purpose];
+        if (!delta.invocations) continue;
+        const payload = result.entry.payload as Record<string, unknown>;
+        const invocationId =
+          typeof payload.invocationId === "string" && payload.invocationId
+            ? payload.invocationId
+            : result.entry.entryId;
+        if (state.usageInvocationIds.has(invocationId)) continue;
+        const nested = payload.usage;
+        const usage =
+          nested && typeof nested === "object" && !Array.isArray(nested)
+            ? (nested as Record<string, unknown>)
+            : payload;
+        addPiUsageMeasurement(
+          state.usage.purposeTotals[purpose],
+          delta.measurement,
+          delta.completeness,
+          usage.usageKnown !== false,
+        );
+        state.usageInvocationIds.add(invocationId);
+      }
+    }
     return result.entry;
   };
   /**
@@ -438,6 +479,7 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
       guard: { invocations: 0, toolAttempts: 0, cycles: [] },
       counts: { user: 0, assistant: 0, tool: 0, thought: 0 },
       usage: piSkillRunUsageView(piOwnerUsageTotalsFor(entries)),
+      usageInvocationIds: new Set(),
       draftReceipts: Object.create(null),
     };
     for (const entry of entries) {
@@ -491,7 +533,19 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
       else if (entry.kind === "skill_run_archive") state.archived = true;
       else if (entry.kind === "skill_run_selection")
         state.selection = payload as PiSelection;
-      else if (entry.kind === "permission_pending") {
+      else if (entry.kind === "skill_run_restart_consent") {
+        state.restartConsent =
+          payload.enabled === true &&
+          typeof payload.taskScope === "string" &&
+          typeof payload.credentialRef === "string" &&
+          typeof payload.identityRevision === "string"
+            ? {
+                taskScope: payload.taskScope,
+                credentialRef: payload.credentialRef,
+                identityRevision: payload.identityRevision,
+              }
+            : undefined;
+      } else if (entry.kind === "permission_pending") {
         const pending = payload.pending as PiGatewayPendingCall;
         state.pending = state.pending.filter(
           (item) => item.call.callId !== pending.call.callId,
@@ -1557,8 +1611,15 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
               state.turnId,
             )
           ).entryId;
-          let invocationId = id("compaction");
-          let usage = unknownPiRuntimeUsage();
+          const fallbackInvocationId = id("compaction");
+          const usageByInvocation = new Map<
+            string,
+            {
+              usage: PiRuntimeUsage;
+              stopReason?: string;
+              providerTerminal?: PiProviderTerminal;
+            }
+          >();
           try {
             // The structured provider reports the invocation's real terminal
             // usage. The legacy text-delta seam has none, so its compaction stays
@@ -1581,16 +1642,27 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
                 messages,
                 systemPrompt: input.prompt,
                 onEvent: (event) => {
-                  if (event.kind === "assistant_message") {
+                  if (event.kind === "invocation_started") {
+                    if (usageByInvocation.size < 20)
+                      usageByInvocation.set(event.invocationId, {
+                        usage: unknownPiRuntimeUsage(),
+                      });
+                  } else if (event.kind === "assistant_message") {
                     output += event.text;
-                    usage = event.usage;
-                    invocationId = event.invocationId;
-                  } else if (
-                    event.kind === "invocation_terminal" &&
-                    event.usage
-                  ) {
-                    usage = event.usage;
-                    invocationId = event.invocationId;
+                    const contribution = usageByInvocation.get(
+                      event.invocationId,
+                    );
+                    if (contribution) contribution.usage = event.usage;
+                  } else if (event.kind === "invocation_terminal") {
+                    const contribution = usageByInvocation.get(
+                      event.invocationId,
+                    );
+                    if (contribution) {
+                      if (event.usage) contribution.usage = event.usage;
+                      contribution.stopReason = event.stopReason;
+                      if (event.providerTerminal)
+                        contribution.providerTerminal = event.providerTerminal;
+                    }
                   }
                 },
               });
@@ -1621,15 +1693,33 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
             return JSON.parse(output) as PiCompactionSummary;
           } finally {
             signal?.removeEventListener("abort", onAbort);
-            await fact(
-              state.requestId,
-              "compaction_usage",
-              { purpose: "compaction", invocationId, selectionRef, usage },
-              state.turnId,
-            );
-            state.usage.compaction += usage.totalTokens;
-            if (usage.costEstimate === null) state.usage.costUnknown += 1;
-            else state.usage.compactionCost += usage.costEstimate;
+            if (usageByInvocation.size === 0)
+              usageByInvocation.set(fallbackInvocationId, {
+                usage: unknownPiRuntimeUsage(),
+              });
+            for (const [invocationId, evidence] of usageByInvocation) {
+              const usage = evidence.usage;
+              await fact(
+                state.requestId,
+                "compaction_usage",
+                {
+                  purpose: "compaction",
+                  invocationId,
+                  selectionRef,
+                  usage,
+                  ...(evidence.stopReason
+                    ? { stopReason: evidence.stopReason }
+                    : {}),
+                  ...(evidence.providerTerminal
+                    ? { providerTerminal: evidence.providerTerminal }
+                    : {}),
+                },
+                state.turnId,
+              );
+              state.usage.compaction += usage.totalTokens;
+              if (usage.costEstimate === null) state.usage.costUnknown += 1;
+              else state.usage.compactionCost += usage.costEstimate;
+            }
           }
         },
       },
@@ -1874,6 +1964,7 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
     state: State,
     text?: string,
     startupContinuation = false,
+    startupConsent?: State["restartConsent"],
   ): Promise<ProviderExecutionResult> {
     if (disposed) throw new Error("pi_skill_run_shutdown");
     if (state.outcome) return state.outcome;
@@ -1888,6 +1979,21 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
         // The fresh fold is the authority: a deletion marked after this
         // turn was requested blocks it even if the in-memory state is stale.
         if (fresh.deleting) throw new Error("pi_skill_run_deleting");
+        if (
+          startupContinuation &&
+          startupConsent &&
+          (!fresh.restartConsent ||
+            fresh.restartConsent.taskScope !== startupConsent.taskScope ||
+            fresh.restartConsent.credentialRef !==
+              startupConsent.credentialRef ||
+            fresh.restartConsent.identityRevision !==
+              startupConsent.identityRevision ||
+            getPiCredentialIdentityRevision(
+              startupConsent.credentialRef,
+              "model-provider",
+            ) !== startupConsent.identityRevision)
+        )
+          throw new Error("pi_skill_run_restart_consent_changed");
         // A previously running owner is admitted only through recovery, which
         // has already judged its checkpoint safe. Every other status is busy.
         const admissible = ["queued", "suspended"];
@@ -2031,6 +2137,7 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
       });
       let assistantId = id("assistant");
       let streamingText = "";
+      let assistantMessagePersisted = false;
       // Declared before the turn exists: the Runtime may emit events while the
       // session is still being built, and a temporal dead zone there would drop
       // every canonical fact of the turn.
@@ -2050,6 +2157,7 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
         async prepareInvocation({ invocationId, invocationIndex, signal }) {
           assistantId = id("assistant");
           streamingText = "";
+          assistantMessagePersisted = false;
           return {
             ...(await prepareInvocation(
               state,
@@ -2112,12 +2220,37 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
             );
           } else if (event.kind === "invocation_terminal") {
             openInvocations.delete(event.invocationId);
+            if (
+              event.providerTerminal?.status === "incomplete" &&
+              streamingText &&
+              !assistantMessagePersisted
+            ) {
+              await fact(
+                state.requestId,
+                "message",
+                {
+                  role: "assistant",
+                  text: streamingText,
+                  status: "incomplete-visible",
+                },
+                turnId,
+                assistantId,
+              );
+              assistantMessagePersisted = true;
+              state.counts.assistant++;
+              emit(state.requestId, ["transcript"], {
+                sourceEventSeq: ++state.revision,
+              });
+            }
             await fact(
               state.requestId,
               "model_invocation_terminal",
               {
                 invocationId: event.invocationId,
                 stopReason: event.stopReason,
+                ...(event.providerTerminal
+                  ? { providerTerminal: event.providerTerminal }
+                  : {}),
                 ...(event.usage ? { usage: event.usage, purpose: "main" } : {}),
               },
               turnId,
@@ -2129,6 +2262,7 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
               else state.usage.cost += event.usage.costEstimate;
             }
           } else if (event.kind === "assistant_message") {
+            assistantMessagePersisted = true;
             await fact(
               state.requestId,
               "message",
@@ -2972,6 +3106,127 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
    * owner with a verified safe checkpoint continues, and it continues on the
    * background lane without blocking startup on its execution.
    */
+  async function setTaskRestartConsent(requestId: string, enabled: boolean) {
+    const state = await load(requestId);
+    let binding: State["restartConsent"];
+    if (enabled) {
+      const prepared = state.prepared;
+      const taskSelection: PiSelection | undefined =
+        state.selection ??
+        (state.model
+          ? {
+              configurationId: state.model.configurationId,
+              modelId: state.model.modelId,
+              reasoning: state.model.reasoning,
+            }
+          : state.restoredSelection
+            ? {
+                configurationId: state.restoredSelection.configurationId,
+                modelId: state.restoredSelection.modelId,
+                reasoning: state.restoredSelection.reasoning,
+              }
+            : undefined);
+      if (!prepared?.provenance.snapshotDigest || !taskSelection)
+        throw new Error("pi_skill_run_restart_consent_unavailable");
+      let model: PiModelSelectionSnapshot;
+      try {
+        model = options.resolveModel
+          ? await options.resolveModel(taskSelection)
+          : resolvePiModelSelection({
+              kind: "skillRun",
+              explicit: taskSelection,
+              catalog: await loadPiModelCatalog(),
+              credentials: listPiCredentials(),
+            });
+      } catch {
+        throw new Error("pi_skill_run_restart_consent_unavailable");
+      }
+      const credentialRef = model.credentialRef;
+      const identityRevision = credentialRef
+        ? getPiCredentialIdentityRevision(credentialRef, "model-provider")
+        : null;
+      const registrations = listPiChatGPTRegistrations();
+      if (
+        model.authVariant !== "chatgpt" ||
+        !credentialRef ||
+        !identityRevision ||
+        !registrations.some(
+          (registration) =>
+            registration.id === credentialRef && registration.signedIn,
+        )
+      )
+        throw new Error("pi_skill_run_restart_consent_unavailable");
+      binding = {
+        taskScope: prepared.provenance.snapshotDigest,
+        credentialRef,
+        identityRevision,
+      };
+    }
+    await commitPiOwnerFacts(
+      ref(requestId),
+      (entries) => {
+        const fresh = fold(requestId, entries);
+        if (
+          enabled &&
+          (!binding ||
+            fresh.prepared?.provenance.snapshotDigest !== binding.taskScope ||
+            getPiCredentialIdentityRevision(
+              binding.credentialRef,
+              "model-provider",
+            ) !== binding.identityRevision)
+        )
+          throw new Error("pi_skill_run_restart_consent_changed");
+        return [
+          {
+            entryId: id("restart-consent"),
+            kind: "skill_run_restart_consent",
+            payload: enabled
+              ? { enabled: true, ...binding! }
+              : { enabled: false },
+          },
+        ];
+      },
+      options.root,
+    );
+    states.set(requestId, await load(requestId));
+    emit(requestId, ["details"]);
+  }
+
+  async function startupRestartConsentAllows(
+    state: State,
+    model: PiModelSelectionSnapshot,
+  ): Promise<boolean> {
+    const consent = state.restartConsent;
+    if (!consent || !state.prepared) return false;
+    if (
+      model.authVariant !== "chatgpt" ||
+      model.credentialRef !== consent.credentialRef ||
+      state.prepared.provenance.snapshotDigest !== consent.taskScope ||
+      getPiCredentialIdentityRevision(
+        consent.credentialRef,
+        "model-provider",
+      ) !== consent.identityRevision
+    )
+      return false;
+    const registration = listPiChatGPTRegistrations().find(
+      (item) => item.id === consent.credentialRef && item.signedIn,
+    );
+    if (!registration) return false;
+    const Controller = resolveNativeAbortControllerConstructor();
+    if (!Controller) return false;
+    try {
+      await assertPiChatGPTInferenceAllowed(
+        consent.credentialRef,
+        new Controller().signal,
+        undefined,
+        consent.identityRevision,
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async function reconcile(
     overrides: {
       root?: string;
@@ -3126,11 +3381,39 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
           continue;
         }
         if (lifecycle.closed) break;
+        const restartModel = options.resolveModel
+          ? await options.resolveModel(state.selection)
+          : resolvePiModelSelection({
+              kind: "skillRun",
+              ownerSelection: state.selection,
+              catalog: await loadPiModelCatalog(),
+              credentials: listPiCredentials(),
+            });
+        if (
+          restartModel.authVariant === "chatgpt" &&
+          !(await startupRestartConsentAllows(state, restartModel))
+        ) {
+          await setStatus(
+            state,
+            "suspended",
+            "skill_run_restart_consent_required",
+          );
+          state.canContinueRecovery = !!(await recoveryContinuation(state));
+          summary.retained++;
+          continue;
+        }
         // Safe continuation: the same request identity, its recorded
         // remaining budget and the restored reservation. Startup never waits
         // for it, so a long run does not delay the process.
         state.status = "suspended";
-        void start(state, undefined, true).catch(() => undefined);
+        void start(
+          state,
+          undefined,
+          true,
+          restartModel.authVariant === "chatgpt"
+            ? state.restartConsent
+            : undefined,
+        ).catch(() => undefined);
         summary.continued++;
       } catch {
         summary.holds++;
@@ -3390,6 +3673,7 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
       canContinueRecovery:
         !!state.canContinueRecovery &&
         ["suspended", "recovery_required"].includes(state.status),
+      restartConsentEnabled: !!state.restartConsent,
     };
   }
   async function list() {
@@ -3446,7 +3730,8 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
           itemKind: "message",
           role: payload.role === "user" ? "user" : "assistant",
           text: String(payload.text),
-          status: "complete",
+          status:
+            payload.status === "incomplete-visible" ? "error" : "complete",
         });
       else if (entry.kind === "tool_result")
         items.push({
@@ -3499,6 +3784,7 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
     readPage,
     recover,
     continueRecovery,
+    setTaskRestartConsent,
     restoreReservations,
     reconcile,
     deleteRun: deleteRun as (

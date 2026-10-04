@@ -19,6 +19,16 @@ import { createAssistantMessageCounts } from "./assistant/publication/assistantM
 import { loadPiProviderConfigurationState } from "./piProviderConfiguration";
 import type { AssistantExecutionDisplayMode } from "./assistant/publication/assistantExecutionDisplayPolicy";
 import { getStringOrFallback } from "../utils/locale";
+import { summarizePiUsageForDisplay } from "../shared/piUsageContract";
+
+function usageLabel(
+  summary: ReturnType<typeof summarizePiUsageForDisplay>["main"],
+  empty: string,
+) {
+  if (!summary.hasInvocations) return empty;
+  if (summary.unknownInvocations === 0) return String(summary.knownSubtotal);
+  return summary.knownSubtotal > 0 ? `${summary.knownSubtotal} + ?` : "?";
+}
 
 export const createPiConversationWorkspaceOwner = (
   conversationId: string,
@@ -156,6 +166,17 @@ export function createPiConversationWorkspaceSurfaceAdapter(
     }) {
       const model = await coordinator.readModel(owner.conversationId);
       const busy = model.status === "busy" || model.status === "cancelling";
+      const purposeTotals = model.usage.purposeTotals;
+      const legacyUnknown = model.usage.legacyUnknown === true;
+      const usageSummary = summarizePiUsageForDisplay(purposeTotals, {
+        includeTitle: true,
+        legacyUnknown,
+      });
+      const used =
+        usageSummary.owner.hasInvocations &&
+        usageSummary.owner.unknownInvocations === 0
+          ? usageSummary.owner.knownSubtotal
+          : null;
       const replyable =
         model.lifecycle === "active" &&
         ["idle", "failed"].includes(model.status) &&
@@ -316,25 +337,27 @@ export function createPiConversationWorkspaceSurfaceAdapter(
                   { fieldId: "reasoning", value: model.model.reasoning },
                 ]
               : [],
-            usage: {
-              used:
-                model.usage.main + model.usage.title + model.usage.compaction,
-              limit: model.model?.policy.contextWindow || 0,
-              // A cost the owner could not price is never rendered as free.
-              costText:
-                model.usage.costUnknown > 0
-                  ? null
-                  : model.usage.cost +
-                        model.usage.titleCost +
-                        model.usage.compactionCost >
-                      0
-                    ? `$${(
-                        model.usage.cost +
-                        model.usage.titleCost +
-                        model.usage.compactionCost
-                      ).toFixed(4)}`
-                    : null,
-            },
+            usage:
+              used === null
+                ? null
+                : {
+                    used,
+                    limit: model.model?.policy.contextWindow || 0,
+                    // A cost the owner could not price is never rendered as free.
+                    costText:
+                      model.usage.costUnknown > 0
+                        ? null
+                        : model.usage.cost +
+                              model.usage.titleCost +
+                              model.usage.compactionCost >
+                            0
+                          ? `$${(
+                              model.usage.cost +
+                              model.usage.titleCost +
+                              model.usage.compactionCost
+                            ).toFixed(4)}`
+                          : null,
+                  },
           }),
           "owner-details": () => ({
             status: "ready",
@@ -359,17 +382,17 @@ export function createPiConversationWorkspaceSurfaceAdapter(
                 items: [
                   {
                     fieldId: "usage-main",
-                    value: String(model.usage.main),
+                    value: usageLabel(usageSummary.main, "—"),
                     format: "text",
                   },
                   {
                     fieldId: "usage-title",
-                    value: String(model.usage.title),
+                    value: usageLabel(usageSummary.title, "—"),
                     format: "text",
                   },
                   {
                     fieldId: "usage-compaction",
-                    value: String(model.usage.compaction),
+                    value: usageLabel(usageSummary.compaction, "—"),
                     format: "text",
                   },
                 ],

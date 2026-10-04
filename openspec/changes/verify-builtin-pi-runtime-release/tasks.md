@@ -12,6 +12,7 @@
 - [ ] 2.2 Add five production Pi behavior groups and installed XPI Conversation/Auto chains with actual restart and unknown no-replay; verify real-host full runs.
 - [ ] 2.3 Build fixed dev v0.9.0 baseline, seed legacy configuration/history through that installed plugin and verify candidate upgrade preservation; retain digest-bound receipts.
 - [ ] 2.4 Include Change B's independent directory in the same installed candidate: actual-host official HTTP, fixed-runtime directory A-to-B, binding/unknown capability preservation, frozen turn/preparation metadata and main/compaction/title usage completeness. Local directed core evidence does not replace the six-host installed XPI matrix or upgrade receipts.
+- [ ] 2.5 Include Change C's ChatGPT replacement in the same candidate: real browser authorization, official account discovery, text and function-result continuation, actual completed/usage and native search/citations. Collect a separate synthetic old-development Codex cleanup upgrade sample preserving unrelated configuration/default/history; retain the fixed v0.9.0 baseline installation chain and six-host matrix.
 
 ## 3. Size and performance
 

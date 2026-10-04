@@ -190,6 +190,8 @@ export const ASSISTANT_WORKSPACE_SOURCE_REGISTRY = {
       "export-diagnostics",
       "check-owner-recovery",
       "continue-owner-recovery",
+      "enable-pi-skill-run-restart",
+      "disable-pi-skill-run-restart",
     ],
     canCreateOwner: false,
     navigable: true,

@@ -257,10 +257,15 @@ describe("Pi Skill Run integration", function () {
   });
 
   it("binds a workspace at admission so a preparation failure still has one", async function () {
+    let modelResolutions = 0;
     const coordinator = createPiSkillRunCoordinator({
       root,
       prepare: async () => {
         throw new Error("private setup details");
+      },
+      resolveModel: async () => {
+        modelResolutions++;
+        throw new Error("provider selection is unavailable");
       },
       execution: () => {
         throw new Error("must not dispatch");
@@ -268,6 +273,21 @@ describe("Pi Skill Run integration", function () {
     });
     const result = await coordinator.execute(request());
     assert.equal(result.status, "failed");
+    assert.isFalse(
+      (await coordinator.readModel(result.requestId)).restartConsentEnabled,
+    );
+    try {
+      await coordinator.setTaskRestartConsent(result.requestId, true);
+      assert.fail(
+        "API key or no-auth owner cannot receive ChatGPT restart consent",
+      );
+    } catch (error) {
+      assert.equal(
+        error instanceof Error ? error.message : undefined,
+        "pi_skill_run_restart_consent_unavailable",
+      );
+    }
+    assert.equal(modelResolutions, 0);
     const entries = (
       await inspectPiOwner(
         { kind: "skill_run", ownerId: result.requestId },
@@ -338,6 +358,195 @@ describe("Pi Skill Run integration", function () {
       before.length,
       "no audit write may outlive dispose",
     );
+  });
+
+  it("persists provider incomplete text as visible history on a failed run", async function () {
+    const base = createPiTextProviderSource({
+      steps: [{ text: "unfinished response" }],
+    });
+    const coordinator = createPiSkillRunCoordinator({
+      root,
+      prepare,
+      resolveModel: async () => model,
+      definitions: async () => [],
+      execution: () => ({
+        model: base.model,
+        source: async (request) => {
+          const stream = createAssistantMessageEventStream();
+          request.onProviderTerminal?.({
+            status: "incomplete",
+            reason: "max_output_tokens",
+          });
+          for await (const event of await base.source(request))
+            if (event.type === "done")
+              stream.push({
+                type: "error",
+                reason: "error",
+                error: {
+                  ...event.message,
+                  stopReason: "error",
+                  errorMessage: "provider_stream_error",
+                },
+              });
+            else stream.push(event);
+          return stream;
+        },
+      }),
+    });
+
+    const result = await coordinator.execute(request());
+    assert.equal(result.status, "failed");
+    const entries = (
+      await inspectPiOwner(
+        { kind: "skill_run", ownerId: result.requestId },
+        root,
+      )
+    ).entries;
+    const incomplete = entries.find(
+      (entry) =>
+        entry.kind === "message" &&
+        (entry.payload as { status?: string }).status === "incomplete-visible",
+    );
+    assert.equal(
+      (incomplete?.payload as { text?: string } | undefined)?.text,
+      "unfinished response",
+    );
+  });
+
+  it("restores field-level usage presence by purpose without repricing history", async function () {
+    const coordinator = createPiSkillRunCoordinator({
+      root,
+      prepare: async () => {
+        throw new Error("preparation failed");
+      },
+      execution: () => {
+        throw new Error("must not dispatch");
+      },
+    });
+    const result = await coordinator.execute(request());
+    const owner = { kind: "skill_run" as const, ownerId: result.requestId };
+    const measured = {
+      input: 0,
+      output: 10,
+      totalTokens: 10,
+      usageKnown: true,
+      completeness: "partial",
+      measurement: { inputTokens: 0, totalTokens: 10 },
+      costEstimate: null,
+      costState: "unknown",
+    };
+    for (const entryId of ["measured-a", "measured-b"])
+      await appendPiOwnerFact(
+        owner,
+        {
+          entryId,
+          kind: "message",
+          payload: {
+            role: "assistant",
+            invocationId: "measured-invocation",
+            usage: measured,
+          },
+        },
+        root,
+      );
+    await appendPiOwnerFact(
+      owner,
+      {
+        entryId: "legacy-invocation",
+        kind: "message",
+        payload: {
+          role: "assistant",
+          invocationId: "legacy-invocation",
+          usage: { input: 4, output: 0, totalTokens: 4, usageKnown: true },
+        },
+      },
+      root,
+    );
+    await appendPiOwnerFact(
+      owner,
+      {
+        entryId: "title-invocation",
+        kind: "title_usage",
+        payload: {
+          invocationId: "title-invocation",
+          measurement: { outputTokens: 0 },
+          completeness: "complete",
+          usageKnown: true,
+          outputTokens: 0,
+          costEstimate: 0,
+          costState: "free",
+        },
+      },
+      root,
+    );
+    await appendPiOwnerFact(
+      owner,
+      {
+        entryId: "compaction-invocation",
+        kind: "compaction_usage",
+        payload: {
+          invocationId: "compaction-invocation",
+          usage: {
+            input: 0,
+            output: 0,
+            totalTokens: 0,
+            usageKnown: false,
+            completeness: "unknown",
+          },
+        },
+      },
+      root,
+    );
+    for (const entryId of ["compaction-partial-a", "compaction-partial-b"])
+      await appendPiOwnerFact(
+        owner,
+        {
+          entryId,
+          kind: "compaction_usage",
+          payload: {
+            invocationId: "compaction-partial",
+            usage: {
+              input: 7,
+              output: 0,
+              totalTokens: 7,
+              usageKnown: true,
+              completeness: "partial",
+              measurement: { inputTokens: 7 },
+            },
+          },
+        },
+        root,
+      );
+    await coordinator.dispose();
+
+    const restoredCoordinator = createPiSkillRunCoordinator({ root });
+    const restored = await restoredCoordinator.readModel(result.requestId);
+    assert.equal(restored.usage.main, 14);
+    assert.deepEqual(restored.usage.purposeTotals.main.measurement, {
+      inputTokens: 0,
+      totalTokens: 10,
+    });
+    assert.equal(restored.usage.purposeTotals.main.unreported.totalTokens, 1);
+    assert.equal(restored.usage.purposeTotals.main.invocations, 2);
+    assert.deepEqual(restored.usage.purposeTotals.title.measurement, {
+      outputTokens: 0,
+    });
+    assert.equal(restored.usage.purposeTotals.title.invocations, 1);
+    assert.equal(restored.usage.purposeTotals.compaction.invocations, 2);
+    assert.equal(
+      restored.usage.purposeTotals.compaction.measurement.inputTokens,
+      7,
+    );
+    assert.equal(
+      restored.usage.purposeTotals.compaction.unreported.totalTokens,
+      2,
+    );
+    assert.equal(
+      restored.usage.purposeTotals.compaction.completeness,
+      "partial",
+    );
+    assert.equal(restored.usage.compaction, 7);
+    await restoredCoordinator.dispose();
   });
 
   it("keeps interaction boundaries out of the store until Diagnostic Mode", async function () {

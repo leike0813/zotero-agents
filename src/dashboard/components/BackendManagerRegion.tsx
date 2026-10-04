@@ -162,14 +162,12 @@ export type BackendManagerBodySelection = {
   labels: BackendManagerLabels;
   rows: BackendManagerBodyRowEntry[];
   builtinAgent?: BackendManagerBuiltinAgentSnapshot;
-  codexAuth?: PiCodexAuthProgress | null;
+  chatgptAuth?: PiChatGPTAuthProgress | null;
 };
 
-export type PiCodexAuthProgress = {
+export type PiChatGPTAuthProgress = {
   requestId: string;
-  stage: "pending" | "code";
-  verificationUrl?: string;
-  userCode?: string;
+  status: "waiting_browser" | "exchanging" | "validating";
 };
 
 export type BackendManagerFooterSelection = {
@@ -255,15 +253,19 @@ export type BackendManagerRegionHandlers = {
   restorePiPreviousCatalog(): void;
   removePiCatalogOverlay(): void;
   queryPiCatalog(provider: string, query: string, credentialId?: string): void;
-  refreshPiCodexModels(configurationId: string): void;
+  refreshPiChatGPTModels(configurationId: string, registrationId: string): void;
   putPiCredential(input: { id: string; label: string; secret: string }): void;
   deletePiCredential(id: string): void;
   testPiConnection(configurationId: string): void;
   exportPiDiagnostics(): void;
-  connectPiCodex(configurationId: string, credentialId?: string): void;
-  cancelPiCodex(): void;
-  openPiCodexVerification(): void;
-  disconnectPiCodex(credentialId: string): void;
+  connectPiChatGPT(
+    configurationId: string,
+    registrationId?: string,
+    reconsent?: boolean,
+  ): void;
+  cancelPiChatGPT(requestId: string): void;
+  signOutPiChatGPT(registrationId: string, remove?: boolean): void;
+  acceptPiChatGPTWelcome(registrationId: string): void;
   upsertMcpSource(
     source: import("../../shared/piMcpSourceContract").PiMcpSource,
   ): void;
@@ -800,6 +802,7 @@ function BackendChoice(props: {
   piField?: string;
   mcpField?: string;
   webField?: string;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const selected = props.options.find((option) => option.value === props.value);
@@ -816,6 +819,7 @@ function BackendChoice(props: {
         data-pi-field={props.piField}
         data-mcp-field={props.mcpField}
         data-web-field={props.webField}
+        disabled={props.disabled}
         aria-label={`${props.label}: ${selected?.label || ""}`}
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
@@ -1314,15 +1318,42 @@ function PiConfigurationPanel(props: {
   value: BackendManagerBuiltinAgentSnapshot;
   labels: BackendManagerLabels;
   handlers: BackendManagerRegionHandlers;
-  codexAuth?: PiCodexAuthProgress | null;
+  chatgptAuth?: PiChatGPTAuthProgress | null;
 }) {
-  const { value, labels, handlers, codexAuth } = props;
+  const { value, labels, handlers, chatgptAuth } = props;
+  const chatgptRegistrations = value.chatgptRegistrations || [];
+  const selectableChatGPTRegistrations = chatgptRegistrations.filter(
+    (registration) =>
+      !value.credentials.some(
+        (credential) =>
+          credential.id === registration.id && credential.kind !== "chatgpt",
+      ),
+  );
   const [draft, setDraft] = useState<PiProviderConfiguration>({
     ...EMPTY_PI_CONFIGURATION,
   });
+  const selectedChatGPTRegistrationId =
+    draft.authVariant === "chatgpt" &&
+    selectableChatGPTRegistrations.some(
+      (registration) => registration.id === draft.credentialRef,
+    )
+      ? draft.credentialRef
+      : undefined;
   useLayoutEffect(() => {
-    handlers.queryPiCatalog(draft.provider, "", draft.credentialRef);
-  }, [draft.provider, draft.credentialRef, value.catalog.revision]);
+    handlers.queryPiCatalog(
+      draft.provider,
+      "",
+      draft.authVariant === "chatgpt"
+        ? selectedChatGPTRegistrationId
+        : draft.credentialRef,
+    );
+  }, [
+    draft.provider,
+    draft.authVariant,
+    draft.credentialRef,
+    selectedChatGPTRegistrationId,
+    value.catalog.revision,
+  ]);
   const [defaults, setDefaults] = useState<PiProviderDefaults>(value.defaults);
   const [overlayPath, setOverlayPath] = useState(value.overlayPath);
   const [credentialLabel, setCredentialLabel] = useState("");
@@ -1360,7 +1391,17 @@ function PiConfigurationPanel(props: {
     ),
   };
   const update = (patch: Partial<PiProviderConfiguration>) =>
-    setDraft((current) => ({ ...current, ...patch }));
+    setDraft((current) => {
+      const next = { ...current, ...patch };
+      return next.authVariant === "chatgpt"
+        ? {
+            ...next,
+            provider: "openai",
+            api: "openai-responses",
+            baseUrl: undefined,
+          }
+        : next;
+    });
   const field = (
     key: keyof PiProviderConfiguration,
     label: string,
@@ -1433,8 +1474,8 @@ function PiConfigurationPanel(props: {
           type="button"
           class="backend-button"
           data-pi-action="add"
+          disabled={!!chatgptAuth}
           onClick={() => {
-            if (codexAuth) handlers.cancelPiCodex();
             setDraft({ ...EMPTY_PI_CONFIGURATION });
           }}
         >
@@ -1487,9 +1528,9 @@ function PiConfigurationPanel(props: {
           <BackendChoice
             label={labelText(labels, "piConfigurations", "Configurations")}
             piField="configuration"
+            disabled={!!chatgptAuth}
             value={draft.id}
             onChange={(id) => {
-              if (id !== draft.id && codexAuth) handlers.cancelPiCodex();
               setDraft(
                 value.configurations.find((entry) => entry.id === id) || {
                   ...EMPTY_PI_CONFIGURATION,
@@ -1535,6 +1576,7 @@ function PiConfigurationPanel(props: {
           <BackendChoice
             label={labelText(labels, "piAuth", "Authentication")}
             piField="authentication"
+            disabled={!!chatgptAuth}
             value={draft.authVariant}
             onChange={(authVariant) =>
               update({
@@ -1545,7 +1587,7 @@ function PiConfigurationPanel(props: {
             }
             options={[
               { value: "api-key", label: "API key" },
-              { value: "openai-codex", label: "OpenAI Codex" },
+              { value: "chatgpt", label: "ChatGPT" },
               { value: "none", label: labelText(labels, "authNone", "None") },
             ]}
           />
@@ -1554,19 +1596,48 @@ function PiConfigurationPanel(props: {
           <span>{labelText(labels, "piCredential", "Credential")}</span>
           <BackendChoice
             label={labelText(labels, "piCredential", "Credential")}
-            value={draft.credentialRef || ""}
-            onChange={(credentialRef) => update({ credentialRef })}
+            piField="credential"
+            disabled={!!chatgptAuth}
+            value={
+              draft.authVariant === "chatgpt"
+                ? selectedChatGPTRegistrationId || ""
+                : draft.credentialRef || ""
+            }
+            onChange={(credentialRef) => {
+              update({ credentialRef });
+              if (
+                draft.authVariant === "chatgpt" &&
+                draft.id &&
+                credentialRef
+              ) {
+                handlers.refreshPiChatGPTModels(draft.id, credentialRef);
+              }
+            }}
             options={[
               {
                 value: "",
-                label: labelText(labels, "piNoCredential", "No credential"),
+                label:
+                  draft.authVariant === "chatgpt"
+                    ? labelText(
+                        labels,
+                        "piChatGPTNewRegistration",
+                        "New ChatGPT registration",
+                      )
+                    : labelText(labels, "piNoCredential", "No credential"),
               },
-              ...value.credentials
-                .filter((entry) => entry.kind === draft.authVariant)
-                .map((entry) => ({
-                  value: entry.id,
-                  label: `${entry.label} (${entry.masked})`,
-                })),
+              ...(draft.authVariant === "chatgpt"
+                ? selectableChatGPTRegistrations.map((entry) => ({
+                    value: entry.id,
+                    label: entry.email
+                      ? `${entry.label} (${entry.email})`
+                      : entry.label,
+                  }))
+                : value.credentials
+                    .filter((entry) => entry.kind === draft.authVariant)
+                    .map((entry) => ({
+                      value: entry.id,
+                      label: `${entry.label} (${entry.masked})`,
+                    }))),
             ]}
           />
         </div>
@@ -1662,13 +1733,15 @@ function PiConfigurationPanel(props: {
           </button>
         ) : null}
         {draft.id &&
-        draft.authVariant === "openai-codex" &&
-        draft.credentialRef ? (
+        draft.authVariant === "chatgpt" &&
+        selectedChatGPTRegistrationId ? (
           <button
             type="button"
             class="backend-button"
-            data-pi-action="codex-refresh-models"
-            onClick={() => handlers.refreshPiCodexModels(draft.id)}
+            data-pi-action="chatgpt-refresh-models"
+            onClick={() =>
+              handlers.refreshPiChatGPTModels(draft.id, draft.credentialRef!)
+            }
           >
             {labelText(labels, "refreshModelCache", "Refresh models")}
           </button>
@@ -1702,49 +1775,152 @@ function PiConfigurationPanel(props: {
       </section>
       <section class="backend-pi-credentials">
         <h3>{labelText(labels, "piCredentials", "Saved credentials")}</h3>
-        {draft.authVariant === "openai-codex" && draft.id ? (
-          <div class="backend-pi-codex-auth">
+        {draft.authVariant === "chatgpt" && draft.id ? (
+          <div class="backend-pi-chatgpt-auth">
+            <p>
+              {labelText(
+                labels,
+                "piChatGPTPrivacy",
+                "Before continuing, ChatGPT will receive the account and permission details shown by its sign-in page.",
+              )}
+            </p>
             <button
               type="button"
               class="backend-button"
-              data-pi-action="codex-connect"
-              disabled={!!codexAuth}
+              data-pi-action="chatgpt-connect"
+              disabled={!!chatgptAuth}
               onClick={() =>
-                handlers.connectPiCodex(draft.id, draft.credentialRef)
+                handlers.connectPiChatGPT(
+                  draft.id,
+                  selectedChatGPTRegistrationId,
+                )
               }
             >
-              {labelText(
-                labels,
-                draft.credentialRef ? "piCodexReconnect" : "piCodexConnect",
-                draft.credentialRef
-                  ? "Reconnect OpenAI Codex"
-                  : "Connect OpenAI Codex",
-              )}
+              {labelText(labels, "piChatGPTConnect", "Continue with ChatGPT")}
             </button>
-            {codexAuth ? (
+            {chatgptAuth ? (
+              <p role="status" data-chatgpt-request={chatgptAuth.requestId}>
+                {labelText(
+                  labels,
+                  `piChatGPTProgress${chatgptAuth.status}`,
+                  "Waiting for ChatGPT sign-in",
+                )}
+              </p>
+            ) : null}
+            {chatgptAuth ? (
               <button
                 type="button"
                 class="backend-button"
-                data-pi-action="codex-cancel"
-                onClick={() => handlers.cancelPiCodex()}
+                data-pi-action="chatgpt-cancel"
+                onClick={() => handlers.cancelPiChatGPT(chatgptAuth.requestId)}
               >
-                {labelText(labels, "piCodexCancel", "Cancel sign-in")}
+                {labelText(labels, "piChatGPTCancel", "Cancel sign-in")}
               </button>
             ) : null}
-            {codexAuth?.stage === "code" ? (
-              <p role="status" class="backend-pi-codex-code">
+            <a
+              href="https://chatgpt.com/settings/usage"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {labelText(labels, "piChatGPTManageUsage", "Manage Usage")}
+            </a>
+            {chatgptRegistrations.map((registration) => (
+              <div
+                class="backend-pi-chatgpt-registration"
+                key={registration.id}
+              >
+                <span>
+                  {registration.label}
+                  {registration.email ? ` (${registration.email})` : ""}
+                </span>
+                <span role="status">
+                  {labelText(
+                    labels,
+                    registration.paused
+                      ? "piChatGPTPaused"
+                      : registration.planEnabled
+                        ? "piChatGPTPlanEnabled"
+                        : "piChatGPTPlanUnavailable",
+                    registration.paused
+                      ? "Usage paused"
+                      : registration.planEnabled
+                        ? "Using ChatGPT plan"
+                        : "ChatGPT plan access unavailable",
+                  )}
+                </span>
+                {!registration.signedIn ? (
+                  <span role="status">
+                    {labelText(labels, "piChatGPTSignedOut", "Signed out")}
+                  </span>
+                ) : null}
+                {registration.signedIn && !registration.welcomeAccepted ? (
+                  <>
+                    <p>
+                      {labelText(
+                        labels,
+                        "piChatGPTWelcome",
+                        "ChatGPT plan access is used only when you run a model request. You can sign out or remove this registration at any time.",
+                      )}
+                    </p>
+                    <button
+                      type="button"
+                      class="backend-button"
+                      data-pi-action="chatgpt-accept-welcome"
+                      disabled={!!chatgptAuth}
+                      onClick={() =>
+                        handlers.acceptPiChatGPTWelcome(registration.id)
+                      }
+                    >
+                      {labelText(
+                        labels,
+                        "piChatGPTWelcomeAccept",
+                        "I understand",
+                      )}
+                    </button>
+                  </>
+                ) : null}
+                {registration.signedIn &&
+                registration.reauthorizationRequired ? (
+                  <button
+                    type="button"
+                    class="backend-button"
+                    data-pi-action="chatgpt-reconsent"
+                    disabled={!!chatgptAuth}
+                    onClick={() =>
+                      handlers.connectPiChatGPT(draft.id, registration.id, true)
+                    }
+                  >
+                    {labelText(
+                      labels,
+                      "piChatGPTReconsent",
+                      "Review permissions",
+                    )}
+                  </button>
+                ) : null}
+                {registration.signedIn ? (
+                  <button
+                    type="button"
+                    class="backend-button"
+                    data-pi-action="chatgpt-sign-out"
+                    disabled={!!chatgptAuth}
+                    onClick={() => handlers.signOutPiChatGPT(registration.id)}
+                  >
+                    {labelText(labels, "piChatGPTSignOut", "Sign out")}
+                  </button>
+                ) : null}
                 <button
                   type="button"
-                  class="backend-button"
-                  data-pi-action="codex-open-verification"
-                  onClick={() => handlers.openPiCodexVerification()}
+                  class="backend-button danger"
+                  data-pi-action="chatgpt-remove"
+                  disabled={!!chatgptAuth}
+                  onClick={() =>
+                    handlers.signOutPiChatGPT(registration.id, true)
+                  }
                 >
-                  {labelText(labels, "piCodexOpen", "Open verification page")}
+                  {labelText(labels, "piChatGPTRemove", "Remove")}
                 </button>
-                <span>{codexAuth.verificationUrl}</span>
-                <strong>{codexAuth.userCode}</strong>
-              </p>
-            ) : null}
+              </div>
+            ))}
           </div>
         ) : null}
         {draft.authVariant === "api-key" ? (
@@ -1796,30 +1972,14 @@ function PiConfigurationPanel(props: {
             <span>
               {entry.label} ({entry.masked})
             </span>
-            {entry.kind === "api-key" || entry.kind === "openai-codex" ? (
+            {entry.kind === "api-key" ? (
               <button
                 type="button"
                 class="backend-button danger"
-                data-pi-action={
-                  entry.kind === "openai-codex"
-                    ? "codex-disconnect"
-                    : "credential-clear"
-                }
-                onClick={() =>
-                  entry.kind === "openai-codex"
-                    ? handlers.disconnectPiCodex(entry.id)
-                    : handlers.deletePiCredential(entry.id)
-                }
+                data-pi-action="credential-clear"
+                onClick={() => handlers.deletePiCredential(entry.id)}
               >
-                {labelText(
-                  labels,
-                  entry.kind === "openai-codex"
-                    ? "piCodexDisconnect"
-                    : "piClearCredential",
-                  entry.kind === "openai-codex"
-                    ? "Disconnect locally"
-                    : "Clear",
-                )}
+                {labelText(labels, "piClearCredential", "Clear")}
               </button>
             ) : null}
           </div>
@@ -2373,7 +2533,7 @@ export const BackendManagerBodyRegion = memo(function BackendManagerBodyRegion(
           value={selection.builtinAgent}
           labels={labels}
           handlers={handlers}
-          codexAuth={selection.codexAuth}
+          chatgptAuth={selection.chatgptAuth}
         />
       ) : (
         <section class="backend-provider-section">

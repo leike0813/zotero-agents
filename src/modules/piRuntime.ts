@@ -44,6 +44,8 @@ import {
   hasPiReportedUsage,
   estimatePiInvocationCost,
   readPiFrozenPricing,
+  type PiUsageCompleteness,
+  type PiUsageMeasurement,
   type PiCostState,
 } from "../shared/piUsageContract";
 import type { PiModelCost } from "../shared/piProviderContract";
@@ -58,6 +60,11 @@ export type PiModelFailureCode =
   | "provider_network_error"
   | "provider_http_error"
   | "provider_stream_error"
+  | "provider_response_incomplete"
+  | "provider_response_failed"
+  | "provider_terminal_missing"
+  | "provider_plan_quota_exceeded"
+  | "provider_chatgpt_auth_failed"
   | "provider_timeout"
   | "aborted";
 
@@ -71,6 +78,9 @@ const KNOWN_FAILURE_CODES = new Set<string>([
   "provider_network_error",
   "provider_http_error",
   "provider_stream_error",
+  "provider_response_incomplete",
+  "provider_response_failed",
+  "provider_terminal_missing",
   "provider_timeout",
   "preparation_failed",
   "agent_loop_limit_exceeded",
@@ -78,7 +88,10 @@ const KNOWN_FAILURE_CODES = new Set<string>([
 ]);
 
 export class PiModelStreamFailure extends Error {
-  constructor(readonly code: PiModelFailureCode) {
+  constructor(
+    readonly code: PiModelFailureCode,
+    readonly unsupportedParameter?: string,
+  ) {
     super(code);
     this.name = "PiModelStreamFailure";
   }
@@ -113,6 +126,9 @@ export type PiRuntimeUsage = {
   costState: PiCostState;
   /** Whether the provider actually reported token facts for this invocation. */
   usageKnown: boolean;
+  completeness: PiUsageCompleteness;
+  /** Actual provider-reported fields; missing keys are not measured as zero. */
+  measurement?: PiUsageMeasurement;
   cost: {
     input: number;
     output: number;
@@ -289,7 +305,34 @@ export type PiRuntimeProviderRequest = {
   model: Model<string>;
   context: TranscriptContext;
   signal: AbortSignal;
+  /** Safe terminal evidence from a provider that observes native protocol events. */
+  onProviderTerminal?: (terminal: PiProviderTerminal) => void;
+  /** Opens a distinct canonical invocation before an eligible physical retry. */
+  onProviderRetry?: (input: {
+    terminal: PiProviderTerminal;
+    usage: Usage;
+    usageCompleteness: PiUsageCompleteness;
+    usageMeasurement?: PiUsageMeasurement;
+  }) => Promise<boolean>;
 };
+export type PiProviderTerminal =
+  | { status: "completed"; responseId?: string }
+  | {
+      status: "incomplete";
+      responseId?: string;
+      reason?: "max_output_tokens" | "content_filter" | "other";
+    }
+  | {
+      status: "failed";
+      responseId?: string;
+      requestId?: string;
+      httpStatus?: number;
+      code: PiModelFailureCode;
+      unsupportedParameter?: string;
+    }
+  | { status: "missing"; code: "provider_terminal_missing" }
+  | { status: "aborted"; code: "aborted" }
+  | { status: "timeout"; code: "provider_timeout" };
 /**
  * Conservative evidence that a reported usage is a real measurement. The SDK
  * cannot tell a genuinely all-zero invocation from an absent one, so a source
@@ -306,6 +349,11 @@ export type PiRuntimeProviderSource = {
    * every invocation stays unknown rather than being presented as free.
    */
   usageKnown?: PiRuntimeUsageEvidence;
+  /** Distinguishes complete, partial, and absent provider measurements. */
+  usageCompleteness?: (message: AssistantMessage) => PiUsageCompleteness;
+  usageMeasurement?: (
+    message: AssistantMessage,
+  ) => PiUsageMeasurement | undefined;
 };
 
 export type PiTurnFailureCode =
@@ -360,6 +408,7 @@ export type PiRuntimeEvent = {
       invocationId: string;
       stopReason: PiRuntimeStopReason;
       usage?: PiRuntimeUsage;
+      providerTerminal?: PiProviderTerminal;
     }
   | { kind: "terminal"; result: PiTurnResult }
 );
@@ -393,6 +442,7 @@ type PiRuntimeEventPayload =
       invocationId: string;
       stopReason: PiRuntimeStopReason;
       usage?: PiRuntimeUsage;
+      providerTerminal?: PiProviderTerminal;
     }
   | { kind: "terminal"; result: PiTurnResult };
 
@@ -535,7 +585,12 @@ function failureStream(
  */
 function normalizeUsage(
   usage: Usage,
-  basis: { pricing?: PiModelCost | null; usageKnown: boolean },
+  basis: {
+    pricing?: PiModelCost | null;
+    usageKnown: boolean;
+    completeness?: PiUsageCompleteness;
+    measurement?: PiUsageMeasurement;
+  },
 ): PiRuntimeUsage {
   const cost = estimatePiInvocationCost({
     tokens: {
@@ -563,6 +618,9 @@ function normalizeUsage(
     costEstimate: cost.estimate,
     costState: cost.state,
     usageKnown: basis.usageKnown,
+    completeness:
+      basis.completeness ?? (basis.usageKnown ? "complete" : "unknown"),
+    ...(basis.measurement ? { measurement: { ...basis.measurement } } : {}),
     cost: {
       input: usage.cost.input,
       output: usage.cost.output,
@@ -1092,6 +1150,18 @@ export class PiRuntime {
           : source?.usageKnown
             ? source.usageKnown(message.usage)
             : !!source && hasPiReportedUsage(message.usage)) === true,
+      completeness: (message: AssistantMessage): PiUsageCompleteness =>
+        source?.usageCompleteness?.(message) ??
+        (("usageKnown" in options && options.usageKnown
+          ? options.usageKnown(message)
+          : source?.usageKnown
+            ? source.usageKnown(message.usage)
+            : !!source && hasPiReportedUsage(message.usage)) === true
+          ? "complete"
+          : "unknown"),
+      measurement: (
+        message: AssistantMessage,
+      ): PiUsageMeasurement | undefined => source?.usageMeasurement?.(message),
     };
     const agentSource: PiRuntimeProviderSource | undefined = source
       ? source
@@ -1273,6 +1343,7 @@ export class PiRuntime {
       const loopGuard = createPiRuntimeLoopGuard(input.loopGuard);
       let invocationCount = 0;
       let invocationId = "";
+      let providerTerminal: PiProviderTerminal | undefined;
       let finalText = "";
       let batchAssistant: AssistantMessage | undefined;
       let batchCalls: PiRuntimeToolCall[] = [];
@@ -1469,6 +1540,7 @@ export class PiRuntime {
         invocationIndexValue = index;
         invocationStarted = false;
         invocationSettled = false;
+        providerTerminal = undefined;
         invocationSuppressed = false;
         prepareFailed = false;
         guardBlocked = false;
@@ -1573,6 +1645,10 @@ export class PiRuntime {
           const expire = () => {
             if (terminal) return;
             failure = "provider_timeout";
+            providerTerminal = {
+              status: "timeout",
+              code: "provider_timeout",
+            };
             suppressing = true;
             forwarded.push({
               type: "error",
@@ -1606,7 +1682,6 @@ export class PiRuntime {
             limits?.hardMs ?? PI_PROVIDER_HARD_LIMIT_MS,
           );
           const physical = (async () => {
-            const physicalInvocationId = invocationId;
             try {
               const provider = await agentSource!({
                 sessionId,
@@ -1615,6 +1690,83 @@ export class PiRuntime {
                 model: streamModel,
                 context,
                 signal,
+                onProviderTerminal: (terminalEvidence) => {
+                  providerTerminal = terminalEvidence;
+                },
+                onProviderRetry: async ({
+                  terminal: priorTerminal,
+                  usage: priorUsage,
+                  usageCompleteness,
+                  usageMeasurement,
+                }) => {
+                  if (signal.aborted || terminal || invocationSettled)
+                    return false;
+                  try {
+                    await loopGuard.commitInvocation();
+                  } catch {
+                    failure = "agent_loop_limit_exceeded";
+                    return false;
+                  }
+                  const priorId = invocationId;
+                  invocationSettled = true;
+                  await emit({
+                    kind: "invocation_terminal",
+                    invocationId: priorId,
+                    stopReason: "error",
+                    usage: normalizeUsage(priorUsage, {
+                      pricing: usageBasis.pricing,
+                      usageKnown: usageCompleteness !== "unknown",
+                      completeness: usageCompleteness,
+                      measurement: usageMeasurement,
+                    }),
+                    providerTerminal: priorTerminal,
+                  });
+                  auditRecord({
+                    operation: "model.invocation_terminal",
+                    origin: "provider",
+                    correlation: {
+                      sessionId,
+                      turnId: input.turnId,
+                      invocationId: priorId,
+                    },
+                    attributes: {
+                      reason: "error",
+                      retry: invocationCount,
+                    },
+                  });
+                  if (input.onInvocationSettled)
+                    await Promise.resolve(
+                      input.onInvocationSettled({
+                        turnId: input.turnId,
+                        invocationId: priorId,
+                      }),
+                    );
+                  const nextIndex = invocationCount++;
+                  invocationIndexValue = nextIndex;
+                  invocationId = input.turnId + ":invocation:" + nextIndex;
+                  providerTerminal = undefined;
+                  invocationStarted = true;
+                  invocationSettled = false;
+                  await emit({
+                    kind: "invocation_started",
+                    invocationId,
+                    invocationIndex: nextIndex,
+                  });
+                  auditRecord({
+                    operation: "model.invocation_started",
+                    origin: "provider",
+                    correlation: {
+                      sessionId,
+                      turnId: input.turnId,
+                      invocationId,
+                    },
+                    attributes: {
+                      count: nextIndex + 1,
+                      retry: nextIndex,
+                    },
+                  });
+                  return true;
+                },
               });
               for await (const event of provider) {
                 if (terminal || signal.aborted) continue;
@@ -1648,7 +1800,7 @@ export class PiRuntime {
                 await Promise.resolve(
                   input.onInvocationSettled({
                     turnId: input.turnId,
-                    invocationId: physicalInvocationId,
+                    invocationId,
                   }),
                 );
             }
@@ -1729,6 +1881,8 @@ export class PiRuntime {
           const usage = normalizeUsage(message.usage, {
             pricing: usageBasis.pricing,
             usageKnown: usageBasis.usageKnown(message),
+            completeness: usageBasis.completeness(message),
+            measurement: usageBasis.measurement(message),
           });
           if (
             message.stopReason !== "error" &&
@@ -1753,6 +1907,7 @@ export class PiRuntime {
               message.stopReason === "aborted"
                 ? { usage }
                 : {}),
+              ...(providerTerminal ? { providerTerminal } : {}),
             });
             auditRecord({
               operation: "model.invocation_terminal",
@@ -1801,6 +1956,7 @@ export class PiRuntime {
               pricing: usageBasis.pricing,
               usageKnown: false,
             }),
+            ...(providerTerminal ? { providerTerminal } : {}),
           });
           auditRecord({
             operation: "model.invocation_terminal",

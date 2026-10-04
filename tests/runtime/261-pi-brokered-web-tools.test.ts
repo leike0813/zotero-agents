@@ -2,12 +2,103 @@ import { assert } from "chai";
 import { getPref, setPref } from "../../src/utils/prefs";
 import { createPiBrokeredWebTools } from "../../src/modules/piBrokeredWebTools";
 import { upsertPiProviderConfiguration } from "../../src/modules/piProviderConfiguration";
+import {
+  getPiCredentialIdentityRevision,
+  putPiCredential,
+} from "../../src/modules/piCredentialStore";
+import type { PiModelSelectionSnapshot } from "../../src/shared/piProviderContract";
 import { JSDOM } from "jsdom";
 import { freezePiToolGatewayTurn } from "../../src/modules/piToolGateway";
 import {
   installRuntimeBridgeOverrideForTests,
   resetRuntimeBridgeOverrideForTests,
 } from "../../src/utils/runtimeBridge";
+
+function chatGPTSelection(
+  configurationId: string,
+  credentialRef: string,
+  modelId: string,
+  contextWindow = 32768,
+): PiModelSelectionSnapshot {
+  return {
+    configurationId,
+    provider: "openai",
+    modelId,
+    authVariant: "chatgpt",
+    credentialRef,
+    api: "openai-responses",
+    baseUrl: "https://api.openai.com/v1",
+    reasoning: "off",
+    catalogRevision: "fixture-chatgpt-catalog",
+    adapterVersion: "0.84.4",
+    runtimeVersion: "0.84.4",
+    requiresLocalNetwork: false,
+    metadata: { authVariants: ["chatgpt"] },
+    policy: {
+      contextWindow,
+      maxTokens: 0,
+      input: ["text"],
+      supportsTools: false,
+    },
+  };
+}
+
+async function putChatGPTCredential(id: string, subject = id) {
+  await putPiCredential({
+    id,
+    label: "Fixture ChatGPT",
+    material: {
+      kind: "chatgpt",
+      access: "stored-access",
+      refresh: "stored-refresh",
+      idToken: "stored-id-token",
+      expiresAt: Date.now() + 60_000,
+      issuer: "https://auth.openai.com",
+      subject,
+      clientId: `client-${id}`,
+      scope: ["openid", "offline_access", "chatgpt.tokens.use.direct"],
+    },
+  });
+  return getPiCredentialIdentityRevision(id, "model-provider")!;
+}
+
+function chatGPTAuthSeam(
+  state: {
+    scope?: readonly string[];
+    welcomeAccepted?: boolean;
+    paused?: boolean;
+  } = {},
+) {
+  const registration = {
+    scope: state.scope || ["chatgpt.tokens.use.direct"],
+    welcomeAccepted: state.welcomeAccepted ?? true,
+    paused: state.paused ?? false,
+  };
+  return {
+    resolvePiChatGPTAccess: async () => "fresh-access",
+    assertPiChatGPTInferenceAllowed: async () => {
+      if (!registration.scope.includes("chatgpt.tokens.use.direct"))
+        throw { code: "permission_missing" };
+      if (!registration.welcomeAccepted) throw { code: "welcome_required" };
+      if (registration.paused) throw { code: "quota_paused" };
+    },
+  };
+}
+
+function chatGPTResponseEvents(event: Record<string, any>) {
+  const outputs = event.response?.output || [];
+  const itemEvents = outputs
+    .map(
+      (item: Record<string, unknown>, output_index: number) =>
+        `event: response.output_item.done\ndata: ${JSON.stringify({
+          type: "response.output_item.done",
+          output_index,
+          item,
+        })}\n\n`,
+    )
+    .join("");
+  return `${itemEvents}event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
+}
 
 describe("Pi Brokered Web Tools", function () {
   it("uses a host window controller when the plugin global has none", async function () {
@@ -392,7 +483,9 @@ describe("Pi Brokered Web Tools", function () {
       const errors: any[] = [];
       try {
         await service.search(
-          await service.freezeForTurn(),
+          await service.freezeForTurn(
+            chatGPTSelection("chatgpt-paused", "selected-paused", "gpt-5"),
+          ),
           { query: "q" },
           new AbortController().signal,
           async (a) => {
@@ -838,47 +931,110 @@ describe("Pi Brokered Web Tools", function () {
     );
   });
 
-  it("uses selected Codex refresh authentication and normalizes terminal SSE without guessing citations", async function () {
+  it("uses the selected ChatGPT registration through one official Responses search and retains supplied citations", async function () {
     const priorModel = getPref("piProviderConfigurationJson");
     try {
       setPref("piProviderConfigurationJson", "");
       upsertPiProviderConfiguration({
-        id: "codex",
-        label: "Codex",
-        provider: "openai-codex",
+        id: "chatgpt",
+        label: "ChatGPT",
+        provider: "openai",
         modelId: "gpt-5",
-        authVariant: "openai-codex",
+        authVariant: "chatgpt",
         credentialRef: "selected",
         enabled: true,
       });
+      const credentialRevision = await putChatGPTCredential(
+        "selected",
+        "subject-1",
+      );
+      let accessArgs: any[] = [];
+      const gateCalls: string[] = [];
+      const operations: any[] = [];
+      const auth = chatGPTAuthSeam();
       const service = createPiBrokeredWebTools({
-        credentialRevision: () => "r",
+        resolveChatGPTSelection: async (configuration, modelId) =>
+          chatGPTSelection(configuration.id, "selected", modelId),
+        chatGPTAuth: {
+          resolvePiChatGPTAccess: async (...args: any[]) => {
+            accessArgs = args;
+            return "fresh-access";
+          },
+          assertPiChatGPTInferenceAllowed: async (id: string) => {
+            gateCalls.push(id);
+            return auth.assertPiChatGPTInferenceAllowed();
+          },
+        },
+        credentialRevision: () => credentialRevision,
         credential: async (id) => {
           assert.equal(id, "selected");
           return {
-            kind: "openai-codex",
-            access: "old",
-            refresh: "private-refresh",
-            expiresAt: 1,
-            accountId: "account",
+            kind: "chatgpt",
+            access: "encrypted-access",
+            refresh: "encrypted-refresh",
+            idToken: "encrypted-id-token",
+            expiresAt: Date.now() + 60_000,
+            issuer: "https://auth.openai.com",
+            subject: "subject-1",
+            clientId: "client-1",
+            scope: ["openid", "offline_access", "chatgpt.tokens.use.direct"],
           };
         },
-        codexAccess: async (id) => {
-          assert.equal(id, "selected");
-          return "fresh-access";
-        },
         request: async (input) => {
-          assert.equal(input.kind, "codex");
+          operations.push(input);
+          assert.equal(input.kind, "openai");
+          assert.equal(input.url, "https://api.openai.com/v1/responses");
           assert.equal(input.headers?.Authorization, "Bearer fresh-access");
-          assert.equal(input.headers?.["ChatGPT-Account-Id"], "account");
-          assert.isTrue(JSON.parse(input.body!).stream);
+          const payload = JSON.parse(input.body!);
+          assert.isTrue(payload.stream);
+          assert.isFalse(payload.store);
+          assert.deepEqual(payload.tools, [{ type: "web_search" }]);
+          assert.deepEqual(payload.tool_choice, { type: "web_search" });
           return {
             requestedUrl: input.url,
             finalUrl: input.url,
             status: 200,
             headers: { "content-type": "text/event-stream" },
             body: new TextEncoder().encode(
-              'data: {"type":"response.completed","response":{"status":"completed","output":[{"type":"web_search_call","status":"completed"},{"type":"message","content":[{"type":"output_text","text":"Answer https://example.org"}]}],"usage":{"input_tokens":9,"output_tokens":4}}}\n\n',
+              chatGPTResponseEvents({
+                type: "response.completed",
+                response: {
+                  id: "resp-search",
+                  status: "completed",
+                  output: [
+                    {
+                      id: "search-1",
+                      type: "web_search_call",
+                      status: "completed",
+                      action: { type: "search", queries: ["actual query"] },
+                    },
+                    {
+                      id: "msg-1",
+                      type: "message",
+                      status: "completed",
+                      role: "assistant",
+                      content: [
+                        {
+                          type: "output_text",
+                          text: "Answer",
+                          annotations: [
+                            {
+                              type: "url_citation",
+                              url: "https://example.org/source",
+                              title: "Source",
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                  usage: {
+                    input_tokens: 9,
+                    output_tokens: 4,
+                    total_tokens: 13,
+                  },
+                },
+              }),
             ),
           };
         },
@@ -887,7 +1043,7 @@ describe("Pi Brokered Web Tools", function () {
         service.listSources().map((s) => ({
           ...s,
           enabled: s.kind === "openai-native",
-          modelConfigurationId: "codex",
+          modelConfigurationId: "chatgpt",
         })),
       );
       const attempts: any[] = [];
@@ -901,15 +1057,344 @@ describe("Pi Brokered Web Tools", function () {
       );
       assert.equal(result.resultKind, "grounded_answer");
       if (result.resultKind === "grounded_answer") {
-        assert.deepEqual(result.citations, []);
-        assert.equal(result.sourceEvidence, "unavailable");
+        assert.deepEqual(result.citations, [
+          { url: "https://example.org/source", title: "Source" },
+        ]);
+        assert.equal(result.sourceEvidence, "provided");
       }
+      assert.equal(operations.length, 1);
+      assert.equal(accessArgs[0], "selected");
+      assert.equal(accessArgs[1] instanceof AbortSignal, true);
+      assert.equal(accessArgs[3].identityRevision, credentialRevision);
+      assert.deepEqual(gateCalls, ["selected", "selected"]);
       assert.deepEqual(attempts.at(-1).usage, {
         input_tokens: 9,
         output_tokens: 4,
+        total_tokens: 13,
       });
-      assert.notInclude(JSON.stringify(attempts), "access");
-      assert.notInclude(JSON.stringify(result), "private-refresh");
+      assert.notInclude(JSON.stringify(attempts), "encrypted-access");
+      assert.notInclude(JSON.stringify(result), "encrypted-refresh");
+    } finally {
+      setPref("piProviderConfigurationJson", priorModel as string);
+    }
+  });
+
+  it("blocks a paused ChatGPT registration before transport and does not hop to another source", async function () {
+    const priorModel = getPref("piProviderConfigurationJson");
+    try {
+      setPref("piProviderConfigurationJson", "");
+      upsertPiProviderConfiguration({
+        id: "chatgpt-paused",
+        label: "ChatGPT",
+        provider: "openai",
+        modelId: "gpt-5",
+        authVariant: "chatgpt",
+        credentialRef: "selected-paused",
+        enabled: true,
+      });
+      const credentialRevision = await putChatGPTCredential("selected-paused");
+      let requests = 0;
+      let gateCalls = 0;
+      const service = createPiBrokeredWebTools({
+        resolveChatGPTSelection: async (configuration, modelId) => ({
+          ...chatGPTSelection(configuration.id, "selected-paused", modelId),
+        }),
+        chatGPTAuth: (() => {
+          const auth = chatGPTAuthSeam({ paused: true });
+          return {
+            ...auth,
+            assertPiChatGPTInferenceAllowed: async () => {
+              gateCalls++;
+              return auth.assertPiChatGPTInferenceAllowed();
+            },
+          };
+        })(),
+        credentialRevision: () => credentialRevision,
+        credential: async () => ({
+          kind: "chatgpt",
+          access: "stored-access",
+          refresh: "stored-refresh",
+          idToken: "stored-id-token",
+          expiresAt: Date.now() + 60_000,
+          issuer: "https://auth.openai.com",
+          subject: "subject-paused",
+          clientId: "client-paused",
+          scope: ["openid", "offline_access", "chatgpt.tokens.use.direct"],
+        }),
+        request: async () => {
+          requests++;
+          throw new Error("quota gate must prevent transport");
+        },
+      });
+      service.saveSources(
+        service.listSources().map((source) => ({
+          ...source,
+          enabled: source.kind === "openai-native" || source.kind === "exa-mcp",
+          modelConfigurationId: "chatgpt-paused",
+        })),
+      );
+      const attempts: any[] = [];
+      try {
+        await service.search(
+          await service.freezeForTurn(
+            chatGPTSelection("chatgpt-paused", "selected-paused", "gpt-5"),
+          ),
+          { query: "q" },
+          new AbortController().signal,
+          async (attempt) => {
+            attempts.push(attempt);
+          },
+        );
+        assert.fail("paused registration must not search");
+      } catch (error) {
+        assert.equal((error as any).code, "source_quota_paused");
+      }
+      assert.equal(gateCalls, 1);
+      assert.equal(requests, 0);
+      assert.equal(
+        attempts.filter((attempt) => attempt.phase === "started").length,
+        1,
+      );
+    } finally {
+      setPref("piProviderConfigurationJson", priorModel as string);
+    }
+  });
+
+  it("refuses a ChatGPT source with unknown frozen context before auth or transport", async function () {
+    const priorModel = getPref("piProviderConfigurationJson");
+    try {
+      setPref("piProviderConfigurationJson", "");
+      upsertPiProviderConfiguration({
+        id: "chatgpt-unknown-context",
+        label: "ChatGPT",
+        provider: "openai",
+        modelId: "unrecognized-model-name",
+        authVariant: "chatgpt",
+        credentialRef: "selected-unknown-context",
+        enabled: true,
+      });
+      const credentialRevision = await putChatGPTCredential(
+        "selected-unknown-context",
+      );
+      let authCalls = 0;
+      let requests = 0;
+      const service = createPiBrokeredWebTools({
+        resolveChatGPTSelection: async (configuration, modelId) =>
+          chatGPTSelection(
+            configuration.id,
+            "selected-unknown-context",
+            modelId,
+            0,
+          ),
+        chatGPTAuth: {
+          resolvePiChatGPTAccess: async () => {
+            authCalls++;
+            return "test-access";
+          },
+          assertPiChatGPTInferenceAllowed: async () => {
+            authCalls++;
+          },
+        },
+        credentialRevision: () => credentialRevision,
+        credential: async () => ({
+          kind: "chatgpt",
+          access: "stored-access",
+          refresh: "stored-refresh",
+          idToken: "stored-id-token",
+          expiresAt: Date.now() + 60_000,
+          issuer: "https://auth.openai.com",
+          subject: "subject-unknown-context",
+          clientId: "client-unknown-context",
+          scope: ["openid", "offline_access", "chatgpt.tokens.use.direct"],
+        }),
+        request: async () => {
+          requests++;
+          throw new Error("unknown context must prevent transport");
+        },
+      });
+      service.saveSources(
+        service.listSources().map((source) => ({
+          ...source,
+          enabled: source.kind === "openai-native",
+          modelConfigurationId: "chatgpt-unknown-context",
+        })),
+      );
+      try {
+        await service.search(
+          await service.freezeForTurn(),
+          { query: "q" },
+          new AbortController().signal,
+          async () => {},
+        );
+        assert.fail("unknown model context must not dispatch");
+      } catch (error) {
+        assert.equal((error as any).code, "source_unavailable");
+      }
+      assert.equal(authCalls, 0);
+      assert.equal(requests, 0);
+    } finally {
+      setPref("piProviderConfigurationJson", priorModel as string);
+    }
+  });
+
+  it("requires completed ChatGPT search evidence and citations without retrying", async function () {
+    const priorModel = getPref("piProviderConfigurationJson");
+    try {
+      setPref("piProviderConfigurationJson", "");
+      upsertPiProviderConfiguration({
+        id: "chatgpt-evidence",
+        label: "ChatGPT",
+        provider: "openai",
+        modelId: "gpt-5",
+        authVariant: "chatgpt",
+        credentialRef: "selected-evidence",
+        enabled: true,
+      });
+      const credentialRevision = await putChatGPTCredential(
+        "selected-evidence",
+        "subject-evidence",
+      );
+      const cases = [
+        {
+          name: "missing actual search call",
+          event: {
+            type: "response.completed",
+            response: {
+              id: "response-no-search",
+              status: "completed",
+              output: [
+                {
+                  id: "message-no-search",
+                  type: "message",
+                  status: "completed",
+                  role: "assistant",
+                  content: [{ type: "output_text", text: "Answer" }],
+                },
+              ],
+            },
+          },
+          code: "search_not_performed",
+        },
+        {
+          name: "missing citations",
+          event: {
+            type: "response.completed",
+            response: {
+              id: "response-no-citations",
+              status: "completed",
+              output: [
+                {
+                  id: "search-no-citations",
+                  type: "web_search_call",
+                  status: "completed",
+                  action: { type: "search", queries: ["actual query"] },
+                },
+                {
+                  id: "message-no-citations",
+                  type: "message",
+                  status: "completed",
+                  role: "assistant",
+                  content: [{ type: "output_text", text: "Answer" }],
+                },
+              ],
+            },
+          },
+          code: "search_citations_missing",
+        },
+        {
+          name: "missing actual completion",
+          event: {
+            type: "response.incomplete",
+            response: {
+              id: "response-incomplete",
+              status: "incomplete",
+              output: [
+                {
+                  type: "web_search_call",
+                  status: "completed",
+                  action: { type: "search", queries: ["actual query"] },
+                },
+                {
+                  type: "message",
+                  content: [
+                    {
+                      type: "output_text",
+                      text: "Answer",
+                      annotations: [
+                        {
+                          type: "url_citation",
+                          url: "https://example.org/source",
+                          title: "Source",
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+          code: "source_failed",
+        },
+      ];
+      for (const scenario of cases) {
+        let dispatches = 0;
+        const service = createPiBrokeredWebTools({
+          resolveChatGPTSelection: async (configuration, modelId) =>
+            chatGPTSelection(configuration.id, "selected-evidence", modelId),
+          chatGPTAuth: chatGPTAuthSeam(),
+          credentialRevision: () => credentialRevision,
+          credential: async () => ({
+            kind: "chatgpt",
+            access: "stored-access",
+            refresh: "stored-refresh",
+            idToken: "stored-id-token",
+            expiresAt: Date.now() + 60_000,
+            issuer: "https://auth.openai.com",
+            subject: "subject-evidence",
+            clientId: "client-evidence",
+            scope: ["openid", "offline_access", "chatgpt.tokens.use.direct"],
+          }),
+          chatGPTAccess: async () => "resolved-access",
+          request: async (operation) => {
+            dispatches++;
+            return {
+              requestedUrl: operation.url,
+              finalUrl: operation.url,
+              status: 200,
+              headers: { "content-type": "text/event-stream" },
+              body: new TextEncoder().encode(
+                chatGPTResponseEvents(scenario.event),
+              ),
+            };
+          },
+        });
+        service.saveSources(
+          service.listSources().map((source) => ({
+            ...source,
+            enabled: source.kind === "openai-native",
+            modelConfigurationId: "chatgpt-evidence",
+          })),
+        );
+        const attempts: any[] = [];
+        try {
+          await service.search(
+            await service.freezeForTurn(),
+            { query: "q" },
+            new AbortController().signal,
+            async (attempt) => {
+              attempts.push(attempt);
+            },
+          );
+          assert.fail(`${scenario.name} must not report success`);
+        } catch (error) {
+          assert.equal((error as any).code, scenario.code, scenario.name);
+        }
+        assert.equal(dispatches, 1, scenario.name);
+        assert.equal(
+          attempts.filter((attempt) => attempt.phase === "started").length,
+          1,
+        );
+      }
     } finally {
       setPref("piProviderConfigurationJson", priorModel as string);
     }

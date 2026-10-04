@@ -11,6 +11,7 @@ import type { PiTranscriptEntry, PiOwnerRef } from "./piTranscriptStore";
 import type { PiGatewayTurn } from "./piToolGateway";
 import { sha256PrefixedHex } from "../utils/sha256";
 import type { JsonValue } from "../workflows/types";
+import { projectPiChatGPTToolWire } from "./piChatGPTProvider";
 
 export type PiPreparationIntent =
   | "initial"
@@ -637,7 +638,10 @@ async function project(snapshot: PiTurnTranscriptSnapshot): Promise<Projected> {
       if (
         (payload.role !== "user" && payload.role !== "assistant") ||
         typeof payload.text !== "string" ||
-        payload.status === "partial" ||
+        (payload.status !== undefined &&
+          payload.status !== "complete" &&
+          payload.status !== "partial" &&
+          payload.status !== "incomplete-visible") ||
         (!nonempty(payload.text) &&
           !(payload.role === "user" && messageResources.length > 0) &&
           !(payload.role === "assistant" && assistantCalls))
@@ -665,6 +669,13 @@ async function project(snapshot: PiTurnTranscriptSnapshot): Promise<Projected> {
         ...(nonempty(payload.modality) ? { modality: payload.modality } : {}),
         ...(messageResources.length ? { resources: messageResources } : {}),
       };
+      // Partial SIWC output stays visible in the canonical transcript but is
+      // not a settled assistant message for a later model invocation.
+      if (
+        payload.status === "partial" ||
+        payload.status === "incomplete-visible"
+      )
+        continue;
       const unit = { messages: [message], entryIds: [item.entryId] };
       if (toolCalls?.length) {
         const ids = toolCalls.map((call) => call.callId);
@@ -993,12 +1004,12 @@ function budget(input: PiTurnPreparationInput) {
   const effectiveContextWindow = Math.min(...(values as number[]));
   const inputBudget =
     effectiveContextWindow - policy.outputReserve - policy.safetyMargin;
-  // Codex discovery may omit an output ceiling; the context reserve remains bounded.
-  const unknownCodexOutput =
-    model.api === "openai-codex-responses" && model.policy.maxTokens === 0;
+  // ChatGPT discovery may omit an output ceiling; the context reserve remains bounded.
+  const unknownChatGPTOutput =
+    model.authVariant === "chatgpt" && model.policy.maxTokens === 0;
   if (
     inputBudget <= 0 ||
-    (!unknownCodexOutput && policy.outputReserve > model.policy.maxTokens)
+    (!unknownChatGPTOutput && policy.outputReserve > model.policy.maxTokens)
   )
     fail("context_budget_exceeded");
   if (input.frozen.tools.tools.length && !model.policy.supportsTools)
@@ -1540,16 +1551,22 @@ export function createPiNativeEstimator(): {
     id: "pi-ai:estimate-context-tokens",
     version: PI_PROVIDER_ADAPTER_VERSION,
     mode: "estimated",
-    estimate: async ({ blocks, messages, tools }) => {
+    estimate: async ({ blocks, messages, tools, model }) => {
+      const nativeTools = tools.tools.map((tool) => ({
+        type: "function" as const,
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.schema as Tool["parameters"],
+      }));
+      const projectedTools =
+        model.authVariant === "chatgpt"
+          ? (projectPiChatGPTToolWire(nativeTools).tools as unknown as Tool[])
+          : nativeTools;
       return estimateContextTokens(
         normalizeContext({
           systemPrompt: blocks.map((block) => block.text).join("\n\n"),
           messages: messages.map(toNative),
-          tools: tools.tools.map((tool) => ({
-            name: tool.name,
-            description: tool.description,
-            parameters: tool.schema as Tool["parameters"],
-          })),
+          tools: projectedTools,
         }),
       ).tokens;
     },

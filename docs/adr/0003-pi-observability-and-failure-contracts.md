@@ -11,6 +11,8 @@ The Built-in Pi Agent Runtime publishes observability through three narrow Inter
 
 Usage and cost reuse Pi's existing `Usage` semantics and calculation. Each Pi Model Invocation is recorded independently, while turn and owner totals remain rebuildable projections; a small outer accounting state distinguishes complete, partial, unknown and inapplicable observations without reimplementing Pi's token or cost logic.
 
+ChatGPT subscription calls retain the fields actually reported by Responses, including partial usage on incomplete or failed requests. Missing fields remain unknown, and API-key prices do not apply to subscription calls. Each physical retry has its own canonical invocation identity; only the actual `response.completed` event can establish successful completion. Visible partial assistant text remains incomplete and is excluded from normal model context.
+
 Failures use a project-owned structured core with stable category, origin, code, retryability and effect certainty. Process-specific phases remain in the modules that own those processes, a failure does not decide an owner terminal outcome, and user-visible recovery actions are computed from durable owner state rather than inferred by the UI.
 
 Runtime audit evidence never duplicates prompts, literature content, tool payload bodies, credentials or absolute user paths. Audit remains bounded and best-effort, reports evidence gaps, and supports on-demand diagnostic export through references to canonical facts.

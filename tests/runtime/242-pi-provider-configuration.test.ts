@@ -38,92 +38,187 @@ describe("Pi provider configuration", function () {
     { id: "key-b", kind: "api-key" as const },
   ];
 
-  it("selects discovered Codex models only for their credential without inventing an output ceiling", function () {
+  it("selects ChatGPT discoveries only for their registration without borrowing API-key facts", function () {
     upsertPiProviderConfiguration({
-      id: "codex",
-      label: "Codex",
-      provider: "openai-codex",
-      modelId: "new-codex-model",
-      authVariant: "openai-codex",
-      credentialRef: "codex-key",
+      id: "chatgpt-a",
+      label: "ChatGPT A",
+      provider: "openai",
+      modelId: "gpt-shared",
+      authVariant: "chatgpt",
+      credentialRef: "chatgpt-a-key",
       enabled: true,
       reasoning: "low",
     });
-    const discovered = {
+    upsertPiProviderConfiguration({
+      id: "chatgpt-b",
+      label: "ChatGPT B",
+      provider: "openai",
+      modelId: "gpt-shared",
+      authVariant: "chatgpt",
+      credentialRef: "chatgpt-b-key",
+      enabled: true,
+      reasoning: "low",
+    });
+    upsertPiProviderConfiguration({
+      id: "api-key",
+      label: "API key",
+      provider: "openai",
+      modelId: "gpt-shared",
+      authVariant: "api-key",
+      credentialRef: "key-a",
+      enabled: true,
+      reasoning: "low",
+    });
+    upsertPiProviderConfiguration({
+      id: "chatgpt-no-facts",
+      label: "ChatGPT without facts",
+      provider: "openai",
+      modelId: "gpt-shared",
+      authVariant: "chatgpt",
+      credentialRef: "chatgpt-c-key",
+      enabled: true,
+      reasoning: "low",
+    });
+    const discoveredA = {
       ...model,
-      provider: "openai-codex",
-      id: "new-codex-model",
-      api: "openai-codex-responses",
+      id: "gpt-shared",
       maxTokens: 0,
       source: "discovered" as const,
-      credentialRef: "codex-key",
-      supportsTools: false,
+      credentialRef: "chatgpt-a-key",
+      authVariants: ["chatgpt"] as const,
+      cost: undefined,
+    };
+    const discoveredB = {
+      ...discoveredA,
+      credentialRef: "chatgpt-b-key",
+      contextWindow: 2000,
+    };
+    const publicModel = {
+      ...model,
+      id: "gpt-shared",
+      contextWindow: 9000,
+      maxTokens: 800,
+      cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
+      authVariants: ["api-key"] as const,
     };
     const args = {
       kind: "conversation" as const,
-      credentials: [{ id: "codex-key", kind: "openai-codex" as const }],
-      explicit: { configurationId: "codex" },
-      catalog: { revision: "discovered", models: [discovered] },
+      credentials: [
+        { id: "chatgpt-a-key", kind: "chatgpt" as const },
+        { id: "chatgpt-b-key", kind: "chatgpt" as const },
+        { id: "chatgpt-c-key", kind: "chatgpt" as const },
+        ...credentials,
+      ],
+      explicit: { configurationId: "chatgpt-a" },
+      catalog: {
+        revision: "discovered",
+        models: [publicModel, discoveredA, discoveredB],
+      },
     };
-    assert.equal(resolvePiModelSelection(args).policy.maxTokens, 0);
+    const selectedA = resolvePiModelSelection(args);
+    assert.equal(selectedA.provider, "openai");
+    assert.equal(selectedA.api, "openai-responses");
+    assert.equal(selectedA.baseUrl, "https://api.openai.com/v1");
+    assert.equal(selectedA.policy.contextWindow, 1000);
+    assert.equal(selectedA.policy.maxTokens, 0);
+    assert.isUndefined(selectedA.metadata?.cost);
+    const selectedB = resolvePiModelSelection({
+      ...args,
+      explicit: { configurationId: "chatgpt-b" },
+    });
+    assert.equal(selectedB.policy.contextWindow, 2000);
+    assert.equal(selectedB.credentialRef, "chatgpt-b-key");
+    const selectedApiKey = resolvePiModelSelection({
+      ...args,
+      explicit: { configurationId: "api-key" },
+    });
+    assert.equal(selectedApiKey.policy.contextWindow, 9000);
+    assert.equal(selectedApiKey.policy.maxTokens, 800);
+    assert.equal(selectedApiKey.metadata?.cost?.input, 1);
     assert.throws(() =>
       resolvePiModelSelection({
         ...args,
+        explicit: { configurationId: "chatgpt-a" },
         catalog: { revision: "empty", models: [] },
       }),
     );
     assert.throws(() =>
       resolvePiModelSelection({
         ...args,
+        explicit: { configurationId: "chatgpt-a" },
         catalog: {
           ...args.catalog,
-          models: [{ ...discovered, credentialRef: "other-key" }],
+          models: [{ ...discoveredA, credentialRef: "other-key" }],
         },
       }),
     );
     assert.throws(() =>
       resolvePiModelSelection({
         ...args,
+        explicit: { configurationId: "chatgpt-a" },
         catalog: {
           ...args.catalog,
           models: [
-            { ...discovered, source: "bundled", credentialRef: undefined },
+            { ...discoveredA, source: "bundled", credentialRef: undefined },
           ],
         },
       }),
     );
-    // A later observation that is silent about the context window keeps the one
-    // this connection's own earlier discovery verified, and still invents no
-    // output ceiling.
+    // A target-specific retained binding can keep its own verified context, but
+    // never adopts the public model's cost or output ceiling.
     const silent = resolvePiModelSelection({
       ...args,
       catalog: {
         ...args.catalog,
-        models: [{ ...discovered, contextWindow: 0 }],
+        models: [{ ...discoveredA, contextWindow: 0 }],
       },
     });
     assert.equal(silent.policy.contextWindow, 1000);
     assert.equal(silent.policy.maxTokens, 0);
-    // A connection that never verified this model is refused outright instead
-    // of borrowing another observation's window.
-    upsertPiProviderConfiguration({
-      id: "codex-fresh",
-      label: "Codex fresh",
-      provider: "openai-codex",
-      modelId: "new-codex-model",
-      authVariant: "openai-codex",
-      credentialRef: "codex-key",
-      enabled: true,
-    });
+    assert.isUndefined(silent.metadata?.cost);
+    // The API key remains independently governed by public metadata.
     assert.throws(() =>
       resolvePiModelSelection({
-        kind: "conversation",
-        credentials: [{ id: "codex-key", kind: "openai-codex" as const }],
-        explicit: { configurationId: "codex-fresh" },
+        ...args,
+        explicit: { configurationId: "chatgpt-b" },
+        catalog: { revision: "empty", models: [discoveredA] },
+      }),
+    );
+    assert.throws(() =>
+      resolvePiModelSelection({
+        ...args,
+        explicit: { configurationId: "chatgpt-no-facts" },
+        catalog: { revision: "public-only", models: [publicModel] },
+      }),
+    );
+    assert.throws(() =>
+      resolvePiModelSelection({
+        ...args,
+        explicit: { configurationId: "chatgpt-no-facts" },
         catalog: {
-          revision: "discovered",
-          models: [{ ...discovered, contextWindow: 0 }],
+          revision: "unknown-context",
+          models: [
+            publicModel,
+            {
+              ...discoveredA,
+              contextWindow: 0,
+              credentialRef: "chatgpt-c-key",
+            },
+          ],
         },
+      }),
+    );
+    assert.throws(() =>
+      upsertPiProviderConfiguration({
+        id: "chatgpt-custom-target",
+        label: "ChatGPT custom target",
+        provider: "openai",
+        modelId: "gpt-shared",
+        authVariant: "chatgpt",
+        credentialRef: "chatgpt-a-key",
+        baseUrl: "https://example.com/v1",
+        api: "openai-responses",
+        enabled: true,
       }),
     );
   });
@@ -288,7 +383,7 @@ describe("Pi provider configuration", function () {
       resolvePiModelSelection({
         kind: "conversation",
         catalog: { revision: "rev-1", models: [model] },
-        credentials: [{ id: "wrong-kind", kind: "openai-codex" }],
+        credentials: [{ id: "wrong-kind", kind: "chatgpt" }],
       }),
     );
   });

@@ -107,28 +107,32 @@ export type PiAcceptanceReport = {
 export const PI_UPGRADE_BASELINE = "9218f30899e47d6e9b852dec978be81b1f802c2f";
 const LIVE_SMOKE = [
   "api-key",
-  "codex-lifecycle",
+  "chatgpt-lifecycle",
   "exa",
   "byok-brave-or-perplexity",
   "openai-web-api-key",
-  "openai-web-codex",
+  "openai-web-chatgpt",
   "anthropic-search",
   "anonymous-fetch",
 ];
 const MANUAL_OBSERVATIONS: Record<string, string[]> = {
   "api-key": ["streaming"],
-  "codex-lifecycle": [
+  "chatgpt-lifecycle": [
     "login",
     "streaming",
     "refresh-or-reuse",
     "logout",
     "unavailable-after-clear",
     "reconnect",
+    "discovery",
+    "function-continuation",
+    "actual-completed",
+    "actual-usage",
   ],
   exa: ["search-results"],
   "byok-brave-or-perplexity": ["search-results"],
   "openai-web-api-key": ["search-results"],
-  "openai-web-codex": ["search-results"],
+  "openai-web-chatgpt": ["search-results", "actual-completed", "citations"],
   "anthropic-search": ["search-results"],
   "anonymous-fetch": ["public-content"],
 };

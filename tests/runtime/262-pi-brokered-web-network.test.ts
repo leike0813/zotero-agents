@@ -549,6 +549,20 @@ describe("Pi brokered web operations", function () {
       await codeOf(() =>
         requestPiBrokeredWebOperation(
           {
+            kind: "codex" as never,
+            url: "https://chatgpt.com/backend-api/codex/responses",
+            headers: { authorization: "Bearer x" },
+            body: "{}",
+          },
+          { transport },
+        ),
+      ),
+      "pi_network_operation_denied",
+    );
+    assert.equal(
+      await codeOf(() =>
+        requestPiBrokeredWebOperation(
+          {
             kind: "fetch",
             url: "https://example.org/a",
             headers: { authorization: "Bearer x" },

@@ -11,9 +11,14 @@ import type {
   PiModelSelectionSnapshot,
   PiProviderConfiguration,
 } from "../shared/piProviderContract";
-import { loadPiProviderConfigurationState } from "./piProviderConfiguration";
+import { normalizeContext } from "@earendil-works/pi-ai";
+import {
+  loadPiProviderConfigurationState,
+  resolvePiModelSelection,
+} from "./piProviderConfiguration";
 import {
   getPiCredentialIdentityRevision,
+  listPiCredentials,
   readPiCredential,
 } from "./piCredentialStore";
 import { sha256PrefixedHex } from "../utils/sha256";
@@ -30,7 +35,13 @@ import type {
 } from "./piToolGateway";
 import type { PiGatewayEffect } from "../shared/piToolGatewayContract";
 import type { JsonValue } from "../workflows/types";
-import { resolvePiOpenAICodexAccess } from "./piOpenAICodexAuth";
+import {
+  assertPiChatGPTInferenceAllowed,
+  pausePiChatGPTInference,
+  resolvePiChatGPTAccess,
+} from "./piChatGPTAuth";
+import { type PiChatGPTCompletedResponse } from "./piChatGPTProvider";
+import { createPiProviderSource } from "./piProviderExecution";
 import type { PiMcpConnection } from "./piMcpToolSources";
 import { loadPiMcpToolSourceModule } from "./piMcpRuntimeOwner";
 import type { PiMcpSource } from "../shared/piMcpSourceContract";
@@ -159,7 +170,16 @@ type Options = {
     namespace: "web-source" | "model-provider",
   ) => Promise<PiCredentialMaterial | null>;
   credentialRevision?: typeof getPiCredentialIdentityRevision;
-  codexAccess?: typeof resolvePiOpenAICodexAccess;
+  chatGPTAccess?: typeof resolvePiChatGPTAccess;
+  chatGPTAuth?: {
+    resolvePiChatGPTAccess?: typeof resolvePiChatGPTAccess;
+    assertPiChatGPTInferenceAllowed?: typeof assertPiChatGPTInferenceAllowed;
+    pausePiChatGPTInference?: typeof pausePiChatGPTInference;
+  };
+  resolveChatGPTSelection?: (
+    configuration: PiProviderConfiguration,
+    modelId: string,
+  ) => Promise<PiModelSelectionSnapshot>;
   openMcp?: (
     source: PiMcpSource,
     values: Record<string, string>,
@@ -274,28 +294,6 @@ function parseJsonResponse(
     fail(response.status === 429 ? "source_rate_limited" : "source_http_error");
   const text = new TextDecoder().decode(response.body);
   try {
-    if (
-      (response.headers["content-type"] || "").includes("text/event-stream")
-    ) {
-      let terminal: Record<string, any> | undefined;
-      for (const frame of text.split(/\r?\n\r?\n/)) {
-        const lines = frame
-          .split(/\r?\n/)
-          .filter((l) => l.startsWith("data:"))
-          .map((l) => l.slice(5).trimStart());
-        if (!lines.length || lines.join("\n") === "[DONE]") continue;
-        const event = object(JSON.parse(lines.join("\n")));
-        if (
-          event.type === "response.failed" ||
-          event.type === "response.incomplete"
-        )
-          fail("source_failed");
-        if (event.type === "response.completed")
-          terminal = object(event.response);
-      }
-      if (!terminal) fail("outcome_unknown", true, true);
-      return terminal;
-    }
     return object(JSON.parse(text));
   } catch (error) {
     if (error instanceof WebFailure) throw error;
@@ -307,6 +305,7 @@ function grounded(
   query: string,
   source: PiWebSource,
   max: number,
+  stopOnMissingEvidence = false,
 ): PiWebSearchResult {
   const anthropic = source.kind === "anthropic-native";
   const parts = anthropic ? data.content : data.output;
@@ -336,7 +335,7 @@ function grounded(
           Array.isArray(p.content),
       ))
   )
-    fail("search_not_performed");
+    fail("search_not_performed", stopOnMissingEvidence);
   if (anthropic && !["end_turn", "stop_sequence"].includes(data.stop_reason))
     fail("source_failed");
   if (!anthropic && data.status !== "completed") fail("source_failed");
@@ -381,6 +380,8 @@ function grounded(
     .slice(0, 10)
     .map((q) => bounded(q, 1024).text);
   const retained = citations.slice(0, max);
+  if (stopOnMissingEvidence && !retained.length)
+    fail("search_citations_missing", true);
   return {
     contentTrust: "external_untrusted",
     query,
@@ -524,6 +525,7 @@ const FIELDS = new Set([
 export type PiWebFrozenSource = {
   source: Readonly<PiWebSource>;
   configuration?: Readonly<PiProviderConfiguration>;
+  chatGPTSelection?: PiModelSelectionSnapshot | null;
   credentialRevision: string | null;
 };
 export type PiWebTurn = {
@@ -613,6 +615,17 @@ export function createPiBrokeredWebTools(options: Options = {}) {
   const request = options.request || requestPiBrokeredWebOperation;
   const revision =
     options.credentialRevision || getPiCredentialIdentityRevision;
+  const resolveChatGPTSelection =
+    options.resolveChatGPTSelection ||
+    (async (configuration: PiProviderConfiguration, modelId: string) => {
+      const { loadPiModelCatalog } = await import("./piModelCatalog");
+      return resolvePiModelSelection({
+        kind: "conversation",
+        catalog: await loadPiModelCatalog(),
+        credentials: listPiCredentials(),
+        explicit: { configurationId: configuration.id, modelId },
+      });
+    });
   const credential =
     options.credential ||
     (async (id, namespace) => {
@@ -682,24 +695,43 @@ export function createPiBrokeredWebTools(options: Options = {}) {
     } catch {
       /* Damaged optional sources contribute no search capability. */
     }
-    const sources = enabled.map((source) => {
-      const configuration = ["openai-native", "anthropic-native"].includes(
-        source.kind,
-      )
-        ? configurations.find((c) => c.id === source.modelConfigurationId)
-        : undefined;
-      if (source.args) Object.freeze(source.args);
-      return Object.freeze({
-        source: Object.freeze(source),
-        ...(configuration
-          ? { configuration: Object.freeze({ ...configuration }) }
-          : {}),
-        credentialRevision: revision(
-          configuration?.credentialRef || source.credentialId || "",
-          configuration ? "model-provider" : "web-source",
-        ),
-      });
-    });
+    const sources = await Promise.all(
+      enabled.map(async (source) => {
+        const configuration = ["openai-native", "anthropic-native"].includes(
+          source.kind,
+        )
+          ? configurations.find((c) => c.id === source.modelConfigurationId)
+          : undefined;
+        if (source.args) Object.freeze(source.args);
+        let chatGPTSelection: PiModelSelectionSnapshot | null | undefined;
+        if (
+          source.kind === "openai-native" &&
+          configuration?.authVariant === "chatgpt"
+        ) {
+          try {
+            chatGPTSelection = await resolveChatGPTSelection(
+              configuration,
+              source.searchModelId || configuration.modelId,
+            );
+          } catch {
+            chatGPTSelection = null;
+          }
+        }
+        return Object.freeze({
+          source: Object.freeze(source),
+          ...(configuration
+            ? { configuration: Object.freeze({ ...configuration }) }
+            : {}),
+          ...(configuration?.authVariant === "chatgpt"
+            ? { chatGPTSelection: chatGPTSelection ?? null }
+            : {}),
+          credentialRevision: revision(
+            configuration?.credentialRef || source.credentialId || "",
+            configuration ? "model-provider" : "web-source",
+          ),
+        });
+      }),
+    );
     const match = sources.findIndex(
       (s) =>
         ["openai-native", "anthropic-native"].includes(s.source.kind) &&
@@ -981,7 +1013,8 @@ export function createPiBrokeredWebTools(options: Options = {}) {
     if (["openai-native", "anthropic-native"].includes(source.kind)) {
       const config = frozen.configuration;
       const openai = source.kind === "openai-native";
-      const expected = openai ? ["openai", "openai-codex"] : ["anthropic"];
+      const chatGPT = openai && config?.authVariant === "chatgpt";
+      const expected = openai ? ["openai"] : ["anthropic"];
       if (
         !config?.enabled ||
         !expected.includes(config.provider) ||
@@ -992,17 +1025,19 @@ export function createPiBrokeredWebTools(options: Options = {}) {
       const origin = config.baseUrl
         ? new URL(config.baseUrl).origin
         : openai
-          ? config.authVariant === "openai-codex"
-            ? "https://chatgpt.com"
-            : "https://api.openai.com"
+          ? "https://api.openai.com"
           : "https://api.anthropic.com";
       if (
         ![
           openai ? "https://api.openai.com" : "https://api.anthropic.com",
-          ...(openai && config.authVariant === "openai-codex"
-            ? ["https://chatgpt.com"]
-            : []),
         ].includes(origin)
+      )
+        fail("source_unavailable");
+      if (
+        chatGPT &&
+        ((config.baseUrl !== undefined &&
+          config.baseUrl !== "https://api.openai.com/v1") ||
+          (config.api !== undefined && config.api !== "openai-responses"))
       )
         fail("source_unavailable");
       if (
@@ -1013,112 +1048,234 @@ export function createPiBrokeredWebTools(options: Options = {}) {
       const material = await credential(config.credentialRef, "model-provider");
       if (!material) fail("source_unavailable");
       if (
+        (chatGPT && material.kind !== "chatgpt") ||
+        (!chatGPT && material.kind !== "api-key")
+      )
+        fail("source_unavailable");
+      if (
         revision(config.credentialRef, "model-provider") !==
         frozen.credentialRevision
       )
         fail("source_unavailable");
       const model = (source as PiWebSource).searchModelId || config.modelId;
       if (
-        openai
+        !chatGPT &&
+        (openai
           ? !/^(?:gpt-(?:4(?:[.]1|o)|[5-9])|o[34])(?:[.-]|$)/.test(model)
           : !/^claude-(?:(?:sonnet|opus|haiku)-4|3[.-]7-sonnet|3[.-]5-haiku)(?:[.-]|$)/.test(
               model,
-            )
+            ))
       )
         fail("source_unavailable");
-      let operation: PiBrokeredWebOperation;
-      if (config.authVariant === "openai-codex") {
-        if (!openai || material.kind !== "openai-codex")
-          fail("source_unavailable");
-        let access: string;
-        try {
-          access = await (options.codexAccess || resolvePiOpenAICodexAccess)(
-            config.credentialRef,
-            signal,
-            undefined,
-            {
-              identityRevision: frozen.credentialRevision!,
-              accountId: material.accountId,
-            },
-          );
-        } catch {
-          fail(
-            signal.aborted ? "canceled" : "source_auth_failed",
-            signal.aborted,
-          );
-        }
+      if (chatGPT) {
+        const selection = frozen.chatGPTSelection;
+        if (
+          !selection ||
+          selection.configurationId !== config.id ||
+          selection.provider !== "openai" ||
+          selection.api !== "openai-responses" ||
+          selection.baseUrl !== "https://api.openai.com/v1" ||
+          selection.authVariant !== "chatgpt" ||
+          selection.credentialRef !== config.credentialRef ||
+          selection.modelId !== model ||
+          selection.policy.contextWindow <= 0 ||
+          selection.policy.maxTokens < 0 ||
+          !selection.policy.input.includes("text") ||
+          !selection.metadata?.authVariants?.includes("chatgpt") ||
+          ["retired", "unsupported"].includes(
+            selection.metadata.availability || "",
+          )
+        )
+          fail("source_unavailable", true);
         if (
           revision(config.credentialRef, "model-provider") !==
           frozen.credentialRevision
         )
-          fail("source_unavailable");
-        operation = {
-          kind: "codex",
-          url: "https://chatgpt.com/backend-api/codex/responses",
-          headers: {
-            Authorization: `Bearer ${access}`,
-            "ChatGPT-Account-Id": material.accountId,
-            "Content-Type": "application/json",
-            Accept: "text/event-stream",
-            originator: "pi",
+          fail("source_unavailable", true);
+        try {
+          await (
+            options.chatGPTAuth?.assertPiChatGPTInferenceAllowed ||
+            assertPiChatGPTInferenceAllowed
+          )(
+            config.credentialRef,
+            signal,
+            undefined,
+            frozen.credentialRevision || undefined,
+          );
+        } catch (error) {
+          const code =
+            typeof error === "object" && error && "code" in error
+              ? String((error as { code?: unknown }).code)
+              : "";
+          if (code === "quota_paused" || code === "probe_active")
+            fail("source_quota_paused", true);
+          fail(signal.aborted ? "canceled" : "source_auth_failed", true);
+        }
+
+        let terminal: import("./piRuntime").PiProviderTerminal | undefined;
+        let completed: PiChatGPTCompletedResponse | undefined;
+        const prepared = createPiProviderSource(selection, {
+          chatGPTAuth: {
+            resolvePiChatGPTAccess:
+              options.chatGPTAuth?.resolvePiChatGPTAccess ||
+              options.chatGPTAccess ||
+              resolvePiChatGPTAccess,
+            ...(options.chatGPTAuth?.assertPiChatGPTInferenceAllowed
+              ? {
+                  assertPiChatGPTInferenceAllowed:
+                    options.chatGPTAuth.assertPiChatGPTInferenceAllowed,
+                }
+              : {}),
+            ...(options.chatGPTAuth?.pausePiChatGPTInference
+              ? {
+                  pausePiChatGPTInference:
+                    options.chatGPTAuth.pausePiChatGPTInference,
+                }
+              : {}),
           },
-          body: JSON.stringify({
-            model,
-            input: [
-              { role: "user", content: [{ type: "input_text", text: query }] },
-            ],
-            instructions: "Search the web and answer using sources.",
-            tools: [{ type: "web_search" }],
-            tool_choice: { type: "web_search" },
-            store: false,
-            stream: true,
-          }),
-        };
-      } else {
-        if (material.kind !== "api-key" || config.authVariant !== "api-key")
-          fail("source_unavailable");
-        operation = openai
-          ? {
-              kind: "openai",
-              url: "https://api.openai.com/v1/responses",
-              headers: {
-                Authorization: `Bearer ${material.secret}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                model,
-                input: query,
-                tools: [{ type: "web_search" }],
-                tool_choice: { type: "web_search" },
-                store: false,
-                stream: false,
-                max_output_tokens: 4096,
-              }),
+          forceChatGPTWebSearch: true,
+          disableChatGPTRetries: true,
+          onChatGPTCompletedResponse: (response) => {
+            completed = response;
+          },
+          fetch: async (input, init) => {
+            let outgoing: Request;
+            try {
+              outgoing = new Request(input, init);
+            } catch {
+              fail("web_contract_invalid", true);
             }
-          : {
-              kind: "anthropic",
-              url: "https://api.anthropic.com/v1/messages",
+            if (
+              outgoing.url !== "https://api.openai.com/v1/responses" ||
+              outgoing.method !== "POST"
+            )
+              fail("source_unavailable", true);
+            const authorization = outgoing.headers.get("authorization");
+            if (!authorization) fail("source_auth_failed", true);
+            const response = await send({
+              kind: "openai",
+              url: outgoing.url,
               headers: {
-                "x-api-key": material.secret,
-                "anthropic-version": "2023-06-01",
+                Authorization: authorization,
                 "Content-Type": "application/json",
+                Accept: "text/event-stream",
               },
-              body: JSON.stringify({
-                model,
-                max_tokens: 4096,
-                messages: [{ role: "user", content: query }],
-                tools: [
-                  {
-                    type: "web_search_20250305",
-                    name: "web_search",
-                    max_uses: 5,
-                  },
-                ],
-                tool_choice: { type: "tool", name: "web_search" },
-                stream: false,
-              }),
-            };
+              body: await outgoing.text(),
+              signal: outgoing.signal,
+            });
+            return new Response(response.body, {
+              status: response.status,
+              headers: response.headers,
+            });
+          },
+        });
+        const events = await prepared.source({
+          sessionId: `web-search:${source.id}`,
+          turnId: `web-search:${source.id}`,
+          invocationId: `web-search:${source.id}:invocation:0`,
+          model: prepared.model,
+          context: normalizeContext({
+            messages: [{ role: "user", content: query, timestamp: 0 }],
+          }),
+          signal,
+          onProviderTerminal: (value) => {
+            terminal = value;
+          },
+        });
+        let providerFailure: string | undefined;
+        for await (const event of events) {
+          if (event.type === "error")
+            providerFailure = event.error.errorMessage;
+          if (signal.aborted) break;
+        }
+        if (signal.aborted) fail("canceled", true, true);
+        if (
+          providerFailure === "provider_plan_quota_exceeded" ||
+          (terminal?.status === "failed" &&
+            terminal.code === "provider_plan_quota_exceeded")
+        )
+          fail("source_quota_paused", true);
+        if (providerFailure) fail("source_failed", true, true);
+        if (terminal?.status !== "completed" || !completed)
+          fail(
+            terminal?.status === "failed" && terminal.code
+              ? terminal.code
+              : "source_failed",
+            true,
+            true,
+          );
+        const result = grounded(
+          { status: "completed", output: completed.output },
+          query,
+          source,
+          max,
+          true,
+        );
+        if (result.resultKind !== "grounded_answer")
+          fail("source_failed", true);
+        return {
+          result,
+          ...(completed.usage
+            ? {
+                usage: {
+                  ...(completed.usage.inputTokens !== undefined
+                    ? { input_tokens: completed.usage.inputTokens }
+                    : {}),
+                  ...(completed.usage.outputTokens !== undefined
+                    ? { output_tokens: completed.usage.outputTokens }
+                    : {}),
+                  ...(completed.usage.totalTokens !== undefined
+                    ? { total_tokens: completed.usage.totalTokens }
+                    : {}),
+                },
+              }
+            : {}),
+        };
       }
+
+      if (config.authVariant !== "api-key" || material.kind !== "api-key")
+        fail("source_unavailable");
+      const operation: PiBrokeredWebOperation = openai
+        ? {
+            kind: "openai",
+            url: "https://api.openai.com/v1/responses",
+            headers: {
+              Authorization: `Bearer ${material.secret}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model,
+              input: query,
+              tools: [{ type: "web_search" }],
+              tool_choice: { type: "web_search" },
+              store: false,
+              stream: false,
+              max_output_tokens: 4096,
+            }),
+          }
+        : {
+            kind: "anthropic",
+            url: "https://api.anthropic.com/v1/messages",
+            headers: {
+              "x-api-key": material.secret,
+              "anthropic-version": "2023-06-01",
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model,
+              max_tokens: 4096,
+              messages: [{ role: "user", content: query }],
+              tools: [
+                {
+                  type: "web_search_20250305",
+                  name: "web_search",
+                  max_uses: 5,
+                },
+              ],
+              tool_choice: { type: "tool", name: "web_search" },
+              stream: false,
+            }),
+          };
       const data = parseJsonResponse(await send({ ...operation, signal }));
       return {
         result: grounded(data, query, source, max),

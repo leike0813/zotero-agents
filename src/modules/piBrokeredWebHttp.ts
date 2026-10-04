@@ -137,7 +137,6 @@ export type PiBrokeredWebOperationKind =
   | "brave"
   | "perplexity"
   | "openai"
-  | "codex"
   | "anthropic"
   | "searxng";
 
@@ -209,26 +208,6 @@ export const PI_BROKERED_WEB_OPERATION_PROFILES: Record<
     method: "POST",
     credentialed: true,
     headers: ["accept", "content-type", "authorization", "openai-beta"],
-    bodyAllowed: true,
-    allowRedirects: true,
-    sameOriginRedirects: true,
-  },
-  codex: {
-    origin: "https://chatgpt.com",
-    path: "/backend-api/codex/responses",
-    method: "POST",
-    credentialed: true,
-    headers: [
-      "accept",
-      "content-type",
-      "authorization",
-      "chatgpt-account-id",
-      "openai-beta",
-      "originator",
-      "session_id",
-      "user-agent",
-      "version",
-    ],
     bodyAllowed: true,
     allowRedirects: true,
     sameOriginRedirects: true,

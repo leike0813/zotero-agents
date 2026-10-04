@@ -5,9 +5,17 @@ import {
   createPiProviderModelSource,
   createPiProviderSource,
 } from "../../src/modules/piProviderExecution";
+import {
+  preparePiChatGPTPayload,
+  projectPiChatGPTToolWire,
+} from "../../src/modules/piChatGPTProvider";
 import { normalizeContext, Type } from "@earendil-works/pi-ai";
 import { PiRuntime } from "../../src/modules/piRuntime";
 import type { PiModelSelectionSnapshot } from "../../src/shared/piProviderContract";
+import {
+  readPiCanonicalSelection,
+  readPiUsageMeasurement,
+} from "../../src/shared/piUsageContract";
 import type { PiRuntimeAuditContext } from "../../src/modules/piRuntimeAudit";
 import {
   flushOwner,
@@ -80,6 +88,1259 @@ describe("Pi API-key Provider execution", function () {
       result.push(delta);
     return result.join("");
   }
+
+  async function observeRuntimeEvents(
+    events: AsyncIterable<import("../../src/modules/piRuntime").PiRuntimeEvent>,
+  ) {
+    const observed: import("../../src/modules/piRuntime").PiRuntimeEvent[] = [];
+    for await (const event of events) observed.push(event);
+    return observed;
+  }
+
+  it("projects tool schemas into the shared ChatGPT namespace without changing Gateway names", function () {
+    const tools = [
+      {
+        name: "zotero_search",
+        description: "Search Zotero",
+        parameters: {
+          type: "object",
+          properties: { query: { type: "string" } },
+        },
+      },
+    ];
+    assert.deepEqual(tools[0], {
+      name: "zotero_search",
+      description: "Search Zotero",
+      parameters: { type: "object", properties: { query: { type: "string" } } },
+    });
+    const wire = projectPiChatGPTToolWire(tools);
+    assert.lengthOf(wire.tools, 1);
+    assert.equal(wire.tools[0]?.type, "namespace");
+    if (wire.tools[0]?.type === "namespace") {
+      assert.deepEqual(wire.tools[0].tools, [
+        { ...tools[0], type: "function" },
+      ]);
+      assert.equal(wire.tools[0].name, "zotero_agents");
+      assert.equal(wire.tools[0].tools[0]?.name, "zotero_search");
+      assert.isString(wire.tools[0].description);
+    }
+    const collision = projectPiChatGPTToolWire(
+      [{ name: "active/tool" }],
+      false,
+      ["zotero_tool_1"],
+    );
+    assert.equal(
+      collision.wireNameByGatewayName.get("active/tool"),
+      "zotero_tool_1",
+    );
+    assert.equal(
+      collision.wireNameByGatewayName.get("zotero_tool_1"),
+      "zotero_tool_2_1",
+    );
+    assert.equal(
+      collision.gatewayNameByWireName.get("zotero_tool_1"),
+      "active/tool",
+    );
+    assert.isUndefined(collision.gatewayNameByWireName.get("zotero_tool_2_1"));
+  });
+
+  it("reads ChatGPT and legacy Codex auth variants from historical canonical usage", function () {
+    for (const authVariant of ["chatgpt", "openai-codex"] as const) {
+      const historical = readPiCanonicalSelection({
+        configurationId: "historic-config",
+        provider: "openai",
+        modelId: "historic-model",
+        api: "openai-responses",
+        reasoning: "off",
+        authVariant,
+        catalogRevision: "historic-catalog",
+        adapterVersion: "0.84.4",
+        runtimeVersion: "0.84.4",
+        policy: {
+          contextWindow: 8192,
+          maxTokens: 1024,
+          input: ["text"],
+          supportsTools: true,
+        },
+        metadata: {
+          authVariants: [authVariant],
+        },
+      });
+      assert.isNotNull(historical);
+      assert.equal(historical?.authVariant, authVariant);
+      assert.deepEqual(historical?.metadata?.authVariants, [authVariant]);
+    }
+  });
+
+  it("enforces the SIWC Responses payload contract at the final SDK boundary", function () {
+    const { payload } = preparePiChatGPTPayload({
+      model: "fixture-model",
+      stream: false,
+      store: true,
+      previous_response_id: "old-response",
+      input: [
+        { role: "developer", content: "Prepared instructions" },
+        { role: "user", content: [{ type: "input_text", text: "Question" }] },
+      ],
+      tools: [
+        {
+          type: "function",
+          name: "zotero_search",
+          parameters: { type: "object" },
+        },
+      ],
+      background: true,
+      max_output_tokens: 16,
+      temperature: 0.2,
+      top_p: 0.5,
+    }) as Record<string, unknown>;
+    assert.equal(payload.stream, true);
+    assert.equal(payload.store, false);
+    assert.equal(payload.instructions, "Prepared instructions");
+    assert.deepEqual(payload.input, [
+      { role: "user", content: [{ type: "input_text", text: "Question" }] },
+    ]);
+    assert.deepEqual(
+      payload.tools,
+      projectPiChatGPTToolWire([
+        { name: "zotero_search", parameters: { type: "object" } },
+      ]).tools,
+    );
+    for (const forbidden of [
+      "previous_response_id",
+      "background",
+      "max_output_tokens",
+      "temperature",
+      "top_p",
+    ])
+      assert.notProperty(payload, forbidden);
+    let rejected: unknown;
+    try {
+      preparePiChatGPTPayload({ model: "fixture-model", temperature: 0.2 }, [
+        "temperature",
+      ]);
+    } catch (error) {
+      rejected = error;
+    }
+    assert.instanceOf(rejected, Error);
+    assert.equal((rejected as Error).message, "unsupported_model");
+    assert.equal(
+      (rejected as { unsupportedParameter?: string }).unsupportedParameter,
+      "temperature",
+    );
+    const retiredHistory = preparePiChatGPTPayload({
+      model: "fixture-model",
+      input: [
+        {
+          type: "function_call",
+          call_id: "call_retired",
+          name: "retired_mcp.lookup",
+          arguments: "{}",
+        },
+        {
+          type: "function_call_output",
+          call_id: "call_retired",
+          output: "settled result",
+        },
+      ],
+      tools: [],
+    });
+    assert.deepEqual(retiredHistory.payload.tools, []);
+    assert.deepEqual(retiredHistory.payload.input, [
+      {
+        type: "function_call",
+        call_id: "call_retired",
+        name: "zotero_tool_1",
+        arguments: "{}",
+        namespace: "zotero_agents",
+      },
+      {
+        type: "function_call_output",
+        call_id: "call_retired",
+        output: "settled result",
+      },
+    ]);
+    assert.isEmpty(retiredHistory.gatewayNameByWireName);
+  });
+
+  it("dispatches SIWC once through the public Responses endpoint behind the injected auth gate", async function () {
+    await putPiCredential({
+      id: "fixture-chatgpt",
+      label: "Fixture ChatGPT",
+      material: {
+        kind: "chatgpt",
+        access: "expired-access",
+        refresh: "refresh-material",
+        idToken: "verified-id-token",
+        expiresAt: Date.now() + 60_000,
+        issuer: "https://auth.openai.com",
+        subject: "fixture-subject",
+        clientId: "fixture-client",
+        scope: ["chatgpt.tokens.use.direct"],
+      },
+    });
+    let gateCalls = 0;
+    let completion: unknown;
+    const requests: Request[] = [];
+    const responseSse = [
+      'event: response.created\ndata: {"type":"response.created","response":{"id":"resp_fixture","status":"in_progress"}}\n\n',
+      'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"hello"}\n\n',
+      'event: response.output_item.done\ndata: {"type":"response.output_item.done","output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"hello","annotations":[]}]}}\n\n',
+      'event: response.completed\ndata: {"type":"response.completed","response":{"id":"resp_fixture","status":"completed","output":[{"id":"msg_1","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"hello","annotations":[]}]}],"usage":{"input_tokens":12,"output_tokens":3,"total_tokens":15}}}\n\n',
+    ].join("");
+    const source = createPiProviderSource(
+      {
+        ...selection,
+        provider: "openai",
+        modelId: "gpt-5-fixture",
+        authVariant: "chatgpt",
+        credentialRef: "fixture-chatgpt",
+        api: "openai-responses",
+        baseUrl: "https://api.openai.com/v1",
+        reasoning: "medium",
+        metadata: { thinkingLevelMap: { medium: "high" } },
+        policy: { ...selection.policy, maxTokens: 0, input: ["text"] },
+      },
+      {
+        chatGPTAuth: {
+          resolvePiChatGPTAccess: async () => "rotated-access-token",
+          assertPiChatGPTInferenceAllowed: async () => {
+            gateCalls++;
+          },
+          pausePiChatGPTInference: async () => undefined,
+        },
+        fetch: async (input, init) => {
+          requests.push(new Request(input, init));
+          return new Response(responseSse, {
+            headers: { "content-type": "text/event-stream" },
+          });
+        },
+        onChatGPTCompletedResponse: (value) => {
+          completion = value;
+        },
+      },
+    );
+    const stream = await source.source({
+      sessionId: "siwc-session",
+      turnId: "siwc-turn",
+      invocationId: "siwc-turn:invocation:0",
+      model: source.model,
+      context: normalizeContext({
+        systemPrompt: "Follow prepared instructions",
+        messages: [{ role: "user", content: "Question", timestamp: 0 }],
+      }),
+      signal: new AbortController().signal,
+    });
+    const result = await stream.result();
+    assert.equal(result.stopReason, "stop");
+    assert.equal(source.usageCompleteness(result), "complete");
+    assert.isNull(source.pricing);
+    assert.equal(gateCalls, 1);
+    assert.lengthOf(requests, 1);
+    assert.equal(requests[0].url, "https://api.openai.com/v1/responses");
+    assert.equal(
+      requests[0].headers.get("authorization"),
+      "Bearer rotated-access-token",
+    );
+    const body = await requests[0].clone().json();
+    assert.equal(body.stream, true);
+    assert.equal(body.store, false);
+    assert.deepEqual(body.reasoning, { effort: "high", summary: "auto" });
+    assert.equal(body.instructions, "Follow prepared instructions");
+    assert.isUndefined(body.previous_response_id);
+    assert.deepEqual((completion as { usage: unknown }).usage, {
+      inputTokens: 12,
+      outputTokens: 3,
+      totalTokens: 15,
+    });
+  });
+
+  it("retains field-level usage presence when a completed response omits token counts", async function () {
+    assert.deepEqual(readPiUsageMeasurement({ inputTokens: 5 }), {
+      inputTokens: 5,
+    });
+    assert.isUndefined(readPiUsageMeasurement({ inputTokens: -1 }));
+    await putPiCredential({
+      id: "fixture-chatgpt-partial-usage",
+      label: "Fixture ChatGPT",
+      material: {
+        kind: "chatgpt",
+        access: "access",
+        refresh: "refresh",
+        idToken: "id-token",
+        expiresAt: Date.now() + 60_000,
+        issuer: "https://auth.openai.com",
+        subject: "fixture-subject",
+        clientId: "fixture-client",
+        scope: ["chatgpt.tokens.use.direct"],
+      },
+    });
+    const source = createPiProviderSource(
+      {
+        ...selection,
+        provider: "openai",
+        authVariant: "chatgpt",
+        credentialRef: "fixture-chatgpt-partial-usage",
+        api: "openai-responses",
+        baseUrl: "https://api.openai.com/v1",
+      },
+      {
+        chatGPTAuth: {
+          resolvePiChatGPTAccess: async () => "access-token",
+          assertPiChatGPTInferenceAllowed: async () => undefined,
+          pausePiChatGPTInference: async () => undefined,
+        },
+        fetch: async () =>
+          new Response(
+            'event: response.output_item.added\ndata: {"type":"response.output_item.added","output_index":0,"item":{"id":"msg_usage","type":"message","role":"assistant","status":"in_progress","content":[]}}\n\n' +
+              'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"measured"}\n\n' +
+              'event: response.output_item.done\ndata: {"type":"response.output_item.done","output_index":0,"item":{"id":"msg_usage","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"measured","annotations":[]}]}}\n\n' +
+              'event: response.completed\ndata: {"type":"response.completed","response":{"id":"resp_usage","status":"completed","output":[{"id":"msg_usage","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"measured","annotations":[]}]}],"usage":{"input_tokens":5}}}\n\n',
+            { headers: { "content-type": "text/event-stream" } },
+          ),
+      },
+    );
+    const runtime = new PiRuntime().openSession({
+      sessionId: "partial-usage",
+      model: source.model,
+      source: source.source,
+      pricing: source.pricing,
+    });
+    const turn = runtime.runTurn({
+      turnId: "partial-usage",
+      messages: [{ role: "user", text: "question" }],
+    });
+    const [events, turnResult] = await Promise.all([
+      observeRuntimeEvents(turn.events),
+      turn.result,
+    ]);
+    assert.equal(turnResult.status, "completed");
+    const assistant = events.find(
+      (event) => event.kind === "assistant_message",
+    );
+    assert.equal(assistant?.kind, "assistant_message");
+    if (assistant?.kind !== "assistant_message")
+      assert.fail(
+        `expected canonical usage; got ${events.map((event) => event.kind).join(",")}`,
+      );
+    assert.deepEqual(assistant.usage.measurement, { inputTokens: 5 });
+    assert.equal(assistant.usage.completeness, "partial");
+    assert.equal(assistant.usage.input, 5);
+    assert.equal(assistant.usage.output, 0);
+    assert.equal(assistant.usage.totalTokens, 0);
+    runtime.dispose();
+  });
+
+  it("preserves explicit API-key Responses limits, cache retention and temperature", async function () {
+    await putPiCredential({
+      id: "fixture-key",
+      label: "Fixture",
+      material: { kind: "api-key", secret: "fixture-api-key" },
+    });
+    let body: Record<string, unknown> | undefined;
+    const complete =
+      'event: response.output_item.added\ndata: {"type":"response.output_item.added","output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","status":"in_progress","content":[]}}\n\n' +
+      'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"ok"}\n\n' +
+      'event: response.output_item.done\ndata: {"type":"response.output_item.done","output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok","annotations":[]}]}}\n\n' +
+      'event: response.completed\ndata: {"type":"response.completed","response":{"id":"resp_key","status":"completed","output":[{"id":"msg_1","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok","annotations":[]}]}],"usage":{"input_tokens":4,"output_tokens":1,"total_tokens":5}}}\n\n';
+    const source = createPiProviderSource(
+      {
+        ...selection,
+        provider: "openai",
+        modelId: "gpt-key-model",
+        credentialRef: "fixture-key",
+        api: "openai-responses",
+        baseUrl: "https://api.openai.com/v1",
+        metadata: {
+          promptCache: { long: 3600 },
+          samplingParams: { temperature: 0.25 },
+          compat: {
+            supportsLongCacheRetention: true,
+            supportsMaxOutputTokens: true,
+          },
+        },
+      },
+      {
+        fetch: async (input, init) => {
+          body = (await new Request(input, init).json()) as Record<
+            string,
+            unknown
+          >;
+          return new Response(complete, {
+            headers: { "content-type": "text/event-stream" },
+          });
+        },
+      },
+    );
+    const stream = await source.source({
+      sessionId: "api-key-responses",
+      turnId: "api-key-responses",
+      invocationId: "api-key-responses:0",
+      model: source.model,
+      context: normalizeContext({
+        messages: [{ role: "user", content: "question", timestamp: 0 }],
+      }),
+      signal: new AbortController().signal,
+    });
+    const result = await stream.result();
+    assert.equal(result.stopReason, "stop", result.errorMessage);
+    assert.equal(body?.max_output_tokens, selection.policy.maxTokens);
+    assert.equal(body?.prompt_cache_retention, "24h");
+    assert.equal(body?.temperature, 0.25);
+  });
+
+  it("keeps the same context-bounded API-key output limit for either key shape", async function () {
+    const limits: number[] = [];
+    for (const secret of ["sk-fixture-key", "opaque-fixture-key"]) {
+      await putPiCredential({
+        id: "fixture-key",
+        label: "Fixture",
+        material: { kind: "api-key", secret },
+      });
+      const prepared = createPiProviderSource(
+        {
+          ...selection,
+          provider: "openai",
+          modelId: "gpt-key-model",
+          api: "openai-responses",
+          baseUrl: "https://api.openai.com/v1",
+          policy: {
+            ...selection.policy,
+            maxTokens: selection.policy.contextWindow,
+          },
+          metadata: { compat: { supportsMaxOutputTokens: true } },
+        },
+        {
+          fetch: async (input, init) => {
+            const body = await new Request(input, init).json();
+            limits.push(body.max_output_tokens);
+            return new Response(
+              'data: {"type":"response.completed","response":{"id":"resp_key_budget","status":"completed","output":[],"usage":{"input_tokens":1500,"output_tokens":0,"total_tokens":1500}}}\n\n',
+              { headers: { "content-type": "text/event-stream" } },
+            );
+          },
+        },
+      );
+      const stream = await prepared.source({
+        sessionId: "api-key-budget",
+        turnId: "api-key-budget",
+        invocationId: "api-key-budget:0",
+        model: prepared.model,
+        context: normalizeContext({
+          messages: [{ role: "user", content: "x".repeat(6000), timestamp: 0 }],
+        }),
+        signal: new AbortController().signal,
+      });
+      assert.equal((await stream.result()).stopReason, "stop");
+    }
+    assert.isAbove(limits[0], 0);
+    assert.isBelow(limits[0], selection.policy.contextWindow);
+    assert.equal(limits[1], limits[0]);
+  });
+
+  it("consumes a resume permit only at dispatch and never retries its probe", async function () {
+    await putPiCredential({
+      id: "fixture-chatgpt-probe",
+      label: "Fixture ChatGPT",
+      material: {
+        kind: "chatgpt",
+        access: "access",
+        refresh: "refresh",
+        idToken: "id-token",
+        expiresAt: Date.now() + 60_000,
+        issuer: "https://auth.openai.com",
+        subject: "fixture-subject",
+        clientId: "fixture-client",
+        scope: ["chatgpt.tokens.use.direct"],
+      },
+    });
+    const permit = Object.freeze({ opaque: true });
+    const observedPermits: unknown[] = [];
+    let requests = 0;
+    const source = createPiProviderSource(
+      {
+        ...selection,
+        provider: "openai",
+        authVariant: "chatgpt",
+        credentialRef: "fixture-chatgpt-probe",
+        api: "openai-responses",
+        baseUrl: "https://api.openai.com/v1",
+      },
+      {
+        chatGPTResumePermit: permit,
+        chatGPTAuth: {
+          resolvePiChatGPTAccess: async () => "access-token",
+          assertPiChatGPTInferenceAllowed: async (_id, _signal, actual) => {
+            observedPermits.push(actual);
+          },
+          pausePiChatGPTInference: async () => undefined,
+        },
+        fetch: async () => {
+          requests++;
+          return new Response("temporary service failure", { status: 503 });
+        },
+      },
+    );
+    const stream = await source.source({
+      sessionId: "probe-session",
+      turnId: "probe-turn",
+      invocationId: "probe-turn:invocation:0",
+      model: source.model,
+      context: normalizeContext({
+        messages: [{ role: "user", content: "probe", timestamp: 0 }],
+      }),
+      signal: new AbortController().signal,
+    });
+    assert.equal((await stream.result()).stopReason, "error");
+    assert.equal(requests, 1);
+    assert.deepEqual(observedPermits, [permit]);
+  });
+
+  it("records each eligible HTTP 503 retry as a distinct canonical invocation", async function () {
+    await putPiCredential({
+      id: "fixture-chatgpt-retry",
+      label: "Fixture ChatGPT",
+      material: {
+        kind: "chatgpt",
+        access: "access",
+        refresh: "refresh",
+        idToken: "id-token",
+        expiresAt: Date.now() + 60_000,
+        issuer: "https://auth.openai.com",
+        subject: "fixture-subject",
+        clientId: "fixture-client",
+        scope: ["chatgpt.tokens.use.direct"],
+      },
+    });
+    let dispatches = 0;
+    const events: import("../../src/modules/piRuntime").PiRuntimeEvent[] = [];
+    const provider = createPiProviderSource(
+      {
+        ...selection,
+        provider: "openai",
+        authVariant: "chatgpt",
+        credentialRef: "fixture-chatgpt-retry",
+        api: "openai-responses",
+        baseUrl: "https://api.openai.com/v1",
+      },
+      {
+        chatGPTAuth: {
+          resolvePiChatGPTAccess: async () => "access-token",
+          assertPiChatGPTInferenceAllowed: async () => undefined,
+          pausePiChatGPTInference: async () => undefined,
+        },
+        chatGPTRetryDelay: async () => undefined,
+        fetch: async () => {
+          dispatches++;
+          if (dispatches === 1)
+            return new Response("ignored", {
+              status: 503,
+              headers: { "x-request-id": "req_retry_1" },
+            });
+          return new Response(
+            'event: response.output_item.added\ndata: {"type":"response.output_item.added","output_index":0,"item":{"id":"msg_retry","type":"message","role":"assistant","status":"in_progress","content":[]}}\n\n' +
+              'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"done"}\n\n' +
+              'event: response.output_item.done\ndata: {"type":"response.output_item.done","output_index":0,"item":{"id":"msg_retry","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"done","annotations":[]}]}}\n\n' +
+              'event: response.completed\ndata: {"type":"response.completed","response":{"id":"resp_retry","status":"completed","output":[{"id":"msg_retry","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"done","annotations":[]}]}],"usage":{"input_tokens":2,"output_tokens":1,"total_tokens":3}}}\n\n',
+            { headers: { "content-type": "text/event-stream" } },
+          );
+        },
+      },
+    );
+    const runtime = new PiRuntime().openSession({
+      sessionId: "retry-canonical",
+      model: provider.model,
+      source: provider.source,
+      pricing: provider.pricing,
+    });
+    const turn = runtime.runTurn({
+      turnId: "retry-turn",
+      messages: [{ role: "user", text: "question" }],
+      onEvent: (event) => events.push(event),
+    });
+    const result = await turn.result;
+    assert.equal(result.status, "completed");
+    assert.equal(dispatches, 2);
+    const starts = events.filter(
+      (event) => event.kind === "invocation_started",
+    );
+    const terminals = events.filter(
+      (event) => event.kind === "invocation_terminal",
+    );
+    assert.deepEqual(
+      starts.map((event) => event.invocationId),
+      ["retry-turn:invocation:0", "retry-turn:invocation:1"],
+    );
+    assert.deepEqual(
+      terminals.map((event) => event.invocationId),
+      ["retry-turn:invocation:0", "retry-turn:invocation:1"],
+    );
+    assert.deepEqual(
+      terminals[0]?.kind === "invocation_terminal"
+        ? terminals[0].providerTerminal
+        : undefined,
+      {
+        status: "failed",
+        code: "provider_response_failed",
+        httpStatus: 503,
+        requestId: "req_retry_1",
+      },
+    );
+    runtime.dispose();
+  });
+
+  it("keeps incomplete and unterminated SIWC streams failed with partial text", async function () {
+    await putPiCredential({
+      id: "fixture-chatgpt-terminal",
+      label: "Fixture ChatGPT",
+      material: {
+        kind: "chatgpt",
+        access: "access",
+        refresh: "refresh",
+        idToken: "id-token",
+        expiresAt: Date.now() + 60_000,
+        issuer: "https://auth.openai.com",
+        subject: "fixture-subject",
+        clientId: "fixture-client",
+        scope: ["chatgpt.tokens.use.direct"],
+      },
+    });
+    const cases = [
+      {
+        name: "incomplete",
+        expected: "provider_response_incomplete",
+        terminal:
+          'event: response.incomplete\ndata: {"type":"response.incomplete","response":{"id":"resp_partial","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"usage":{"input_tokens":8,"output_tokens":2,"total_tokens":10}}}\n\n',
+      },
+      {
+        name: "missing terminal",
+        expected: "provider_terminal_missing",
+        terminal: "",
+      },
+    ];
+    for (const item of cases) {
+      let completed = false;
+      const source = createPiProviderSource(
+        {
+          ...selection,
+          provider: "openai",
+          authVariant: "chatgpt",
+          credentialRef: "fixture-chatgpt-terminal",
+          api: "openai-responses",
+          baseUrl: "https://api.openai.com/v1",
+        },
+        {
+          chatGPTAuth: {
+            resolvePiChatGPTAccess: async () => "access-token",
+            assertPiChatGPTInferenceAllowed: async () => undefined,
+            pausePiChatGPTInference: async () => undefined,
+          },
+          fetch: async () =>
+            new Response(
+              'event: response.output_item.added\ndata: {"type":"response.output_item.added","output_index":0,"item":{"id":"msg_partial","type":"message","role":"assistant","status":"in_progress","content":[]}}\n\n' +
+                'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"partial"}\n\n' +
+                item.terminal,
+              { headers: { "content-type": "text/event-stream" } },
+            ),
+          onChatGPTCompletedResponse: () => {
+            completed = true;
+          },
+        },
+      );
+      const stream = await source.source({
+        sessionId: `terminal-${item.name}`,
+        turnId: `terminal-${item.name}`,
+        invocationId: `terminal-${item.name}:invocation:0`,
+        model: source.model,
+        context: normalizeContext({
+          messages: [{ role: "user", content: "question", timestamp: 0 }],
+        }),
+        signal: new AbortController().signal,
+      });
+      const result = await stream.result();
+      assert.equal(result.stopReason, "error");
+      assert.equal(result.errorMessage, item.expected);
+      assert.include(
+        result.content
+          .filter((part) => part.type === "text")
+          .map((part) => (part.type === "text" ? part.text : ""))
+          .join(""),
+        "partial",
+      );
+      assert.isFalse(completed);
+    }
+  });
+
+  it("rejects completed events whose raw response is absent, malformed or has an unknown status", async function () {
+    await putPiCredential({
+      id: "fixture-chatgpt-integrity",
+      label: "Fixture ChatGPT",
+      material: {
+        kind: "chatgpt",
+        access: "access",
+        refresh: "refresh",
+        idToken: "id-token",
+        expiresAt: Date.now() + 60_000,
+        issuer: "https://auth.openai.com",
+        subject: "fixture-subject",
+        clientId: "fixture-client",
+        scope: ["chatgpt.tokens.use.direct"],
+      },
+    });
+    const invalidResponses = [
+      { id: "resp_missing_output", status: "completed" },
+      {
+        id: "resp_malformed_output",
+        status: "completed",
+        output: [{ type: "message", role: "assistant", content: [] }],
+      },
+      { id: "resp_unknown_status", status: "in_progress", output: [] },
+      {
+        id: "resp_unknown_output_type",
+        status: "completed",
+        output: [{ id: "unknown", type: "future_output" }],
+      },
+    ];
+    for (const response of invalidResponses) {
+      let completionDelivered = false;
+      const source = createPiProviderSource(
+        {
+          ...selection,
+          provider: "openai",
+          authVariant: "chatgpt",
+          credentialRef: "fixture-chatgpt-integrity",
+          api: "openai-responses",
+          baseUrl: "https://api.openai.com/v1",
+        },
+        {
+          chatGPTAuth: {
+            resolvePiChatGPTAccess: async () => "access-token",
+            assertPiChatGPTInferenceAllowed: async () => undefined,
+            pausePiChatGPTInference: async () => undefined,
+          },
+          fetch: async () =>
+            new Response(
+              'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"SDK text must not rescue this response"}\n\n' +
+                `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response })}\n\n`,
+              { headers: { "content-type": "text/event-stream" } },
+            ),
+          onChatGPTCompletedResponse: () => {
+            completionDelivered = true;
+          },
+        },
+      );
+      const stream = await source.source({
+        sessionId: `integrity-${response.id}`,
+        turnId: `integrity-${response.id}`,
+        invocationId: `integrity-${response.id}:invocation:0`,
+        model: source.model,
+        context: normalizeContext({
+          messages: [{ role: "user", content: "question", timestamp: 0 }],
+        }),
+        signal: new AbortController().signal,
+      });
+      const result = await stream.result();
+      assert.equal(result.stopReason, "error", response.id);
+      assert.equal(
+        result.errorMessage,
+        "provider_response_failed",
+        response.id,
+      );
+      assert.isFalse(completionDelivered, response.id);
+    }
+  });
+
+  it("requires completed function calls to match the frozen namespace, wire name and SDK arguments", async function () {
+    await putPiCredential({
+      id: "fixture-chatgpt-tools",
+      label: "Fixture ChatGPT",
+      material: {
+        kind: "chatgpt",
+        access: "access",
+        refresh: "refresh",
+        idToken: "id-token",
+        expiresAt: Date.now() + 60_000,
+        issuer: "https://auth.openai.com",
+        subject: "fixture-subject",
+        clientId: "fixture-client",
+        scope: ["chatgpt.tokens.use.direct"],
+      },
+    });
+    const tool = {
+      name: "read",
+      description: "Read a document",
+      parameters: Type.Object({ value: Type.String() }),
+    };
+    const cases = [
+      {
+        label: "valid",
+        namespace: "zotero_agents",
+        name: "read",
+        finalArgs: '{"value":"sdk"}',
+        expected: "toolUse",
+      },
+      {
+        label: "wrong namespace",
+        namespace: "other",
+        name: "read",
+        finalArgs: '{"value":"sdk"}',
+        expected: "error",
+      },
+      {
+        label: "unmapped name",
+        namespace: "zotero_agents",
+        name: "unmapped",
+        finalArgs: '{"value":"sdk"}',
+        expected: "error",
+      },
+      {
+        label: "arguments disagree",
+        namespace: "zotero_agents",
+        name: "read",
+        finalArgs: '{"value":"response"}',
+        expected: "error",
+      },
+    ] as const;
+    for (const item of cases) {
+      const sdkArgs = '{"value":"sdk"}';
+      const response = {
+        id: `resp_${item.label.replaceAll(" ", "_")}`,
+        status: "completed",
+        output: [
+          {
+            id: "fc_1",
+            call_id: "call_1",
+            type: "function_call",
+            status: "completed",
+            namespace: item.namespace,
+            name: item.name,
+            arguments: item.finalArgs,
+          },
+        ],
+      };
+      const events = [
+        `event: response.output_item.added\ndata: ${JSON.stringify({ type: "response.output_item.added", output_index: 0, item: { id: "fc_1", call_id: "call_1", type: "function_call", status: "in_progress", namespace: "zotero_agents", name: "read", arguments: "" } })}\n\n`,
+        `event: response.function_call_arguments.delta\ndata: ${JSON.stringify({ type: "response.function_call_arguments.delta", output_index: 0, delta: sdkArgs })}\n\n`,
+        `event: response.output_item.done\ndata: ${JSON.stringify({ type: "response.output_item.done", output_index: 0, item: { id: "fc_1", call_id: "call_1", type: "function_call", status: "completed", namespace: "zotero_agents", name: "read", arguments: sdkArgs } })}\n\n`,
+        `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response })}\n\n`,
+      ].join("");
+      const source = createPiProviderSource(
+        {
+          ...selection,
+          provider: "openai",
+          authVariant: "chatgpt",
+          credentialRef: "fixture-chatgpt-tools",
+          api: "openai-responses",
+          baseUrl: "https://api.openai.com/v1",
+        },
+        {
+          chatGPTAuth: {
+            resolvePiChatGPTAccess: async () => "access-token",
+            assertPiChatGPTInferenceAllowed: async () => undefined,
+            pausePiChatGPTInference: async () => undefined,
+          },
+          fetch: async () =>
+            new Response(events, {
+              headers: { "content-type": "text/event-stream" },
+            }),
+        },
+      );
+      const stream = await source.source({
+        sessionId: `tool-integrity-${item.label}`,
+        turnId: `tool-integrity-${item.label}`,
+        invocationId: `tool-integrity-${item.label}:invocation:0`,
+        model: source.model,
+        context: normalizeContext({
+          messages: [{ role: "user", content: "question", timestamp: 0 }],
+          tools: [tool],
+        }),
+        signal: new AbortController().signal,
+      });
+      const result = await stream.result();
+      assert.equal(result.stopReason, item.expected, item.label);
+      if (item.expected === "toolUse") {
+        const call = result.content.find((part) => part.type === "toolCall");
+        assert.equal(call?.type === "toolCall" ? call.name : undefined, "read");
+        assert.equal(
+          call?.type === "toolCall" ? call.namespace : undefined,
+          undefined,
+        );
+      }
+    }
+  });
+
+  it("rejects a completed mixed tool batch before any valid call can produce an effect", async function () {
+    await putPiCredential({
+      id: "fixture-chatgpt-mixed-tools",
+      label: "Fixture ChatGPT",
+      material: {
+        kind: "chatgpt",
+        access: "access",
+        refresh: "refresh",
+        idToken: "id-token",
+        expiresAt: Date.now() + 60_000,
+        issuer: "https://auth.openai.com",
+        subject: "fixture-subject",
+        clientId: "fixture-client",
+        scope: ["chatgpt.tokens.use.direct"],
+      },
+    });
+    const calls = [
+      {
+        id: "fc_invalid",
+        call_id: "call_invalid",
+        name: "invalid",
+        arguments: "{}",
+      },
+      {
+        id: "fc_effect",
+        call_id: "call_effect",
+        name: "side_effect",
+        arguments: '{"value":"safe"}',
+      },
+    ];
+    const stream = [
+      ...calls.flatMap((call, output_index) => [
+        `event: response.output_item.added\ndata: ${JSON.stringify({ type: "response.output_item.added", output_index, item: { ...call, type: "function_call", status: "in_progress", namespace: "zotero_agents" } })}\n\n`,
+        `event: response.function_call_arguments.delta\ndata: ${JSON.stringify({ type: "response.function_call_arguments.delta", output_index, delta: call.arguments })}\n\n`,
+        `event: response.output_item.done\ndata: ${JSON.stringify({ type: "response.output_item.done", output_index, item: { ...call, type: "function_call", status: "completed", namespace: "zotero_agents" } })}\n\n`,
+      ]),
+      `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response: { id: "resp_mixed_tools", status: "completed", output: calls.map((call) => ({ ...call, type: "function_call", status: "completed", namespace: "zotero_agents" })) } })}\n\n`,
+    ].join("");
+    let effects = 0;
+    const source = createPiProviderSource(
+      {
+        ...selection,
+        provider: "openai",
+        authVariant: "chatgpt",
+        credentialRef: "fixture-chatgpt-mixed-tools",
+        api: "openai-responses",
+        baseUrl: "https://api.openai.com/v1",
+      },
+      {
+        chatGPTAuth: {
+          resolvePiChatGPTAccess: async () => "access-token",
+          assertPiChatGPTInferenceAllowed: async () => undefined,
+          pausePiChatGPTInference: async () => undefined,
+        },
+        fetch: async () =>
+          new Response(stream, {
+            headers: { "content-type": "text/event-stream" },
+          }),
+      },
+    );
+    const session = new PiRuntime().openSession({
+      sessionId: "mixed-tool-batch",
+      model: source.model,
+      source: source.source,
+      pricing: source.pricing,
+    });
+    const result = await session.runTurn({
+      turnId: "mixed-tool-batch",
+      messages: [{ role: "user", text: "invoke tools" }],
+      tools: [
+        {
+          name: "invalid",
+          description: "Requires a value",
+          schema: Type.Object({ value: Type.String() }),
+          execute: async () => ({ text: "unexpected" }),
+        },
+        {
+          name: "side_effect",
+          description: "Produces an effect",
+          schema: Type.Object({ value: Type.String() }),
+          execute: async () => {
+            effects++;
+            return { text: "effect" };
+          },
+        },
+      ],
+    }).result;
+    assert.equal(result.status, "failed");
+    assert.equal(effects, 0);
+    session.dispose();
+  });
+
+  it("projects a completed SIWC tool call and its result into the next full-context request", async function () {
+    await putPiCredential({
+      id: "fixture-chatgpt-tool-continuation",
+      label: "Fixture ChatGPT",
+      material: {
+        kind: "chatgpt",
+        access: "access",
+        refresh: "refresh",
+        idToken: "id-token",
+        expiresAt: Date.now() + 60_000,
+        issuer: "https://auth.openai.com",
+        subject: "fixture-subject",
+        clientId: "fixture-client",
+        scope: ["chatgpt.tokens.use.direct"],
+      },
+    });
+    const tool = {
+      name: "old_mcp.read",
+      description: "Read a document",
+      parameters: Type.Object({ value: Type.String() }),
+    };
+    const firstResponse = [
+      `event: response.output_item.added\ndata: ${JSON.stringify({ type: "response.output_item.added", output_index: 0, item: { id: "fc_read", call_id: "call_read", type: "function_call", status: "in_progress", namespace: "zotero_agents", name: "zotero_tool_1", arguments: "" } })}\n\n`,
+      `event: response.function_call_arguments.delta\ndata: ${JSON.stringify({ type: "response.function_call_arguments.delta", output_index: 0, delta: '{"value":"paper"}' })}\n\n`,
+      `event: response.output_item.done\ndata: ${JSON.stringify({ type: "response.output_item.done", output_index: 0, item: { id: "fc_read", call_id: "call_read", type: "function_call", status: "completed", namespace: "zotero_agents", name: "zotero_tool_1", arguments: '{"value":"paper"}' } })}\n\n`,
+      `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response: { id: "resp_read", status: "completed", output: [{ id: "fc_read", call_id: "call_read", type: "function_call", status: "completed", namespace: "zotero_agents", name: "zotero_tool_1", arguments: '{"value":"paper"}' }] } })}\n\n`,
+    ].join("");
+    const secondResponse = [
+      'event: response.output_item.added\ndata: {"type":"response.output_item.added","output_index":0,"item":{"id":"msg_final","type":"message","role":"assistant","status":"in_progress","content":[]}}\n\n',
+      'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"Found it"}\n\n',
+      'event: response.output_item.done\ndata: {"type":"response.output_item.done","output_index":0,"item":{"id":"msg_final","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"Found it","annotations":[]}]}}\n\n',
+      'event: response.completed\ndata: {"type":"response.completed","response":{"id":"resp_final","status":"completed","output":[{"id":"msg_final","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"Found it","annotations":[]}]}]}}\n\n',
+    ].join("");
+    const requests: Request[] = [];
+    const source = createPiProviderSource(
+      {
+        ...selection,
+        provider: "openai",
+        authVariant: "chatgpt",
+        credentialRef: "fixture-chatgpt-tool-continuation",
+        api: "openai-responses",
+        baseUrl: "https://api.openai.com/v1",
+      },
+      {
+        chatGPTAuth: {
+          resolvePiChatGPTAccess: async () => "access-token",
+          assertPiChatGPTInferenceAllowed: async () => undefined,
+          pausePiChatGPTInference: async () => undefined,
+        },
+        fetch: async (input, init) => {
+          requests.push(new Request(input, init));
+          return new Response(
+            requests.length === 1 ? firstResponse : secondResponse,
+            {
+              headers: { "content-type": "text/event-stream" },
+            },
+          );
+        },
+      },
+    );
+    const signal = new AbortController().signal;
+    const first = await source.source({
+      sessionId: "tool-continuation",
+      turnId: "tool-continuation",
+      invocationId: "tool-continuation:invocation:0",
+      model: source.model,
+      context: normalizeContext({
+        messages: [{ role: "user", content: "read it", timestamp: 0 }],
+        tools: [tool],
+      }),
+      signal,
+    });
+    const firstResult = await first.result();
+    assert.equal(firstResult.stopReason, "toolUse", firstResult.errorMessage);
+    const continuation = await source.source({
+      sessionId: "tool-continuation",
+      turnId: "tool-continuation",
+      invocationId: "tool-continuation:invocation:1",
+      model: source.model,
+      context: normalizeContext({
+        messages: [
+          { role: "user", content: "read it", timestamp: 0 },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "toolCall",
+                id: "call_read|fc_read",
+                name: "old_mcp.read",
+                arguments: { value: "paper" },
+              },
+            ],
+            api: "openai-responses",
+            provider: "openai",
+            model: source.model.id,
+            usage: {
+              input: 1,
+              output: 1,
+              cacheRead: 0,
+              cacheWrite: 0,
+              totalTokens: 2,
+              cost: {
+                input: 0,
+                output: 0,
+                cacheRead: 0,
+                cacheWrite: 0,
+                total: 0,
+              },
+            },
+            stopReason: "toolUse",
+            timestamp: 1,
+          },
+          {
+            role: "toolResult",
+            toolCallId: "call_read|fc_read",
+            toolName: "old_mcp.read",
+            content: [{ type: "text", text: "Found the paper" }],
+            isError: false,
+            timestamp: 2,
+          },
+        ],
+        tools: [],
+      }),
+      signal,
+    });
+    const continuationResult = await continuation.result();
+    assert.lengthOf(requests, 2);
+    assert.equal(
+      continuationResult.stopReason,
+      "stop",
+      continuationResult.errorMessage,
+    );
+    const body = (await requests[1].clone().json()) as {
+      input: Array<Record<string, unknown>>;
+      previous_response_id?: string;
+    };
+    const functionCall = body.input.find(
+      (item) => item.type === "function_call",
+    );
+    const functionOutput = body.input.find(
+      (item) => item.type === "function_call_output",
+    );
+    assert.deepEqual(
+      {
+        name: functionCall?.name,
+        namespace: functionCall?.namespace,
+      },
+      { name: "zotero_tool_1", namespace: "zotero_agents" },
+    );
+    assert.equal(functionOutput?.call_id, "call_read");
+    assert.deepEqual(body.tools, []);
+    assert.isUndefined(body.previous_response_id);
+  });
+
+  it("accepts completed web-search actions by the pinned Responses schema", async function () {
+    await putPiCredential({
+      id: "fixture-chatgpt-search-schema",
+      label: "Fixture ChatGPT",
+      material: {
+        kind: "chatgpt",
+        access: "access",
+        refresh: "refresh",
+        idToken: "id-token",
+        expiresAt: Date.now() + 60_000,
+        issuer: "https://auth.openai.com",
+        subject: "fixture-subject",
+        clientId: "fixture-client",
+        scope: ["chatgpt.tokens.use.direct"],
+      },
+    });
+    const cases = [
+      { action: { type: "search", query: "legacy query" }, valid: true },
+      { action: { type: "search" }, valid: true },
+      {
+        action: {
+          type: "search",
+          queries: ["current query"],
+          sources: [{ type: "url", url: "https://example.org" }],
+        },
+        valid: true,
+      },
+      {
+        action: { type: "search", query: "legacy", queries: ["current"] },
+        valid: true,
+      },
+      { action: { type: "search", query: 1 }, valid: false },
+      { action: { type: "open_page" }, valid: true },
+      { action: { type: "open_page", url: null }, valid: true },
+      { action: { type: "open_page", url: 1 }, valid: false },
+      {
+        action: {
+          type: "find_in_page",
+          url: "https://example.org",
+          pattern: "text",
+        },
+        valid: true,
+      },
+      {
+        action: { type: "find", url: "https://example.org", pattern: "text" },
+        valid: false,
+      },
+    ] as const;
+    for (const [index, item] of cases.entries()) {
+      const message = {
+        id: `msg_search_${index}`,
+        type: "message",
+        role: "assistant",
+        status: "completed",
+        content: [
+          {
+            type: "output_text",
+            text: "Search result",
+            annotations: [],
+          },
+        ],
+      };
+      const searchCall = {
+        id: `search_${index}`,
+        type: "web_search_call",
+        status: "completed",
+        action: item.action,
+      };
+      const response = {
+        id: `resp_search_${index}`,
+        status: "completed",
+        output: [searchCall, message],
+      };
+      const events = [
+        ...response.output.map(
+          (output, output_index) =>
+            `event: response.output_item.done\ndata: ${JSON.stringify({ type: "response.output_item.done", output_index, item: output })}\n\n`,
+        ),
+        'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","output_index":1,"content_index":0,"delta":"Search result"}\n\n',
+        `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response })}\n\n`,
+      ].join("");
+      let completed = false;
+      const source = createPiProviderSource(
+        {
+          ...selection,
+          provider: "openai",
+          authVariant: "chatgpt",
+          credentialRef: "fixture-chatgpt-search-schema",
+          api: "openai-responses",
+          baseUrl: "https://api.openai.com/v1",
+        },
+        {
+          chatGPTAuth: {
+            resolvePiChatGPTAccess: async () => "access-token",
+            assertPiChatGPTInferenceAllowed: async () => undefined,
+            pausePiChatGPTInference: async () => undefined,
+          },
+          forceChatGPTWebSearch: true,
+          fetch: async () =>
+            new Response(events, {
+              headers: { "content-type": "text/event-stream" },
+            }),
+          onChatGPTCompletedResponse: () => {
+            completed = true;
+          },
+        },
+      );
+      const stream = await source.source({
+        sessionId: `search-action-${index}`,
+        turnId: `search-action-${index}`,
+        invocationId: `search-action-${index}:invocation:0`,
+        model: source.model,
+        context: normalizeContext({
+          messages: [{ role: "user", content: "search", timestamp: 0 }],
+        }),
+        signal: new AbortController().signal,
+      });
+      const result = await stream.result();
+      assert.equal(
+        result.stopReason === "stop",
+        item.valid,
+        JSON.stringify(item.action),
+      );
+      assert.equal(completed, item.valid, JSON.stringify(item.action));
+    }
+  });
 
   it("streams from the frozen selection using only the selected credential", async function () {
     await putPiCredential({

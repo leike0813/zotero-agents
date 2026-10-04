@@ -1,6 +1,7 @@
 import * as piBrokeredWebTools from "../../piBrokeredWebTools";
 import * as piCredentialStore from "../../piCredentialStore";
 import * as piMcpSourceRegistry from "../../piMcpSourceRegistry";
+import * as piChatGPTAuth from "../../piChatGPTAuth";
 import * as piProviderConfiguration from "../../piProviderConfiguration";
 import { defaultPiWebSources } from "../../../shared/piWebSourceContract";
 
@@ -13,6 +14,15 @@ import { defaultPiWebSources } from "../../../shared/piWebSourceContract";
 export const deletePiCredential = piCredentialStore.deletePiCredential;
 export const listPiCredentials = piCredentialStore.listPiCredentials;
 export const putPiCredential = piCredentialStore.putPiCredential;
+export const acceptPiChatGPTWelcome = piChatGPTAuth.acceptPiChatGPTWelcome;
+export const cancelPiChatGPTLogin = piChatGPTAuth.cancelPiChatGPTLogin;
+export const connectPiChatGPT = piChatGPTAuth.connectPiChatGPT;
+export const listPiChatGPTRegistrations =
+  piChatGPTAuth.listPiChatGPTRegistrations;
+export const signOutPiChatGPT = piChatGPTAuth.signOutPiChatGPT;
+export const subscribePiChatGPTRegistrations =
+  piChatGPTAuth.subscribePiChatGPTRegistrations;
+export const withPiChatGPTResumeProbe = piChatGPTAuth.withPiChatGPTResumeProbe;
 export const acceptPiMcpImport = piMcpSourceRegistry.acceptPiMcpImport;
 export const deletePiMcpSource = piMcpSourceRegistry.deletePiMcpSource;
 export const exportPiMcpJson = piMcpSourceRegistry.exportPiMcpJson;
@@ -43,7 +53,7 @@ export const resolvePiModelSelection =
 
 /** Lazy edges; each loader is only reachable through this module. */
 export const loadPiModelCatalog = () => import("../../piModelCatalog");
-export const loadPiOpenAICodexAuth = () => import("../../piOpenAICodexAuth");
+export const loadPiChatGPTAuth = () => import("../../piChatGPTAuth");
 export const loadPiMcpRuntimeOwner = () => import("../../piMcpRuntimeOwner");
 export const loadPiRuntimeAudit = () => import("../../piRuntimeAudit");
 export const loadPiProviderExecution = () =>

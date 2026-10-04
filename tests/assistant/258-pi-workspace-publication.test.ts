@@ -486,6 +486,34 @@ describe("Pi Conversation workspace publication", function () {
         titleCost: 0,
         compactionCost: 0,
         costUnknown: 0,
+        purposeTotals: {
+          main: {
+            // A trusted legacy API-key scalar remains visible beside a newer
+            // invocation whose exact measurement omitted totalTokens.
+            measurement: { inputTokens: 4 },
+            unreported: { totalTokens: 1 },
+            invocations: 2,
+            completeness: "partial",
+            visibleTotalTokens: 1000,
+            unknownTotalInvocations: 1,
+          },
+          title: {
+            measurement: { totalTokens: 0 },
+            unreported: {},
+            invocations: 1,
+            completeness: "complete",
+            visibleTotalTokens: 0,
+            unknownTotalInvocations: 0,
+          },
+          compaction: {
+            measurement: {},
+            unreported: { totalTokens: 1 },
+            invocations: 1,
+            completeness: "unknown",
+            visibleTotalTokens: 0,
+            unknownTotalInvocations: 1,
+          },
+        },
       },
     });
 
@@ -493,16 +521,17 @@ describe("Pi Conversation workspace publication", function () {
       owner,
       kinds: ["owner-presentation", "owner-details"],
     });
-    assert.equal(regions["owner-presentation"]?.usage?.used, 125);
+    assert.isNull(regions["owner-presentation"]?.usage);
     const usage = regions["owner-details"]!.sections.find(
       (section) => section.sectionId === "usage",
     )!;
     const byField = new Map(
       usage.items.map((item) => [item.fieldId, item.value]),
     );
-    assert.equal(byField.get("usage-main"), "100");
-    assert.equal(byField.get("usage-title"), "20");
-    assert.equal(byField.get("usage-compaction"), "5");
+    assert.include(byField.get("usage-main") || "", "1000");
+    assert.include(byField.get("usage-main") || "", "?");
+    assert.equal(byField.get("usage-title"), "0");
+    assert.equal(byField.get("usage-compaction"), "?");
 
     await coordinator.dispose();
   });
@@ -655,6 +684,76 @@ describe("Pi Skill Run workspace publication", function () {
       text: "diagnostic_export_failed",
     });
     resetPiSkillRunActionNoticesForTests();
+    await coordinator.dispose();
+  });
+
+  it("shows reported zero and partial usage without presenting unknown as zero", async function () {
+    const coordinator = createPiSkillRunCoordinator({
+      root,
+      prepare: async () => {
+        throw new Error("preparation failed");
+      },
+      execution: () => {
+        throw new Error("must not dispatch");
+      },
+    });
+    const result = await coordinator.execute(request());
+    assert.equal(result.status, "failed");
+    await coordinator.select(result.requestId);
+    const original = await coordinator.readModel(result.requestId);
+    (
+      coordinator as unknown as {
+        readModel: (requestId: string) => Promise<unknown>;
+      }
+    ).readModel = async () => ({
+      ...original,
+      usage: {
+        ...original.usage,
+        purposeTotals: {
+          main: {
+            measurement: { totalTokens: 600 },
+            unreported: { totalTokens: 1 },
+            invocations: 2,
+            completeness: "partial",
+            visibleTotalTokens: 600,
+            unknownTotalInvocations: 1,
+          },
+          compaction: {
+            measurement: { totalTokens: 0 },
+            unreported: {},
+            invocations: 1,
+            completeness: "complete",
+            visibleTotalTokens: 0,
+            unknownTotalInvocations: 0,
+          },
+          title: {
+            measurement: {},
+            unreported: {},
+            invocations: 0,
+            completeness: "unknown",
+            visibleTotalTokens: 0,
+            unknownTotalInvocations: 0,
+          },
+        },
+      },
+    });
+    const owner = createPiSkillRunsWorkspaceOwner(result.requestId);
+    const regions = await createPiSkillRunsWorkspaceSurfaceAdapter(
+      coordinator,
+    ).readOwnerRegions({
+      owner,
+      kinds: ["owner-presentation", "owner-details"],
+    });
+    assert.isNull(regions["owner-presentation"]?.usage);
+    const usageItems = regions["owner-details"]!.sections.find(
+      (section) => section.sectionId === "usage",
+    )!.items;
+    const byField = new Map(
+      usageItems.map((item) => [item.fieldId, item.value]),
+    );
+    assert.include(byField.get("usage-main") || "", "600");
+    assert.include(byField.get("usage-main") || "", "?");
+    assert.equal(byField.get("usage-compaction"), "0");
     await coordinator.dispose();
   });
 

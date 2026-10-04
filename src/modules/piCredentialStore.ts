@@ -109,14 +109,24 @@ function validateMaterial(material: PiCredentialMaterial): void {
   )
     return;
   if (
-    material?.kind === "openai-codex" &&
+    material?.kind === "chatgpt" &&
     typeof material.access === "string" &&
     material.access &&
     typeof material.refresh === "string" &&
     material.refresh &&
     Number.isFinite(material.expiresAt) &&
-    typeof material.accountId === "string" &&
-    material.accountId
+    typeof material.idToken === "string" &&
+    material.idToken &&
+    material.issuer === "https://auth.openai.com" &&
+    typeof material.subject === "string" &&
+    material.subject &&
+    typeof material.clientId === "string" &&
+    material.clientId &&
+    material.clientId !== "dynamic_agent_client" &&
+    Array.isArray(material.scope) &&
+    material.scope.every(
+      (scope) => typeof scope === "string" && scope.length > 0,
+    )
   )
     return;
   throw new Error("Invalid Pi credential material");
@@ -204,9 +214,11 @@ export function putPiCredential(args: {
       if (
         !args.expectedRevision ||
         !previous.ok ||
-        previous.material.kind !== "openai-codex" ||
-        args.material.kind !== "openai-codex" ||
-        previous.material.accountId !== args.material.accountId
+        previous.material.kind !== "chatgpt" ||
+        args.material.kind !== "chatgpt" ||
+        previous.material.issuer !== args.material.issuer ||
+        previous.material.subject !== args.material.subject ||
+        previous.material.clientId !== args.material.clientId
       )
         throw new Error("Pi credential identity changed");
     }
@@ -228,10 +240,7 @@ export function putPiCredential(args: {
       label,
       kind: args.material.kind,
       namespace,
-      masked:
-        args.material.kind !== "openai-codex"
-          ? "••••"
-          : `••••${args.material.accountId.slice(-4)}`,
+      masked: "••••",
       updatedAt: new Date().toISOString(),
     };
     doc.records[id] = {
@@ -311,10 +320,21 @@ export async function readPiCredential(
 export function deletePiCredential(
   idRaw: string,
   namespace: PiCredentialNamespace = "model-provider",
+  expected?: { kind?: string; identityRevision?: string },
 ): Promise<void> {
   return enqueue(async () => {
     const id = idText(idRaw);
     const doc = load();
+    const current = doc.records[id];
+    if (
+      expected &&
+      (!current ||
+        (expected.kind !== undefined && current.kind !== expected.kind) ||
+        (expected.identityRevision !== undefined &&
+          (current.identityRevision || current.iv) !==
+            expected.identityRevision))
+    )
+      return;
     if (
       doc.records[id] &&
       (doc.records[id].namespace || "model-provider") !== namespace

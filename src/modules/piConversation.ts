@@ -37,11 +37,13 @@ import {
   type PiRuntimeMessage,
   type PiRuntimeResource,
   type PiRuntimeSessionOptions,
+  type PiRuntimeUsage,
+  type PiProviderTerminal,
   unknownPiRuntimeUsage,
 } from "./piRuntime";
 import {
   projectPiCanonicalSelection,
-  type PiCostState,
+  type PiPurposeUsageTotals,
 } from "../shared/piUsageContract";
 import {
   failureEffectCertainty,
@@ -229,6 +231,8 @@ export function createPiConversationCoordinator(options: Options = {}) {
         compactionCost: number;
         /** Contributions whose cost could not be priced; keeps the total honest. */
         costUnknown: number;
+        purposeTotals?: PiPurposeUsageTotals;
+        legacyUnknown?: boolean;
       };
     }
   >();
@@ -266,6 +270,7 @@ export function createPiConversationCoordinator(options: Options = {}) {
           titleCost: persisted?.usageTotals.titleCost || 0,
           compactionCost: persisted?.usageTotals.compactionCost || 0,
           costUnknown: persisted?.usageTotals.costUnknown || 0,
+          purposeTotals: persisted?.usage?.purposeTotals,
         },
       };
       states.set(conversationId, current);
@@ -556,6 +561,7 @@ export function createPiConversationCoordinator(options: Options = {}) {
   async function readModel(conversationId: string) {
     const owner = metadata(conversationId);
     const current = state(conversationId);
+    const projection = getPiConversationProjection(conversationId);
     let model: PiModelSelectionSnapshot | undefined;
     try {
       model = await resolveModel(
@@ -572,8 +578,20 @@ export function createPiConversationCoordinator(options: Options = {}) {
     return {
       ...owner,
       ...publicState,
-      counts: getPiConversationProjection(conversationId)?.counts,
+      counts: projection?.counts,
       model,
+      usage: {
+        ...publicState.usage,
+        purposeTotals:
+          projection?.usage?.purposeTotals ?? publicState.usage.purposeTotals,
+        legacyUnknown:
+          !projection?.usage?.purposeTotals &&
+          (!!projection?.usage ||
+            Object.entries(projection?.usageTotals || {}).some(
+              ([key, value]) => key !== "costUnknown" && value !== 0,
+            ) ||
+            (projection?.usageTotals.costUnknown || 0) > 0),
+      },
       resources: resources(conversationId).map(
         ({ resourceId, kind, displayName }) => ({
           resourceId,
@@ -724,7 +742,7 @@ export function createPiConversationCoordinator(options: Options = {}) {
           (payload.resources || [])
             .map((resource: { displayName: string }) => resource.displayName)
             .join("\n"),
-        status: "complete",
+        status: payload.status === "incomplete-visible" ? "error" : "complete",
         revision: null,
       };
     if (entry.kind === "thought")
@@ -1155,8 +1173,15 @@ export function createPiConversationCoordinator(options: Options = {}) {
             turnId,
           )
         ).entry.entryId;
-        let invocationId = id("compaction");
-        let usage = unknownPiRuntimeUsage();
+        const fallbackInvocationId = id("compaction");
+        const usageByInvocation = new Map<
+          string,
+          {
+            usage: PiRuntimeUsage;
+            stopReason?: string;
+            providerTerminal?: PiProviderTerminal;
+          }
+        >();
         try {
           const messages = [
             {
@@ -1191,16 +1216,27 @@ export function createPiConversationCoordinator(options: Options = {}) {
               messages,
               systemPrompt: input.prompt,
               onEvent: (event) => {
-                if (event.kind === "assistant_message") {
+                if (event.kind === "invocation_started") {
+                  if (usageByInvocation.size < 20)
+                    usageByInvocation.set(event.invocationId, {
+                      usage: unknownPiRuntimeUsage(),
+                    });
+                } else if (event.kind === "assistant_message") {
                   output += event.text;
-                  usage = event.usage;
-                  invocationId = event.invocationId;
-                } else if (
-                  event.kind === "invocation_terminal" &&
-                  event.usage
-                ) {
-                  usage = event.usage;
-                  invocationId = event.invocationId;
+                  const contribution = usageByInvocation.get(
+                    event.invocationId,
+                  );
+                  if (contribution) contribution.usage = event.usage;
+                } else if (event.kind === "invocation_terminal") {
+                  const contribution = usageByInvocation.get(
+                    event.invocationId,
+                  );
+                  if (contribution) {
+                    if (event.usage) contribution.usage = event.usage;
+                    contribution.stopReason = event.stopReason;
+                    if (event.providerTerminal)
+                      contribution.providerTerminal = event.providerTerminal;
+                  }
                 }
               },
             });
@@ -1233,22 +1269,34 @@ export function createPiConversationCoordinator(options: Options = {}) {
           return JSON.parse(output) as PiCompactionSummary;
         } finally {
           signal?.removeEventListener("abort", onAbort);
-          await fact(
-            conversationId,
-            "compaction_usage",
-            {
-              purpose: "compaction",
-              intent,
-              invocationId,
-              selectionRef,
-              usage,
-            },
-            turnId,
-          );
           const current = state(conversationId).usage;
-          current.compaction += usage.totalTokens;
-          if (usage.costEstimate === null) current.costUnknown += 1;
-          else current.compactionCost += usage.costEstimate;
+          if (usageByInvocation.size === 0)
+            usageByInvocation.set(fallbackInvocationId, {
+              usage: unknownPiRuntimeUsage(),
+            });
+          for (const [invocationId, evidence] of usageByInvocation) {
+            await fact(
+              conversationId,
+              "compaction_usage",
+              {
+                purpose: "compaction",
+                intent,
+                invocationId,
+                selectionRef,
+                usage: evidence.usage,
+                ...(evidence.stopReason
+                  ? { stopReason: evidence.stopReason }
+                  : {}),
+                ...(evidence.providerTerminal
+                  ? { providerTerminal: evidence.providerTerminal }
+                  : {}),
+              },
+              turnId,
+            );
+            current.compaction += evidence.usage.totalTokens;
+            if (evidence.usage.costEstimate === null) current.costUnknown += 1;
+            else current.compactionCost += evidence.usage.costEstimate;
+          }
         }
       },
     };
@@ -1306,6 +1354,7 @@ export function createPiConversationCoordinator(options: Options = {}) {
     // session is still being built, and a temporal dead zone there would drop
     // every canonical fact of the turn.
     const openInvocations = new Set<string>();
+    let assistantMessagePersisted = false;
     const turn = session.runTurn({
       turnId,
       messages: [],
@@ -1328,6 +1377,7 @@ export function createPiConversationCoordinator(options: Options = {}) {
         );
         current.itemId = id("assistant");
         current.text = "";
+        assistantMessagePersisted = false;
         const messages: PiRuntimeMessage[] = context.messages.map((message) => {
           if (message.role === "tool")
             return {
@@ -1462,6 +1512,7 @@ export function createPiConversationCoordinator(options: Options = {}) {
               });
             current.text += event.text;
           } else if (event.kind === "assistant_message") {
+            assistantMessagePersisted = true;
             const toolCalls = await Promise.all(
               event.toolCalls.map(async (call) => ({
                 ...call,
@@ -1540,12 +1591,34 @@ export function createPiConversationCoordinator(options: Options = {}) {
             publishItem(conversationId, messageItem(entry.entry)!);
           } else if (event.kind === "invocation_terminal") {
             openInvocations.delete(event.invocationId);
+            if (
+              event.providerTerminal?.status === "incomplete" &&
+              current.text &&
+              !assistantMessagePersisted
+            ) {
+              const incomplete = await fact(
+                conversationId,
+                "message",
+                {
+                  role: "assistant",
+                  text: current.text,
+                  status: "incomplete-visible",
+                },
+                turnId,
+                current.itemId,
+              );
+              assistantMessagePersisted = true;
+              publishItem(conversationId, messageItem(incomplete.entry)!);
+            }
             await fact(
               conversationId,
               "model_invocation_terminal",
               {
                 invocationId: event.invocationId,
                 stopReason: event.stopReason,
+                ...(event.providerTerminal
+                  ? { providerTerminal: event.providerTerminal }
+                  : {}),
                 ...(event.usage ? { usage: event.usage, purpose: "main" } : {}),
               },
               turnId,
@@ -2211,15 +2284,15 @@ export function createPiConversationCoordinator(options: Options = {}) {
     const titleTurnId = id("title");
     const result = (async () => {
       let output = "";
-      let usage = 0;
-      let inputTokens = 0;
-      let outputTokens = 0;
-      let cost = 0;
-      let titleInvocationId: string | undefined;
+      const titleUsageByInvocation = new Map<
+        string,
+        {
+          usage: PiRuntimeUsage;
+          stopReason?: string;
+          providerTerminal?: PiProviderTerminal;
+        }
+      >();
       let titleSelectionRef: string | undefined;
-      let titleCostEstimate: number | null = null;
-      let titleCostState: PiCostState = "unknown";
-      let titleUsageKnown = false;
       let provider = "";
       let modelId = "";
       let failure: string | undefined;
@@ -2346,24 +2419,27 @@ export function createPiConversationCoordinator(options: Options = {}) {
             throw new Error("record_failed");
           },
           onEvent(event) {
-            if (event.kind === "assistant_message") {
+            if (event.kind === "invocation_started") {
+              if (titleUsageByInvocation.size < 20)
+                titleUsageByInvocation.set(event.invocationId, {
+                  usage: unknownPiRuntimeUsage(),
+                });
+            } else if (event.kind === "assistant_message") {
               output = event.text;
-              usage += event.usage.totalTokens;
-              inputTokens += event.usage.input;
-              outputTokens += event.usage.output;
-              cost += event.usage.cost.total;
-              titleInvocationId = event.invocationId;
-              titleCostEstimate = event.usage.costEstimate;
-              titleCostState = event.usage.costState;
-              titleUsageKnown = event.usage.usageKnown;
-            } else if (event.kind === "invocation_terminal" && event.usage) {
-              usage += event.usage.totalTokens;
-              inputTokens += event.usage.input;
-              outputTokens += event.usage.output;
-              titleInvocationId = event.invocationId;
-              titleCostEstimate = event.usage.costEstimate;
-              titleCostState = event.usage.costState;
-              titleUsageKnown = event.usage.usageKnown;
+              const contribution = titleUsageByInvocation.get(
+                event.invocationId,
+              );
+              if (contribution) contribution.usage = event.usage;
+            } else if (event.kind === "invocation_terminal") {
+              const contribution = titleUsageByInvocation.get(
+                event.invocationId,
+              );
+              if (contribution) {
+                if (event.usage) contribution.usage = event.usage;
+                contribution.stopReason = event.stopReason;
+                if (event.providerTerminal)
+                  contribution.providerTerminal = event.providerTerminal;
+              }
             }
           },
         });
@@ -2415,25 +2491,40 @@ export function createPiConversationCoordinator(options: Options = {}) {
         // abort is only observed once the task unwinds, and the write would
         // otherwise resurrect an owner the user already asked to delete.
         if (fresh && ["active", "archived"].includes(fresh.lifecycle)) {
-          state(conversationId).usage.title += usage;
-          if (titleCostEstimate === null)
-            state(conversationId).usage.costUnknown += 1;
-          else state(conversationId).usage.titleCost += titleCostEstimate;
-          await fact(conversationId, "title_usage", {
-            purpose: "title",
-            invocationId: titleInvocationId,
-            selectionRef: titleSelectionRef,
-            provider,
-            modelId,
-            inputTokens,
-            outputTokens,
-            totalTokens: usage,
-            cost,
-            costEstimate: titleCostEstimate,
-            costState: titleCostState,
-            usageKnown: titleUsageKnown,
-            ...(failure ? { failure } : {}),
-          }).catch(() => {});
+          if (titleUsageByInvocation.size === 0)
+            titleUsageByInvocation.set(id("title-invocation"), {
+              usage: unknownPiRuntimeUsage(),
+            });
+          for (const [invocationId, evidence] of titleUsageByInvocation) {
+            const usage = evidence.usage;
+            state(conversationId).usage.title += usage.totalTokens;
+            if (usage.costEstimate === null)
+              state(conversationId).usage.costUnknown += 1;
+            else state(conversationId).usage.titleCost += usage.costEstimate;
+            await fact(conversationId, "title_usage", {
+              purpose: "title",
+              invocationId,
+              selectionRef: titleSelectionRef,
+              provider,
+              modelId,
+              inputTokens: usage.input,
+              outputTokens: usage.output,
+              totalTokens: usage.totalTokens,
+              cost: usage.cost.total,
+              costEstimate: usage.costEstimate,
+              costState: usage.costState,
+              usageKnown: usage.usageKnown,
+              completeness: usage.completeness,
+              ...(usage.measurement ? { measurement: usage.measurement } : {}),
+              ...(evidence.stopReason
+                ? { stopReason: evidence.stopReason }
+                : {}),
+              ...(evidence.providerTerminal
+                ? { providerTerminal: evidence.providerTerminal }
+                : {}),
+              ...(failure ? { failure } : {}),
+            }).catch(() => {});
+          }
           emit(conversationId, ["navigation", "presentation", "details"]);
         }
         titleTasks.delete(conversationId);

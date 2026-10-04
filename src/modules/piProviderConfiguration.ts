@@ -53,6 +53,9 @@ const BINDING_REVISION = 1;
 type Binding = NonNullable<PiProviderConfiguration["binding"]>;
 
 const RETIRED_AVAILABILITY = new Set(["retired", "unsupported"]);
+const CHATGPT_PROVIDER = "openai";
+const CHATGPT_API = "openai-responses";
+const CHATGPT_BASE_URL = "https://api.openai.com/v1";
 
 function emptyState(): PiProviderConfigurationState {
   return { version: 1, configurations: [], defaults: {}, overlayPath: "" };
@@ -279,6 +282,11 @@ function declaresForTarget(
   // matching model identity.
   if (model.authVariants && !model.authVariants.includes(config.authVariant))
     return false;
+  if (
+    config.authVariant === "chatgpt" &&
+    model.credentialRef !== config.credentialRef
+  )
+    return false;
   return true;
 }
 
@@ -318,15 +326,22 @@ function normalizeConfiguration(
   if (
     authVariant !== "none" &&
     authVariant !== "api-key" &&
-    authVariant !== "openai-codex"
+    authVariant !== "chatgpt"
   )
     throw new Error("Invalid Pi auth variant");
   if (
-    authVariant === "openai-codex" &&
-    (text(raw.provider) !== "openai-codex" || text(raw.baseUrl))
+    authVariant === "chatgpt" &&
+    (text(raw.provider) !== CHATGPT_PROVIDER ||
+      (raw.api !== undefined && raw.api !== CHATGPT_API) ||
+      (text(raw.baseUrl) !== "" &&
+        classifyPiEndpoint(text(raw.baseUrl)).baseUrl !== CHATGPT_BASE_URL) ||
+      (raw.binding !== undefined &&
+        (raw.binding.api !== CHATGPT_API ||
+          classifyPiEndpoint(text(raw.binding.baseUrl)).baseUrl !==
+            CHATGPT_BASE_URL)))
   )
     throw new Error(
-      "OpenAI Codex authentication requires the native Codex provider",
+      "ChatGPT authentication requires the official OpenAI Responses target",
     );
   if (raw.reasoning !== undefined && !isReasoning(raw.reasoning))
     throw new Error("Invalid Pi reasoning level");
@@ -561,8 +576,7 @@ function effectiveModel(
     };
   // A listed entry that belongs to another credential is an account fact, not a
   // missing model, and never falls back to a retained description.
-  if (!model && (present || config.authVariant === "openai-codex"))
-    return undefined;
+  if (!model && (present || config.authVariant === "chatgpt")) return undefined;
   if (bound) return { model: bound, listed: false };
   return undefined;
 }
@@ -635,7 +649,7 @@ function boundModelOf(
     bound.id !== modelId ||
     !hasPiModelCapabilities(bound) ||
     // An account discovery stays bound to the credential that produced it.
-    (config.authVariant === "openai-codex" &&
+    (config.authVariant === "chatgpt" &&
       bound.credentialRef !== config.credentialRef)
   )
     return undefined;
@@ -736,14 +750,22 @@ export function findPiCatalogModel(
   config: PiProviderConfiguration,
   modelId: string,
 ): PiCatalogModel | undefined {
-  return catalog.models.find(
-    (entry) =>
-      entry.provider === config.provider &&
-      entry.id === modelId &&
-      (config.authVariant !== "openai-codex" ||
-        (entry.source === "discovered" &&
-          entry.credentialRef === config.credentialRef)),
-  );
+  return catalog.models.find((entry) => {
+    if (entry.provider !== config.provider || entry.id !== modelId)
+      return false;
+    if (config.authVariant === "chatgpt")
+      return (
+        entry.source === "discovered" &&
+        entry.api === CHATGPT_API &&
+        entry.baseUrl === CHATGPT_BASE_URL &&
+        entry.credentialRef === config.credentialRef &&
+        entry.authVariants?.includes("chatgpt") === true
+      );
+    if (entry.credentialRef) return false;
+    return (
+      !entry.authVariants || entry.authVariants.includes(config.authVariant)
+    );
+  });
 }
 
 export function hasPiModelCapabilities(
@@ -753,7 +775,8 @@ export function hasPiModelCapabilities(
     !!model &&
     model.contextWindow > 0 &&
     (model.maxTokens > 0 ||
-      (model.api === "openai-codex-responses" && model.maxTokens === 0)) &&
+      (model.authVariants?.includes("chatgpt") === true &&
+        model.maxTokens === 0)) &&
     model.input.includes("text")
   );
 }

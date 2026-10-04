@@ -891,6 +891,19 @@ describe("assistant workspace lane/source registry", function () {
       "Zotero Agent",
     );
   });
+
+  it("limits task restart consent actions to Pi Skill Runs", function () {
+    assert.deepEqual(
+      ASSISTANT_WORKSPACE_ACTION_REGISTRY["enable-pi-skill-run-restart"]
+        .sources,
+      ["pi-skill-runs"],
+    );
+    assert.deepEqual(
+      ASSISTANT_WORKSPACE_ACTION_REGISTRY["disable-pi-skill-run-restart"]
+        .sources,
+      ["pi-skill-runs"],
+    );
+  });
 });
 
 describe("assistant workspace Pi owner validation", function () {

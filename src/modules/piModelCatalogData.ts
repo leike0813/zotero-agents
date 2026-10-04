@@ -49,7 +49,6 @@ export const PI_SUPPORTED_CATALOG_APIS = new Set([
   "openai-completions",
   "anthropic-messages",
   "google-generative-ai",
-  "openai-codex-responses",
 ]);
 export function normalizePiCatalogEndpoint(value: unknown): string {
   return classifyPiEndpoint(text(value, "baseUrl")).baseUrl;
@@ -124,6 +123,8 @@ export function normalizePiOfficialCatalog(
     const api = text(model.api, "api");
     if (model.provider !== undefined && model.provider !== entry.provider)
       throw new Error("Invalid provider identity");
+    if (entry.provider === "openai-codex" || api === "openai-codex-responses")
+      continue;
     const modelType =
       model.type === undefined ? "chat" : text(model.type, "type");
     const key = `${entry.provider}\n${modelType}\n${id}`;
@@ -199,8 +200,7 @@ export function normalizePiOfficialCatalog(
               : "unsupported",
         reasoning: reasoning === undefined ? "unknown" : "known",
       },
-      authVariants:
-        api === "openai-codex-responses" ? ["openai-codex"] : ["api-key"],
+      authVariants: ["api-key"],
       provenance: {
         source: "official",
         revision,

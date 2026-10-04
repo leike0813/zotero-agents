@@ -12,8 +12,8 @@ import {
   loadPiModelCatalog,
   normalizePiModelOverlay,
   refreshPiModelCatalog,
-  refreshPiCodexModelCatalog,
-  removePiCodexCredentialModels,
+  refreshPiChatGPTModelCatalog,
+  cleanupPiChatGPTLegacyCatalog,
   refreshPiPublicModelCatalog,
   restorePiPreviousModelCatalog,
   shutdownPiModelCatalog,
@@ -25,7 +25,7 @@ import {
 import {
   putPiCredential,
   deletePiCredential,
-  getPiCredentialRevision,
+  getPiCredentialIdentityRevision,
 } from "../../src/modules/piCredentialStore";
 
 describe("Pi model catalog", function () {
@@ -541,215 +541,382 @@ describe("Pi model catalog", function () {
       0,
     );
   });
-  it("discovers only the selected Codex account and keeps unknown output limits absent", async function () {
-    const id = "catalog-codex-fixture";
-    const access = `header.${btoa(JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "fixture-account" } }))}.signature`;
-    await putPiCredential({
-      id,
-      label: "Fixture",
-      material: {
-        kind: "openai-codex",
-        access,
-        refresh: "fixture-refresh",
-        expiresAt: Date.now() + 3600000,
-        accountId: "fixture-account",
-      },
+  it("filters retired Codex targets from official catalogs without changing other models", function () {
+    const normalized = normalizePiOfficialCatalog({
+      schemaVersion: 1,
+      revision: "retired-filter",
+      models: [
+        {
+          provider: "openai-codex",
+          id: "old-provider-model",
+          name: "Old provider model",
+          api: "openai-codex-responses",
+          baseUrl: "https://chatgpt.com/backend-api/codex",
+          contextWindow: 128000,
+          maxTokens: 16000,
+        },
+        {
+          provider: "openai",
+          id: "old-api-model",
+          name: "Old API model",
+          api: "openai-codex-responses",
+          baseUrl: "https://api.openai.com/v1",
+          contextWindow: 128000,
+          maxTokens: 16000,
+        },
+        {
+          provider: "openai",
+          id: "responses-model",
+          name: "Responses model",
+          api: "openai-responses",
+          baseUrl: "https://api.openai.com/v1",
+          contextWindow: 128000,
+          maxTokens: 16000,
+          input: ["text"],
+          supportsTools: true,
+        },
+      ],
     });
+
+    assert.deepEqual(
+      normalized.models.map(({ provider, id, api, authVariants }) => ({
+        provider,
+        id,
+        api,
+        authVariants,
+      })),
+      [
+        {
+          provider: "openai",
+          id: "responses-model",
+          api: "openai-responses",
+          authVariants: ["api-key"],
+        },
+      ],
+    );
+    assert.equal(normalized.models[0].contextWindow, 128000);
+    assert.equal(normalized.models[0].maxTokens, 16000);
+    assert.deepEqual(normalized.models[0].input, ["text"]);
+    assert.isTrue(normalized.models[0].supportsTools);
+  });
+
+  it("discovers official ChatGPT models per registration and keeps unknown SIWC facts isolated", async function () {
+    const root = await fs.mkdtemp(
+      path.join(os.tmpdir(), "pi-chatgpt-catalog-"),
+    );
+    const ids = ["catalog-chatgpt-a", "catalog-chatgpt-b"];
+    const materials = ids.map((id) => ({
+      kind: "chatgpt" as const,
+      access: `${id}-access`,
+      refresh: `${id}-refresh`,
+      expiresAt: Date.now() + 3600000,
+      idToken: `${id}-id-token`,
+      issuer: "https://auth.openai.com",
+      subject: `${id}-subject`,
+      clientId: "fixture-client",
+      scope: ["chatgpt.tokens.use.direct"],
+    }));
+    for (let index = 0; index < ids.length; index++)
+      await putPiCredential({
+        id: ids[index],
+        label: `Fixture ${index}`,
+        material: materials[index],
+      });
     try {
-      const prior = await loadPiModelCatalog();
-      const result = await refreshPiCodexModelCatalog(prior, {
-        credentialId: id,
+      const prior = await loadPiModelCatalog({ root });
+      const expectedOrder = ["gpt-first", "gpt-second"];
+      const result = await refreshPiChatGPTModelCatalog(prior, {
+        credentialId: ids[0],
+        root,
         signal: new AbortController().signal,
+        resolveAccess: async (credentialId, _signal, _fetcher, expected) => {
+          assert.equal(credentialId, ids[0]);
+          assert.equal(
+            expected?.identityRevision,
+            getPiCredentialIdentityRevision(ids[0], "model-provider"),
+          );
+          return materials[0].access;
+        },
         fetch: async (input, init) => {
           const request = new Request(input, init);
-          assert.equal(
-            new URL(request.url).pathname,
-            "/backend-api/codex/models",
-          );
-          assert.isNotEmpty(
-            new URL(request.url).searchParams.get("client_version") || "",
-          );
+          assert.equal(request.method, "GET");
+          assert.equal(request.url, "https://api.openai.com/v1/models");
           assert.equal(
             request.headers.get("authorization"),
-            `Bearer ${access}`,
+            `Bearer ${materials[0].access}`,
           );
-          assert.equal(
-            request.headers.get("chatgpt-account-id"),
-            "fixture-account",
-          );
+          assert.isNull(request.headers.get("chatgpt-account-id"));
           assert.equal(request.redirect, "error");
           return Response.json({
             models: [
               {
-                slug: "new-codex-model",
-                display_name: "New model",
+                slug: expectedOrder[0],
+                display_name: "First model",
                 visibility: "list",
                 context_window: 272000,
-                input_modalities: ["text", "image"],
-                supported_reasoning_levels: [
-                  { effort: "low" },
-                  { effort: "medium" },
-                ],
-                instructions: "private response",
+                max_output_tokens: 8192,
+                supports_tools: true,
+                cost: { input: 1, output: 2 },
               },
-              { slug: "hidden-model", visibility: "hide" },
+              {
+                slug: "hidden-model",
+                display_name: "Hidden",
+                visibility: "hide",
+              },
+              {
+                slug: expectedOrder[1],
+                display_name: "Second model",
+                visibility: "list",
+              },
             ],
           });
         },
       });
-      const model = result.models.find((x) => x.id === "new-codex-model");
+      const firstAccountModels = result.models.filter(
+        (model) => model.credentialRef === ids[0],
+      );
+      assert.deepEqual(
+        firstAccountModels.map((model) => model.id),
+        expectedOrder,
+      );
+      const model = firstAccountModels[0];
+      assert.equal(model?.name, "First model");
+      assert.equal(model?.provider, "openai");
+      assert.equal(model?.api, "openai-responses");
+      assert.equal(model?.baseUrl, "https://api.openai.com/v1");
       assert.equal(model?.source, "discovered");
-      assert.equal(model?.credentialRef, id);
       assert.equal(model?.contextWindow, 272000);
       assert.equal(model?.maxTokens, 0);
-      assert.deepEqual(model?.reasoning, ["low", "medium"]);
+      assert.deepEqual(model?.authVariants, ["chatgpt"]);
       assert.isFalse(model?.supportsTools);
+      assert.isUndefined(model?.cost);
+      assert.equal(firstAccountModels[1]?.contextWindow, 0);
       assert.isFalse(result.models.some((x) => x.id === "hidden-model"));
       assert.notEqual(result.revision, prior.revision);
-      assert.notInclude(JSON.stringify(result), "private response");
-      assert.notInclude(JSON.stringify(result), access);
-      const shared = await loadPiModelCatalog();
+      assert.notInclude(JSON.stringify(result), materials[0].access);
+      const shared = await loadPiModelCatalog({ root });
       assert.deepEqual(
-        shared.models.find((entry) => entry.id === "new-codex-model"),
-        model,
+        shared.models.filter((entry) => entry.credentialRef === ids[0]),
+        firstAccountModels,
       );
-      assert.equal(shared.revision, result.revision);
-      await shutdownPiModelCatalog();
-      const restarted = await startPiModelCatalog();
-      assert.deepEqual(
-        restarted.models.find((entry) => entry.credentialRef === id),
-        model,
-      );
-      await putPiCredential({
-        id,
-        label: "Renewed",
-        preserveIdentity: true,
-        expectedRevision: getPiCredentialRevision(id, "model-provider"),
-        material: {
-          kind: "openai-codex",
-          access,
-          refresh: "renewed-refresh",
-          expiresAt: Date.now() + 3600000,
-          accountId: "fixture-account",
-        },
+      await refreshPiChatGPTModelCatalog(shared, {
+        credentialId: ids[1],
+        root,
+        signal: new AbortController().signal,
+        resolveAccess: async () => materials[1].access,
+        fetch: async () =>
+          Response.json({
+            models: [
+              {
+                slug: "gpt-first",
+                display_name: "Account B name",
+                visibility: "list",
+                context_window: 64000,
+              },
+            ],
+          }),
       });
+      const both = await loadPiModelCatalog({ root });
+      assert.equal(
+        both.models.find((entry) => entry.credentialRef === ids[1])?.name,
+        "Account B name",
+      );
+      assert.equal(
+        both.models.find((entry) => entry.credentialRef === ids[0])?.name,
+        "First model",
+      );
+      assert.notEqual(both.revision, result.revision);
+      await shutdownPiModelCatalog({ root });
+      const restarted = await startPiModelCatalog({ root });
       assert.deepEqual(
-        (await loadPiModelCatalog()).models.find(
-          (entry) => entry.credentialRef === id,
-        ),
-        model,
+        restarted.models.filter((entry) => entry.credentialRef === ids[0]),
+        firstAccountModels,
       );
       try {
-        await refreshPiCodexModelCatalog(restarted, {
-          credentialId: id,
+        await refreshPiChatGPTModelCatalog(restarted, {
+          credentialId: ids[0],
+          root,
           signal: new AbortController().signal,
-          fetch: async () => new Response(null, { status: 503 }),
+          resolveAccess: async () => materials[0].access,
+          fetch: async () => new Response("private error", { status: 503 }),
         });
         assert.fail("failed observation accepted");
       } catch (error) {
         assert.equal((error as { code: string }).code, "provider_unavailable");
       }
       assert.deepEqual(
-        (await loadPiModelCatalog()).models.find(
-          (entry) => entry.credentialRef === id,
+        (await loadPiModelCatalog({ root })).models.filter(
+          (entry) => entry.credentialRef === ids[0],
         ),
-        model,
+        firstAccountModels,
       );
-      const empty = await refreshPiCodexModelCatalog(restarted, {
-        credentialId: id,
+      const empty = await refreshPiChatGPTModelCatalog(restarted, {
+        credentialId: ids[1],
+        root,
         signal: new AbortController().signal,
+        resolveAccess: async () => materials[1].access,
         fetch: async () => Response.json({ models: [] }),
       });
-      assert.isFalse(empty.models.some((entry) => entry.credentialRef === id));
-      await shutdownPiModelCatalog();
       assert.isFalse(
-        (await startPiModelCatalog()).models.some(
-          (entry) => entry.credentialRef === id,
+        empty.models.some((entry) => entry.credentialRef === ids[1]),
+      );
+      assert.isTrue(
+        empty.models.some((entry) => entry.credentialRef === ids[0]),
+      );
+      const persisted = JSON.parse(
+        await fs.readFile(
+          path.join(
+            getRuntimePersistencePaths(root).cacheDir,
+            "pi-model-catalog.json",
+          ),
+          "utf8",
         ),
       );
-      await putPiCredential({
-        id,
-        label: "Replacement",
-        material: {
-          kind: "openai-codex",
-          access,
-          refresh: "replacement-refresh",
-          expiresAt: Date.now() + 3600000,
-          accountId: "fixture-account",
+      assert.lengthOf(persisted.accounts[ids[1]].models, 0);
+    } finally {
+      await shutdownPiModelCatalog({ root });
+      await Promise.all(ids.map((id) => deletePiCredential(id)));
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+  it("removes persisted legacy Codex account facts during catalog migration", async function () {
+    const root = await fs.mkdtemp(
+      path.join(os.tmpdir(), "pi-catalog-cleanup-"),
+    );
+    const credentialId = "catalog-cleanup-chatgpt";
+    await putPiCredential({
+      id: credentialId,
+      label: "Current",
+      material: {
+        kind: "chatgpt",
+        access: "access",
+        refresh: "refresh",
+        expiresAt: Date.now() + 3600000,
+        idToken: "id-token",
+        issuer: "https://auth.openai.com",
+        subject: "subject",
+        clientId: "fixture-client",
+        scope: ["chatgpt.tokens.use.direct"],
+      },
+    });
+    const cacheDir = getRuntimePersistencePaths(root).cacheDir;
+    const cacheFile = path.join(cacheDir, "pi-model-catalog.json");
+    try {
+      await fs.mkdir(cacheDir, { recursive: true });
+      await fs.writeFile(
+        cacheFile,
+        JSON.stringify({
+          version: 2,
+          epoch: 3,
+          autoUpdate: true,
+          accounts: {
+            legacy: {
+              identityRevision: "legacy-identity",
+              checkedAt: "2026-01-01T00:00:00.000Z",
+              revision: "2",
+              models: [
+                {
+                  provider: "openai-codex",
+                  id: "old-model",
+                  name: "Old model",
+                  api: "openai-codex-responses",
+                  baseUrl: "https://chatgpt.com/backend-api",
+                  contextWindow: 128000,
+                  maxTokens: 0,
+                  input: ["text"],
+                  supportsTools: false,
+                  reasoning: ["off"],
+                  source: "discovered",
+                  credentialRef: "legacy",
+                  authVariants: ["openai-codex"],
+                },
+              ],
+            },
+          },
+          retired: [],
+        }),
+      );
+      await cleanupPiChatGPTLegacyCatalog({ root });
+      const persisted = await fs.readFile(cacheFile, "utf8");
+      assert.notInclude(persisted, "openai-codex");
+      assert.notInclude(persisted, "old-model");
+      assert.deepEqual(JSON.parse(persisted).accounts, {});
+    } finally {
+      await shutdownPiModelCatalog({ root });
+      await deletePiCredential(credentialId);
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+  it("rejects a ChatGPT discovery that returns after registration replacement", async function () {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "pi-catalog-stale-"));
+    const credentialId = "catalog-chatgpt-stale";
+    const material = (subject: string) => ({
+      kind: "chatgpt" as const,
+      access: `access-${subject}`,
+      refresh: `refresh-${subject}`,
+      expiresAt: Date.now() + 3600000,
+      idToken: `id-token-${subject}`,
+      issuer: "https://auth.openai.com",
+      subject,
+      clientId: "fixture-client",
+      scope: ["chatgpt.tokens.use.direct"],
+    });
+    await putPiCredential({
+      id: credentialId,
+      label: "Original",
+      material: material("old"),
+    });
+    let requestStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      requestStarted = resolve;
+    });
+    let finish!: (response: Response) => void;
+    try {
+      const prior = await loadPiModelCatalog({ root });
+      const pending = refreshPiChatGPTModelCatalog(prior, {
+        credentialId,
+        root,
+        signal: new AbortController().signal,
+        resolveAccess: async () => material("old").access,
+        fetch: async () => {
+          requestStarted();
+          return new Promise<Response>((resolve) => {
+            finish = resolve;
+          });
         },
       });
-      const replaced = await loadPiModelCatalog();
-      assert.isFalse(
-        replaced.models.some((entry) => entry.credentialRef === id),
+      await started;
+      await putPiCredential({
+        id: credentialId,
+        label: "Replacement",
+        material: material("new"),
+      });
+      finish(
+        Response.json({
+          models: [
+            {
+              slug: "stale-model",
+              display_name: "Stale model",
+              visibility: "list",
+              context_window: 100000,
+            },
+          ],
+        }),
       );
-      assert.notEqual(replaced.revision, result.revision);
-      const disconnected = await removePiCodexCredentialModels(result, id);
-      assert.notEqual(disconnected.revision, result.revision);
-      assert.isFalse(
-        disconnected.models.some((entry) => entry.credentialRef === id),
+      await pending.then(
+        () => assert.fail("stale account discovery was committed"),
+        (error) =>
+          assert.equal((error as { code: string }).code, "credential_missing"),
       );
       assert.isFalse(
-        (await loadPiModelCatalog()).models.some(
-          (entry) => entry.credentialRef === id,
+        (await loadPiModelCatalog({ root })).models.some(
+          (model) => model.id === "stale-model",
         ),
       );
-      assert.deepEqual(
-        disconnected.models,
-        result.models.filter((entry) => entry.credentialRef !== id),
-      );
-      let canceledBody = false;
-      try {
-        await refreshPiCodexModelCatalog(result, {
-          credentialId: id,
-          signal: new AbortController().signal,
-          fetch: async () =>
-            new Response(
-              new ReadableStream({
-                start(controller) {
-                  controller.enqueue(new Uint8Array(2 * 1024 * 1024 + 1));
-                  controller.enqueue(new Uint8Array(1));
-                  controller.close();
-                },
-                cancel() {
-                  canceledBody = true;
-                },
-              }),
-            ),
-        });
-        assert.fail("oversized discovery accepted");
-      } catch (error) {
-        assert.equal((error as { code: string }).code, "provider_http_error");
-      }
-      assert.isTrue(canceledBody);
-      try {
-        await refreshPiCodexModelCatalog(result, {
-          credentialId: id,
-          signal: new AbortController().signal,
-          fetch: async () => new Response("private error", { status: 401 }),
-        });
-        assert.fail("discovery accepted rejected authorization");
-      } catch (error) {
-        assert.equal((error as { code: string }).code, "provider_auth_failed");
-      }
-      assert.equal(
-        result.models.find((x) => x.id === "new-codex-model")?.credentialRef,
-        id,
-      );
-      try {
-        await refreshPiCodexModelCatalog(result, {
-          credentialId: id,
-          signal: new AbortController().signal,
-          fetch: async () => {
-            await deletePiCredential(id);
-            return Response.json({ models: [] });
-          },
-        });
-        assert.fail("late discovery survived local disconnect");
-      } catch (error) {
-        assert.equal((error as { code: string }).code, "credential_missing");
-      }
     } finally {
-      await deletePiCredential(id);
+      await shutdownPiModelCatalog({ root });
+      await deletePiCredential(credentialId);
+      await fs.rm(root, { recursive: true, force: true });
     }
   });
   it("rejects executable or secret overlay fields", function () {
@@ -773,6 +940,39 @@ describe("Pi model catalog", function () {
     assert.isFalse(unknown.supportsTools);
     assert.deepEqual(unknown.input, []);
     assert.deepEqual(unknown.reasoning, ["off"]);
+  });
+
+  it("requires explicit ChatGPT auth and official target before using overlay facts", function () {
+    const publicModel = {
+      provider: "openai",
+      id: "gpt-overlay",
+      name: "Public name",
+      api: "openai-responses",
+      baseUrl: "https://api.openai.com/v1",
+      contextWindow: 128000,
+      maxTokens: 16000,
+      input: ["text"],
+      reasoning: ["off"],
+      supportsTools: true,
+      source: "official" as const,
+      cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
+    };
+    assert.throws(
+      () =>
+        normalizePiModelOverlay(
+          "providers:\n  openai:\n    models:\n      - id: gpt-overlay\n        authVariants: [chatgpt]\n        contextWindow: 100000\n",
+          [publicModel],
+        ),
+      /official API target/i,
+    );
+    const scoped = normalizePiModelOverlay(
+      "providers:\n  openai:\n    models:\n      - id: gpt-overlay\n        api: openai-responses\n        baseUrl: https://api.openai.com/v1\n        authVariants: [chatgpt]\n        contextWindow: 100000\n        input: [text]\n",
+      [publicModel],
+    )[0];
+    assert.deepEqual(scoped.authVariants, ["chatgpt"]);
+    assert.equal(scoped.contextWindow, 100000);
+    assert.isUndefined(scoped.cost);
+    assert.deepEqual(scoped.reasoning, ["off"]);
   });
 
   it("keeps the last sanitized overlay after a bad refresh", async function () {

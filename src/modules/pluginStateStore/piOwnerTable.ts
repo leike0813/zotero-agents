@@ -1,4 +1,9 @@
 import type { SqlAdapter } from "./core";
+import type {
+  PiPurposeUsageTotals,
+  PiUsageCompleteness,
+  PiUsageMeasurement,
+} from "../../shared/piUsageContract";
 
 export type PiOwnerRegistryRow = {
   ownerKind: "conversation" | "skill_run";
@@ -271,6 +276,11 @@ export type PiConversationUsage = {
   cacheWrite: number;
   totalTokens: number;
   cost: number;
+  /** Latest canonical main measurement; omitted fields remain unknown. */
+  measurement?: PiUsageMeasurement;
+  completeness?: PiUsageCompleteness;
+  /** Canonical per-purpose aggregate, stored in the existing usage JSON column. */
+  purposeTotals?: PiPurposeUsageTotals;
 };
 
 export type PiConversationProjection = {

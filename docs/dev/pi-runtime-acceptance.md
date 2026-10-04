@@ -4,7 +4,7 @@ C20 的验收依据是 [#26](https://github.com/leike0813/zotero-agents/issues/2
 
 ## Pi SDK 升级阶段
 
-`upgrade-builtin-pi-runtime` 固定 core/ai 为 1.0.0。Runtime 的每次 `prepareRequest` 返回完整归一化消息与执行工具，`finishTurn` 按项目等待、未知效果和取消状态结束循环；估算器使用 Pi AI 的完整指令、工具声明与消息。执行版本从根依赖声明读取，历史冻结选择不改写。模型目录独立更新由 `decouple-builtin-pi-model-catalog` 实现；ChatGPT 登录和搜索迁移仍由对应后续 change 承担。
+`upgrade-builtin-pi-runtime` 固定 core/ai 为 1.0.0。Runtime 的每次 `prepareRequest` 返回完整归一化消息与执行工具，`finishTurn` 按项目等待、未知效果和取消状态结束循环；估算器使用 Pi AI 的完整指令、工具声明与消息。执行版本从根依赖声明读取，历史冻结选择不改写。模型目录独立更新由 `decouple-builtin-pi-model-catalog` 实现；`replace-builtin-pi-codex-auth-with-chatgpt` 实现 ChatGPT 注册、官方 Responses 与共享原生搜索接入，其真实账号证据必须按下文单独验收。
 
 本阶段使用 dirty 工作树获得开发证据。具体命令、版本、失败尝试及待补矩阵见 `openspec/changes/upgrade-builtin-pi-runtime/verification.md`，不得据此完成 C20。
 
@@ -78,12 +78,12 @@ Conversation 和 Interactive Skill Run 使用 foreground lane；Auto Skill Run�
 
 最终容量确定且源码已提交后才设置 `ZOTERO_PI_CAPACITY_STAGE=final`。开发工作树中的探索记录始终保留开发状态。
 
-此前 C05 的真实账号测试 profile 可作为只读来源。LLM Provider 账号与 Zotero 文献金例是不同输入；文献金例本身不保证存在可用 Provider 授权。以下定向 smoke 仅读取副本中的 Codex 授权，执行官方模型发现，并使用 `gpt-6-luna`、`low` 调用生产 Conversation 模块。此前 Linux Zotero 10.0.2 的 Codex `gpt-6-luna/low` 与 MiniMax 中国区 `MiniMax-M3.1-Flash-Preview/low` test-bundle smoke 各记录 1 pass，但宿主重启后 `/tmp` 原始日志与 C05 临时来源已丢失；保留的脱敏观察不能替代重新运行、正式安装 XPI 或人工 receipt：
+LLM Provider 账号与 Zotero 文献金例是不同输入；文献金例本身不保证存在可用 Provider 授权。ChatGPT smoke 使用隔离 profile 中已经完成浏览器授权及欢迎确认的注册，执行官方模型发现，再按该注册的可执行模型调用生产 Conversation 模块。来源 profile 只能只读复制；旧 Codex 凭据不满足 ChatGPT 注册合同，fixture 和以前的 smoke 记录不能替代候选的真实账号观察、正式安装 XPI 或人工 receipt：
 
 ```shell
 ZOTERO_E2E_GOLD_DATA_DIR=<read-only-data-source> \
 ZOTERO_E2E_GOLD_PROFILE_DIR=<read-only-profile-source> \
-ZOTERO_PI_LIVE_SMOKE=codex ZOTERO_TEST_GREP='Pi live Codex smoke' \
+ZOTERO_PI_LIVE_SMOKE=chatgpt ZOTERO_TEST_GREP='Pi live ChatGPT smoke' \
 npm run test:zotero:e2e
 ```
 
@@ -145,17 +145,21 @@ npm run prepare:pi-model-catalog-seed -- \
 
 固定 Zotero 10 测试环境；每条 receipt 绑定候选和 confirmer，`manual.zoteroMajor` 记录实际宿主主版本（必须为 10），`manual.observed` 保存已观察的稳定行为，`manual.sourceEvidence` 只引用脱敏的相对工件。
 
-| ID                                | 必须观察                                                                                   |
-| --------------------------------- | ------------------------------------------------------------------------------------------ |
-| `manual:api-key`                  | `streaming`                                                                                |
-| `manual:codex-lifecycle`          | `login`, `streaming`, `refresh-or-reuse`, `logout`, `unavailable-after-clear`, `reconnect` |
-| `manual:exa`                      | `search-results`，默认来源                                                                 |
-| `manual:byok-brave-or-perplexity` | `search-results`，直接 BYOK 来源                                                           |
-| `manual:openai-web-api-key`       | `search-results`                                                                           |
-| `manual:openai-web-codex`         | `search-results`                                                                           |
-| `manual:anthropic-search`         | `search-results`，采用已确认的 Anthropic 来源                                              |
-| `manual:anonymous-fetch`          | `public-content`                                                                           |
+| ID                                | 必须观察                                                                                                                                                             |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `manual:api-key`                  | `streaming`                                                                                                                                                          |
+| `manual:chatgpt-lifecycle`        | `login`, `discovery`, `streaming`, `function-continuation`, `actual-completed`, `actual-usage`, `refresh-or-reuse`, `logout`, `unavailable-after-clear`, `reconnect` |
+| `manual:exa`                      | `search-results`，默认来源                                                                                                                                           |
+| `manual:byok-brave-or-perplexity` | `search-results`，直接 BYOK 来源                                                                                                                                     |
+| `manual:openai-web-api-key`       | `search-results`                                                                                                                                                     |
+| `manual:openai-web-chatgpt`       | `search-results`, `actual-completed`, `citations`                                                                                                                    |
+| `manual:anthropic-search`         | `search-results`，采用已确认的 Anthropic 来源                                                                                                                        |
+| `manual:anonymous-fetch`          | `public-content`                                                                                                                                                     |
 
 搜索证据保留实际来源与相关结果语义，HTTP 成功不能单独满足条件。工件不含密钥、OAuth token、原始响应、私有文献内容或用户绝对路径；外部服务不可用时记录 missing/failed，推迟验收。
+
+ChatGPT 证据须由候选插件完成浏览器授权、官方 `/v1/models` 发现、文本调用、函数调用及结果续调用。实际 Responses terminal 与 usage 由共享 Provider 记录；Pi 的 `done`、本地 fixture 和原生宿主原型不能替代服务证据。只有账户发现具有 SIWC 适用的可靠上下文事实时才能发起调用，缺少事实或服务能力仍是未通过的 gate。
+
+Change C 的开发升级样本独立于上面的固定 v0.9.0 基线安装链：在隔离 profile 中合成旧 `openai-codex` 加密 envelope、配置、引用默认项与账户目录缓存，同时保留 API-key 配置和历史。安装候选并观察旧开发数据被精准清理、其它配置/default/history 保留；重复启动结果应一致。receipt 标注 synthetic-development-cleanup 和样本来源，不冒充真实旧账号、远端撤销或基线安装升级。收集仍走现有 installed-plugin / E2E 路径，不能改六宿主矩阵、基线 SHA、容量或数值阈值。
 
 源码或测试定义变化后重跑 mandatory 验收，不沿用旧人工/性能通过。纯文档或归档复用须明确记录 XPI 字节和测试定义不变的依据。C20 只有全部 mandatory evidence 通过才允许完成验证、同步与归档；不得因基础设施已实现而勾选真实宿主或账号任务。

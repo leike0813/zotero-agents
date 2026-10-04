@@ -148,13 +148,42 @@ describe("Pi credential store", function () {
     assert.notEqual(getPiCredentialRevision(input.id, "mcp-source"), first);
   });
 
+  it("retains a replaced credential when cleanup is bound to its old identity or kind", async function () {
+    await putPiCredential({
+      id: "replace",
+      label: "First",
+      material: { kind: "api-key", secret: "first" },
+    });
+    const previous = getPiCredentialIdentityRevision(
+      "replace",
+      "model-provider",
+    )!;
+    await putPiCredential({
+      id: "replace",
+      label: "Second",
+      material: { kind: "api-key", secret: "second" },
+    });
+    await deletePiCredential("replace", "model-provider", {
+      identityRevision: previous,
+    });
+    assert.isTrue((await readPiCredential("replace")).ok);
+    await deletePiCredential("replace", "model-provider", { kind: "chatgpt" });
+    assert.isTrue((await readPiCredential("replace")).ok);
+    await deletePiCredential("replace", "model-provider", { kind: "api-key" });
+    assert.isFalse((await readPiCredential("replace")).ok);
+  });
+
   it("keeps frozen account identity during refresh but changes it on user replacement", async function () {
     const material = {
-      kind: "openai-codex" as const,
+      kind: "chatgpt" as const,
       access: "a",
       refresh: "r",
       expiresAt: 1,
-      accountId: "account",
+      idToken: "identity-token",
+      issuer: "https://auth.openai.com",
+      subject: "account",
+      clientId: "oaiapp_fixture",
+      scope: ["chatgpt.tokens.use.direct"],
     };
     await putPiCredential({ id: "refresh", label: "Refresh", material });
     const identity = getPiCredentialIdentityRevision(

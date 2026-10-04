@@ -1,5 +1,9 @@
 import { assert } from "chai";
+import type { Tool } from "@earendil-works/pi-ai";
+import { estimateContextTokens } from "@earendil-works/pi-ai/utils/estimate";
+import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
 import manifest from "../../package.json";
+import { projectPiChatGPTToolWire } from "../../src/modules/piChatGPTProvider";
 import {
   createPiNativeEstimator,
   preparePiTitleInvocation,
@@ -386,11 +390,12 @@ describe("Pi Turn Preparation shared behavior", function () {
       assert.equal(unproved.failure.code, "recovery_required");
   });
 
-  it("reserves output within Codex context when discovery has no output ceiling", async function () {
+  it("reserves output within ChatGPT context when discovery has no output ceiling", async function () {
     const input = fixture();
     input.frozen.model = {
       ...model,
-      api: "openai-codex-responses",
+      authVariant: "chatgpt",
+      api: "openai-responses",
       policy: { ...model.policy, maxTokens: 0 },
     };
     const result = await preparePiTurn(input, ports());
@@ -400,6 +405,86 @@ describe("Pi Turn Preparation shared behavior", function () {
     assert.equal(oversized.status, "failed");
     if (oversized.status === "failed")
       assert.equal(oversized.failure.code, "context_budget_exceeded");
+  });
+
+  it("keeps incomplete-visible assistant text out of normal prepared context", async function () {
+    const input = fixture();
+    input.transcript.entries = [
+      entry("u1", undefined, "message", { role: "user", text: "question" }, 1),
+      entry(
+        "a1",
+        "u1",
+        "message",
+        {
+          role: "assistant",
+          text: "unfinished answer",
+          status: "incomplete-visible",
+        },
+        2,
+      ),
+    ];
+    input.transcript.activeLeaf = "a1";
+
+    const result = await preparePiTurn(input, ports());
+
+    assert.equal(result.status, "ready");
+    if (result.status === "ready")
+      assert.deepEqual(
+        result.context.messages.map((message) => message.text),
+        ["question"],
+      );
+  });
+
+  it("budgets the final ChatGPT namespace wire projection supplied to the Provider", async function () {
+    const estimator = createPiNativeEstimator();
+    const tools = {
+      digest: "tools",
+      tools: [
+        {
+          capabilityId: "read",
+          name: "read/items",
+          description: "Read item metadata",
+          schema: {
+            type: "object",
+            properties: { itemId: { type: "string", description: "Item ID" } },
+          },
+        },
+      ],
+    };
+    const chatgptModel: PiModelSelectionSnapshot = {
+      ...model,
+      authVariant: "chatgpt",
+      api: "openai-responses",
+    };
+    const nativeTools = tools.tools.map((tool) => ({
+      type: "function" as const,
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.schema as Tool["parameters"],
+    }));
+    const finalWireTools = projectPiChatGPTToolWire(nativeTools).tools;
+    const finalWireEstimate = estimateContextTokens(
+      normalizeContext({
+        systemPrompt: "",
+        messages: [],
+        tools: finalWireTools as unknown as Tool[],
+      }),
+    ).tokens;
+    const base = await estimator.estimate({
+      blocks: [],
+      messages: [],
+      tools,
+      model,
+    });
+    const chatgpt = await estimator.estimate({
+      blocks: [],
+      messages: [],
+      tools,
+      model: chatgptModel,
+    });
+
+    assert.isAbove(chatgpt, base);
+    assert.equal(chatgpt, finalWireEstimate);
   });
   it("reconstructs only the active path from frozen trusted facts", async function () {
     const records: unknown[] = [];

@@ -413,11 +413,11 @@ export type BackendManagerActionName =
   | "pi-put-credential"
   | "pi-delete-credential"
   | "pi-test-connection"
-  | "pi-codex-connect"
-  | "pi-codex-cancel"
-  | "pi-codex-open-verification"
-  | "pi-codex-disconnect"
-  | "pi-codex-refresh-models"
+  | "pi-chatgpt-connect"
+  | "pi-chatgpt-cancel"
+  | "pi-chatgpt-sign-out"
+  | "pi-chatgpt-accept-welcome"
+  | "pi-chatgpt-refresh-models"
   | "pi-mcp-upsert-source"
   | "pi-mcp-delete-source"
   | "pi-mcp-test-source"
@@ -449,6 +449,17 @@ export type BackendManagerBuiltinAgentSnapshot = {
     | "unavailable"
   >;
   credentials: import("./piProviderContract").PiCredentialMetadata[];
+  chatgptRegistrations?: Array<{
+    id: string;
+    label: string;
+    email?: string;
+    clientId: string;
+    signedIn: boolean;
+    planEnabled: boolean;
+    paused: boolean;
+    reauthorizationRequired: boolean;
+    welcomeAccepted: boolean;
+  }>;
   mcpSources: import("./piMcpSourceContract").PiMcpSource[];
   mcpError?: string;
   webSources: import("./piWebSourceContract").PiWebSource[];
@@ -558,8 +569,9 @@ export type BackendManagerActionPayloadMap = {
   "pi-catalog-remove-overlay": DashboardActionPayloadShape<{
     requestId: string;
   }>;
-  "pi-codex-refresh-models": DashboardActionPayloadShape<{
+  "pi-chatgpt-refresh-models": DashboardActionPayloadShape<{
     configurationId: string;
+    registrationId: string;
   }>;
   "pi-put-credential": DashboardActionPayloadShape<{
     id: string;
@@ -571,17 +583,19 @@ export type BackendManagerActionPayloadMap = {
     configurationId: string;
     requestId: string;
   }>;
-  "pi-codex-connect": DashboardActionPayloadShape<{
+  "pi-chatgpt-connect": DashboardActionPayloadShape<{
     configurationId: string;
-    credentialId: string;
+    registrationId: string;
     requestId: string;
+    reconsent?: boolean;
   }>;
-  "pi-codex-cancel": DashboardActionPayloadShape<{ requestId: string }>;
-  "pi-codex-open-verification": DashboardActionPayloadShape<{
-    requestId: string;
+  "pi-chatgpt-cancel": DashboardActionPayloadShape<{ requestId: string }>;
+  "pi-chatgpt-sign-out": DashboardActionPayloadShape<{
+    registrationId: string;
+    remove?: boolean;
   }>;
-  "pi-codex-disconnect": DashboardActionPayloadShape<{
-    credentialId: string;
+  "pi-chatgpt-accept-welcome": DashboardActionPayloadShape<{
+    registrationId: string;
   }>;
   "pi-mcp-upsert-source": DashboardActionPayloadShape<{
     source: import("./piMcpSourceContract").PiMcpSource;

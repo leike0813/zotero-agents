@@ -934,6 +934,14 @@ const DETAILS_DRAWER_ACTIONS = {
     action: "continue-owner-recovery",
     labelPath: "actions.continueRecovery",
   },
+  "enable-pi-skill-run-restart": {
+    action: "enable-pi-skill-run-restart",
+    labelPath: "actions.enableUnattendedRestart",
+  },
+  "disable-pi-skill-run-restart": {
+    action: "disable-pi-skill-run-restart",
+    labelPath: "actions.disableUnattendedRestart",
+  },
   "open-workspace": {
     action: "open-workspace",
     labelPath: "actions.openWorkspace",

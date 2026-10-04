@@ -1282,6 +1282,14 @@ async function handlePiSkillRunAction(
     await runLocal(() => coordinator.continueRecovery(requestId));
     return;
   }
+  if (action === "enable-pi-skill-run-restart") {
+    await runLocal(() => coordinator.setTaskRestartConsent(requestId, true));
+    return;
+  }
+  if (action === "disable-pi-skill-run-restart") {
+    await runLocal(() => coordinator.setTaskRestartConsent(requestId, false));
+    return;
+  }
   if (action === "select-run") {
     await coordinator.select(requestId);
     return;

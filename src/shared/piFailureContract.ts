@@ -105,6 +105,21 @@ const POLICY: Readonly<Record<string, PiFailurePolicy>> = {
     category: "availability",
     retryable: true,
   },
+  provider_response_incomplete: {
+    level: "warn",
+    category: "execution",
+    retryable: false,
+  },
+  provider_response_failed: {
+    level: "error",
+    category: "execution",
+    retryable: false,
+  },
+  provider_terminal_missing: {
+    level: "error",
+    category: "integrity",
+    retryable: false,
+  },
   // Runtime / preparation
   provider_timeout: {
     level: "warn",

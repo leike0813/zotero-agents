@@ -438,6 +438,140 @@ describe("Pi owner persistence in Node", function () {
     assert.equal(rebuilt.usageTotals.costUnknown, 0);
   });
 
+  it("preserves field-level usage presence through canonical read and rebuild", async function () {
+    installPluginStateNodeSqliteAdapter();
+    const created = await createPiConversationOwner(
+      { conversationId: "usage-presence" },
+      root,
+    );
+    const append = async (
+      entryId: string,
+      kind: string,
+      payload: Record<string, unknown>,
+    ) =>
+      appendPiConversationFact(created.ref, { entryId, kind, payload }, root);
+    const measured = {
+      input: 0,
+      output: 12,
+      totalTokens: 12,
+      usageKnown: true,
+      completeness: "partial",
+      measurement: { inputTokens: 0, outputTokens: 12, totalTokens: 12 },
+    };
+    await append("main-legacy", "message", {
+      role: "assistant",
+      invocationId: "main-legacy",
+      usage: {
+        input: 5,
+        output: 0,
+        totalTokens: 5,
+        usageKnown: true,
+      },
+    });
+    for (const entryId of ["main-a", "main-b"])
+      await append(entryId, "message", {
+        role: "assistant",
+        invocationId: "main-measured",
+        usage: measured,
+      });
+    for (const entryId of ["title-zero-a", "title-zero-b"])
+      await append(entryId, "title_usage", {
+        invocationId: "title-zero",
+        usageKnown: true,
+        completeness: "partial",
+        measurement: { outputTokens: 0 },
+        outputTokens: 0,
+        costEstimate: 0,
+        costState: "free",
+      });
+    for (const entryId of ["compaction-unknown-a", "compaction-unknown-b"])
+      await append(entryId, "compaction_usage", {
+        invocationId: "compaction-unknown",
+        usageKnown: false,
+        completeness: "unknown",
+        input: 0,
+        output: 0,
+        totalTokens: 0,
+      });
+
+    const assertPresence = (
+      facts: ReturnType<typeof getPiConversationReadFacts>,
+    ) => {
+      const usage = facts?.usage as {
+        measurement?: Record<string, number>;
+        completeness?: string;
+        purposeTotals?: Record<string, any>;
+      } | null;
+      assert.deepEqual(usage?.measurement, measured.measurement);
+      assert.equal(usage?.completeness, "partial");
+      const totals = usage?.purposeTotals;
+      assert.deepEqual(totals?.main.measurement, {
+        inputTokens: 0,
+        outputTokens: 12,
+        totalTokens: 12,
+      });
+      assert.equal(totals?.main.unreported.inputTokens, 1);
+      assert.equal(totals?.main.unreported.cachedTokens, 2);
+      assert.equal(totals?.main.invocations, 2);
+      assert.equal(totals?.main.completeness, "partial");
+      assert.equal(totals?.main.visibleTotalTokens, 17);
+      assert.equal(totals?.main.unknownTotalInvocations, 0);
+      assert.deepEqual(totals?.title.measurement, { outputTokens: 0 });
+      assert.equal(totals?.title.completeness, "partial");
+      assert.equal(totals?.title.invocations, 1);
+      assert.equal(totals?.title.visibleTotalTokens, 0);
+      assert.equal(totals?.title.unknownTotalInvocations, 1);
+      assert.deepEqual(totals?.compaction.measurement, {});
+      assert.equal(totals?.compaction.completeness, "unknown");
+      assert.equal(totals?.compaction.invocations, 1);
+    };
+    assertPresence(getPiConversationReadFacts("usage-presence"));
+    await rebuildPiOwnerProjections(created.ref, root);
+    assertPresence(getPiConversationReadFacts("usage-presence"));
+  });
+
+  it("keeps canonical complete usage complete when optional cache fields are absent", async function () {
+    installPluginStateNodeSqliteAdapter();
+    const created = await createPiConversationOwner(
+      { conversationId: "usage-optional-cache-fields" },
+      root,
+    );
+    await appendPiConversationFact(
+      created.ref,
+      {
+        entryId: "title-complete",
+        kind: "title_usage",
+        payload: {
+          invocationId: "title-complete",
+          usageKnown: true,
+          completeness: "complete",
+          measurement: {
+            inputTokens: 10,
+            outputTokens: 3,
+            totalTokens: 13,
+          },
+        },
+      },
+      root,
+    );
+
+    const assertCompleteWithOptionalFieldsUnreported = () => {
+      const totals = getPiConversationReadFacts("usage-optional-cache-fields")
+        ?.usage?.purposeTotals as Record<string, any>;
+      assert.equal(totals?.title.completeness, "complete");
+      assert.deepEqual(totals?.title.measurement, {
+        inputTokens: 10,
+        outputTokens: 3,
+        totalTokens: 13,
+      });
+      assert.equal(totals?.title.unreported.cachedTokens, 1);
+      assert.equal(totals?.title.unreported.cacheWriteTokens, 1);
+    };
+    assertCompleteWithOptionalFieldsUnreported();
+    await rebuildPiOwnerProjections(created.ref, root);
+    assertCompleteWithOptionalFieldsUnreported();
+  });
+
   it("keeps a mixed owner incomplete rather than reporting a smaller complete total", async function () {
     installPluginStateNodeSqliteAdapter();
     const created = await createPiConversationOwner(

@@ -1,38 +1,23 @@
 import { assert } from "chai";
 import { config } from "../../../../package.json";
 import { getPref, setPref } from "../../../../src/utils/prefs";
-import {
-  listPiCredentials,
-  putPiCredential,
-} from "../../../../src/modules/piCredentialStore";
+import { listPiCredentials } from "../../../../src/modules/piCredentialStore";
 import {
   loadPiProviderConfigurationState,
   upsertPiProviderConfiguration,
 } from "../../../../src/modules/piProviderConfiguration";
 
 describe("Built-in Agent Backend Manager page in real Zotero", function () {
-  it("keeps a newly linked Codex credential when saving the open form", async function () {
+  it("offers ChatGPT authorization without exposing an API-key field", async function () {
     this.timeout(30_000);
     const plugin = (Zotero as any)[config.addonInstance];
     const prior = String(getPref("piProviderConfigurationJson") || "");
-    const priorCredentials = String(getPref("piCredentialEncryptedJson") || "");
-    await putPiCredential({
-      id: "fixture-codex-credential",
-      label: "Fixture Codex",
-      material: {
-        kind: "openai-codex",
-        access: "fixture-access",
-        refresh: "fixture-refresh",
-        expiresAt: Date.now() + 3600_000,
-        accountId: "fixture-account",
-      },
-    });
     upsertPiProviderConfiguration({
-      id: "fixture-codex-config",
-      label: "Fixture Codex",
-      provider: "openai-codex",
+      id: "fixture-chatgpt-config",
+      label: "Fixture ChatGPT",
+      provider: "openai",
       modelId: "fixture-model",
-      authVariant: "openai-codex",
+      authVariant: "chatgpt",
       enabled: true,
     });
     const opened = plugin.hooks.onPrefsEvent("openBackendManager", {
@@ -68,13 +53,13 @@ describe("Built-in Agent Backend Manager page in real Zotero", function () {
       await new Promise((resolve) => setTimeout(resolve, 100));
       (
         frame!.contentDocument!.querySelector(
-          "[data-choice-value='fixture-codex-config']",
+          "[data-choice-value='fixture-chatgpt-config']",
         ) as HTMLButtonElement
       ).click();
       await new Promise((resolve) => setTimeout(resolve, 100));
       assert.isOk(
         frame!.contentDocument!.querySelector(
-          "[data-pi-action='codex-connect']",
+          "[data-pi-action='chatgpt-connect']",
         ),
       );
       assert.isNotOk(
@@ -89,26 +74,9 @@ describe("Built-in Agent Backend Manager page in real Zotero", function () {
       label.dispatchEvent(
         new frame!.contentWindow!.Event("input", { bubbles: true }),
       );
-      upsertPiProviderConfiguration({
-        ...loadPiProviderConfigurationState().configurations.find(
-          (entry) => entry.id === "fixture-codex-config",
-        )!,
-        credentialRef: "fixture-codex-credential",
-      });
-      (
-        frame!.contentDocument!.querySelector(
-          "[data-pi-action='defaults']",
-        ) as HTMLButtonElement
-      ).click();
-      for (let i = 0; i < 30; i++) {
-        if (
-          frame!.contentDocument!.querySelector(
-            "[aria-label^='Credential: Fixture Codex']",
-          )
-        )
-          break;
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
+      // Preact commits the input draft in a microtask before a subsequent
+      // browser click event can run.
+      await Promise.resolve();
       (
         frame!.contentDocument!.querySelector(
           "[data-pi-action='save']",
@@ -117,35 +85,16 @@ describe("Built-in Agent Backend Manager page in real Zotero", function () {
       let saved;
       for (let i = 0; i < 30; i++) {
         saved = loadPiProviderConfigurationState().configurations.find(
-          (entry) => entry.id === "fixture-codex-config",
+          (entry) => entry.id === "fixture-chatgpt-config",
         );
         if (saved?.label === "Edited fixture") break;
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
       assert.equal(saved?.label, "Edited fixture");
-      assert.equal(saved?.credentialRef, "fixture-codex-credential");
-      const disconnect = frame!.contentDocument!.querySelector(
-        "[data-pi-action='codex-disconnect']",
-      ) as HTMLButtonElement;
-      assert.isOk(disconnect);
-      disconnect.click();
-      for (
-        let i = 0;
-        i < 30 &&
-        listPiCredentials().some(
-          (entry) => entry.id === "fixture-codex-credential",
-        );
-        i++
-      )
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      assert.isFalse(
-        listPiCredentials().some(
-          (entry) => entry.id === "fixture-codex-credential",
-        ),
-      );
+      assert.equal(saved?.authVariant, "chatgpt");
+      assert.equal(saved?.provider, "openai");
     } finally {
       setPref("piProviderConfigurationJson", prior);
-      setPref("piCredentialEncryptedJson", priorCredentials);
       plugin.data.dialog?.window?.close();
       await opened;
     }

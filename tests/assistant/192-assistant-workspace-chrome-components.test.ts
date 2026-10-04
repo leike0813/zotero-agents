@@ -1636,6 +1636,39 @@ describe("Assistant Workspace chrome components", function () {
         assert.strictEqual(node, before[index], `node #${index} rebuilt`);
       });
     });
+
+    it("emits the task restart consent action without replacing the drawer", function () {
+      const mount = environment.document.createElement("div");
+      const emitted: Array<{ action: string; payload: unknown }> = [];
+      const selection = detailsSelection({
+        actions: [
+          {
+            action: "enable-pi-skill-run-restart",
+            label: "Allow unattended restart",
+          },
+        ],
+      });
+      renderDetailsDrawerRegion(mount, selection, (action, payload) =>
+        emitted.push({ action, payload }),
+      );
+      const before = subtreeNodes(mount);
+      mount
+        .querySelector(".assistant-panel-action-enable-pi-skill-run-restart")!
+        .dispatchEvent(
+          new environment.window.MouseEvent("click", { bubbles: true }),
+        );
+      assert.includeDeepMembers(emitted, [
+        { action: "enable-pi-skill-run-restart", payload: {} },
+      ]);
+      renderDetailsDrawerRegion(mount, selection, (action, payload) =>
+        emitted.push({ action, payload }),
+      );
+      const after = subtreeNodes(mount);
+      assert.equal(after.length, before.length);
+      after.forEach((node, index) => {
+        assert.strictEqual(node, before[index], `node #${index} rebuilt`);
+      });
+    });
   });
 
   describe("ContextDrawerRegion", function () {

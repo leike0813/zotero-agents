@@ -2531,33 +2531,73 @@ function buildBackendManagerLabels() {
       "backend-manager-pi-credentials",
       "Saved credentials",
     ),
-    piCodexConnect: localizeBackendManager(
-      "backend-manager-pi-codex-connect",
-      "Connect OpenAI Codex",
+    piChatGPTConnect: localizeBackendManager(
+      "backend-manager-pi-chatgpt-connect",
+      "Continue with ChatGPT",
     ),
-    piCodexReconnect: localizeBackendManager(
-      "backend-manager-pi-codex-reconnect",
-      "Reconnect OpenAI Codex",
-    ),
-    piCodexCancel: localizeBackendManager(
-      "backend-manager-pi-codex-cancel",
+    piChatGPTCancel: localizeBackendManager(
+      "backend-manager-pi-chatgpt-cancel",
       "Cancel sign-in",
     ),
-    piCodexOpen: localizeBackendManager(
-      "backend-manager-pi-codex-open",
-      "Open verification page",
+    piChatGPTPrivacy: localizeBackendManager(
+      "backend-manager-pi-chatgpt-privacy",
+      "Before continuing, ChatGPT will receive the account and permission details shown by its sign-in page.",
     ),
-    piCodexDisconnect: localizeBackendManager(
-      "backend-manager-pi-codex-disconnect",
-      "Disconnect locally",
+    piChatGPTManageUsage: localizeBackendManager(
+      "backend-manager-pi-chatgpt-manage-usage",
+      "Manage Usage",
     ),
-    piCodexConnected: localizeBackendManager(
-      "backend-manager-pi-codex-connected",
-      "OpenAI Codex connected",
+    piChatGPTWelcome: localizeBackendManager(
+      "backend-manager-pi-chatgpt-welcome",
+      "ChatGPT plan access is used only when you run a model request. You can sign out or remove this registration at any time.",
     ),
-    piCodexFailed: localizeBackendManager(
-      "backend-manager-pi-codex-failed",
-      "OpenAI Codex sign-in failed",
+    piChatGPTWelcomeAccept: localizeBackendManager(
+      "backend-manager-pi-chatgpt-welcome-accept",
+      "I understand",
+    ),
+    piChatGPTReconsent: localizeBackendManager(
+      "backend-manager-pi-chatgpt-reconsent",
+      "Review permissions",
+    ),
+    piChatGPTNewRegistration: localizeBackendManager(
+      "backend-manager-pi-chatgpt-new-registration",
+      "New ChatGPT registration",
+    ),
+    piChatGPTSignOut: localizeBackendManager(
+      "backend-manager-pi-chatgpt-sign-out",
+      "Sign out",
+    ),
+    piChatGPTRemove: localizeBackendManager(
+      "backend-manager-pi-chatgpt-remove",
+      "Remove",
+    ),
+    piChatGPTPlanEnabled: localizeBackendManager(
+      "backend-manager-pi-chatgpt-plan-enabled",
+      "Using ChatGPT plan",
+    ),
+    piChatGPTPlanUnavailable: localizeBackendManager(
+      "backend-manager-pi-chatgpt-plan-unavailable",
+      "ChatGPT plan access unavailable",
+    ),
+    piChatGPTPaused: localizeBackendManager(
+      "backend-manager-pi-chatgpt-paused",
+      "Usage paused",
+    ),
+    piChatGPTSignedOut: localizeBackendManager(
+      "backend-manager-pi-chatgpt-signed-out",
+      "Signed out",
+    ),
+    piChatGPTProgresswaiting_browser: localizeBackendManager(
+      "backend-manager-pi-chatgpt-progress-waiting-browser",
+      "Waiting for ChatGPT sign-in",
+    ),
+    piChatGPTProgressexchanging: localizeBackendManager(
+      "backend-manager-pi-chatgpt-progress-exchanging",
+      "Completing sign-in",
+    ),
+    piChatGPTProgressvalidating: localizeBackendManager(
+      "backend-manager-pi-chatgpt-progress-validating",
+      "Checking ChatGPT access",
     ),
     mcpSources: localizeBackendManager(
       "backend-manager-mcp-sources",
@@ -3134,6 +3174,8 @@ function buildBackendManagerSnapshot(
   const npxRuntimeStatus = getBackendManagerNpxRuntimeStatus();
   const piState = loadPiProviderConfigurationState();
   const piCredentials = listPiCredentials();
+  const chatgptRegistrations =
+    requireBackendManagerPi().listPiChatGPTRegistrations();
   let mcpSources: PiMcpSource[] = [];
   let mcpError = "";
   try {
@@ -3168,6 +3210,17 @@ function buildBackendManagerSnapshot(
         (credential) =>
           credential.id === entry.credentialRef &&
           credential.kind === entry.authVariant,
+      )
+    )
+      configurationStatus[entry.id] = "needs-auth";
+    else if (
+      entry.authVariant === "chatgpt" &&
+      !chatgptRegistrations.some(
+        (registration) =>
+          registration.id === entry.credentialRef &&
+          registration.signedIn &&
+          registration.planEnabled &&
+          !registration.reauthorizationRequired,
       )
     )
       configurationStatus[entry.id] = "needs-auth";
@@ -3206,6 +3259,7 @@ function buildBackendManagerSnapshot(
       configurations: piState.configurations,
       configurationStatus,
       credentials: piCredentials,
+      chatgptRegistrations,
       mcpSources,
       ...(mcpError ? { mcpError } : {}),
       mcpCredentials: listPiCredentials("mcp-source"),
@@ -3326,10 +3380,11 @@ export async function openBackendManagerDialog(
   activePiCatalog = null;
   activePiCatalogError = "";
   activePiCatalogState = undefined;
-  let activePiCodexLogin:
-    | { requestId: string; credentialId: string; controller: AbortController }
+  let activePiChatGPTLogin:
+    | { requestId: string; registrationId: string; controller: AbortController }
     | undefined;
   let removePiCatalogSubscription: (() => void) | undefined;
+  let removePiChatGPTRegistrationSubscription: (() => void) | undefined;
   let piCatalogObserverClosed = false;
   let piCatalogActionController: AbortController | undefined;
 
@@ -3402,15 +3457,21 @@ export async function openBackendManagerDialog(
         );
       };
       let catalogController: AbortController | undefined;
-      const refreshCodexModels = async (configurationId: string) => {
+      const refreshChatGPTModels = async (
+        configurationId: string,
+        registrationId: string,
+      ) => {
         const configuration =
           loadPiProviderConfigurationState().configurations.find(
             (entry) => entry.id === configurationId,
           );
         if (
           !configuration ||
-          configuration.authVariant !== "openai-codex" ||
-          !configuration.credentialRef
+          configuration.provider !== "openai" ||
+          configuration.authVariant !== "chatgpt" ||
+          !requireBackendManagerPi()
+            .listPiChatGPTRegistrations()
+            .some((registration) => registration.id === registrationId)
         )
           throw new Error("Provider unavailable");
         const AbortControllerCtor =
@@ -3423,12 +3484,12 @@ export async function openBackendManagerDialog(
         dialogWindow?.addEventListener("unload", stop, { once: true });
         const timeout = setTimeout(stop, 30_000);
         try {
-          const { refreshPiCodexModelCatalog, loadPiModelCatalog } =
+          const { refreshPiChatGPTModelCatalog, loadPiModelCatalog } =
             await requireBackendManagerPi().loadPiModelCatalog();
-          const next = await refreshPiCodexModelCatalog(
+          const next = await refreshPiChatGPTModelCatalog(
             activePiCatalog || (await loadPiModelCatalog()),
             {
-              credentialId: configuration.credentialRef,
+              credentialId: registrationId,
               signal: controller.signal,
             },
           );
@@ -3439,7 +3500,8 @@ export async function openBackendManagerDialog(
           if (
             catalogController !== controller ||
             controller.signal.aborted ||
-            current?.credentialRef !== configuration.credentialRef
+            current?.provider !== "openai" ||
+            current?.authVariant !== "chatgpt"
           )
             throw new Error("Provider unavailable");
           adoptPiCatalog(next);
@@ -3489,7 +3551,18 @@ export async function openBackendManagerDialog(
               adoptPiCatalog(null);
               activePiCatalogError = "Model catalog is unavailable";
             }
+            if (piCatalogObserverClosed) return;
             pushSnapshot("backend-manager-dialog:snapshot");
+            try {
+              const unsubscribe =
+                requireBackendManagerPi().subscribePiChatGPTRegistrations(() =>
+                  pushSnapshot("backend-manager-dialog:snapshot"),
+                );
+              if (piCatalogObserverClosed) unsubscribe();
+              else removePiChatGPTRegistrationSubscription = unsubscribe;
+            } catch {
+              // Auth lifecycle stays in its owner; the snapshot is safe data.
+            }
             // Lifecycle-owned checks publish here; this window only observes
             // and unsubscribes on unload.
             try {
@@ -3516,11 +3589,16 @@ export async function openBackendManagerDialog(
             .trim()
             .toLowerCase()
             .slice(0, 128);
+          const piCredentials = requireBackendManagerPi().listPiCredentials();
           const models = (activePiCatalog?.models || [])
             .filter(
               (model) =>
                 model.provider === provider &&
-                (provider !== "openai-codex" ||
+                (!piCredentials.some(
+                  (credential) =>
+                    credential.id === payload.credentialId &&
+                    credential.kind === "chatgpt",
+                ) ||
                   (model.source === "discovered" &&
                     model.credentialRef === payload.credentialId)) &&
                 (!query ||
@@ -3545,9 +3623,42 @@ export async function openBackendManagerDialog(
                 globalThis.crypto.getRandomValues(bytes);
                 return `pi-${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
               };
-              if (action === "pi-codex-connect") {
+              if (action === "pi-chatgpt-connect") {
                 const configurationId = String(payload.configurationId || "");
+                const requestedRegistrationId = String(
+                  payload.registrationId || "",
+                );
                 const requestId = String(payload.requestId || "");
+                const registrations =
+                  requireBackendManagerPi().listPiChatGPTRegistrations();
+                const credentials = listPiCredentials();
+                if (
+                  requestedRegistrationId &&
+                  credentials.some(
+                    (credential) =>
+                      credential.id === requestedRegistrationId &&
+                      credential.kind !== "chatgpt",
+                  )
+                )
+                  throw new Error("Registration unavailable");
+                if (
+                  requestedRegistrationId &&
+                  !registrations.some(
+                    (registration) =>
+                      registration.id === requestedRegistrationId,
+                  )
+                )
+                  throw new Error("Registration unavailable");
+                const usedIds = new Set([
+                  ...registrations.map((registration) => registration.id),
+                  ...credentials.map((credential) => credential.id),
+                ]);
+                let registrationId = requestedRegistrationId;
+                if (!registrationId) {
+                  do {
+                    registrationId = randomId();
+                  } while (usedIds.has(registrationId));
+                }
                 const configuration =
                   loadPiProviderConfigurationState().configurations.find(
                     (entry) => entry.id === configurationId,
@@ -3555,49 +3666,40 @@ export async function openBackendManagerDialog(
                 if (
                   !requestId ||
                   !configuration ||
-                  configuration.provider !== "openai-codex" ||
-                  configuration.authVariant !== "openai-codex" ||
-                  (payload.credentialId &&
-                    payload.credentialId !== configuration.credentialRef) ||
-                  (configuration.credentialRef &&
-                    listPiCredentials().some(
-                      (item) =>
-                        item.id === configuration.credentialRef &&
-                        item.kind !== "openai-codex",
-                    ))
+                  configuration.provider !== "openai" ||
+                  configuration.authVariant !== "chatgpt"
                 )
-                  throw new Error("Invalid Codex configuration");
-                activePiCodexLogin?.controller.abort();
+                  throw new Error("Invalid ChatGPT configuration");
+                if (activePiChatGPTLogin) return;
                 const AbortControllerCtor =
                   resolveNativeAbortControllerConstructor(dialogWindow);
                 if (!AbortControllerCtor)
                   throw new Error("Provider unavailable");
                 const login = {
                   requestId,
-                  credentialId: configuration.credentialRef || randomId(),
+                  registrationId: registrationId || randomId(),
                   controller: new AbortControllerCtor(),
                 };
-                activePiCodexLogin = login;
+                activePiChatGPTLogin = login;
                 try {
-                  const { connectPiOpenAICodex } =
-                    await requireBackendManagerPi().loadPiOpenAICodexAuth();
-                  await connectPiOpenAICodex({
-                    id: login.credentialId,
-                    label: configuration.label || "OpenAI Codex",
-                    signal: login.controller.signal,
-                    onCode: ({ verificationUrl, userCode }) => {
-                      if (activePiCodexLogin !== login) return;
-                      postToFrame("backend-manager-dialog:action-result", {
-                        action,
-                        requestId,
-                        stage: "code",
-                        verificationUrl,
-                        userCode,
-                      });
-                    },
-                  });
+                  const metadata =
+                    await requireBackendManagerPi().connectPiChatGPT({
+                      id: login.registrationId,
+                      label: configuration.label || "ChatGPT",
+                      requestId,
+                      signal: login.controller.signal,
+                      reconsent: payload.reconsent === true,
+                      onProgress: (progress) => {
+                        if (activePiChatGPTLogin !== login) return;
+                        postToFrame("backend-manager-dialog:action-result", {
+                          action,
+                          requestId: progress.requestId,
+                          status: progress.status,
+                        });
+                      },
+                    });
                   if (
-                    activePiCodexLogin !== login ||
+                    activePiChatGPTLogin !== login ||
                     login.controller.signal.aborted
                   )
                     return;
@@ -3607,76 +3709,92 @@ export async function openBackendManagerDialog(
                     );
                   if (
                     !current ||
-                    current.provider !== "openai-codex" ||
-                    current.authVariant !== "openai-codex" ||
+                    current.provider !== "openai" ||
+                    current.authVariant !== "chatgpt" ||
                     current.credentialRef !== configuration.credentialRef
                   )
-                    throw new Error("Codex configuration changed");
+                    throw new Error("ChatGPT configuration changed");
                   upsertPiProviderConfiguration({
                     ...current,
-                    credentialRef: login.credentialId,
+                    credentialRef: metadata.id,
+                    provider: "openai",
+                    api: "openai-responses",
+                    baseUrl: undefined,
                   });
                   postToFrame("backend-manager-dialog:action-result", {
                     action,
                     requestId,
-                    stage: "complete",
+                    status: "complete",
                     ok: true,
                   });
                   pushSnapshot("backend-manager-dialog:snapshot");
                   try {
-                    await refreshCodexModels(configurationId);
+                    await refreshChatGPTModels(configurationId, metadata.id);
                   } catch {
                     activePiCatalogError = "provider_unavailable";
                   }
                   pushSnapshot("backend-manager-dialog:snapshot");
                 } finally {
-                  if (activePiCodexLogin === login)
-                    activePiCodexLogin = undefined;
+                  if (activePiChatGPTLogin === login)
+                    activePiChatGPTLogin = undefined;
                 }
                 return;
-              } else if (action === "pi-codex-cancel") {
+              } else if (action === "pi-chatgpt-cancel") {
                 if (
-                  activePiCodexLogin?.requestId ===
+                  activePiChatGPTLogin?.requestId ===
                   String(payload.requestId || "")
-                )
-                  activePiCodexLogin.controller.abort();
+                ) {
+                  const login = activePiChatGPTLogin;
+                  activePiChatGPTLogin = undefined;
+                  login.controller.abort();
+                  await requireBackendManagerPi().cancelPiChatGPTLogin(
+                    login.requestId,
+                  );
+                }
                 return;
-              } else if (action === "pi-codex-open-verification") {
-                if (
-                  activePiCodexLogin?.requestId ===
-                  String(payload.requestId || "")
-                )
-                  (
-                    globalThis as {
-                      Zotero?: { launchURL?: (url: string) => void };
-                    }
-                  ).Zotero?.launchURL?.("https://auth.openai.com/codex/device");
-                return;
-              } else if (action === "pi-codex-disconnect") {
-                const credentialId = String(payload.credentialId || "");
-                if (
-                  !credentialId ||
-                  !listPiCredentials().some(
-                    (item) =>
-                      item.id === credentialId && item.kind === "openai-codex",
-                  )
-                )
-                  throw new Error("Codex credential unavailable");
-                if (activePiCodexLogin?.credentialId === credentialId)
-                  activePiCodexLogin.controller.abort();
-                await deletePiCredential(credentialId);
-                catalogController?.abort();
-                if (activePiCatalog)
+              } else if (action === "pi-chatgpt-sign-out") {
+                const registrationId = String(payload.registrationId || "");
+                if (!registrationId)
+                  throw new Error("Registration unavailable");
+                if (activePiChatGPTLogin?.registrationId === registrationId)
+                  throw new Error(
+                    "Cancel sign-in before switching registrations",
+                  );
+                await requireBackendManagerPi().signOutPiChatGPT(
+                  registrationId,
+                  payload.remove === true ? { remove: true } : undefined,
+                );
+                const { removePiChatGPTCredentialModels } =
+                  await requireBackendManagerPi().loadPiModelCatalog();
+                if (activePiCatalog) {
                   adoptPiCatalog(
-                    await (
-                      await requireBackendManagerPi().loadPiModelCatalog()
-                    ).removePiCodexCredentialModels(
+                    await removePiChatGPTCredentialModels(
                       activePiCatalog,
-                      credentialId,
+                      registrationId,
                     ),
                   );
-              } else if (action === "pi-codex-refresh-models") {
-                await refreshCodexModels(String(payload.configurationId || ""));
+                }
+                if (payload.remove === true) {
+                  for (const configuration of loadPiProviderConfigurationState()
+                    .configurations) {
+                    if (configuration.credentialRef !== registrationId)
+                      continue;
+                    upsertPiProviderConfiguration({
+                      ...configuration,
+                      credentialRef: undefined,
+                    });
+                  }
+                }
+                catalogController?.abort();
+              } else if (action === "pi-chatgpt-accept-welcome") {
+                await requireBackendManagerPi().acceptPiChatGPTWelcome(
+                  String(payload.registrationId || ""),
+                );
+              } else if (action === "pi-chatgpt-refresh-models") {
+                await refreshChatGPTModels(
+                  String(payload.configurationId || ""),
+                  String(payload.registrationId || ""),
+                );
               } else if (action === "pi-upsert-configuration") {
                 const raw = payload.configuration as PiProviderConfiguration;
                 if (!raw || typeof raw !== "object")
@@ -3946,12 +4064,35 @@ export async function openBackendManagerDialog(
                 try {
                   const { createPiProviderModelSource } =
                     await requireBackendManagerPi().loadPiProviderExecution();
-                  for await (const _ of createPiProviderModelSource(selection)({
-                    systemPrompt: "",
-                    messages: [{ role: "user", text: "Reply OK." }],
-                    signal: controller.signal,
-                  })) {
-                    // A completed stream is the connection-test success boundary.
+                  const runProbe = async (permit?: object) => {
+                    for await (const _ of createPiProviderModelSource(
+                      selection,
+                      permit ? { chatGPTResumePermit: permit } : undefined,
+                    )({
+                      systemPrompt: "",
+                      messages: [{ role: "user", text: "Reply OK." }],
+                      signal: controller.signal,
+                    })) {
+                      // A completed stream is the connection-test success boundary.
+                    }
+                  };
+                  if (selection.authVariant === "chatgpt") {
+                    const registrationId = String(
+                      selection.credentialRef || "",
+                    );
+                    const registration = requireBackendManagerPi()
+                      .listPiChatGPTRegistrations()
+                      .find((entry) => entry.id === registrationId);
+                    if (registration?.paused) {
+                      await requireBackendManagerPi().withPiChatGPTResumeProbe(
+                        registrationId,
+                        runProbe,
+                      );
+                    } else {
+                      await runProbe();
+                    }
+                  } else {
+                    await runProbe();
                   }
                 } finally {
                   clearTimeout(timeout);
@@ -3971,39 +4112,36 @@ export async function openBackendManagerDialog(
               });
               pushSnapshot("backend-manager-dialog:snapshot");
             } catch (error) {
+              if (
+                action === "pi-chatgpt-connect" &&
+                activePiChatGPTLogin?.requestId !==
+                  String(payload.requestId || "")
+              )
+                return;
               const sensitive =
                 action.startsWith("pi-mcp-") ||
                 action.startsWith("pi-web-") ||
-                action.startsWith("pi-codex-") ||
+                action.startsWith("pi-chatgpt-") ||
                 action === "pi-put-credential" ||
                 action === "pi-delete-credential" ||
                 action === "pi-test-connection" ||
                 action === "pi-export-diagnostics";
               const catalogSourceAction = PI_CATALOG_SOURCE_ACTIONS.has(action);
-              const authFailure =
-                action === "pi-codex-connect" &&
+              const failureCode =
+                action === "pi-test-connection" &&
                 error instanceof
-                  (await requireBackendManagerPi().loadPiOpenAICodexAuth())
-                    .PiCodexAuthFailure
-                  ? error
-                  : null;
-              const failureCode = authFailure
-                ? authFailure.code
-                : action === "pi-test-connection" &&
-                    error instanceof
-                      (await requireBackendManagerPi().loadPiRuntime())
-                        .PiModelStreamFailure
+                  (await requireBackendManagerPi().loadPiRuntime())
+                    .PiModelStreamFailure
                   ? error.code
                   : "provider_unavailable";
               postToFrame("backend-manager-dialog:action-result", {
                 action,
                 ok: false,
-                ...(action === "pi-codex-connect"
+                ...(action === "pi-chatgpt-connect"
                   ? {
                       requestId: String(payload.requestId || ""),
-                      stage: "failed",
+                      status: "failed",
                       code: failureCode,
-                      phase: authFailure?.phase,
                     }
                   : {}),
                 ...(action === "pi-mcp-test-source"
@@ -4275,7 +4413,14 @@ export async function openBackendManagerDialog(
       installBackendManagerBeforeUnloadPrompt(doc, dialogData);
     },
     unloadCallback: () => {
-      activePiCodexLogin?.controller.abort();
+      const closingLogin = activePiChatGPTLogin;
+      activePiChatGPTLogin = undefined;
+      closingLogin?.controller.abort();
+      if (closingLogin) {
+        void requireBackendManagerPi().cancelPiChatGPTLogin(
+          closingLogin.requestId,
+        );
+      }
       // Releases this window's waiter on a shared public request; the owner
       // cancels only when no authorized waiter remains.
       piCatalogActionController?.abort();
@@ -4284,6 +4429,8 @@ export async function openBackendManagerDialog(
       // may still be waiting on the same public request.
       removePiCatalogSubscription?.();
       removePiCatalogSubscription = undefined;
+      removePiChatGPTRegistrationSubscription?.();
+      removePiChatGPTRegistrationSubscription = undefined;
       piCatalogObserverClosed = true;
       if (removeMessageListener) {
         removeMessageListener();

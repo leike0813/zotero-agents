@@ -10,18 +10,29 @@ import {
   normalizeContext,
 } from "@earendil-works/pi-ai";
 import { streamSimple as streamOpenAIResponses } from "@earendil-works/pi-ai/api/openai-responses";
+import { clampMaxTokensToContext } from "@earendil-works/pi-ai/api/simple-options";
 import { streamSimple as streamOpenAICompletions } from "@earendil-works/pi-ai/api/openai-completions";
 import { streamSimple as streamAnthropicMessages } from "@earendil-works/pi-ai/api/anthropic-messages";
 import { streamSimple as streamGoogle } from "@earendil-works/pi-ai/api/google-generative-ai";
-import { stream as streamCodex } from "@earendil-works/pi-ai/api/openai-codex-responses";
 import type {
   PiModelCompat,
   PiModelCost,
   PiModelMetadata,
   PiModelSelectionSnapshot,
 } from "../shared/piProviderContract";
-import { readPiCredential } from "./piCredentialStore";
-import { resolvePiOpenAICodexAccess } from "./piOpenAICodexAuth";
+import {
+  getPiCredentialIdentityRevision,
+  readPiCredential,
+} from "./piCredentialStore";
+import {
+  assertPiChatGPTInferenceAllowed,
+  pausePiChatGPTInference,
+  resolvePiChatGPTAccess,
+} from "./piChatGPTAuth";
+import {
+  streamPiChatGPTResponses,
+  type PiChatGPTCompletedResponse,
+} from "./piChatGPTProvider";
 import {
   PiModelStreamFailure,
   type PiModelFailureCode,
@@ -39,6 +50,18 @@ import {
 type Admission = {
   fetch?: typeof fetch;
   authorizeLocalNetwork?: (endpoint: string) => Promise<boolean>;
+  chatGPTAuth?: {
+    resolvePiChatGPTAccess?: typeof resolvePiChatGPTAccess;
+    assertPiChatGPTInferenceAllowed?: typeof assertPiChatGPTInferenceAllowed;
+    pausePiChatGPTInference?: typeof pausePiChatGPTInference;
+  };
+  /** Opaque permit from the auth owner; it is consumed at the dispatch gate. */
+  chatGPTResumePermit?: object;
+  onChatGPTCompletedResponse?: (response: PiChatGPTCompletedResponse) => void;
+  forceChatGPTWebSearch?: boolean;
+  onChatGPTProviderStreamEvent?: (event: unknown) => void;
+  chatGPTRetryDelay?: (retry: number, signal: AbortSignal) => Promise<void>;
+  disableChatGPTRetries?: boolean;
   /**
    * C18 structural audit. The provider is the fact owner for transport
    * boundaries only; turn and model invocation boundaries belong to
@@ -147,8 +170,7 @@ function understoodCompat(
   api: string,
   compat: PiModelCompat | undefined,
 ): Record<string, unknown> | undefined {
-  const keys =
-    COMPAT_KEYS[api === "openai-codex-responses" ? "openai-responses" : api];
+  const keys = COMPAT_KEYS[api];
   if (!keys || !compat) return undefined;
   const result: Record<string, unknown> = {};
   for (const key of keys)
@@ -288,7 +310,7 @@ function failureMessage(
 ): AssistantMessage {
   return {
     role: "assistant",
-    content: [],
+    content: observed?.content ?? [],
     api: model.api,
     provider: model.provider,
     model: model.id,
@@ -301,18 +323,110 @@ function failureMessage(
 type ProviderStreamHandle = {
   events: AssistantMessageEventStream;
   failure: () => PiModelFailureCode | undefined;
+  usageKnown?: (message: AssistantMessage) => boolean;
+  usageCompleteness?: (
+    message: AssistantMessage,
+  ) => "complete" | "partial" | "unknown";
+  usageMeasurement?: (
+    message: AssistantMessage,
+  ) => import("../shared/piUsageContract").PiUsageMeasurement | undefined;
 };
+
+async function subscriptionQuotaFailure(response: Response): Promise<boolean> {
+  const declared = Number(response.headers.get("content-length") || 0);
+  if (declared > 16_384) return false;
+  try {
+    const text = await response.clone().text();
+    if (new TextEncoder().encode(text).length > 16_384) return false;
+    const body = JSON.parse(text) as {
+      error?: { code?: unknown };
+      code?: unknown;
+    };
+    return (
+      body.error?.code === "subscription_sharing_usage_limit_exceeded" ||
+      body.code === "subscription_sharing_usage_limit_exceeded"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function chatGPTAuthFailureCode(error: unknown): PiModelFailureCode {
+  if (typeof error !== "object" || !error || !("code" in error))
+    return "provider_chatgpt_auth_failed";
+  const code = (error as { code?: unknown }).code;
+  if (code === "canceled") return "aborted";
+  if (code === "credential_missing") return "credential_missing";
+  if (code === "quota_paused" || code === "probe_active")
+    return "provider_plan_quota_exceeded";
+  if (
+    code === "permission_missing" ||
+    code === "welcome_required" ||
+    code === "reauthorization_required" ||
+    code === "identity_mismatch"
+  )
+    return "provider_auth_failed";
+  if (code === "auth_unavailable") return "provider_unavailable";
+  return "provider_chatgpt_auth_failed";
+}
+
+function restorePiApiKeyResponsesPayload(
+  value: unknown,
+  selection: PiModelSelectionSnapshot,
+  cacheRetention: "short" | "long",
+  contextBoundedMaxTokens: number,
+): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const payload = { ...(value as Record<string, unknown>) };
+  const compat = selectMetadata(selection).compat;
+  if (
+    compat?.supportsMaxOutputTokens !== false &&
+    selection.policy.maxTokens > 0 &&
+    payload.max_output_tokens === undefined
+  )
+    payload.max_output_tokens = Math.max(contextBoundedMaxTokens, 16);
+  const temperature = selectMetadata(selection).samplingParams?.temperature;
+  if (temperature !== undefined && payload.temperature === undefined)
+    payload.temperature = temperature;
+  if (
+    cacheRetention === "long" &&
+    compat?.supportsLongCacheRetention !== false &&
+    !compat?.supportsExplicitPromptCacheMode &&
+    payload.prompt_cache_retention === undefined
+  )
+    payload.prompt_cache_retention = "24h";
+  if (
+    compat?.supportsExplicitPromptCacheMode &&
+    payload.prompt_cache_options === undefined
+  ) {
+    if (cacheRetention === "long" && compat.supportsLongCacheRetention)
+      payload.prompt_cache_options = { ttl: "30m" };
+    else if (cacheRetention === "short")
+      payload.prompt_cache_options = { mode: "explicit" };
+  }
+  return payload;
+}
 
 async function openPiProviderStream(
   selection: PiModelSelectionSnapshot,
   admission: Admission,
   context: Context,
   signal: AbortSignal,
+  callbacks: {
+    onProviderTerminal?: (
+      terminal: import("./piRuntime").PiProviderTerminal,
+    ) => void;
+    onProviderRetry?: (input: {
+      terminal: import("./piRuntime").PiProviderTerminal;
+      usage: AssistantMessage["usage"];
+      usageCompleteness: "complete" | "partial" | "unknown";
+      usageMeasurement?: import("../shared/piUsageContract").PiUsageMeasurement;
+    }) => Promise<boolean>;
+  } = {},
 ): Promise<ProviderStreamHandle> {
   if (signal.aborted) throw new PiModelStreamFailure("aborted");
   const stream = streams[selection.api];
-  if (!stream && selection.api !== "openai-codex-responses")
-    throw new PiModelStreamFailure("unsupported_provider");
+  if (!stream) throw new PiModelStreamFailure("unsupported_provider");
   if (selection.api === "google-generative-ai" && admission.fetch)
     throw new PiModelStreamFailure("unsupported_provider");
   if (
@@ -320,10 +434,17 @@ async function openPiProviderStream(
     !selection.baseUrl ||
     selection.policy.contextWindow < 1 ||
     selection.policy.maxTokens < 0 ||
-    (selection.policy.maxTokens === 0 &&
-      selection.api !== "openai-codex-responses")
+    (selection.policy.maxTokens === 0 && selection.authVariant !== "chatgpt")
   )
     throw new PiModelStreamFailure("unsupported_model");
+  if (
+    selection.authVariant === "chatgpt" &&
+    (selection.provider !== "openai" ||
+      selection.api !== "openai-responses" ||
+      selection.baseUrl !== "https://api.openai.com/v1" ||
+      !selection.credentialRef)
+  )
+    throw new PiModelStreamFailure("unsupported_provider");
   if (
     selection.requiresLocalNetwork &&
     !(await admission.authorizeLocalNetwork?.(selection.baseUrl))
@@ -347,6 +468,7 @@ async function openPiProviderStream(
       throw new PiModelStreamFailure("unsupported_model");
   }
   let apiKey: string | undefined;
+  let chatGPTIdentityRevision: string | undefined;
   if (selection.authVariant === "api-key") {
     if (!selection.credentialRef)
       throw new PiModelStreamFailure("credential_missing");
@@ -358,30 +480,27 @@ async function openPiProviderStream(
     if (!["openai-responses", "openai-completions"].includes(selection.api))
       throw new PiModelStreamFailure("unsupported_provider");
     apiKey = "unused";
-  } else if (selection.authVariant === "openai-codex") {
-    if (
-      selection.provider !== "openai-codex" ||
-      selection.api !== "openai-codex-responses" ||
-      !selection.credentialRef
-    )
-      throw new PiModelStreamFailure("unsupported_provider");
-    try {
-      apiKey = await resolvePiOpenAICodexAccess(
+  } else if (selection.authVariant === "chatgpt") {
+    if (!selection.credentialRef)
+      throw new PiModelStreamFailure("credential_missing");
+    const credential = await readPiCredential(selection.credentialRef);
+    if (!credential.ok || credential.material.kind !== "chatgpt")
+      throw new PiModelStreamFailure("credential_missing");
+    chatGPTIdentityRevision =
+      getPiCredentialIdentityRevision(
         selection.credentialRef,
-        signal,
-        admission.fetch,
-      );
+        "model-provider",
+      ) ?? undefined;
+    if (!chatGPTIdentityRevision)
+      throw new PiModelStreamFailure("credential_missing");
+    try {
+      apiKey = await (
+        admission.chatGPTAuth?.resolvePiChatGPTAccess || resolvePiChatGPTAccess
+      )(selection.credentialRef, signal, admission.fetch, {
+        identityRevision: chatGPTIdentityRevision,
+      });
     } catch (error) {
-      const code = error instanceof Error ? error.message : "";
-      throw new PiModelStreamFailure(
-        code === "canceled"
-          ? "aborted"
-          : code === "credential_missing"
-            ? "credential_missing"
-            : code === "auth_unavailable"
-              ? "provider_unavailable"
-              : "provider_auth_failed",
-      );
+      throw new PiModelStreamFailure(chatGPTAuthFailureCode(error));
     }
   } else {
     throw new PiModelStreamFailure("unsupported_provider");
@@ -420,8 +539,39 @@ async function openPiProviderStream(
         clean.headers.delete("authorization");
         clean.headers.delete("proxy-authorization");
       }
+      if (selection.authVariant === "chatgpt") {
+        try {
+          await (
+            admission.chatGPTAuth?.assertPiChatGPTInferenceAllowed ||
+            assertPiChatGPTInferenceAllowed
+          )(
+            selection.credentialRef!,
+            signal,
+            admission.chatGPTResumePermit,
+            chatGPTIdentityRevision!,
+          );
+        } catch (error) {
+          failureCode = chatGPTAuthFailureCode(error);
+          throw new PiModelStreamFailure(failureCode);
+        }
+      }
       const response = await (admission.fetch || globalThis.fetch)(clean);
-      if (!response.ok)
+      if (
+        selection.authVariant === "chatgpt" &&
+        response.status === 429 &&
+        (await subscriptionQuotaFailure(response))
+      ) {
+        failureCode = "provider_plan_quota_exceeded";
+        try {
+          await (
+            admission.chatGPTAuth?.pausePiChatGPTInference ||
+            pausePiChatGPTInference
+          )(selection.credentialRef!, chatGPTIdentityRevision!);
+        } catch {
+          // A pause persistence issue cannot expose response data or replace the provider failure.
+        }
+      }
+      if (!response.ok && selection.authVariant !== "chatgpt")
         failureCode =
           response.status === 401 || response.status === 403
             ? "provider_auth_failed"
@@ -445,27 +595,68 @@ async function openPiProviderStream(
   const cacheRetention = selectMetadata(selection).promptCache?.long
     ? "long"
     : "short";
-  const events =
-    selection.api === "openai-codex-responses"
-      ? streamCodex(model as Model<"openai-codex-responses">, transcript, {
-          apiKey,
-          signal,
-          cacheRetention,
-          transport: "sse",
-          reasoningEffort:
-            selection.reasoning === "off" ? "none" : selection.reasoning,
-          fetch: requestFetch,
-        })
-      : stream(model, transcript, {
-          apiKey,
-          signal,
-          cacheRetention,
-          reasoning:
-            selection.reasoning === "off" ? undefined : selection.reasoning,
-          ...(selection.api === "google-generative-ai"
-            ? {}
-            : { fetch: requestFetch }),
-        });
+  if (selection.authVariant === "chatgpt") {
+    const chatGPT = streamPiChatGPTResponses(
+      model as Model<"openai-responses">,
+      transcript,
+      {
+        apiKey: apiKey!,
+        signal,
+        fetch: requestFetch,
+        ...(selection.reasoning === "off"
+          ? {}
+          : { reasoning: selection.reasoning }),
+        explicitOptions: Object.keys(
+          selectMetadata(selection).samplingParams ?? {},
+        ),
+        ...(admission.chatGPTResumePermit ||
+        admission.disableChatGPTRetries ||
+        admission.forceChatGPTWebSearch
+          ? {}
+          : callbacks.onProviderRetry
+            ? { onRetry: callbacks.onProviderRetry }
+            : {}),
+        onTerminal: callbacks.onProviderTerminal,
+        onCompletedResponse: admission.onChatGPTCompletedResponse,
+        forceWebSearch: admission.forceChatGPTWebSearch,
+        onProviderStreamEvent: admission.onChatGPTProviderStreamEvent,
+        retryDelay: admission.chatGPTRetryDelay,
+      },
+    );
+    return {
+      events: chatGPT.events,
+      failure: () =>
+        (failureCode as PiModelFailureCode | undefined) ||
+        (chatGPT.failure() as PiModelFailureCode | undefined),
+      usageKnown: chatGPT.usageKnown,
+      usageCompleteness: chatGPT.usageCompleteness,
+      usageMeasurement: chatGPT.usageMeasurement,
+    };
+  }
+  const events = stream(model, transcript, {
+    apiKey,
+    signal,
+    cacheRetention,
+    onPayload:
+      selection.authVariant === "api-key" &&
+      selection.api === "openai-responses"
+        ? (payload) =>
+            restorePiApiKeyResponsesPayload(
+              payload,
+              selection,
+              cacheRetention,
+              clampMaxTokensToContext(
+                model,
+                transcript,
+                selection.policy.maxTokens,
+              ),
+            )
+        : undefined,
+    reasoning: selection.reasoning === "off" ? undefined : selection.reasoning,
+    ...(selection.api === "google-generative-ai"
+      ? {}
+      : { fetch: requestFetch }),
+  });
   return { events, failure: () => failureCode };
 }
 
@@ -483,79 +674,119 @@ export function createPiProviderSource(
   model: Model<string>;
   pricing: PiModelCost | null;
   usageKnown: (message: AssistantMessage) => boolean;
+  usageCompleteness: (
+    message: AssistantMessage,
+  ) => "complete" | "partial" | "unknown";
+  usageMeasurement: (
+    message: AssistantMessage,
+  ) => import("../shared/piUsageContract").PiUsageMeasurement | undefined;
   source: PiRuntimeProviderSource;
 } {
   const model = modelOf(selection);
+  const usageFacts = new WeakMap<
+    object,
+    {
+      known: boolean;
+      completeness: "complete" | "partial" | "unknown";
+      measurement?: import("../shared/piUsageContract").PiUsageMeasurement;
+    }
+  >();
+  const source: PiRuntimeProviderSource = async (request) => {
+    const { context, signal } = request;
+    const handle = await openPiProviderStream(
+      selection,
+      admission,
+      context,
+      signal,
+      {
+        onProviderTerminal: request.onProviderTerminal,
+        onProviderRetry: request.onProviderRetry,
+      },
+    );
+    const output = createAssistantMessageEventStream();
+    let observed: AssistantMessage | undefined;
+    const fail = (reason: "error" | "aborted") => ({
+      ...failureMessage(model, reason, observed),
+      errorMessage:
+        reason === "aborted"
+          ? "aborted"
+          : handle.failure() || "provider_stream_error",
+    });
+    void (async () => {
+      let settled = false;
+      try {
+        for await (const event of handle.events) {
+          observed =
+            event.type === "done"
+              ? event.message
+              : event.type === "error"
+                ? event.error
+                : event.partial;
+          if (event.type === "done" || event.type === "error") {
+            const message = event.type === "done" ? event.message : event.error;
+            usageFacts.set(message.usage, {
+              known: handle.usageKnown?.(message) ?? usageKnown(message),
+              completeness:
+                handle.usageCompleteness?.(message) ??
+                (usageKnown(message) ? "complete" : "unknown"),
+              measurement: handle.usageMeasurement?.(message),
+            });
+          }
+          if (signal.aborted) {
+            output.push({
+              type: "error",
+              reason: "aborted",
+              error: fail("aborted"),
+            });
+            settled = true;
+            break;
+          }
+          if (event.type === "done") {
+            output.push(event);
+            settled = true;
+            break;
+          }
+          if (event.type === "error") {
+            output.push({
+              type: "error",
+              reason: event.reason,
+              error: fail(event.reason),
+            });
+            settled = true;
+            break;
+          }
+          output.push(event);
+        }
+      } catch {
+        output.push({
+          type: "error",
+          reason: signal.aborted ? "aborted" : "error",
+          error: fail(signal.aborted ? "aborted" : "error"),
+        });
+        return;
+      }
+      if (!settled)
+        output.push({ type: "error", reason: "error", error: fail("error") });
+    })();
+    return output;
+  };
+  source.usageKnown = (usage) => usageFacts.get(usage)?.known ?? false;
+  source.usageCompleteness = (message) =>
+    usageFacts.get(message.usage)?.completeness ?? "unknown";
+  source.usageMeasurement = (message) =>
+    usageFacts.get(message.usage)?.measurement;
   return {
     model,
-    pricing: selectMetadata(selection).cost ?? null,
-    usageKnown,
-    source: async ({ context, signal }) => {
-      const handle = await openPiProviderStream(
-        selection,
-        admission,
-        context,
-        signal,
-      );
-      const output = createAssistantMessageEventStream();
-      // A failure still reports whatever the provider had already reported:
-      // a synthetic zero usage would be an invented token fact.
-      let observed: AssistantMessage | undefined;
-      const fail = (reason: "error" | "aborted") => ({
-        ...failureMessage(model, reason, observed),
-        errorMessage:
-          reason === "aborted"
-            ? "aborted"
-            : handle.failure() || "provider_stream_error",
-      });
-      void (async () => {
-        let settled = false;
-        try {
-          for await (const event of handle.events) {
-            observed =
-              event.type === "done"
-                ? event.message
-                : event.type === "error"
-                  ? event.error
-                  : event.partial;
-            if (signal.aborted) {
-              output.push({
-                type: "error",
-                reason: "aborted",
-                error: fail("aborted"),
-              });
-              settled = true;
-              break;
-            }
-            if (event.type === "done") {
-              output.push(event);
-              settled = true;
-              break;
-            }
-            if (event.type === "error") {
-              output.push({
-                type: "error",
-                reason: event.reason,
-                error: fail(event.reason),
-              });
-              settled = true;
-              break;
-            }
-            output.push(event);
-          }
-        } catch {
-          output.push({
-            type: "error",
-            reason: signal.aborted ? "aborted" : "error",
-            error: fail(signal.aborted ? "aborted" : "error"),
-          });
-          return;
-        }
-        if (!settled)
-          output.push({ type: "error", reason: "error", error: fail("error") });
-      })();
-      return output;
-    },
+    pricing:
+      selection.authVariant === "chatgpt"
+        ? null
+        : (selectMetadata(selection).cost ?? null),
+    usageKnown: (message) =>
+      usageFacts.get(message.usage)?.known ?? usageKnown(message),
+    usageCompleteness: (message) =>
+      usageFacts.get(message.usage)?.completeness ?? "unknown",
+    usageMeasurement: (message) => usageFacts.get(message.usage)?.measurement,
+    source,
   };
 }
 
