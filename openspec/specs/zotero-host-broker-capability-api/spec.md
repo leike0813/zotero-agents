@@ -242,7 +242,7 @@ Strict-JSON validation SHALL reject non-finite numbers, excessive nesting, exces
 - **THEN** validation fails before Zotero state is read or mutated
 
 ### Requirement: Library item listing SHALL use one canonical page contract
-`library.listItems` SHALL resolve an omitted library to the user library, normalize one collection/tag/item-type/query criterion, apply stable identity ordering, and return items, resolved criteria, returned and scanned counts, `hasMore`, and an opaque continuation cursor. Query matching SHALL not create a separate Workflow search member or relevance order.
+`library.listItems` SHALL resolve an omitted library to the user library, normalize one collection/tag/item-type/filter criterion, apply stable identity ordering, and return items, resolved criteria, returned and scanned counts, `hasMore`, and an opaque continuation cursor. The optional string `filter` SHALL retain deterministic literal matching; omitted, empty or whitespace-only values SHALL apply no text predicate. Listing SHALL NOT use relevance order or search candidate limits.
 
 #### Scenario: Query page has continuation
 - **WHEN** more matching items remain after the requested bounded page
@@ -251,6 +251,11 @@ Strict-JSON validation SHALL reject non-finite numbers, excessive nesting, exces
 #### Scenario: Cursor criteria changes
 - **WHEN** a cursor is reused with a different library, filter, scope, or ordering
 - **THEN** the call fails with a stable invalid-request or conflict error and returns no page
+
+#### Scenario: Resolved criterion is returned
+- **WHEN** a caller supplies a literal filter to list items or audit readiness
+- **THEN** the resolved `criteria` or `filters` carries `filter` with the existing empty-value nullability
+- **AND** it does not expose a `query` field for that criterion
 
 ### Requirement: Live item traversal SHALL be bounded and callback-scoped
 `library.traverseItems` SHALL accept only the `top-level-regular` scope in v12, process batches serially, enforce centralized defaults and hard maxima, and return completed, canceled, or resource-limited coverage. Each batch item SHALL be a traversal-only regular-item summary carrying the Broker-owned canonical tag digest from the same complete Host read as its revision and tags; the delivered revision SHALL be reused from that same read and MUST NOT be re-read before delivery. Each item's canonical tag set SHALL be deduplicated and sorted in code-unit order, and that ordering SHALL be identical across the plugin and the Synthesis sidecar runtimes. The terminal coverage digest SHALL be computed by buffering every delivered (ref, revision, tagDigest) tuple, sorting the buffered tuples by (libraryId, key) in code-unit order at completion, and hashing the sorted tuple stream, so the digest is independent of page delivery order and reproducible across processes. Ordinary item-list and selection-summary DTOs SHALL remain unchanged. Previously completed callbacks SHALL not be represented as rolled back after a later stop.
@@ -270,6 +275,18 @@ Strict-JSON validation SHALL reject non-finite numbers, excessive nesting, exces
 #### Scenario: Empty library is traversed
 - **WHEN** no item matches the resolved criteria
 - **THEN** traversal returns completed with canonical empty coverage evidence
+
+### Requirement: Filtered traversal SHALL preserve full coverage semantics
+`library.traverseItems` SHALL apply the same optional `filter` as listing, preserve its bounded callback and cancellation contract, and bind completion evidence to the resolved filter. Readiness SHALL apply the same predicate and pagination. Snapshot capture SHALL retain its existing unfiltered, fixed-set contract.
+
+#### Scenario: Matching set spans several pages
+- **WHEN** a traversal with a filter completes all matching pages
+- **THEN** callbacks receive the full matching set in stable identity order and terminal evidence binds the filter
+- **AND** no candidate-search cap is applied
+
+#### Scenario: Filter is not a string
+- **WHEN** a list or traversal caller supplies a non-string filter
+- **THEN** the request fails with stable invalid-request semantics naming `filter`
 
 ### Requirement: Collection and annotation reads SHALL be complete within their bounds
 Collection and annotation reads SHALL return source-bounded pages in stable order, with a default limit of 25 and a maximum of 100. Collection rows SHALL expose portable parent identity, revision, active state, and display path. Annotation pages SHALL preserve native annotation order with a stable identity tie-breaker. Hydration or serialization failure of any target SHALL fail the entire page rather than return an incomplete successful list.

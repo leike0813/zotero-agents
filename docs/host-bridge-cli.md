@@ -263,9 +263,9 @@ This section is generated from the executable Host Bridge capability and CLI com
 - Use `zotero-bridge library snapshot --query '{"limit":200}'` for the first local metadata index page.
 - Use `zotero-bridge library readiness missing-pdf|missing-markdown|missing-analysis --query '{"limit":100}'` before scheduling PDF retrieval, Markdown conversion, or literature-analysis work.
 - `library item search` accepts `query`, `limit`, `libraryId` in `--query`.
-- `library items list` accepts `libraryId`, `collection`, `collectionId`, `collectionKey`, `collectionLibraryId`, `tag`, `itemType`, `query`, `limit`, `cursor` in `--query`.
+- `library items list` accepts `libraryId`, `collection`, `collectionId`, `collectionKey`, `collectionLibraryId`, `tag`, `itemType`, `filter`, `limit`, `cursor` in `--query`.
 - `library snapshot` accepts `libraryId`, `batchSize`, `snapshotId`, `cursor` in `--query`.
-- `library readiness audit` accepts `libraryId`, `collection`, `collectionId`, `collectionKey`, `collectionLibraryId`, `tag`, `itemType`, `query`, `limit`, `cursor`, `checks`, `missingOnly`, `missing_only` in `--query`; Markdown and analysis readiness reuse the Zotero Artifacts column rules.
+- `library readiness audit` accepts `libraryId`, `collection`, `collectionId`, `collectionKey`, `collectionLibraryId`, `tag`, `itemType`, `filter`, `limit`, `cursor`, `checks`, `missingOnly`, `missing_only` in `--query`; Markdown and analysis readiness reuse the Zotero Artifacts column rules.
 - Omit `cursor` on the first library, snapshot, or readiness page. When `hasMore` is true, pass the exact returned opaque `nextCursor`; never construct or increment a cursor.
 
 #### Large response pagination

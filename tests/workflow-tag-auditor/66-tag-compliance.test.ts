@@ -5,6 +5,11 @@ import {
 } from "../../src/workflows/hostApi";
 import { evaluateTagCompliance } from "../../workflows_builtin/literature-workbench-package/lib/tagCompliance.mjs";
 import { applyResult } from "../../workflows_builtin/literature-workbench-package/tag-auditor/hooks/applyResult.mjs";
+import {
+  resetZoteroLibraryPageQueryAdapterForTests,
+  setZoteroLibraryPageQueryAdapterForTests,
+} from "../../src/modules/zoteroHost/zoteroLibraryPageQuery";
+import { createMockZoteroLibraryPageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
 
 type AuditEntry = {
   itemKey: string;
@@ -44,7 +49,7 @@ function completedTraversal(libraryId: number) {
 }
 
 function createRuntime(args: {
-  traverseItems: (
+  traverseItems?: (
     request: unknown,
     control: unknown,
     onBatch: (batch: {
@@ -61,10 +66,7 @@ function createRuntime(args: {
       ...base,
       library: {
         ...base.library,
-        async listItems() {
-          return { libraryId: 1 };
-        },
-        traverseItems: args.traverseItems,
+        traverseItems: args.traverseItems || base.library.traverseItems,
       },
       synthesis: {
         ...base.synthesis,
@@ -127,6 +129,16 @@ function createRuntime(args: {
 }
 
 describe("tag compliance evaluation", function () {
+  beforeEach(function () {
+    setZoteroLibraryPageQueryAdapterForTests(
+      createMockZoteroLibraryPageQueryAdapter(),
+    );
+  });
+
+  afterEach(function () {
+    resetZoteroLibraryPageQueryAdapterForTests();
+  });
+
   it("reports only active tags outside the controlled vocabulary", function () {
     const result = evaluateTagCompliance({
       tags: ["method:review", " topic:AI ", "topic:AI", ""],
@@ -255,19 +267,20 @@ describe("tag compliance evaluation", function () {
 
   it("clears the completed empty library audit with canonical completion evidence", async function () {
     const replacements: AuditReplacement[] = [];
-    const result = await applyResult({
-      runtime: createRuntime({
-        replacements,
-        async traverseItems(_request, _control, _onBatch) {
-          return completedTraversal(1);
-        },
-      }),
-    });
+    const userLibraryId = Zotero.Libraries.userLibraryID;
+    Zotero.Libraries.userLibraryID = 7;
+    try {
+      const result = await applyResult({
+        runtime: createRuntime({ replacements }),
+      });
 
-    assert.deepEqual(replacements, [{ libraryId: 1, entries: [] }]);
-    assert.deepEqual(result, {
-      libraries: [{ libraryId: 1, audited: 0, needsTagRegulation: 0 }],
-    });
+      assert.deepEqual(replacements, [{ libraryId: 7, entries: [] }]);
+      assert.deepEqual(result, {
+        libraries: [{ libraryId: 7, audited: 0, needsTagRegulation: 0 }],
+      });
+    } finally {
+      Zotero.Libraries.userLibraryID = userLibraryId;
+    }
   });
 
   it("does not replace records when completed traversal lacks full completion evidence", async function () {

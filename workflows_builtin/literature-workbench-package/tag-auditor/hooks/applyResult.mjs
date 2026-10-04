@@ -5,7 +5,7 @@ async function applyResultImpl({ runtime }) {
   const host = requireHostApi(runtime);
   const vocabulary = await host.synthesis.tags.exportVocabularyForRegulator();
   const firstPage = await host.library.listItems({ limit: 1 });
-  const libraryId = firstPage.libraryId;
+  const libraryId = firstPage.criteria.libraryId;
   const outcome = await host.synthesis.tags.withAuditRun(
     { libraryId, vocabularyHash: vocabulary.vocabularyHash },
     {},

@@ -7,6 +7,18 @@ import { buildWorkflowSettingsUiDescriptor } from "../../src/modules/workflow/se
 import { executeBuildRequests } from "../../src/workflows/runtime";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { applyResult } from "../../workflows_builtin/literature-workbench-package/collection-collector/hooks/applyResult.mjs";
+import { createWorkflowHostApi } from "../../src/workflows/hostApi";
+import {
+  resetZoteroLibraryPageQueryAdapterForTests,
+  resetZoteroLibrarySourcePageQueryAdapterForTests,
+  setZoteroLibraryPageQueryAdapterForTests,
+  setZoteroLibrarySourcePageQueryAdapterForTests,
+} from "../../src/modules/zoteroHost/zoteroLibraryPageQuery";
+import {
+  createMockZoteroLibraryPageQueryAdapter,
+  createMockZoteroLibrarySourcePageQueryAdapter,
+} from "../helpers/zoteroLibraryPageQueryAdapter";
+import { nativeFixtureMutations } from "../helpers/nativeFixtureMutations";
 
 function successResult(items: Array<Record<string, unknown>> = []) {
   return {
@@ -36,6 +48,20 @@ function selectedItem(paperRef = "1:ITEM1234") {
 }
 
 describe("collection collector workflow", function () {
+  beforeEach(function () {
+    setZoteroLibraryPageQueryAdapterForTests(
+      createMockZoteroLibraryPageQueryAdapter(),
+    );
+    setZoteroLibrarySourcePageQueryAdapterForTests(
+      createMockZoteroLibrarySourcePageQueryAdapter(),
+    );
+  });
+
+  afterEach(function () {
+    resetZoteroLibraryPageQueryAdapterForTests();
+    resetZoteroLibrarySourcePageQueryAdapterForTests();
+  });
+
   it("loads as a required-parameter automatic no-selection workflow", async function () {
     const loaded = await loadWorkflowManifests("workflows_builtin", {
       workflowSourceKind: "builtin",
@@ -149,15 +175,32 @@ describe("collection collector workflow", function () {
   });
 
   it("deduplicates current membership and applies one validated batch", async function () {
+    const collection = new Zotero.Collection();
+    collection.libraryID = Zotero.Libraries.userLibraryID;
+    collection.name = "Collector target";
+    await collection.saveTx();
+    const pending = await nativeFixtureMutations.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Paper outside target collection" },
+    });
+    const existing = await nativeFixtureMutations.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Paper inside target collection" },
+    });
+    existing.addToCollection(collection.id);
+    await existing.saveTx();
+    const collectionRef = `1:${collection.key}`;
+    const host = createWorkflowHostApi();
     const mutations: any[] = [];
     const result = successResult([
-      selectedItem("1:ITEM1234"),
-      { ...selectedItem("1:EXIST123"), title: "Existing paper" },
+      selectedItem(`1:${pending.key}`),
+      { ...selectedItem(`1:${existing.key}`), title: "Existing paper" },
     ]);
+    result.collection = collectionRef;
     const applied = await applyResult({
       request: {
         parameter: {
-          collection: "1:COLL1234",
+          collection: collectionRef,
           collectionScope: "streaming multimodal perception",
         },
       },
@@ -165,23 +208,7 @@ describe("collection collector workflow", function () {
       runtime: {
         hostApiVersion: 12,
         hostApi: {
-          library: {
-            async listItems() {
-              return {
-                items: [{ ref: { libraryId: 1, key: "EXIST123" } }],
-                hasMore: false,
-              };
-            },
-            async getItemDetail(ref: { libraryId: number; key: string }) {
-              return {
-                kind: "regular",
-                item: {
-                  ref,
-                  itemType: "journalArticle",
-                },
-              };
-            },
-          },
+          library: host.library,
           mutations: {
             async execute(value: unknown) {
               mutations.push(value);
@@ -198,8 +225,8 @@ describe("collection collector workflow", function () {
     assert.lengthOf(mutations, 1);
     assert.deepInclude(mutations[0], {
       operation: "collection.updateMembership",
-      collectionRef: { libraryId: 1, key: "COLL1234" },
-      add: [{ libraryId: 1, key: "ITEM1234" }],
+      collectionRef: { libraryId: 1, key: collection.key },
+      add: [{ libraryId: 1, key: pending.key }],
       remove: [],
     });
   });
@@ -245,6 +272,9 @@ describe("collection collector workflow", function () {
     } as any);
 
     assert.strictEqual(applied.status, "noop");
+    for (const call of calls) {
+      assert.deepEqual(call.collectionRef, { libraryId: 1, key: "COLL1234" });
+    }
     assert.notProperty(calls[0], "cursor");
     assert.strictEqual(calls[1].cursor, opaqueCursor);
   });

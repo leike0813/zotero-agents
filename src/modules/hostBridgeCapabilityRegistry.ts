@@ -598,7 +598,7 @@ function bridgeLibraryItems(
       : { libraryId: Number(args.libraryId) }),
     ...(args.tag === undefined ? {} : { tag: args.tag }),
     ...(args.itemType === undefined ? {} : { itemType: args.itemType }),
-    ...(args.query === undefined ? {} : { query: args.query }),
+    ...(args.filter === undefined ? {} : { filter: args.filter }),
   };
   if (args.collection !== undefined) {
     input.collectionRef = normalizeHostBridgeCollectionRef(args.collection);
@@ -2589,14 +2589,16 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     bridgeSelectedItems(input, context),
   ),
   capability("library.search_items", async (input, context) => {
-    const page = await bridgeLibraryItems(
-      context,
-      asObject(input) as {
-        query: string;
-        limit?: number | string;
-        libraryId?: number | string;
-      },
-    );
+    const search = asObject(input);
+    const page = await bridgeLibraryItems(context, {
+      filter: search.query as string,
+      ...(search.libraryId === undefined
+        ? {}
+        : { libraryId: search.libraryId as number | string }),
+      ...(search.limit === undefined
+        ? {}
+        : { limit: search.limit as number | string }),
+    });
     return {
       items: page.items,
       truncated: page.hasMore,

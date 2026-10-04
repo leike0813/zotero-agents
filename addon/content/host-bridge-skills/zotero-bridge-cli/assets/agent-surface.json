@@ -1,6 +1,6 @@
 {
   "cliSchema": "zotero-bridge.cli.v5",
-  "commandCatalogChecksum": "dc91174a76d40e0a83fc4e32f6bf739c6cfb700578412847c58098d1d7eb6dbf",
+  "commandCatalogChecksum": "9f52e6cac13928521c2df3adf3232e71f47322a4894c8095cc21eb87febc258a",
   "commands": [
     {
       "approvalContract": {
@@ -6024,6 +6024,9 @@
               "cursor": {
                 "type": "string"
               },
+              "filter": {
+                "type": "string"
+              },
               "itemType": {
                 "type": "string"
               },
@@ -6039,9 +6042,6 @@
                   "number",
                   "string"
                 ]
-              },
-              "query": {
-                "type": "string"
               },
               "tag": {
                 "type": "string"
@@ -6109,6 +6109,9 @@
           "cursor": {
             "type": "string"
           },
+          "filter": {
+            "type": "string"
+          },
           "itemType": {
             "type": "string"
           },
@@ -6124,9 +6127,6 @@
               "number",
               "string"
             ]
-          },
-          "query": {
-            "type": "string"
           },
           "tag": {
             "type": "string"
@@ -7711,6 +7711,9 @@
               "cursor": {
                 "type": "string"
               },
+              "filter": {
+                "type": "string"
+              },
               "itemType": {
                 "type": "string"
               },
@@ -7740,9 +7743,6 @@
                   "string",
                   "number"
                 ]
-              },
-              "query": {
-                "type": "string"
               },
               "tag": {
                 "type": "string"
@@ -7811,6 +7811,9 @@
           "cursor": {
             "type": "string"
           },
+          "filter": {
+            "type": "string"
+          },
           "itemType": {
             "type": "string"
           },
@@ -7840,9 +7843,6 @@
               "string",
               "number"
             ]
-          },
-          "query": {
-            "type": "string"
           },
           "tag": {
             "type": "string"
@@ -8023,6 +8023,9 @@
               "cursor": {
                 "type": "string"
               },
+              "filter": {
+                "type": "string"
+              },
               "itemType": {
                 "type": "string"
               },
@@ -8045,9 +8048,6 @@
                   "string",
                   "number"
                 ]
-              },
-              "query": {
-                "type": "string"
               },
               "tag": {
                 "type": "string"
@@ -8116,6 +8116,9 @@
           "cursor": {
             "type": "string"
           },
+          "filter": {
+            "type": "string"
+          },
           "itemType": {
             "type": "string"
           },
@@ -8145,9 +8148,6 @@
               "string",
               "number"
             ]
-          },
-          "query": {
-            "type": "string"
           },
           "tag": {
             "type": "string"
@@ -8328,6 +8328,9 @@
               "cursor": {
                 "type": "string"
               },
+              "filter": {
+                "type": "string"
+              },
               "itemType": {
                 "type": "string"
               },
@@ -8350,9 +8353,6 @@
                   "string",
                   "number"
                 ]
-              },
-              "query": {
-                "type": "string"
               },
               "tag": {
                 "type": "string"
@@ -8421,6 +8421,9 @@
           "cursor": {
             "type": "string"
           },
+          "filter": {
+            "type": "string"
+          },
           "itemType": {
             "type": "string"
           },
@@ -8450,9 +8453,6 @@
               "string",
               "number"
             ]
-          },
-          "query": {
-            "type": "string"
           },
           "tag": {
             "type": "string"
@@ -8633,6 +8633,9 @@
               "cursor": {
                 "type": "string"
               },
+              "filter": {
+                "type": "string"
+              },
               "itemType": {
                 "type": "string"
               },
@@ -8655,9 +8658,6 @@
                   "string",
                   "number"
                 ]
-              },
-              "query": {
-                "type": "string"
               },
               "tag": {
                 "type": "string"
@@ -8726,6 +8726,9 @@
           "cursor": {
             "type": "string"
           },
+          "filter": {
+            "type": "string"
+          },
           "itemType": {
             "type": "string"
           },
@@ -8755,9 +8758,6 @@
               "string",
               "number"
             ]
-          },
-          "query": {
-            "type": "string"
           },
           "tag": {
             "type": "string"

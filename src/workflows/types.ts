@@ -709,7 +709,7 @@ export type LibraryListItemsRequestDto = {
   collectionRef?: PortableCollectionRef;
   tag?: string;
   itemType?: string;
-  query?: string;
+  filter?: string;
   limit?: number;
   cursor?: string;
 };
@@ -726,7 +726,7 @@ export type LibraryListItemsPageDto = {
     collectionRef: PortableCollectionRef | null;
     tag: string | null;
     itemType: string | null;
-    query: string | null;
+    filter: string | null;
     order: "stable_identity";
   };
 };
@@ -776,7 +776,7 @@ export type LibraryTraversalRequestDto = {
   collectionRef?: PortableCollectionRef;
   tag?: string;
   itemType?: string;
-  query?: string;
+  filter?: string;
   resumeCursor?: string;
   pageSize?: number;
   maxItems?: number;

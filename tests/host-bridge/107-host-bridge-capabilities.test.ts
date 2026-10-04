@@ -761,6 +761,54 @@ describe("host bridge capability calls", function () {
     assert.strictEqual(parsed.json.error.details.retryable, false);
   });
 
+  it("uses filter for library enumeration and adapts retained search query", async function () {
+    const token = configureHostBridgeServerForTests({
+      token: "library-filter-token",
+    });
+    const included = await createParentItem("Bridge Filter Included");
+    await createParentItem("Bridge Filter Excluded");
+
+    const listed = await callBridgeCapability({
+      token,
+      capability: "library.list_items",
+      input: { filter: "Bridge Filter Included", limit: 10 },
+    });
+    assert.strictEqual(listed.status, 200);
+    assert.deepEqual(
+      listed.json.result.data.items.map(
+        (item: { ref: { key: string } }) => item.ref.key,
+      ),
+      [included.key],
+    );
+    assert.strictEqual(
+      listed.json.result.data.criteria.filter,
+      "bridge filter included",
+    );
+    assert.notProperty(listed.json.result.data.criteria, "query");
+
+    const legacy = await callBridgeCapability({
+      token,
+      capability: "library.list_items",
+      input: { query: "Bridge Filter Included" },
+    });
+    assert.strictEqual(legacy.status, 400);
+    assert.strictEqual(legacy.json.error.code, "invalid_capability_input");
+
+    const searched = await callBridgeCapability({
+      token,
+      capability: "library.search_items",
+      input: { query: "Bridge Filter Included", limit: 10 },
+    });
+    assert.strictEqual(searched.status, 200);
+    assert.include(
+      searched.json.result.data.items.map(
+        (item: { ref: { key: string } }) => item.ref.key,
+      ),
+      included.key,
+    );
+    assert.isBoolean(searched.json.result.data.truncated);
+  });
+
   it("routes read-only library capabilities through JSON-safe broker DTOs", async function () {
     const token = configureHostBridgeServerForTests({ token: "read-token" });
     const item = await createParentItem("Bridge Broker DTO Paper");
@@ -970,7 +1018,7 @@ describe("host bridge capability calls", function () {
       token,
       capability: "library.readiness_audit",
       input: {
-        query: "Bridge Readiness",
+        filter: "Bridge Readiness",
         checks: ["markdown", "analysis"],
         missingOnly: true,
         limit: 10,
@@ -987,6 +1035,11 @@ describe("host bridge capability calls", function () {
       parsed.json.result.data.schema,
       "zotero.library.readiness_audit.v1",
     );
+    assert.strictEqual(
+      parsed.json.result.data.filters.filter,
+      "bridge readiness",
+    );
+    assert.notProperty(parsed.json.result.data.filters, "query");
     assert.lengthOf(parsed.json.result.data.items, 1);
     const item = parsed.json.result.data.items[0];
     assert.strictEqual(item.key, missing.key);
@@ -997,6 +1050,18 @@ describe("host bridge capability calls", function () {
     ]);
     assert.strictEqual(item.evidence.pdf.filename, "missing.pdf");
     assert.notInclude(JSON.stringify(item), "D:\\Private");
+
+    const legacy = await callBridgeCapability({
+      token,
+      capability: "library.readiness_audit",
+      input: {
+        query: "Bridge Readiness",
+        checks: ["markdown", "analysis"],
+        limit: 10,
+      },
+    });
+    assert.strictEqual(legacy.status, 400);
+    assert.strictEqual(legacy.json.error.code, "invalid_capability_input");
   });
 
   it("derives connection mode from the socket peer and only permits conservative header downgrade", async function () {

@@ -92,8 +92,83 @@ fn item_search_schema_owns_query_and_rejects_text() {
     let (_, output, _) = run(&["library", "item", "search", "--schema"]);
     let schema = &output["data"]["inputs"]["query"]["schema"];
     assert!(schema["properties"]["query"].is_object());
+    assert!(schema["properties"]["filter"].is_null());
     assert!(schema["properties"]["text"].is_null());
     assert_eq!(schema["additionalProperties"], false);
+}
+
+#[test]
+fn enumeration_schemas_use_filter_while_search_keeps_query() {
+    for command in [
+        vec!["library", "items", "list", "--schema"],
+        vec!["library", "readiness", "audit", "--schema"],
+    ] {
+        let (code, output, _) = run(&command);
+        assert_eq!(code, 0);
+        let schema = &output["data"]["inputs"]["query"]["schema"];
+        assert!(schema["properties"]["filter"].is_object());
+        assert!(schema["properties"]["query"].is_null());
+        assert_eq!(schema["additionalProperties"], false);
+    }
+
+    let (_, output, _) = run(&["library", "item", "search", "--schema"]);
+    let schema = &output["data"]["inputs"]["query"]["schema"];
+    assert!(schema["properties"]["query"].is_object());
+    assert!(schema["properties"]["filter"].is_null());
+
+    for args in [
+        vec![
+            "library",
+            "items",
+            "list",
+            "--query",
+            r#"{"filter":"paper","limit":5}"#,
+        ],
+        vec![
+            "library",
+            "readiness",
+            "audit",
+            "--query",
+            r#"{"filter":"paper","checks":["pdf"]}"#,
+        ],
+        vec![
+            "library",
+            "item",
+            "search",
+            "--query",
+            r#"{"query":"paper","limit":5}"#,
+        ],
+    ] {
+        let (code, output, stdout) = run_executable(&args);
+        assert_eq!(code, 4);
+        assert_eq!(stdout.lines().count(), 1);
+        assert_eq!(output["error"]["category"], "connection");
+        assert_eq!(output["error"]["code"], "bridge_unavailable");
+    }
+
+    for args in [
+        vec![
+            "library",
+            "items",
+            "list",
+            "--query",
+            r#"{"query":"paper","limit":5}"#,
+        ],
+        vec![
+            "library",
+            "readiness",
+            "audit",
+            "--query",
+            r#"{"query":"paper","checks":["pdf"]}"#,
+        ],
+    ] {
+        let (code, output, stdout) = run_executable(&args);
+        assert_eq!(code, 7);
+        assert_eq!(stdout.lines().count(), 1);
+        assert_eq!(output["error"]["code"], "command_input_invalid");
+        assert_eq!(output["error"]["details"]["phase"], "command_input");
+        assert_eq!(output["error"]["details"]["argumentId"], "query");
+    }
 }
 
 #[test]

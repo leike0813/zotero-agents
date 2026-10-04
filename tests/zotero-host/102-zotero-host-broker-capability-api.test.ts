@@ -5161,7 +5161,7 @@ describe("zotero host broker capability api", function () {
         maximumActive = Math.max(maximumActive, active);
         queryCount += 1;
         if (context.kind === "count")
-          admittedQueries.push(context.criteria.query);
+          admittedQueries.push(context.criteria.filter);
         if (queryCount === 1) firstEntered?.();
         await release;
         try {
@@ -5175,7 +5175,7 @@ describe("zotero host broker capability api", function () {
     setZoteroLibraryPageQueryAdapterForTests(adapter);
     const first = createZoteroHostCapabilityBroker().library.listItems({
       limit: 1,
-      query: "first",
+      filter: "first",
     });
     await entered;
     const controller = new AbortController();
@@ -5187,11 +5187,11 @@ describe("zotero host broker capability api", function () {
     await expectBrokerError(second, "canceled");
     const third = createZoteroHostCapabilityBroker().library.listItems({
       limit: 1,
-      query: "third",
+      filter: "third",
     });
     const fourth = createZoteroHostCapabilityBroker().library.listItems({
       limit: 1,
-      query: "fourth",
+      filter: "fourth",
     });
     releaseFirst?.();
     await Promise.all([first, third, fourth]);
@@ -5313,19 +5313,19 @@ describe("zotero host broker capability api", function () {
     const broker = createZoteroHostCapabilityBroker();
 
     const itemPage = await broker.library.listItems({
-      query: "canonical cursor",
+      filter: "canonical cursor",
       limit: 1,
     });
     assert.isTrue(itemPage.hasMore);
     assert.isString(itemPage.nextCursor);
     assert.deepInclude(itemPage.criteria, {
       libraryId: Zotero.Libraries.userLibraryID,
-      query: "canonical cursor",
+      filter: "canonical cursor",
       order: "stable_identity",
     });
     await expectBrokerError(
       broker.library.listItems({
-        query: "changed criteria",
+        filter: "changed criteria",
         limit: 1,
         cursor: itemPage.nextCursor || undefined,
       }),
@@ -5365,6 +5365,46 @@ describe("zotero host broker capability api", function () {
           "resource_limited",
         );
       }
+    }
+  });
+
+  it("preserves filtered readiness pages and diagnoses invalid enumeration filters", async function () {
+    const first = await createParentItem("Filtered Readiness One");
+    const second = await createParentItem("Filtered Readiness Two");
+    await createParentItem("Unrelated inventory");
+    const broker = createZoteroHostCapabilityBroker();
+    const request = { filter: " Filtered Readiness ", limit: 1 };
+    const page = await broker.library.readinessAudit({
+      ...request,
+      checks: ["pdf"],
+    });
+    const rest = await broker.library.readinessAudit({
+      ...request,
+      checks: ["pdf"],
+      cursor: page.nextCursor,
+    });
+    assert.deepEqual(
+      [...page.items, ...rest.items].map((item) => item.key),
+      [first.key, second.key],
+    );
+    assert.strictEqual(page.totalScanned, 2);
+    assert.isTrue(page.hasMore);
+    assert.isFalse(rest.hasMore);
+    assert.strictEqual(page.filters.filter, "filtered readiness");
+    assert.notProperty(page.filters, "query");
+
+    for (const read of [
+      () => broker.library.listItems({ filter: 12 as unknown as string }),
+      () =>
+        broker.library.traverseItems(
+          { scope: "top-level-regular", filter: 12 as unknown as string },
+          {},
+          () => undefined,
+        ),
+    ]) {
+      const error = await expectBrokerError(read(), "invalid_request");
+      assert.strictEqual(error.details.field, "filter");
+      assert.strictEqual(error.details.reason, "invalid_type");
     }
   });
 
@@ -5415,7 +5455,7 @@ describe("zotero host broker capability api", function () {
     const completed = await broker.library.traverseItems(
       {
         scope: "top-level-regular",
-        query: "Traversal Canonical",
+        filter: "Traversal Canonical",
         pageSize: 1,
       },
       {},
@@ -5451,7 +5491,7 @@ describe("zotero host broker capability api", function () {
     );
 
     const auditTraversal = await broker.library.traverseItems(
-      { scope: "top-level-regular", pageSize: 10 },
+      { scope: "top-level-regular", filter: " \t ", pageSize: 10 },
       {},
       () => undefined,
     );
@@ -5469,7 +5509,7 @@ describe("zotero host broker capability api", function () {
     assert.isFalse(consumeTagAuditTraversalCompletionEvidence(auditEvidence));
 
     const listed = await broker.library.listItems({
-      query: "Traversal Canonical",
+      filter: "Traversal Canonical",
       limit: 1,
     });
     assert.notProperty(listed.items[0], "tagDigest");
@@ -5477,7 +5517,7 @@ describe("zotero host broker capability api", function () {
     const limited = await broker.library.traverseItems(
       {
         scope: "top-level-regular",
-        query: "Traversal Canonical",
+        filter: "Traversal Canonical",
         pageSize: 1,
         maxItems: 1,
       },
@@ -5491,7 +5531,7 @@ describe("zotero host broker capability api", function () {
     const canceled = await broker.library.traverseItems(
       {
         scope: "top-level-regular",
-        query: "Traversal Canonical",
+        filter: "Traversal Canonical",
         pageSize: 1,
       },
       { signal: controller.signal },
@@ -5518,7 +5558,7 @@ describe("zotero host broker capability api", function () {
     const completed = await broker.library.traverseItems(
       {
         scope: "top-level-regular",
-        query: "Traversal Non Ascii Tags",
+        filter: "Traversal Non Ascii Tags",
         pageSize: 10,
       },
       {},
@@ -5561,7 +5601,7 @@ describe("zotero host broker capability api", function () {
     const completed = await broker.library.traverseItems(
       {
         scope: "top-level-regular",
-        query: "Traversal Ordering",
+        filter: "Traversal Ordering",
         pageSize: 1,
       },
       {},

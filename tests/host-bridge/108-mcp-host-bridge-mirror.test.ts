@@ -56,12 +56,38 @@ describe("MCP Host Bridge capability mirror", function () {
     assert.include(names, "topics.find_by_paper_ref");
     assert.include(names, "topics.get_planning_context");
     assert.include(names, "topics.get_report");
+    assert.include(names, "library.search_items");
+    assert.include(names, "library.list_items");
     assert.include(names, "citation_graph.get_layout");
     assert.include(names, "citation_graph.rank_external_references");
     assert.include(names, "mutation.get_operation");
     assert.notInclude(names, "synthesis.list_topics");
     assert.notInclude(names, "get_current_view");
     assert.notInclude(names, "get_item_detail");
+  });
+
+  it("mirrors filter on enumeration schemas while preserving search query", async function () {
+    const response: any = await handleZoteroMcpRequestForTests({
+      jsonrpc: "2.0",
+      id: "library-filter-tools",
+      method: "tools/list",
+      params: {},
+    });
+    const tools = response.result.tools;
+    const list = tools.find((tool: any) => tool.name === "library.list_items");
+    const readiness = tools.find(
+      (tool: any) => tool.name === "library.readiness_audit",
+    );
+    const search = tools.find(
+      (tool: any) => tool.name === "library.search_items",
+    );
+
+    assert.property(list.inputSchema.properties, "filter");
+    assert.notProperty(list.inputSchema.properties, "query");
+    assert.property(readiness.inputSchema.properties, "filter");
+    assert.notProperty(readiness.inputSchema.properties, "query");
+    assert.property(search.inputSchema.properties, "query");
+    assert.notProperty(search.inputSchema.properties, "filter");
   });
 
   it("delivers the complete topic planning context through a registered file", async function () {

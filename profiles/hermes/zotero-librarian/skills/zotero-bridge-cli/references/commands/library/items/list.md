@@ -70,6 +70,9 @@ Required: `false`.
     "cursor": {
       "type": "string"
     },
+    "filter": {
+      "type": "string"
+    },
     "itemType": {
       "type": "string"
     },
@@ -85,9 +88,6 @@ Required: `false`.
         "number",
         "string"
       ]
-    },
-    "query": {
-      "type": "string"
     },
     "tag": {
       "type": "string"
@@ -122,6 +122,9 @@ Required: `false`.
     "cursor": {
       "type": "string"
     },
+    "filter": {
+      "type": "string"
+    },
     "itemType": {
       "type": "string"
     },
@@ -137,9 +140,6 @@ Required: `false`.
         "number",
         "string"
       ]
-    },
-    "query": {
-      "type": "string"
     },
     "tag": {
       "type": "string"
@@ -324,6 +324,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
           "cursor": {
             "type": "string"
           },
+          "filter": {
+            "type": "string"
+          },
           "itemType": {
             "type": "string"
           },
@@ -339,9 +342,6 @@ This closed descriptor is the machine-readable command contract returned by `sur
               "number",
               "string"
             ]
-          },
-          "query": {
-            "type": "string"
           },
           "tag": {
             "type": "string"
@@ -409,6 +409,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "cursor": {
         "type": "string"
       },
+      "filter": {
+        "type": "string"
+      },
       "itemType": {
         "type": "string"
       },
@@ -424,9 +427,6 @@ This closed descriptor is the machine-readable command contract returned by `sur
           "number",
           "string"
         ]
-      },
-      "query": {
-        "type": "string"
       },
       "tag": {
         "type": "string"

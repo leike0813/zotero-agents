@@ -4,7 +4,7 @@ import { sha256Hex } from "../../utils/sha256";
 
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 100;
-const QUERY_TEXT_LIMIT = 4000;
+const FILTER_TEXT_LIMIT = 4000;
 const CURSOR_VERSION = 1;
 
 type QueryParam = string | number;
@@ -15,7 +15,7 @@ export type ZoteroLibraryPageQueryCriteria = {
   collectionId?: number;
   tag: string;
   itemType: string;
-  query: string;
+  filter: string;
   scope: "top-level-regular";
   order: "stable_identity";
 };
@@ -48,7 +48,7 @@ export type ZoteroLibraryPageQueryInput = {
   collectionId?: unknown;
   tag?: unknown;
   itemType?: unknown;
-  query?: unknown;
+  filter?: unknown;
   limit?: unknown;
   cursor?: unknown;
 };
@@ -158,8 +158,8 @@ function positiveInteger(value: unknown) {
 
 function boundedText(
   value: unknown,
-  field: "tag" | "itemType" | "query",
-  limit = QUERY_TEXT_LIMIT,
+  field: "tag" | "itemType" | "filter",
+  limit = FILTER_TEXT_LIMIT,
 ) {
   if (value === undefined || value === null) return "";
   if (typeof value !== "string") {
@@ -238,7 +238,7 @@ function normalizeCriteria(
     ...(collectionId ? { collectionId } : {}),
     tag: boundedText(input.tag, "tag").toLowerCase(),
     itemType: boundedText(input.itemType, "itemType"),
-    query: boundedText(input.query, "query").toLowerCase(),
+    filter: boundedText(input.filter, "filter").toLowerCase(),
     scope: "top-level-regular",
     order: "stable_identity",
   };
@@ -250,7 +250,7 @@ function canonicalCriteria(criteria: ZoteroLibraryPageQueryCriteria) {
     collectionId: criteria.collectionId || 0,
     tag: criteria.tag,
     itemType: criteria.itemType,
-    query: criteria.query,
+    filter: criteria.filter,
     schema: criteria.schema,
     scope: criteria.scope,
     order: criteria.order,
@@ -361,8 +361,8 @@ function buildPredicate(criteria: ZoteroLibraryPageQueryCriteria) {
     );
     params.push(criteria.itemType);
   }
-  if (criteria.query) {
-    const pattern = `%${escapeLikeLiteral(criteria.query)}%`;
+  if (criteria.filter) {
+    const pattern = `%${escapeLikeLiteral(criteria.filter)}%`;
     predicates.push(`(
       i.key COLLATE NOCASE LIKE ? ESCAPE '\\'
       OR EXISTS (

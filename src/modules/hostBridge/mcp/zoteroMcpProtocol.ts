@@ -872,7 +872,7 @@ function buildLibraryListArgs(
       | undefined,
     tag: args.tag as string | undefined,
     itemType: args.itemType as string | undefined,
-    query: args.query as string | undefined,
+    filter: args.filter as string | undefined,
     limit: parseBoundedPositiveInteger(
       args.limit,
       MCP_LIBRARY_LIST_LIMIT_DEFAULT,

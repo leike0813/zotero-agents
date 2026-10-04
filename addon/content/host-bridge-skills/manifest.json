@@ -3,7 +3,7 @@
   "cli": {
     "version": "0.5.5",
     "buildFingerprint": "2ef15640bcf10945895ab4a1daa65e89337d6f99978316278c8aa4b1ecb4b4c1",
-    "commandCatalogChecksum": "dc91174a76d40e0a83fc4e32f6bf739c6cfb700578412847c58098d1d7eb6dbf"
+    "commandCatalogChecksum": "9f52e6cac13928521c2df3adf3232e71f47322a4894c8095cc21eb87febc258a"
   },
   "surfaces": [
     {
@@ -57,8 +57,8 @@
   "files": [
     {
       "path": "zotero-bridge-cli/assets/agent-surface.json",
-      "bytes": 2122058,
-      "sha256": "dbecffd3dcb40aebe8d19802a67731b66546ca574a9cdaf4c09a92e85996be81"
+      "bytes": 2122068,
+      "sha256": "4e4df486c30045e8f88fce926ecebf1e089de7fe46e94c8a596868ec782a90b6"
     },
     {
       "path": "zotero-bridge-cli/assets/output.schema.json",
@@ -232,8 +232,8 @@
     },
     {
       "path": "zotero-bridge-cli/references/commands/library/items/list.md",
-      "bytes": 14766,
-      "sha256": "67797b20665fba4e15d115d18d820257c830a594ec4c38182358ae25f728e43b"
+      "bytes": 14770,
+      "sha256": "8086e6e4d20fe5bfa54ac60b6aa59bfc2fc25a3d012cc7831d97fe898c5a36aa"
     },
     {
       "path": "zotero-bridge-cli/references/commands/library/note/get.md",
@@ -252,23 +252,23 @@
     },
     {
       "path": "zotero-bridge-cli/references/commands/library/readiness/audit.md",
-      "bytes": 15946,
-      "sha256": "a1b78459339694b95f6041d6419613bcd1bc3f86b52074a058fab541199159dc"
+      "bytes": 15950,
+      "sha256": "eebc830c6dddeab9600ec0088297552a3aa22b5a77d1e346b3fe3f38c0379f39"
     },
     {
       "path": "zotero-bridge-cli/references/commands/library/readiness/missing-analysis.md",
-      "bytes": 16034,
-      "sha256": "fdaa119edbe9b5227f22d5d07acb306f1d393033590b7a76d87386fd4d8c2e0c"
+      "bytes": 16038,
+      "sha256": "6b9294c6778cf0771da15727fc2f1a0344691abcaeaa250364b55c6fe3bd9d50"
     },
     {
       "path": "zotero-bridge-cli/references/commands/library/readiness/missing-markdown.md",
-      "bytes": 16006,
-      "sha256": "39d89e8a7c9b5462cfc47d354b7df6befea5a6e240ce86ed2dc7120dde3f5e85"
+      "bytes": 16010,
+      "sha256": "e48424a93e08f4b582d0197ff9be596c04328789280e940de0947c76faa78e7b"
     },
     {
       "path": "zotero-bridge-cli/references/commands/library/readiness/missing-pdf.md",
-      "bytes": 15928,
-      "sha256": "03eb089a49fd43d73083d0dadd47ba3284f938d9694dec918a64b3913059c428"
+      "bytes": 15932,
+      "sha256": "542979d686c9750f134aa6296b3b56def21b578bfdbae5c547a9611d66929704"
     },
     {
       "path": "zotero-bridge-cli/references/commands/library/saved-searches/list.md",
@@ -881,5 +881,5 @@
       "sha256": "48d26f5b33fa8b53f29a67f7c5104917bf4c4d0bbad0e3b6b383c89852956a0b"
     }
   ],
-  "aggregateSha256": "3c60034337655209316abda6e9edbbbb0fbaf6da8d4aad2e78b27a5f1a68dab9"
+  "aggregateSha256": "4893c33d0484ade85fe8be74a01749f888be41b1fd502e0f389e6d7178798ad9"
 }

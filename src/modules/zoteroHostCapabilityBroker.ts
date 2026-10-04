@@ -343,7 +343,7 @@ export type ZoteroHostLibraryListArgs = {
   collectionLibraryId?: number | string;
   tag?: string;
   itemType?: string;
-  query?: string;
+  filter?: string;
   limit?: number | string;
   cursor?: string;
 };
@@ -372,7 +372,7 @@ export type ZoteroHostLibraryListResponse = {
     collection?: ZoteroHostCollectionDto;
     tag?: string;
     itemType?: string;
-    query?: string;
+    filter?: string;
   };
 };
 
@@ -15002,7 +15002,7 @@ async function selectLibraryItemPage(args: ZoteroHostLibraryListArgs = {}) {
       collectionId,
       tag: args.tag,
       itemType: args.itemType,
-      query: args.query,
+      filter: args.filter,
       limit,
       cursor: args.cursor,
     },
@@ -15025,7 +15025,7 @@ async function selectLibraryItemPage(args: ZoteroHostLibraryListArgs = {}) {
       collection: collection ? serializeCollection(collection) : undefined,
       tag: selection.criteria.tag || undefined,
       itemType: selection.criteria.itemType || undefined,
-      query: selection.criteria.query || undefined,
+      filter: selection.criteria.filter || undefined,
     },
   };
 }
@@ -15061,7 +15061,7 @@ async function listLibraryItems(
             : undefined,
           tag: input.tag,
           itemType: input.itemType,
-          query: input.query,
+          filter: input.filter,
           limit: input.limit,
           cursor: input.cursor,
         },
@@ -15090,7 +15090,7 @@ async function listLibraryItems(
         collectionRef: input.collectionRef || null,
         tag: page.criteria.tag || null,
         itemType: page.criteria.itemType || null,
-        query: page.criteria.query || null,
+        filter: page.criteria.filter || null,
         order: "stable_identity",
       },
     };
@@ -15484,7 +15484,7 @@ async function traverseLibraryItems(
         collectionRef: input.collectionRef,
         tag: input.tag,
         itemType: input.itemType,
-        query: input.query,
+        filter: input.filter,
         limit: Math.min(pageSize, remainingItems),
         cursor,
       },
@@ -15563,7 +15563,10 @@ async function traverseLibraryItems(
           libraryId,
           scope: input.scope,
           filtered: Boolean(
-            input.collectionRef || input.tag || input.itemType || input.query,
+            page.criteria.collectionRef ||
+            page.criteria.tag ||
+            page.criteria.itemType ||
+            page.criteria.filter,
           ),
           resumed: Boolean(input.resumeCursor),
           visitedItems,

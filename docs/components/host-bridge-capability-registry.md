@@ -123,6 +123,17 @@ dispatcher.
 The renderer derives this complete inventory and every count from
 `capabilities.v2.json`; generated surfaces do not reconstruct it from prose.
 
+Library enumeration capabilities `library.list_items` and
+`library.readiness_audit` use the optional `filter` field for literal,
+field-independent matching under Zotero SQLite `NOCASE` semantics. Empty or
+whitespace-only values omit the predicate; wildcard characters remain literal.
+Their pages preserve stable identity ordering and opaque continuation.
+`library.search_items` retains its independent `query` request and bounded
+`{ items, truncated }` result; its handler explicitly maps that query to the
+list filter. The CLI `--query` JSON container remains unchanged. Snapshot
+capture stays fixed-set and unfiltered, and the Synthesis reverse-host metadata
+page port does not take `filter` or search `query`.
+
 ---
 
 ## Lookup

@@ -20,6 +20,12 @@ import {
   createWorkflowHostLeafScope,
 } from "../../src/workflows/hostApi";
 import {
+  resetZoteroLibraryPageQueryAdapterForTests,
+  setZoteroLibraryPageQueryAdapterForTests,
+} from "../../src/modules/zoteroHost/zoteroLibraryPageQuery";
+import { createMockZoteroLibraryPageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
+import { nativeFixtureMutations } from "../helpers/nativeFixtureMutations";
+import {
   installRuntimeBridgeOverrideForTests,
   resetRuntimeBridgeOverrideForTests,
 } from "../../src/utils/runtimeBridge";
@@ -198,6 +204,119 @@ describe("Workflow Host contract governance", function () {
         (error as { details?: { member?: string } }).details?.member,
         "file.pickFile",
       );
+    }
+  });
+
+  it("forwards filtered list and traversal calls through both v12 variants", async function () {
+    setZoteroLibraryPageQueryAdapterForTests(
+      createMockZoteroLibraryPageQueryAdapter(),
+    );
+    const fixtureItems: Zotero.Item[] = [];
+    try {
+      fixtureItems.push(
+        await nativeFixtureMutations.item.create({
+          itemType: "journalArticle",
+          fields: { title: "Workflow Filtered Target One" },
+        }),
+      );
+      fixtureItems.push(
+        await nativeFixtureMutations.item.create({
+          itemType: "journalArticle",
+          fields: { title: "Workflow Filtered Target Two" },
+        }),
+      );
+      fixtureItems.push(
+        await nativeFixtureMutations.item.create({
+          itemType: "journalArticle",
+          fields: { title: "Unrelated Workflow Inventory" },
+        }),
+      );
+      const matchingItems = fixtureItems.slice(0, 2);
+      const hosts = [
+        createWorkflowHostApi({ interactionMode: "interactive" }),
+        createWorkflowHostApi({ interactionMode: "non_interactive" }),
+      ];
+      for (const host of hosts) {
+        const control = { signal: new AbortController().signal };
+        const first = await host.library.listItems(
+          { filter: " Workflow Filtered Target ", limit: 1 },
+          control,
+        );
+        assert.deepEqual(
+          first.items.map((item) => item.ref.key),
+          [matchingItems[0].key],
+        );
+        assert.deepEqual(first.criteria, {
+          libraryId: Zotero.Libraries.userLibraryID,
+          collectionRef: null,
+          tag: null,
+          itemType: null,
+          filter: "workflow filtered target",
+          order: "stable_identity",
+        });
+        assert.strictEqual(first.totalScanned, 2);
+        assert.isTrue(first.hasMore);
+        assert.isString(first.nextCursor);
+
+        const second = await host.library.listItems(
+          {
+            filter: "Workflow Filtered Target",
+            limit: 1,
+            cursor: first.nextCursor || undefined,
+          },
+          control,
+        );
+        assert.deepEqual(
+          second.items.map((item) => item.ref.key),
+          [matchingItems[1].key],
+        );
+        assert.strictEqual(second.criteria.filter, first.criteria.filter);
+        assert.isFalse(second.hasMore);
+
+        const traversedKeys: string[] = [];
+        const traversal = await host.library.traverseItems(
+          {
+            scope: "top-level-regular",
+            filter: "Workflow Filtered Target",
+            pageSize: 1,
+          },
+          control,
+          (batch) => {
+            traversedKeys.push(...batch.items.map((item) => item.ref.key));
+          },
+        );
+        assert.strictEqual(traversal.outcome, "completed");
+        assert.deepEqual(traversedKeys, matchingItems.map((item) => item.key));
+        assert.strictEqual(traversal.visitedItems, 2);
+
+        const cancellation = new AbortController();
+        let canceledBatches = 0;
+        const canceledTraversal = await host.library.traverseItems(
+          {
+            scope: "top-level-regular",
+            filter: "Workflow Filtered Target",
+            pageSize: 1,
+          },
+          { signal: cancellation.signal },
+          () => {
+            canceledBatches += 1;
+            cancellation.abort();
+          },
+        );
+        assert.strictEqual(canceledTraversal.outcome, "canceled");
+        assert.strictEqual(canceledBatches, 1);
+        assert.notProperty(canceledTraversal, "completionEvidence");
+      }
+    } finally {
+      try {
+        for (const item of fixtureItems.reverse()) {
+          if (Zotero.Items.get(item.id)) {
+            await nativeFixtureMutations.item.remove(item);
+          }
+        }
+      } finally {
+        resetZoteroLibraryPageQueryAdapterForTests();
+      }
     }
   });
 

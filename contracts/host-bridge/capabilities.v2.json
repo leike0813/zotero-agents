@@ -2123,7 +2123,7 @@
           "collectionLibraryId": { "type": ["number", "string"] },
           "tag": { "type": "string" },
           "itemType": { "type": "string" },
-          "query": { "type": "string" },
+          "filter": { "type": "string" },
           "limit": { "type": ["number", "string"], "minimum": 1 },
           "cursor": { "type": "string" }
         },
@@ -2222,7 +2222,7 @@
           "collectionLibraryId": { "type": ["number", "string"] },
           "tag": { "type": "string" },
           "itemType": { "type": "string" },
-          "query": { "type": "string" },
+          "filter": { "type": "string" },
           "limit": { "type": ["number", "string"], "minimum": 1 },
           "cursor": { "type": "string" },
           "checks": {},

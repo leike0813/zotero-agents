@@ -1072,6 +1072,7 @@ describe("embedded Zotero MCP server protocol", function () {
           arguments: {
             collectionKey: "COLLKEY",
             libraryId: 1,
+            filter: "Paper",
             limit: 1,
           },
         },
@@ -1105,7 +1106,7 @@ describe("embedded Zotero MCP server protocol", function () {
                   totalScanned: 3,
                   returned: 1,
                   hasMore: true,
-                  filters: {},
+                  filters: { filter: "Paper" },
                 };
               },
             },
@@ -1114,6 +1115,8 @@ describe("embedded Zotero MCP server protocol", function () {
     );
 
     assert.strictEqual(observedArgs.limit, 1);
+    assert.strictEqual(observedArgs.filter, "Paper");
+    assert.notProperty(observedArgs, "query");
     const structured = (response as any).result.structuredContent;
     assert.strictEqual(
       structured.capability,
@@ -1123,6 +1126,8 @@ describe("embedded Zotero MCP server protocol", function () {
     assert.strictEqual(structured.data.items[0].key, "PARENTKEY");
     assert.strictEqual(structured.data.items[0].noteCount, 2);
     assert.isTrue(structured.data.hasMore);
+    assert.strictEqual(structured.data.filters.filter, "Paper");
+    assert.notProperty(structured.data.filters, "query");
     const text = toolText(response);
     assert.include(text, "PARENTKEY");
     assert.include(text, "libraryId=1");
@@ -1169,6 +1174,59 @@ describe("embedded Zotero MCP server protocol", function () {
     );
 
     assert.strictEqual(observedArgs.limit, 50);
+  });
+
+  it("rejects the removed MCP list query field", async function () {
+    const response: any = await handleZoteroMcpRequestForTests({
+      jsonrpc: "2.0",
+      id: "legacy-list-query",
+      method: "tools/call",
+      params: {
+        name: ZOTERO_MCP_TOOL_LIST_LIBRARY_ITEMS,
+        arguments: { query: "Paper" },
+      },
+    });
+
+    assert.strictEqual(response.error.code, -32602);
+  });
+
+  it("adapts retained MCP search query to the Broker filter", async function () {
+    let observedFilter: unknown;
+    const response: any = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "retained-search-query",
+        method: "tools/call",
+        params: {
+          name: ZOTERO_MCP_TOOL_SEARCH_ITEMS,
+          arguments: { query: "Match me", libraryId: 1, limit: 5 },
+        },
+      },
+      {
+        resolveZoteroHostCapabilityBroker: () =>
+          createFailClosedZoteroHostCapabilityBroker({
+            library: {
+              listItems: async (args: any) => {
+                observedFilter = args.filter;
+                return {
+                  items: [],
+                  nextCursor: null,
+                  totalScanned: 0,
+                  returned: 0,
+                  hasMore: false,
+                  filters: { filter: args.filter },
+                };
+              },
+            },
+          }),
+      },
+    );
+
+    assert.strictEqual(observedFilter, "Match me");
+    assert.deepEqual((response as any).result.structuredContent.data, {
+      items: [],
+      truncated: false,
+    });
   });
 
   it("returns actionable item detail summaries", async function () {

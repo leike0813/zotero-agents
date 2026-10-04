@@ -34,6 +34,24 @@ the Zotero attachment is created, and post-create failures trigger best-effort
 rollback. Note images use `images.prepareForNoteEmbedding`, which returns an
 opaque run-scoped prepared-image reference.
 
+## Library Enumeration
+
+`hostApi.library.listItems` and `hostApi.library.traverseItems` accept the
+optional string `filter` for deterministic literal enumeration. It is matched
+independently against title, creator, date, publication, abstract, tag, or item
+key under Zotero SQLite `NOCASE` semantics; `%`, `_`, and backslash are literal
+characters. Omitted, empty, or whitespace-only filters add no text predicate.
+Listing and traversal retain stable item-identity order and the existing
+opaque-cursor contract; consumers that need the full matching set must follow
+every continuation through completion. Pass `WorkflowCallControl` with the
+call, and stop work when its signal is canceled.
+
+This enumeration filter is distinct from the `library.search_items` `query`
+input. That capability adapts its search query to the literal predicate and
+returns its bounded list-shaped result. Snapshot capture remains fixed-set and
+unfiltered; Synthesis reverse-host metadata page reads also accept no filter or
+search query.
+
 ## Runtime Context Fields
 
 Hook receives `runtime` with these fields:
