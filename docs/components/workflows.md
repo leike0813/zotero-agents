@@ -664,7 +664,7 @@ Hook 接收的 `runtime` 对象包含：
 
 `runtime.hostApi` 是精确的 Workflow Host API v12 投影。其身份由
 `src/workflows/workflowHostContract.ts` 的只读 manifest 唯一持有：24 个顶层
-key、22 个模块、92 个 callable。Hook 只通过以下命名模块访问宿主能力：
+key、22 个模块、93 个 callable。Hook 只通过以下命名模块访问宿主能力：
 
 - `addon`、`environment`、`context`
 - `library`、`metadata`、`mutations`、`notes`、`images`、`attachments`
@@ -672,7 +672,8 @@ key、22 个模块、92 个 callable。Hook 只通过以下命名模块访问宿
 - `bibliography`、`researchBundles`、`statusTags`
 - `file`、`archive`、`resources`、`clipboard`
 - `editor`、`notifications`、`logging`
-- `synthesis.workflowApply`、`synthesis.topics`、`synthesis.artifacts`、`synthesis.tags`
+- `synthesis.searchEvidence`、`synthesis.workflowApply`、`synthesis.topics`、
+  `synthesis.artifacts`、`synthesis.tags`
 
 交互与非交互投影具有相同结构；非交互调用 UI 成员时返回稳定的
 `interaction_required`。Hook scope 不提供 `runtime.zotero`、

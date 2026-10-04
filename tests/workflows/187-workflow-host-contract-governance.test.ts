@@ -110,6 +110,7 @@ const V12_CALLABLE_PATHS = [
   "editor.openSession",
   "notifications.toast",
   "logging.appendRuntimeLog",
+  "synthesis.searchEvidence",
   "synthesis.workflowApply.applyLiteratureDigest",
   "synthesis.workflowApply.applyTopicPlan",
   "synthesis.workflowApply.applyTopicSynthesisResult",
@@ -152,7 +153,7 @@ describe("Workflow Host contract governance", function () {
       22,
     );
     const callablePaths = collectCallablePaths(WORKFLOW_HOST_API_MANIFEST);
-    assert.lengthOf(callablePaths, 92);
+    assert.lengthOf(callablePaths, 93);
     assert.sameMembers(callablePaths, V12_CALLABLE_PATHS);
   });
 
@@ -286,7 +287,10 @@ describe("Workflow Host contract governance", function () {
           },
         );
         assert.strictEqual(traversal.outcome, "completed");
-        assert.deepEqual(traversedKeys, matchingItems.map((item) => item.key));
+        assert.deepEqual(
+          traversedKeys,
+          matchingItems.map((item) => item.key),
+        );
         assert.strictEqual(traversal.visitedItems, 2);
 
         const cancellation = new AbortController();

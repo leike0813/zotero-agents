@@ -1,6 +1,6 @@
 {
   "cliSchema": "zotero-bridge.cli.v5",
-  "commandCatalogChecksum": "9f52e6cac13928521c2df3adf3232e71f47322a4894c8095cc21eb87febc258a",
+  "commandCatalogChecksum": "bf2021f5e5952729c584aea46e0b1b1b2ed7c2bf1eee3f3514f0edaa473e0abf",
   "commands": [
     {
       "approvalContract": {
@@ -57460,6 +57460,153 @@
         {
           "kind": "capability",
           "target": "concepts.query"
+        }
+      ]
+    },
+    {
+      "approvalContract": {
+        "kind": "none",
+        "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+        "timing": "none"
+      },
+      "arguments": [
+        {
+          "aliases": [
+            "input"
+          ],
+          "conflictsWith": [],
+          "defaultValues": [],
+          "global": false,
+          "help": "Evidence search request as inline JSON, a file path, @file, or '-' for stdin",
+          "id": "query",
+          "kind": "option",
+          "possibleValues": [],
+          "repeatable": false,
+          "required": true,
+          "takesValue": true,
+          "token": "--query",
+          "valueNames": [
+            "JSON_OR_FILE"
+          ]
+        }
+      ],
+      "argv": [
+        "synthesis",
+        "evidence",
+        "search"
+      ],
+      "argvBindings": [
+        {
+          "kind": "option",
+          "property": "query",
+          "required": true,
+          "takesValue": true,
+          "token": "--query",
+          "valueNames": [
+            "JSON_OR_FILE"
+          ]
+        }
+      ],
+      "binding": "passthrough",
+      "category": "read",
+      "command": "synthesis evidence search",
+      "composition": null,
+      "danger": "none",
+      "effects": [
+        {
+          "description": "Searches bounded current Library evidence without changing Zotero-managed data.",
+          "kind": "none",
+          "stateChanged": false
+        }
+      ],
+      "handleTransitions": [],
+      "hiddenFromIntentSearch": false,
+      "inputSchemas": {
+        "query": {
+          "examples": [
+            {
+              "description": "JSON container for the evidence search request.",
+              "kind": "shape-only",
+              "prerequisites": [
+                "Replace example values with a non-empty query and scope valid for the selected Zotero library."
+              ],
+              "value": {
+                "query": "evidence phrase"
+              }
+            }
+          ],
+          "required": true,
+          "requiredWhen": [],
+          "schema": {
+            "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/EvidenceSearchRequest"
+          },
+          "schemaSource": "target-capability",
+          "token": "--query"
+        }
+      },
+      "invocationSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "description": "Evidence search request as inline JSON, a file path, @file, or '-' for stdin",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "operationalAliases": [
+        "synthesis evidence search",
+        "synthesis",
+        "evidence",
+        "search",
+        "query",
+        "JSON_OR_FILE"
+      ],
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "pagination": "none",
+      "payloadSchema": {
+        "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/EvidenceSearchRequest"
+      },
+      "recovery": [
+        {
+          "action": "Inspect coverage and issues; narrow the scope or retry only after the source owner is available.",
+          "nextCommand": "synthesis evidence search",
+          "requiresHandles": [],
+          "stateCheck": "none",
+          "when": "The search is limited or unavailable."
+        }
+      ],
+      "resultSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "approval": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "capability": {
+            "const": "synthesis.search_evidence"
+          },
+          "data": {
+            "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/EvidenceSearchResult"
+          }
+        },
+        "required": [
+          "capability",
+          "approval",
+          "data"
+        ],
+        "type": "object"
+      },
+      "summary": "Search metadata, full-text, and analysis evidence",
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "synthesis.search_evidence"
         }
       ]
     },

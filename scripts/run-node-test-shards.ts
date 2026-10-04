@@ -88,6 +88,7 @@ const SYNTHESIS_NATIVE_FILE_NUMBERS = new Set([
   225,
   226,
   ...Array.from({ length: 12 }, (_, index) => 228 + index),
+  281,
 ]);
 
 function inDirectory(filePath: string, directory: string) {

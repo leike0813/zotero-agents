@@ -5792,6 +5792,27 @@
         "responseSizing": "limit-bounded"
       }
     },
+    "synthesis.search_evidence": {
+      "category": "library",
+      "summary": "Search current Zotero Library evidence with verified source passages.",
+      "inputSchema": {
+        "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/EvidenceSearchRequest"
+      },
+      "outputSchema": {
+        "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/EvidenceSearchResult"
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "limit-bounded"
+      }
+    },
     "topics.list": {
       "category": "topics",
       "summary": "List paged Zotero Synthesis Layer topics for duplicate checks and topic selection.",

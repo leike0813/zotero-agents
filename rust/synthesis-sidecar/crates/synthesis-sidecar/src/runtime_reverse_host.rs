@@ -201,7 +201,7 @@ fn call_reverse_host_traced(
     let operation_id = format!("native:{capability}:{now}:{sequence}");
     let artifact_read = matches!(
         capability,
-        "library.artifacts.read" | "library.representative_image.read"
+        "library.artifacts.read" | "library.representative_image.read" | "library.evidence.read"
     );
     let timeout = bounded_timeout(reverse_host_timeout(capability))?;
     let max_response_body_bytes = if artifact_read {

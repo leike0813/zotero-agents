@@ -3,7 +3,7 @@
   "cli": {
     "version": "0.5.5",
     "buildFingerprint": "2ef15640bcf10945895ab4a1daa65e89337d6f99978316278c8aa4b1ecb4b4c1",
-    "commandCatalogChecksum": "9f52e6cac13928521c2df3adf3232e71f47322a4894c8095cc21eb87febc258a"
+    "commandCatalogChecksum": "bf2021f5e5952729c584aea46e0b1b1b2ed7c2bf1eee3f3514f0edaa473e0abf"
   },
   "surfaces": [
     {
@@ -57,8 +57,8 @@
   "files": [
     {
       "path": "zotero-bridge-cli/assets/agent-surface.json",
-      "bytes": 2122068,
-      "sha256": "4e4df486c30045e8f88fce926ecebf1e089de7fe46e94c8a596868ec782a90b6"
+      "bytes": 2126296,
+      "sha256": "13ee0125eb9ee3f42f2f98bae8a66914901ff28afabd3bb1b0b990805cf1fe6b"
     },
     {
       "path": "zotero-bridge-cli/assets/output.schema.json",
@@ -77,8 +77,8 @@
     },
     {
       "path": "zotero-bridge-cli/references/command-catalog.md",
-      "bytes": 36289,
-      "sha256": "8346a69c0024b5501afaaa647c7be5be57f53dd31cbb540ea16e2f2bb0aa1022"
+      "bytes": 36956,
+      "sha256": "94d5972497c67da58827017f236f75b2b79f20b3212dae6930e0e0561387df79"
     },
     {
       "path": "zotero-bridge-cli/references/commands/bridge/backend/list.md",
@@ -536,6 +536,11 @@
       "sha256": "dcb399792301ecc3e1c00d47b7649ae53d2ce6ef02631b30e012f01e1abf74e8"
     },
     {
+      "path": "zotero-bridge-cli/references/commands/synthesis/evidence/search.md",
+      "bytes": 10372,
+      "sha256": "ed63d9fc537739223403f4a189a5990ad9eabb6ee58ea3da3c7faa193e312fb3"
+    },
+    {
       "path": "zotero-bridge-cli/references/commands/synthesis/graph/get-layout.md",
       "bytes": 11957,
       "sha256": "06f28665a524fed63830c6bb584e8fe7aedbaa7cf41a6319bf77816545e12ece"
@@ -877,9 +882,9 @@
     },
     {
       "path": "zotero-research-synthesis/SKILL.md",
-      "bytes": 20388,
-      "sha256": "48d26f5b33fa8b53f29a67f7c5104917bf4c4d0bbad0e3b6b383c89852956a0b"
+      "bytes": 22069,
+      "sha256": "2889284e90a84a126941245bbcde86f78078e3fe6b93c2abd65259cd21874a8b"
     }
   ],
-  "aggregateSha256": "4893c33d0484ade85fe8be74a01749f888be41b1fd502e0f389e6d7178798ad9"
+  "aggregateSha256": "96861df70fbe5bac4e3406a79479f9a0ba6e2f3221b01d4e8f3c17a9370ae3ab"
 }

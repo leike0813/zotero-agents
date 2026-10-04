@@ -219,6 +219,78 @@
       "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryRepresentativeImageReadResult",
       "valid": false,
       "value": { "status": "ready", "diagnostics": [] }
+    },
+    {
+      "id": "evidence-sources-empty-kind-selection",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceSourcesRequest",
+      "valid": true,
+      "value": { "scope": {}, "sourceKinds": [], "limit": 100 }
+    },
+    {
+      "id": "evidence-sources-duplicate-kinds-are-accepted",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceSourcesRequest",
+      "valid": true,
+      "value": {
+        "scope": { "libraryIds": [1] },
+        "sourceKinds": ["metadata", "metadata"]
+      }
+    },
+    {
+      "id": "evidence-source-result-fulltext",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceSourcesResult",
+      "valid": true,
+      "value": {
+        "scope": { "libraryIds": [1] },
+        "descriptors": [
+          {
+            "itemRef": { "libraryId": 1, "key": "ABCD1234" },
+            "source": {
+              "kind": "fulltext",
+              "attachmentRef": { "libraryId": 1, "key": "EFGH5678" }
+            },
+            "sourceVersion": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "format": "markdown",
+            "contentLength": 42
+          }
+        ],
+        "nextCursor": null,
+        "hasMore": false,
+        "issues": []
+      }
+    },
+    {
+      "id": "evidence-read-available-flat-content",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceReadResult",
+      "valid": true,
+      "value": {
+        "outcome": "available",
+        "itemRef": { "libraryId": 1, "key": "ABCD1234" },
+        "content": "Source text",
+        "format": "text",
+        "source": { "kind": "metadata", "field": "title" },
+        "sourceVersion": "opaque:metadata-v1",
+        "location": {
+          "unit": "field",
+          "field": "title",
+          "range": { "start": 0, "end": 11 }
+        }
+      }
+    },
+    {
+      "id": "evidence-read-failure-has-no-content",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceReadResult",
+      "valid": false,
+      "value": { "outcome": "source_changed", "content": "stale" }
+    },
+    {
+      "id": "evidence-source-rejects-topic-analysis",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceSource",
+      "valid": false,
+      "value": {
+        "kind": "analysis",
+        "artifactType": "topic",
+        "noteRef": { "libraryId": 1, "key": "ABCD1234" }
+      }
     }
   ]
 }

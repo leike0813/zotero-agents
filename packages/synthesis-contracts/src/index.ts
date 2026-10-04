@@ -25,6 +25,7 @@ export * from "./referenceRefreshApplication";
 export * from "./referenceMatchingReviewApplication";
 export * from "./representativeImageRead";
 export * from "./schemaVersion";
+export * from "./search";
 export * from "./relatedItemsEffect";
 export * from "./sidecarLifecycle";
 export * from "./sidecarObservability";

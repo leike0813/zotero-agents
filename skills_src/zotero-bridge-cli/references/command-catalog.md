@@ -63,6 +63,10 @@ Expired file access must be reacquired from the owner. A checksum mismatch must 
 
 <!-- host-bridge-command-catalog:entries -->
 
+## Library evidence retrieval
+
+Use `zotero-bridge surface describe 'synthesis evidence search'` to inspect the live input/output schema and bounds before constructing a request. `--query` takes the JSON request container, whose `query` property is the plain-text query; raw text is not accepted in that argument. The canonical target is `synthesis.search_evidence`; the command is read-only and requires no Zotero UI approval. Follow the returned descriptor for the current result envelope and continuation fields.
+
 ## Completion check
 
 Before leaving the catalog, you must know:

@@ -114,9 +114,9 @@ export const SYNTHESIS_PRODUCTION_SURFACES = [
   {
     id: "artifact-library-debug",
     schema: "synthesis-artifact-library-debug-surface-parity.v1",
-    operations: 12,
+    operations: 13,
     operationFingerprint:
-      "49d746745fff79c96fe095d70e9f9a85c2be228e3bcd882b0433a6fe7aec37aa",
+      "365cca2e76851aa44caf0cfa26d50183c1eacc313f2bee6d8fc6f2155eb927d6",
     corpusPath:
       "packages/synthesis-contracts/contract-set/synthesis-artifact-library-debug-surface-v1/corpus.json",
     evidencePath:

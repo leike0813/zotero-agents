@@ -121,6 +121,7 @@
     }
   },
   "access": {
+    "client.searchEvidence": "read",
     "client.listTopics": "read",
     "client.findTopicsByPaperRef": "read",
     "client.getTopicContext": "read",

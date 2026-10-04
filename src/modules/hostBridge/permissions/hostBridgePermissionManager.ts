@@ -32,6 +32,7 @@ const NO_APPROVAL_CAPABILITIES = new Set([
   "library.get_item_attachments",
   "library.list_annotations",
   "library.export_annotations",
+  "synthesis.search_evidence",
   "items.export_research_bundle",
   "workflow_products.list",
   "workflow_products.get",

@@ -322,7 +322,6 @@ pub enum ContextCommand {
 
     #[command(about = "Read or open the current Zotero selection")]
     Selection(ContextSelectionArgs),
-
 }
 
 #[derive(Debug, Clone, Args)]
@@ -338,7 +337,6 @@ pub enum ContextSelectionCommand {
         long_about = "Call GET /bridge/v2/context/selection. The page defaults to 25 items, accepts at most 100, and uses an opaque cursor bound to the current selection basis."
     )]
     Get(PageArgs),
-
 }
 
 #[derive(Debug, Clone, Args)]
@@ -663,6 +661,9 @@ pub struct SynthesisArgs {
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum SynthesisCommand {
+    #[command(name = "evidence", about = "Search verified Library evidence")]
+    Evidence(EvidenceArgs),
+
     #[command(name = "topic", about = "Read topic synthesis topic data")]
     Topic(TopicsArgs),
 
@@ -689,6 +690,30 @@ pub enum SynthesisCommand {
 
     #[command(name = "insight", about = "Read aggregate Zotero insight queues")]
     Insight(InsightsArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct EvidenceArgs {
+    #[command(subcommand)]
+    pub command: EvidenceCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum EvidenceCommand {
+    #[command(about = "Search metadata, full-text, and analysis evidence")]
+    Search(EvidenceSearchArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct EvidenceSearchArgs {
+    #[arg(
+        long,
+        alias = "input",
+        value_name = "JSON_OR_FILE",
+        required = true,
+        help = "Evidence search request as inline JSON, a file path, @file, or '-' for stdin"
+    )]
+    pub query: String,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1019,7 +1044,11 @@ pub struct BridgeQueryArgs {
 
 #[derive(Debug, Clone, Args)]
 pub struct MutationArgs {
-    #[arg(long, global = false, help = "Preview the mutation without applying it")]
+    #[arg(
+        long,
+        global = false,
+        help = "Preview the mutation without applying it"
+    )]
     pub dry_run: bool,
     #[command(subcommand)]
     pub command: MutationCommand,
@@ -2274,7 +2303,7 @@ mod tests {
 
     use super::{
         AnnotationCommand, BridgeBackendCommand, BridgeCommand, BridgeProfileCommand,
-        CitationGraphCommand, Cli, Command, FileCommand, ItemCommand,
+        CitationGraphCommand, Cli, Command, EvidenceCommand, FileCommand, ItemCommand,
         LibraryCommand, LibraryItemsCommand, LibraryReadinessCommand, MutationCollectionCommand,
         MutationCommand, MutationItemCommand, MutationNoteCommand, MutationTagCommand,
         NotificationCommand, PageArgs, ProductCommand, RunArgs, RunCommand, RunPermissionCommand,
@@ -2821,6 +2850,39 @@ mod tests {
             },
             _ => panic!("expected synthesis command"),
         }
+    }
+
+    #[test]
+    fn parses_synthesis_evidence_search_with_json_query_container() {
+        let parsed = Cli::try_parse_from([
+            "zotero-bridge",
+            "synthesis",
+            "evidence",
+            "search",
+            "--query",
+            r#"{"query":"needle","libraryIds":[1],"limit":10}"#,
+        ])
+        .unwrap();
+
+        match parsed.command {
+            Command::Synthesis(args) => match args.command {
+                SynthesisCommand::Evidence(args) => match args.command {
+                    EvidenceCommand::Search(input) => assert_eq!(
+                        input.query,
+                        r#"{"query":"needle","libraryIds":[1],"limit":10}"#
+                    ),
+                },
+                _ => panic!("expected Synthesis evidence command"),
+            },
+            _ => panic!("expected Synthesis evidence search"),
+        }
+    }
+
+    #[test]
+    fn requires_json_query_container_for_evidence_search() {
+        assert!(
+            Cli::try_parse_from(["zotero-bridge", "synthesis", "evidence", "search",]).is_err()
+        );
     }
 
     #[test]

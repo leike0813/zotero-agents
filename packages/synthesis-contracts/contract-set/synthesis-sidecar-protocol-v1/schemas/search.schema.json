@@ -1,0 +1,342 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json",
+  "$defs": {
+    "PortableItemRef": {
+      "$ref": "reverse-host.schema.json#/$defs/EvidenceItemRef"
+    },
+    "SearchRequestCore": {
+      "type": "object",
+      "required": ["query"],
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "\\S"
+        },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "maxResults": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500,
+          "default": 100
+        },
+        "cursor": { "type": "string", "minLength": 1, "maxLength": 4096 }
+      },
+      "$comment": "Defaults are limit=25 and maxResults=100. UTF-16 bounds and effective paging relation are enforced by strict request rebuilders."
+    },
+    "SearchRequest": {
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/SearchRequestCore" }],
+      "unevaluatedProperties": false
+    },
+    "EvidenceSearchRequest": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/SearchRequestCore" },
+        {
+          "type": "object",
+          "properties": {
+            "libraryIds": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 100,
+              "items": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              }
+            },
+            "itemRefs": {
+              "type": "array",
+              "maxItems": 100,
+              "items": { "$ref": "#/$defs/PortableItemRef" }
+            },
+            "collectionRef": { "$ref": "#/$defs/PortableItemRef" },
+            "tag": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "itemType": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "sourceKinds": {
+              "type": "array",
+              "maxItems": 3,
+              "items": { "$ref": "#/$defs/SourceKind" }
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "EvidenceRequest": { "$ref": "#/$defs/EvidenceSearchRequest" },
+    "TopicRequest": { "$ref": "#/$defs/TopicSearchRequest" },
+    "SearchEvidenceRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/EvidenceSearchRequest" }
+        }
+      }
+    },
+    "SearchEvidenceResult": { "$ref": "#/$defs/EvidenceSearchResult" },
+    "TopicSearchRequest": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/SearchRequestCore" },
+        {
+          "type": "object",
+          "properties": {
+            "sections": {
+              "type": "array",
+              "maxItems": 100,
+              "items": { "type": "string", "minLength": 1, "maxLength": 128 }
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "SourceKind": {
+      "$ref": "reverse-host.schema.json#/$defs/EvidenceSourceKind"
+    },
+    "LibrarySearchCoverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "sources"],
+      "properties": {
+        "kind": { "const": "library" },
+        "sources": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["metadata", "fulltext", "analysis"],
+          "properties": {
+            "metadata": { "$ref": "#/$defs/SourceCoverage" },
+            "fulltext": { "$ref": "#/$defs/SourceCoverage" },
+            "analysis": { "$ref": "#/$defs/SourceCoverage" }
+          }
+        }
+      }
+    },
+    "WorkStatus": {
+      "enum": ["complete", "not_requested", "limited", "unavailable"]
+    },
+    "SearchCoverage": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "sources"],
+          "properties": {
+            "kind": { "const": "library" },
+            "sources": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["metadata", "fulltext", "analysis"],
+              "properties": {
+                "metadata": { "$ref": "#/$defs/SourceCoverage" },
+                "fulltext": { "$ref": "#/$defs/SourceCoverage" },
+                "analysis": { "$ref": "#/$defs/SourceCoverage" }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "sections"],
+          "properties": {
+            "kind": { "const": "topic" },
+            "sections": {
+              "type": "array",
+              "maxItems": 100,
+              "items": { "$ref": "#/$defs/SectionCoverage" }
+            }
+          }
+        }
+      ]
+    },
+    "SourceCoverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "sourcesScanned"],
+      "properties": {
+        "status": { "$ref": "#/$defs/WorkStatus" },
+        "sourcesScanned": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        }
+      }
+    },
+    "SectionCoverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["section", "status"],
+      "properties": {
+        "section": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "status": { "$ref": "#/$defs/WorkStatus" }
+      }
+    },
+    "SearchIssue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "sourceKind", "affectedCount"],
+      "properties": {
+        "code": {
+          "enum": [
+            "source_unavailable",
+            "source_changed",
+            "source_read_failed",
+            "invalid_source",
+            "scan_budget_exhausted",
+            "passage_budget_exhausted",
+            "result_budget_exhausted",
+            "vector_unavailable"
+          ]
+        },
+        "sourceKind": {
+          "oneOf": [{ "$ref": "#/$defs/SourceKind" }, { "type": "null" }]
+        },
+        "affectedCount": { "type": "integer", "minimum": 0, "maximum": 1000000 }
+      }
+    },
+    "TextRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "type": "integer", "minimum": 0, "maximum": 262144 },
+        "end": { "type": "integer", "minimum": 0, "maximum": 262144 }
+      },
+      "$comment": "Offsets are zero-based UTF-16 code units and end is exclusive; the source owner's maximum contentLength is 262144."
+    },
+    "EvidenceSource": {
+      "$ref": "reverse-host.schema.json#/$defs/EvidenceSource"
+    },
+    "EvidenceLocation": {
+      "$ref": "reverse-host.schema.json#/$defs/EvidenceLocation"
+    },
+    "EvidenceCore": {
+      "type": "object",
+      "required": ["content", "format", "source", "sourceVersion", "location"],
+      "properties": {
+        "content": { "type": "string", "maxLength": 8192 },
+        "format": { "enum": ["text", "markdown"] },
+        "source": { "$ref": "#/$defs/EvidenceSource" },
+        "sourceVersion": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "location": { "$ref": "#/$defs/EvidenceLocation" }
+      },
+      "$comment": "Strict TypeScript and Rust rebuilders additionally enforce UTF-16 lengths, exact range/content lengths, source/location field equality, and matching library identity."
+    },
+    "EvidenceContext": {
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/EvidenceCore" }],
+      "unevaluatedProperties": false
+    },
+    "EvidencePassage": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/EvidenceCore" },
+        {
+          "type": "object",
+          "required": ["itemRef", "context"],
+          "properties": {
+            "itemRef": { "$ref": "#/$defs/PortableItemRef" },
+            "context": {
+              "type": "array",
+              "maxItems": 4,
+              "items": { "$ref": "#/$defs/EvidenceContext" }
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "TopicPassage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["topicId", "section", "content", "range"],
+      "properties": {
+        "topicId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "section": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "content": { "type": "string", "maxLength": 8192 },
+        "range": { "$ref": "#/$defs/TextRange" }
+      }
+    },
+    "EvidenceSearchResult": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/SearchResultBase" },
+        {
+          "type": "object",
+          "properties": {
+            "results": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/EvidencePassage" }
+            },
+            "coverage": { "$ref": "#/$defs/LibrarySearchCoverage" }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "EvidenceResult": { "$ref": "#/$defs/EvidenceSearchResult" },
+    "TopicSearchResult": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/SearchResultBase" },
+        {
+          "type": "object",
+          "properties": {
+            "results": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/TopicPassage" }
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "TopicResult": { "$ref": "#/$defs/TopicSearchResult" },
+    "SearchResultBase": {
+      "type": "object",
+      "required": [
+        "results",
+        "status",
+        "method",
+        "coverage",
+        "issues",
+        "nextCursor",
+        "hasMore",
+        "total"
+      ],
+      "properties": {
+        "results": { "type": "array", "maxItems": 100, "items": {} },
+        "status": { "enum": ["completed", "limited", "unavailable"] },
+        "method": { "enum": ["lexical", "vector", "hybrid"] },
+        "coverage": { "$ref": "#/$defs/SearchCoverage" },
+        "issues": {
+          "type": "array",
+          "maxItems": 8,
+          "items": { "$ref": "#/$defs/SearchIssue" }
+        },
+        "nextCursor": {
+          "oneOf": [
+            { "type": "string", "minLength": 1, "maxLength": 4096 },
+            { "type": "null" }
+          ]
+        },
+        "hasMore": { "type": "boolean" },
+        "total": {
+          "oneOf": [
+            { "type": "integer", "minimum": 0, "maximum": 1000000 },
+            { "type": "null" }
+          ]
+        }
+      }
+    }
+  }
+}

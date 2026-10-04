@@ -11,11 +11,18 @@ const COMMAND_CONTRACT_JSON: &str =
     include_str!("../../../contracts/host-bridge/cli-commands.v2.json");
 const CAPABILITY_META_SCHEMA_JSON: &str =
     include_str!("../../../contracts/host-bridge/schemas/host-bridge-capabilities.v2.schema.json");
-const COMMAND_META_SCHEMA_JSON: &str =
-    include_str!("../../../contracts/host-bridge/schemas/host-bridge-cli-command-contracts.v2.schema.json");
+const COMMAND_META_SCHEMA_JSON: &str = include_str!(
+    "../../../contracts/host-bridge/schemas/host-bridge-cli-command-contracts.v2.schema.json"
+);
+const SEARCH_PROTOCOL_SCHEMA_JSON: &str =
+    include_str!("../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/search.schema.json");
+const REVERSE_HOST_PROTOCOL_SCHEMA_JSON: &str =
+    include_str!("../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/reverse-host.schema.json");
 
 static CAPABILITY_CONTRACT: OnceLock<Result<Value, String>> = OnceLock::new();
 static COMMAND_CONTRACT: OnceLock<Result<Value, String>> = OnceLock::new();
+static SEARCH_PROTOCOL_SCHEMA: OnceLock<Result<Value, String>> = OnceLock::new();
+static REVERSE_HOST_PROTOCOL_SCHEMA: OnceLock<Result<Value, String>> = OnceLock::new();
 
 thread_local! {
     static CURRENT_COMMAND: RefCell<Option<String>> = const { RefCell::new(None) };
@@ -750,6 +757,54 @@ fn violations(schema: &Value, value: &Value) -> Result<(Vec<Value>, bool), CliEr
     Ok((violations, truncated))
 }
 
+fn protocol_keyword_violations(schema: &Value, value: &Value) -> Vec<Value> {
+    let Some(properties) = schema
+        .pointer("/$defs/SearchRequestCore/properties")
+        .and_then(Value::as_object)
+    else {
+        return Vec::new();
+    };
+    let mut violations = Vec::new();
+    if let (Some(query_schema), Some(query)) = (
+        properties.get("query"),
+        value.get("query").and_then(Value::as_str),
+    ) {
+        if let Some(maximum) = query_schema.get("maxLength").and_then(Value::as_u64) {
+            let actual = query.encode_utf16().count() as u64;
+            if actual > maximum {
+                violations.push(json!({
+                    "reason": "maxUtf16Length",
+                    "path": "/query",
+                    "expected": maximum,
+                    "actual": actual
+                }));
+            }
+        }
+    }
+    if let (Some(_limit_schema), Some(limit)) = (
+        properties.get("limit"),
+        value.get("limit").and_then(Value::as_u64),
+    ) {
+        if properties.contains_key("maxResults") {
+            let maximum = value.get("maxResults").and_then(Value::as_u64).or_else(|| {
+                properties
+                    .get("maxResults")
+                    .and_then(|schema| schema.get("default"))
+                    .and_then(Value::as_u64)
+            });
+            if maximum.is_some_and(|maximum| limit > maximum) {
+                violations.push(json!({
+                    "reason": "effectivePageLimit",
+                    "path": "/limit",
+                    "expected": maximum,
+                    "actual": limit
+                }));
+            }
+        }
+    }
+    violations
+}
+
 fn validation_error(
     code: &str,
     category: ErrorCategory,
@@ -1128,7 +1183,16 @@ pub fn validate_command_input(
                 format!("{command} has no structured input contract for {argument_id}"),
             )
         })?;
-    let (violations, truncated) = violations(schema, value)?;
+    let schema = resolve_canonical_protocol_refs(schema)?;
+    let (mut violations, truncated) = violations(&schema, value)?;
+    violations.extend(protocol_keyword_violations(&schema, value));
+    violations.sort_by(|left, right| {
+        left.get("path")
+            .and_then(Value::as_str)
+            .cmp(&right.get("path").and_then(Value::as_str))
+    });
+    let truncated = truncated || violations.len() > 8;
+    violations.truncate(8);
     if violations.is_empty() {
         return Ok(());
     }
@@ -1163,7 +1227,8 @@ pub fn validate_capability_input(capability: &str, value: &Value) -> Result<(), 
             format!("{capability} has no input schema"),
         )
     })?;
-    let (violations, truncated) = violations(schema, value)?;
+    let schema = resolve_canonical_protocol_refs(schema)?;
+    let (violations, truncated) = violations(&schema, value)?;
     if violations.is_empty() {
         return Ok(());
     }
@@ -1188,7 +1253,8 @@ pub fn validate_capability_output(capability: &str, value: &Value) -> Result<(),
             format!("{capability} has no output schema"),
         )
     })?;
-    let (violations, truncated) = violations(schema, value)?;
+    let schema = resolve_canonical_protocol_refs(schema)?;
+    let (violations, truncated) = violations(&schema, value)?;
     if violations.is_empty() {
         return Ok(());
     }
@@ -1214,6 +1280,7 @@ pub fn validate_command_result(value: &Value) -> Result<(), CliError> {
     })?;
     let entry = command_entry(&command)?;
     let schema = resolved_command_result_schema(&command)?;
+    let schema = resolve_canonical_protocol_refs(&schema)?;
     let (violations, truncated) = violations(&schema, value)?;
     if violations.is_empty() {
         return Ok(());
@@ -1234,6 +1301,89 @@ pub fn validate_command_result(value: &Value) -> Result<(), CliError> {
         violations,
         truncated,
     ))
+}
+
+fn resolve_canonical_protocol_refs(schema: &Value) -> Result<Value, CliError> {
+    const SEARCH_SCHEMA_ID: &str =
+        "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json";
+    const REVERSE_HOST_SCHEMA_ID: &str =
+        "https://zotero-agents.local/synthesis/sidecar-protocol/v1/reverse-host.schema.json";
+
+    let search_schema = SEARCH_PROTOCOL_SCHEMA
+        .get_or_init(|| {
+            serde_json::from_str(SEARCH_PROTOCOL_SCHEMA_JSON).map_err(|e| e.to_string())
+        })
+        .as_ref()
+        .map_err(|error| CliError::internal("canonical_schema_invalid", error.clone()))?;
+    let reverse_host_schema = REVERSE_HOST_PROTOCOL_SCHEMA
+        .get_or_init(|| {
+            serde_json::from_str(REVERSE_HOST_PROTOCOL_SCHEMA_JSON).map_err(|e| e.to_string())
+        })
+        .as_ref()
+        .map_err(|error| CliError::internal("canonical_schema_invalid", error.clone()))?;
+
+    fn rewrite_refs(value: &mut Value) {
+        match value {
+            Value::Array(values) => values.iter_mut().for_each(rewrite_refs),
+            Value::Object(object) => {
+                if let Some(Value::String(reference)) = object.get_mut("$ref") {
+                    if let Some((schema_id, fragment)) = reference.split_once('#') {
+                        if schema_id == SEARCH_SCHEMA_ID
+                            || schema_id == REVERSE_HOST_SCHEMA_ID
+                            || schema_id == "reverse-host.schema.json"
+                        {
+                            *reference = format!("#{fragment}");
+                        }
+                    }
+                }
+                object.values_mut().for_each(rewrite_refs);
+            }
+            _ => {}
+        }
+    }
+
+    let mut resolved = schema.clone();
+    fn references_search_schema(value: &Value) -> bool {
+        match value {
+            Value::Array(values) => values.iter().any(references_search_schema),
+            Value::Object(object) => {
+                object
+                    .get("$ref")
+                    .and_then(Value::as_str)
+                    .is_some_and(|reference| {
+                        reference.starts_with(SEARCH_SCHEMA_ID)
+                            || reference.starts_with(REVERSE_HOST_SCHEMA_ID)
+                            || reference.starts_with("reverse-host.schema.json#")
+                    })
+                    || object.values().any(references_search_schema)
+            }
+            _ => false,
+        }
+    }
+    if !references_search_schema(&resolved) {
+        return Ok(resolved);
+    }
+    rewrite_refs(&mut resolved);
+    let mut definitions = resolved
+        .get("$defs")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    for source in [search_schema, reverse_host_schema] {
+        if let Some(entries) = source.get("$defs").and_then(Value::as_object) {
+            definitions.extend(
+                entries
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.clone())),
+            );
+        }
+    }
+    if let Some(object) = resolved.as_object_mut() {
+        object.insert("$defs".into(), Value::Object(definitions));
+    }
+    rewrite_refs(&mut resolved);
+    prune_schema_definitions(&mut resolved);
+    Ok(resolved)
 }
 
 fn path_matches(template: &str, actual: &str) -> bool {

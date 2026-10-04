@@ -327,6 +327,7 @@ Select one command below, then read its linked command card. Each card contains 
 | `zotero-bridge synthesis cache refresh-reference-sidecar` | Start a reference-sidecar refresh | [Open card](commands/synthesis/cache/refresh-reference-sidecar.md) |
 | `zotero-bridge synthesis cache status` | Read Synthesis cache maintenance status | [Open card](commands/synthesis/cache/status.md) |
 | `zotero-bridge synthesis concept query` | Query Synthesis Concept KB candidates | [Open card](commands/synthesis/concept/query.md) |
+| `zotero-bridge synthesis evidence search` | Search metadata, full-text, and analysis evidence | [Open card](commands/synthesis/evidence/search.md) |
 | `zotero-bridge synthesis graph get-layout` | Read persisted citation graph layout coordinates | [Open card](commands/synthesis/graph/get-layout.md) |
 | `zotero-bridge synthesis graph get-metrics` | Read citation graph metrics for selected papers | [Open card](commands/synthesis/graph/get-metrics.md) |
 | `zotero-bridge synthesis graph get-slice` | Read a Synthesis citation graph slice | [Open card](commands/synthesis/graph/get-slice.md) |
@@ -392,6 +393,10 @@ Selection check:
 - Confirm the selected command with `zotero-bridge surface describe '<canonical command>'` before constructing the invocation.
 - Read the linked detailed reference before execution; the compact index is not an argv or approval contract.
 
+
+## Library evidence retrieval
+
+Use `zotero-bridge surface describe 'synthesis evidence search'` to inspect the live input/output schema and bounds before constructing a request. `--query` takes the JSON request container, whose `query` property is the plain-text query; raw text is not accepted in that argument. The canonical target is `synthesis.search_evidence`; the command is read-only and requires no Zotero UI approval. Follow the returned descriptor for the current result envelope and continuation fields.
 
 ## Completion check
 

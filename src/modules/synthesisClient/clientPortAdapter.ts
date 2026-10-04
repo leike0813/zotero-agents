@@ -126,6 +126,12 @@ import {
   type SynthesisWorkbenchSurfaceName,
   type SynthesisWorkbenchTopicDetailResult,
 } from "../../../packages/synthesis-contracts/src/index";
+import {
+  rebuildSynthesisEvidenceSearchRequest,
+  rebuildSynthesisEvidenceSearchResult,
+  type SynthesisEvidenceSearchRequest,
+  type SynthesisEvidenceSearchResult,
+} from "../../../packages/synthesis-contracts/src/search";
 import { isTransientStorageBusyError } from "../guardedSqlite";
 
 type ClientMethod<
@@ -140,6 +146,9 @@ type SyncTransportMethod<
 > = SynthesisClient["sync"]["webDav"][Method];
 
 export interface SynthesisClientPort {
+  searchEvidence?: (
+    request: SynthesisEvidenceSearchRequest,
+  ) => Promise<SynthesisEvidenceSearchResult>;
   listTopics?: ClientMethod<"topics", "list">;
   findTopicsByPaperRef?: ClientMethod<"topics", "findByPaperRef">;
   getTopicContext?: ClientMethod<"topics", "getContext">;
@@ -1451,6 +1460,15 @@ export function createSynthesisClientFromPort(
     });
 
   return {
+    async searchEvidence(request) {
+      return runClientJsonPort(
+        port.searchEvidence,
+        "searchEvidence",
+        rebuildSynthesisEvidenceSearchRequest(request),
+        undefined,
+        rebuildSynthesisEvidenceSearchResult,
+      );
+    },
     concepts: {
       async query(request = {}) {
         return runClientJsonPort(

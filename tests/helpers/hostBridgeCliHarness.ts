@@ -1,4 +1,5 @@
 import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { readFileSync } from "node:fs";
 import {
   createServer,
   type IncomingMessage,
@@ -564,6 +565,17 @@ export async function withHostBridgeCliHarness<T>(
   const commandRegistry = loadHostBridgeCommandContracts(root);
   const capabilityRegistry = loadHostBridgeCapabilityContracts(root);
   const ajv = new Ajv2020({ allErrors: true, strict: false, logger: false });
+  const synthesisProtocolSchemas = path.join(
+    root,
+    "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas",
+  );
+  for (const schemaName of ["search.schema.json", "reverse-host.schema.json"]) {
+    ajv.addSchema(
+      JSON.parse(
+        readFileSync(path.join(synthesisProtocolSchemas, schemaName), "utf8"),
+      ),
+    );
+  }
   const registeredByCapability = new Map<string, RegisteredCommand>();
 
   for (const [command, handler] of Object.entries(handlers)) {

@@ -1,6 +1,9 @@
 import {
   toSynthesisJsonValue,
   type SynthesisHostArtifactDescriptor,
+  type SynthesisHostEvidenceReadResult,
+  type SynthesisHostEvidenceSourcesRequest,
+  type SynthesisHostEvidenceSourcesResult,
   type SynthesisHostLibraryItemSummary,
   type SynthesisHostReadPort,
 } from "../../packages/synthesis-contracts/src/index";
@@ -120,6 +123,33 @@ export function createTestSynthesisHostReadPort(
             (paperRef) => !byRef.has(paperRef),
           ),
         };
+      },
+    },
+    evidence: {
+      async listSources(
+        request: SynthesisHostEvidenceSourcesRequest,
+      ): Promise<SynthesisHostEvidenceSourcesResult> {
+        const ids = request.scope.libraryIds ?? [
+          ...new Set((await load()).map((row) => row.libraryId)),
+        ];
+        if (
+          !ids.length ||
+          ids.some((id) => !Number.isSafeInteger(id) || id <= 0)
+        ) {
+          throw new Error("Test Host evidence Library scope is invalid");
+        }
+        return {
+          scope: { ...request.scope, libraryIds: ids },
+          descriptors: [],
+          nextCursor: null,
+          hasMore: false,
+          issues: [
+            { code: "source_unavailable", sourceKind: null, affectedCount: 0 },
+          ],
+        };
+      },
+      async readSource(): Promise<SynthesisHostEvidenceReadResult> {
+        return { outcome: "source_unavailable" };
       },
     },
     artifacts: {

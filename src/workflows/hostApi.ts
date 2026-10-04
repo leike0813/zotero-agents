@@ -660,6 +660,7 @@ export function createWorkflowHostApi(
     notifications: { toast: notifications.toast },
     logging: { appendRuntimeLog: logging.appendRuntimeLog },
     synthesis: {
+      searchEvidence: synthesis.searchEvidence,
       workflowApply: {
         applyLiteratureDigest: synthesis.workflowApply.applyLiteratureDigest,
         applyTopicPlan: synthesis.workflowApply.applyTopicPlan,

@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: MCP SHALL expose remote Synthesis evidence search
-The Zotero MCP tool suite SHALL expose the remote `synthesis.search_evidence` capability as an MCP tool, using the same closed input/output schema and Host Bridge handler without a separate retrieval implementation.
+The Zotero MCP tool suite SHALL expose the remote `synthesis.search_evidence` capability as an MCP tool, using the same closed input/output schema and Host Bridge handler without a separate retrieval implementation. It SHALL preserve the capability's read-only, no-per-call-UI-approval behavior.
 
 #### Scenario: MCP lists and invokes evidence search
 - **WHEN** an MCP client lists tools and invokes the evidence-search tool with a valid request

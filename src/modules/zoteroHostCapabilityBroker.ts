@@ -187,6 +187,8 @@ import {
 } from "../schemas/zoteroHostMutationSchemas";
 import {
   hashSynthesisContractCanonicalJson,
+  canonicalizeSynthesisContractJson,
+  sha256SynthesisContractBytes,
   ZOTERO_LIBRARY_SNAPSHOT_BATCH_SIZE_DEFAULT,
   ZOTERO_LIBRARY_SNAPSHOT_BATCH_SIZE_MAX,
   ZOTERO_LIBRARY_SNAPSHOT_ITEM_LIMIT,
@@ -194,6 +196,13 @@ import {
   ZOTERO_LIBRARY_SNAPSHOT_SCHEMA,
   ZOTERO_LIBRARY_SNAPSHOT_SCOPE,
   ZOTERO_LIBRARY_SNAPSHOT_TTL_MS,
+  type SynthesisHostEvidenceDescriptor,
+  type SynthesisHostEvidenceLocation,
+  type SynthesisHostEvidenceReadRequest,
+  type SynthesisHostEvidenceReadResult,
+  type SynthesisHostEvidenceScope,
+  type SynthesisHostEvidenceSourcesRequest,
+  type SynthesisHostEvidenceSourcesResult,
   type ZoteroLibrarySnapshotCallerScope,
   type ZoteroLibrarySnapshotIncompleteResultDto,
   type ZoteroLibrarySnapshotItemDto,
@@ -759,6 +768,32 @@ export interface ZoteroHostCapabilityBroker {
       control?: WorkflowCallControl,
     ): Promise<MutationExecutionResult<JsonObject>>;
   };
+}
+
+export type ZoteroHostEvidenceSourceControl = Readonly<{
+  listSources(
+    request: SynthesisHostEvidenceSourcesRequest,
+  ): Promise<SynthesisHostEvidenceSourcesResult>;
+  readSource(
+    request: SynthesisHostEvidenceReadRequest,
+  ): Promise<SynthesisHostEvidenceReadResult>;
+}>;
+
+const zoteroHostEvidenceSourceControls = new WeakMap<
+  ZoteroHostCapabilityBroker,
+  ZoteroHostEvidenceSourceControl
+>();
+
+export function getZoteroHostEvidenceSourceControl(
+  broker: ZoteroHostCapabilityBroker,
+): ZoteroHostEvidenceSourceControl {
+  const control = zoteroHostEvidenceSourceControls.get(broker);
+  if (!control) {
+    throw new Error(
+      "Zotero Host Broker evidence source control is unavailable",
+    );
+  }
+  return control;
 }
 
 type ZoteroHostAttachmentMutationPrimitives = Readonly<{
@@ -17292,9 +17327,1017 @@ async function selectZoteroCollection(
   win?.focus?.();
 }
 
+function canonicalJsonPointerSpan(content: string, pointer: string) {
+  if (!pointer.startsWith("/") || pointer.length > 128) return null;
+  let value: unknown;
+  try {
+    value = JSON.parse(content);
+  } catch {
+    return null;
+  }
+  const segments = pointer
+    .slice(1)
+    .split("/")
+    .map((segment) => {
+      if (/~(?![01])/u.test(segment)) return null;
+      return segment.replaceAll("~1", "/").replaceAll("~0", "~");
+    });
+  if (segments.some((segment) => segment === null)) return null;
+  const visit = (
+    current: unknown,
+    depth: number,
+    start: number,
+  ): { start: number; end: number } | null => {
+    if (depth === segments.length) {
+      return {
+        start,
+        end: start + canonicalizeSynthesisContractJson(current).length,
+      };
+    }
+    const segment = segments[depth]!;
+    if (!current || typeof current !== "object") return null;
+    if (Array.isArray(current)) {
+      if (!/^(0|[1-9][0-9]*)$/u.test(segment)) return null;
+      const target = Number(segment);
+      if (!Number.isSafeInteger(target) || target >= current.length)
+        return null;
+      let childStart = start + 1;
+      for (let index = 0; index < current.length; index += 1) {
+        if (index === target)
+          return visit(current[index], depth + 1, childStart);
+        childStart +=
+          canonicalizeSynthesisContractJson(current[index]).length + 1;
+      }
+      return null;
+    }
+    const record = current as Record<string, unknown>;
+    let childStart = start + 1;
+    for (const key of Object.keys(record).sort()) {
+      const valueStart =
+        childStart + canonicalizeSynthesisContractJson(key).length + 1;
+      if (key === segment) return visit(record[key], depth + 1, valueStart);
+      childStart =
+        valueStart + canonicalizeSynthesisContractJson(record[key]).length + 1;
+    }
+    return null;
+  };
+  return visit(value, 0, 0);
+}
+
 export function createZoteroHostCapabilityBroker(
   selectionWindow?: () => _ZoteroTypes.MainWindow,
 ): ZoteroHostCapabilityBroker {
+  type EvidenceCatalogCursor = {
+    basis: string;
+    libraryOffset: number;
+    itemOffset: number;
+    queryCursor: string;
+    pendingItemRefs: ZoteroHostItemRefInput[];
+    pendingItemOffset: number;
+    pendingDescriptors: SynthesisHostEvidenceDescriptor[];
+    fieldOffset: number;
+    emitted: SynthesisHostEvidenceDescriptor[];
+    rounds: number;
+    expiresAt: number;
+  };
+  const evidenceCursors = new Map<string, EvidenceCatalogCursor>();
+  // Bound concurrent catalog state; each cursor independently expires after 60s and 8 rounds.
+  const evidenceCursorLimit = 256;
+  const resolveEvidenceScope = async (
+    input: SynthesisHostEvidenceSourcesRequest["scope"],
+  ): Promise<SynthesisHostEvidenceScope> => {
+    const requestedIds = input.libraryIds;
+    const libraryIds =
+      requestedIds === undefined
+        ? await withZoteroHostSlice(undefined, () => {
+            const ids = getCurrentView(selectionWindow?.()).libraryIds;
+            if (ids.length !== 1) {
+              throw capabilityError(
+                "invalid_request",
+                "current Library scope is ambiguous",
+                {
+                  reason: "invalid_value",
+                  field: "scope.libraryIds",
+                },
+              );
+            }
+            return ids;
+          })
+        : [...new Set(requestedIds)];
+    if (
+      !libraryIds.length ||
+      libraryIds.some((id) => !Number.isSafeInteger(id) || id <= 0)
+    ) {
+      throw capabilityError(
+        "invalid_request",
+        "Library scope is empty or invalid",
+        {
+          reason: "invalid_value",
+          field: "scope.libraryIds",
+        },
+      );
+    }
+    const collectionRef = input.collectionRef;
+    if (collectionRef && !libraryIds.includes(collectionRef.libraryId)) {
+      throw capabilityError(
+        "invalid_request",
+        "collection is outside the Library scope",
+        {
+          reason: "invalid_value",
+          field: "scope.collectionRef",
+        },
+      );
+    }
+    if (collectionRef) {
+      await withZoteroHostSlice(undefined, () => {
+        if (!resolveCollection(collectionRef)) {
+          throw notFoundError("collection", collectionRef);
+        }
+      });
+    }
+    if (input.itemRefs?.some((ref) => !libraryIds.includes(ref.libraryId))) {
+      throw capabilityError(
+        "invalid_request",
+        "item ref is outside the Library scope",
+        {
+          reason: "invalid_value",
+          field: "scope.itemRefs",
+        },
+      );
+    }
+    return {
+      libraryIds,
+      ...(collectionRef ? { collectionRef } : {}),
+      ...(input.tag !== undefined ? { tag: input.tag } : {}),
+      ...(input.itemType !== undefined ? { itemType: input.itemType } : {}),
+      ...(input.itemRefs !== undefined
+        ? {
+            itemRefs: Array.from(
+              new Map(
+                input.itemRefs.map((ref) => [
+                  `${ref.libraryId}:${ref.key}`,
+                  ref,
+                ]),
+              ).values(),
+            ),
+          }
+        : {}),
+    };
+  };
+  const metadataValue = (item: Zotero.Item, field: string) => {
+    switch (field) {
+      case "title":
+        return canonicalTitle(item);
+      case "abstract":
+        return canonicalField(item, "abstractNote");
+      case "creator":
+        return canonicalCreators(item)
+          .map((creator) =>
+            creator.representation === "single_field"
+              ? creator.name
+              : [creator.firstName, creator.lastName].filter(Boolean).join(" "),
+          )
+          .join("\n");
+      case "tags":
+        return canonicalTags(item).join("\n");
+      case "date":
+        return canonicalField(item, "date");
+      case "publicationTitle":
+        return canonicalField(item, "publicationTitle");
+      default:
+        throw capabilityError(
+          "invalid_request",
+          "metadata evidence field is invalid",
+          {
+            reason: "invalid_value",
+            field: "source.field",
+          },
+        );
+    }
+  };
+  const metadataDescriptor = (
+    item: Zotero.Item,
+    field: string,
+  ): SynthesisHostEvidenceDescriptor | null => {
+    const content = metadataValue(item, field);
+    if (!content) return null;
+    if (content.length > 262_144) {
+      throw capabilityError(
+        "resource_limited",
+        "metadata evidence source exceeds the limit",
+        {
+          resource: "characters",
+          limit: 262_144,
+          observed: content.length,
+        },
+      );
+    }
+    const itemRef = canonicalItemRef(item);
+    const source = { kind: "metadata" as const, field };
+    return {
+      itemRef,
+      source,
+      sourceVersion: hashSynthesisContractCanonicalJson({
+        itemRevision: canonicalItemVersion(item).revision,
+        source,
+        content,
+      }),
+      format: "text",
+      contentLength: content.length,
+    };
+  };
+  const artifactKinds = [
+    "digest",
+    "references",
+    "citation-analysis",
+    "literature-score",
+  ] as const;
+  const markdownExtensions = new Set(["md", "markdown", "mdown", "mkd"]);
+  const addEvidenceIssue = (
+    issues: SynthesisHostEvidenceSourcesResult["issues"],
+    code: SynthesisHostEvidenceSourcesResult["issues"][number]["code"],
+    sourceKind: SynthesisHostEvidenceSourcesResult["issues"][number]["sourceKind"],
+  ) => {
+    const existing = issues.find(
+      (issue) => issue.code === code && issue.sourceKind === sourceKind,
+    );
+    if (existing) {
+      existing.affectedCount = Math.min(100_000, existing.affectedCount + 1);
+    } else if (issues.length < 20) {
+      issues.push({ code, sourceKind, affectedCount: 1 });
+    }
+  };
+  const readMarkdownBytes = async (path: string) => {
+    const stat = await statRuntimePathStrict(path);
+    if (!stat.exists || stat.isDir)
+      return { outcome: "source_unavailable" as const };
+    if (stat.size > 8 * 1024 * 1024)
+      return { outcome: "source_read_failed" as const };
+    const bytes = await readRuntimeBytes(path);
+    if (bytes.byteLength > 8 * 1024 * 1024)
+      return { outcome: "source_read_failed" as const };
+    let content: string;
+    try {
+      content = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch {
+      return { outcome: "source_read_failed" as const };
+    }
+    if (content.length > 262_144)
+      return { outcome: "source_read_failed" as const };
+    return { outcome: "available" as const, bytes, content };
+  };
+  const readCanonicalAnalysis = async (
+    parentRef: ZoteroHostItemRefInput,
+    artifactType: (typeof artifactKinds)[number],
+  ): Promise<{
+    descriptor: SynthesisHostEvidenceDescriptor;
+    content: string;
+  } | null> => {
+    const singleton = await managedSingleton(parentRef, artifactType);
+    if (!singleton.note || singleton.inspection?.kind !== "managed")
+      return null;
+    const { note, inspection } = singleton;
+    const noteRef = await withZoteroHostSlice(undefined, () =>
+      canonicalItemRef(note),
+    );
+    const content = canonicalizeSynthesisContractJson(inspection.payload);
+    if (!content) return null;
+    if (content.length > 262_144) {
+      throw capabilityError(
+        "resource_limited",
+        "analysis evidence source exceeds the limit",
+        {
+          resource: "characters",
+          limit: 262_144,
+          observed: content.length,
+        },
+      );
+    }
+    const block = inspection.block;
+    const source = { kind: "analysis" as const, artifactType, noteRef };
+    const format = "text" as const;
+    const sourceVersion = canonicalLogicalNotePayloadHash({
+      payloadType: block.payloadType,
+      noteKind: artifactType,
+      schemaVersion: block.logicalSchemaVersion || block.version,
+      format: block.format,
+      value: inspection.payload,
+    });
+    return {
+      descriptor: {
+        itemRef: parentRef,
+        source,
+        sourceVersion,
+        format,
+        contentLength: content.length,
+      },
+      content,
+    };
+  };
+  const describeMarkdownAttachments = async (
+    parent: Zotero.Item,
+    issues: SynthesisHostEvidenceSourcesResult["issues"],
+  ): Promise<SynthesisHostEvidenceDescriptor[]> => {
+    const parentFacts = await withZoteroHostSlice(undefined, () => ({
+      ref: canonicalItemRef(parent),
+      libraryId: Number((parent as any).libraryID),
+      parentItemId: Number((parent as any).id),
+    }));
+    const descriptors: SynthesisHostEvidenceDescriptor[] = [];
+    let cursor: string | undefined;
+    for (let pageCount = 0; pageCount < 8; pageCount += 1) {
+      const page = await withZoteroHostSlice(undefined, () =>
+        queryZoteroChildItemPage({
+          domain: "attachments",
+          libraryId: parentFacts.libraryId,
+          parentItemId: parentFacts.parentItemId,
+          limit: 100,
+          ...(cursor ? { cursor } : {}),
+        }),
+      );
+      const candidates = await withZoteroHostSlice(undefined, () =>
+        page.items
+          .filter((item) => item.isAttachment?.())
+          .map((item) => {
+            const filename = String(
+              (item as any).getFilename?.() || item.getField?.("title") || "",
+            );
+            const extension = filename.split(".").at(-1)?.toLowerCase() || "";
+            return markdownExtensions.has(extension)
+              ? {
+                  item,
+                  ref: canonicalItemRef(item),
+                  linkMode: canonicalAttachmentLinkMode(item),
+                }
+              : null;
+          })
+          .filter((item): item is NonNullable<typeof item> => Boolean(item)),
+      );
+      for (const candidate of candidates) {
+        try {
+          const path = await readAttachmentPathOutsideHostSlice(
+            candidate.item,
+            candidate.linkMode,
+          );
+          if (!path) {
+            addEvidenceIssue(issues, "source_unavailable", "fulltext");
+            continue;
+          }
+          const read = await readMarkdownBytes(path);
+          if (read.outcome !== "available") {
+            addEvidenceIssue(issues, read.outcome, "fulltext");
+            continue;
+          }
+          const currentOwner = await withZoteroHostSlice(undefined, () => {
+            const currentParent = resolveItem(parentFacts.ref);
+            const currentAttachment = resolveItem(candidate.ref);
+            return Boolean(
+              currentParent?.isRegularItem?.() &&
+              currentAttachment?.isAttachment?.() &&
+              Number((currentAttachment as any).parentItemID) ===
+                parentFacts.parentItemId &&
+              canonicalItemState(currentParent) === "active",
+            );
+          });
+          if (!currentOwner) {
+            addEvidenceIssue(issues, "source_changed", "fulltext");
+            continue;
+          }
+          const source = {
+            kind: "fulltext" as const,
+            attachmentRef: candidate.ref,
+          };
+          descriptors.push({
+            itemRef: parentFacts.ref,
+            source,
+            sourceVersion: sha256SynthesisContractBytes(read.bytes),
+            format: "markdown",
+            contentLength: read.content.length,
+          });
+        } catch {
+          addEvidenceIssue(issues, "source_read_failed", "fulltext");
+        }
+      }
+      if (!page.hasMore) break;
+      if (!page.nextCursor || page.nextCursor === cursor) {
+        throw capabilityError(
+          "execution_failed",
+          "Markdown source page cursor did not advance",
+          {
+            phase: "read",
+            recovery: "retry_same_operation",
+          },
+        );
+      }
+      cursor = page.nextCursor;
+      if (pageCount === 7) {
+        addEvidenceIssue(issues, "source_read_failed", "fulltext");
+      }
+    }
+    return descriptors;
+  };
+  const readMarkdownSource = async (
+    parentRef: ZoteroHostItemRefInput,
+    attachmentRef: ZoteroHostItemRefInput,
+    scope: SynthesisHostEvidenceScope,
+  ): Promise<
+    | {
+        outcome: "available";
+        descriptor: SynthesisHostEvidenceDescriptor;
+        content: string;
+      }
+    | {
+        outcome: "source_unavailable" | "source_changed" | "source_read_failed";
+      }
+  > => {
+    const candidate = await withZoteroHostSlice(undefined, () => {
+      if (parentRef.libraryId !== attachmentRef.libraryId) return null;
+      const parent = resolveItem(parentRef);
+      const attachment = resolveItem(attachmentRef);
+      if (!parent?.isRegularItem?.() || !attachment?.isAttachment?.())
+        return null;
+      if (
+        Number((attachment as any).parentItemID) !== Number((parent as any).id)
+      )
+        return null;
+      if (canonicalItemState(parent) !== "active") return null;
+      if (scope.itemType && String(parent.itemType) !== scope.itemType)
+        return null;
+      if (scope.tag && !canonicalTags(parent).includes(scope.tag)) return null;
+      if (
+        scope.collectionRef &&
+        !canonicalCollectionRefs(parent).some(
+          (ref) =>
+            ref.libraryId === scope.collectionRef!.libraryId &&
+            ref.key === scope.collectionRef!.key,
+        )
+      )
+        return null;
+      if (
+        scope.itemRefs &&
+        !scope.itemRefs.some(
+          (ref) =>
+            ref.libraryId === parentRef.libraryId && ref.key === parentRef.key,
+        )
+      )
+        return null;
+      const filename = String(
+        (attachment as any).getFilename?.() ||
+          attachment.getField?.("title") ||
+          "",
+      );
+      const extension = filename.split(".").at(-1)?.toLowerCase() || "";
+      if (!markdownExtensions.has(extension)) return null;
+      return {
+        attachment,
+        linkMode: canonicalAttachmentLinkMode(attachment),
+        parentRevision: canonicalItemVersion(parent).revision,
+        attachmentRevision: canonicalItemVersion(attachment).revision,
+      };
+    });
+    if (!candidate) return { outcome: "source_unavailable" };
+    const path = await readAttachmentPathOutsideHostSlice(
+      candidate.attachment,
+      candidate.linkMode,
+    );
+    if (!path) return { outcome: "source_unavailable" };
+    const read = await readMarkdownBytes(path);
+    if (read.outcome !== "available") return read;
+    const stillOwned = await withZoteroHostSlice(undefined, () => {
+      const parent = resolveItem(parentRef);
+      const attachment = resolveItem(attachmentRef);
+      return Boolean(
+        parent?.isRegularItem?.() &&
+        attachment?.isAttachment?.() &&
+        canonicalItemState(parent) === "active" &&
+        Number((attachment as any).parentItemID) ===
+          Number((parent as any).id) &&
+        canonicalItemVersion(parent).revision === candidate.parentRevision &&
+        canonicalItemVersion(attachment).revision ===
+          candidate.attachmentRevision &&
+        (!scope.itemType || String(parent.itemType) === scope.itemType) &&
+        (!scope.tag || canonicalTags(parent).includes(scope.tag)) &&
+        (!scope.collectionRef ||
+          canonicalCollectionRefs(parent).some(
+            (ref) =>
+              ref.libraryId === scope.collectionRef!.libraryId &&
+              ref.key === scope.collectionRef!.key,
+          )),
+      );
+    });
+    if (!stillOwned) return { outcome: "source_changed" };
+    const source = { kind: "fulltext" as const, attachmentRef };
+    return {
+      outcome: "available",
+      descriptor: {
+        itemRef: parentRef,
+        source,
+        sourceVersion: sha256SynthesisContractBytes(read.bytes),
+        format: "markdown",
+        contentLength: read.content.length,
+      },
+      content: read.content,
+    };
+  };
+  const describeEvidenceSources = async (
+    item: Zotero.Item,
+    sourceKinds: Set<string>,
+    issues: SynthesisHostEvidenceSourcesResult["issues"],
+  ): Promise<SynthesisHostEvidenceDescriptor[]> => {
+    const facts = await withZoteroHostSlice(undefined, () => ({
+      ref: canonicalItemRef(item),
+      active: item.isRegularItem?.() && canonicalItemState(item) === "active",
+    }));
+    if (!facts.active) return [];
+    const descriptors: SynthesisHostEvidenceDescriptor[] = [];
+    if (sourceKinds.has("metadata")) {
+      for (const field of [
+        "title",
+        "abstract",
+        "creator",
+        "tags",
+        "date",
+        "publicationTitle",
+      ]) {
+        try {
+          const descriptor = await withZoteroHostSlice(undefined, () =>
+            metadataDescriptor(item, field),
+          );
+          if (descriptor) descriptors.push(descriptor);
+        } catch {
+          addEvidenceIssue(issues, "source_read_failed", "metadata");
+        }
+      }
+    }
+    if (sourceKinds.has("fulltext")) {
+      descriptors.push(...(await describeMarkdownAttachments(item, issues)));
+    }
+    if (sourceKinds.has("analysis")) {
+      for (const artifactType of artifactKinds) {
+        try {
+          const current = await readCanonicalAnalysis(facts.ref, artifactType);
+          if (current) descriptors.push(current.descriptor);
+        } catch {
+          addEvidenceIssue(issues, "source_read_failed", "analysis");
+        }
+      }
+    }
+    return descriptors;
+  };
+  const listEvidenceSources = async (
+    request: SynthesisHostEvidenceSourcesRequest,
+  ): Promise<SynthesisHostEvidenceSourcesResult> => {
+    const now = Date.now();
+    for (const [token, cursor] of evidenceCursors) {
+      if (cursor.expiresAt <= now) evidenceCursors.delete(token);
+    }
+    const limit = request.limit ?? 100;
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+      throw capabilityError(
+        "invalid_request",
+        "evidence source limit is invalid",
+        {
+          reason: "invalid_value",
+          field: "limit",
+        },
+      );
+    }
+    const scope = await resolveEvidenceScope(request.scope);
+    const sourceKinds = new Set(
+      request.sourceKinds ?? ["metadata", "fulltext", "analysis"],
+    );
+    const filters = {
+      ...scope,
+      itemRefs: scope.itemRefs
+        ? [...scope.itemRefs].sort((a, b) =>
+            `${a.libraryId}:${a.key}`.localeCompare(`${b.libraryId}:${b.key}`),
+          )
+        : undefined,
+    };
+    const basis = hashSynthesisContractCanonicalJson({
+      scope: filters,
+      sourceKinds: [...sourceKinds].sort(),
+    });
+    let state: EvidenceCatalogCursor = {
+      basis,
+      libraryOffset: 0,
+      itemOffset: 0,
+      queryCursor: "",
+      pendingItemRefs: [],
+      pendingItemOffset: 0,
+      pendingDescriptors: [],
+      fieldOffset: 0,
+      emitted: [],
+      rounds: 1,
+      expiresAt: now + 60_000,
+    };
+    if (request.cursor) {
+      const previous = evidenceCursors.get(request.cursor);
+      evidenceCursors.delete(request.cursor);
+      if (!previous || previous.expiresAt <= now || previous.basis !== basis) {
+        throw capabilityError(
+          "conflict",
+          "evidence source catalog basis changed",
+          {
+            reason: "basis_mismatch",
+          },
+        );
+      }
+      state = previous;
+      if (state.rounds >= 8) {
+        throw capabilityError(
+          "resource_limited",
+          "evidence source catalog round limit reached",
+          {
+            resource: "pages",
+            limit: 8,
+            observed: state.rounds + 1,
+          },
+        );
+      }
+      for (const descriptor of [
+        ...state.emitted,
+        ...state.pendingDescriptors,
+      ]) {
+        const current = await readEvidenceSource({ scope, descriptor });
+        if (current.outcome !== "available") {
+          throw capabilityError(
+            "conflict",
+            "evidence source catalog basis changed",
+            {
+              reason: "basis_mismatch",
+            },
+          );
+        }
+      }
+      state.expiresAt = now + 60_000;
+      state.rounds += 1;
+    }
+    const descriptors: SynthesisHostEvidenceDescriptor[] = [];
+    const sourceIssues: SynthesisHostEvidenceSourcesResult["issues"] = [];
+    let itemsVisited = 0;
+    while (
+      sourceKinds.size > 0 &&
+      descriptors.length < limit &&
+      itemsVisited < 256 &&
+      state.libraryOffset < scope.libraryIds.length
+    ) {
+      const libraryId = scope.libraryIds[state.libraryOffset];
+      if (scope.itemRefs) {
+        if (state.itemOffset >= scope.itemRefs.length) {
+          state.libraryOffset++;
+          state.itemOffset = 0;
+          state.fieldOffset = 0;
+          continue;
+        }
+        const ref = scope.itemRefs[state.itemOffset];
+        itemsVisited += 1;
+        if (ref.libraryId !== libraryId) {
+          state.itemOffset++;
+          state.fieldOffset = 0;
+          continue;
+        }
+        const item = await withZoteroHostSlice(undefined, () =>
+          resolveItem(ref),
+        );
+        const matchesScope = await withZoteroHostSlice(
+          undefined,
+          () =>
+            item &&
+            item.isRegularItem?.() &&
+            canonicalItemState(item) === "active" &&
+            (!scope.itemType || String(item.itemType) === scope.itemType) &&
+            (!scope.tag || canonicalTags(item).includes(scope.tag)) &&
+            (!scope.collectionRef ||
+              canonicalCollectionRefs(item).some(
+                (entry) =>
+                  entry.libraryId === scope.collectionRef!.libraryId &&
+                  entry.key === scope.collectionRef!.key,
+              )),
+        );
+        if (!matchesScope) {
+          state.itemOffset++;
+          state.fieldOffset = 0;
+          state.pendingDescriptors = [];
+          continue;
+        }
+        if (!state.pendingDescriptors.length && state.fieldOffset === 0) {
+          state.pendingDescriptors = await describeEvidenceSources(
+            item!,
+            sourceKinds,
+            sourceIssues,
+          );
+        }
+        for (
+          ;
+          state.fieldOffset < state.pendingDescriptors.length &&
+          descriptors.length < limit;
+          state.fieldOffset++
+        ) {
+          descriptors.push(state.pendingDescriptors[state.fieldOffset]);
+        }
+        if (state.fieldOffset >= state.pendingDescriptors.length) {
+          state.itemOffset++;
+          state.fieldOffset = 0;
+          state.pendingDescriptors = [];
+        }
+        continue;
+      }
+      if (state.pendingItemOffset >= state.pendingItemRefs.length) {
+        const collection = scope.collectionRef
+          ? await withZoteroHostSlice(undefined, () =>
+              resolveCollection(scope.collectionRef!),
+            )
+          : null;
+        const page = await withZoteroHostSlice(undefined, () =>
+          queryZoteroLibraryPage(
+            {
+              libraryId,
+              collectionId: collection
+                ? Number((collection as any).id)
+                : undefined,
+              tag: scope.tag,
+              itemType: scope.itemType,
+              cursor: state.queryCursor || undefined,
+              limit: 100,
+            },
+            { defaultLibraryId: libraryId, defaultLimit: 100, maxLimit: 100 },
+          ),
+        );
+        state.queryCursor = page.nextCursor || "";
+        state.pendingItemRefs = page.items.map((item) =>
+          canonicalItemRef(item),
+        );
+        state.pendingItemOffset = 0;
+        if (!state.pendingItemRefs.length && !page.hasMore) {
+          state.libraryOffset++;
+          state.queryCursor = "";
+          continue;
+        }
+      }
+      const ref = state.pendingItemRefs[state.pendingItemOffset];
+      itemsVisited += 1;
+      const item = await withZoteroHostSlice(undefined, () => resolveItem(ref));
+      if (
+        !item ||
+        !item.isRegularItem?.() ||
+        canonicalItemState(item) !== "active"
+      ) {
+        state.pendingItemOffset++;
+        state.fieldOffset = 0;
+        state.pendingDescriptors = [];
+        continue;
+      }
+      if (!state.pendingDescriptors.length && state.fieldOffset === 0) {
+        state.pendingDescriptors = await describeEvidenceSources(
+          item,
+          sourceKinds,
+          sourceIssues,
+        );
+      }
+      for (
+        ;
+        state.fieldOffset < state.pendingDescriptors.length &&
+        descriptors.length < limit;
+        state.fieldOffset++
+      ) {
+        descriptors.push(state.pendingDescriptors[state.fieldOffset]);
+      }
+      if (state.fieldOffset >= state.pendingDescriptors.length) {
+        state.pendingItemOffset++;
+        state.fieldOffset = 0;
+        state.pendingDescriptors = [];
+        if (
+          state.pendingItemOffset >= state.pendingItemRefs.length &&
+          !state.queryCursor
+        ) {
+          state.libraryOffset++;
+          state.pendingItemRefs = [];
+          state.pendingItemOffset = 0;
+        }
+      }
+    }
+    state.emitted.push(...descriptors);
+    const pendingItems = scope.itemRefs
+      ? state.libraryOffset < scope.libraryIds.length
+      : state.fieldOffset < state.pendingDescriptors.length ||
+        state.pendingItemOffset < state.pendingItemRefs.length ||
+        Boolean(state.queryCursor) ||
+        state.libraryOffset < scope.libraryIds.length;
+    const scanBudgetReached = itemsVisited >= 256 && pendingItems;
+    if (scanBudgetReached) {
+      addEvidenceIssue(sourceIssues, "scan_budget_exhausted", null);
+    }
+    const hasMore =
+      sourceKinds.size > 0 && scope.itemRefs?.length !== 0 && pendingItems;
+    let nextCursor: string | null = null;
+    if (hasMore) {
+      while (evidenceCursors.size >= evidenceCursorLimit) {
+        const oldest = evidenceCursors.keys().next().value;
+        if (oldest === undefined) break;
+        evidenceCursors.delete(oldest);
+      }
+      const token = `evidence-catalog:${now.toString(36)}:${Math.random().toString(36).slice(2)}`;
+      evidenceCursors.set(token, state);
+      nextCursor = token;
+    }
+    return { scope, descriptors, nextCursor, hasMore, issues: sourceIssues };
+  };
+  const readEvidenceSource = async (
+    request: SynthesisHostEvidenceReadRequest,
+  ): Promise<SynthesisHostEvidenceReadResult> => {
+    const { descriptor, scope } = request;
+    if (
+      !scope.libraryIds.includes(descriptor.itemRef.libraryId) ||
+      (scope.itemRefs !== undefined &&
+        !scope.itemRefs.some(
+          (ref) =>
+            ref.libraryId === descriptor.itemRef.libraryId &&
+            ref.key === descriptor.itemRef.key,
+        ))
+    ) {
+      return { outcome: "invalid_source" };
+    }
+    const eligibleParent = () =>
+      withZoteroHostSlice(undefined, () => {
+        const item = resolveItem(descriptor.itemRef);
+        if (
+          !item ||
+          !item.isRegularItem?.() ||
+          canonicalItemState(item) !== "active"
+        )
+          return null;
+        if (scope.itemType && String(item.itemType) !== scope.itemType)
+          return null;
+        if (scope.tag && !canonicalTags(item).includes(scope.tag)) return null;
+        if (
+          scope.collectionRef &&
+          !canonicalCollectionRefs(item).some(
+            (ref) =>
+              ref.libraryId === scope.collectionRef!.libraryId &&
+              ref.key === scope.collectionRef!.key,
+          )
+        )
+          return null;
+        return item;
+      });
+    if (!(await eligibleParent())) return { outcome: "source_unavailable" };
+
+    let content: string;
+    let sourceVersion: string;
+    let format: "text" | "markdown";
+    let fullLocation: SynthesisHostEvidenceLocation;
+    if (descriptor.source.kind === "metadata") {
+      const metadataSource = descriptor.source;
+      const current = await withZoteroHostSlice(undefined, () => {
+        const item = resolveItem(descriptor.itemRef);
+        if (
+          !item ||
+          !item.isRegularItem?.() ||
+          canonicalItemState(item) !== "active"
+        )
+          return null;
+        if (scope.itemType && String(item.itemType) !== scope.itemType)
+          return null;
+        if (scope.tag && !canonicalTags(item).includes(scope.tag)) return null;
+        if (
+          scope.collectionRef &&
+          !canonicalCollectionRefs(item).some(
+            (ref) =>
+              ref.libraryId === scope.collectionRef!.libraryId &&
+              ref.key === scope.collectionRef!.key,
+          )
+        )
+          return null;
+        const value = metadataValue(item, metadataSource.field);
+        return {
+          content: value,
+          sourceVersion: hashSynthesisContractCanonicalJson({
+            itemRevision: canonicalItemVersion(item).revision,
+            source: metadataSource,
+            content: value,
+          }),
+        };
+      });
+      if (!current) return { outcome: "source_unavailable" };
+      content = current.content;
+      sourceVersion = current.sourceVersion;
+      format = "text";
+      fullLocation = {
+        unit: "field",
+        field: metadataSource.field,
+        range: { start: 0, end: content.length },
+      };
+    } else if (descriptor.source.kind === "fulltext") {
+      let markdown: Awaited<ReturnType<typeof readMarkdownSource>>;
+      try {
+        markdown = await readMarkdownSource(
+          descriptor.itemRef,
+          descriptor.source.attachmentRef,
+          scope,
+        );
+      } catch {
+        return { outcome: "source_read_failed" };
+      }
+      if (markdown.outcome !== "available") return markdown;
+      content = markdown.content;
+      sourceVersion = markdown.descriptor.sourceVersion;
+      format = "markdown";
+      fullLocation = {
+        unit: "paragraph",
+        field: null,
+        range: { start: 0, end: content.length },
+      };
+    } else {
+      let analysis: Awaited<ReturnType<typeof readCanonicalAnalysis>>;
+      try {
+        analysis = await readCanonicalAnalysis(
+          descriptor.itemRef,
+          descriptor.source.artifactType,
+        );
+      } catch {
+        return { outcome: "source_read_failed" };
+      }
+      if (!analysis) return { outcome: "source_unavailable" };
+      if (
+        analysis.descriptor.source.kind !== "analysis" ||
+        analysis.descriptor.source.noteRef.libraryId !==
+          descriptor.source.noteRef.libraryId ||
+        analysis.descriptor.source.noteRef.key !== descriptor.source.noteRef.key
+      )
+        return { outcome: "source_changed" };
+      content = analysis.content;
+      sourceVersion = analysis.descriptor.sourceVersion;
+      format = "text";
+      fullLocation = {
+        unit: "analysis_field",
+        field: "$",
+        range: { start: 0, end: content.length },
+      };
+    }
+
+    if (
+      sourceVersion !== descriptor.sourceVersion ||
+      content.length !== descriptor.contentLength ||
+      format !== descriptor.format
+    )
+      return { outcome: "source_changed" };
+    const location = request.location || fullLocation;
+    const { start, end } = location.range;
+    let selectedSpan: { start: number; end: number } | null = null;
+    if (descriptor.source.kind === "analysis") {
+      if (
+        location.unit !== "analysis_field" ||
+        typeof location.field !== "string"
+      ) {
+        return { outcome: "invalid_source" };
+      }
+      if (location.field === "$") {
+        selectedSpan = { start: 0, end: content.length };
+      } else {
+        selectedSpan = canonicalJsonPointerSpan(content, location.field);
+        if (selectedSpan) {
+          const leaf = JSON.parse(
+            content.slice(selectedSpan.start, selectedSpan.end),
+          );
+          if (leaf !== null && typeof leaf === "object") selectedSpan = null;
+        }
+      }
+    }
+    if (
+      start < 0 ||
+      end <= start ||
+      end > content.length ||
+      (start > 0 &&
+        content.charCodeAt(start) >= 0xdc00 &&
+        content.charCodeAt(start) <= 0xdfff) ||
+      (end < content.length &&
+        content.charCodeAt(end) >= 0xdc00 &&
+        content.charCodeAt(end) <= 0xdfff) ||
+      (descriptor.source.kind === "metadata" &&
+        (location.unit !== "field" ||
+          location.field !== descriptor.source.field)) ||
+      (descriptor.source.kind === "fulltext" &&
+        ((location.unit !== "paragraph" &&
+          location.unit !== "list_item" &&
+          location.unit !== "table_row") ||
+          location.field !== null)) ||
+      (descriptor.source.kind === "analysis" &&
+        (!selectedSpan || start < selectedSpan.start || end > selectedSpan.end))
+    ) {
+      return { outcome: "invalid_source" };
+    }
+    if (!(await eligibleParent())) return { outcome: "source_changed" };
+    return {
+      outcome: "available",
+      itemRef: descriptor.itemRef,
+      content: content.slice(start, end),
+      format,
+      source: descriptor.source,
+      sourceVersion,
+      location,
+    };
+  };
   const broker: ZoteroHostCapabilityBroker = {
     context: {
       getCurrentView(): CurrentViewDto {
@@ -17657,6 +18700,10 @@ export function createZoteroHostCapabilityBroker(
         ),
     },
   };
+  zoteroHostEvidenceSourceControls.set(broker, {
+    listSources: listEvidenceSources,
+    readSource: readEvidenceSource,
+  });
   canonicalMutationControls.set(broker, createCanonicalMutationControl());
   registerZoteroManagedNoteLocalControl(broker, {
     isLibraryWritable: async (libraryId, control = {}) =>

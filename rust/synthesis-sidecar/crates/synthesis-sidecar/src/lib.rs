@@ -8,6 +8,7 @@ mod runtime_concept_topic_graph_surface;
 pub mod runtime_contract;
 mod runtime_deadline;
 mod runtime_diagnostics;
+mod runtime_evidence_search;
 mod runtime_file_system;
 mod runtime_host_collection;
 mod runtime_http;

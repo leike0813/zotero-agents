@@ -92,6 +92,7 @@ import {
   rebuildSynthesisTopicContextRequest,
   rebuildSynthesisTopicFindRequest,
   rebuildSynthesisTopicListRequest,
+  rebuildSynthesisEvidenceSearchRequest,
   rebuildSynthesisTopicResolverRequest,
   rebuildSynthesisWorkbenchPaperDigestReadRequest,
   rebuildSynthesisWorkflowReviewRequest,
@@ -2243,6 +2244,7 @@ async function debugSkillRunnerConnectionsSnapshot(input: unknown) {
 }
 
 type SynthesisClientCapabilityMethod =
+  | "searchEvidence"
   | "listTopics"
   | "findTopicsByPaperRef"
   | "getTopicContext"
@@ -2311,6 +2313,10 @@ function invokeSynthesisClientCapability(
   delivery: SynthesisDeliveryContext,
 ) {
   switch (methodName) {
+    case "searchEvidence":
+      return client.searchEvidence(
+        rebuildSynthesisEvidenceSearchRequest(input),
+      );
     case "listTopics":
       return client.topics.list(rebuildSynthesisTopicListRequest(input));
     case "findTopicsByPaperRef":
@@ -2839,6 +2845,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
   debugCapability("debug.synthesis.cleanInstallReset", (input, context) =>
     callSynthesisDebugClient(context, "debugSynthesisCleanInstallReset", input),
   ),
+  synthesisCapability("synthesis.search_evidence", "searchEvidence"),
   synthesisCapability("topics.list", "listTopics"),
   synthesisCapability("topics.find_by_paper_ref", "findTopicsByPaperRef"),
   synthesisCapability("topics.get_context", "getTopicContext"),

@@ -8977,6 +8977,72 @@
       "pagination": "file",
       "payloadSchemaSource": "target-capability"
     },
+    "synthesis evidence search": {
+      "resultSchemaSource": "target-capability-envelope",
+      "inputs": {
+        "query": {
+          "token": "--query",
+          "required": true,
+          "requiredWhen": [],
+          "examples": [
+            {
+              "kind": "shape-only",
+              "value": { "query": "evidence phrase" },
+              "prerequisites": [
+                "Replace example values with a non-empty query and scope valid for the selected Zotero library."
+              ],
+              "description": "JSON container for the evidence search request."
+            }
+          ],
+          "schemaSource": "target-capability"
+        }
+      },
+      "outputBoundary": { "strategy": "fixed" },
+      "target": {
+        "kind": "capability",
+        "capability": "synthesis.search_evidence",
+        "method": "POST",
+        "path": "/bridge/v2/call"
+      },
+      "binding": "passthrough",
+      "approval": "none",
+      "effect": "read",
+      "category": "read",
+      "danger": "none",
+      "effects": [
+        {
+          "kind": "none",
+          "stateChanged": false,
+          "description": "Searches bounded current Library evidence without changing Zotero-managed data."
+        }
+      ],
+      "approvalContract": {
+        "kind": "none",
+        "timing": "none",
+        "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+      },
+      "handleTransitions": [],
+      "recovery": [
+        {
+          "when": "The search is limited or unavailable.",
+          "stateCheck": "none",
+          "requiresHandles": [],
+          "action": "Inspect coverage and issues; narrow the scope or retry only after the source owner is available.",
+          "nextCommand": "synthesis evidence search"
+        }
+      ],
+      "operationalAliases": [
+        "synthesis evidence search",
+        "synthesis",
+        "evidence",
+        "search",
+        "query",
+        "JSON_OR_FILE"
+      ],
+      "hiddenFromIntentSearch": false,
+      "pagination": "none",
+      "payloadSchemaSource": "target-capability"
+    },
     "synthesis topic list": {
       "resultSchemaSource": "target-capability-envelope",
       "inputs": {

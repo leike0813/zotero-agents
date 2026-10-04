@@ -19,6 +19,7 @@ const OWNED = [
   "client.getPaperArtifactManifest",
   "client.getSchemas",
   "client.readPaperArtifacts",
+  "client.searchEvidence",
   "client.resolveTopicPaperDigest",
 ] as const;
 
@@ -26,7 +27,7 @@ describe("Synthesis native Artifact/Library/Debug surface", function () {
   it("keeps its durable corpus complete and bounded", function () {
     assert.deepEqual(inspectSynthesisArtifactLibraryDebugSurfaceParity(), {
       ok: true,
-      operations: 12,
+      operations: 13,
       errors: [],
     });
   });

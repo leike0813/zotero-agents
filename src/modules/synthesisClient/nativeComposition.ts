@@ -10,9 +10,13 @@ import {
   rebuildSynthesisSidecarOutputTransferReference,
   rebuildSynthesisWorkbenchSurfaceResult,
   safeSynthesisSidecarObservationReason,
+  rebuildSynthesisEvidenceSearchRequest,
+  rebuildSynthesisEvidenceSearchResult,
   toSynthesisJsonObject,
   toSynthesisJsonValue,
   type SynthesisClient,
+  type SynthesisEvidenceSearchRequest,
+  type SynthesisEvidenceSearchResult,
   type SynthesisJsonObject,
   type SynthesisMaterializedAsset,
   type SynthesisSidecarTopicAssetsManifest,
@@ -63,6 +67,28 @@ type NativeRpcClient = Pick<
   ReturnType<typeof createSynthesisSidecarRpcClient>,
   "call"
 >;
+
+export type NativeSynthesisEvidenceRetrievalPort = {
+  searchEvidence(
+    request: SynthesisEvidenceSearchRequest,
+  ): Promise<SynthesisEvidenceSearchResult>;
+};
+
+function evidenceRetrievalPortFromNativePort(
+  nativePort: SynthesisClientPort,
+): NativeSynthesisEvidenceRetrievalPort {
+  return {
+    async searchEvidence(request) {
+      if (!nativePort.searchEvidence) {
+        throw unavailable("searchEvidence_not_declared");
+      }
+      const normalizedRequest = rebuildSynthesisEvidenceSearchRequest(request);
+      return rebuildSynthesisEvidenceSearchResult(
+        await nativePort.searchEvidence(normalizedRequest),
+      );
+    },
+  };
+}
 
 const CONTENT_CHUNK_TARGET_BYTES = 48 * 1024;
 const PRODUCTION_REQUEST_CHUNK_TARGET_BYTES = 512 * 1024;
@@ -628,6 +654,7 @@ export function createNativeSynthesisClientComposition(options?: {
   rpcClient?: NativeRpcClient;
 }): {
   client: SynthesisClient;
+  evidenceRetrieval: NativeSynthesisEvidenceRetrievalPort;
   invalidate: () => void;
   dispose: () => Promise<void>;
 } {
@@ -639,16 +666,16 @@ export function createNativeSynthesisClientComposition(options?: {
     createSynthesisSidecarRpcClient({
       transportErrors: SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
     });
-  const client = createSynthesisClientFromPort(
-    createNativePort({
-      isActive: () => active,
-      getReadyConnection,
-      recoverReadyConnection: options?.recoverReadyConnection,
-      rpcClient,
-    }),
-  );
+  const nativePort = createNativePort({
+    isActive: () => active,
+    getReadyConnection,
+    recoverReadyConnection: options?.recoverReadyConnection,
+    rpcClient,
+  });
+  const client = createSynthesisClientFromPort(nativePort);
   return {
     client,
+    evidenceRetrieval: evidenceRetrievalPortFromNativePort(nativePort),
     invalidate() {
       active = false;
     },
@@ -656,6 +683,28 @@ export function createNativeSynthesisClientComposition(options?: {
       active = false;
     },
   };
+}
+
+export function createNativeSynthesisEvidenceRetrievalPort(options?: {
+  getReadyConnection?: () => NativeControlConnection | null;
+  recoverReadyConnection?: () => Promise<void>;
+  rpcClient?: NativeRpcClient;
+}): NativeSynthesisEvidenceRetrievalPort {
+  const getReadyConnection =
+    options?.getReadyConnection ?? getReadySynthesisProductionControlConnection;
+  const rpcClient =
+    options?.rpcClient ??
+    createSynthesisSidecarRpcClient({
+      transportErrors: SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
+    });
+  return evidenceRetrievalPortFromNativePort(
+    createNativePort({
+      isActive: () => true,
+      getReadyConnection,
+      recoverReadyConnection: options?.recoverReadyConnection,
+      rpcClient,
+    }),
+  );
 }
 
 export function createReadyNativeSynthesisClientComposition(options?: {

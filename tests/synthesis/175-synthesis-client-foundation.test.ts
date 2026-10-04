@@ -7,6 +7,14 @@ import {
   rebuildTagAuditStagingEntries,
   rebuildTagRegulationVerifiedCommitDto,
   rebuildSynthesisProtocolCapabilityDto,
+  rebuildSynthesisEvidenceSearchRequest,
+  rebuildSynthesisEvidenceSearchResult,
+  rebuildSynthesisEvidenceContext,
+  rebuildSynthesisSearchCoverage,
+  rebuildSynthesisSearchIssue,
+  rebuildSynthesisSearchRequest,
+  rebuildSynthesisTopicSearchRequest,
+  rebuildSynthesisTopicSearchResult,
   rebuildSynthesisWorkbenchSurfaceResult,
   type SynthesisWorkflowTopicOptionsResult,
 } from "../../packages/synthesis-contracts/src/index";
@@ -76,6 +84,201 @@ function conceptMutation(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Synthesis client foundation", function () {
+  it("rebuilds lexical evidence search DTOs with bounded, paired evidence facts", function () {
+    assert.deepEqual(
+      rebuildSynthesisEvidenceSearchRequest({ query: "  café  " }),
+      {
+        query: "  café  ",
+      },
+    );
+    assert.deepEqual(
+      rebuildSynthesisEvidenceSearchRequest({
+        query: "evidence",
+        limit: 25,
+        maxResults: 25,
+        sourceKinds: [],
+        itemRefs: [],
+      }),
+      {
+        query: "evidence",
+        limit: 25,
+        maxResults: 25,
+        sourceKinds: [],
+        itemRefs: [],
+      },
+    );
+    assert.deepEqual(
+      rebuildSynthesisEvidenceSearchRequest({
+        query: "x",
+        sourceKinds: ["metadata", "metadata", "analysis"],
+        maxResults: 100,
+      }).sourceKinds,
+      ["metadata", "metadata", "analysis"],
+    );
+    assert.throws(
+      () =>
+        rebuildSynthesisEvidenceSearchRequest({
+          query: "evidence",
+          limit: 26,
+          maxResults: 25,
+        }),
+      SynthesisClientError,
+    );
+    for (const invalid of [
+      { query: "search", limit: null },
+      { query: "search", maxResults: null },
+      { query: "search", cursor: null },
+      { query: "search", cursor: "😀".repeat(2049) },
+      { query: "search", limit: 26, maxResults: 25 },
+      { query: "search", maxResults: 24 },
+      { query: "😀".repeat(2049) },
+      {
+        query: "x",
+        sourceKinds: ["metadata", "metadata", "fulltext", "analysis"],
+      },
+      { query: "x", itemRefs: [{ libraryId: 1, key: "A".repeat(65) }] },
+    ]) {
+      assert.throws(
+        () => rebuildSynthesisEvidenceSearchRequest(invalid),
+        SynthesisClientError,
+      );
+    }
+    assert.equal(
+      rebuildSynthesisEvidenceSearchRequest({ query: "😀".repeat(2048) }).query
+        .length,
+      4096,
+    );
+    assert.throws(
+      () => rebuildSynthesisEvidenceSearchRequest({ query: " \t\n" }),
+      SynthesisClientError,
+    );
+    const result = {
+      results: [
+        {
+          itemRef: { libraryId: 1, key: "ITEM1" },
+          content: "😀",
+          format: "text",
+          source: {
+            kind: "fulltext",
+            attachmentRef: { libraryId: 1, key: "FILE1" },
+          },
+          sourceVersion: "opaque-version",
+          location: {
+            unit: "paragraph",
+            field: null,
+            range: { start: 1, end: 3 },
+          },
+          context: [],
+        },
+      ],
+      status: "completed",
+      method: "lexical",
+      coverage: {
+        kind: "library",
+        sources: {
+          metadata: { status: "complete", sourcesScanned: 1 },
+          fulltext: { status: "complete", sourcesScanned: 1 },
+          analysis: { status: "not_requested", sourcesScanned: 0 },
+        },
+      },
+      issues: [],
+      nextCursor: null,
+      hasMore: false,
+      total: 1,
+    };
+    assert.throws(
+      () =>
+        rebuildSynthesisEvidenceSearchResult({
+          ...result,
+          results: [
+            {
+              ...result.results[0],
+              location: {
+                ...result.results[0].location,
+                range: { start: 2, end: 1 },
+              },
+            },
+          ],
+        }),
+      SynthesisClientError,
+    );
+    assert.throws(
+      () =>
+        rebuildSynthesisEvidenceSearchResult({
+          ...result,
+          issues: [
+            {
+              code: "result_budget_exhausted",
+              sourceKind: null,
+              affectedCount: 1_000_001,
+            },
+          ],
+        }),
+      SynthesisClientError,
+    );
+    assert.deepEqual(rebuildSynthesisEvidenceSearchResult(result), result);
+    assert.doesNotThrow(() =>
+      rebuildSynthesisEvidenceSearchResult({
+        ...result,
+        issues: [
+          { code: "invalid_source", sourceKind: null, affectedCount: 0 },
+        ],
+      }),
+    );
+    assert.throws(
+      () =>
+        rebuildSynthesisEvidenceSearchResult({
+          ...result,
+          nextCursor: "😀".repeat(2049),
+          hasMore: true,
+        }),
+      SynthesisClientError,
+    );
+    assert.doesNotThrow(() =>
+      rebuildSynthesisEvidenceSearchResult({
+        ...result,
+        results: [
+          {
+            ...result.results[0],
+            content: "passage",
+            location: {
+              ...result.results[0].location,
+              range: { start: 100, end: 107 },
+            },
+          },
+        ],
+      }),
+    );
+    assert.throws(
+      () =>
+        rebuildSynthesisEvidenceSearchResult({
+          ...result,
+          results: [
+            {
+              ...result.results[0],
+              source: { kind: "metadata", field: "title" },
+            },
+          ],
+        }),
+      SynthesisClientError,
+    );
+    assert.throws(
+      () =>
+        rebuildSynthesisEvidenceSearchResult({
+          ...result,
+          issues: [
+            {
+              code: "invalid_source",
+              sourceKind: "fulltext",
+              affectedCount: 1,
+              message: "private",
+            },
+          ],
+        }),
+      SynthesisClientError,
+    );
+  });
+
   it("rebuilds audit rows and verified acknowledgement commits as closed JSON contracts", function () {
     assert.deepEqual(
       rebuildTagAuditStagingEntries([
@@ -3913,5 +4116,80 @@ describe("Synthesis client foundation", function () {
       assert.instanceOf(error, SynthesisClientError);
       assert.equal((error as SynthesisClientError).code, "internal");
     }
+  });
+
+  it("keeps search corpus JSON Schema validity distinct from strict DTO admission", function () {
+    const corpus = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          ROOT,
+          "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/corpus/search.json",
+        ),
+        "utf8",
+      ),
+    ) as {
+      cases: Array<{
+        schemaRef: string;
+        valid: boolean;
+        admitted: boolean;
+        value: unknown;
+      }>;
+    };
+
+    const mappedDefinitions = new Set<string>();
+    for (const corpusCase of corpus.cases) {
+      let admitted = true;
+      const definition = corpusCase.schemaRef.split("/").at(-1)!;
+      try {
+        switch (definition) {
+          case "SearchEvidenceRequest": {
+            const wrapper = corpusCase.value as { args: [unknown] };
+            rebuildSynthesisEvidenceSearchRequest(wrapper.args[0]);
+            break;
+          }
+          case "SearchRequest":
+            rebuildSynthesisSearchRequest(corpusCase.value);
+            break;
+          case "EvidenceRequest":
+            rebuildSynthesisEvidenceSearchRequest(corpusCase.value);
+            break;
+          case "TopicRequest":
+            rebuildSynthesisTopicSearchRequest(corpusCase.value);
+            break;
+          case "SearchCoverage":
+            rebuildSynthesisSearchCoverage(corpusCase.value);
+            break;
+          case "SearchIssue":
+            rebuildSynthesisSearchIssue(corpusCase.value);
+            break;
+          case "EvidenceContext":
+            rebuildSynthesisEvidenceContext(corpusCase.value);
+            break;
+          case "SearchEvidenceResult":
+          case "EvidenceResult":
+            rebuildSynthesisEvidenceSearchResult(corpusCase.value);
+            break;
+          case "TopicResult":
+            rebuildSynthesisTopicSearchResult(corpusCase.value);
+            break;
+          default:
+            throw new Error(`unmapped search corpus definition: ${definition}`);
+        }
+        mappedDefinitions.add(definition);
+      } catch {
+        admitted = false;
+      }
+      if (corpusCase.schemaRef.includes("search.schema.json")) {
+        assert.equal(admitted, corpusCase.admitted, corpusCase.schemaRef);
+      }
+    }
+    assert.deepEqual(
+      [...mappedDefinitions].sort(),
+      [
+        ...new Set(
+          corpus.cases.map((entry) => entry.schemaRef.split("/").at(-1)!),
+        ),
+      ].sort(),
+    );
   });
 });

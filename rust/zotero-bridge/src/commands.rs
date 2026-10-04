@@ -18,32 +18,31 @@ use crate::{
         BridgeBackendArgs, BridgeBackendCommand, BridgeBackendStatusArgs, BridgeCommand,
         BridgeInputArgs, BridgeProfileArgs, BridgeProfileCommand, BridgeQueryArgs, CallArgs,
         CitationGraphArgs, CitationGraphCommand, ConceptsArgs, ConceptsCommand, ContextArgs,
-        ContextCommand, ContextSelectionCommand, DebugAcpSkillRunCommand, DebugArgs, DebugCommand, DebugInputArgs,
-        NavigationArgs, NavigationCommand,
-        DebugSynthesisCommand, DirectPaperResearchBundleArgs, DirectTopicResearchBundleArgs,
-        FileArgs, FileCommand, FileDownloadArgs, FileUploadArgs, InsightsArgs, InsightsCommand,
-        ItemArgs, ItemCommand, ItemNotesArgs, ItemPageArgs, ItemRefArgs, LibraryArgs,
-        LibraryCommand, LibraryItemsCommand, LibraryReadinessCommand, LibrarySavedSearchesCommand,
-        MutationArgs, MutationCollectionArgs, MutationCollectionCommand, MutationCommand,
-        MutationItemArgs, MutationItemCommand, MutationNoteArgs, MutationNoteCommand,
-        MutationTagArgs, MutationTagCommand, NoteArgs, NoteCommand, NoteDetailArgs,
-        NotePayloadArgs, NotificationAckArgs, NotificationCommand, NotificationListArgs,
-        NotificationWaitArgs, OperationArgs, OperationCommand, PageArgs, PaperArtifactsArgs,
-        PaperArtifactsCommand, PermissionRequestIdArgs, ProductArgs, ProductCommand,
-        ProductDownloadArgs, ProductGetArgs, ProductIdArgs, ProductListArgs, ResolversArgs,
-        ResolversCommand, RunArgs, RunCommand, RunPermissionArgs, RunPermissionCommand,
-        RunWorkflowArgs, RunWorkflowCommand, RunWorkflowRecentArgs, SchemasArgs, SchemasCommand,
-        SkillRunCommand, SkillRunEventsArgs, SkillRunIdArgs, SkillRunRecentArgs, SkillRunReplyArgs,
-        SynthesisArgs, SynthesisCacheArgs, SynthesisCacheCommand, SynthesisCacheInvalidateArgs,
-        SynthesisCommand, SynthesisIndexCommand, SynthesisIndexGetCommand, TaskListArgs,
-        TaskRecentArgs, TopicsArgs, TopicsCommand, WorkflowAgentApplyArgs,
-        WorkflowAgentApplyStatusArgs, WorkflowAgentBundleArgs, WorkflowAgentBundleCommand,
-        WorkflowAgentBundleInspectArgs, WorkflowAgentResultArgs, WorkflowAgentResultCommand,
-        WorkflowAgentResultValidateArgs, WorkflowAgentRunArgs, WorkflowAgentRunLifecycleArgs,
-        WorkflowArgs, WorkflowCancelArgs, WorkflowCommand, WorkflowDefaultsArgs,
-        WorkflowDescribeArgs, WorkflowProfileArgs, WorkflowProfileCommand,
-        WorkflowProfileDescribeArgs, WorkflowProfileValidateArgs, WorkflowQueueArgs,
-        WorkflowQueueCancelArgs, WorkflowQueueCommand, WorkflowQueueListArgs,
+        ContextCommand, ContextSelectionCommand, DebugAcpSkillRunCommand, DebugArgs, DebugCommand,
+        DebugInputArgs, DebugSynthesisCommand, DirectPaperResearchBundleArgs,
+        DirectTopicResearchBundleArgs, EvidenceCommand, FileArgs, FileCommand, FileDownloadArgs,
+        FileUploadArgs, InsightsArgs, InsightsCommand, ItemArgs, ItemCommand, ItemNotesArgs,
+        ItemPageArgs, ItemRefArgs, LibraryArgs, LibraryCommand, LibraryItemsCommand,
+        LibraryReadinessCommand, LibrarySavedSearchesCommand, MutationArgs, MutationCollectionArgs,
+        MutationCollectionCommand, MutationCommand, MutationItemArgs, MutationItemCommand,
+        MutationNoteArgs, MutationNoteCommand, MutationTagArgs, MutationTagCommand, NavigationArgs,
+        NavigationCommand, NoteArgs, NoteCommand, NoteDetailArgs, NotePayloadArgs,
+        NotificationAckArgs, NotificationCommand, NotificationListArgs, NotificationWaitArgs,
+        OperationArgs, OperationCommand, PageArgs, PaperArtifactsArgs, PaperArtifactsCommand,
+        PermissionRequestIdArgs, ProductArgs, ProductCommand, ProductDownloadArgs, ProductGetArgs,
+        ProductIdArgs, ProductListArgs, ResolversArgs, ResolversCommand, RunArgs, RunCommand,
+        RunPermissionArgs, RunPermissionCommand, RunWorkflowArgs, RunWorkflowCommand,
+        RunWorkflowRecentArgs, SchemasArgs, SchemasCommand, SkillRunCommand, SkillRunEventsArgs,
+        SkillRunIdArgs, SkillRunRecentArgs, SkillRunReplyArgs, SynthesisArgs, SynthesisCacheArgs,
+        SynthesisCacheCommand, SynthesisCacheInvalidateArgs, SynthesisCommand,
+        SynthesisIndexCommand, SynthesisIndexGetCommand, TaskListArgs, TaskRecentArgs, TopicsArgs,
+        TopicsCommand, WorkflowAgentApplyArgs, WorkflowAgentApplyStatusArgs,
+        WorkflowAgentBundleArgs, WorkflowAgentBundleCommand, WorkflowAgentBundleInspectArgs,
+        WorkflowAgentResultArgs, WorkflowAgentResultCommand, WorkflowAgentResultValidateArgs,
+        WorkflowAgentRunArgs, WorkflowAgentRunLifecycleArgs, WorkflowArgs, WorkflowCancelArgs,
+        WorkflowCommand, WorkflowDefaultsArgs, WorkflowDescribeArgs, WorkflowProfileArgs,
+        WorkflowProfileCommand, WorkflowProfileDescribeArgs, WorkflowProfileValidateArgs,
+        WorkflowQueueArgs, WorkflowQueueCancelArgs, WorkflowQueueCommand, WorkflowQueueListArgs,
         WorkflowRequirementsArgs, WorkflowRunArgs, WorkflowSubmissionArgs,
         WorkflowSubmissionCommand, WorkflowSubmissionGetArgs, WorkflowSubmitArgs,
         WorkflowValidateArgs,
@@ -219,11 +218,22 @@ pub fn navigation(config: &BridgeConfig, args: NavigationArgs) -> Result<Value, 
         NavigationCommand::OpenItem(a) => ("navigation.open_item", a.input),
         NavigationCommand::OpenReaderLocation(a) => ("navigation.open_reader_location", a.input),
     };
-    call_declared_capability(config, capability, read_contract_json_arg("input", input.as_deref())?)
+    call_declared_capability(
+        config,
+        capability,
+        read_contract_json_arg("input", input.as_deref())?,
+    )
 }
 
 pub fn synthesis(config: &BridgeConfig, args: SynthesisArgs) -> Result<Value, CliError> {
     match args.command {
+        SynthesisCommand::Evidence(args) => match args.command {
+            EvidenceCommand::Search(input) => call_declared_capability(
+                config,
+                "synthesis.search_evidence",
+                read_contract_json_arg("query", Some(input.query.as_str()))?,
+            ),
+        },
         SynthesisCommand::Topic(args) => topics(config, args),
         SynthesisCommand::Schema(args) => schemas(config, args),
         SynthesisCommand::Concept(args) => concepts(config, args),
@@ -277,15 +287,26 @@ pub fn mutation(config: &BridgeConfig, args: MutationArgs) -> Result<Value, CliE
         MutationCommand::GetOperation(args) => mutation_get_operation(config, args),
         MutationCommand::LiteratureIngest(args) => {
             let mut input = read_contract_json_arg("input", Some(&args.input))?;
-            if dry_run { input.as_object_mut().unwrap().insert("dryRun".into(), json!(true)); }
+            if dry_run {
+                input
+                    .as_object_mut()
+                    .unwrap()
+                    .insert("dryRun".into(), json!(true));
+            }
             call_structured(config, "input", input)
         }
-        MutationCommand::Tag(args) => client::call_current_with_dry_run(config, mutation_tag_arguments(args)?, dry_run),
+        MutationCommand::Tag(args) => {
+            client::call_current_with_dry_run(config, mutation_tag_arguments(args)?, dry_run)
+        }
         MutationCommand::Collection(args) => {
             client::call_current_with_dry_run(config, mutation_collection_arguments(args)?, dry_run)
         }
-        MutationCommand::Item(args) => client::call_current_with_dry_run(config, mutation_item_arguments(args)?, dry_run),
-        MutationCommand::Note(args) => client::call_current_with_dry_run(config, mutation_note_arguments(args)?, dry_run),
+        MutationCommand::Item(args) => {
+            client::call_current_with_dry_run(config, mutation_item_arguments(args)?, dry_run)
+        }
+        MutationCommand::Note(args) => {
+            client::call_current_with_dry_run(config, mutation_note_arguments(args)?, dry_run)
+        }
     }
 }
 
@@ -2805,6 +2826,54 @@ mod tests {
     fn compose_current(arguments: Map<String, Value>) -> Result<Value, CliError> {
         let command = contract::current_command().unwrap();
         contract::compose_command_payload(&command, &arguments)
+    }
+
+    #[test]
+    fn rejects_invalid_evidence_search_json_container_before_dispatch() {
+        contract::set_current_command("synthesis evidence search");
+
+        let malformed = read_contract_json_arg("query", Some("{"))
+            .expect_err("malformed JSON must be rejected before dispatch");
+        assert_eq!(malformed.code, "input_json_invalid");
+
+        let invalid_request = read_contract_json_arg("query", Some(r#"{"query":"  "}"#))
+            .expect_err("blank search text must be rejected before dispatch");
+        assert_eq!(invalid_request.code, "command_input_invalid");
+    }
+
+    #[test]
+    fn rejects_evidence_search_utf16_and_effective_page_bounds_before_dispatch() {
+        contract::set_current_command("synthesis evidence search");
+        let cases = [
+            (
+                r#"{"query":"needle","limit":25,"maxResults":24}"#.to_string(),
+                "effective page limit",
+            ),
+            (
+                format!(r#"{{"query":"{}"}}"#, "😀".repeat(2049)),
+                "UTF-16 query length",
+            ),
+        ];
+
+        for (request, label) in cases {
+            let error = read_contract_json_arg("query", Some(&request))
+                .expect_err(&format!("{label} must fail before remote dispatch"));
+            assert_eq!(error.code, "command_input_invalid", "{label}");
+        }
+    }
+
+    #[test]
+    fn validates_evidence_search_json_container_against_canonical_schema() {
+        contract::set_current_command("synthesis evidence search");
+
+        let request = read_contract_json_arg(
+            "query",
+            Some(r#"{"query":"retrieval evidence","libraryIds":[1],"limit":10}"#),
+        )
+        .unwrap();
+        assert_eq!(request["query"], "retrieval evidence");
+        assert_eq!(request["libraryIds"][0], 1);
+        assert_eq!(request["limit"], 10);
     }
 
     fn item_search_input(args: ItemSearchArgs) -> Result<Value, CliError> {

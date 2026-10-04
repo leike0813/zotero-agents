@@ -88,6 +88,27 @@ describe("Host Bridge agent surface contract", function () {
         "utf8",
       ),
     );
+    const synthesisProtocolRoot = path.join(
+      root,
+      "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas",
+    );
+    const exampleAjv = new Ajv({ strict: false });
+    exampleAjv.addSchema(
+      JSON.parse(
+        fs.readFileSync(
+          path.join(synthesisProtocolRoot, "search.schema.json"),
+          "utf8",
+        ),
+      ),
+    );
+    exampleAjv.addSchema(
+      JSON.parse(
+        fs.readFileSync(
+          path.join(synthesisProtocolRoot, "reverse-host.schema.json"),
+          "utf8",
+        ),
+      ),
+    );
     const capabilities = JSON.parse(
       fs.readFileSync(
         path.join(root, "contracts/host-bridge/capabilities.v2.json"),
@@ -214,9 +235,7 @@ describe("Host Bridge agent surface contract", function () {
             example.kind,
             `${inventory.command}:${argumentId}`,
           );
-          const validateExample = new Ajv({ strict: false }).compile(
-            inputSchema,
-          );
+          const validateExample = exampleAjv.compile(inputSchema);
           assert.isTrue(
             validateExample(example.value),
             `${inventory.command}:${argumentId}:${JSON.stringify(
@@ -744,13 +763,18 @@ describe("Host Bridge agent surface contract", function () {
     );
     for (const command of descriptor.commands) {
       assert.deepEqual(command.invocationSchema.additionalProperties, false);
+      assert.doesNotThrow(
+        () => exampleAjv.compile(command.payloadSchema),
+        command.command,
+      );
       assert.isTrue(
         command.payloadSchema.additionalProperties === false ||
           command.payloadSchema.unevaluatedProperties === false ||
           (command.payloadSchema.additionalProperties === true &&
             typeof command.payloadSchema["x-openPropertiesReason"] ===
               "string") ||
-          Array.isArray(command.payloadSchema.oneOf),
+          Array.isArray(command.payloadSchema.oneOf) ||
+          typeof command.payloadSchema.$ref === "string",
         command.command,
       );
       assert.isBoolean(command.resultSchema.additionalProperties);
@@ -781,6 +805,17 @@ describe("Host Bridge agent surface contract", function () {
     assert.include(
       commands.get("library item search")!.operationalAliases,
       "query",
+    );
+    assert.deepInclude(
+      commands.get("synthesis evidence search")!.argvBindings[0],
+      {
+        property: "query",
+        kind: "option",
+        token: "--query",
+        required: true,
+        takesValue: true,
+        valueNames: ["JSON_OR_FILE"],
+      },
     );
   });
 

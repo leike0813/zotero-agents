@@ -18,7 +18,7 @@ See [proposal.md](proposal.md) for motivation and [specs/](specs/) for behavior.
 
 - C1 changes only `filter` naming for list/traversal and matching readiness contracts; it adds no search behavior.
 - C2 does not implement C3 `Broker.library.searchItems` / Workflow `host.library.searchItems` projection or C4 `topics.search` / remote `topics.search` / CLI `synthesis topic search`.
-- No TypeScript lexical kernel, second lexical implementation, package/workspace/dependency change, embedding/vector execution, persistent lexical index, BM25, frequency ranking, OCR, public `readEvidence`, or separate process.
+- No TypeScript lexical kernel, second lexical implementation, package/workspace expansion, dependency installation or upgrade, embedding/vector execution, persistent lexical index, BM25, frequency ranking, OCR, public `readEvidence`, or separate process. The user authorized `synthesis-application` to reference the existing locked workspace `unicode-normalization` 0.1.24 dependency and synchronize the crate's lockfile dependency list.
 
 ## Decisions
 

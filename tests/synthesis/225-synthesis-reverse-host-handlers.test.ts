@@ -54,6 +54,10 @@ describe("Synthesis reverse Host handlers", function () {
           listItemsPage: () => result("library.listItemsPage") as never,
           getItemsByRef: () => result("library.getItemsByRef") as never,
         },
+        evidence: {
+          listSources: () => result("library.evidence.listSources") as never,
+          readSource: () => result("library.evidence.readSource") as never,
+        },
         artifacts: {
           scanPage: () => result("artifacts.scanPage") as never,
           readiness: () => result("artifacts.readiness") as never,
@@ -135,6 +139,20 @@ describe("Synthesis reverse Host handlers", function () {
       { locator: "x", expectedHash: "y" },
       {} as never,
     );
+    await handlers["library.evidence.sources"]({ scope: {} }, {} as never);
+    await handlers["library.evidence.read"](
+      {
+        scope: { libraryIds: [1] },
+        descriptor: {
+          itemRef: { libraryId: 1, key: "HOSTRDY1" },
+          source: { kind: "metadata", field: "title" },
+          sourceVersion: "opaque:v1",
+          format: "text",
+          contentLength: 1,
+        },
+      },
+      {} as never,
+    );
     await handlers["webdav.describe"]({}, {} as never);
     await handlers["delivery.export.materialize_run_workspace"](
       {
@@ -154,6 +172,8 @@ describe("Synthesis reverse Host handlers", function () {
       "artifacts.scanPage",
       "artifacts.readiness",
       "artifacts.read",
+      "library.evidence.listSources",
+      "library.evidence.readSource",
       "webdav.describe",
       "workspace.materialize",
     ]);
@@ -379,5 +399,63 @@ describe("Synthesis reverse Host handlers", function () {
       failure = error;
     }
     assert.exists(failure);
+  });
+
+  it("rejects evidence scope that escapes the configured reverse Host Libraries", async function () {
+    let called = false;
+    let receivedScope: unknown;
+    let resolvedLibraryIds = [1];
+    const hostReadPort = {
+      evidence: {
+        async listSources(request: { scope: unknown }) {
+          called = true;
+          receivedScope = request.scope;
+          return {
+            scope: { libraryIds: resolvedLibraryIds },
+            descriptors: [],
+            nextCursor: null,
+            hasMore: false,
+            issues: [],
+          };
+        },
+        async readSource() {
+          called = true;
+          return { outcome: "source_unavailable" };
+        },
+      },
+    } as never;
+    const handlers = createScopedSynthesisReverseHostHandlers({
+      hostReadPort,
+      libraryId: 1,
+      libraryIds: [1, 3],
+      exportDeliveryPort: {} as never,
+      runWorkspaceMaterializationPort: {} as never,
+      representativeImagePort: {} as never,
+      relatedItemsEffectPort: {} as never,
+      stagedTagBindingPort: {} as never,
+      tagEffectPort: {} as never,
+      webDavPort: {} as never,
+    });
+    let failure: unknown;
+    try {
+      await handlers["library.evidence.sources"](
+        { scope: { libraryIds: [2] } },
+        {} as never,
+      );
+    } catch (error) {
+      failure = error;
+    }
+    assert.instanceOf(failure, SynthesisClientError);
+    assert.equal(called, false);
+    await handlers["library.evidence.sources"]({ scope: {} }, {} as never);
+    assert.deepEqual(receivedScope, {});
+    resolvedLibraryIds = [2];
+    failure = undefined;
+    try {
+      await handlers["library.evidence.sources"]({ scope: {} }, {} as never);
+    } catch (error) {
+      failure = error;
+    }
+    assert.instanceOf(failure, SynthesisClientError);
   });
 });

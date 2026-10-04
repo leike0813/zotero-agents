@@ -1823,6 +1823,8 @@ import type { ProductStorageApi } from "../modules/workflow/catalog/workflowProd
 import type {
   SynthesisJsonObject,
   SynthesisJsonValue,
+  SynthesisEvidenceSearchRequest,
+  SynthesisEvidenceSearchResult,
   SynthesisLiteratureDigestApplyRequest,
   SynthesisLiteratureDigestApplyResult,
   SynthesisPaperArtifactsRequest,
@@ -2752,6 +2754,9 @@ export type TagRegulationAcknowledgementRequestDto = {
 };
 
 export interface WorkflowSynthesisApi {
+  searchEvidence(
+    input: SynthesisEvidenceSearchRequest,
+  ): Promise<SynthesisEvidenceSearchResult>;
   readonly workflowApply: Readonly<{
     applyLiteratureDigest(
       input: SynthesisLiteratureDigestApplyRequest,

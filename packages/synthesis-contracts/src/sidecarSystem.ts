@@ -46,6 +46,7 @@ export const SYNTHESIS_SIDECAR_GENERAL_CAPABILITIES = [
   "topics.canonical.inspect",
 ] as const;
 export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES = [
+  "client.searchEvidence",
   "client.listTopics",
   "client.findTopicsByPaperRef",
   "client.getTopicContext",
@@ -152,8 +153,9 @@ export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES = [
   "client.resolveWebDavSyncConflict",
 ] as const;
 export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT =
-  "d2f8d0e6baf3fe170b595102209d95dca8b2a2ae5ea346de7bb17f2fa85aa0f1" as const;
+  "ec1db19e9f1b4c2d45aa344aed72c54acdc8c53416824e41994accf08a4c825c" as const;
 export const SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES = [
+  "client.searchEvidence",
   "client.listTopics",
   "client.findTopicsByPaperRef",
   "client.queryCitationGraphCluster",

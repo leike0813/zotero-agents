@@ -36,6 +36,8 @@ import type {
   ZoteroHostNotePayloadSummaryDto,
 } from "../../zoteroHostCapabilityBroker";
 import type { WorkflowCallControl } from "../../../workflows/types";
+import evidenceSearchSchema from "../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/search.schema.json";
+import reverseHostSchema from "../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/reverse-host.schema.json";
 
 export const ZOTERO_MCP_PROTOCOL_VERSION = "2025-06-18";
 export const ZOTERO_MCP_TOOL_GET_CURRENT_VIEW = "get_current_view";
@@ -909,6 +911,28 @@ const ZOTERO_MCP_ADMISSION_NOTICE =
 function mcpInputSchemaForCapability(
   inputSchema: Record<string, unknown>,
 ): JsonObjectSchema {
+  const canonicalEvidenceRequestRef = `${evidenceSearchSchema.$id}#/$defs/EvidenceSearchRequest`;
+  if (inputSchema.$ref === canonicalEvidenceRequestRef) {
+    const searchDefinitions = evidenceSearchSchema.$defs as Record<
+      string,
+      unknown
+    >;
+    const reverseDefinitions = reverseHostSchema.$defs as Record<
+      string,
+      unknown
+    >;
+    return {
+      ...(searchDefinitions.EvidenceSearchRequest as JsonObjectSchema),
+      $schema: evidenceSearchSchema.$schema,
+      $defs: {
+        ...searchDefinitions,
+        EvidenceItemRef: reverseDefinitions.EvidenceItemRef,
+        PositiveInteger: reverseDefinitions.PositiveInteger,
+        ItemKey: reverseDefinitions.ItemKey,
+        PortableItemRef: { $ref: "#/$defs/EvidenceItemRef" },
+      },
+    } as JsonObjectSchema;
+  }
   if (inputSchema.type === "object") {
     return inputSchema as JsonObjectSchema;
   }

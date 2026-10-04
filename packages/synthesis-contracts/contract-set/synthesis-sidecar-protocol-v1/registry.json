@@ -8,7 +8,7 @@
     "workerOperationRoster": "../../../../rust/synthesis-sidecar/crates/synthesis-protocol/src/lib.rs"
   },
   "expected": {
-    "crossProcessCapabilities": 120,
+    "crossProcessCapabilities": 123,
     "deterministicWorkerOperations": 15
   },
   "documents": [
@@ -69,6 +69,7 @@
     "corpus/compute.json",
     "corpus/lifecycle.json",
     "corpus/reverse-host.json",
+    "corpus/search.json",
     "corpus/system.json",
     "corpus/transfer.json",
     "corpus/worker.json"
@@ -897,6 +898,14 @@
       "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
     },
     {
+      "capability": "client.searchEvidence",
+      "direction": "host-to-sidecar",
+      "domain": "search",
+      "requestSchemaRef": "schemas/search.schema.json#/$defs/SearchEvidenceRequest",
+      "resultSchemaRef": "schemas/search.schema.json#/$defs/SearchEvidenceResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
       "capability": "client.syncWebDavNow",
       "direction": "host-to-sidecar",
       "domain": "webdav-maintenance",
@@ -1062,6 +1071,22 @@
       "domain": "reverse-host",
       "requestSchemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryArtifactsReadRequest",
       "resultSchemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryArtifactsReadResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "library.evidence.sources",
+      "direction": "sidecar-to-host",
+      "domain": "reverse-host",
+      "requestSchemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceSourcesRequest",
+      "resultSchemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceSourcesResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "library.evidence.read",
+      "direction": "sidecar-to-host",
+      "domain": "reverse-host",
+      "requestSchemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceReadRequest",
+      "resultSchemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceReadResult",
       "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
     },
     {

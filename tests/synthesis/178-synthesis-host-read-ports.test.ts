@@ -6,6 +6,8 @@ import {
   SynthesisClientError,
 } from "../../packages/synthesis-contracts/src/index";
 import { renderPayloadBlock } from "../../src/modules/zoteroHost/notePayloadCodec";
+import { managedArtifactContent } from "../../src/modules/zoteroHost/zoteroManagedNotes";
+import { inspectManagedNote } from "../../src/modules/zoteroHost/zoteroManagedNotes";
 import { createZoteroSynthesisHostReadPort } from "../../src/modules/synthesis/libraryAdapter";
 import { resetZoteroHostSnapshotRuntimeForTests } from "../../src/modules/zoteroHostCapabilityBroker";
 import { buildLiteratureQualitySnapshot } from "../../src/shared/literatureScore";
@@ -110,6 +112,24 @@ async function addPayloadNote(
   return note;
 }
 
+async function addMarkdownAttachment(parent: Zotero.Item, path: string) {
+  const attachment = new Zotero.Item("attachment") as Zotero.Item & {
+    attachmentFilename: string;
+    attachmentContentType: string;
+    attachmentLinkMode: number;
+    setFilePath(path: string): void;
+  };
+  attachment.libraryID = parent.libraryID;
+  attachment.parentItemID = parent.id;
+  attachment.attachmentFilename = "evidence.md";
+  attachment.attachmentContentType = "text/markdown";
+  attachment.attachmentLinkMode = 2;
+  attachment.setField("title", "evidence.md");
+  attachment.setFilePath(path);
+  await attachment.saveTx();
+  return attachment;
+}
+
 describe("Synthesis Host read capability ports", function () {
   beforeEach(function () {
     setZoteroLibraryPageQueryAdapterForTests(
@@ -150,6 +170,190 @@ describe("Synthesis Host read capability ports", function () {
     }
     assert.notProperty(page, "path");
     assert.notProperty(page, "registry");
+  });
+
+  it("keeps evidence on the root Host port and resolves an empty-kind scope", async function () {
+    const libraryId = Zotero.Libraries.userLibraryID;
+    const port = createZoteroSynthesisHostReadPort({ libraryId });
+    const page = await port.evidence.listSources({
+      scope: { libraryIds: [libraryId], itemRefs: [] },
+      sourceKinds: [],
+      limit: 1,
+    });
+    assert.deepEqual(page.scope, { libraryIds: [libraryId], itemRefs: [] });
+    assert.deepEqual(page.descriptors, []);
+    assert.isNull(page.nextCursor);
+    assert.isFalse(page.hasMore);
+    assert.deepEqual(page.issues, []);
+  });
+
+  it("reads Markdown through runtime persistence and rejects content changed after catalog", async function () {
+    const libraryId = Zotero.Libraries.userLibraryID;
+    const paper = await createPaper("HOSTMD01", "Markdown evidence");
+    const directory = await mkTempDir("synthesis-evidence-markdown");
+    const path = joinPath(directory, "evidence.md");
+    await writeUtf8(path, "# Evidence\n\n😀 unique source text.");
+    const attachment = await addMarkdownAttachment(paper, path);
+    const port = createZoteroSynthesisHostReadPort({ libraryId });
+    const catalog = await port.evidence.listSources({
+      scope: {
+        libraryIds: [libraryId],
+        itemRefs: [{ libraryId, key: paper.key }],
+        tag: "host-read",
+      },
+      sourceKinds: ["fulltext"],
+      limit: 100,
+    });
+    assert.equal(catalog.descriptors.length, 1, JSON.stringify(catalog));
+    const descriptor = catalog.descriptors[0];
+    const full = await port.evidence.readSource({
+      scope: catalog.scope,
+      descriptor,
+    });
+    assert.equal(full.outcome, "available");
+    if (full.outcome !== "available") return;
+    assert.equal(full.content, "# Evidence\n\n😀 unique source text.");
+    assert.equal(full.location.unit, "paragraph");
+    await writeUtf8(path, "# Evidence\n\n😀 changed source text.");
+    const stale = await port.evidence.readSource({
+      scope: catalog.scope,
+      descriptor,
+    });
+    assert.equal(stale.outcome, "source_changed");
+    paper.removeTag("host-read");
+    await paper.saveTx();
+    const outsideScope = await port.evidence.readSource({
+      scope: catalog.scope,
+      descriptor,
+    });
+    assert.equal(outsideScope.outcome, "source_unavailable");
+    assert.deepEqual(attachment.parentItemID, paper.id);
+  });
+
+  it("locates duplicate JSON leaves by pointer and rechecks changed managed payloads", async function () {
+    const libraryId = Zotero.Libraries.userLibraryID;
+    const paper = await createPaper("HOSTAN01", "Analysis evidence");
+    const firstReference = {
+      ...referencesArtifact("same 😀").references[0],
+      extraction: { raw: "first extraction", confidence: 1 },
+    };
+    const secondReference = {
+      ...referencesArtifact("same 😀").references[0],
+      sourceReferenceId: "source-reference-second",
+      extraction: { raw: "second extraction", confidence: 1 },
+    };
+    const payload = {
+      schema: "source_reference_artifact.v1",
+      references: [firstReference, secondReference],
+    };
+    const note = new Zotero.Item("note");
+    note.libraryID = libraryId;
+    note.parentItemID = paper.id;
+    note.setField("title", "References");
+    note.setNote(
+      managedArtifactContent("references", "References", payload).content,
+    );
+    await note.saveTx();
+    const inspection = await inspectManagedNote(note);
+    assert.equal(inspection.kind, "managed");
+    const port = createZoteroSynthesisHostReadPort({ libraryId });
+    const catalog = await port.evidence.listSources({
+      scope: {
+        libraryIds: [libraryId],
+        itemRefs: [{ libraryId, key: paper.key }],
+      },
+      sourceKinds: ["analysis"],
+      limit: 100,
+    });
+    assert.equal(catalog.descriptors.length, 1, JSON.stringify(catalog));
+    const descriptor = catalog.descriptors[0];
+    const full = await port.evidence.readSource({
+      scope: catalog.scope,
+      descriptor,
+    });
+    assert.equal(full.outcome, "available");
+    if (full.outcome !== "available") return;
+    assert.equal(full.location.unit, "analysis_field");
+    assert.equal(full.location.field, "$");
+    assert.equal(full.format, "text");
+    const token = '"same 😀"';
+    const firstOffset = full.content.indexOf(token);
+    const secondOffset = full.content.lastIndexOf(token);
+    const passage = await port.evidence.readSource({
+      scope: catalog.scope,
+      descriptor,
+      location: {
+        unit: "analysis_field",
+        field: "/references/1/bibliography/title",
+        range: { start: secondOffset, end: secondOffset + token.length },
+      },
+    });
+    assert.equal(passage.outcome, "available");
+    if (passage.outcome === "available") assert.equal(passage.content, token);
+    const wrongOccurrence = await port.evidence.readSource({
+      scope: catalog.scope,
+      descriptor,
+      location: {
+        unit: "analysis_field",
+        field: "/references/1/bibliography/title",
+        range: { start: firstOffset, end: firstOffset + token.length },
+      },
+    });
+    assert.equal(wrongOccurrence.outcome, "invalid_source");
+    const changedPayload = {
+      ...payload,
+      references: [
+        {
+          ...firstReference,
+          bibliography: { ...firstReference.bibliography, title: "changed" },
+        },
+        secondReference,
+      ],
+    };
+    note.setNote(
+      managedArtifactContent("references", "References", changedPayload)
+        .content,
+    );
+    await note.saveTx();
+    const stale = await port.evidence.readSource({
+      scope: catalog.scope,
+      descriptor,
+    });
+    assert.equal(stale.outcome, "source_changed");
+  });
+
+  it("reports more catalog work when the per-call item scan budget is reached", async function () {
+    const libraryId = Zotero.Libraries.userLibraryID;
+    const refs = [];
+    for (let index = 0; index < 257; index += 1) {
+      const paper = await createPaper(
+        `B${index.toString(36).toUpperCase().padStart(7, "0")}`,
+        `Budget ${index}`,
+      );
+      refs.push({ libraryId, key: paper.key });
+    }
+    const port = createZoteroSynthesisHostReadPort({ libraryId });
+    const first = await port.evidence.listSources({
+      scope: { libraryIds: [libraryId], itemRefs: refs },
+      sourceKinds: ["analysis"],
+      limit: 100,
+    });
+    assert.isTrue(first.hasMore);
+    assert.isNotNull(first.nextCursor);
+    assert.isTrue(
+      first.issues.some(
+        (issue) =>
+          issue.code === "scan_budget_exhausted" && issue.sourceKind === null,
+      ),
+    );
+    const second = await port.evidence.listSources({
+      scope: { libraryIds: [libraryId], itemRefs: refs },
+      sourceKinds: ["analysis"],
+      limit: 100,
+      cursor: first.nextCursor!,
+    });
+    assert.isFalse(second.hasMore);
+    assert.isNull(second.nextCursor);
   });
 
   it("pages JSON-safe library summaries and resolves finite stable refs", async function () {

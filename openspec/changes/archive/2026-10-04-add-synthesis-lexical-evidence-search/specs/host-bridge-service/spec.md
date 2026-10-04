@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: Host Bridge SHALL expose Synthesis evidence search
-The authenticated Host Bridge capability `synthesis.search_evidence` SHALL validate the shared evidence-search request and project the typed `SynthesisClient.searchEvidence` result without implementing a second retrieval path.
+The authenticated Host Bridge capability `synthesis.search_evidence` SHALL validate the shared evidence-search request and project the typed `SynthesisClient.searchEvidence` result without implementing a second retrieval path. This read-only operation SHALL require no per-call Zotero UI approval.
 
 #### Scenario: Remote evidence search succeeds
 - **WHEN** an authenticated caller supplies a valid bounded evidence-search request
