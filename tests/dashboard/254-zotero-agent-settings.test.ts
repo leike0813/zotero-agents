@@ -384,6 +384,20 @@ describe("zotero agent settings page (src/dashboard)", function () {
       (entry) => entry.action === "pi-upsert-configuration",
     );
     assert.ok(save, "a connection save is sent");
+    assert.isTrue(
+      byTestId(page.root, "connection-editor-cancel")!.matches(":disabled"),
+      "a submitted save must settle before the draft can be discarded",
+    );
+    page.controller.handleMessage({
+      data: {
+        type: "zotero-agent-settings:request-close",
+        payload: { requestId: "close-saving" },
+      },
+    });
+    assert.isTrue(byTestId(page.root, "leave-discard")!.matches(":disabled"));
+    assert.isFalse(
+      page.actions.some((entry) => entry.action === "close-window"),
+    );
     assert.equal(
       save!.payload.secret,
       "sk-secret-value",
@@ -395,6 +409,7 @@ describe("zotero agent settings page (src/dashboard)", function () {
     );
     // A failed save keeps the form and what the user typed.
     page.settle(save!, false, "persistence_failed");
+    click(page.root, "leave-continue");
     assert.ok(
       byTestId(page.root, "connection-editor"),
       "the editor stays open",
@@ -591,6 +606,48 @@ describe("zotero agent settings page (src/dashboard)", function () {
     assert.equal(test!.payload.configurationId, "card-1");
     page.settle(test!);
     assertRegionSubtreesPreserved(regions, cardBefore);
+  });
+
+  it("publishes a model test outcome only after settlement and keeps its failure on that card", function () {
+    const page = createPage(withConnection());
+    page.controller.handlers.navigate("connections");
+    click(page.root, "test-card-1");
+    assert.isFalse(Boolean(byTestId(page.root, "test-detail-card-1")));
+    page.controller.handlers.cancelDialog();
+    assert.isUndefined(page.controller.getState().modelTests["card-1"]);
+    click(page.root, "test-card-1");
+    click(page.root, "test-send");
+    const test = page.actions.find(
+      (entry) => entry.action === "pi-test-connection",
+    )!;
+    assert.isFalse(Boolean(byTestId(page.root, "test-detail-card-1")));
+    page.settle(test, false, "provider_terminal_missing");
+    assert.include(
+      byTestId(page.root, "test-detail-card-1")!.textContent,
+      "provider_terminal_missing",
+    );
+    assert.isFalse(Boolean(byTestId(page.root, "test-detail-card-2")));
+    assert.equal(
+      page.controller.getState().snapshot!.state.defaults.global!
+        .configurationId,
+      "card-1",
+    );
+    click(page.root, "test-card-1");
+    click(page.root, "test-send");
+    assert.isFalse(Boolean(byTestId(page.root, "test-detail-card-1")));
+    const retry = page.actions
+      .filter((entry) => entry.action === "pi-test-connection")
+      .at(-1)!;
+    page.settle(test, false, "provider_auth_failed");
+    assert.isFalse(Boolean(byTestId(page.root, "test-detail-card-1")));
+    page.settle(retry, true, undefined, { completed: true });
+    assert.isTrue(
+      page.controller.getState().modelTests["card-1"].outcome!.completed,
+    );
+    assert.notInclude(
+      byTestId(page.root, "card-card-1")!.textContent,
+      "provider_terminal_missing",
+    );
   });
 
   it("assigns a card purpose on the card itself and clears it by clicking again", function () {
@@ -821,6 +878,179 @@ describe("zotero agent settings page (src/dashboard)", function () {
     );
   });
 
+  for (const registrationId of [undefined, "pending-registration"]) {
+    it(`starts first sign-in from a saved ChatGPT connection with ${registrationId ? "an unknown registration" : "no registration"}`, async function () {
+      const snapshot = withConnection();
+      snapshot.registrations = [];
+      snapshot.state.connections[1].registrationId = registrationId;
+      const page = createPage(snapshot);
+      page.controller.handlers.navigate("connections");
+      page.controller.handlers.selectConnection("conn-2");
+
+      click(page.root, "account-connect");
+      await flush();
+
+      const connect = page.actions.find(
+        (entry) => entry.action === "pi-chatgpt-connect",
+      );
+      assert.ok(connect, "first sign-in requests browser authorization");
+      assert.isNotEmpty(connect!.objectId, "the request has an owner scope");
+      assert.isUndefined(connect!.payload.registrationId);
+      assert.ok(byTestId(page.root, "connection-editor-auth-cancel"));
+
+      click(page.root, "connection-editor-auth-cancel");
+      await flush();
+      click(page.root, "connection-editor-connect");
+      await flush();
+      const retry = page.actions.filter(
+        (entry) => entry.action === "pi-chatgpt-connect",
+      )[1];
+      assert.ok(retry, "first sign-in can be retried after cancellation");
+      assert.isNotEmpty(retry.objectId);
+      assert.ok(
+        byTestId(page.root, "connection-editor-auth-cancel"),
+        "the retry belongs to the connection being edited",
+      );
+
+      page.settle(retry, true, undefined, {
+        registrationId: "verified-registration",
+        status: "complete",
+      });
+      await flush();
+      click(page.root, "connection-editor-save");
+      const save = page.actions.find(
+        (entry) => entry.action === "pi-upsert-configuration",
+      );
+      assert.ok(save, "the verified account can be saved on its connection");
+      const connection = save!.payload.connection as Record<string, unknown>;
+      assert.equal(connection.id, "conn-2");
+      assert.equal(connection.registrationId, "verified-registration");
+    });
+  }
+
+  it("offers first sign-in before a new ChatGPT connection is saved", async function () {
+    const page = createPage(baseSnapshot());
+    page.controller.handlers.startAddConnection("chatgpt");
+    await flush();
+    type(page.root, "connection-editor-label", "Draft ChatGPT");
+    click(page.root, "connection-editor-connect");
+    await flush();
+    const connect = page.actions.find(
+      (entry) => entry.action === "pi-chatgpt-connect",
+    );
+    assert.ok(connect, "a new connection can request browser authorization");
+    assert.isNotEmpty(connect!.objectId);
+    assert.ok(byTestId(page.root, "connection-editor-auth-cancel"));
+    assert.isFalse(
+      byTestId(page.root, "connection-editor-auth-cancel")!.matches(
+        ":disabled",
+      ),
+      "browser authorization remains cancellable while the form is busy",
+    );
+    click(page.root, "connection-editor-auth-cancel");
+    await flush();
+    const cancel = page.actions.find(
+      (entry) => entry.action === "pi-chatgpt-cancel",
+    );
+    assert.equal(cancel?.objectId, connect!.requestId);
+    assert.equal(
+      (byTestId(page.root, "connection-editor-label") as HTMLInputElement)
+        .value,
+      "Draft ChatGPT",
+    );
+    click(page.root, "connection-editor-connect");
+    await flush();
+    const retry = page.actions.filter(
+      (entry) => entry.action === "pi-chatgpt-connect",
+    )[1];
+    assert.ok(retry, "retry does not wait for the canceled host request");
+    page.controller.handleMessage({
+      data: {
+        type: "zotero-agent-settings:progress",
+        payload: {
+          requestId: connect!.requestId,
+          objectId: connect!.objectId,
+          phase: "exchange",
+        },
+      },
+    });
+    assert.equal(page.controller.getState().auth?.requestId, retry.requestId);
+    assert.equal(page.controller.getState().auth?.phase, "waiting");
+    page.settle(connect!, true, undefined, { registrationId: "late-account" });
+    assert.equal(page.controller.getState().auth?.requestId, retry.requestId);
+    page.settle(retry, false, "canceled");
+    await flush();
+    assert.isFalse(
+      byTestId(page.root, "connection-editor-label")!.matches(":disabled"),
+      "a failed attempt releases the form without losing its draft",
+    );
+  });
+
+  for (const exit of ["editor", "window"] as const) {
+    it(`allows ${exit} exit during browser authorization with an unsaved draft`, async function () {
+      const page = createPage(baseSnapshot());
+      page.controller.handlers.startAddConnection("chatgpt");
+      type(page.root, "connection-editor-label", "Draft ChatGPT");
+      click(page.root, "connection-editor-connect");
+      await flush();
+      const connect = page.actions.find(
+        (entry) => entry.action === "pi-chatgpt-connect",
+      )!;
+      const leave = () => {
+        if (exit === "editor") click(page.root, "connection-editor-cancel");
+        else
+          page.controller.handleMessage({
+            data: {
+              type: "zotero-agent-settings:request-close",
+              payload: { requestId: "close-auth" },
+            },
+          });
+      };
+      leave();
+      await flush();
+      assert.isTrue(!!byTestId(page.root, "leave-dialog"));
+      assert.isFalse(
+        byTestId(page.root, "leave-continue")!.matches(":disabled"),
+      );
+      assert.isFalse(
+        byTestId(page.root, "leave-discard")!.matches(":disabled"),
+      );
+      click(page.root, "leave-continue");
+      await flush();
+      assert.equal(
+        page.controller.getState().auth?.requestId,
+        connect.requestId,
+      );
+      assert.equal(
+        (byTestId(page.root, "connection-editor-label") as HTMLInputElement)
+          .value,
+        "Draft ChatGPT",
+      );
+      leave();
+      await flush();
+      click(page.root, "leave-discard");
+      await flush();
+      assert.isNull(page.controller.getState().auth);
+      assert.equal(
+        page.actions.find((entry) => entry.action === "pi-chatgpt-cancel")
+          ?.objectId,
+        connect.requestId,
+      );
+      assert.isFalse(
+        page.actions.some(
+          (entry) => entry.action === "pi-upsert-configuration",
+        ),
+      );
+      if (exit === "window") {
+        const close = page.actions
+          .filter((entry) => entry.action === "close-window")
+          .at(-1);
+        assert.equal(close?.payload.closeRequestId, "close-auth");
+        assert.equal(close?.payload.decision, "discard");
+      } else assert.isFalse(!!byTestId(page.root, "connection-editor"));
+    });
+  }
+
   it("completes a login once and leaves that account's refresh to the owner", function () {
     const page = createPage(withConnection());
     page.controller.handlers.startAddConnection("chatgpt");
@@ -875,8 +1105,61 @@ describe("zotero agent settings page (src/dashboard)", function () {
     );
   });
 
+  it("guides a signed-in account to add models after discovery refresh", function () {
+    const snapshot = withConnection();
+    snapshot.registrations[0] = {
+      ...snapshot.registrations[0],
+      signedIn: false,
+    };
+    snapshot.labels = {
+      modelsHintChatgpt: "Sign in to discover models",
+      modelsHintApi: "Choose models from the directory",
+    };
+    const page = createPage(snapshot);
+    page.controller.handlers.navigate("connections");
+    page.controller.handlers.selectConnection("conn-2");
+    assert.include(page.root.textContent, "Sign in to discover");
+
+    const signedIn = withConnection();
+    signedIn.labels = snapshot.labels;
+    signedIn.registrations[0] = {
+      ...signedIn.registrations[0],
+      planEnabled: true,
+      welcomeAccepted: true,
+    };
+    signedIn.state.connections[1] = {
+      ...signedIn.state.connections[1],
+      availability: { ready: true, code: "ready" },
+      modelCount: 0,
+    };
+    page.controller.handleMessage({
+      data: { type: "zotero-agent-settings:snapshot", payload: signedIn },
+    });
+    click(page.root, "refresh-conn-2");
+    const refresh = page.actions.find(
+      (entry) => entry.action === "pi-chatgpt-refresh-models",
+    );
+    page.settle(refresh!);
+    page.controller.handleMessage({
+      data: { type: "zotero-agent-settings:snapshot", payload: signedIn },
+    });
+    assert.notInclude(page.root.textContent, "Sign in to discover");
+    assert.include(page.root.textContent, "Choose models from the directory");
+    click(page.root, "add-model-conn-2");
+    const query = page.actions.find(
+      (entry) => entry.action === "pi-catalog-query",
+    );
+    assert.equal(query?.objectId, "conn-2");
+    assert.equal(query?.payload.provider, "openai");
+    assert.equal(page.root.querySelectorAll(".zs-model-card").length, 0);
+  });
+
   it("keeps the model picker open until the owner adopts the model", async function () {
-    const page = createPage(withConnection());
+    const snapshot = withConnection();
+    snapshot.state.configurations = [];
+    snapshot.state.defaults = {};
+    snapshot.labels = { catalogEmpty: "No matching models" };
+    const page = createPage(snapshot);
     page.controller.handlers.navigate("connections");
     page.controller.handlers.openModelPicker("conn-1");
     const pickerQuery = page.actions.find(
@@ -891,7 +1174,33 @@ describe("zotero agent settings page (src/dashboard)", function () {
       "openai",
       "the picker is scoped to its own connection's provider",
     );
-    page.controller.handlers.addModelFromPicker("gpt-x");
+    assert.include(
+      byTestId(page.root, "model-picker")?.textContent,
+      "No matching models",
+    );
+    const discovered = {
+      ...snapshot,
+      models: {
+        ...snapshot.models,
+        provider: "openai",
+        requestId: pickerQuery!.requestId,
+        models: [snapshot.models.models[0]],
+        total: 1,
+      },
+    };
+    page.controller.handleMessage({
+      data: { type: "zotero-agent-settings:snapshot", payload: discovered },
+    });
+    assert.equal(
+      byTestId(page.root, "model-picker")?.querySelectorAll(".zs-model-row")
+        .length,
+      1,
+    );
+    assert.notInclude(
+      byTestId(page.root, "model-picker")?.textContent,
+      "No matching models",
+    );
+    click(page.root, "picker-add-openai/gpt-x");
     const add = page.actions.find(
       (entry) => entry.action === "pi-upsert-model",
     );

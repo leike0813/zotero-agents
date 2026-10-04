@@ -83,9 +83,18 @@ LLM Provider 账号与 Zotero 文献金例是不同输入；文献金例本身�
 ```shell
 ZOTERO_E2E_GOLD_DATA_DIR=<read-only-data-source> \
 ZOTERO_E2E_GOLD_PROFILE_DIR=<read-only-profile-source> \
-ZOTERO_PI_LIVE_SMOKE=chatgpt ZOTERO_TEST_GREP='Pi live ChatGPT smoke' \
+ZOTERO_SKILLS_RUNTIME_ROOT=<isolated-runtime-copy> \
+ZOTERO_PI_LIVE_SMOKE=chatgpt ZOTERO_PI_LIVE_MODEL=gpt-5.6-luna \
+ZOTERO_PI_LIVE_OBSERVATION_PATH=<isolated-observation-output.json> \
+ZOTERO_TEST_GREP='Pi live ChatGPT smoke' \
 npm run test:zotero:e2e
 ```
+
+`ZOTERO_PI_LIVE_MODEL` 必须明确指定来源 profile 已保存的 ChatGPT 模型卡；smoke 通过卡片所属连接解析注册，官方发现须包含同一模型，不自动选择目录首项。来源 profile、data 和 runtime 均须在宿主退出后只读复制；runtime 中的注册状态也属于账号输入，不能只复制 prefs。来源不得放在本次 runner 会清空的 `.scaffold/test` 内，必要时使用已有 compatibility workspace materialization 在独立目录执行同一 runner。
+
+该组依次验证生产 Conversation 流式持久化、真实 namespace 函数调用及完整上下文结果续调用、经 sealed network 的原生搜索与服务提供的引用。函数只处理固定合成值，搜索只使用公开查询。发现没有声明工具能力时，测试副本经生产 overlay refresh 为同一官方 SIWC 目标补上 [官方已支持的 namespaced function 协议](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations)，创建临时验收卡；上下文继续采用账户发现事实，输出上限不补造。这是明确的测试声明，不是模型发现字段；原生搜索仍须由真实服务完成才通过。配置默认用途和搜索来源仅在副本内临时调整，结束后恢复；副本目录包含临时目录声明，不回写来源。
+
+脱敏观察写入 `ZOTERO_PI_LIVE_OBSERVATION_PATH`，包括实际 HTTP 状态、completed、用量完整性、namespace/续请求契约和引用是否存在；不保留响应正文、凭据、账号标识或引用内容。自定义 debug 事件不属于 system-E2E manifest 的存储合同，因此独立观察文件必须随 receipt 一起保留。若代理 DNS 返回 `198.18.0.0/15` Fake-IP，sealed network 会按非公网地址要求本地网络授权；应修正代理解析并重测，不能将普通文本探测通过视为搜索通过。
 
 MiniMax token plan（中国区）通过宿主环境变量 `MINIMAX_CN_API_KEY` 读取密钥；测试只在 profile 副本内保存加密凭据，密钥不写入环境 fixture、日志或工件。中国区 OpenAI 兼容端点为 `https://api.minimax.cn/v1`，模型为 `MiniMax-M3.1-Flash-Preview`；使用 `low`，协议字段为 `reasoning_effort`，省略时官方默认为 `max`，见 [官方 Text Generation 指南](https://platform.minimax.cn/docs/guides/text-generation)。目录中缺少模型时，测试经生产 refresh 通道加载受控 overlay，声明 1M 上下文、128K 输出预算和思考档位；这些属于测试配置，不是在线模型发现。smoke 断言冻结选择与流式持久化，线格式由 Provider 接口测试验证。其自动观察可供 `manual:api-key` 的人工验收参考，仍需候选绑定和 confirmer：
 
@@ -167,5 +176,18 @@ Pi 的模型连接、模型卡片、ChatGPT 注册、MCP 来源、搜索来源�
 ChatGPT 证据须由候选插件完成浏览器授权、官方 `/v1/models` 发现、文本调用、函数调用及结果续调用。实际 Responses terminal 与 usage 由共享 Provider 记录；Pi 的 `done`、本地 fixture 和原生宿主原型不能替代服务证据。只有账户发现具有 SIWC 适用的可靠上下文事实时才能发起调用，缺少事实或服务能力仍是未通过的 gate。
 
 Change C 的开发升级样本独立于上面的固定 v0.9.0 基线安装链：在隔离 profile 中合成旧 `openai-codex` 加密 envelope、配置、引用默认项与账户目录缓存，同时保留 API-key 配置和历史。安装候选并观察旧开发数据被精准清理、其它配置/default/history 保留；重复启动结果应一致。receipt 标注 synthetic-development-cleanup 和样本来源，不冒充真实旧账号、远端撤销或基线安装升级。收集仍走现有 installed-plugin / E2E 路径，不能改六宿主矩阵、基线 SHA、容量或数值阈值。
+
+现有 `307-pi-synthetic-cleanup.zotero.test.ts` 使用 PI-06 的两次实际宿主重启，只在显式开关和空凭据 profile 下运行。使用独立 materialized workspace；其 scripts/config 必须是该副本的实际文件，启动前核对 runner 显示的 profile/data/build 均属于副本。不要从工作树根目录运行该样本，也不要复制真实账号输入。断电式重启前显式刷新合成 pref，安装插件的启动清理是唯一被测入口，测试不直接调用清理函数。
+
+```shell
+ZOTERO_PI_SYNTHETIC_CLEANUP=1 \
+ZOTERO_PI_SYNTHETIC_CLEANUP_OBSERVATION_PATH=<isolated-observation-output.json> \
+ZOTERO_SKILLS_RUNTIME_ROOT=<fresh-isolated-runtime-root> \
+ZOTERO_TEST_ENTRY=tests/zotero/e2e/full/307-pi-synthetic-cleanup.zotero.test.ts \
+ZOTERO_TEST_GREP='Pi synthetic retired development cleanup' \
+npm run test:zotero:e2e
+```
+
+独立观察保存 seed、first-installed-startup、second-installed-startup 的合成计数、保留事实和 cleanup marker；不写入加密 envelope、私有路径或真实账号信息。既有 runner 在每次恢复前观察旧进程退出；仅定向运行该入口时，缺少 foundation/family 事件的 system-E2E manifest 仍为 incomplete，须保留这个状态，不能当作正式 suite receipt。单独 seed 成功不能满足升级样本。
 
 源码或测试定义变化后重跑 mandatory 验收，不沿用旧人工/性能通过。纯文档或归档复用须明确记录 XPI 字节和测试定义不变的依据。C20 只有全部 mandatory evidence 通过才允许完成验证、同步与归档；不得因基础设施已实现而勾选真实宿主或账号任务。

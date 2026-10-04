@@ -263,97 +263,160 @@ describe("Pi API-key Provider execution", function () {
     assert.isEmpty(retiredHistory.gatewayNameByWireName);
   });
 
-  it("dispatches SIWC once through the public Responses endpoint behind the injected auth gate", async function () {
-    await putPiCredential({
-      id: "fixture-chatgpt",
-      label: "Fixture ChatGPT",
-      material: {
-        kind: "chatgpt",
-        access: "expired-access",
-        refresh: "refresh-material",
-        idToken: "verified-id-token",
-        expiresAt: Date.now() + 60_000,
-        issuer: "https://auth.openai.com",
-        subject: "fixture-subject",
-        clientId: "fixture-client",
-        scope: ["chatgpt.tokens.use.direct"],
-      },
-    });
-    let gateCalls = 0;
-    let completion: unknown;
-    const requests: Request[] = [];
-    const responseSse = [
-      'event: response.created\ndata: {"type":"response.created","response":{"id":"resp_fixture","status":"in_progress"}}\n\n',
-      'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"hello"}\n\n',
-      'event: response.output_item.done\ndata: {"type":"response.output_item.done","output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"hello","annotations":[]}]}}\n\n',
-      'event: response.completed\ndata: {"type":"response.completed","response":{"id":"resp_fixture","status":"completed","output":[{"id":"msg_1","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"hello","annotations":[]}]}],"usage":{"input_tokens":12,"output_tokens":3,"total_tokens":15}}}\n\n',
-    ].join("");
-    const source = createPiProviderSource(
-      {
-        ...selection,
-        provider: "openai",
-        modelId: "gpt-5-fixture",
-        authVariant: "chatgpt",
-        credentialRef: "fixture-chatgpt",
-        api: "openai-responses",
-        baseUrl: "https://api.openai.com/v1",
-        reasoning: "medium",
-        metadata: { thinkingLevelMap: { medium: "high" } },
-        policy: { ...selection.policy, maxTokens: 0, input: ["text"] },
-      },
-      {
-        chatGPTAuth: {
-          resolvePiChatGPTAccess: async () => "rotated-access-token",
-          assertPiChatGPTInferenceAllowed: async () => {
-            gateCalls++;
+  for (const scenario of [
+    {
+      label: "repeated output",
+      repeatOutput: true,
+      indexes: [0],
+      pending: false,
+      expected: "stop",
+    },
+    {
+      label: "stream-only output",
+      repeatOutput: false,
+      indexes: [0],
+      pending: false,
+      expected: "stop",
+    },
+    {
+      label: "missing output index",
+      repeatOutput: false,
+      indexes: [1],
+      pending: false,
+      expected: "error",
+    },
+    {
+      label: "duplicate completed item",
+      repeatOutput: false,
+      indexes: [0, 0],
+      pending: false,
+      expected: "error",
+    },
+    {
+      label: "unfinished output item",
+      repeatOutput: false,
+      indexes: [0],
+      pending: true,
+      expected: "error",
+    },
+  ]) {
+    it(`validates SIWC ${scenario.label} behind the injected auth gate`, async function () {
+      await putPiCredential({
+        id: "fixture-chatgpt",
+        label: "Fixture ChatGPT",
+        material: {
+          kind: "chatgpt",
+          access: "expired-access",
+          refresh: "refresh-material",
+          idToken: "verified-id-token",
+          expiresAt: Date.now() + 60_000,
+          issuer: "https://auth.openai.com",
+          subject: "fixture-subject",
+          clientId: "fixture-client",
+          scope: ["chatgpt.tokens.use.direct"],
+        },
+      });
+      let gateCalls = 0;
+      let completion: unknown;
+      const requests: Request[] = [];
+      const completedItem = {
+        id: "msg_1",
+        type: "message",
+        role: "assistant",
+        status: "completed",
+        content: [{ type: "output_text", text: "hello", annotations: [] }],
+      };
+      const responseSse = [
+        'event: response.created\ndata: {"type":"response.created","response":{"id":"resp_fixture","status":"in_progress"}}\n\n',
+        'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"hello"}\n\n',
+        ...scenario.indexes.map(
+          (output_index) =>
+            `event: response.output_item.done\ndata: ${JSON.stringify({ type: "response.output_item.done", output_index, item: completedItem })}\n\n`,
+        ),
+        ...(scenario.pending
+          ? [
+              `event: response.output_item.added\ndata: ${JSON.stringify({ type: "response.output_item.added", output_index: 1, item: { id: "msg_pending", type: "message", role: "assistant", status: "in_progress", content: [] } })}\n\n`,
+            ]
+          : []),
+        `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response: { id: "resp_fixture", status: "completed", output: scenario.repeatOutput ? [completedItem] : [], usage: { input_tokens: 12, output_tokens: 3, total_tokens: 15 } } })}\n\n`,
+      ].join("");
+      const source = createPiProviderSource(
+        {
+          ...selection,
+          provider: "openai",
+          modelId: "gpt-5-fixture",
+          authVariant: "chatgpt",
+          credentialRef: "fixture-chatgpt",
+          api: "openai-responses",
+          baseUrl: "https://api.openai.com/v1",
+          reasoning: "medium",
+          metadata: { thinkingLevelMap: { medium: "high" } },
+          policy: { ...selection.policy, maxTokens: 0, input: ["text"] },
+        },
+        {
+          chatGPTAuth: {
+            resolvePiChatGPTAccess: async () => "rotated-access-token",
+            assertPiChatGPTInferenceAllowed: async () => {
+              gateCalls++;
+            },
+            pausePiChatGPTInference: async () => undefined,
           },
-          pausePiChatGPTInference: async () => undefined,
+          fetch: async (input, init) => {
+            requests.push(new Request(input, init));
+            return new Response(responseSse, {
+              headers: { "content-type": "text/event-stream" },
+            });
+          },
+          onChatGPTCompletedResponse: (value) => {
+            completion = value;
+          },
         },
-        fetch: async (input, init) => {
-          requests.push(new Request(input, init));
-          return new Response(responseSse, {
-            headers: { "content-type": "text/event-stream" },
-          });
-        },
-        onChatGPTCompletedResponse: (value) => {
-          completion = value;
-        },
-      },
-    );
-    const stream = await source.source({
-      sessionId: "siwc-session",
-      turnId: "siwc-turn",
-      invocationId: "siwc-turn:invocation:0",
-      model: source.model,
-      context: normalizeContext({
-        systemPrompt: "Follow prepared instructions",
-        messages: [{ role: "user", content: "Question", timestamp: 0 }],
-      }),
-      signal: new AbortController().signal,
+      );
+      const stream = await source.source({
+        sessionId: "siwc-session",
+        turnId: "siwc-turn",
+        invocationId: "siwc-turn:invocation:0",
+        model: source.model,
+        context: normalizeContext({
+          systemPrompt: "Follow prepared instructions",
+          messages: [{ role: "user", content: "Question", timestamp: 0 }],
+        }),
+        signal: new AbortController().signal,
+      });
+      const result = await stream.result();
+      assert.equal(result.stopReason, scenario.expected);
+      if (scenario.expected === "error") {
+        assert.equal(result.errorMessage, "provider_response_failed");
+        assert.isUndefined(completion);
+        return;
+      }
+      assert.equal(source.usageCompleteness(result), "complete");
+      assert.isNull(source.pricing);
+      assert.equal(gateCalls, 1);
+      assert.lengthOf(requests, 1);
+      assert.equal(requests[0].url, "https://api.openai.com/v1/responses");
+      assert.equal(
+        requests[0].headers.get("authorization"),
+        "Bearer rotated-access-token",
+      );
+      const body = await requests[0].clone().json();
+      assert.equal(body.stream, true);
+      assert.equal(body.store, false);
+      assert.deepEqual(body.reasoning, { effort: "high", summary: "auto" });
+      assert.equal(body.instructions, "Follow prepared instructions");
+      assert.isUndefined(body.previous_response_id);
+      assert.deepEqual((completion as { usage: unknown }).usage, {
+        inputTokens: 12,
+        outputTokens: 3,
+        totalTokens: 15,
+      });
+      assert.deepInclude((completion as { output: unknown[] }).output[0], {
+        id: "msg_1",
+        type: "message",
+        status: "completed",
+      });
     });
-    const result = await stream.result();
-    assert.equal(result.stopReason, "stop");
-    assert.equal(source.usageCompleteness(result), "complete");
-    assert.isNull(source.pricing);
-    assert.equal(gateCalls, 1);
-    assert.lengthOf(requests, 1);
-    assert.equal(requests[0].url, "https://api.openai.com/v1/responses");
-    assert.equal(
-      requests[0].headers.get("authorization"),
-      "Bearer rotated-access-token",
-    );
-    const body = await requests[0].clone().json();
-    assert.equal(body.stream, true);
-    assert.equal(body.store, false);
-    assert.deepEqual(body.reasoning, { effort: "high", summary: "auto" });
-    assert.equal(body.instructions, "Follow prepared instructions");
-    assert.isUndefined(body.previous_response_id);
-    assert.deepEqual((completion as { usage: unknown }).usage, {
-      inputTokens: 12,
-      outputTokens: 3,
-      totalTokens: 15,
-    });
-  });
+  }
 
   it("retains field-level usage presence when a completed response omits token counts", async function () {
     assert.deepEqual(readPiUsageMeasurement({ inputTokens: 5 }), {
@@ -739,6 +802,7 @@ describe("Pi API-key Provider execution", function () {
             new Response(
               'event: response.output_item.added\ndata: {"type":"response.output_item.added","output_index":0,"item":{"id":"msg_partial","type":"message","role":"assistant","status":"in_progress","content":[]}}\n\n' +
                 'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"partial"}\n\n' +
+                'event: response.output_item.done\ndata: {"type":"response.output_item.done","output_index":0,"item":{"id":"msg_partial","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"partial","annotations":[]}]}}\n\n' +
                 item.terminal,
               { headers: { "content-type": "text/event-stream" } },
             ),
@@ -789,6 +853,7 @@ describe("Pi API-key Provider execution", function () {
     });
     const invalidResponses = [
       { id: "resp_missing_output", status: "completed" },
+      { id: "resp_empty_without_done_item", status: "completed", output: [] },
       {
         id: "resp_malformed_output",
         status: "completed",
@@ -880,6 +945,13 @@ describe("Pi API-key Provider execution", function () {
         expected: "toolUse",
       },
       {
+        label: "valid stream-only",
+        namespace: "zotero_agents",
+        name: "read",
+        finalArgs: '{"value":"sdk"}',
+        expected: "toolUse",
+      },
+      {
         label: "wrong namespace",
         namespace: "other",
         name: "read",
@@ -906,17 +978,20 @@ describe("Pi API-key Provider execution", function () {
       const response = {
         id: `resp_${item.label.replaceAll(" ", "_")}`,
         status: "completed",
-        output: [
-          {
-            id: "fc_1",
-            call_id: "call_1",
-            type: "function_call",
-            status: "completed",
-            namespace: item.namespace,
-            name: item.name,
-            arguments: item.finalArgs,
-          },
-        ],
+        output:
+          item.label === "valid stream-only"
+            ? []
+            : [
+                {
+                  id: "fc_1",
+                  call_id: "call_1",
+                  type: "function_call",
+                  status: "completed",
+                  namespace: item.namespace,
+                  name: item.name,
+                  arguments: item.finalArgs,
+                },
+              ],
       };
       const events = [
         `event: response.output_item.added\ndata: ${JSON.stringify({ type: "response.output_item.added", output_index: 0, item: { id: "fc_1", call_id: "call_1", type: "function_call", status: "in_progress", namespace: "zotero_agents", name: "read", arguments: "" } })}\n\n`,

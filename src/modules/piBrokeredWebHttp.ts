@@ -905,12 +905,17 @@ export function createMozillaPiNativeTransport(runtimeInput?: {
       }
     }
     if (options.body?.byteLength) {
-      const streamFactory = classes?.["@mozilla.org/io/string-input-stream;1"];
+      const streamFactory =
+        classes?.["@mozilla.org/io/arraybuffer-input-stream;1"];
       const stream = streamFactory?.createInstance?.(
-        interfaces?.nsIStringInputStream,
+        interfaces?.nsIArrayBufferInputStream,
       );
       if (!stream?.setData) fail("pi_network_transport_unavailable");
-      stream.setData(binaryString(options.body), options.body.byteLength);
+      stream.setData(
+        options.body.buffer,
+        options.body.byteOffset,
+        options.body.byteLength,
+      );
       const upload = channel.QueryInterface?.(interfaces?.nsIUploadChannel);
       if (!upload?.setUploadStream) fail("pi_network_transport_unavailable");
       upload.setUploadStream(
@@ -1146,14 +1151,4 @@ export function createMozillaPiNativeTransport(runtimeInput?: {
   }
 
   return { resolve, open };
-}
-
-function binaryString(bytes: Uint8Array): string {
-  let result = "";
-  for (let offset = 0; offset < bytes.length; offset += 8192) {
-    result += String.fromCharCode(
-      ...bytes.subarray(offset, Math.min(offset + 8192, bytes.length)),
-    );
-  }
-  return result;
 }

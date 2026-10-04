@@ -51,10 +51,10 @@ function parseRequestHead(raw: string): Record<string, string> {
 
 function readRequestHead(transport: any, runtime: Mozilla): Promise<string> {
   const input = transport.openInputStream(0, 0, 0);
-  const scriptable = runtime.classes?.[
-    "@mozilla.org/scriptableinputstream;1"
-  ]?.createInstance(runtime.interfaces?.nsIScriptableInputStream);
-  scriptable.init(input);
+  const binary = runtime.classes?.[
+    "@mozilla.org/binaryinputstream;1"
+  ]?.createInstance(runtime.interfaces?.nsIBinaryInputStream);
+  binary.setInputStream(input);
   return new Promise<string>((resolve) => {
     let raw = "";
     let attempts = 0;
@@ -72,12 +72,19 @@ function readRequestHead(transport: any, runtime: Mozilla): Promise<string> {
       if (settled) return;
       attempts += 1;
       try {
-        const available = Number(scriptable.available());
-        if (available > 0) raw += scriptable.read(available);
+        const available = Number(binary.available());
+        if (available > 0)
+          raw += binaryString(new Uint8Array(binary.readByteArray(available)));
       } catch {
         /* No buffered data yet. */
       }
-      if (raw.includes("\r\n\r\n") || attempts >= 40) {
+      const headEnd = raw.indexOf("\r\n\r\n");
+      const bodyLength =
+        headEnd < 0 ? 0 : Number(parseRequestHead(raw)["content-length"] || 0);
+      if (
+        (headEnd >= 0 && raw.length >= headEnd + 4 + bodyLength) ||
+        attempts >= 40
+      ) {
         finish();
         return;
       }
@@ -323,6 +330,34 @@ describe("Pi brokered web network in real Zotero", function () {
       assert.lengthOf(fixture.requests, 1);
       assert.notProperty(fixture.requests[0].headers, "cookie");
       assert.notProperty(fixture.requests[0].headers, "referer");
+    } finally {
+      fixture.stop();
+    }
+  });
+
+  it("uploads exact binary POST bytes through the real native channel", async function () {
+    const fixture = startFixture();
+    try {
+      const response = await requestPiBrokeredWebHttp({
+        url: `${fixture.origin}/ok`,
+        method: "POST",
+        headers: { "content-type": "application/octet-stream" },
+        body: new Uint8Array([17, 0, 195, 169, 255, 18]).subarray(1, 5),
+        localNetworkApprovedOrigin: fixture.origin,
+      });
+      assert.equal(response.status, 200);
+      assert.lengthOf(fixture.requests, 1);
+      const request = fixture.requests[0];
+      assert.match(request.raw, /^POST /);
+      assert.equal(Number(request.headers["content-length"]), 4);
+      assert.equal(request.headers["content-type"], "application/octet-stream");
+      assert.deepEqual(
+        Array.from(
+          request.raw.slice(request.raw.indexOf("\r\n\r\n") + 4),
+          (byte) => byte.charCodeAt(0),
+        ),
+        [0, 195, 169, 255],
+      );
     } finally {
       fixture.stop();
     }

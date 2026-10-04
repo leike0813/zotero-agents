@@ -72,7 +72,7 @@ export function resolveSystemE2EScaffoldRoot(
 }
 
 type SystemE2ERestartRequest = {
-  caseId: "HB-03" | "AC-05" | "SR-02" | "PI-05" | "PI-05-safe";
+  caseId: "HB-03" | "AC-05" | "SR-02" | "PI-05" | "PI-05-safe" | "PI-06";
   operationId: string;
   processId: number;
 };
@@ -83,6 +83,7 @@ const RESTART_OPERATION_IDS = {
   "SR-02": "system-e2e:sr:02",
   "PI-05": "system-e2e:pi:05",
   "PI-05-safe": "system-e2e:pi:05-safe",
+  "PI-06": "system-e2e:pi:06",
 } as const;
 
 export function parseSystemE2ERestartRequest(

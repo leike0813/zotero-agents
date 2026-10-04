@@ -13,10 +13,9 @@ import {
 import { assertPiChatGPTInferenceAllowed } from "../../../../src/modules/piChatGPTAuth";
 import {
   loadPiProviderConfigurationState,
-  PI_REASONING_LEVELS,
   resolvePiModelSelection,
   setPiProviderDefaults,
-  type PiReasoningLevel,
+  upsertPiModelConfiguration,
 } from "../../../../src/modules/piProviderConfiguration";
 import { savePiModelFixture } from "../../../helpers/piModelConfigurationFixture";
 import {
@@ -29,7 +28,22 @@ import { inspectPiOwner } from "../../../../src/modules/piOwnerPersistence";
 import { joinPath } from "../../../../src/utils/path";
 import { getPref, setPref } from "../../../../src/utils/prefs";
 import { emitZoteroTestDebug } from "../../diagnosticBridge";
-import { readDiagnosticsEnv } from "../../testDiagnosticsOutput";
+import {
+  readDiagnosticsEnv,
+  resolveDefaultTestDiagnosticsOutputPath,
+  writeDiagnosticsText,
+} from "../../testDiagnosticsOutput";
+import { normalizeContext, Type } from "@earendil-works/pi-ai";
+import { createPiProviderSource } from "../../../../src/modules/piProviderExecution";
+import {
+  createPiBrokeredWebTools,
+  type PiWebAttempt,
+} from "../../../../src/modules/piBrokeredWebTools";
+import type { PiModelSelectionSnapshot } from "../../../../src/shared/piProviderContract";
+import {
+  requestPiBrokeredWebOperation,
+  PiOutboundNetworkError,
+} from "../../../../src/modules/piBrokeredWebHttp";
 
 // Shared live turn check. Streaming must be observed on the production
 // publication stream and the assistant message must be durable; every live
@@ -126,128 +140,492 @@ async function loadMinimaxCatalog(): Promise<PiCatalog> {
 
 describe("Pi live ChatGPT smoke", function () {
   this.timeout(180_000);
+  let selection: PiModelSelectionSnapshot;
+  let previousDocument: unknown;
+  let previousSources: unknown;
+  const observations: Array<Record<string, unknown>> = [];
+  async function observe(value: Record<string, unknown>) {
+    const observation = {
+      ...value,
+      recordedAt: new Date().toISOString(),
+      hostVersion: String(Zotero.version),
+    };
+    observations.push(observation);
+    await emitZoteroTestDebug(observation);
+  }
 
-  it("reuses the copied ChatGPT authorization for a durable streaming turn", async function () {
+  before(async function () {
     if (readDiagnosticsEnv("ZOTERO_PI_LIVE_SMOKE") !== "chatgpt") this.skip();
     assert.equal(Number(String(Zotero.version).split(".")[0]), 10);
+    previousDocument = getPref("piProviderConfigurationJson");
+    previousSources = getPref("piWebSourcesJson");
+    const requestedModel = readDiagnosticsEnv("ZOTERO_PI_LIVE_MODEL");
+    assert.isNotEmpty(requestedModel, "explicit live model required");
     const state = loadPiProviderConfigurationState();
-    const credentials = listPiCredentials();
-    const configuration = state.configurations.find(
-      (entry) => entry.enabled && entry.authVariant === "chatgpt",
+    const card = state.configurations.find(
+      (entry) =>
+        entry.enabled &&
+        entry.modelId === requestedModel &&
+        state.connections.some(
+          (connection) =>
+            connection.id === entry.connectionId &&
+            connection.enabled &&
+            connection.authVariant === "chatgpt",
+        ),
     );
-    assert.isOk(configuration, "copied ChatGPT configuration required");
-    assert.isOk(configuration!.credentialRef);
-    const previousDocument = getPref("piProviderConfigurationJson");
-    const coordinator = getPiConversationCoordinator();
-    let id = "";
-    let failure: unknown;
-    try {
-      const signal = new AbortController().signal;
-      await assertPiChatGPTInferenceAllowed(
-        configuration!.credentialRef!,
+    assert.isOk(card, "saved ChatGPT model card required");
+    const connection = state.connections.find(
+      (entry) => entry.id === card!.connectionId,
+    )!;
+    assert.isOk(connection.credentialRef, "selected registration required");
+    const signal = new AbortController().signal;
+    await assertPiChatGPTInferenceAllowed(connection.credentialRef!, signal);
+    let catalog = await refreshPiChatGPTModelCatalog(
+      await loadPiModelCatalog(),
+      {
+        credentialId: connection.credentialRef!,
         signal,
-      );
-      const catalog = await refreshPiChatGPTModelCatalog(
-        await loadPiModelCatalog(),
-        {
-          credentialId: configuration!.credentialRef!,
-          signal,
-        },
-      );
-      const discovered = catalog.models.filter(
-        (model) =>
-          model.source === "discovered" &&
-          model.provider === configuration!.provider &&
-          model.credentialRef === configuration!.credentialRef &&
-          model.authVariants?.includes("chatgpt") &&
-          model.knowledge?.context === "known" &&
-          Number.isFinite(model.contextWindow) &&
-          model.contextWindow > 0,
-      );
-      const executable = discovered.flatMap((candidate) =>
-        candidate.reasoning
-          .filter((reasoning): reasoning is PiReasoningLevel =>
-            PI_REASONING_LEVELS.includes(reasoning as PiReasoningLevel),
-          )
-          .flatMap((reasoning) => {
-            try {
-              const selection = resolvePiModelSelection({
-                kind: "conversation",
-                catalog,
-                credentials,
-                explicit: {
-                  configurationId: configuration!.id,
-                  modelId: candidate.id,
-                  reasoning,
+      },
+    );
+    const discovered = catalog.models.find(
+      (entry) =>
+        entry.id === requestedModel &&
+        entry.source === "discovered" &&
+        entry.credentialRef === connection.credentialRef &&
+        entry.authVariants?.includes("chatgpt"),
+    );
+    assert.isOk(discovered, "selected model must be officially discovered");
+    // SIWC documents namespaced functions independently of /models. Keep
+    // capacity from account discovery; this explicit target declaration adds
+    // only the supported function protocol to the disposable test catalog.
+    // https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations
+    if (discovered!.knowledge?.tools === "unknown") {
+      const { tmpDir } = getRuntimePersistencePaths();
+      await ensureRuntimeDirectoryStrict(tmpDir);
+      const overlayPath = joinPath(tmpDir, "pi-live-chatgpt-functions.yml");
+      await writeRuntimeTextFile(
+        overlayPath,
+        JSON.stringify({
+          providers: {
+            openai: {
+              models: [
+                {
+                  id: requestedModel,
+                  api: "openai-responses",
+                  baseUrl: "https://api.openai.com/v1",
+                  authVariants: ["chatgpt"],
+                  supportsTools: true,
                 },
-              });
-              return [{ candidate, selection }];
-            } catch {
-              return [];
-            }
-          }),
-      );
-      assert.isAbove(
-        executable.length,
-        0,
-        "ChatGPT discovery needs a model with known context and executable reasoning metadata",
-      );
-      const { candidate, selection } = executable[0];
-      setPiProviderDefaults(
-        {
-          conversation: {
-            configurationId: configuration!.id,
-            modelId: candidate.id,
-            reasoning: selection.reasoning,
+              ],
+            },
           },
-        },
-        credentials,
-        catalog,
+        }),
       );
-      const model = resolvePiModelSelection({
-        kind: "conversation",
-        catalog,
-        credentials,
-      });
-      assert.equal(model.modelId, candidate.id);
-      assert.equal(model.reasoning, selection.reasoning);
-      const owner = await coordinator.create();
-      assert.equal(
-        owner.status,
-        "created",
-        "copied default selection must be executable",
+      catalog = await refreshPiModelCatalog({ overlayPath });
+    }
+    const acceptanceCardId = "siwc-live-acceptance-model";
+    upsertPiModelConfiguration(
+      {
+        id: acceptanceCardId,
+        connectionId: connection.id,
+        modelId: requestedModel,
+        enabled: true,
+        reasoning: card!.reasoning,
+      },
+      catalog,
+    );
+    selection = resolvePiModelSelection({
+      kind: "conversation",
+      catalog,
+      credentials: listPiCredentials(),
+      explicit: { configurationId: acceptanceCardId },
+    });
+    assert.equal(selection.modelId, requestedModel);
+    assert.isAbove(selection.policy.contextWindow, 0);
+    assert.isTrue(selection.policy.supportsTools);
+    setPiProviderDefaults(
+      {
+        conversation: { configurationId: acceptanceCardId },
+        auxiliary: { configurationId: acceptanceCardId },
+      },
+      listPiCredentials(),
+      catalog,
+    );
+    setPref("piWebSourcesJson", "[]");
+    await observe({
+      kind: "pi-live-smoke-observation",
+      source: "chatgpt",
+      modelId: selection.modelId,
+      reasoning: selection.reasoning,
+      zoteroMajor: 10,
+      observed: ["discovery", "refresh-or-reuse"],
+      status: "passed",
+      finalAcceptance: false,
+    });
+  });
+
+  after(async function () {
+    if (previousDocument !== undefined)
+      setPref("piProviderConfigurationJson", previousDocument as string);
+    if (previousSources !== undefined)
+      setPref("piWebSourcesJson", previousSources as string);
+    if (observations.length)
+      await writeDiagnosticsText(
+        resolveDefaultTestDiagnosticsOutputPath({
+          envName: "ZOTERO_PI_LIVE_OBSERVATION_PATH",
+          prefix: "pi-chatgpt-live-observation",
+        }),
+        JSON.stringify(
+          { modelId: selection?.modelId, finalAcceptance: false, observations },
+          null,
+          2,
+        ),
       );
-      if (owner.status !== "created")
-        throw new Error("pi_live_selection_unavailable");
-      id = owner.conversationId;
+  });
+
+  it("reuses the selected ChatGPT authorization for a durable streaming turn", async function () {
+    const coordinator = getPiConversationCoordinator();
+    const owner = await coordinator.create();
+    assert.equal(owner.status, "created", "selected model must be executable");
+    if (owner.status !== "created")
+      throw new Error("pi_live_selection_unavailable");
+    try {
       await assertDurableStreamingTurn(
-        id,
+        owner.conversationId,
         "Reply with a short greeting. Do not call tools.",
       );
-      await emitZoteroTestDebug({
+      await observe({
         kind: "pi-live-smoke-observation",
         source: "chatgpt",
-        modelId: model.modelId,
-        reasoning: model.reasoning,
+        modelId: selection.modelId,
+        reasoning: selection.reasoning,
         zoteroMajor: 10,
-        observed: ["refresh-or-reuse", "streaming"],
+        observed: ["streaming"],
         status: "passed",
         finalAcceptance: false,
       });
-    } catch (error) {
-      failure = error;
     } finally {
-      if (id) {
-        try {
-          await coordinator.archive(id);
-          await coordinator.delete(id);
-        } catch (error) {
-          failure ??= error;
-        }
-      }
-      setPref("piProviderConfigurationJson", previousDocument);
+      await coordinator.archive(owner.conversationId);
+      await coordinator.delete(owner.conversationId);
     }
-    if (failure) throw failure;
+  });
+
+  it("completes a real namespaced function call and its full-context result continuation", async function () {
+    const Controller = new AbortController();
+    const timer = setTimeout(() => Controller.abort(), 120_000);
+    const tool = {
+      name: "acceptance/read",
+      description:
+        "Return the acceptance fixture value. Call exactly once before answering.",
+      parameters: Type.Object({ value: Type.Literal("siwc-acceptance") }),
+    };
+    const wires: Array<{
+      status: number;
+      modelMatches: boolean;
+      stream: boolean;
+      store: boolean;
+      namespace: boolean;
+      fullContext: boolean;
+    }> = [];
+    const terminals: string[] = [];
+    const completions: Array<{
+      namespace: boolean;
+      argumentsValid: boolean;
+      usageKnown: boolean;
+    }> = [];
+    const prepared = createPiProviderSource(selection, {
+      disableChatGPTRetries: true,
+      fetch: async (input, init) => {
+        const request = new Request(input, init);
+        const payload = await request.clone().json();
+        const inputItems = Array.isArray(payload.input) ? payload.input : [];
+        const historicalCall = inputItems.find(
+          (entry: Record<string, unknown>) => entry.type === "function_call",
+        );
+        const historicalResult = inputItems.find(
+          (entry: Record<string, unknown>) =>
+            entry.type === "function_call_output",
+        );
+        const response = await globalThis.fetch(request);
+        wires.push({
+          status: response.status,
+          modelMatches: payload.model === selection.modelId,
+          stream: payload.stream === true,
+          store: payload.store === false,
+          namespace:
+            payload.tools?.some(
+              (entry: Record<string, unknown>) =>
+                entry.type === "namespace" && entry.name === "zotero_agents",
+            ) === true,
+          fullContext:
+            !payload.previous_response_id &&
+            !!historicalCall &&
+            historicalCall.namespace === "zotero_agents" &&
+            historicalCall.call_id === historicalResult?.call_id,
+        });
+        return response;
+      },
+      onChatGPTCompletedResponse: (response) => {
+        const call = response.output.find(
+          (entry) => entry.type === "function_call",
+        );
+        completions.push({
+          namespace: call?.namespace === "zotero_agents",
+          argumentsValid:
+            call?.arguments === JSON.stringify({ value: "siwc-acceptance" }) ||
+            (typeof call?.arguments === "string" &&
+              JSON.parse(call.arguments).value === "siwc-acceptance"),
+          usageKnown:
+            typeof response.usage?.inputTokens === "number" &&
+            typeof response.usage?.outputTokens === "number" &&
+            typeof response.usage?.totalTokens === "number",
+        });
+      },
+    });
+    const user = {
+      role: "user" as const,
+      content:
+        "Call acceptance/read exactly once with value siwc-acceptance. After its result, briefly repeat the returned value. Do not answer before calling the tool.",
+      timestamp: 0,
+    };
+    const dispatch = async (
+      context: Parameters<typeof normalizeContext>[0],
+      invocation: number,
+    ) => {
+      const stream = await prepared.source({
+        sessionId: "siwc-live-function",
+        turnId: "siwc-live-function",
+        invocationId: "siwc-live-function:" + invocation,
+        model: prepared.model,
+        signal: Controller.signal,
+        context: normalizeContext(context),
+        onProviderTerminal: (terminal) => terminals.push(terminal.status),
+      });
+      return stream.result();
+    };
+    try {
+      const first = await dispatch({ messages: [user], tools: [tool] }, 0);
+      assert.equal(
+        first.stopReason,
+        "toolUse",
+        first.errorMessage || "function call required",
+      );
+      const calls = first.content.filter((entry) => entry.type === "toolCall");
+      assert.lengthOf(calls, 1);
+      const call = calls[0];
+      assert.equal(call.name, tool.name);
+      assert.deepEqual(call.arguments, { value: "siwc-acceptance" });
+      const second = await dispatch(
+        {
+          tools: [tool],
+          messages: [
+            user,
+            first,
+            {
+              role: "toolResult",
+              toolCallId: call.id,
+              toolName: tool.name,
+              content: [{ type: "text", text: "siwc-acceptance" }],
+              isError: false,
+              timestamp: Date.now(),
+            },
+          ],
+        },
+        1,
+      );
+      assert.equal(
+        second.stopReason,
+        "stop",
+        second.errorMessage || "continuation must complete",
+      );
+      assert.isTrue(
+        second.content.some((entry) => entry.type === "text" && !!entry.text),
+      );
+      assert.deepEqual(terminals, ["completed", "completed"]);
+      assert.lengthOf(wires, 2);
+      assert.isTrue(
+        wires.every(
+          (entry) =>
+            entry.status === 200 &&
+            entry.modelMatches &&
+            entry.stream &&
+            entry.store &&
+            entry.namespace,
+        ),
+      );
+      assert.isTrue(wires[1].fullContext);
+      assert.isTrue(completions[0].namespace && completions[0].argumentsValid);
+      assert.isTrue(completions.every((entry) => entry.usageKnown));
+      assert.equal(prepared.usageCompleteness(second), "complete");
+      await observe({
+        kind: "pi-live-smoke-observation",
+        source: "chatgpt",
+        modelId: selection.modelId,
+        reasoning: selection.reasoning,
+        zoteroMajor: 10,
+        observed: ["function-continuation", "actual-completed", "actual-usage"],
+        status: "passed",
+        dispatches: wires.length,
+        wires,
+        completions,
+        finalAcceptance: false,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+
+  it("returns real native search grounding and supplied citations through the sealed network boundary", async function () {
+    const transport: Array<Record<string, unknown>> = [];
+    const service = createPiBrokeredWebTools({
+      request: async (input) => {
+        const response = await requestPiBrokeredWebOperation(input).catch(
+          (error) => {
+            transport.push({
+              status: "failed",
+              code:
+                error instanceof PiOutboundNetworkError
+                  ? error.code
+                  : "pi_live_transport_unknown",
+            });
+            throw error;
+          },
+        );
+        if (input.kind === "openai") {
+          const events = new TextDecoder()
+            .decode(response.body)
+            .split("\n")
+            .flatMap((line) => {
+              if (!line.startsWith("data: ") || line === "data: [DONE]")
+                return [];
+              try {
+                const event = JSON.parse(line.slice(6));
+                return [event];
+              } catch {
+                return [];
+              }
+            });
+          const doneItems = events.filter(
+            (event) => event.type === "response.output_item.done",
+          );
+          const completedOutput = events.find(
+            (event) => event.type === "response.completed",
+          )?.response?.output;
+          transport.push({
+            status: response.status,
+            actualCompleted: events.some(
+              (event) => event.type === "response.completed",
+            ),
+            actualFailed: events.some(
+              (event) => event.type === "response.failed",
+            ),
+            actualIncomplete: events.some(
+              (event) => event.type === "response.incomplete",
+            ),
+            completedOutputCount: Array.isArray(completedOutput)
+              ? completedOutput.length
+              : undefined,
+            completedItems: doneItems.map(({ output_index, item }) => ({
+              index: Number.isSafeInteger(output_index)
+                ? output_index
+                : undefined,
+              isMessage: item?.type === "message",
+              isWebSearch: item?.type === "web_search_call",
+              isReasoning: item?.type === "reasoning",
+              completed: item?.status === "completed",
+              hasId: typeof item?.id === "string" && !!item.id,
+              searchAction: item?.action?.type === "search",
+              openPageAction: item?.action?.type === "open_page",
+              findAction: item?.action?.type === "find_in_page",
+              hasCitations:
+                Array.isArray(item?.content) &&
+                item.content.some(
+                  (part: { annotations?: Array<{ type?: string }> }) =>
+                    Array.isArray(part.annotations) &&
+                    part.annotations.some(
+                      (entry) => entry.type === "url_citation",
+                    ),
+                ) === true,
+            })),
+          });
+        }
+        return response;
+      },
+    });
+    const attempts: PiWebAttempt[] = [];
+    service.saveSources([
+      {
+        id: "siwc-acceptance-search",
+        kind: "openai-native",
+        label: "SIWC acceptance",
+        enabled: true,
+        modelConfigurationId: selection.configurationId,
+      },
+    ]);
+    const turn = await service.freezeForTurn(selection);
+    assert.lengthOf(turn.sources, 1);
+    assert.equal(turn.sources[0].chatGPTSelection?.modelId, selection.modelId);
+    const result = await service
+      .search(
+        turn,
+        {
+          query:
+            "Search the official Zotero documentation for the Zotero Connector. Cite the official page in a short answer.",
+          maxResults: 3,
+        },
+        new AbortController().signal,
+        async (attempt) => {
+          attempts.push(attempt);
+        },
+      )
+      .catch(async (error) => {
+        await observe({
+          kind: "pi-live-smoke-observation",
+          source: "openai-web-chatgpt",
+          modelId: selection.modelId,
+          status: "failed",
+          transport,
+          attempts: attempts.map(({ phase, status, code }) => ({
+            phase,
+            status,
+            code,
+          })),
+          finalAcceptance: false,
+        });
+        throw error;
+      });
+    assert.equal(result.resultKind, "grounded_answer");
+    if (result.resultKind !== "grounded_answer")
+      throw new Error("pi_live_search_not_grounded");
+    assert.equal(result.sourceEvidence, "provided");
+    assert.isAbove(result.citations.length, 0);
+    assert.isTrue(
+      result.citations.every((citation) => {
+        const url = new URL(citation.url);
+        return url.protocol === "https:" && !url.username && !url.password;
+      }),
+    );
+    assert.equal(result.contentTrust, "external_untrusted");
+    assert.deepEqual(
+      attempts.map((attempt) => attempt.phase),
+      ["started", "terminal"],
+    );
+    assert.equal(attempts[1].status, "completed");
+    assert.equal(attempts[1].modelId, selection.modelId);
+    await observe({
+      kind: "pi-live-smoke-observation",
+      source: "openai-web-chatgpt",
+      modelId: selection.modelId,
+      reasoning: selection.reasoning,
+      zoteroMajor: 10,
+      observed: ["search-results", "actual-completed", "citations"],
+      status: "passed",
+      citationCount: result.citations.length,
+      attemptCount: 1,
+      sourceEvidence: result.sourceEvidence,
+      transport,
+      finalAcceptance: false,
+    });
   });
 });
 

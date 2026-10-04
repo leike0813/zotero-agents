@@ -28,6 +28,16 @@ SIWC success SHALL require actual response.completed and existing result validat
 - **WHEN** the SDK reports done or length after response.incomplete
 - **THEN** the project records incomplete instead of success
 
+#### Scenario: Completed response omits repeated output items
+
+- **WHEN** actual response.completed has an empty output array and every streamed output item has a valid response.output_item.done at contiguous output indices
+- **THEN** the provider validates those completed wire items against the SDK result and delivers them as the completed response output, preserving the original tool namespace and arguments
+
+#### Scenario: Stream output is not complete
+
+- **WHEN** terminal output is empty and streamed output items are missing, duplicated or still pending
+- **THEN** the provider rejects the result and delivers no completed response or tool batch
+
 ### Requirement: SIWC usage and retries retain actual request evidence
 
 SIWC SHALL retain complete, partial or unknown measured usage even on failure and SHALL not price plan use with public API rates. SDK retries SHALL be disabled. Only identified temporary 503 before streamed output SHALL permit at most two bounded retries within the original turn deadline; each actual request SHALL have distinct canonical invocation evidence and no doubled aggregate.

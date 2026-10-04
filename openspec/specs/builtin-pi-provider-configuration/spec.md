@@ -48,7 +48,7 @@ Each turn SHALL receive an immutable target/auth-applicable metadata snapshot in
 
 ### Requirement: Profile credentials fail closed
 
-The system SHALL retain multiple labeled API-key or OpenAI Codex credential records in versioned encrypted envelopes, expose only redacted metadata to UI, and resolve plaintext only for an active caller. Missing, corrupt, or cryptographically inaccessible credentials SHALL fail closed. Deleting a configuration SHALL NOT implicitly delete its credential, and deleting a credential SHALL NOT silently select another.
+The system SHALL retain multiple labeled API-key or verified ChatGPT credential records in versioned encrypted envelopes, expose only redacted metadata to UI, and resolve plaintext only for an active caller. Missing, corrupt, or cryptographically inaccessible credentials SHALL fail closed. Deleting a configuration SHALL NOT implicitly delete its credential, and deleting a credential SHALL NOT silently select another.
 
 #### Scenario: Encrypted record cannot be decrypted
 - **WHEN** a selected credential envelope is damaged or its profile key is missing
@@ -62,21 +62,24 @@ Custom OpenAI-compatible endpoints SHALL declare `openai-responses` or `openai-c
 - **WHEN** a user saves a non-local HTTP custom endpoint
 - **THEN** the configuration is rejected before persistence
 
-### Requirement: Codex model availability uses official credential-bound discovery
+### Requirement: ChatGPT visibility and applicable facts are registration bound
 
-The system SHALL discover visible Codex models from the official account endpoint only after user-initiated login or model refresh. It SHALL resolve only the selected encrypted credential, normalize bounded metadata, and scope discovered facts and selection to that credential. Failed discovery SHALL preserve the previous valid catalog; logout or a changed credential revision SHALL prevent a late result from restoring availability. Configuration loading SHALL remain offline. Missing capabilities SHALL remain unknown; a known context window and text input MAY admit native Codex execution when the endpoint omits a separate output ceiling.
+The system SHALL discover the selected ChatGPT registration through the official models API after login, explicit refresh or user account switch. It SHALL preserve listed order/display names/slugs, isolate cached identity and reject stale commits. Visible models SHALL require reliable SIWC-applicable context for execution; missing output/capabilities/pricing remain unknown without same-name public API inheritance.
 
-#### Scenario: Official account exposes a new model
-- **WHEN** discovery returns a visible model absent from the bundled catalog for the selected credential
-- **THEN** that credential's configuration may select it using the discovered context and reasoning facts without inferring missing capabilities
+#### Scenario: User switches registration
 
-#### Scenario: Another credential selects the model
-- **WHEN** a configuration uses a credential different from the discovery credential
-- **THEN** those discovered model facts do not establish its availability
+- **WHEN** a user selects another saved registration
+- **THEN** its own cache projects first and only its discovery refreshes
 
-#### Scenario: Discovery completes after logout
-- **WHEN** the selected credential is deleted or its revision changes before discovery completes
-- **THEN** the result is rejected and cannot restore model availability
+#### Scenario: Unknown limits
+
+- **WHEN** a listed model has no reliable SIWC context limit
+- **THEN** it is visible but cannot invoke
+
+#### Scenario: Valid empty discovery
+
+- **WHEN** a valid selected-account response has no listed models
+- **THEN** its visibility becomes empty without another account's recommendations
 
 ### Requirement: Optional Conversation auxiliary model selection
 

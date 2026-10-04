@@ -131,6 +131,7 @@ function fakeNativeRuntime(): FakeNativeRuntime {
     nsIHttpChannelInternal: "nsIHttpChannelInternal",
     nsIUploadChannel: "nsIUploadChannel",
     nsIStringInputStream: "nsIStringInputStream",
+    nsIArrayBufferInputStream: "nsIArrayBufferInputStream",
     nsIScriptableInputStream: "nsIScriptableInputStream",
     nsIHttpHeaderVisitor: "nsIHttpHeaderVisitor",
     nsIStreamListener: "nsIStreamListener",
@@ -148,7 +149,15 @@ function fakeNativeRuntime(): FakeNativeRuntime {
       getService: () => ({ getSystemPrincipal: () => ({}) }),
     },
     "@mozilla.org/io/string-input-stream;1": {
-      createInstance: () => ({ setData() {} }),
+      createInstance: () => ({ data: "" }),
+    },
+    "@mozilla.org/io/arraybuffer-input-stream;1": {
+      createInstance: () => ({
+        bytes: new Uint8Array(),
+        setData(buffer: ArrayBuffer, offset: number, length: number) {
+          this.bytes = new Uint8Array(buffer, offset, length).slice();
+        },
+      }),
     },
     "@mozilla.org/timer;1": {
       createInstance: () => {
@@ -199,7 +208,19 @@ function fakeNativeRuntime(): FakeNativeRuntime {
                 : id === interfaces.nsIHttpChannelInternal
                   ? internal
                   : id === interfaces.nsIUploadChannel
-                    ? { setUploadStream() {} }
+                    ? {
+                        setUploadStream(
+                          stream: any,
+                          type: string,
+                          length: number,
+                        ) {
+                          channel.upload = {
+                            bytes: stream.bytes,
+                            type,
+                            length,
+                          };
+                        },
+                      }
                     : undefined,
             cancel() {
               channel.canceled = true;
@@ -813,6 +834,30 @@ describe("Pi brokered MCP fetch adapter", function () {
 });
 
 describe("Pi native Mozilla transport timers", function () {
+  it("uploads the exact binary body slice on modern native streams", async function () {
+    const runtime = fakeNativeRuntime();
+    const bytes = new Uint8Array([17, 0, 195, 169, 255, 18]);
+    const exchange = runtime.transport.open({
+      url: "https://example.org/a",
+      method: "POST",
+      headers: { "content-type": "application/octet-stream" },
+      body: bytes.subarray(1, 5),
+      signal: new AbortController().signal,
+      maxBodyBytes: 1024,
+      idleTimeoutMs: 1000,
+      totalTimeoutMs: 5000,
+    });
+    const channel = runtime.channels[0];
+    assert.equal(channel.http.requestMethod, "POST");
+    assert.deepEqual(Array.from(channel.upload.bytes), [0, 195, 169, 255]);
+    assert.equal(channel.upload.length, 4);
+    assert.equal(channel.upload.type, "application/octet-stream");
+    channel.http.responseStatus = 200;
+    channel.listener.onStartRequest({});
+    assert.equal((await exchange.head).status, 200);
+    channel.listener.onStopRequest({}, 0);
+    assert.isTrue((await exchange.body.getReader().read()).done);
+  });
   it("uses host window streams when the plugin global has none", async function () {
     const Stream = globalThis.ReadableStream;
     installRuntimeBridgeOverrideForTests({

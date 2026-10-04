@@ -308,6 +308,7 @@ export type BindingEntryView = {
 };
 
 export type ConnectionEditorSelection = {
+  id: string;
   mode: "add" | "edit";
   title: string;
   existing: boolean;
@@ -375,6 +376,7 @@ export type ConnectionEditorSelection = {
   hint: string;
   failure: string | null;
   pending: boolean;
+  saving: boolean;
   canSave: boolean;
   saveLabel: string;
   cancelLabel: string;

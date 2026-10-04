@@ -130,3 +130,15 @@ SR-03 的只读定位确认是产品重复发布：`skillRunnerTaskReconciler` �
 最终开发聚合已执行 `npx tsx .scaffold/pi-acceptance/collect-windows-development.mts`，返回 2：`accepted:false`、46 项、41 次证据尝试、25 份宿主 receipt（`windows-development-collect.log`）。JSON/Markdown 为 `windows-development-summary.json`/`windows-development-summary.md`，原始副本和索引为 `windows-receipts/`/`windows-attempt-index.json`。dirty 开发尝试保留在 attempts 中，不能满足正式 gate；包体对照候选与主开发 XPI 摘要不同，也不能合并认证。Windows stdio canary 的 7 次开发证据来自真实宿主 stdout 的三项通过，未用 Node mock 替代。中断的 `9f9b3592` 原 receipt 与保存副本逐字节一致，仍为 running/cleanup incomplete。最终生成类型与 help manifest 无差异，文档格式、OpenSpec strict 与 `git diff --check` 通过。C20 保持 6/13。
 
 本轮一次进程环境查询意外将含凭据字段展开到工具输出。未将这些值写入验收工件，已停止这种读取；后续只提取所需非凭据字段，建议轮换受影响的环境凭据。
+
+## 2026-10-05：Change C 的 SIWC 开发证据交接
+
+用户指定 `gpt-5.6-luna` 并授权补齐 `replace-builtin-pi-codex-auth-with-chatgpt` 的实际服务验收。最终源码经现有 full E2E 的 306 入口在独立 Linux profile/data/runtime 副本执行，manifest `86da825e-e257-4898-8256-e3d0eb36fea0`，实际 Zotero **10.0.5**，**3 passing**：生产 Conversation 流式持久化；真实 namespaced function 调用和完整上下文结果续调用；sealed network 原生搜索和服务提供的引用。两次函数请求有真实 completed 和完整用量；搜索一次派发、HTTP 200、真实 completed 与一条有效引用。浏览器授权成功的既有用户确认与令牌验证阶段观察引用 Change C verification，自动测试复用同一已授权注册，不伪造新的浏览器登录 receipt。
+
+官方发现提供同模型的可靠上下文，但工具能力为 unknown。测试副本通过生产目录 overlay 明确声明官方 SIWC 支持的 namespaced function 协议，创建临时验收卡，函数及搜索另由实际服务验证；输出上限保持未知。该声明不回写来源、不冒充发现字段。网络修复保持封闭通道：用户授权的 Mihomo 精确 Fake-IP 排除及两条 UDP/443 REJECT 已持久化；原生 POST 改用 ArrayBuffer 字节流；项目 typed 网络错误不再被 SDK 泛化失败掩盖。原生 287 **12 passing**，Provider/network/web/acceptance 四文件 **104 passing**，完整构建通过。详细失败记录保留于 Change C verification。
+
+交接目录 `.scaffold/pi-acceptance/chatgpt-final-20261005/` 保留 `candidate.xpi`、`handoff.json`、`live-observation.json`、`evidence.json` 和 `summary.json`/`.md`。打包候选为 **0.10.0**、source commit `463ee83f4894d3575f0daf81aa84730f81a1f98e`、capacity **12**、`dirty:true`，XPI SHA-256 **`b1c014ab5d2e6fa5766160a84114d15c06993502c654dc1b83cf188fe2a61a08`**。它由 `ZOTERO_BUILD_DEBUG=0 npm run build` 生成，packed identity 为非 debug、非 measurement。handoff 同时绑定相关源码及测试定义摘要；宿主加载的是同源码的临时 add-on，未声称已经安装该正式 XPI。开始的默认 debug 构建被 collector 以 `pi_candidate_identity_mismatch` 拒绝，随后重建正确身份，拒绝记录不改写成通过。
+
+现有 CLI 实际读取这份 XPI 和开发 evidence，返回 **2 / `accepted:false`**；它继续拒绝 dirty 候选、缺失六宿主正式 XPI/full/PI 证据、双平台 final workload、容量共同选择及其它必需人工项。`manual:chatgpt-lifecycle` 与 `manual:openai-web-chatgpt` 都明确保存为 **missing**，自动观察仅作为 sourceEvidence；没有虚构 confirmer，也没有补造 logout、unavailable-after-clear 或 reconnect。新的真实服务成功不认证不同 XPI、不完成 C20。固定 v0.9.0 基线、六宿主矩阵、4/6/8/12 容量和全部数值阈值保持原值。
+
+同目录的 `synthetic-cleanup-observation.json` 来自现有 full E2E 307 / PI-06，manifest `8cc8ee80-1021-4ed7-9930-60a208ea8e34`，**1 passing**，两次实际宿主启动结果一致。仅合成的旧 Codex envelope、连接、卡片、默认引用与缓存被清理；API-key、其它连接/default、overlay、两类历史和无关 profile 数据保留。保存 pref 后等待实际落盘解决的是 fixture 的强制重启准备时序，生产清理未改。306/307 的定向 manifest 均保持 incomplete（未运行 foundation/family），独立观察不能替代正式 suite receipt；handoff 明确 `sample:synthetic-development-cleanup`、`formalSuiteReceipt:false`，不计入固定 v0.9.0 XPI upgrade。Change C 5.2/5.3 交接完成，C20 原待办保持原状态。

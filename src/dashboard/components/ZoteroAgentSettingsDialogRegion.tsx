@@ -51,7 +51,7 @@ function ConnectionEditorDialog(props: {
           <span class="muted">{selection.hint}</span>
           <Button
             labels={labels}
-            disabled={selection.pending}
+            disabled={selection.saving}
             testId="connection-editor-cancel"
             onClick={() => handlers.closeConnectionEditor()}
           >
@@ -81,7 +81,7 @@ function ConnectionEditorDialog(props: {
                 "switchConnection",
                 "Switch edited connection",
               )}
-              value={selection.connectionOptions[0]?.value || ""}
+              value={selection.id}
               options={selection.connectionOptions}
               testId="connection-editor-switch"
               onChange={(value) => handlers.switchEditedConnection(value)}
@@ -196,41 +196,6 @@ function ConnectionEditorDialog(props: {
                 handlers.patchConnectionDraft({ registrationLabel: value })
               }
             />
-            {selection.account && (
-              <div class="zs-stack" data-testid="connection-editor-account">
-                <div class="zs-row zs-spread">
-                  <span>{selection.account.stateLabel}</span>
-                  {selection.account.progress ? (
-                    <div class="zs-row" role="status">
-                      <span>{selection.account.progress.phase}</span>
-                      <Button
-                        labels={labels}
-                        small
-                        testId="connection-editor-auth-cancel"
-                        onClick={() => handlers.cancelAuthorization()}
-                      >
-                        {selection.account.progress.cancelLabel}
-                      </Button>
-                    </div>
-                  ) : (
-                    <Button
-                      labels={labels}
-                      small
-                      testId="connection-editor-connect"
-                      onClick={() =>
-                        handlers.connectAccount(
-                          selection.connectionOptions[0]?.value || "",
-                          registrationChoice.value,
-                          false,
-                        )
-                      }
-                    >
-                      {selection.account.connectLabel}
-                    </Button>
-                  )}
-                </div>
-              </div>
-            )}
           </>
         )}
         {selection.endpoint && (
@@ -308,6 +273,42 @@ function ConnectionEditorDialog(props: {
           </Banner>
         )}
       </fieldset>
+      {selection.account && registrationChoice && (
+        <div class="zs-stack" data-testid="connection-editor-account">
+          <div class="zs-row zs-spread">
+            <span>{selection.account.stateLabel}</span>
+            {selection.account.progress ? (
+              <div class="zs-row" role="status">
+                <span>{selection.account.progress.phase}</span>
+                <Button
+                  labels={labels}
+                  small
+                  testId="connection-editor-auth-cancel"
+                  onClick={() => handlers.cancelAuthorization()}
+                >
+                  {selection.account.progress.cancelLabel}
+                </Button>
+              </div>
+            ) : (
+              <Button
+                labels={labels}
+                small
+                disabled={selection.pending}
+                testId="connection-editor-connect"
+                onClick={() =>
+                  handlers.connectAccount(
+                    selection.id,
+                    registrationChoice.value,
+                    false,
+                  )
+                }
+              >
+                {selection.account.connectLabel}
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
     </Modal>
   );
 }

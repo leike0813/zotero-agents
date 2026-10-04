@@ -210,7 +210,11 @@ function AccountBlock(props: {
             primary
             testId="account-connect"
             onClick={() =>
-              entry && handlers.connectAccount(connectionId, entry.id, false)
+              handlers.connectAccount(
+                connectionId,
+                account.registrationId,
+                false,
+              )
             }
           >
             {account.connectLabel}

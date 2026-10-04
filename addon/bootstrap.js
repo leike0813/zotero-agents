@@ -62,6 +62,7 @@ async function startup({ id, version, resourceURI, rootURI }, reason) {
     {
       wantGlobalProperties: [
         "fetch",
+        "AbortController",
         "FormData",
         "ReadableStream",
         "TextEncoder",
@@ -71,6 +72,7 @@ async function startup({ id, version, resourceURI, rootURI }, reason) {
     },
   );
   for (const name of [
+    "AbortController",
     "Headers",
     "Request",
     "Response",
@@ -82,6 +84,9 @@ async function startup({ id, version, resourceURI, rootURI }, reason) {
   ]) {
     ctx[name] = web[name];
   }
+  // Gecko exposes AbortSignal through its native controller rather than as a
+  // wantGlobalProperties entry. Keep both constructors in this owned sandbox.
+  ctx.AbortSignal = new web.AbortController().signal.constructor;
   ctx.fetch = web.fetch;
   // Native clones belong to the Web API sandbox; tools consume plugin objects.
   ctx.structuredClone = (value, options) =>

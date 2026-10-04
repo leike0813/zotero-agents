@@ -11,6 +11,7 @@ import {
 } from "../../src/modules/piCredentialStore";
 import type { PiModelSelectionSnapshot } from "../../src/shared/piProviderContract";
 import { piWebSourceTestEvidenceApplies } from "../../src/shared/piWebSourceContract";
+import { PiOutboundNetworkError } from "../../src/modules/piOutboundNetworkPolicy";
 import { JSDOM } from "jsdom";
 import { freezePiToolGatewayTurn } from "../../src/modules/piToolGateway";
 import {
@@ -1709,6 +1710,25 @@ describe("Pi Brokered Web Tools", function () {
           },
           code: "source_failed",
         },
+        {
+          // A typed outbound-policy denial is the project's own network fact.
+          // The provider sanitizes its stream errors, so the exact code has to
+          // survive the search boundary instead of collapsing to source_failed.
+          name: "typed outbound network denial",
+          requestError: new PiOutboundNetworkError(
+            "pi_network_local_approval_required",
+          ),
+          code: "pi_network_local_approval_required",
+        },
+        {
+          // A native message that merely imitates a project code is still not
+          // one. Only the typed outbound error carries a code, so this settles
+          // as the generic source failure and leaks no text.
+          name: "native error whose message imitates a project code",
+          requestError: new Error("pi_network_private-native-provider-text"),
+          code: "source_failed",
+          absent: "pi_network_private-native-provider-text",
+        },
       ];
       for (const scenario of cases) {
         let dispatches = 0;
@@ -1735,6 +1755,7 @@ describe("Pi Brokered Web Tools", function () {
           chatGPTAccess: async () => "resolved-access",
           request: async (operation) => {
             dispatches++;
+            if (scenario.requestError) throw scenario.requestError;
             return {
               requestedUrl: operation.url,
               finalUrl: operation.url,
@@ -1766,6 +1787,12 @@ describe("Pi Brokered Web Tools", function () {
           assert.fail(`${scenario.name} must not report success`);
         } catch (error) {
           assert.equal((error as any).code, scenario.code, scenario.name);
+          if (scenario.absent)
+            assert.notInclude(
+              String((error as any).message || ""),
+              scenario.absent,
+              scenario.name,
+            );
         }
         assert.equal(dispatches, 1, scenario.name);
         assert.equal(

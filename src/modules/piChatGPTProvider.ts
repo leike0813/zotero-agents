@@ -593,6 +593,11 @@ export function streamPiChatGPTResponses(
       let responseFailed = false;
       let emittedOutput = false;
       let retryAgain = false;
+      const streamedOutput = new Map<
+        number,
+        Record<string, unknown> | undefined
+      >();
+      let validStreamedOutput = true;
       let responseStream;
       try {
         responseStream = streamOpenAIResponses(model, context, {
@@ -632,6 +637,27 @@ export function streamPiChatGPTResponses(
             const type = raw.type;
             const item = raw.item;
             if (
+              type === "response.output_item.added" ||
+              type === "response.output_item.done"
+            ) {
+              const index = raw.output_index;
+              if (
+                typeof index !== "number" ||
+                !Number.isSafeInteger(index) ||
+                index < 0
+              )
+                validStreamedOutput = false;
+              else if (type === "response.output_item.added") {
+                if (streamedOutput.has(index)) validStreamedOutput = false;
+                streamedOutput.set(index, undefined);
+              } else if (!object(item) || streamedOutput.get(index)) {
+                validStreamedOutput = false;
+              } else {
+                // Preserve the wire namespace before adapting the event for Pi.
+                streamedOutput.set(index, structuredClone(item));
+              }
+            }
+            if (
               (type === "response.output_item.added" ||
                 type === "response.output_item.done") &&
               item &&
@@ -666,8 +692,21 @@ export function streamPiChatGPTResponses(
               lastUsage = measured.usage;
               lastCompleteness = measured.completeness;
               lastMeasurement = measured.measurement;
+              let completed = response;
+              if (
+                Array.isArray(response.output) &&
+                response.output.length === 0 &&
+                validStreamedOutput
+              ) {
+                const items = Array.from(
+                  { length: streamedOutput.size },
+                  (_, index) => streamedOutput.get(index),
+                );
+                if (items.length && items.every(object))
+                  completed = { ...response, output: items };
+              }
               completedResponse =
-                response as unknown as PiChatGPTCompletedResponse;
+                completed as unknown as PiChatGPTCompletedResponse;
             } else if (type === "response.incomplete") {
               const measured = responseUsage(response?.usage);
               lastUsage = measured.usage;

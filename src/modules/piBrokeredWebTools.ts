@@ -30,7 +30,10 @@ import {
   type PiBrokeredWebOperation,
   type PiBrokeredWebHttpResponse,
 } from "./piBrokeredWebHttp";
-import { classifyPiOutboundUrl } from "./piOutboundNetworkPolicy";
+import {
+  classifyPiOutboundUrl,
+  PiOutboundNetworkError,
+} from "./piOutboundNetworkPolicy";
 import type { PiCredentialMaterial } from "../shared/piProviderContract";
 import type {
   PiGatewayToolDefinition,
@@ -672,11 +675,13 @@ export function createPiBrokeredWebTools(options: Options = {}) {
     try {
       return await request(operation);
     } catch (error) {
-      const code = error instanceof Error ? error.message : "";
-      if (operation.signal?.aborted || code === "pi_network_aborted")
+      // Only the project's own typed outbound error carries a network code, so
+      // a native message can never become a code on an attempt, the gateway or
+      // the UI. Cancellation stays the signal plus the project's abort code.
+      const network = error instanceof PiOutboundNetworkError ? error.code : "";
+      if (operation.signal?.aborted || network === "pi_network_aborted")
         fail("canceled", true, true);
-      if (/^pi_network_/.test(code))
-        fail(code, true, /timeout|failed/.test(code));
+      if (network) fail(network, true, /timeout|failed/.test(network));
       fail("outcome_unknown", true, true);
     }
   };
@@ -1254,6 +1259,7 @@ export function createPiBrokeredWebTools(options: Options = {}) {
 
         let terminal: import("./piRuntime").PiProviderTerminal | undefined;
         let completed: PiChatGPTCompletedResponse | undefined;
+        let outboundDenial: WebFailure | undefined;
         const prepared = createPiProviderSource(selection, {
           chatGPTAuth: {
             resolvePiChatGPTAccess:
@@ -1292,17 +1298,31 @@ export function createPiBrokeredWebTools(options: Options = {}) {
               fail("source_unavailable", true);
             const authorization = outgoing.headers.get("authorization");
             if (!authorization) fail("source_auth_failed", true);
-            const response = await send({
-              kind: "openai",
-              url: outgoing.url,
-              headers: {
-                Authorization: authorization,
-                "Content-Type": "application/json",
-                Accept: "text/event-stream",
-              },
-              body: await outgoing.text(),
-              signal: outgoing.signal,
-            });
+            let response: PiBrokeredWebHttpResponse;
+            try {
+              response = await send({
+                kind: "openai",
+                url: outgoing.url,
+                headers: {
+                  Authorization: authorization,
+                  "Content-Type": "application/json",
+                  Accept: "text/event-stream",
+                },
+                body: await outgoing.text(),
+                signal: outgoing.signal,
+              });
+            } catch (error) {
+              // The provider sanitizes its stream, so a network denial would
+              // settle as a generic source failure. Keep the WebFailure send
+              // already classified from the project's typed error and settle
+              // the provider first, so the attempt and the UI see the reason.
+              if (
+                error instanceof WebFailure &&
+                /^pi_network_/.test(error.code)
+              )
+                outboundDenial = error;
+              throw error;
+            }
             return new Response(response.body, {
               status: response.status,
               headers: response.headers,
@@ -1329,6 +1349,9 @@ export function createPiBrokeredWebTools(options: Options = {}) {
           if (signal.aborted) break;
         }
         if (signal.aborted) fail("canceled", true, true);
+        // The denial outranks every provider-reported reason: no response was
+        // ever admitted, so a sanitized stream failure must not mask it.
+        if (outboundDenial) throw outboundDenial;
         if (
           providerFailure === "provider_plan_quota_exceeded" ||
           (terminal?.status === "failed" &&
@@ -1659,12 +1682,14 @@ export function createPiBrokeredWebTools(options: Options = {}) {
         return inspectPiBrokeredWebUrl(url);
       });
     const failure = (error: unknown): PiGatewayExecution => {
+      // The code comes from the project's typed error only. The certainty
+      // below stays a policy boolean and never carries text.
       const known =
         error instanceof WebFailure
           ? error
           : new WebFailure(
-              error instanceof Error && /^pi_network_/.test(error.message)
-                ? error.message
+              error instanceof PiOutboundNetworkError
+                ? error.code
                 : "web_fetch_failed",
               true,
               error instanceof Error &&

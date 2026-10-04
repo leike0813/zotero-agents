@@ -55,6 +55,7 @@ import type {
   PiReasoningLevel,
 } from "../shared/piProviderContract";
 import { PI_API_AUTH_VARIANTS } from "../shared/piProviderContract";
+import { isPiFailureCode } from "../shared/piFailureContract";
 import type {
   AccountView,
   CatalogModelRow,
@@ -118,7 +119,8 @@ type PendingRequest = { action: string; requestId: string; label: string };
 type ModelTestRecord = {
   requestId: string;
   bindingIdentity?: string;
-  outcome: ZoteroAgentSettingsModelTestOutcome;
+  outcome?: ZoteroAgentSettingsModelTestOutcome;
+  failureCode?: string;
 };
 
 type SourceTestRecord = {
@@ -481,7 +483,7 @@ export function createZoteroAgentSettingsController(
   function openConnectionEditor(
     kind: "chatgpt" | "api-key" | "custom",
     existing?: ZoteroAgentSettingsConnection,
-  ): void {
+  ): ConnectionDraft {
     const fields: ConnectionDraftFields = existing
       ? {
           label: existing.label,
@@ -535,6 +537,7 @@ export function createZoteroAgentSettingsController(
       if (provider) fields.label = provider.label || fields.provider;
     }
     render();
+    return draft;
   }
 
   function firstProviderId(): string {
@@ -885,6 +888,7 @@ export function createZoteroAgentSettingsController(
       render();
       return;
     }
+    cancelAuthAttempt();
     answerClose(next.requestId, "discard");
   }
 
@@ -965,8 +969,11 @@ export function createZoteroAgentSettingsController(
 
   function cancelAuthAttempt(): void {
     if (!state.auth) return;
-    const { requestId } = state.auth;
+    const { requestId, objectId } = state.auth;
     state.auth = null;
+    if (state.pending[objectId]?.requestId === requestId) {
+      delete state.pending[objectId];
+    }
     // Cancelling stops this attempt only; a completed registration stays owned
     // by its own registration, independent of any connection draft.
     dispatch("pi-chatgpt-cancel", requestId, {});
@@ -978,7 +985,7 @@ export function createZoteroAgentSettingsController(
     reconsent?: boolean,
   ): void {
     if (state.auth) return;
-    const objectId = registrationId;
+    const objectId = registrationId || connectionId;
     const requestId = dispatch("pi-chatgpt-connect", objectId, {
       // Only a registration the snapshot already knows is reused; a fresh
       // draft id asks the owner to create one.
@@ -1216,6 +1223,11 @@ export function createZoteroAgentSettingsController(
     );
   }
 
+  function modelTestFailureText(code: string | undefined): string {
+    const message = failureText(code);
+    return code && isPiFailureCode(code) ? `${message} (${code})` : message;
+  }
+
   function handleResult(message: ZoteroAgentSettingsActionResultMessage): void {
     const payload = message.payload;
     const entry = state.pending[payload.objectId];
@@ -1238,6 +1250,16 @@ export function createZoteroAgentSettingsController(
       // A failed action keeps its object, its draft and any submitted secret,
       // so the user can fix the cause and retry without retyping.
       state.failures[payload.objectId] = failureText(payload.code);
+      if (payload.action === "pi-test-connection") {
+        const record = state.modelTests[payload.objectId];
+        if (record) {
+          record.outcome = { completed: false };
+          record.failureCode = payload.code;
+        }
+        setStatus(modelTestFailureText(payload.code), "warning");
+        render();
+        return;
+      }
       // Each maintenance operation reports in its own section: a failed public
       // refresh never writes into the supplement or diagnostics section, and the
       // adopted content and every other form stay untouched.
@@ -1352,6 +1374,7 @@ export function createZoteroAgentSettingsController(
       const record = state.modelTests[payload.objectId];
       if (record) {
         record.outcome = outcome;
+        delete record.failureCode;
         record.bindingIdentity =
           outcome.bindingIdentity || record.bindingIdentity;
       }
@@ -1687,7 +1710,7 @@ export function createZoteroAgentSettingsController(
             }
           : null,
       purposes,
-      test: test
+      test: test?.outcome
         ? {
             label: test.outcome.completed
               ? text(labels(), "testBadgeCompleted", "Test completed")
@@ -1696,21 +1719,32 @@ export function createZoteroAgentSettingsController(
               ? ("success" as const)
               : ("warning" as const),
           }
-        : null,
-      testDetail: test
-        ? test.outcome.possibleUsage
-          ? text(
-              labels(),
-              "testPossibleUsage",
-              "This probe may have consumed quota.",
-            )
-          : test.outcome.completed
-            ? ""
-            : text(
+        : isPending(card.id, "pi-test-connection")
+          ? {
+              label: text(
                 labels(),
-                "testIncomplete",
-                "The request did not complete; the pause stays.",
+                "testRunning",
+                "Running one test request...",
+              ),
+              tone: "muted" as const,
+            }
+          : null,
+      testDetail: test?.outcome
+        ? test.failureCode
+          ? modelTestFailureText(test.failureCode)
+          : test.outcome.possibleUsage
+            ? text(
+                labels(),
+                "testPossibleUsage",
+                "This probe may have consumed quota.",
               )
+            : test.outcome.completed
+              ? ""
+              : text(
+                  labels(),
+                  "testIncomplete",
+                  "The request did not complete; the pause stays.",
+                )
         : null,
       canTest: ready || paused,
       testLabel: paused
@@ -1723,7 +1757,10 @@ export function createZoteroAgentSettingsController(
   }
 
   function accountView(
-    connection: ZoteroAgentSettingsConnection,
+    connection: Pick<
+      ZoteroAgentSettingsConnection,
+      "id" | "kind" | "registrationId"
+    >,
   ): AccountView | null {
     if (connection.kind !== "chatgpt") return null;
     const entry = registration(connection.registrationId);
@@ -1892,7 +1929,7 @@ export function createZoteroAgentSettingsController(
       ),
       modelsEmptyHint:
         cardsOf(connection.id).length === 0
-          ? connection.kind === "chatgpt"
+          ? connection.kind === "chatgpt" && !account?.signedIn
             ? text(
                 labels(),
                 "modelsHintChatgpt",
@@ -2735,6 +2772,7 @@ export function createZoteroAgentSettingsController(
         }
       : null;
     return {
+      id: draft.id,
       mode: (draft.existing ? "edit" : "add") as "add" | "edit",
       title: draft.existing
         ? text(labels(), "editorTitleEdit", "Manage connection · ") +
@@ -2837,7 +2875,11 @@ export function createZoteroAgentSettingsController(
               },
             }
           : null,
-      account: existing ? accountView(existing) : null,
+      account: accountView({
+        id: draft.id,
+        kind: draft.kind,
+        registrationId: fields.registrationId || draft.registrationId,
+      }),
       models: [],
       endpoint:
         draft.kind === "custom"
@@ -2908,6 +2950,7 @@ export function createZoteroAgentSettingsController(
             ),
       failure: state.failures[draft.id] || null,
       pending: isPending(draft.id),
+      saving: isPending(draft.id, "pi-upsert-configuration"),
       canSave: connectionCanSave(draft),
       saveLabel: text(labels(), "saveConnection", "Save connection"),
       cancelLabel: draft.existing
@@ -3460,6 +3503,10 @@ export function createZoteroAgentSettingsController(
       };
     }
     const connection = connectionById(picker.connectionId);
+    const models = catalogRows(
+      picker.connectionId,
+      pickerModelsQuery()?.models || [],
+    );
     return {
       title:
         text(labels(), "pickerTitle", "Add model · ") +
@@ -3472,11 +3519,10 @@ export function createZoteroAgentSettingsController(
         "pickerCounts",
         "Choose a model that needs configuration; the connection credential is reused.",
       ),
-      models: catalogRows(
-        picker.connectionId,
-        pickerModelsQuery()?.models || [],
-      ),
-      emptyHint: text(labels(), "catalogEmpty", "No model matches."),
+      models,
+      emptyHint: models.length
+        ? null
+        : text(labels(), "catalogEmpty", "No model matches."),
       paging: catalogPaging(),
       closeLabel: text(labels(), "backToWorkbench", "Back to workbench"),
       pending: isPending(picker.connectionId, "pi-upsert-model"),
@@ -3527,7 +3573,12 @@ export function createZoteroAgentSettingsController(
             ? text(labels(), "saveAndSwitch", "Save and switch")
             : text(labels(), "saveAndReturn", "Save and return"),
       canSave,
-      pending: !!pendingObject && isPending(pendingObject),
+      pending:
+        !!pendingObject &&
+        isPending(
+          pendingObject,
+          scope === "connection" ? "pi-upsert-configuration" : undefined,
+        ),
       failure: pendingObject ? state.failures[pendingObject] || null : null,
     };
   }
@@ -3789,6 +3840,19 @@ export function createZoteroAgentSettingsController(
       render();
     },
     connectAccount(connectionId, registrationId, reconsent) {
+      if (state.auth) return;
+      const connection = connectionById(connectionId);
+      if (
+        connection &&
+        !registration(registrationId) &&
+        state.connectionDraft?.id !== connectionId
+      ) {
+        requestLeaveThen({ kind: "cancel" }, () => {
+          const draft = openConnectionEditor(connection.kind, connection);
+          beginAuth(connectionId, draft.registrationId, reconsent);
+        });
+        return;
+      }
       beginAuth(connectionId, registrationId, reconsent);
     },
     cancelAuthorization() {
@@ -3882,11 +3946,6 @@ export function createZoteroAgentSettingsController(
     requestModelTest(cardId) {
       const card = cardById(cardId);
       if (!card) return;
-      state.modelTests[cardId] = {
-        requestId: "",
-        bindingIdentity: card.bindingIdentity,
-        outcome: { completed: false },
-      };
       state.dialog = { kind: "test", targetId: cardId, domain: "model" };
       render();
     },
@@ -3919,12 +3978,18 @@ export function createZoteroAgentSettingsController(
       if (!dialog || dialog.kind !== "test") return;
       const objectId = dialog.targetId;
       if (dialog.domain === "model") {
-        const record = state.modelTests[objectId];
+        const card = cardById(objectId);
+        if (!card) return;
+        const record: ModelTestRecord = {
+          requestId: "",
+          bindingIdentity: card.bindingIdentity,
+        };
+        state.modelTests[objectId] = record;
         const requestId = dispatch("pi-test-connection", objectId, {
           configurationId: objectId,
           allowUsage: allowUsage || undefined,
         });
-        if (record) record.requestId = requestId;
+        record.requestId = requestId;
       } else {
         dispatch(
           dialog.domain === "web" ? "pi-web-test-source" : "pi-mcp-test-source",
@@ -4281,7 +4346,12 @@ export function createZoteroAgentSettingsController(
     payload: { requestId: string; objectId: string; phase: string };
   }): void {
     const auth = state.auth;
-    if (!auth || auth.objectId !== message.payload.objectId) return;
+    if (
+      !auth ||
+      auth.objectId !== message.payload.objectId ||
+      auth.requestId !== message.payload.requestId
+    )
+      return;
     state.auth = { ...auth, phase: message.payload.phase };
     render();
   }
