@@ -536,6 +536,13 @@ export type ModelPickerSelection = {
 };
 
 export type DialogSelection =
+  | {
+      kind: "connection-methods";
+      value: {
+        title: string;
+        choices: NonNullable<OverviewSelection["setupChoices"]>;
+      };
+    }
   | { kind: "connection-editor"; value: ConnectionEditorSelection }
   | { kind: "mcp-editor"; value: McpEditorSelection }
   | { kind: "mcp-json"; value: McpJsonSelection }
@@ -657,6 +664,7 @@ export type McpEntryOperation =
 
 export type ZoteroAgentSettingsHandlers = {
   navigate(page: SettingsPage): void;
+  openConnectionMethods(): void;
   startAddConnection(kind: "chatgpt" | "api-key" | "custom"): void;
   selectConnection(id: string): void;
   editConnection(id: string): void;

@@ -137,6 +137,9 @@ export const McpRegion = memo(
           </div>
           {selection.empty ? (
             <div class="zs-empty" data-testid="mcp-empty">
+              <div class="zs-empty-symbol" aria-hidden="true">
+                ＋
+              </div>
               <h2>{selection.empty.title}</h2>
               <p class="muted">{selection.empty.description}</p>
               <Button
@@ -152,7 +155,7 @@ export const McpRegion = memo(
             <div class="zs-stack" data-testid="mcp-sources">
               {selection.sources.map((source) => (
                 <article
-                  class="zs-card"
+                  class="zs-card zs-stack"
                   key={source.id}
                   data-testid={"mcp-source-" + source.id}
                 >
@@ -174,21 +177,16 @@ export const McpRegion = memo(
                     </Switch>
                   </div>
                   <div class="zs-row zs-spread">
-                    <Badge tone={source.admission.tone}>
+                    <Badge tone={source.test?.tone || source.admission.tone}>
                       {source.pendingSecret
                         ? text(
                             selection.labels,
                             "mcpNeedsSecret",
                             "Authentication information is still missing",
                           )
-                        : source.admission.text}
+                        : source.test?.label || source.admission.text}
                     </Badge>
                     <div class="zs-row">
-                      {source.test && (
-                        <Badge tone={source.test.tone}>
-                          {source.test.label}
-                        </Badge>
-                      )}
                       <Button
                         labels={selection.labels}
                         small
@@ -249,10 +247,10 @@ export const SearchRegion = memo(
         <Header title={selection.title} description={selection.description} />
         <div class="zs-content-body">
           <Banner>{selection.banner}</Banner>
-          <div class="zs-stack" data-testid="search-sources">
+          <div class="zs-card" data-testid="search-sources">
             {selection.rows.map((row) => (
               <article
-                class="zs-card zs-source-row"
+                class="zs-source-row"
                 key={row.id}
                 data-testid={"search-source-" + row.id}
               >

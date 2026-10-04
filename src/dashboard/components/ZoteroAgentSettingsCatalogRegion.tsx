@@ -24,6 +24,7 @@ function ModelRows(props: {
   selection: CatalogSelection;
   onAdd?: (modelKey: string) => void;
   testIdPrefix: string;
+  onPage: (delta: number) => void;
 }) {
   const paging = props.selection.paging;
   const labels = props.selection.labels;
@@ -37,7 +38,7 @@ function ModelRows(props: {
             small
             disabled={!paging.canPrevious}
             testId={props.testIdPrefix + "-prev"}
-            onClick={() => undefined}
+            onClick={() => props.onPage(-1)}
           >
             {text(labels, "previousPage", "Previous page")}
           </Button>
@@ -49,7 +50,7 @@ function ModelRows(props: {
             small
             disabled={!paging.canNext}
             testId={props.testIdPrefix + "-next"}
-            onClick={() => undefined}
+            onClick={() => props.onPage(1)}
           >
             {text(labels, "nextPage", "Next page")}
           </Button>
@@ -140,7 +141,11 @@ export const CatalogRegion = memo(
                 {selection.providerReason}
               </Banner>
             )}
-            <ModelRows selection={selection} testIdPrefix="catalog" />
+            <ModelRows
+              selection={selection}
+              testIdPrefix="catalog"
+              onPage={handlers.moveCatalogPage}
+            />
           </section>
           {selection.sections.map((section) => (
             <details

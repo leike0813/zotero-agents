@@ -446,7 +446,7 @@ function McpEditorDialog(props: {
               </div>
               <small class="muted">{selection.argvHelp}</small>
               {selection.argv.map((argument, index) => (
-                <div class="zs-binding-entry" key={index}>
+                <div class="zs-argument-entry" key={index}>
                   <Field
                     label={
                       text(labels, "argLabel", "Argument") + " " + (index + 1)
@@ -1128,6 +1128,43 @@ function renderDialog(
 ) {
   if (!dialog) return null;
   switch (dialog.kind) {
+    case "connection-methods":
+      return (
+        <Modal
+          title={dialog.value.title}
+          testId="connection-methods"
+          footer={
+            <Button labels={labels} onClick={() => handlers.cancelDialog()}>
+              {text(labels, "cancel", "Cancel")}
+            </Button>
+          }
+        >
+          <div class="zs-stack">
+            {dialog.value.choices.map((choice) => (
+              <button
+                type="button"
+                class="zs-setup-choice"
+                key={choice.id}
+                data-testid={"connection-method-" + choice.id}
+                onClick={() =>
+                  handlers.startAddConnection(
+                    choice.id as "chatgpt" | "api-key" | "custom",
+                  )
+                }
+              >
+                <span class="zs-mark">{choice.mark}</span>
+                <span>
+                  <strong>{choice.title}</strong>
+                  <small>{choice.description}</small>
+                </span>
+                <span class="zs-arrow" aria-hidden="true">
+                  →
+                </span>
+              </button>
+            ))}
+          </div>
+        </Modal>
+      );
     case "connection-editor":
       return (
         <ConnectionEditorDialog

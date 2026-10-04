@@ -1,0 +1,53 @@
+
+> zotero-agents@0.10.0 test:zotero:compatibility:with-mock
+> tsx scripts/run-zotero-test-with-mock.ts test:zotero:compatibility:worker
+
+[test-target] test:zotero:compatibility:worker
+[test-mode] lite
+[test-domain] ui
+[test-workflow-dir] /home/joshua/Workspace/Code/JavaScript/.orca/worktrees/zotero-agents/dev-agent-harness/workflows_builtin
+[test-data-dir] /tmp/zotero-agents-compat/zotero-10-linux-x64-53ed8dc5/ui-17748223/.scaffold/test/data
+[mock-skillrunner] 127.0.0.1:(random)
+mock skillrunner started
+baseUrl=http://127.0.0.1:38767
+bundlePath=/home/joshua/Workspace/Code/JavaScript/.orca/worktrees/zotero-agents/dev-agent-harness/tests/fixtures/literature-analysis/run_bundle_canonical.zip
+press Ctrl+C to stop
+[test-skillrunner-endpoint] http://127.0.0.1:38767
+
+> zotero-agents@0.10.0 test:zotero:compatibility:worker
+> tsx scripts/run-zotero-compatibility-worker.ts --no-watch
+
+ ℹ Installed /home/joshua/Workspace/Code/JavaScript/.orca/worktrees/zotero-agents/dev-agent-harness/.scaffold/settings-prototype-corrected/addon as a temporary add-on
+ ℹ Installed /tmp/zotero-agents-compat/zotero-10-linux-x64-53ed8dc5/ui-17748223/.scaffold/test/resource as a temporary add-on
+  {
+  "kind": "zotero-compatibility-host-facts",
+  "version": "10.0.1",
+  "appBuildId": "20260824184709"
+}
+
+   → canonical navigation in Zotero runtime
+     ✔ rejects a cold Reader when native construction switches windows 2474ms
+  {
+  "kind": "zotero-navigation-native-capabilities",
+  "version": "10.0.1",
+  "capabilities": {
+    "viewItems": true,
+    "selectByID": true,
+    "readerOpen": true
+  }
+}
+     ✔ covers native navigation seams with feature-detected cleanup 5484ms
+     ✔ notifies the first-effect boundary only after revalidating and never negates a settled navigation 2751ms
+  {
+  "kind": "zotero-compatibility-host-facts",
+  "version": "10.0.1",
+  "appBuildId": "20260824184709"
+}
+   → compatibility host facts
+     ✔ reports the observed Zotero runtime identity 1ms
+   → Built-in Agent Backend Manager summary in real Zotero
+     ✔ shows the fixed summary and launches the independent settings window 305ms
+     ✔ routes the preferences entry straight to settings without Backend Manager 0ms
+     ✔ preserves real window drafts, page scrolling and input identity across themes and reopening 19027ms
+
+ ✔ Test run completed - 7 passed

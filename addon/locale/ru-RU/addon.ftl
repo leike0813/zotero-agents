@@ -567,8 +567,6 @@ workflow-duplicate-confirm-no = Нет
 backend-manager-title = Менеджер бэкендов
 backend-manager-provider-skillrunner = SkillRunner
 backend-manager-provider-generic-http = Общий HTTP
-backend-manager-pi-open-settings = Открыть настройки Zotero Agent
-backend-manager-pi-settings-help = Подключения, модели, учётные данные, источники MCP, поисковые источники и обслуживание настраиваются в окне настроек Zotero Agent.
 backend-manager-pi-title = Встроенный агент
 backend-manager-provider-acp = ACP
 backend-manager-provider-profiles-title = Профили { $provider }
@@ -662,8 +660,8 @@ skillrunner-local-runtime-toast-abnormal-stop = Локальный бэкенд 
 skillrunner-backend-communication-failed = Не удалось связаться с бэкендом { $backend }.
 skillrunner-backend-auto-disabled-toast = Бэкенд { $backend } был отключён после 6 часов без успешного соединения. Включите его заново в Менеджере бэкендов для повторной проверки.
 
-# Zotero Agent settings window
-zotero-agent-settings-window-title = Zotero Agent
+# Built-in Agent settings window
+zotero-agent-settings-window-title = Настройки встроенного агента
 zotero-agent-settings-window-subtitle = Подключения к моделям и источники инструментов настраиваются отдельно.
 zotero-agent-settings-window-closed = Окно настройки закрыто. Откройте его снова через пункт в настройках.
 zotero-agent-settings-nav-label = Навигация настройки
@@ -677,7 +675,7 @@ zotero-agent-settings-nav-search = Поиск
 zotero-agent-settings-nav-maintenance = Каталог и обслуживание
 zotero-agent-settings-preferences-hint = Менеджер бэкендов по-прежнему управляет ACP, SkillRunner и Generic HTTP.
 
-# Zotero Agent settings window: shared actions and drafts
+# Built-in Agent settings window: shared actions and drafts
 zotero-agent-settings-action-save = Сохранить
 zotero-agent-settings-action-save-changes = Сохранить изменения
 zotero-agent-settings-action-save-and-close = Сохранить и закрыть
@@ -710,8 +708,8 @@ zotero-agent-settings-empty-entries = Записей пока нет. Добав
 zotero-agent-settings-operation-failed = Операция не удалась. Принятые данные и конфигурация сохраняются; можно повторить попытку.
 zotero-agent-settings-label-unset = Не задано
 
-# Zotero Agent settings window: onboarding
-zotero-agent-settings-onboarding-title = Подготовка Zotero Agent
+# Built-in Agent settings window: onboarding
+zotero-agent-settings-onboarding-title = Подготовка встроенного агента
 zotero-agent-settings-onboarding-subtitle = Сначала подключите службу моделей, затем выберите модель. Инструменты можно настроить позже.
 zotero-agent-settings-onboarding-ready = Можно начинать
 zotero-agent-settings-onboarding-pending = Завершите настройку моделей
@@ -744,7 +742,7 @@ zotero-agent-settings-onboarding-search-action = Настроить поиск
 zotero-agent-settings-onboarding-progress = Ход настройки
 zotero-agent-settings-onboarding-close = Закрыть окно настройки
 
-# Zotero Agent settings window: connections
+# Built-in Agent settings window: connections
 zotero-agent-settings-connections-title = Подключения к моделям
 zotero-agent-settings-connections-subtitle = Подключитесь один раз, а затем задайте назначение по умолчанию на каждой карточке модели.
 zotero-agent-settings-connections-add = Добавить подключение
@@ -783,7 +781,7 @@ zotero-agent-settings-connection-gap-login = Способ входа и треб
 zotero-agent-settings-connection-gap-request = Требования этой службы пока не поддерживаются
 zotero-agent-settings-connection-gap-adapter = Конечная точка или способ аутентификации этой службы пока не поддерживаются
 
-# Zotero Agent settings window: credentials
+# Built-in Agent settings window: credentials
 zotero-agent-settings-credential-label = Метка ключа
 zotero-agent-settings-credential-secret = Ключ API
 zotero-agent-settings-credential-replace = Заменить ключ API
@@ -796,7 +794,7 @@ zotero-agent-settings-credential-not-required = Этой службе ключ �
 zotero-agent-settings-credential-shared-kept = Ключ всё ещё используется другими подключениями и сохраняется
 zotero-agent-settings-credential-exclusive-cleared = Ключ используется только этим подключением и стирается вместе с ним
 
-# Zotero Agent settings window: ChatGPT registrations
+# Built-in Agent settings window: ChatGPT registrations
 zotero-agent-settings-chatgpt-title = Использовать учётную запись ChatGPT
 zotero-agent-settings-chatgpt-subtitle = Войдите в браузере и выберите рабочее пространство для авторизации.
 zotero-agent-settings-chatgpt-connect = Войти через ChatGPT
@@ -813,7 +811,7 @@ zotero-agent-settings-chatgpt-progress-expired = Время ожидания в�
 zotero-agent-settings-chatgpt-progress-failed = Вход не завершён. Повторите попытку.
 zotero-agent-settings-chatgpt-cancel = Отменить вход
 zotero-agent-settings-chatgpt-privacy = Перед продолжением ChatGPT получит данные учётной записи и разрешений, показанные на его странице входа.
-zotero-agent-settings-chatgpt-welcome-title = Разрешить Zotero Agent использовать этот тариф ChatGPT?
+zotero-agent-settings-chatgpt-welcome-title = Разрешить встроенному агенту использовать этот тариф ChatGPT?
 zotero-agent-settings-chatgpt-welcome-body = Выполнение бесед, рабочих процессов или проверки подключения расходует квоту тарифа. Сам вход эти задачи не запускает.
 zotero-agent-settings-chatgpt-welcome-accept = Использовать этот тариф
 zotero-agent-settings-chatgpt-welcome-state = Тариф подтверждён; модели ещё не проверены
@@ -841,7 +839,7 @@ zotero-agent-settings-chatgpt-completed-kept = Завершённый вход �
 zotero-agent-settings-chatgpt-edit-canceled = Редактирование отменено; завершённый вход сохраняется
 zotero-agent-settings-chatgpt-window-closed = Окно настройки закрыто; завершённый вход сохраняется
 
-# Zotero Agent settings window: model cards and default purposes
+# Built-in Agent settings window: model cards and default purposes
 zotero-agent-settings-models-title = Модели и назначения по умолчанию
 zotero-agent-settings-models-subtitle = Модели этого подключения
 zotero-agent-settings-models-add = Добавить модель
@@ -889,7 +887,7 @@ zotero-agent-settings-models-unavailable = Модель недоступна
 zotero-agent-settings-models-missing-default = Выберите нужные модели; учётные данные подключения используются повторно.
 zotero-agent-settings-models-back = Вернуться в рабочую область
 
-# Zotero Agent settings window: model and source tests
+# Built-in Agent settings window: model and source tests
 zotero-agent-settings-test-model = Проверить эту модель
 zotero-agent-settings-test-model-resume = Проверить и возобновить
 zotero-agent-settings-test-confirm-title = Отправить один тестовый запрос
@@ -905,7 +903,7 @@ zotero-agent-settings-test-incomplete = Запрос не завершён; ко
 zotero-agent-settings-test-not-completed = Проверка не завершена
 zotero-agent-settings-test-untested = Ещё не проверялось
 
-# Zotero Agent settings window: MCP page
+# Built-in Agent settings window: MCP page
 zotero-agent-settings-mcp-title = Инструменты MCP
 zotero-agent-settings-mcp-subtitle = Управляйте внешними службами инструментов. Сохранённая конфигурация применяется к следующей задаче.
 zotero-agent-settings-mcp-add = Добавить источник
@@ -928,8 +926,8 @@ zotero-agent-settings-mcp-argv-remove = Удалить аргумент { $index
 zotero-agent-settings-mcp-argv-single = Аргумент
 zotero-agent-settings-mcp-argv-invalid = Аргументы не могут содержать нулевые символы
 zotero-agent-settings-mcp-cwd = Рабочий каталог (необязательно)
-zotero-agent-settings-mcp-cwd-placeholder = По умолчанию: каталог выполнения Zotero Agent
-zotero-agent-settings-mcp-cwd-help = Оставьте пустым, чтобы использовать каталог выполнения Zotero Agent. Укажите абсолютный путь, в котором запускается программа.
+zotero-agent-settings-mcp-cwd-placeholder = По умолчанию: каталог выполнения встроенного агента
+zotero-agent-settings-mcp-cwd-help = Оставьте пустым, чтобы использовать каталог выполнения встроенного агента. Укажите абсолютный путь, в котором запускается программа.
 zotero-agent-settings-mcp-env = Переменные среды
 zotero-agent-settings-mcp-env-add = Добавить переменную среды
 zotero-agent-settings-mcp-env-name = Имя переменной
@@ -999,7 +997,7 @@ zotero-agent-settings-mcp-json-error-target = Каждый источник до
 zotero-agent-settings-mcp-json-error-shape = HTTP-источники используют headers, локальные программы — args, cwd и env
 zotero-agent-settings-mcp-no-connection = Нет подходящего подключения. Сначала добавьте подключение к этой службе в рабочей области моделей.
 
-# Zotero Agent settings window: search page
+# Built-in Agent settings window: search page
 zotero-agent-settings-search-title = Поиск
 zotero-agent-settings-search-subtitle = Управляйте источниками поиска, их порядком и проверками. Сохранённая конфигурация применяется к следующей задаче.
 zotero-agent-settings-search-save = Сохранить конфигурацию поиска
@@ -1043,7 +1041,7 @@ zotero-agent-settings-search-unsaved-body = Сохраните изменени�
 zotero-agent-settings-search-exa-note = Exa предоставляет готовую службу поиска; её можно проверить сразу или изменить её состояние включения.
 zotero-agent-settings-search-no-connection = Нет подходящего подключения. Сначала добавьте подключение к этой службе в рабочей области моделей.
 
-# Zotero Agent settings window: catalog and maintenance
+# Built-in Agent settings window: catalog and maintenance
 zotero-agent-settings-catalog-title = Каталог моделей и обслуживание
 zotero-agent-settings-catalog-subtitle = Просматривайте предопределённых провайдеров и модели и управляйте обновлениями и дополнениями каталога.
 zotero-agent-settings-catalog-providers = Предопределённые провайдеры и модели
@@ -1097,7 +1095,7 @@ zotero-agent-settings-catalog-loading = Загрузка каталога
 zotero-agent-settings-catalog-ready = Каталог готов
 zotero-agent-settings-catalog-error = Каталог недоступен
 
-# Zotero Agent settings window: removals
+# Built-in Agent settings window: removals
 zotero-agent-settings-remove-model-title = Удалить конфигурацию модели
 zotero-agent-settings-remove-model-body = Удалить «{ $label }»? Подключение и учётные данные сохраняются.
 zotero-agent-settings-remove-model-confirm = Удалить модель
@@ -2408,3 +2406,7 @@ assistant-panel-status-cleanup-incomplete = Очистка не завершен
 assistant-panel-status-deleting = Удаление
 assistant-panel-status-archived = В архиве
 assistant-panel-status-recovery-required = Требуется восстановление
+zotero-agent-settings-models-set-general = Использовать по умолчанию
+zotero-agent-settings-models-set-conversation = Для бесед
+zotero-agent-settings-models-set-skill-run = Для запуска навыков
+zotero-agent-settings-models-set-title = Для заголовков

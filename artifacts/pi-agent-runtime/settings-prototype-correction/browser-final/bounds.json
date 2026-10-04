@@ -1,0 +1,410 @@
+[
+  {
+    "compact": false,
+    "theme": "light",
+    "bounds": {
+      "nav": {
+        "left": 12,
+        "right": 175,
+        "top": 153.4375,
+        "bottom": 209.71875
+      },
+      "badge": {
+        "left": 157.34375,
+        "right": 165,
+        "top": 173.046875,
+        "bottom": 190.09375
+      },
+      "purposes": [
+        {
+          "parent": {
+            "left": 208,
+            "right": 425,
+            "top": 111.734375,
+            "bottom": 182.421875
+          },
+          "children": [
+            {
+              "left": 219,
+              "right": 267.40625,
+              "top": 120.734375,
+              "bottom": 137.78125
+            }
+          ]
+        },
+        {
+          "parent": {
+            "left": 433,
+            "right": 650,
+            "top": 111.734375,
+            "bottom": 182.421875
+          },
+          "children": [
+            {
+              "left": 444,
+              "right": 525.90625,
+              "top": 120.734375,
+              "bottom": 137.78125
+            },
+            {
+              "left": 561.234375,
+              "right": 639,
+              "top": 121.5,
+              "bottom": 137
+            }
+          ]
+        },
+        {
+          "parent": {
+            "left": 658,
+            "right": 875,
+            "top": 111.734375,
+            "bottom": 182.421875
+          },
+          "children": [
+            {
+              "left": 669,
+              "right": 723.515625,
+              "top": 120.734375,
+              "bottom": 137.78125
+            },
+            {
+              "left": 786.234375,
+              "right": 864,
+              "top": 121.5,
+              "bottom": 137
+            }
+          ]
+        },
+        {
+          "parent": {
+            "left": 883,
+            "right": 1100,
+            "top": 111.734375,
+            "bottom": 182.421875
+          },
+          "children": [
+            {
+              "left": 894,
+              "right": 921.765625,
+              "top": 128.484375,
+              "bottom": 145.53125
+            },
+            {
+              "left": 1028.046875,
+              "right": 1089,
+              "top": 129.25,
+              "bottom": 144.75
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "compact": false,
+    "theme": "dark",
+    "bounds": {
+      "nav": {
+        "left": 12,
+        "right": 175,
+        "top": 153.4375,
+        "bottom": 209.71875
+      },
+      "badge": {
+        "left": 157.34375,
+        "right": 165,
+        "top": 173.046875,
+        "bottom": 190.09375
+      },
+      "purposes": [
+        {
+          "parent": {
+            "left": 208,
+            "right": 425,
+            "top": 111.734375,
+            "bottom": 182.421875
+          },
+          "children": [
+            {
+              "left": 219,
+              "right": 267.40625,
+              "top": 120.734375,
+              "bottom": 137.78125
+            }
+          ]
+        },
+        {
+          "parent": {
+            "left": 433,
+            "right": 650,
+            "top": 111.734375,
+            "bottom": 182.421875
+          },
+          "children": [
+            {
+              "left": 444,
+              "right": 525.90625,
+              "top": 120.734375,
+              "bottom": 137.78125
+            },
+            {
+              "left": 561.234375,
+              "right": 639,
+              "top": 121.5,
+              "bottom": 137
+            }
+          ]
+        },
+        {
+          "parent": {
+            "left": 658,
+            "right": 875,
+            "top": 111.734375,
+            "bottom": 182.421875
+          },
+          "children": [
+            {
+              "left": 669,
+              "right": 723.515625,
+              "top": 120.734375,
+              "bottom": 137.78125
+            },
+            {
+              "left": 786.234375,
+              "right": 864,
+              "top": 121.5,
+              "bottom": 137
+            }
+          ]
+        },
+        {
+          "parent": {
+            "left": 883,
+            "right": 1100,
+            "top": 111.734375,
+            "bottom": 182.421875
+          },
+          "children": [
+            {
+              "left": 894,
+              "right": 921.765625,
+              "top": 128.484375,
+              "bottom": 145.53125
+            },
+            {
+              "left": 1028.046875,
+              "right": 1089,
+              "top": 129.25,
+              "bottom": 144.75
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "compact": true,
+    "theme": "light",
+    "bounds": {
+      "nav": {
+        "left": 7,
+        "right": 152,
+        "top": 149.4375,
+        "bottom": 205.71875
+      },
+      "badge": {
+        "left": 136.34375,
+        "right": 144,
+        "top": 169.046875,
+        "bottom": 186.09375
+      },
+      "purposes": [
+        {
+          "parent": {
+            "left": 174,
+            "right": 311,
+            "top": 103.734375,
+            "bottom": 174.421875
+          },
+          "children": [
+            {
+              "left": 185,
+              "right": 233.40625,
+              "top": 112.734375,
+              "bottom": 129.78125
+            }
+          ]
+        },
+        {
+          "parent": {
+            "left": 319,
+            "right": 456,
+            "top": 103.734375,
+            "bottom": 174.421875
+          },
+          "children": [
+            {
+              "left": 330,
+              "right": 411.90625,
+              "top": 112.734375,
+              "bottom": 129.78125
+            },
+            {
+              "left": 415.90625,
+              "right": 445,
+              "top": 113.5,
+              "bottom": 129
+            }
+          ]
+        },
+        {
+          "parent": {
+            "left": 464,
+            "right": 601,
+            "top": 103.734375,
+            "bottom": 174.421875
+          },
+          "children": [
+            {
+              "left": 475,
+              "right": 529.515625,
+              "top": 112.734375,
+              "bottom": 129.78125
+            },
+            {
+              "left": 533.515625,
+              "right": 590,
+              "top": 113.5,
+              "bottom": 129
+            }
+          ]
+        },
+        {
+          "parent": {
+            "left": 609,
+            "right": 746,
+            "top": 103.734375,
+            "bottom": 174.421875
+          },
+          "children": [
+            {
+              "left": 620,
+              "right": 647.765625,
+              "top": 120.484375,
+              "bottom": 137.53125
+            },
+            {
+              "left": 674.046875,
+              "right": 735,
+              "top": 121.25,
+              "bottom": 136.75
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "compact": true,
+    "theme": "dark",
+    "bounds": {
+      "nav": {
+        "left": 7,
+        "right": 152,
+        "top": 149.4375,
+        "bottom": 205.71875
+      },
+      "badge": {
+        "left": 136.34375,
+        "right": 144,
+        "top": 169.046875,
+        "bottom": 186.09375
+      },
+      "purposes": [
+        {
+          "parent": {
+            "left": 174,
+            "right": 311,
+            "top": 103.734375,
+            "bottom": 174.421875
+          },
+          "children": [
+            {
+              "left": 185,
+              "right": 233.40625,
+              "top": 112.734375,
+              "bottom": 129.78125
+            }
+          ]
+        },
+        {
+          "parent": {
+            "left": 319,
+            "right": 456,
+            "top": 103.734375,
+            "bottom": 174.421875
+          },
+          "children": [
+            {
+              "left": 330,
+              "right": 411.90625,
+              "top": 112.734375,
+              "bottom": 129.78125
+            },
+            {
+              "left": 415.90625,
+              "right": 445,
+              "top": 113.5,
+              "bottom": 129
+            }
+          ]
+        },
+        {
+          "parent": {
+            "left": 464,
+            "right": 601,
+            "top": 103.734375,
+            "bottom": 174.421875
+          },
+          "children": [
+            {
+              "left": 475,
+              "right": 529.515625,
+              "top": 112.734375,
+              "bottom": 129.78125
+            },
+            {
+              "left": 533.515625,
+              "right": 590,
+              "top": 113.5,
+              "bottom": 129
+            }
+          ]
+        },
+        {
+          "parent": {
+            "left": 609,
+            "right": 746,
+            "top": 103.734375,
+            "bottom": 174.421875
+          },
+          "children": [
+            {
+              "left": 620,
+              "right": 647.765625,
+              "top": 120.484375,
+              "bottom": 137.53125
+            },
+            {
+              "left": 674.046875,
+              "right": 735,
+              "top": 121.25,
+              "bottom": 136.75
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

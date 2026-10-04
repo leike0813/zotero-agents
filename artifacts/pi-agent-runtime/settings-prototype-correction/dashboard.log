@@ -1,0 +1,39 @@
+(node:2154628) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+  zotero agent settings page (src/dashboard)
+    ✔ renders five pages with one content scroller and a fixed header (60ms)
+    ✔ offers the three onboarding choices without assigning a default
+    ✔ opens connection methods directly from the workbench and keeps the selected page (90ms)
+    ✔ requests the next bounded directory page from the visible pagination controls (66ms)
+    ✔ saves a connection form once and clears the secret only after it settles (52ms)
+    ✔ asks before leaving an unsaved form and honors continue, discard and save (43ms)
+    ✔ keeps the guarded form's input, focus and selection across continue (39ms)
+    ✔ asks the owner for a bounded directory page when the catalog opens
+    ✔ ignores a directory page that answers another query
+    ✔ keeps failed MCP input mounted while cancellation asks for a decision
+    ✔ answers the host close guard with its own request id
+    ✔ keeps one card's test result off another card's DOM
+    ✔ assigns a card purpose on the card itself and clears it by clicking again
+    ✔ previews a removal effect before removing a model
+    ✔ shows why an unsupported provider cannot be added
+    ✔ keeps the three maintenance sections folded and reports failure in place
+    ✔ never refills a saved MCP secret and tests a source without enabling it
+    ✔ drives a provider menu with the keyboard and keeps an unavailable entry unselectable
+    ✔ completes a login once and leaves that account's refresh to the owner
+    ✔ refreshes an account's models when the user asks for it
+    ✔ keeps the model picker open until the owner adopts the model (41ms)
+    ✔ keeps a failed model add in place so it can be retried (40ms)
+    ✔ reorders search sources by saving the whole saved order
+    ✔ saves a keyless custom connection without a secret and with the local approval it asked for
+    ✔ picks a provider in the connection editor with the keyboard
+    ✔ offers a model picker for every connection the owner calls ready
+    ✔ keeps a committed service address, its node and its focus through the commit
+    ✔ saves an edited MCP source with its ordered argv and empty secret slots
+    ✔ keeps a failed MCP source save editable and never refills its secret
+    ✔ carries a source's authentication identity into the whole-document edit and adopts the preview's revision
+
+
+  30 passing (9s)
+

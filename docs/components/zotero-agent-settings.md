@@ -1,4 +1,4 @@
-# Zotero Agent 设置
+# Built-in Agent 设置
 
 模型连接、模型卡片、ChatGPT 注册、MCP 来源、搜索来源与目录维护集中在一个独立窗口中配置。`src/modules/workflow/settings/zoteroAgentSettings.ts` 持有窗口、消息准入、订阅、有界投影与动作编排；所有持久事实仍由各自的领域 owner 保存，窗口不持有第二份配置。
 
@@ -7,10 +7,11 @@
 | 入口                | 路径                                                                                                                                                                          |
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 首选项              | `addon/content/preferences.xhtml` 的 `pref-zotero-agent-settings` 按钮，紧邻 Backend Manager 左侧；`src/modules/preferenceScript.ts` 绑定命令后派发 `openZoteroAgentSettings` |
+| Backend Manager     | Built-in Agent 选项卡仅提供打开设置窗口的按钮，文案取自首选项按钮的同一个 Fluent 消息，点击调用 `openZoteroAgentSettings()`                                                   |
 | 主窗口              | `src/hooks.ts` 的 `onPrefsEvent` 处理同一事件；插件关闭时由 shutdown 步骤调用 `closeZoteroAgentSettings()`                                                                    |
 | Assistant Workspace | `assistantWorkspaceActionRouter.ts` 的 Pi 配置动作直接调用 shell host 的 `openZoteroAgentSettings`，`assistantWorkspaceSidebar.ts` 提供惰性实现                               |
 
-三个入口共用 `openZoteroAgentSettings()`。窗口已打开时只聚焦，不新建窗口、不重置草稿。设置窗口使用独立的 `ztoolkit.Dialog` 引用，不复用 `addon.data.dialog`，因此可与 Backend Manager 同时使用。宿主在 `#zs-agent-settings-root` 中插入 iframe，加载 `chrome://<addonRef>/content/dashboard/zotero-agent-settings.html`；iframe 与窗口在 `Pi 关闭构建`（`__PI_RUNTIME_ENABLED__` 为假）下不建立，Pi 设置图因此不进入插件入口图。
+四个入口共用 `openZoteroAgentSettings()`。窗口已打开时只聚焦，不新建窗口、不重置草稿。设置窗口使用独立的 `ztoolkit.Dialog` 引用，不复用 `addon.data.dialog`，因此可与 Backend Manager 同时使用。宿主在 `#zs-agent-settings-root` 中插入 iframe，加载 `chrome://<addonRef>/content/dashboard/zotero-agent-settings.html`；iframe 与窗口在 `Pi 关闭构建`（`__PI_RUNTIME_ENABLED__` 为假）下不建立，Pi 设置图因此不进入插件入口图。
 
 ## 消息契约
 
@@ -87,10 +88,14 @@ turn 冻结仍只选启用且合格的来源，并保持原生搜索对实际模
 
 控件的排版、颜色与间距取自 `addon/content/shared/page-chrome.css` 的共享 token，页面样式只描述本窗口布局。
 
+窗口布局以 `artifacts/pi-agent-runtime/settings-prototype/revision-7.html` 为固定参照。模型工作台的四个默认用途摘要位于连接列表和连接详情上方；连接列表与详情始终保持双栏，小窗口只收窄栏宽。页头、摘要与导航保持固定，详情独立滚动。添加连接在当前页面打开连接方式选择弹窗，再进入对应编辑表单。
+
+页面控制器使用的语义文案名通过 `zoteroAgentSettingsLabels.ts` 映射到 Fluent 消息。语言文件键齐全并不能证明页面使用了译文；静态控件必须同时有映射，动态状态在投影时转为用户可读文案，不能直接显示配置字段码或目录内部身份。
+
 ## 验证入口
 
 - `tests/runtime/292-zotero-agent-settings-host.test.ts`：宿主准入、请求取代、发布世代、关闭清理与惰性入口。
 - `tests/dashboard/`：页面动作、区域身份与草稿保护。
 - `tests/zotero/core/lite/` 与 `tests/zotero/ui/lite/`：真实宿主中的窗口布局、主题与实机行为。
 
-本次变更的命令、候选身份与人工观察记录在 `openspec/changes/redesign-zotero-agent-settings/verification.md`。
+原变更的验证记录位于 `openspec/changes/archive/2026-10-04-redesign-zotero-agent-settings/verification.md`。原型一致性修正与当前候选的实机截图、验证身份记录在 `artifacts/pi-agent-runtime/settings-prototype-correction/verification.md`。

@@ -1,0 +1,5 @@
+
+> zotero-agents@0.10.0 check:localization-governance
+> tsx scripts/check-localization-governance.ts
+
+[localization-governance] passed

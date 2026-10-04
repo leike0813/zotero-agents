@@ -567,8 +567,6 @@ workflow-duplicate-confirm-no = いいえ
 backend-manager-title = バックエンドマネージャー
 backend-manager-provider-skillrunner = SkillRunner
 backend-manager-provider-generic-http = 汎用HTTP
-backend-manager-pi-open-settings = Zotero Agent 設定を開く
-backend-manager-pi-settings-help = 接続、モデル、認証情報、MCP ソース、検索ソース、メンテナンスは Zotero Agent 設定ウィンドウで設定します。
 backend-manager-pi-title = 組み込み Agent
 backend-manager-provider-acp = ACP
 backend-manager-provider-profiles-title = { $provider } プロファイル
@@ -662,8 +660,8 @@ skillrunner-local-runtime-toast-abnormal-stop = ローカルバックエンド�
 skillrunner-backend-communication-failed = バックエンド { $backend } との通信に失敗しました。
 skillrunner-backend-auto-disabled-toast = バックエンド { $backend } は 6 時間接続に成功しなかったため無効化されました。再度プローブするにはバックエンドマネージャーで有効化してください。
 
-# Zotero Agent settings window
-zotero-agent-settings-window-title = Zotero Agent
+# Built-in Agent settings window
+zotero-agent-settings-window-title = 組み込み Agent の設定
 zotero-agent-settings-window-subtitle = モデル接続とツールソースは別々に設定します。
 zotero-agent-settings-window-closed = 設定ウィンドウを閉じました。設定からもう一度開けます。
 zotero-agent-settings-nav-label = 設定ナビゲーション
@@ -677,7 +675,7 @@ zotero-agent-settings-nav-search = 検索
 zotero-agent-settings-nav-maintenance = カタログとメンテナンス
 zotero-agent-settings-preferences-hint = バックエンドマネージャーは引き続き ACP、SkillRunner、Generic HTTP を管理します。
 
-# Zotero Agent settings window: shared actions and drafts
+# Built-in Agent settings window: shared actions and drafts
 zotero-agent-settings-action-save = 保存
 zotero-agent-settings-action-save-changes = 変更を保存
 zotero-agent-settings-action-save-and-close = 保存して閉じる
@@ -710,8 +708,8 @@ zotero-agent-settings-empty-entries = まだ項目がありません。必要な
 zotero-agent-settings-operation-failed = 操作に失敗しました。採用済みの内容と設定は保持されるため、再試行できます。
 zotero-agent-settings-label-unset = 未設定
 
-# Zotero Agent settings window: onboarding
-zotero-agent-settings-onboarding-title = Zotero Agent の準備
+# Built-in Agent settings window: onboarding
+zotero-agent-settings-onboarding-title = 組み込み Agent の準備
 zotero-agent-settings-onboarding-subtitle = まずモデルサービスに接続し、その後モデルを選びます。ツールは後で設定できます。
 zotero-agent-settings-onboarding-ready = 準備完了、利用できます
 zotero-agent-settings-onboarding-pending = モデル設定を続けてください
@@ -744,7 +742,7 @@ zotero-agent-settings-onboarding-search-action = 検索を設定
 zotero-agent-settings-onboarding-close = 設定ウィンドウを閉じる
 zotero-agent-settings-onboarding-progress = 設定の進行状況
 
-# Zotero Agent settings window: connections
+# Built-in Agent settings window: connections
 zotero-agent-settings-connections-title = モデル接続
 zotero-agent-settings-connections-subtitle = 一度接続すれば、各モデルカードで既定の用途を設定できます。
 zotero-agent-settings-connections-add = 接続を追加
@@ -783,7 +781,7 @@ zotero-agent-settings-connection-gap-login = このサービスのログイン�
 zotero-agent-settings-connection-gap-request = このサービスのリクエスト要件はまだ対応していません
 zotero-agent-settings-connection-gap-adapter = このサービスのエンドポイントまたは認証方式はまだ対応していません
 
-# Zotero Agent settings window: credentials
+# Built-in Agent settings window: credentials
 zotero-agent-settings-credential-label = キーのラベル
 zotero-agent-settings-credential-secret = API キー
 zotero-agent-settings-credential-replace = API キーを置き換える
@@ -796,7 +794,7 @@ zotero-agent-settings-credential-not-required = このサービスにキーは�
 zotero-agent-settings-credential-shared-kept = このキーは他の接続でも使用されているため保持されます
 zotero-agent-settings-credential-exclusive-cleared = このキーはこの接続専用のため、接続と一緒に消去されます
 
-# Zotero Agent settings window: ChatGPT registrations
+# Built-in Agent settings window: ChatGPT registrations
 zotero-agent-settings-chatgpt-title = ChatGPT アカウントを使う
 zotero-agent-settings-chatgpt-subtitle = ブラウザでログインし、許可するワークスペースを選んでください。
 zotero-agent-settings-chatgpt-connect = ChatGPT でログイン
@@ -813,7 +811,7 @@ zotero-agent-settings-chatgpt-progress-expired = ログインがタイムアウ�
 zotero-agent-settings-chatgpt-progress-failed = ログインが完了しませんでした。もう一度お試しください。
 zotero-agent-settings-chatgpt-cancel = ログインを取り消す
 zotero-agent-settings-chatgpt-privacy = 続行する前に、ChatGPT はそのログインページに表示されるアカウント情報と権限情報を受け取ります。
-zotero-agent-settings-chatgpt-welcome-title = Zotero Agent にこの ChatGPT プランの使用を許可しますか？
+zotero-agent-settings-chatgpt-welcome-title = 組み込み Agent にこの ChatGPT プランの使用を許可しますか？
 zotero-agent-settings-chatgpt-welcome-body = 会話、ワークフロー、接続テストの実行にはプランの消費枠を使います。ログイン自体ではこれらのタスクを実行しません。
 zotero-agent-settings-chatgpt-welcome-accept = このプランを使う
 zotero-agent-settings-chatgpt-welcome-state = プランを確認しました。モデルは未テストです
@@ -841,7 +839,7 @@ zotero-agent-settings-chatgpt-completed-kept = 完了したログインは保持
 zotero-agent-settings-chatgpt-edit-canceled = 編集を取り消しました。完了したログインは保持されます
 zotero-agent-settings-chatgpt-window-closed = 設定ウィンドウを閉じました。完了したログインは保持されます
 
-# Zotero Agent settings window: model cards and default purposes
+# Built-in Agent settings window: model cards and default purposes
 zotero-agent-settings-models-title = モデルと既定の用途
 zotero-agent-settings-models-subtitle = この接続のモデル
 zotero-agent-settings-models-add = モデルを追加
@@ -889,7 +887,7 @@ zotero-agent-settings-models-unavailable = モデルを利用できません
 zotero-agent-settings-models-missing-default = 必要なモデルを選んでください。接続の認証情報は再利用されます。
 zotero-agent-settings-models-back = ワークベンチに戻る
 
-# Zotero Agent settings window: model and source tests
+# Built-in Agent settings window: model and source tests
 zotero-agent-settings-test-model = このモデルをテスト
 zotero-agent-settings-test-model-resume = テストして再開
 zotero-agent-settings-test-confirm-title = テストリクエストを送信
@@ -905,7 +903,7 @@ zotero-agent-settings-test-incomplete = リクエストは完了しませんで�
 zotero-agent-settings-test-not-completed = テストは完了しませんでした
 zotero-agent-settings-test-untested = 未テスト
 
-# Zotero Agent settings window: MCP page
+# Built-in Agent settings window: MCP page
 zotero-agent-settings-mcp-title = MCP ツール
 zotero-agent-settings-mcp-subtitle = 外部のツールサービスを管理します。保存した設定は次のタスクから適用されます。
 zotero-agent-settings-mcp-add = ソースを追加
@@ -928,8 +926,8 @@ zotero-agent-settings-mcp-argv-remove = 引数 { $index } を削除
 zotero-agent-settings-mcp-argv-single = 引数
 zotero-agent-settings-mcp-argv-invalid = 引数に Null 文字を含められません
 zotero-agent-settings-mcp-cwd = 作業ディレクトリ（任意）
-zotero-agent-settings-mcp-cwd-placeholder = 既定: Zotero Agent 実行ディレクトリ
-zotero-agent-settings-mcp-cwd-help = 空欄にすると Zotero Agent 実行ディレクトリを使います。プログラムを起動する絶対パスを入力してください。
+zotero-agent-settings-mcp-cwd-placeholder = 既定: 組み込み Agent 実行ディレクトリ
+zotero-agent-settings-mcp-cwd-help = 空欄にすると組み込み Agent 実行ディレクトリを使います。プログラムを起動する絶対パスを入力してください。
 zotero-agent-settings-mcp-env = 環境変数
 zotero-agent-settings-mcp-env-add = 環境変数を追加
 zotero-agent-settings-mcp-env-name = 変数名
@@ -999,7 +997,7 @@ zotero-agent-settings-mcp-json-error-target = 各ソースに url か command �
 zotero-agent-settings-mcp-json-error-shape = HTTP ソースは headers、ローカルプログラムは args、cwd、env を使います
 zotero-agent-settings-mcp-no-connection = 適用できる接続がありません。先にモデルワークベンチでこのサービスの接続を追加してください。
 
-# Zotero Agent settings window: search page
+# Built-in Agent settings window: search page
 zotero-agent-settings-search-title = 検索
 zotero-agent-settings-search-subtitle = 検索ソース、その順序、テストを管理します。保存した設定は次のタスクから適用されます。
 zotero-agent-settings-search-save = 検索設定を保存
@@ -1043,7 +1041,7 @@ zotero-agent-settings-search-unsaved-body = 変更を保存するか破棄して
 zotero-agent-settings-search-exa-note = Exa は用意された検索サービスを提供します。そのままテストするか、有効状態を調整できます。
 zotero-agent-settings-search-no-connection = 適用できる接続がありません。先にモデルワークベンチでこのサービスの接続を追加してください。
 
-# Zotero Agent settings window: catalog and maintenance
+# Built-in Agent settings window: catalog and maintenance
 zotero-agent-settings-catalog-title = モデルカタログとメンテナンス
 zotero-agent-settings-catalog-subtitle = 登録済みのプロバイダーとモデルを閲覧し、カタログの更新と補完を管理します。
 zotero-agent-settings-catalog-providers = 登録済みのプロバイダーとモデル
@@ -1097,7 +1095,7 @@ zotero-agent-settings-catalog-loading = カタログを読み込んでいます
 zotero-agent-settings-catalog-ready = カタログの準備ができました
 zotero-agent-settings-catalog-error = カタログを利用できません
 
-# Zotero Agent settings window: removals
+# Built-in Agent settings window: removals
 zotero-agent-settings-remove-model-title = モデル設定を削除
 zotero-agent-settings-remove-model-body = 「{ $label }」を削除しますか。接続と認証情報は保持されます。
 zotero-agent-settings-remove-model-confirm = モデルを削除
@@ -2410,3 +2408,7 @@ assistant-panel-status-cleanup-incomplete = クリーンアップ未完了
 assistant-panel-status-deleting = 削除中
 assistant-panel-status-archived = アーカイブ済み
 assistant-panel-status-recovery-required = 復旧が必要
+zotero-agent-settings-models-set-general = 標準として使用
+zotero-agent-settings-models-set-conversation = 会話に使用
+zotero-agent-settings-models-set-skill-run = Skill 実行に使用
+zotero-agent-settings-models-set-title = タイトルに使用

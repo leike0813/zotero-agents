@@ -567,8 +567,6 @@ workflow-duplicate-confirm-no = 아니오
 backend-manager-title = 백엔드 관리자
 backend-manager-provider-skillrunner = SkillRunner
 backend-manager-provider-generic-http = 일반 HTTP
-backend-manager-pi-open-settings = Zotero Agent 설정 열기
-backend-manager-pi-settings-help = 연결, 모델, 자격 증명, MCP 소스, 검색 소스 및 유지 관리는 Zotero Agent 설정 창에서 구성합니다.
 backend-manager-pi-title = 내장 Agent
 backend-manager-provider-acp = ACP
 backend-manager-provider-profiles-title = { $provider } 프로필
@@ -662,8 +660,8 @@ skillrunner-local-runtime-toast-abnormal-stop = 로컬 백엔드가 예기치 �
 skillrunner-backend-communication-failed = 백엔드 { $backend }와(과) 통신에 실패했습니다.
 skillrunner-backend-auto-disabled-toast = 백엔드 { $backend }가 6시간 동안 성공적인 연결 없이 비활성화되었습니다. 백엔드 관리자에서 다시 활성화하여 재접속하세요.
 
-# Zotero Agent settings window
-zotero-agent-settings-window-title = Zotero Agent
+# Built-in Agent settings window
+zotero-agent-settings-window-title = 내장 Agent 설정
 zotero-agent-settings-window-subtitle = 모델 연결과 도구 소스는 따로 설정합니다.
 zotero-agent-settings-window-closed = 설정 창을 닫았습니다. 설정에서 다시 열 수 있습니다.
 zotero-agent-settings-nav-label = 설정 탐색
@@ -677,7 +675,7 @@ zotero-agent-settings-nav-search = 검색
 zotero-agent-settings-nav-maintenance = 카탈로그 및 유지 관리
 zotero-agent-settings-preferences-hint = 백엔드 관리자는 계속 ACP, SkillRunner, Generic HTTP를 관리합니다.
 
-# Zotero Agent settings window: shared actions and drafts
+# Built-in Agent settings window: shared actions and drafts
 zotero-agent-settings-action-save = 저장
 zotero-agent-settings-action-save-changes = 변경 사항 저장
 zotero-agent-settings-action-save-and-close = 저장하고 닫기
@@ -710,8 +708,8 @@ zotero-agent-settings-empty-entries = 아직 항목이 없습니다. 필요하�
 zotero-agent-settings-operation-failed = 작업에 실패했습니다. 채택된 내용과 설정은 유지되므로 다시 시도할 수 있습니다.
 zotero-agent-settings-label-unset = 설정되지 않음
 
-# Zotero Agent settings window: onboarding
-zotero-agent-settings-onboarding-title = Zotero Agent 준비
+# Built-in Agent settings window: onboarding
+zotero-agent-settings-onboarding-title = 내장 Agent 준비
 zotero-agent-settings-onboarding-subtitle = 먼저 모델 서비스를 연결한 다음 모델을 선택하십시오. 도구는 나중에 설정할 수 있습니다.
 zotero-agent-settings-onboarding-ready = 사용할 준비가 되었습니다
 zotero-agent-settings-onboarding-pending = 모델 설정을 마쳐 주십시오
@@ -744,7 +742,7 @@ zotero-agent-settings-onboarding-search-action = 검색 설정
 zotero-agent-settings-onboarding-close = 설정 창 닫기
 zotero-agent-settings-onboarding-progress = 설정 진행 상황
 
-# Zotero Agent settings window: connections
+# Built-in Agent settings window: connections
 zotero-agent-settings-connections-title = 모델 연결
 zotero-agent-settings-connections-subtitle = 한 번 연결한 다음 각 모델 카드에서 기본 용도를 설정하십시오.
 zotero-agent-settings-connections-add = 연결 추가
@@ -783,7 +781,7 @@ zotero-agent-settings-connection-gap-login = 이 서비스의 로그인 방식�
 zotero-agent-settings-connection-gap-request = 이 서비스의 요청 요구 사항은 아직 지원되지 않습니다
 zotero-agent-settings-connection-gap-adapter = 이 서비스의 엔드포인트 또는 인증 방식은 아직 지원되지 않습니다
 
-# Zotero Agent settings window: credentials
+# Built-in Agent settings window: credentials
 zotero-agent-settings-credential-label = 키 라벨
 zotero-agent-settings-credential-secret = API 키
 zotero-agent-settings-credential-replace = API 키 교체
@@ -796,7 +794,7 @@ zotero-agent-settings-credential-not-required = 이 서비스에는 키가 필�
 zotero-agent-settings-credential-shared-kept = 이 키는 다른 연결에서도 사용 중이므로 유지됩니다
 zotero-agent-settings-credential-exclusive-cleared = 이 키는 이 연결 전용이므로 함께 지워집니다
 
-# Zotero Agent settings window: ChatGPT registrations
+# Built-in Agent settings window: ChatGPT registrations
 zotero-agent-settings-chatgpt-title = ChatGPT 계정 사용
 zotero-agent-settings-chatgpt-subtitle = 브라우저에서 로그인하고 승인할 작업 영역을 선택하십시오.
 zotero-agent-settings-chatgpt-connect = ChatGPT로 로그인
@@ -813,7 +811,7 @@ zotero-agent-settings-chatgpt-progress-expired = 로그인이 시간 초과되�
 zotero-agent-settings-chatgpt-progress-failed = 로그인이 완료되지 않았습니다. 다시 시도하십시오.
 zotero-agent-settings-chatgpt-cancel = 로그인 취소
 zotero-agent-settings-chatgpt-privacy = 계속하기 전에 ChatGPT는 로그인 페이지에 표시된 계정 및 권한 정보를 받습니다.
-zotero-agent-settings-chatgpt-welcome-title = Zotero Agent가 이 ChatGPT 요금제를 사용하도록 허용하시겠습니까?
+zotero-agent-settings-chatgpt-welcome-title = 내장 Agent가 이 ChatGPT 요금제를 사용하도록 허용하시겠습니까?
 zotero-agent-settings-chatgpt-welcome-body = 대화, 워크플로 또는 연결 테스트를 실행하면 요금제 사용량이 소비됩니다. 로그인 자체로는 이러한 작업을 실행하지 않습니다.
 zotero-agent-settings-chatgpt-welcome-accept = 이 요금제 사용
 zotero-agent-settings-chatgpt-welcome-state = 요금제를 확인했습니다. 모델은 아직 테스트하지 않았습니다
@@ -841,7 +839,7 @@ zotero-agent-settings-chatgpt-completed-kept = 완료된 로그인은 유지됩�
 zotero-agent-settings-chatgpt-edit-canceled = 편집을 취소했습니다. 완료된 로그인은 유지됩니다
 zotero-agent-settings-chatgpt-window-closed = 설정 창을 닫았습니다. 완료된 로그인은 유지됩니다
 
-# Zotero Agent settings window: model cards and default purposes
+# Built-in Agent settings window: model cards and default purposes
 zotero-agent-settings-models-title = 모델 및 기본 용도
 zotero-agent-settings-models-subtitle = 이 연결의 모델
 zotero-agent-settings-models-add = 모델 추가
@@ -889,7 +887,7 @@ zotero-agent-settings-models-unavailable = 모델을 사용할 수 없습니다
 zotero-agent-settings-models-missing-default = 필요한 모델을 선택하십시오. 연결 자격 증명은 재사용됩니다.
 zotero-agent-settings-models-back = 워크벤치로 돌아가기
 
-# Zotero Agent settings window: model and source tests
+# Built-in Agent settings window: model and source tests
 zotero-agent-settings-test-model = 이 모델 테스트
 zotero-agent-settings-test-model-resume = 테스트 후 재개
 zotero-agent-settings-test-confirm-title = 테스트 요청 보내기
@@ -905,7 +903,7 @@ zotero-agent-settings-test-incomplete = 요청이 완료되지 않았습니다. 
 zotero-agent-settings-test-not-completed = 테스트가 완료되지 않음
 zotero-agent-settings-test-untested = 아직 테스트하지 않음
 
-# Zotero Agent settings window: MCP page
+# Built-in Agent settings window: MCP page
 zotero-agent-settings-mcp-title = MCP 도구
 zotero-agent-settings-mcp-subtitle = 외부 도구 서비스를 관리합니다. 저장한 설정은 다음 작업부터 적용됩니다.
 zotero-agent-settings-mcp-add = 소스 추가
@@ -928,8 +926,8 @@ zotero-agent-settings-mcp-argv-remove = 인수 { $index } 제거
 zotero-agent-settings-mcp-argv-single = 인수
 zotero-agent-settings-mcp-argv-invalid = 인수에 널 문자를 넣을 수 없습니다
 zotero-agent-settings-mcp-cwd = 작업 디렉터리(선택)
-zotero-agent-settings-mcp-cwd-placeholder = 기본값: Zotero Agent 실행 디렉터리
-zotero-agent-settings-mcp-cwd-help = 비워 두면 Zotero Agent 실행 디렉터리를 사용합니다. 프로그램이 시작되는 절대 경로를 입력하십시오.
+zotero-agent-settings-mcp-cwd-placeholder = 기본값: 내장 Agent 실행 디렉터리
+zotero-agent-settings-mcp-cwd-help = 비워 두면 내장 Agent 실행 디렉터리를 사용합니다. 프로그램이 시작되는 절대 경로를 입력하십시오.
 zotero-agent-settings-mcp-env = 환경 변수
 zotero-agent-settings-mcp-env-add = 환경 변수 추가
 zotero-agent-settings-mcp-env-name = 변수 이름
@@ -999,7 +997,7 @@ zotero-agent-settings-mcp-json-error-target = 각 소스는 url 또는 command�
 zotero-agent-settings-mcp-json-error-shape = HTTP 소스는 headers를, 로컬 프로그램은 args, cwd, env를 사용합니다
 zotero-agent-settings-mcp-no-connection = 적용 가능한 연결이 없습니다. 먼저 모델 워크벤치에서 이 서비스의 연결을 추가하십시오.
 
-# Zotero Agent settings window: search page
+# Built-in Agent settings window: search page
 zotero-agent-settings-search-title = 검색
 zotero-agent-settings-search-subtitle = 검색 소스와 순서, 테스트를 관리합니다. 저장한 설정은 다음 작업부터 적용됩니다.
 zotero-agent-settings-search-save = 검색 설정 저장
@@ -1043,7 +1041,7 @@ zotero-agent-settings-search-unsaved-body = 변경 사항을 저장하거나 버
 zotero-agent-settings-search-exa-note = Exa는 준비된 검색 서비스를 제공합니다. 그대로 테스트하거나 활성화 상태를 조정할 수 있습니다.
 zotero-agent-settings-search-no-connection = 적용 가능한 연결이 없습니다. 먼저 모델 워크벤치에서 이 서비스의 연결을 추가하십시오.
 
-# Zotero Agent settings window: catalog and maintenance
+# Built-in Agent settings window: catalog and maintenance
 zotero-agent-settings-catalog-title = 모델 카탈로그 및 유지 관리
 zotero-agent-settings-catalog-subtitle = 사전 설정된 제공자와 모델을 둘러보고 카탈로그 업데이트와 보완 정보를 관리합니다.
 zotero-agent-settings-catalog-providers = 사전 설정된 제공자와 모델
@@ -1097,7 +1095,7 @@ zotero-agent-settings-catalog-loading = 카탈로그 불러오는 중
 zotero-agent-settings-catalog-ready = 카탈로그 준비됨
 zotero-agent-settings-catalog-error = 카탈로그를 사용할 수 없음
 
-# Zotero Agent settings window: removals
+# Built-in Agent settings window: removals
 zotero-agent-settings-remove-model-title = 모델 설정 제거
 zotero-agent-settings-remove-model-body = “{ $label }”을(를) 제거하시겠습니까? 연결과 자격 증명은 유지됩니다.
 zotero-agent-settings-remove-model-confirm = 모델 제거
@@ -2408,3 +2406,7 @@ assistant-panel-status-cleanup-incomplete = 정리 미완료
 assistant-panel-status-deleting = 삭제 중
 assistant-panel-status-archived = 보관됨
 assistant-panel-status-recovery-required = 복구 필요
+zotero-agent-settings-models-set-general = 기본으로 사용
+zotero-agent-settings-models-set-conversation = 대화에 사용
+zotero-agent-settings-models-set-skill-run = Skill 실행에 사용
+zotero-agent-settings-models-set-title = 제목에 사용

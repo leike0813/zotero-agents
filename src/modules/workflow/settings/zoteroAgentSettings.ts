@@ -163,6 +163,10 @@ async function openOwnedZoteroAgentSettings(args?: { window?: Window }) {
       | undefined;
     let frame: HTMLIFrameElement | undefined;
     let window: Window | undefined;
+    const title = getStringOrFallback(
+      "zotero-agent-settings-window-title",
+      "Built-in Agent Settings",
+    );
     // Calls made from Zotero's module global have no Window source in
     // postMessage. Deliver through the owned frame with its actual parent
     // identity, so the page can keep strict source admission.
@@ -237,7 +241,7 @@ async function openOwnedZoteroAgentSettings(args?: { window?: Window }) {
           "style",
           "border:0;width:100%;height:100%;flex:1;min-height:0",
         );
-        frame.setAttribute("title", "Zotero Agent");
+        frame.setAttribute("title", title);
         session = createZoteroAgentSettingsSession({
           frame: () => frame?.contentWindow,
           post: postToFrame,
@@ -290,7 +294,7 @@ async function openOwnedZoteroAgentSettings(args?: { window?: Window }) {
         },
       })
       .setDialogData(dialogData)
-      .open("Zotero Agent", {
+      .open(title, {
         centerscreen: true,
         resizable: true,
         fitContent: false,

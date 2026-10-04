@@ -722,46 +722,6 @@ export const BackendManagerHeaderRegion = memo(
   regionEqual,
 );
 
-function ZoteroAgentSummaryPanel(props: {
-  value: BackendManagerBuiltinAgentSnapshot;
-  labels: BackendManagerLabels;
-  handlers: BackendManagerRegionHandlers;
-}) {
-  const { value, labels, handlers } = props;
-  return (
-    <section class="backend-provider-section">
-      <header class="backend-provider-header">
-        <h2 class="backend-provider-title">
-          {labelText(labels, "piTitle", value.displayName)}
-        </h2>
-        <div class="backend-provider-actions">
-          <button
-            type="button"
-            class="backend-button primary"
-            data-zs-action="open-zotero-agent-settings"
-            onClick={() => handlers.openZoteroAgentSettings()}
-          >
-            {labelText(labels, "piOpenSettings", "Open Settings")}
-          </button>
-        </div>
-      </header>
-      <dl class="backend-agent-summary">
-        <dt>{labelText(labels, "piTitle", "Built-in Agent")}</dt>
-        <dd>{value.displayName}</dd>
-        <dt>{labelText(labels, "baseUrl", "Base URL")}</dt>
-        <dd>{value.baseUrl}</dd>
-      </dl>
-      <p class="backend-empty">
-        {labelText(
-          labels,
-          "piSettingsHelp",
-          "Configure this agent in the Zotero Agent settings window.",
-        )}
-      </p>
-    </section>
-  );
-}
-
 export const BackendManagerBodyRegion = memo(function BackendManagerBodyRegion(
   props: RegionProps<BackendManagerBodySelection>,
 ) {
@@ -776,11 +736,14 @@ export const BackendManagerBodyRegion = memo(function BackendManagerBodyRegion(
       }
     >
       {selection.builtinAgent ? (
-        <ZoteroAgentSummaryPanel
-          value={selection.builtinAgent}
-          labels={labels}
-          handlers={handlers}
-        />
+        <button
+          type="button"
+          class="backend-button primary"
+          data-zs-action="open-zotero-agent-settings"
+          onClick={() => handlers.openZoteroAgentSettings()}
+        >
+          {labelText(labels, "piOpenSettings", "Open Built-in Agent Settings")}
+        </button>
       ) : (
         <section class="backend-provider-section">
           <header class="backend-provider-header">

@@ -36,7 +36,9 @@ export const NavRegion = memo(
         aria-label={text(props.selection.labels, "navLabel", "Settings")}
         data-testid="settings-nav"
       >
-        <div class="zs-nav-brand">Zotero Agent</div>
+        <div class="zs-nav-brand">
+          {text(props.selection.labels, "agentName", "Built-in Agent")}
+        </div>
         {props.selection.groups.map((group) => (
           <div class="zs-nav-group" key={group.label || "root"}>
             {group.label && <div class="zs-nav-group-label">{group.label}</div>}
@@ -54,6 +56,17 @@ export const NavRegion = memo(
                 data-testid={"nav-" + item.id}
                 onClick={() => props.handlers.navigate(item.id as SettingsPage)}
               >
+                <span class="zs-nav-icon" aria-hidden="true">
+                  {
+                    {
+                      overview: "◎",
+                      connections: "↗",
+                      mcp: "⊞",
+                      search: "⌕",
+                      catalog: "≡",
+                    }[item.id]
+                  }
+                </span>
                 <span>{item.label}</span>
                 {item.badge && <span class="zs-nav-badge">{item.badge}</span>}
               </button>

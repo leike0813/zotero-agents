@@ -14,7 +14,7 @@ import type { BackendManagerSnapshot } from "../../src/dashboard/components/Back
 // The host owns the built-in Agent section label, so the page renders whatever
 // the active locale resolved. Asserting against this fixture value keeps the
 // test about that contract instead of pinning one locale's copy.
-const BUILTIN_AGENT_LABEL = "Zotero Agent";
+const BUILTIN_AGENT_LABEL = "Built-in Agent";
 
 function makeLabels(): Record<string, string> {
   return {
@@ -267,7 +267,7 @@ describe("dashboard backend-manager page (src/dashboard)", function () {
     restoreSidebarDomGlobals();
   });
 
-  it("shows only the fixed Zotero Agent summary and launches its settings", function () {
+  it("offers only the settings launcher in the built-in Agent tab", function () {
     const page = createPage();
     initPage(page, {
       builtinAgent: {
@@ -284,10 +284,18 @@ describe("dashboard backend-manager page (src/dashboard)", function () {
     page.actions.length = 0;
     clickButton(tabs[tabs.length - 1]);
 
-    const summary = page.root.querySelector(".backend-agent-summary");
-    assert.isOk(summary);
-    assert.include(summary?.textContent || "", "Built-in Pi Agent");
-    assert.include(summary?.textContent || "", "local://builtin-pi");
+    const body = page.root.querySelector(
+      "[data-zs-role='backend-manager-body']",
+    )!;
+    const launcher = body.querySelector(
+      "[data-zs-action='open-zotero-agent-settings']",
+    )!;
+    assert.isOk(launcher);
+    assert.lengthOf(
+      body.querySelectorAll("button, input, select, textarea"),
+      1,
+    );
+    assert.equal(body.textContent?.trim(), launcher.textContent?.trim());
 
     // No detailed built-in Agent editing survives on this surface.
     for (const selector of [
@@ -301,7 +309,7 @@ describe("dashboard backend-manager page (src/dashboard)", function () {
     ]) {
       assert.isNull(
         page.root.querySelector(selector),
-        `${selector} must not exist on the built-in Agent summary`,
+        `${selector} must not exist on the built-in Agent tab`,
       );
     }
 

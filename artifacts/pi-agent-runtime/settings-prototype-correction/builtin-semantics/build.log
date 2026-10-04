@@ -1,0 +1,34 @@
+
+> zotero-agents@0.10.0 build
+> npm run build:help-docs && npm run check:synthesis-engine && npm run check:synthesis-contracts && npm run check:synthesis-repository && npm run check:synthesis-application && zotero-plugin build && tsc --noEmit && tsc --noEmit -p tsconfig.sidebar.json && tsc --noEmit -p tsconfig.dashboard.json && tsc --noEmit -p tsconfig.synthesis.json
+
+
+> zotero-agents@0.10.0 build:help-docs
+> tsx scripts/build-help-docs.ts
+
+[help-docs] built docs=504 assets=53 size=6199805
+
+> zotero-agents@0.10.0 check:synthesis-engine
+> tsc -p packages/synthesis-engine/tsconfig.json --noEmit
+
+
+> zotero-agents@0.10.0 check:synthesis-contracts
+> tsc -p packages/synthesis-contracts/tsconfig.json --noEmit && npm run check:canonical-literature-validators
+
+
+> zotero-agents@0.10.0 check:canonical-literature-validators
+> tsx scripts/content-package/build-canonical-literature-validators.ts --check
+
+
+> zotero-agents@0.10.0 check:synthesis-repository
+> tsc -p packages/synthesis-repository/tsconfig.json --noEmit
+
+
+> zotero-agents@0.10.0 check:synthesis-application
+> tsc -p packages/synthesis-application/tsconfig.json --noEmit
+
+ ℹ Building version 0.10.0 to .scaffold/settings-prototype-corrected at 2026-10-04 20:45:02 in production mode.
+   → Preparing static assets
+   → Bundling scripts
+   → Packing plugin
+ ✔ Build finished in 10.856 s.

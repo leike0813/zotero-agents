@@ -1,0 +1,181 @@
+{
+  "prototype": "revision-7",
+  "observations": [
+    {
+      "compact": false,
+      "theme": "light",
+      "page": "overview",
+      "width": 1104,
+      "height": 744,
+      "scrolls": false
+    },
+    {
+      "compact": false,
+      "theme": "light",
+      "page": "connections",
+      "width": 1104,
+      "height": 744,
+      "scrolls": false
+    },
+    {
+      "compact": false,
+      "theme": "light",
+      "page": "mcp",
+      "width": 1104,
+      "height": 744,
+      "scrolls": false
+    },
+    {
+      "compact": false,
+      "theme": "light",
+      "page": "search",
+      "width": 1104,
+      "height": 744,
+      "scrolls": true
+    },
+    {
+      "compact": false,
+      "theme": "light",
+      "page": "catalog",
+      "width": 1104,
+      "height": 744,
+      "scrolls": true
+    },
+    {
+      "compact": false,
+      "theme": "dark",
+      "page": "overview",
+      "width": 1104,
+      "height": 744,
+      "scrolls": false
+    },
+    {
+      "compact": false,
+      "theme": "dark",
+      "page": "connections",
+      "width": 1104,
+      "height": 744,
+      "scrolls": false
+    },
+    {
+      "compact": false,
+      "theme": "dark",
+      "page": "mcp",
+      "width": 1104,
+      "height": 744,
+      "scrolls": false
+    },
+    {
+      "compact": false,
+      "theme": "dark",
+      "page": "search",
+      "width": 1104,
+      "height": 744,
+      "scrolls": true
+    },
+    {
+      "compact": false,
+      "theme": "dark",
+      "page": "catalog",
+      "width": 1104,
+      "height": 744,
+      "scrolls": true
+    },
+    {
+      "compact": true,
+      "theme": "light",
+      "page": "overview",
+      "width": 744,
+      "height": 564,
+      "scrolls": false
+    },
+    {
+      "compact": true,
+      "theme": "light",
+      "page": "connections",
+      "width": 744,
+      "height": 564,
+      "scrolls": false
+    },
+    {
+      "compact": true,
+      "theme": "light",
+      "page": "mcp",
+      "width": 744,
+      "height": 564,
+      "scrolls": false
+    },
+    {
+      "compact": true,
+      "theme": "light",
+      "page": "search",
+      "width": 744,
+      "height": 564,
+      "scrolls": true
+    },
+    {
+      "compact": true,
+      "theme": "light",
+      "page": "catalog",
+      "width": 744,
+      "height": 564,
+      "scrolls": true
+    },
+    {
+      "compact": true,
+      "theme": "dark",
+      "page": "overview",
+      "width": 744,
+      "height": 564,
+      "scrolls": false
+    },
+    {
+      "compact": true,
+      "theme": "dark",
+      "page": "connections",
+      "width": 744,
+      "height": 564,
+      "scrolls": false
+    },
+    {
+      "compact": true,
+      "theme": "dark",
+      "page": "mcp",
+      "width": 744,
+      "height": 564,
+      "scrolls": false
+    },
+    {
+      "compact": true,
+      "theme": "dark",
+      "page": "search",
+      "width": 744,
+      "height": 564,
+      "scrolls": true
+    },
+    {
+      "compact": true,
+      "theme": "dark",
+      "page": "catalog",
+      "width": 744,
+      "height": 564,
+      "scrolls": true
+    },
+    {
+      "compact": false,
+      "workbenchColumns": "side-by-side",
+      "purposeSummaryFixed": true
+    },
+    {
+      "compact": true,
+      "workbenchColumns": "side-by-side",
+      "purposeSummaryFixed": true
+    }
+  ],
+  "draftProtection": true,
+  "inputIdentity": true,
+  "repeatedOpen": true,
+  "failedSave": true,
+  "providerKeyboard": true,
+  "keylessSave": true
+}

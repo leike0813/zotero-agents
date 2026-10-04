@@ -47,13 +47,16 @@ function ModelCard(props: {
           )}
         </div>
         {card.reasoning ? (
-          <Choice
-            label={card.name + " reasoning"}
-            value={card.reasoning.value}
-            options={card.reasoning.options}
-            testId={"reasoning-" + card.id}
-            onChange={(value) => handlers.setCardReasoning(card.id, value)}
-          />
+          <div class="zs-reasoning">
+            <span>{text(labels, "reasoning", "Reasoning")}</span>
+            <Choice
+              label={card.name + " · " + text(labels, "reasoning", "Reasoning")}
+              value={card.reasoning.value}
+              options={card.reasoning.options}
+              testId={"reasoning-" + card.id}
+              onChange={(value) => handlers.setCardReasoning(card.id, value)}
+            />
+          </div>
         ) : (
           <Badge>{text(labels, "noReasoning", "No reasoning")}</Badge>
         )}
@@ -87,8 +90,19 @@ function ModelCard(props: {
             {purpose.state === "assigned"
               ? "✓ " + purpose.label
               : purpose.state === "inherited"
-                ? purpose.label + " · follows general"
-                : "Set as " + purpose.label.toLowerCase()}
+                ? purpose.label +
+                  " · " +
+                  text(labels, "purposeFollowsGeneral", "Follows general")
+                : text(
+                    labels,
+                    {
+                      global: "purposeSetGeneral",
+                      conversation: "purposeSetConversation",
+                      skillRun: "purposeSetSkillRun",
+                      auxiliary: "purposeSetTitle",
+                    }[purpose.key],
+                    "Set as " + purpose.label.toLowerCase(),
+                  )}
           </button>
         ))}
       </div>
@@ -260,15 +274,18 @@ export const WorkbenchRegion = memo(
               labels={selection.labels}
               primary
               testId="workbench-add"
-              onClick={() => handlers.navigate("overview")}
+              onClick={() => handlers.openConnectionMethods()}
             >
               {selection.addLabel}
             </Button>
           }
         />
-        <div class="zs-content-body">
+        <div class={selection.empty ? "zs-content-body" : "zs-workbench-body"}>
           {selection.empty ? (
             <div class="zs-empty" data-testid="workbench-empty">
+              <div class="zs-empty-symbol" aria-hidden="true">
+                ↗
+              </div>
               <h2>{selection.empty.title}</h2>
               <p class="muted">{selection.empty.description}</p>
               <div class="zs-row">
@@ -283,7 +300,7 @@ export const WorkbenchRegion = memo(
                 <Button
                   labels={selection.labels}
                   testId="workbench-empty-api"
-                  onClick={() => handlers.startAddConnection("api-key")}
+                  onClick={() => handlers.openConnectionMethods()}
                 >
                   {selection.empty.secondaryLabel}
                 </Button>
@@ -357,11 +374,27 @@ export const WorkbenchRegion = memo(
                 </div>
                 {detail && (
                   <div
-                    class="zs-detail"
+                    class="zs-detail zs-content-body"
                     data-testid={"connection-detail-" + detail.id}
                   >
                     <div class="zs-row zs-spread">
-                      <h3>{detail.label}</h3>
+                      <div class="zs-row">
+                        <span class="zs-mark">
+                          {detail.kind === "chatgpt" ? "C" : "API"}
+                        </span>
+                        <div>
+                          <h3>{detail.label}</h3>
+                          <small class="muted">
+                            {detail.kind === "chatgpt"
+                              ? "ChatGPT"
+                              : text(
+                                  labels,
+                                  "connectionProvider",
+                                  "Model service",
+                                )}
+                          </small>
+                        </div>
+                      </div>
                       <Badge tone={detail.stateTone}>{detail.stateLabel}</Badge>
                     </div>
                     {detail.repair && (
@@ -373,7 +406,7 @@ export const WorkbenchRegion = memo(
                     {detail.account ? (
                       <details
                         class="zs-account"
-                        open={!detail.account.signedIn}
+                        open={detail.stateTone !== "success"}
                       >
                         <summary>
                           <strong>
@@ -383,6 +416,14 @@ export const WorkbenchRegion = memo(
                               "Account and sign-in",
                             )}
                           </strong>
+                          <span class="muted">
+                            {[
+                              detail.account.registration?.email,
+                              detail.account.registration?.workspace,
+                            ]
+                              .filter(Boolean)
+                              .join(" · ") || detail.account.stateLabel}
+                          </span>
                         </summary>
                         <AccountBlock
                           account={detail.account}
@@ -461,6 +502,15 @@ export const WorkbenchRegion = memo(
                         />
                       ))}
                     </div>
+                    {detail.models.length > 0 && (
+                      <p class="muted zs-purpose-help">
+                        {text(
+                          labels,
+                          "purposeHelp",
+                          "Purpose changes are saved immediately. Conversation and Skill Run follow the general model until chosen separately.",
+                        )}
+                      </p>
+                    )}
                     <div class="zs-row">
                       <Button
                         labels={selection.labels}

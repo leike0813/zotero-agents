@@ -1,4 +1,4 @@
-// Zotero Agent settings window controller: the snapshot -> draft -> selection
+// Built-in Agent settings window controller: the snapshot -> draft -> selection
 // pipeline plus every action this page sends.
 //
 // Wire protocol (frozen in src/shared/zoteroAgentSettingsWireContract.ts, host
@@ -139,6 +139,7 @@ type LeaveTrigger = {
 };
 
 type ActiveDialog =
+  | { kind: "connection-methods" }
   | { kind: "connection-editor" }
   | { kind: "mcp-editor" }
   | { kind: "mcp-json" }
@@ -1754,7 +1755,7 @@ export function createZoteroAgentSettingsController(
         title: text(
           labels(),
           "accountWelcomeTitle",
-          "Allow Zotero Agent to use this ChatGPT plan?",
+          "Allow Built-in Agent to use this ChatGPT plan?",
         ),
         description: text(
           labels(),
@@ -1982,7 +1983,7 @@ export function createZoteroAgentSettingsController(
       labels: labels(),
       hero: {
         title: !connections().length
-          ? text(labels(), "heroEmpty", "Get Zotero Agent ready")
+          ? text(labels(), "heroEmpty", "Get Built-in Agent ready")
           : hasGeneral
             ? text(labels(), "heroReady", "You can start using it")
             : text(labels(), "heroFinish", "Finish the model setup"),
@@ -2025,40 +2026,7 @@ export function createZoteroAgentSettingsController(
           state: hasGeneral ? ("current" as const) : ("todo" as const),
         },
       ],
-      setupChoices: connections().length
-        ? null
-        : [
-            {
-              id: "chatgpt",
-              mark: "C",
-              title: text(labels(), "setupChatgpt", "Use the ChatGPT plan"),
-              description: text(
-                labels(),
-                "setupChatgptHelp",
-                "Sign in in the browser; no model has to be picked first.",
-              ),
-            },
-            {
-              id: "api-key",
-              mark: "API",
-              title: text(labels(), "setupApiKey", "Use an API key"),
-              description: text(
-                labels(),
-                "setupApiKeyHelp",
-                "Connect a model service you already pay for.",
-              ),
-            },
-            {
-              id: "custom",
-              mark: "API",
-              title: text(labels(), "setupCustom", "Connect a custom service"),
-              description: text(
-                labels(),
-                "setupCustomHelp",
-                "Use a compatible endpoint or a local model.",
-              ),
-            },
-          ],
+      setupChoices: connections().length ? null : connectionMethods(),
       tasks: [
         {
           id: "connections",
@@ -2114,6 +2082,41 @@ export function createZoteroAgentSettingsController(
         },
       ],
     };
+  }
+
+  function connectionMethods() {
+    return [
+      {
+        id: "chatgpt",
+        mark: "C",
+        title: text(labels(), "setupChatgpt", "Use the ChatGPT plan"),
+        description: text(
+          labels(),
+          "setupChatgptHelp",
+          "Sign in in the browser; no model has to be picked first.",
+        ),
+      },
+      {
+        id: "api-key",
+        mark: "API",
+        title: text(labels(), "setupApiKey", "Use an API key"),
+        description: text(
+          labels(),
+          "setupApiKeyHelp",
+          "Connect a model service you already pay for.",
+        ),
+      },
+      {
+        id: "custom",
+        mark: "API",
+        title: text(labels(), "setupCustom", "Connect a custom service"),
+        description: text(
+          labels(),
+          "setupCustomHelp",
+          "Use a compatible endpoint or a local model.",
+        ),
+      },
+    ];
   }
 
   function buildWorkbench() {
@@ -2231,16 +2234,8 @@ export function createZoteroAgentSettingsController(
         admission: {
           tone: (source.enabled ? "muted" : "warning") as Tone,
           text: source.enabled
-            ? text(
-                labels(),
-                "mcpCardInfo",
-                "Saved authentication and variables. Later tasks connect and validate the tools themselves.",
-              )
-            : text(
-                labels(),
-                "mcpCardDisabled",
-                "Disabled. Later tasks do not use it.",
-              ),
+            ? text(labels(), "testNone", "Not tested")
+            : text(labels(), "mcpDisabled", "Disabled"),
         },
         test: test
           ? {
@@ -2326,13 +2321,11 @@ export function createZoteroAgentSettingsController(
           label: source.label,
           enabled: source.enabled,
           enabledDisabled: !source.configured || isPending(source.id),
-          detail: source.configured
-            ? source.modelConfigurationLabel
-              ? source.modelConfigurationLabel +
-                (source.searchModelId ? " · " + source.searchModelId : "")
-              : source.endpoint || source.executable || source.kind
-            : text(labels(), "searchNeedsConfig", "Needs configuration") +
-              (source.missing?.length ? " · " + source.missing.join(", ") : ""),
+          detail: !source.configured
+            ? text(labels(), "searchNeedsConfig", "Needs configuration")
+            : test
+              ? ""
+              : text(labels(), "testNone", "Not tested"),
           billable: source.billable,
           order: {
             canMoveUp: index > 0,
@@ -2463,11 +2456,11 @@ export function createZoteroAgentSettingsController(
           "maintenanceDirectory",
           "Public directory updates",
         ),
-        badge: text(
-          labels(),
-          "maintenanceRevision",
-          "revision " + (catalog?.revision || "-"),
-        ),
+        badge:
+          catalog?.state?.updatedAt &&
+          Number.isFinite(Date.parse(catalog.state.updatedAt))
+            ? new Date(catalog.state.updatedAt).toLocaleDateString()
+            : text(labels(), "catalogReady", "Catalog ready"),
         description: text(
           labels(),
           "maintenanceDirectoryHelp",
@@ -2993,7 +2986,7 @@ export function createZoteroAgentSettingsController(
         placeholder: text(
           labels(),
           "mcpCwdPlaceholder",
-          "default: Zotero Agent runtime directory",
+          "default: Built-in Agent runtime directory",
         ),
         help: fields.cwd.trim()
           ? text(
@@ -3004,7 +2997,7 @@ export function createZoteroAgentSettingsController(
           : text(
               labels(),
               "mcpCwdEmptyHelp",
-              "Leave empty to use the Zotero Agent runtime directory.",
+              "Leave empty to use the Built-in Agent runtime directory.",
             ),
       },
       env: isStdio ? bindings.map((row) => entryView(row, "variable")) : [],
@@ -3372,6 +3365,15 @@ export function createZoteroAgentSettingsController(
   function buildDialog(): DialogSelection {
     const dialog = state.dialog;
     if (!dialog) return null;
+    if (dialog.kind === "connection-methods") {
+      return {
+        kind: "connection-methods",
+        value: {
+          title: text(labels(), "addConnection", "Add model connection"),
+          choices: connectionMethods(),
+        },
+      };
+    }
     if (dialog.kind === "connection-editor") {
       const value = buildConnectionEditor();
       return value ? { kind: "connection-editor", value } : null;
@@ -3717,6 +3719,12 @@ export function createZoteroAgentSettingsController(
 
   const handlers: ZoteroAgentSettingsHandlers = {
     navigate,
+    openConnectionMethods() {
+      requestLeaveThen({ kind: "cancel" }, () => {
+        state.dialog = { kind: "connection-methods" };
+        render();
+      });
+    },
     startAddConnection(kind) {
       // Opening another editor is a leave like any other: an unsaved draft is
       // resolved first instead of being overwritten.

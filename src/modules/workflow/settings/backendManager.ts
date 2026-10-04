@@ -18,7 +18,7 @@ import {
   syncBackendReferenceState,
 } from "../../../backends/registry";
 import { isWindowAlive } from "../../../utils/window";
-import { getString } from "../../../utils/locale";
+import { getString, getStringOrFallback } from "../../../utils/locale";
 import { resolveAddonRef } from "../../../utils/runtimeBridge";
 import { buildSkillRunnerManagementUiUrl } from "../../skillRunner/surface/skillRunnerManagementDialog";
 import { openZoteroSkillsWorkspaceTab } from "../../workspaceTab";
@@ -2284,13 +2284,10 @@ function buildBackendManagerLabels() {
       "backend-manager-pi-title",
       "Built-in Agent",
     ),
-    piOpenSettings: localizeBackendManager(
-      "backend-manager-pi-open-settings",
-      "Open Zotero Agent Settings",
-    ),
-    piSettingsHelp: localizeBackendManager(
-      "backend-manager-pi-settings-help",
-      "Connections, models, credentials, MCP sources, search sources and maintenance are configured in the Zotero Agent settings window.",
+    piOpenSettings: getStringOrFallback(
+      "pref-zotero-agent-settings",
+      "Open Built-in Agent Settings",
+      { branch: "label" },
     ),
     addProfile: localizeBackendManager(
       "backend-manager-provider-add",
@@ -2537,7 +2534,7 @@ function buildBackendManagerSnapshot(
     rows,
     builtinAgent: {
       // Fixed registry facts only: configuration, credential and catalog state
-      // live in the independent Zotero Agent settings window.
+      // live in the independent Built-in Agent settings window.
       id: BUILTIN_PI_BACKEND_ID,
       type: BUILTIN_PI_BACKEND_TYPE,
       displayName: BUILTIN_PI_BACKEND_DISPLAY_NAME,

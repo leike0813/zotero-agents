@@ -1,0 +1,11 @@
+[
+  {
+    "type": "zotero-agent-settings:action-result",
+    "payload": {
+      "ok": true,
+      "action": "pi-upsert-configuration",
+      "requestId": "pi-upsert-configuration-muttgd3w-14",
+      "objectId": "connection-muttgcft-13"
+    }
+  }
+]

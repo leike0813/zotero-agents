@@ -11,13 +11,7 @@ import type {
   SettingsPage,
   ZoteroAgentSettingsHandlers,
 } from "./ZoteroAgentSettingsView";
-import {
-  Badge,
-  Banner,
-  Button,
-  Header,
-  text,
-} from "./ZoteroAgentSettingsControls";
+import { Badge, Button, Header, text } from "./ZoteroAgentSettingsControls";
 
 export const OverviewRegion = memo(
   function OverviewRegion(props: {
@@ -29,26 +23,30 @@ export const OverviewRegion = memo(
     return (
       <div class="zs-content" data-testid="overview-content">
         <Header
-          title={selection.hero.title}
-          description={selection.hero.description}
+          title={text(labels, "navOverview", "Get started")}
+          description={text(
+            labels,
+            "overviewToolsNote",
+            "Connect first, then choose a model; tools can be configured later.",
+          )}
         />
         <div class="zs-content-body">
+          <div class="zs-hero">
+            <h2>{selection.hero.title}</h2>
+            <p class="muted">{selection.hero.description}</p>
+          </div>
           <ol
             class="zs-steps"
             aria-label={text(labels, "setupProgress", "Setup progress")}
           >
-            {selection.steps.map((step) => (
+            {selection.steps.map((step, index) => (
               <li
                 key={step.id}
                 class={"zs-step is-" + step.state}
                 data-testid={"step-" + step.id}
               >
                 <span class="zs-step-mark">
-                  {step.state === "complete"
-                    ? "✓"
-                    : step.state === "current"
-                      ? "•"
-                      : ""}
+                  {step.state === "complete" ? "✓" : index + 1}
                 </span>
                 <span>{step.label}</span>
               </li>
@@ -80,38 +78,31 @@ export const OverviewRegion = memo(
               ))}
             </div>
           )}
-          <div class="zs-stack" data-testid="overview-tasks">
-            {selection.tasks.map((task) => (
-              <div class="zs-card zs-task" key={task.id}>
-                <div>
-                  <h3>{task.title}</h3>
-                  <small class="muted">{task.detail}</small>
+          {!selection.setupChoices && (
+            <div class="zs-card" data-testid="overview-tasks">
+              {selection.tasks.map((task) => (
+                <div class="zs-task" key={task.id}>
+                  <div>
+                    <h3>{task.title}</h3>
+                    <small class="muted">{task.detail}</small>
+                  </div>
+                  <Button
+                    labels={undefined}
+                    primary={task.primary}
+                    testId={"overview-" + task.id}
+                    onClick={() => {
+                      if (task.id === "connections" || task.id === "general") {
+                        handlers.navigate("connections");
+                        return;
+                      }
+                      handlers.navigate(task.id as SettingsPage);
+                    }}
+                  >
+                    {task.actionLabel}
+                  </Button>
                 </div>
-                <Button
-                  labels={undefined}
-                  primary={task.primary}
-                  testId={"overview-" + task.id}
-                  onClick={() => {
-                    if (task.id === "connections" || task.id === "general") {
-                      handlers.navigate("connections");
-                      return;
-                    }
-                    handlers.navigate(task.id as SettingsPage);
-                  }}
-                >
-                  {task.actionLabel}
-                </Button>
-              </div>
-            ))}
-          </div>
-          {selection.setupChoices && (
-            <Banner>
-              {text(
-                labels,
-                "overviewToolsNote",
-                "MCP tools and search are optional; configure them after a model is set.",
-              )}
-            </Banner>
+              ))}
+            </div>
           )}
         </div>
       </div>

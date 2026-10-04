@@ -567,8 +567,6 @@ workflow-duplicate-confirm-no = 否
 backend-manager-title = 后端管理器
 backend-manager-provider-skillrunner = SkillRunner
 backend-manager-provider-generic-http = Generic HTTP
-backend-manager-pi-open-settings = 打开 Zotero Agent 设置
-backend-manager-pi-settings-help = 连接、模型、凭据、MCP 源、搜索源和维护配置都在 Zotero Agent 设置窗口中完成。
 backend-manager-pi-title = 内置 Agent
 assistant-panel-action-enable-unattended-restart = 允许无人值守重启
 assistant-panel-action-disable-unattended-restart = 禁止无人值守重启
@@ -664,8 +662,8 @@ skillrunner-local-runtime-toast-abnormal-stop = 本地后端异常停止。
 skillrunner-backend-communication-failed = 与后端{ $backend }通信失败。
 skillrunner-backend-auto-disabled-toast = 后端{ $backend }已在 6 小时未成功连接后自动禁用。请在后端管理器中重新启用后再探测。
 
-# Zotero Agent settings window
-zotero-agent-settings-window-title = Zotero Agent
+# Built-in Agent settings window
+zotero-agent-settings-window-title = 内置 Agent 设置
 zotero-agent-settings-window-subtitle = 模型连接与工具来源分别配置。
 zotero-agent-settings-window-closed = 配置窗口已关闭。可从首选项入口重新打开。
 zotero-agent-settings-nav-label = 配置导航
@@ -679,7 +677,7 @@ zotero-agent-settings-nav-search = 搜索
 zotero-agent-settings-nav-maintenance = 目录与维护
 zotero-agent-settings-preferences-hint = 现有后端管理器继续管理 ACP、SkillRunner 和 Generic HTTP。
 
-# Zotero Agent settings window: shared actions and drafts
+# Built-in Agent settings window: shared actions and drafts
 zotero-agent-settings-action-save = 保存
 zotero-agent-settings-action-save-changes = 保存修改
 zotero-agent-settings-action-save-and-close = 保存并关闭
@@ -712,8 +710,8 @@ zotero-agent-settings-empty-entries = 尚未添加，可按需添加条目。
 zotero-agent-settings-operation-failed = 操作失败，已采用内容和配置保留，可重试。
 zotero-agent-settings-label-unset = 尚未选择
 
-# Zotero Agent settings window: onboarding
-zotero-agent-settings-onboarding-title = 让 Zotero Agent 准备就绪
+# Built-in Agent settings window: onboarding
+zotero-agent-settings-onboarding-title = 让内置 Agent 准备就绪
 zotero-agent-settings-onboarding-subtitle = 先建立连接，再选择模型；工具可以之后配置。
 zotero-agent-settings-onboarding-ready = 已经可以开始使用
 zotero-agent-settings-onboarding-pending = 继续完成模型设置
@@ -746,7 +744,7 @@ zotero-agent-settings-onboarding-search-action = 配置搜索
 zotero-agent-settings-onboarding-close = 关闭配置窗口
 zotero-agent-settings-onboarding-progress = 设置进度
 
-# Zotero Agent settings window: connections
+# Built-in Agent settings window: connections
 zotero-agent-settings-connections-title = 模型连接
 zotero-agent-settings-connections-subtitle = 连接一次，在各模型卡片中设置默认用途。
 zotero-agent-settings-connections-add = ＋ 添加连接
@@ -785,7 +783,7 @@ zotero-agent-settings-connection-gap-login = 此服务商的登录方式与请�
 zotero-agent-settings-connection-gap-request = 此服务商的请求要求尚未适配
 zotero-agent-settings-connection-gap-adapter = 此服务商的接口或认证方式尚未适配
 
-# Zotero Agent settings window: credentials
+# Built-in Agent settings window: credentials
 zotero-agent-settings-credential-label = 密钥标签
 zotero-agent-settings-credential-secret = API Key
 zotero-agent-settings-credential-replace = 替换 API Key
@@ -798,7 +796,7 @@ zotero-agent-settings-credential-not-required = 此服务无需密钥
 zotero-agent-settings-credential-shared-kept = 其他连接仍引用的密钥保留
 zotero-agent-settings-credential-exclusive-cleared = 此连接独占的 API Key 一并清除
 
-# Zotero Agent settings window: ChatGPT registrations
+# Built-in Agent settings window: ChatGPT registrations
 zotero-agent-settings-chatgpt-title = 使用 ChatGPT 账户连接
 zotero-agent-settings-chatgpt-subtitle = 在浏览器中登录并选择要授权的空间。
 zotero-agent-settings-chatgpt-connect = 使用 ChatGPT 登录
@@ -815,7 +813,7 @@ zotero-agent-settings-chatgpt-progress-expired = 登录已超时，请重试。
 zotero-agent-settings-chatgpt-progress-failed = 登录未完成，请重试。
 zotero-agent-settings-chatgpt-cancel = 取消登录
 zotero-agent-settings-chatgpt-privacy = 继续前，ChatGPT 会收到其登录页面显示的账户与权限信息。
-zotero-agent-settings-chatgpt-welcome-title = 允许 Zotero Agent 使用此 ChatGPT 方案？
+zotero-agent-settings-chatgpt-welcome-title = 允许内置 Agent 使用此 ChatGPT 方案？
 zotero-agent-settings-chatgpt-welcome-body = 运行对话、工作流或连接测试时会使用方案额度。登录本身不会执行这些任务。
 zotero-agent-settings-chatgpt-welcome-accept = 确认使用此方案
 zotero-agent-settings-chatgpt-welcome-state = 已确认使用方案；尚未测试模型
@@ -843,7 +841,7 @@ zotero-agent-settings-chatgpt-completed-kept = 已完成的登录保留
 zotero-agent-settings-chatgpt-edit-canceled = 已取消编辑；已完成登录保留
 zotero-agent-settings-chatgpt-window-closed = 配置窗口已关闭；已完成登录保留
 
-# Zotero Agent settings window: model cards and default purposes
+# Built-in Agent settings window: model cards and default purposes
 zotero-agent-settings-models-title = 模型与默认用途
 zotero-agent-settings-models-subtitle = 此连接的模型
 zotero-agent-settings-models-add = 添加模型
@@ -891,7 +889,7 @@ zotero-agent-settings-models-unavailable = 模型不可用
 zotero-agent-settings-models-missing-default = 选择需要配置的模型，连接凭据会复用。
 zotero-agent-settings-models-back = 返回工作台
 
-# Zotero Agent settings window: model and source tests
+# Built-in Agent settings window: model and source tests
 zotero-agent-settings-test-model = 测试此模型
 zotero-agent-settings-test-model-resume = 测试并恢复
 zotero-agent-settings-test-confirm-title = 发送一次测试请求
@@ -907,7 +905,7 @@ zotero-agent-settings-test-incomplete = 请求未完成；配置与默认用途�
 zotero-agent-settings-test-not-completed = 测试未完成
 zotero-agent-settings-test-untested = 尚未测试
 
-# Zotero Agent settings window: MCP page
+# Built-in Agent settings window: MCP page
 zotero-agent-settings-mcp-title = MCP 工具
 zotero-agent-settings-mcp-subtitle = 管理外部工具服务。保存配置后，下次任务生效。
 zotero-agent-settings-mcp-add = ＋ 添加来源
@@ -930,8 +928,8 @@ zotero-agent-settings-mcp-argv-remove = 移除参数 { $index }
 zotero-agent-settings-mcp-argv-single = 参数
 zotero-agent-settings-mcp-argv-invalid = 参数不能包含空字符
 zotero-agent-settings-mcp-cwd = 工作目录（可选）
-zotero-agent-settings-mcp-cwd-placeholder = 默认：Zotero Agent 运行目录
-zotero-agent-settings-mcp-cwd-help = 留空使用 Zotero Agent 运行目录。填写程序启动时使用的绝对路径。
+zotero-agent-settings-mcp-cwd-placeholder = 默认：内置 Agent 运行目录
+zotero-agent-settings-mcp-cwd-help = 留空使用内置 Agent 运行目录。填写程序启动时使用的绝对路径。
 zotero-agent-settings-mcp-env = 环境变量
 zotero-agent-settings-mcp-env-add = 添加环境变量
 zotero-agent-settings-mcp-env-name = 变量名称
@@ -1001,7 +999,7 @@ zotero-agent-settings-mcp-json-error-target = 每个来源须选择 url 或 comm
 zotero-agent-settings-mcp-json-error-shape = HTTP 来源使用 headers，本机程序使用 args、cwd 与 env
 zotero-agent-settings-mcp-no-connection = 尚无适用连接。请先在模型工作台添加此服务商连接。
 
-# Zotero Agent settings window: search page
+# Built-in Agent settings window: search page
 zotero-agent-settings-search-title = 搜索
 zotero-agent-settings-search-subtitle = 管理搜索来源、顺序和测试。保存配置后，下次任务生效。
 zotero-agent-settings-search-save = 保存搜索配置
@@ -1045,7 +1043,7 @@ zotero-agent-settings-search-unsaved-body = 保存后继续，或放弃本次修
 zotero-agent-settings-search-exa-note = Exa 已提供预置搜索服务，可直接测试或调整启用状态。
 zotero-agent-settings-search-no-connection = 尚无适用连接。请先在模型工作台添加此服务商连接。
 
-# Zotero Agent settings window: catalog and maintenance
+# Built-in Agent settings window: catalog and maintenance
 zotero-agent-settings-catalog-title = 模型目录与维护
 zotero-agent-settings-catalog-subtitle = 浏览预置服务商与模型，管理目录更新和补充信息。
 zotero-agent-settings-catalog-providers = 预置服务商与模型
@@ -1099,7 +1097,7 @@ zotero-agent-settings-catalog-loading = 正在载入目录
 zotero-agent-settings-catalog-ready = 目录已就绪
 zotero-agent-settings-catalog-error = 目录不可用
 
-# Zotero Agent settings window: removals
+# Built-in Agent settings window: removals
 zotero-agent-settings-remove-model-title = 移除模型配置
 zotero-agent-settings-remove-model-body = 移除“{ $label }”？连接及凭据保留。
 zotero-agent-settings-remove-model-confirm = 确认移除模型
@@ -2408,3 +2406,7 @@ assistant-panel-reply-remove-resource = 移除资源
 assistant-panel-reply-resources-full = 已达到资源数量上限
 assistant-panel-reply-resource-error = 无法添加该资源。
 assistant-panel-reply-action-error = 无法完成此操作。
+zotero-agent-settings-models-set-general = 设为常用
+zotero-agent-settings-models-set-conversation = 设为会话
+zotero-agent-settings-models-set-skill-run = 设为工作流
+zotero-agent-settings-models-set-title = 设为标题

@@ -567,8 +567,6 @@ workflow-duplicate-confirm-no = No
 backend-manager-title = Backend Manager
 backend-manager-provider-skillrunner = SkillRunner
 backend-manager-provider-generic-http = Generic HTTP
-backend-manager-pi-open-settings = Open Zotero Agent Settings
-backend-manager-pi-settings-help = Connections, models, credentials, MCP sources, search sources and maintenance are configured in the Zotero Agent settings window.
 backend-manager-pi-title = Built-in Agent
 assistant-panel-action-enable-unattended-restart = Allow unattended restart
 assistant-panel-action-disable-unattended-restart = Disallow unattended restart
@@ -664,8 +662,8 @@ skillrunner-local-runtime-toast-abnormal-stop = Local backend stopped unexpected
 skillrunner-backend-communication-failed = Failed to communicate with backend { $backend }.
 skillrunner-backend-auto-disabled-toast = Backend { $backend } was disabled after 6 hours without a successful connection. Re-enable it in Backend Manager to probe again.
 
-# Zotero Agent settings window
-zotero-agent-settings-window-title = Zotero Agent
+# Built-in Agent settings window
+zotero-agent-settings-window-title = Built-in Agent Settings
 zotero-agent-settings-window-subtitle = Model connections and tool sources are configured separately.
 zotero-agent-settings-window-closed = The settings window was closed. Open it again from the preferences entry.
 zotero-agent-settings-nav-label = Configuration navigation
@@ -679,7 +677,7 @@ zotero-agent-settings-nav-search = Search
 zotero-agent-settings-nav-maintenance = Catalog and maintenance
 zotero-agent-settings-preferences-hint = The Backend Manager keeps managing ACP, SkillRunner and Generic HTTP.
 
-# Zotero Agent settings window: shared actions and drafts
+# Built-in Agent settings window: shared actions and drafts
 zotero-agent-settings-action-save = Save
 zotero-agent-settings-action-save-changes = Save changes
 zotero-agent-settings-action-save-and-close = Save and close
@@ -712,8 +710,8 @@ zotero-agent-settings-empty-entries = No entries yet. Add one if you need it.
 zotero-agent-settings-operation-failed = The operation failed. Adopted content and configuration are kept; you can try again.
 zotero-agent-settings-label-unset = Not set
 
-# Zotero Agent settings window: onboarding
-zotero-agent-settings-onboarding-title = Get Zotero Agent ready
+# Built-in Agent settings window: onboarding
+zotero-agent-settings-onboarding-title = Get Built-in Agent ready
 zotero-agent-settings-onboarding-subtitle = Connect a model service first, then pick a model. Tools can be configured later.
 zotero-agent-settings-onboarding-ready = You are ready to start
 zotero-agent-settings-onboarding-pending = Finish setting up your models
@@ -746,7 +744,7 @@ zotero-agent-settings-onboarding-search-action = Configure search
 zotero-agent-settings-onboarding-close = Close settings window
 zotero-agent-settings-onboarding-progress = Setup progress
 
-# Zotero Agent settings window: connections
+# Built-in Agent settings window: connections
 zotero-agent-settings-connections-title = Model connections
 zotero-agent-settings-connections-subtitle = Connect once, then set default purposes on each model card.
 zotero-agent-settings-connections-add = Add connection
@@ -785,7 +783,7 @@ zotero-agent-settings-connection-gap-login = This service's sign-in method and r
 zotero-agent-settings-connection-gap-request = This service's request requirements are not supported yet
 zotero-agent-settings-connection-gap-adapter = This service's endpoint or authentication method is not supported yet
 
-# Zotero Agent settings window: credentials
+# Built-in Agent settings window: credentials
 zotero-agent-settings-credential-label = Key label
 zotero-agent-settings-credential-secret = API key
 zotero-agent-settings-credential-replace = Replace API key
@@ -798,7 +796,7 @@ zotero-agent-settings-credential-not-required = This service needs no key
 zotero-agent-settings-credential-shared-kept = The key is still used by other connections and is kept
 zotero-agent-settings-credential-exclusive-cleared = The key is used only by this connection and is cleared with it
 
-# Zotero Agent settings window: ChatGPT registrations
+# Built-in Agent settings window: ChatGPT registrations
 zotero-agent-settings-chatgpt-title = Use a ChatGPT account
 zotero-agent-settings-chatgpt-subtitle = Sign in in the browser and choose the workspace to authorize.
 zotero-agent-settings-chatgpt-connect = Sign in with ChatGPT
@@ -815,7 +813,7 @@ zotero-agent-settings-chatgpt-progress-expired = Sign-in timed out. Try again.
 zotero-agent-settings-chatgpt-progress-failed = Sign-in did not complete. Try again.
 zotero-agent-settings-chatgpt-cancel = Cancel sign-in
 zotero-agent-settings-chatgpt-privacy = Before continuing, ChatGPT will receive the account and permission details shown by its sign-in page.
-zotero-agent-settings-chatgpt-welcome-title = Allow Zotero Agent to use this ChatGPT plan?
+zotero-agent-settings-chatgpt-welcome-title = Allow Built-in Agent to use this ChatGPT plan?
 zotero-agent-settings-chatgpt-welcome-body = Running conversations, workflows or a connection test uses plan quota. Signing in does not run these tasks.
 zotero-agent-settings-chatgpt-welcome-accept = Use this plan
 zotero-agent-settings-chatgpt-welcome-state = Plan confirmed; models are not tested yet
@@ -843,7 +841,7 @@ zotero-agent-settings-chatgpt-completed-kept = A completed sign-in is kept
 zotero-agent-settings-chatgpt-edit-canceled = Editing canceled; the completed sign-in is kept
 zotero-agent-settings-chatgpt-window-closed = The settings window was closed; the completed sign-in is kept
 
-# Zotero Agent settings window: model cards and default purposes
+# Built-in Agent settings window: model cards and default purposes
 zotero-agent-settings-models-title = Models and default purposes
 zotero-agent-settings-models-subtitle = Models of this connection
 zotero-agent-settings-models-add = Add model
@@ -891,7 +889,7 @@ zotero-agent-settings-models-unavailable = Model unavailable
 zotero-agent-settings-models-missing-default = Choose the models you need; the connection credentials are reused.
 zotero-agent-settings-models-back = Back to the workbench
 
-# Zotero Agent settings window: model and source tests
+# Built-in Agent settings window: model and source tests
 zotero-agent-settings-test-model = Test this model
 zotero-agent-settings-test-model-resume = Test and resume
 zotero-agent-settings-test-confirm-title = Send one test request
@@ -907,7 +905,7 @@ zotero-agent-settings-test-incomplete = The request did not complete; the config
 zotero-agent-settings-test-not-completed = Test did not complete
 zotero-agent-settings-test-untested = Not tested yet
 
-# Zotero Agent settings window: MCP page
+# Built-in Agent settings window: MCP page
 zotero-agent-settings-mcp-title = MCP tools
 zotero-agent-settings-mcp-subtitle = Manage external tool services. Saved configuration applies to the next task.
 zotero-agent-settings-mcp-add = Add source
@@ -930,8 +928,8 @@ zotero-agent-settings-mcp-argv-remove = Remove argument { $index }
 zotero-agent-settings-mcp-argv-single = Argument
 zotero-agent-settings-mcp-argv-invalid = Arguments cannot contain null characters
 zotero-agent-settings-mcp-cwd = Working directory (optional)
-zotero-agent-settings-mcp-cwd-placeholder = Default: Zotero Agent runtime directory
-zotero-agent-settings-mcp-cwd-help = Leave empty to use the Zotero Agent runtime directory. Enter the absolute path the program starts in.
+zotero-agent-settings-mcp-cwd-placeholder = Default: Built-in Agent runtime directory
+zotero-agent-settings-mcp-cwd-help = Leave empty to use the Built-in Agent runtime directory. Enter the absolute path the program starts in.
 zotero-agent-settings-mcp-env = Environment variables
 zotero-agent-settings-mcp-env-add = Add environment variable
 zotero-agent-settings-mcp-env-name = Variable name
@@ -1001,7 +999,7 @@ zotero-agent-settings-mcp-json-error-target = Each source must define a url or c
 zotero-agent-settings-mcp-json-error-shape = HTTP sources use headers; local programs use args, cwd and env
 zotero-agent-settings-mcp-no-connection = No applicable connection. Add a connection for this service in the model workbench first.
 
-# Zotero Agent settings window: search page
+# Built-in Agent settings window: search page
 zotero-agent-settings-search-title = Search
 zotero-agent-settings-search-subtitle = Manage search sources, their order and their tests. Saved configuration applies to the next task.
 zotero-agent-settings-search-save = Save search configuration
@@ -1045,7 +1043,7 @@ zotero-agent-settings-search-unsaved-body = Save your changes first or discard t
 zotero-agent-settings-search-exa-note = Exa provides a preset search service; test it directly or adjust its enabled state.
 zotero-agent-settings-search-no-connection = No applicable connection. Add a connection for this service in the model workbench first.
 
-# Zotero Agent settings window: catalog and maintenance
+# Built-in Agent settings window: catalog and maintenance
 zotero-agent-settings-catalog-title = Model catalog and maintenance
 zotero-agent-settings-catalog-subtitle = Browse preset providers and models, and manage catalog updates and supplements.
 zotero-agent-settings-catalog-providers = Preset providers and models
@@ -1099,7 +1097,7 @@ zotero-agent-settings-catalog-loading = Loading catalog
 zotero-agent-settings-catalog-ready = Catalog ready
 zotero-agent-settings-catalog-error = Catalog unavailable
 
-# Zotero Agent settings window: removals
+# Built-in Agent settings window: removals
 zotero-agent-settings-remove-model-title = Remove model configuration
 zotero-agent-settings-remove-model-body = Remove "{ $label }"? The connection and its credentials are kept.
 zotero-agent-settings-remove-model-confirm = Remove model
@@ -2409,3 +2407,7 @@ assistant-panel-status-deleting = Deleting
 assistant-panel-status-archived = Archived
 assistant-panel-status-recovery-required = Needs recovery
 assistant-panel-field-usage-compaction = Compaction usage
+zotero-agent-settings-models-set-general = Set as general
+zotero-agent-settings-models-set-conversation = Set as conversation
+zotero-agent-settings-models-set-skill-run = Set as Skill Run
+zotero-agent-settings-models-set-title = Set as title

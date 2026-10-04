@@ -567,8 +567,6 @@ workflow-duplicate-confirm-no = Non
 backend-manager-title = Gestionnaire de backend
 backend-manager-provider-skillrunner = SkillRunner
 backend-manager-provider-generic-http = HTTP générique
-backend-manager-pi-open-settings = Ouvrir les paramètres Zotero Agent
-backend-manager-pi-settings-help = Les connexions, modèles, identifiants, sources MCP, sources de recherche et la maintenance se configurent dans la fenêtre de paramètres Zotero Agent.
 backend-manager-pi-title = Agent intégré
 backend-manager-provider-acp = ACP
 backend-manager-provider-profiles-title = Profils { $provider }
@@ -662,8 +660,8 @@ skillrunner-local-runtime-toast-abnormal-stop = Backend local arrêté de maniè
 skillrunner-backend-communication-failed = Échec de la communication avec le backend { $backend }.
 skillrunner-backend-auto-disabled-toast = Le backend { $backend } a été désactivé après 6 heures sans connexion réussie. Réactivez-le dans le gestionnaire de backends pour relancer la sonde.
 
-# Zotero Agent settings window
-zotero-agent-settings-window-title = Zotero Agent
+# Built-in Agent settings window
+zotero-agent-settings-window-title = Paramètres de l’agent intégré
 zotero-agent-settings-window-subtitle = Les connexions de modèles et les sources d'outils se configurent séparément.
 zotero-agent-settings-window-closed = La fenêtre de configuration a été fermée. Rouvrez-la depuis l'entrée des préférences.
 zotero-agent-settings-nav-label = Navigation de la configuration
@@ -677,7 +675,7 @@ zotero-agent-settings-nav-search = Recherche
 zotero-agent-settings-nav-maintenance = Catalogue et maintenance
 zotero-agent-settings-preferences-hint = Le gestionnaire de backend continue de gérer ACP, SkillRunner et Generic HTTP.
 
-# Zotero Agent settings window: shared actions and drafts
+# Built-in Agent settings window: shared actions and drafts
 zotero-agent-settings-action-save = Enregistrer
 zotero-agent-settings-action-save-changes = Enregistrer les modifications
 zotero-agent-settings-action-save-and-close = Enregistrer et fermer
@@ -710,8 +708,8 @@ zotero-agent-settings-empty-entries = Aucune entrée pour le moment. Ajoutez-en 
 zotero-agent-settings-operation-failed = L'opération a échoué. Le contenu adopté et la configuration sont conservés ; vous pouvez réessayer.
 zotero-agent-settings-label-unset = Non défini
 
-# Zotero Agent settings window: onboarding
-zotero-agent-settings-onboarding-title = Préparer Zotero Agent
+# Built-in Agent settings window: onboarding
+zotero-agent-settings-onboarding-title = Préparer l’agent intégré
 zotero-agent-settings-onboarding-subtitle = Connectez d'abord un service de modèles, puis choisissez un modèle. Les outils se configurent plus tard.
 zotero-agent-settings-onboarding-ready = Vous êtes prêt à commencer
 zotero-agent-settings-onboarding-pending = Terminez la configuration des modèles
@@ -744,7 +742,7 @@ zotero-agent-settings-onboarding-search-action = Configurer la recherche
 zotero-agent-settings-onboarding-close = Fermer la fenêtre de configuration
 zotero-agent-settings-onboarding-progress = Progression de la configuration
 
-# Zotero Agent settings window: connections
+# Built-in Agent settings window: connections
 zotero-agent-settings-connections-title = Connexions de modèles
 zotero-agent-settings-connections-subtitle = Connectez une fois, puis définissez l'usage par défaut sur chaque carte de modèle.
 zotero-agent-settings-connections-add = Ajouter une connexion
@@ -783,7 +781,7 @@ zotero-agent-settings-connection-gap-login = La méthode de connexion et les exi
 zotero-agent-settings-connection-gap-request = Les exigences de ce service ne sont pas encore prises en charge
 zotero-agent-settings-connection-gap-adapter = Le point de terminaison ou la méthode d'authentification de ce service n'est pas encore pris en charge
 
-# Zotero Agent settings window: credentials
+# Built-in Agent settings window: credentials
 zotero-agent-settings-credential-label = Libellé de la clé
 zotero-agent-settings-credential-secret = Clé API
 zotero-agent-settings-credential-replace = Remplacer la clé API
@@ -796,7 +794,7 @@ zotero-agent-settings-credential-not-required = Ce service ne nécessite aucune 
 zotero-agent-settings-credential-shared-kept = La clé est encore utilisée par d'autres connexions et est conservée
 zotero-agent-settings-credential-exclusive-cleared = La clé n'est utilisée que par cette connexion et est supprimée avec elle
 
-# Zotero Agent settings window: ChatGPT registrations
+# Built-in Agent settings window: ChatGPT registrations
 zotero-agent-settings-chatgpt-title = Utiliser un compte ChatGPT
 zotero-agent-settings-chatgpt-subtitle = Connectez-vous dans le navigateur et choisissez l'espace de travail à autoriser.
 zotero-agent-settings-chatgpt-connect = Se connecter avec ChatGPT
@@ -813,7 +811,7 @@ zotero-agent-settings-chatgpt-progress-expired = Connexion expirée. Réessayez.
 zotero-agent-settings-chatgpt-progress-failed = La connexion n'est pas allée à son terme. Réessayez.
 zotero-agent-settings-chatgpt-cancel = Annuler la connexion
 zotero-agent-settings-chatgpt-privacy = Avant de continuer, ChatGPT recevra les informations de compte et d'autorisation affichées par sa page de connexion.
-zotero-agent-settings-chatgpt-welcome-title = Autoriser Zotero Agent à utiliser ce forfait ChatGPT ?
+zotero-agent-settings-chatgpt-welcome-title = Autoriser l’agent intégré à utiliser ce forfait ChatGPT ?
 zotero-agent-settings-chatgpt-welcome-body = L'exécution de conversations, de workflows ou d'un test de connexion consomme le quota du forfait. La connexion n'exécute pas ces tâches.
 zotero-agent-settings-chatgpt-welcome-accept = Utiliser ce forfait
 zotero-agent-settings-chatgpt-welcome-state = Forfait confirmé ; les modèles ne sont pas encore testés
@@ -841,7 +839,7 @@ zotero-agent-settings-chatgpt-completed-kept = Une connexion terminée est conse
 zotero-agent-settings-chatgpt-edit-canceled = Modification annulée ; la connexion terminée est conservée
 zotero-agent-settings-chatgpt-window-closed = La fenêtre de configuration a été fermée ; la connexion terminée est conservée
 
-# Zotero Agent settings window: model cards and default purposes
+# Built-in Agent settings window: model cards and default purposes
 zotero-agent-settings-models-title = Modèles et usages par défaut
 zotero-agent-settings-models-subtitle = Modèles de cette connexion
 zotero-agent-settings-models-add = Ajouter un modèle
@@ -889,7 +887,7 @@ zotero-agent-settings-models-unavailable = Modèle indisponible
 zotero-agent-settings-models-missing-default = Choisissez les modèles nécessaires ; les identifiants de la connexion sont réutilisés.
 zotero-agent-settings-models-back = Retour à l'espace de travail
 
-# Zotero Agent settings window: model and source tests
+# Built-in Agent settings window: model and source tests
 zotero-agent-settings-test-model = Tester ce modèle
 zotero-agent-settings-test-model-resume = Tester et reprendre
 zotero-agent-settings-test-confirm-title = Envoyer une requête de test
@@ -905,7 +903,7 @@ zotero-agent-settings-test-incomplete = La requête ne s'est pas terminée ; la 
 zotero-agent-settings-test-not-completed = Test non terminé
 zotero-agent-settings-test-untested = Pas encore testé
 
-# Zotero Agent settings window: MCP page
+# Built-in Agent settings window: MCP page
 zotero-agent-settings-mcp-title = Outils MCP
 zotero-agent-settings-mcp-subtitle = Gérez les services d'outils externes. La configuration enregistrée s'applique à la prochaine tâche.
 zotero-agent-settings-mcp-add = Ajouter une source
@@ -928,8 +926,8 @@ zotero-agent-settings-mcp-argv-remove = Supprimer l'argument { $index }
 zotero-agent-settings-mcp-argv-single = Argument
 zotero-agent-settings-mcp-argv-invalid = Les arguments ne peuvent pas contenir de caractère nul
 zotero-agent-settings-mcp-cwd = Répertoire de travail (facultatif)
-zotero-agent-settings-mcp-cwd-placeholder = Par défaut : répertoire d'exécution Zotero Agent
-zotero-agent-settings-mcp-cwd-help = Laissez vide pour utiliser le répertoire d'exécution Zotero Agent. Saisissez le chemin absolu dans lequel le programme démarre.
+zotero-agent-settings-mcp-cwd-placeholder = Par défaut : répertoire d’exécution de l’agent intégré
+zotero-agent-settings-mcp-cwd-help = Laissez vide pour utiliser le répertoire d’exécution de l’agent intégré. Saisissez le chemin absolu dans lequel le programme démarre.
 zotero-agent-settings-mcp-env = Variables d'environnement
 zotero-agent-settings-mcp-env-add = Ajouter une variable d'environnement
 zotero-agent-settings-mcp-env-name = Nom de la variable
@@ -999,7 +997,7 @@ zotero-agent-settings-mcp-json-error-target = Chaque source doit définir url ou
 zotero-agent-settings-mcp-json-error-shape = Les sources HTTP utilisent headers, les programmes locaux args, cwd et env
 zotero-agent-settings-mcp-no-connection = Aucune connexion applicable. Ajoutez d'abord une connexion pour ce service dans l'espace de travail des modèles.
 
-# Zotero Agent settings window: search page
+# Built-in Agent settings window: search page
 zotero-agent-settings-search-title = Recherche
 zotero-agent-settings-search-subtitle = Gérez les sources de recherche, leur ordre et leurs tests. La configuration enregistrée s'applique à la prochaine tâche.
 zotero-agent-settings-search-save = Enregistrer la configuration de recherche
@@ -1043,7 +1041,7 @@ zotero-agent-settings-search-unsaved-body = Enregistrez vos modifications ou aba
 zotero-agent-settings-search-exa-note = Exa fournit un service de recherche prédéfini ; vous pouvez le tester directement ou ajuster son état d'activation.
 zotero-agent-settings-search-no-connection = Aucune connexion applicable. Ajoutez d'abord une connexion pour ce service dans l'espace de travail des modèles.
 
-# Zotero Agent settings window: catalog and maintenance
+# Built-in Agent settings window: catalog and maintenance
 zotero-agent-settings-catalog-title = Catalogue de modèles et maintenance
 zotero-agent-settings-catalog-subtitle = Parcourez les fournisseurs et modèles prédéfinis, et gérez les mises à jour et les compléments du catalogue.
 zotero-agent-settings-catalog-providers = Fournisseurs et modèles prédéfinis
@@ -1097,7 +1095,7 @@ zotero-agent-settings-catalog-loading = Chargement du catalogue
 zotero-agent-settings-catalog-ready = Catalogue prêt
 zotero-agent-settings-catalog-error = Catalogue indisponible
 
-# Zotero Agent settings window: removals
+# Built-in Agent settings window: removals
 zotero-agent-settings-remove-model-title = Supprimer la configuration de modèle
 zotero-agent-settings-remove-model-body = Supprimer « { $label } » ? La connexion et ses identifiants sont conservés.
 zotero-agent-settings-remove-model-confirm = Supprimer le modèle
@@ -2410,3 +2408,7 @@ assistant-panel-status-cleanup-incomplete = Nettoyage incomplet
 assistant-panel-status-deleting = Suppression en cours
 assistant-panel-status-archived = Archivée
 assistant-panel-status-recovery-required = Récupération nécessaire
+zotero-agent-settings-models-set-general = Définir par défaut
+zotero-agent-settings-models-set-conversation = Utiliser pour les conversations
+zotero-agent-settings-models-set-skill-run = Utiliser pour les Skills
+zotero-agent-settings-models-set-title = Utiliser pour les titres

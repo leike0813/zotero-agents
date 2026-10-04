@@ -343,6 +343,31 @@ describe("zotero agent settings page (src/dashboard)", function () {
     );
   });
 
+  it("opens connection methods directly from the workbench and keeps the selected page", function () {
+    const page = createPage(withConnection());
+    click(page.root, "nav-connections");
+    click(page.root, "workbench-add");
+    assert.ok(byTestId(page.root, "settings-page-connections"));
+    assert.ok(byTestId(page.root, "connection-methods"));
+    click(page.root, "connection-method-custom");
+    assert.ok(byTestId(page.root, "connection-editor"));
+    assert.isNull(byTestId(page.root, "connection-methods"));
+    assert.isEmpty(page.actions, "choosing a method neither saves nor infers");
+  });
+
+  it("requests the next bounded directory page from the visible pagination controls", function () {
+    const snapshot = baseSnapshot();
+    snapshot.models!.total = 120;
+    const page = createPage(snapshot);
+    click(page.root, "nav-catalog");
+    click(page.root, "catalog-next");
+    const query = page.actions
+      .filter((entry) => entry.action === "pi-catalog-query")
+      .at(-1);
+    assert.ok(query);
+    assert.equal(query!.payload.offset, 50);
+  });
+
   it("saves a connection form once and clears the secret only after it settles", function () {
     const page = createPage(baseSnapshot());
     page.controller.handleMessage({

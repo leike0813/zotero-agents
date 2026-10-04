@@ -55,3 +55,18 @@ Zotero 10 安装树目录标为 10.0.2，实际 `application.ini` 为 **10.0.3 /
 C20 的 tasks 2.5 与验收 runbook 已接入 Change C：同一候选须取得真实服务证据，并收集独立的 synthetic old-development Codex cleanup 样本。固定 v0.9.0 基线安装链、六宿主矩阵、容量与数值阈值保留。尚未生成 clean-candidate 接受报告，也未同步、归档或发布。
 
 本地实现与开发验证已完成，任务 1.1–5.1 的开发部分有上述证据。5.2 的真实账号验收与 5.3 的 candidate-bound C20 receipt / installed synthetic cleanup 样本保持未完成；未归档 change，未生成发布接受声明。
+
+## UI 重设计后的真实账号测试恢复
+
+2026-10-04 从 `af36c2e861bbaaea0ddbc13a3dff248e860879f9` 恢复任务 5.2。该提交已完成独立 Zotero Agent 设置窗口及其受控宿主验证。
+
+- `npm run build` 通过，包含帮助文档生成、四个 Synthesis 包检查、插件打包及 root/sidebar/dashboard/synthesis 类型检查。生成文档的 manifest 时间戳发生变化，build identity 的 `source.clean` 为 false，本次构建用于开发测试。
+- 经 `stageDirectSynthesisBundle()` 执行当前源码的 locked Cargo 构建并打包 Linux x64 sidecar，通过。bundle ID 为 `25feffeba95538ab0ad0c525ab430cb1be4b1e0b4d1522ba543a9f70d28f16ed`。
+- 初次复用 `.scaffold/test/pi-chatgpt-manual-20261004/` 的旧开发 profile 时，sidecar preflight ready，RDP 返回 `Addon installed`，但插件初始化失败。最初仅检查了窗口和控件存在，没有检查初始化终态及页面内容，错误地报告加载成功；该次运行不作为通过证据。
+- 用户报告插件入口缺失、设置窗口空白。RDP 检查复现 `initialized:false` 与主窗口工作流菜单缺失；启动错误为 `auth_state_invalid`。只读取配置结构后确认旧 profile 保存 version 1、没有 connections 的开发配置，当前实现只读取 version 2。失败发生在 `initializePiChatGPTAuth()`，设置快照也无法读取该配置。
+- 保留旧 profile、data 和 runtime，另建 `.scaffold/test/pi-chatgpt-manual-ui-v2-20261004/` 的空隔离目录，没有复制真实库、授权或旧开发配置。经该目录的 `launch.sh` 使用同一构建和既有 `start:direct` 重新启动。
+- 相同初始化检查由失败转为通过：`initialized:true`，主窗口 `Zotero Agents` 工作流菜单及 Execute Workflow、Workspace、Assistant 插件入口均存在。通过既有 `openZoteroAgentSettings` 动作打开设置页，检查实际页面内容，并查看主窗口及设置窗口截图；完整导航、引导、模型工作台入口与 Use the ChatGPT plan 按钮均已呈现。
+
+启动前安装树 `application.ini` 为 10.0.3；启动后的运行时身份及同一文件均为 **10.0.5 / BuildID 20260930214910**。按实际运行版本记录，未调整固定兼容性矩阵。
+
+当前交给用户的窗口使用新 version 2 隔离环境。任务 5.2 和 5.3 仍未完成；本次启动与 UI 加载不证明授权、官方发现、推理、工具续调用、实际 completed/usage 或搜索引用通过。

@@ -150,12 +150,12 @@ async function captureSettings(page: Window, root: string, name: string) {
   );
 }
 
-describe("Built-in Agent Backend Manager summary in real Zotero", function () {
+describe("Built-in Agent settings launcher in real Zotero", function () {
   afterEach(function () {
     closeZoteroAgentSettings();
   });
 
-  it("shows the fixed summary and launches the independent settings window", async function () {
+  it("offers only the launcher and opens the independent settings window", async function () {
     this.timeout(60_000);
     const plugin = (Zotero as any)[config.addonInstance];
     assert.isOk(plugin?.data?.initialized, "plugin is initialized");
@@ -173,9 +173,21 @@ describe("Built-in Agent Backend Manager summary in real Zotero", function () {
         "[data-zs-role='backend-manager-dialog-frame']",
       ) as HTMLIFrameElement;
       const doc = frame.contentDocument!;
-      const summary = doc.querySelector(".backend-agent-summary");
-      assert.isOk(summary, "fixed summary rendered");
-      assert.include(summary?.textContent || "", "local://builtin-pi");
+      const body = doc.querySelector("[data-zs-role='backend-manager-body']")!;
+      const launcher = body.querySelector(
+        "[data-zs-action='open-zotero-agent-settings']",
+      )!;
+      assert.isOk(launcher, "settings launcher rendered");
+      assert.lengthOf(
+        body.querySelectorAll("button, input, select, textarea"),
+        1,
+      );
+      assert.equal(body.textContent?.trim(), launcher.textContent?.trim());
+      await captureSettings(
+        frame.contentWindow!,
+        readDiagnosticsEnv("ZOTERO_AGENT_SETTINGS_UI_OUTPUT"),
+        "backend-manager-built-in-launcher",
+      );
 
       // Detailed built-in Agent editing no longer lives on this surface.
       for (const selector of [
@@ -190,11 +202,7 @@ describe("Built-in Agent Backend Manager summary in real Zotero", function () {
         assert.isNull(doc.querySelector(selector), `${selector} is gone`);
       }
 
-      const launch = doc.querySelector(
-        "[data-zs-action='open-zotero-agent-settings']",
-      ) as HTMLElement;
-      assert.isOk(launch, "launch control rendered");
-      launch.click();
+      (launcher as HTMLElement).click();
 
       const settings = await waitForSettingsWindow();
       assert.isOk(settings, "independent settings window opened");
@@ -286,6 +294,15 @@ describe("Built-in Agent Backend Manager summary in real Zotero", function () {
             height: page.innerHeight,
             scrolls: scroller.scrollHeight > scroller.clientHeight,
           });
+          if (id === "catalog") {
+            await captureSettings(
+              page,
+              output,
+              `${compact ? "compact" : "normal"}-${theme}-maintenance`,
+            );
+          }
+          scroller.scrollTop = 0;
+          await paint();
           await captureSettings(
             page,
             output,
@@ -478,6 +495,69 @@ describe("Built-in Agent Backend Manager summary in real Zotero", function () {
       assert.lengthOf(saved.configurations, 0);
       assert.deepEqual(saved.defaults, {});
       const id = saved.connections[0].id;
+      for (const compact of [false, true]) {
+        win.resizeTo(compact ? 760 : 1120, compact ? 580 : 760);
+        await paint();
+        const summary = page.document.querySelector<HTMLElement>(
+          ".zs-purpose-summary",
+        )!;
+        const rail = page.document.querySelector<HTMLElement>(
+          ".zs-connection-list",
+        )!;
+        const detail = control(page, `connection-detail-${id}`);
+        const summaryBox = summary.getBoundingClientRect();
+        const railBox = rail.getBoundingClientRect();
+        const detailBox = detail.getBoundingClientRect();
+        assert.isAtMost(
+          railBox.right,
+          detailBox.left + 1,
+          "connection navigation stays beside the detail at both host sizes",
+        );
+        assert.closeTo(
+          railBox.top,
+          detailBox.top,
+          1,
+          "the connection rail and detail share a row",
+        );
+        assert.isAtMost(
+          summaryBox.bottom,
+          detailBox.top + 1,
+          "default purposes stay above both workbench columns",
+        );
+        assert.isAtMost(
+          detailBox.bottom,
+          page.innerHeight,
+          "the detail is bounded by the window",
+        );
+        assert.equal(page.getComputedStyle(detail).overflowY, "auto");
+        const header =
+          page.document.querySelector<HTMLElement>(".zs-page-header")!;
+        const headerTop = header.getBoundingClientRect().top;
+        detail.scrollTop = detail.scrollHeight;
+        await paint();
+        assert.closeTo(
+          summary.getBoundingClientRect().top,
+          summaryBox.top,
+          1,
+          "detail scrolling preserves purpose summary position",
+        );
+        assert.closeTo(
+          header.getBoundingClientRect().top,
+          headerTop,
+          1,
+          "detail scrolling preserves the header",
+        );
+        await captureSettings(
+          page,
+          output,
+          `${compact ? "compact" : "normal"}-saved-workbench`,
+        );
+        observations.push({
+          compact,
+          workbenchColumns: "side-by-side",
+          purposeSummaryFixed: true,
+        });
+      }
       await captureSettings(page, output, "saved-connection-workbench");
       control(page, `add-model-${id}`).click();
       await paint();
