@@ -191,6 +191,13 @@ export type AssistantWorkspaceActionRouterShellHost = {
     window: _ZoteroTypes.MainWindow;
     initialProviderType: "acp" | "skillrunner" | "pi";
   }): Promise<void>;
+  /**
+   * Opens (or focuses) the independent Zotero Agent settings window. Pi
+   * configuration is entered there directly; Backend Manager is not a step.
+   */
+  openZoteroAgentSettings(args: {
+    window: _ZoteroTypes.MainWindow;
+  }): Promise<void>;
   logAssistantWorkspaceDebug(
     host: AssistantWorkspaceHostRuntime,
     stage: string,
@@ -1031,9 +1038,8 @@ async function handlePiConversationAction(
           : false;
     }
     if (configure) {
-      await shellHost.openBackendManager({
+      await shellHost.openZoteroAgentSettings({
         window: host.win,
-        initialProviderType: "pi",
       });
     }
     return;

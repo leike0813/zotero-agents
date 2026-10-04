@@ -11,10 +11,8 @@ import { getPref, setPref } from "../../../../src/utils/prefs";
 import { joinPath } from "../../../../src/utils/path";
 import { removeRuntimePath } from "../../../../src/modules/runtimePersistence";
 import { readRuntimeEnv } from "../../../../src/platform/env";
-import {
-  resolvePiModelSelection,
-  upsertPiProviderConfiguration,
-} from "../../../../src/modules/piProviderConfiguration";
+import { resolvePiModelSelection } from "../../../../src/modules/piProviderConfiguration";
+import { savePiModelFixture } from "../../../helpers/piModelConfigurationFixture";
 import { PI_RUNTIME_VERSION } from "../../../../src/config/piRuntimeBuild";
 import {
   deletePiCredential,
@@ -61,7 +59,7 @@ describe("Pi configuration in real Zotero", function () {
         fetch: async () => response("a", 2),
       });
       assert.equal(a.state?.status, "idle");
-      upsertPiProviderConfiguration(
+      savePiModelFixture(
         {
           id: "directory-fixture",
           label: "Fixture",

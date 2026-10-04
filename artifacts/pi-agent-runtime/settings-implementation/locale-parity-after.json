@@ -1,0 +1,250 @@
+{
+  "date": "2026-10-04",
+  "sourceCommit": "d663e1768b2633c7ae03652e23edfaca01ca7cf0",
+  "translationsAdded": 446,
+  "locales": [
+    {
+      "locale": "de",
+      "previousMissing": 45,
+      "files": {
+        "addon.ftl": {
+          "keys": 2360,
+          "missing": [],
+          "extra": [],
+          "duplicates": 0,
+          "syntaxErrors": 0,
+          "variableMismatches": []
+        },
+        "preferences.ftl": {
+          "keys": 265,
+          "missing": [],
+          "extra": [],
+          "duplicates": 0,
+          "syntaxErrors": 0,
+          "variableMismatches": []
+        }
+      }
+    },
+    {
+      "locale": "en-US",
+      "previousMissing": 0,
+      "files": {
+        "addon.ftl": {
+          "keys": 2360,
+          "missing": [],
+          "extra": [],
+          "duplicates": 0,
+          "syntaxErrors": 0,
+          "variableMismatches": []
+        },
+        "preferences.ftl": {
+          "keys": 265,
+          "missing": [],
+          "extra": [],
+          "duplicates": 0,
+          "syntaxErrors": 0,
+          "variableMismatches": []
+        }
+      }
+    },
+    {
+      "locale": "es-ES",
+      "previousMissing": 45,
+      "files": {
+        "addon.ftl": {
+          "keys": 2360,
+          "missing": [],
+          "extra": [],
+          "duplicates": 0,
+          "syntaxErrors": 0,
+          "variableMismatches": []
+        },
+        "preferences.ftl": {
+          "keys": 265,
+          "missing": [],
+          "extra": [],
+          "duplicates": 0,
+          "syntaxErrors": 0,
+          "variableMismatches": []
+        }
+      }
+    },
+    {
+      "locale": "fr-FR",
+      "previousMissing": 45,
+      "files": {
+        "addon.ftl": {
+          "keys": 2360,
+          "missing": [],
+          "extra": [],
+          "duplicates": 0,
+          "syntaxErrors": 0,
+          "variableMismatches": []
+        },
+        "preferences.ftl": {
+          "keys": 265,
+          "missing": [],
+          "extra": [],
+          "duplicates": 0,
+          "syntaxErrors": 0,
+          "variableMismatches": []
+        }
+      }
+    },
+    {
+      "locale": "it-IT",
+      "previousMissing": 45,
+      "files": {
+        "addon.ftl": {
+          "keys": 2360,
+          "missing": [],
+          "extra": [],
+          "duplicates": 0,
+          "syntaxErrors": 0,
+          "variableMismatches": []
+        },
+        "preferences.ftl": {
+          "keys": 265,
+          "missing": [],
+          "extra": [],
+          "duplicates": 0,
+          "syntaxErrors": 0,
+          "variableMismatches": []
+        }
+      }
+    },
+    {
+      "locale": "ja-JP",
+      "previousMissing": 45,
+      "files": {
+        "addon.ftl": {
+          "keys": 2360,
+          "missing": [],
+          "extra": [],
+          "duplicates": 0,
+          "syntaxErrors": 0,
+          "variableMismatches": []
+        },
+        "preferences.ftl": {
+          "keys": 265,
+          "missing": [],
+          "extra": [],
+          "duplicates": 0,
+          "syntaxErrors": 0,
+          "variableMismatches": []
+        }
+      }
+    },
+    {
+      "locale": "ko-KR",
+      "previousMissing": 45,
+      "files": {
+        "addon.ftl": {
+          "keys": 2360,
+          "missing": [],
+          "extra": [],
+          "duplicates": 0,
+          "syntaxErrors": 0,
+          "variableMismatches": []
+        },
+        "preferences.ftl": {
+          "keys": 265,
+          "missing": [],
+          "extra": [],
+          "duplicates": 0,
+          "syntaxErrors": 0,
+          "variableMismatches": []
+        }
+      }
+    },
+    {
+      "locale": "pt-BR",
+      "previousMissing": 45,
+      "files": {
+        "addon.ftl": {
+          "keys": 2360,
+          "missing": [],
+          "extra": [],
+          "duplicates": 0,
+          "syntaxErrors": 0,
+          "variableMismatches": []
+        },
+        "preferences.ftl": {
+          "keys": 265,
+          "missing": [],
+          "extra": [],
+          "duplicates": 0,
+          "syntaxErrors": 0,
+          "variableMismatches": []
+        }
+      }
+    },
+    {
+      "locale": "ru-RU",
+      "previousMissing": 45,
+      "files": {
+        "addon.ftl": {
+          "keys": 2360,
+          "missing": [],
+          "extra": [],
+          "duplicates": 0,
+          "syntaxErrors": 0,
+          "variableMismatches": []
+        },
+        "preferences.ftl": {
+          "keys": 265,
+          "missing": [],
+          "extra": [],
+          "duplicates": 0,
+          "syntaxErrors": 0,
+          "variableMismatches": []
+        }
+      }
+    },
+    {
+      "locale": "zh-CN",
+      "previousMissing": 41,
+      "files": {
+        "addon.ftl": {
+          "keys": 2360,
+          "missing": [],
+          "extra": [],
+          "duplicates": 0,
+          "syntaxErrors": 0,
+          "variableMismatches": []
+        },
+        "preferences.ftl": {
+          "keys": 265,
+          "missing": [],
+          "extra": [],
+          "duplicates": 0,
+          "syntaxErrors": 0,
+          "variableMismatches": []
+        }
+      }
+    },
+    {
+      "locale": "zh-TW",
+      "previousMissing": 45,
+      "files": {
+        "addon.ftl": {
+          "keys": 2360,
+          "missing": [],
+          "extra": [],
+          "duplicates": 0,
+          "syntaxErrors": 0,
+          "variableMismatches": []
+        },
+        "preferences.ftl": {
+          "keys": 265,
+          "missing": [],
+          "extra": [],
+          "duplicates": 0,
+          "syntaxErrors": 0,
+          "variableMismatches": []
+        }
+      }
+    }
+  ],
+  "status": "passed"
+}

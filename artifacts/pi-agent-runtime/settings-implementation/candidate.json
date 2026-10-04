@@ -1,0 +1,18 @@
+{
+  "sourceCommit": "d663e1768b2633c7ae03652e23edfaca01ca7cf0",
+  "dirty": true,
+  "xpiPath": ".scaffold/settings-final/zotero-agents.xpi",
+  "xpiSha256": "f2f18ec52385a31d7b5444f44adb499d7442c4462885e5f35e1684999a105139",
+  "runtimeBuild": {
+    "schema": "zotero-agents.pi-runtime-build.v1",
+    "enabled": true,
+    "capacity": 12,
+    "measurementOnly": false,
+    "debug": false,
+    "buildTime": "2026-10-04T10:33:09.900Z",
+    "source": {
+      "commit": "d663e1768b2633c7ae03652e23edfaca01ca7cf0",
+      "clean": false
+    }
+  }
+}

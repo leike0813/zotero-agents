@@ -1,0 +1,6 @@
+
+> zotero-agents@0.10.0 check:pi-mcp-browser-bundle
+> tsx scripts/check-pi-mcp-browser-bundle.ts
+
+Pi MCP browser bundle: 1786367 bytes; no Node MCP SDK
+Plugin browser bundle: no legacy MCP SDK

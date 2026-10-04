@@ -142,6 +142,9 @@ function bindPrefEvents() {
   const backendManageButton = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-backend-manage`,
   ) as XUL.Button | null;
+  const zoteroAgentSettingsButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-zotero-agent-settings`,
+  ) as XUL.Button | null;
   const webDavSyncEnabledCheckbox = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-webdav-sync-enabled`,
   ) as HTMLInputElement | null;
@@ -2107,6 +2110,14 @@ function bindPrefEvents() {
   if (backendManageButton) {
     backendManageButton.addEventListener("command", () => {
       void addon.hooks.onPrefsEvent("openBackendManager", {
+        window: addon.data.prefs?.window,
+      });
+    });
+  }
+
+  if (zoteroAgentSettingsButton) {
+    zoteroAgentSettingsButton.addEventListener("command", () => {
+      void addon.hooks.onPrefsEvent("openZoteroAgentSettings", {
         window: addon.data.prefs?.window,
       });
     });

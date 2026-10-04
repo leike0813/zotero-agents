@@ -1,0 +1,59 @@
+{
+  "schemaId": "zotero-agents.zotero-compatibility-receipt.v1",
+  "runId": "zotero-7-linux-x64-399f1550",
+  "source": {
+    "commit": "d663e1768b2633c7ae03652e23edfaca01ca7cf0",
+    "dirty": true,
+    "ref": "refs/heads/dev-agent-harness"
+  },
+  "plugin": {
+    "version": "0.10.0",
+    "artifactPath": "/home/joshua/Workspace/Code/JavaScript/.orca/worktrees/zotero-agents/dev-agent-harness/.scaffold/settings-final/zotero-agents.xpi",
+    "artifactSha256": "f2f18ec52385a31d7b5444f44adb499d7442c4462885e5f35e1684999a105139",
+    "manifestMin": "7.0",
+    "manifestMax": "10.0.*"
+  },
+  "host": {
+    "id": "zotero-7-linux-x64",
+    "requestedVersion": "7.0.32",
+    "platform": "linux-x64",
+    "archiveSha256": "8ddd78ffcdb2fee4f4e4b40b4e9444fb356bed01ca37a5565835f9b6f32db1ee",
+    "downloadUrl": "https://download.zotero.org/client/release/7.0.32/Zotero-7.0.32_linux-x86_64.tar.bz2",
+    "observedVersion": "7.0.32",
+    "appBuildId": "20260114201030",
+    "effectiveUrl": "https://download.zotero.org/client/release/7.0.32/Zotero-7.0.32_linux-x86_64.tar.bz2"
+  },
+  "execution": {
+    "mode": "behavior",
+    "suite": "lite",
+    "domain": "core"
+  },
+  "status": "passed",
+  "phases": [
+    {
+      "phase": "acquire",
+      "status": "passed",
+      "durationMs": 653
+    },
+    {
+      "phase": "test-core",
+      "status": "passed",
+      "durationMs": 133939
+    }
+  ],
+  "errors": [],
+  "diagnostics": [
+    "/tmp/zotero-agents-compat/zotero-7-linux-x64-399f1550/core-1e688aae/diagnostics/runner.stdout.log",
+    "/tmp/zotero-agents-compat/zotero-7-linux-x64-399f1550/core-1e688aae/diagnostics/runner.stderr.log"
+  ],
+  "cleanup": {
+    "graceful": false,
+    "forced": false,
+    "complete": true
+  },
+  "timing": {
+    "startedAt": "2026-10-04T10:33:42.962Z",
+    "finishedAt": "2026-10-04T10:35:59.319Z",
+    "durationMs": 136357
+  }
+}

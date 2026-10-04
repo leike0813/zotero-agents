@@ -1,0 +1,14 @@
+
+> zotero-agents@0.10.0 test:node:dashboard
+> tsx scripts/run-node-test-shards.ts --domain dashboard
+
+
+[node-test-shard:start] dashboard (Dashboard)
+[node-test-shard:files] 14
+[node-test-shard:data-dir] /tmp/zotero-agents-node-test-shards-1439459/dashboard/Zotero_data
+[node-test-shard:command] npx tsx node_modules/mocha/bin/mocha tests/dashboard/241-dashboard-chrome-scaffold.test.ts tests/dashboard/242-dashboard-workflow-options.test.ts tests/dashboard/243-dashboard-products.test.ts tests/dashboard/244-dashboard-backend.test.ts tests/dashboard/245-dashboard-runtime-logs.test.ts tests/dashboard/249-dashboard-integration.test.ts tests/dashboard/250-dashboard-workflow-settings-dialog.test.ts tests/dashboard/251-dashboard-backend-manager.test.ts tests/dashboard/252-region-equality.test.ts tests/dashboard/253-dashboard-panel-scroll-ownership.test.ts tests/dashboard/254-zotero-agent-settings.test.ts tests/dashboard/60-task-dashboard-history.test.ts tests/dashboard/62-task-dashboard-snapshot.test.ts tests/dashboard/64-dashboard-toolbar-button.test.ts --require tests/setup/zotero-mock.ts --exit
+[node-test-shard:end] dashboard exit=0 durationMs=21457
+
+[node-test-shards:summary]
+- dashboard: exit=0 files=14 durationMs=21457
+[node-test-shards:summary] all shards passed

@@ -606,6 +606,8 @@ function createPrefsWindow(args?: {
 
   const backendManageButton = document.createXULElement("button");
   backendManageButton.id = `zotero-prefpane-${config.addonRef}-backend-manage`;
+  const zoteroAgentSettingsButton = document.createXULElement("button");
+  zoteroAgentSettingsButton.id = `zotero-prefpane-${config.addonRef}-zotero-agent-settings`;
   const assistantExecutionDisplayModeControl =
     args?.includeAssistantStreamingRenderControl
       ? document.createXULElement("div")
@@ -979,6 +981,7 @@ function createPrefsWindow(args?: {
     contentPackageProgressmeter,
     contentPackageProgressText,
     backendManageButton,
+    zoteroAgentSettingsButton,
     assistantExecutionDisplayModeControl,
     assistantExecutionDisplayModeButtons,
     assistantTranscriptPaginationVirtualizationEnabledCheckbox,
@@ -1169,6 +1172,7 @@ describe("gui: preference scripts", function () {
       workflowSettingsButton,
       workflowOpenLogsButton,
       backendManageButton,
+      zoteroAgentSettingsButton,
     } = createPrefsWindow();
     await registerPrefsScripts(window);
     assert.lengthOf(calls, 1);
@@ -1344,6 +1348,15 @@ describe("gui: preference scripts", function () {
     assert.lengthOf(calls, 6);
     assert.equal(calls[5].type, "openLogViewer");
     assert.deepEqual(calls[5].data, {
+      window,
+    });
+
+    // The built-in Agent settings window has its own entry; it never routes
+    // through Backend Manager.
+    zoteroAgentSettingsButton.dispatch("command");
+    assert.lengthOf(calls, 7);
+    assert.equal(calls[6].type, "openZoteroAgentSettings");
+    assert.deepEqual(calls[6].data, {
       window,
     });
   });

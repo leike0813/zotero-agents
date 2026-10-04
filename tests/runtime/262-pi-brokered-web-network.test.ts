@@ -582,6 +582,38 @@ describe("Pi brokered web operations", function () {
       "pi_network_operation_denied",
     );
   });
+  it("grants no local-network approval a saved source test could rely on", async function () {
+    const seen: PiNativeHttpOptions[] = [];
+    const transport = fakeTransport({
+      seen,
+      addresses: ["192.168.1.5"],
+      hops: [{ status: 200, body: "{}", peerAddress: "192.168.1.5" }],
+    });
+    assert.equal(
+      await codeOf(() =>
+        requestPiBrokeredWebOperation(
+          {
+            kind: "searxng",
+            url: "http://192.168.1.5:8080/search?q=x&format=json",
+          },
+          { transport },
+        ),
+      ),
+      "pi_network_local_approval_required",
+    );
+    assert.lengthOf(seen, 0);
+    const approved = await requestPiBrokeredWebOperation(
+      {
+        kind: "searxng",
+        url: "http://192.168.1.5:8080/search?q=x&format=json",
+        localNetworkApprovedOrigin: "http://192.168.1.5:8080",
+      },
+      { transport },
+    );
+    assert.equal(approved.status, 200);
+    assert.lengthOf(seen, 1);
+  });
+
   it("pins provider origin and path and disallows a fetch body", async function () {
     const seen: PiNativeHttpOptions[] = [];
     const transport = fakeTransport({

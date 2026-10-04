@@ -173,43 +173,19 @@ placeholder, or default timeout metadata.
 
 ### Requirement: Backend Manager SHALL expose independent Built-in Agent configuration
 
-The existing Backend Manager SHALL expose a fourth Built-in Agent page with Pi configurations, redacted credential status, catalog status, and scoped defaults. Pi actions SHALL persist independently of Backend Profile rows and SHALL leave ACP, SkillRunner, and Generic HTTP actions unchanged.
+Backend Manager SHALL retain a read-only fixed-backend Zotero Agent status and an action opening or focusing its independent settings window. All detailed model, authentication, MCP, search and maintenance editing SHALL belong to that window. Settings actions SHALL persist independently of Backend Profile rows and SHALL leave ACP, SkillRunner and Generic HTTP actions unchanged.
 
 #### Scenario: Save a Pi configuration
-- **WHEN** the user saves or disables a Pi configuration on the Built-in Agent page
-- **THEN** the Pi state is updated and the existing Backend Profile configuration is unchanged
+- **WHEN** the user saves or disables a Pi configuration in the independent settings window
+- **THEN** Pi state is updated while existing Backend Profile configuration and drafts remain unchanged
+
+#### Scenario: Open settings while Backend Profiles are unsaved
+- **WHEN** the user opens Zotero Agent settings from Backend Manager
+- **THEN** its independent window opens without saving or discarding Backend Profile drafts
 
 #### Scenario: No usable configuration exists
-- **WHEN** the catalog or selected configuration is incomplete or unavailable
-- **THEN** the page displays that state without offering an execution action
-
-### Requirement: Built-in Agent page manages API keys without exposing plaintext
-
-The Built-in Agent page SHALL allow setting, replacing, selecting, and clearing labeled API-key credentials independently of Backend Profiles. Plaintext SHALL appear only in the submitted credential action and encrypted store write, never in snapshots, saved drafts, logs, or result messages.
-
-#### Scenario: User saves and clears a key
-- **WHEN** a user saves an API key and later clears it
-- **THEN** the page shows only redacted metadata and existing Backend Profile rows remain unchanged
-
-### Requirement: Connection tests run only on explicit request
-
-The Built-in Agent page SHALL run a Provider connection test only after a user action, correlate its response to that request, and show only redacted availability or failure state without changing defaults.
-
-#### Scenario: User tests a configured Provider
-- **WHEN** the user requests a connection test for the selected configuration
-- **THEN** only that selected configuration is probed and the result contains no credential or Provider response body
-
-### Requirement: Built-in Agent page manages MCP Tool Sources
-
-The Built-in Agent page SHALL allow explicit source configuration, import preview, source testing, tool selection/review, direct-tool promotion, disable and delete without changing Backend Profile rows. It SHALL show redacted source credential metadata and request-bound test status, with no raw secret in snapshots or result messages.
-
-#### Scenario: Review a discovered tool
-- **WHEN** the user tests a source and selects a discovered tool
-- **THEN** only the reviewed descriptor becomes eligible for a later turn
-
-#### Scenario: Source credential stays private
-- **WHEN** the user saves or imports a source credential
-- **THEN** the page clears the input and subsequent snapshots contain only redacted metadata
+- **WHEN** the catalog or saved selection is incomplete or unavailable
+- **THEN** the summary displays its basic state and offers configuration rather than an execution action
 
 ### Requirement: Built-in Agent page manages Codex account connection
 
@@ -238,18 +214,3 @@ The page SHALL offer explicit model refresh for a saved connected Codex configur
 #### Scenario: Host publishes an unchanged catalog snapshot
 - **WHEN** the host publishes a configuration snapshot with the same catalog revision
 - **THEN** current queried model candidates remain visible, while a changed provider or credential clears old candidates and rejects stale query results
-
-### Requirement: Built-in Agent page manages explicit Web source order
-
-The page SHALL expose enable/disable, accessible ordering, endpoint/model/credential bindings, applicable local/code-execution approval, and user-initiated request-bound tests. It SHALL warn that enabled optional sources may incur account charges. Saved sources SHALL contain no secrets or test response and SHALL NOT change Backend Profiles or connect implicitly.
-
-#### Scenario: Save and test are separate
-- **WHEN** a user saves sources and explicitly tests one
-- **THEN** only the test performs network activity and its safe result matches requestId
-
-### Requirement: Directory controls preserve drafts and bounded region identity
-The Built-in Agent page SHALL expose safe public/overlay/account source states, independent revision, check/data times, retained-data failures and explicit public refresh, automatic-update toggle, previous recovery, overlay refresh/removal and selected-account discovery. Actions/results SHALL be request-associated. Candidate/status updates SHALL preserve unsaved form/default choices and unrelated region DOM identity, without publishing full directory, credentials or private paths.
-
-#### Scenario: Candidate disappears while a form is unsaved
-- **WHEN** directory status or recommendations update during a draft edit
-- **THEN** the draft model and defaults remain unchanged and stale results cannot replace another query's candidates

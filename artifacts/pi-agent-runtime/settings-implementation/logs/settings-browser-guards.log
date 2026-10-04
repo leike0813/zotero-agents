@@ -1,0 +1,26 @@
+(node:1181437) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+  Pi Provider browser import guard
+✘ [ERROR] Could not resolve "node:fs"
+
+    <stdin>:1:7:
+      1 │ import "node:fs";
+        ╵        ~~~~~~~~~
+
+  The package "node:fs" wasn't found on the file system but is built into node. Are you trying to bundle for node? You can use "platform: 'node'" to do that, which will remove this error.
+
+    ✔ rejects other Node builtins and fails if the exact guarded branch runs (39ms)
+
+  Pi runtime bundle size
+    ✔ classifies project and package Pi inputs only
+    ✔ rejects invalid measurement records instead of defaulting to zero
+    ✔ accepts a source-bound candidate stamp and rejects a control stamp
+    ✔ preserves an incomplete exclusion as a discard instead of a pass
+    ✔ flags dirty and same-input violations and reports limit excess
+    ✔ detects an untracked source content change between two builds (113ms)
+
+
+  7 passing (7s)
+

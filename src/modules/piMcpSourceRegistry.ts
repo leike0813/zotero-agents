@@ -3,33 +3,48 @@ import {
   PiOutboundNetworkError,
   classifyPiOutboundUrl,
 } from "./piOutboundNetworkPolicy";
-import {
-  deletePiCredential,
-  listPiCredentials,
-  putPiCredential,
-} from "./piCredentialStore";
-import type { PiGatewayEffect } from "./piToolGateway";
-import type { PiMcpSource } from "../shared/piMcpSourceContract";
-export type { PiMcpSource } from "../shared/piMcpSourceContract";
+import { commitPiCredentialChanges } from "./piCredentialStore";
+import { getPiCredentialRevision } from "./piCredentialStore";
+import type {
+  PiMcpImportPreview,
+  PiMcpSource,
+  PiMcpSourceAuthentication,
+  PiMcpSourceChangePlan,
+  PiMcpSourceChangeSet,
+  PiMcpSourceInput,
+} from "../shared/piMcpSourceContract";
+export type {
+  PiMcpImportPreview,
+  PiMcpSource,
+  PiMcpSourceAuthentication,
+  PiMcpSourceChangePlan,
+  PiMcpSourceChangeSet,
+  PiMcpSourceInput,
+} from "../shared/piMcpSourceContract";
 
-export type PiMcpSourceRegistry = { version: 1; sources: PiMcpSource[] };
-export type PiMcpImportPreview = {
+export type PiMcpSourceRegistry = {
+  version: 1;
   sources: PiMcpSource[];
-  secrets: Array<{ sourceId: string; slot: string; value: string }>;
+  /** Content identity of the saved registry, used for optimistic adoption. */
+  revision: string;
 };
 
 const PREF = "piMcpSourceRegistryJson";
-const EFFECTS = new Set<PiGatewayEffect>([
-  "bounded-read",
-  "workspace-mutation",
-  "code-execution",
-  "external-egress",
-  "external-mutation",
-  "local-network",
-  "zotero-mutation",
-  "host-control",
-  "forbidden",
-]);
+const MAX_SOURCES = 64;
+const MAX_BINDINGS = 32;
+// A field is the exact header name for HTTP and the exact environment name for
+// stdio. Header names are case-insensitive, so field identity is compared
+// folded; environment names keep their existing platform rules.
+const HEADER_FIELD = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]{1,128}$/;
+const ENVIRONMENT_FIELD = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
+const RESERVED_ENVIRONMENT =
+  /^(path|home|userprofile|temp|tmp|systemroot|windir|pathext|lang)$/i;
+const CREDENTIAL_REF = /^[A-Za-z0-9._-]{1,128}$/;
+let commitQueue: Promise<unknown> = Promise.resolve();
+
+function plainRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
 
 function identifier(value: unknown): string {
   if (
@@ -41,8 +56,23 @@ function identifier(value: unknown): string {
   return value;
 }
 
-function plainRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
+/** Stable non-cryptographic token for the exact saved registry document. */
+function revisionOf(serialized: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < serialized.length; index += 1) {
+    hash ^= serialized.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+function credentialRef(sourceId: string, field: string): string {
+  const slug = field.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const prefix = `mcp-${sourceId}-`;
+  const ref = prefix + slug;
+  if (!CREDENTIAL_REF.test(ref) || !slug)
+    throw new Error("mcp_source_invalid_credential_slot");
+  return ref;
 }
 
 /**
@@ -73,7 +103,7 @@ export function classifyPiMcpHttpUrl(raw: string): {
   }
 }
 
-export function validatePiMcpSource(source: PiMcpSource): PiMcpSource {
+function validateSavedSource(source: PiMcpSource): PiMcpSource {
   identifier(source?.id);
   if (
     typeof source.label !== "string" ||
@@ -81,41 +111,46 @@ export function validatePiMcpSource(source: PiMcpSource): PiMcpSource {
     source.label.length > 128 ||
     typeof source.enabled !== "boolean" ||
     !plainRecord(source.credentialSlots) ||
-    !plainRecord(source.selectedTools) ||
-    Object.keys(source.credentialSlots).length > 32 ||
-    Object.keys(source.selectedTools).length > 512
+    Object.keys(source.credentialSlots).length > MAX_BINDINGS
   )
     throw new Error("mcp_source_invalid_config");
-  for (const [slot, ref] of Object.entries(source.credentialSlots)) {
-    if (
-      !/^[A-Za-z0-9_-]{1,128}$/.test(slot) ||
-      ["__proto__", "constructor", "prototype"].includes(slot) ||
-      typeof ref !== "string" ||
-      !ref
-    )
-      throw new Error("mcp_source_invalid_credential_slot");
-    if (
-      source.transport === "stdio" &&
-      /^(path|home|userprofile|temp|tmp|systemroot|windir|pathext)$/i.test(slot)
-    )
+  const authentication = source.authentication;
+  if (
+    !plainRecord(authentication) ||
+    !["none", "bearer", "apiKey"].includes(String(authentication.kind))
+  )
+    throw new Error("mcp_source_invalid_authentication");
+  const fields = new Set<string>();
+  for (const [field, ref] of Object.entries(source.credentialSlots)) {
+    const valid =
+      source.transport === "http"
+        ? HEADER_FIELD.test(field)
+        : ENVIRONMENT_FIELD.test(field) && !RESERVED_ENVIRONMENT.test(field);
+    if (!valid)
+      throw new Error(
+        source.transport === "http"
+          ? "mcp_source_invalid_field"
+          : "mcp_source_reserved_environment",
+      );
+    const identity = field.toLowerCase();
+    if (fields.has(identity)) throw new Error("mcp_source_duplicate_field");
+    fields.add(identity);
+    if (typeof ref !== "string" || !CREDENTIAL_REF.test(ref))
       throw new Error("mcp_source_invalid_credential_slot");
   }
-  for (const [name, review] of Object.entries(source.selectedTools)) {
-    if (
-      !name ||
-      name.length > 128 ||
-      ["__proto__", "constructor", "prototype"].includes(name) ||
-      !plainRecord(review) ||
-      typeof review.digest !== "string" ||
-      !/^sha256:[a-f0-9]{64}$/i.test(review.digest) ||
-      typeof review.promoted !== "boolean" ||
-      (review.effects !== undefined &&
-        (!Array.isArray(review.effects) ||
-          !review.effects.length ||
-          review.effects.some((effect) => !EFFECTS.has(effect))))
-    )
-      throw new Error("mcp_source_invalid_review");
-  }
+  if (source.transport === "stdio" && authentication.kind !== "none")
+    throw new Error("mcp_source_invalid_authentication");
+  if (
+    authentication.kind !== "none" &&
+    (typeof authentication.field !== "string" ||
+      !HEADER_FIELD.test(authentication.field))
+  )
+    throw new Error("mcp_source_invalid_authentication");
+  if (
+    authentication.kind !== "none" &&
+    !fields.has(authentication.field.toLowerCase())
+  )
+    throw new Error("mcp_source_field_secret_required");
   if (source.transport === "http") {
     if (
       typeof source.url !== "string" ||
@@ -125,24 +160,28 @@ export function validatePiMcpSource(source: PiMcpSource): PiMcpSource {
     )
       throw new Error("mcp_source_invalid_config");
     const endpoint = classifyPiMcpHttpUrl(source.url);
+    if (endpoint.location === "public" && !endpoint.url.startsWith("https:"))
+      throw new Error("mcp_source_https_required");
     if (
-      endpoint.location !== "public" &&
+      source.localNetworkApproval &&
       source.localNetworkApproval !== endpoint.origin
     )
       throw new Error("mcp_source_local_network_approval_required");
-    if (endpoint.location === "public" && !source.url.startsWith("https:"))
-      throw new Error("mcp_source_https_required");
-    if (source.url.startsWith("http:") && endpoint.location === "private") {
-      if (source.cleartextApproval !== endpoint.origin)
-        throw new Error("mcp_source_cleartext_approval_required");
+    if (endpoint.location === "private" && endpoint.url.startsWith("http:")) {
       if (Object.keys(source.credentialSlots).length)
         throw new Error("mcp_source_cleartext_credential_denied");
     }
     return {
       ...source,
       url: endpoint.url,
+      authentication: { ...authentication } as PiMcpSourceAuthentication,
       credentialSlots: { ...source.credentialSlots },
-      selectedTools: { ...source.selectedTools },
+      ...(source.cleartextApproval === endpoint.origin
+        ? { cleartextApproval: endpoint.origin }
+        : {}),
+      ...(source.localNetworkApproval === endpoint.origin
+        ? { localNetworkApproval: endpoint.origin }
+        : {}),
     };
   }
   if (source.transport === "stdio") {
@@ -163,16 +202,17 @@ export function validatePiMcpSource(source: PiMcpSource): PiMcpSource {
     return {
       ...source,
       argv: [...source.argv],
+      authentication: { kind: "none" },
       credentialSlots: { ...source.credentialSlots },
-      selectedTools: { ...source.selectedTools },
+      ...(source.cwd ? { cwd: source.cwd } : {}),
     };
   }
   throw new Error("mcp_source_invalid_transport");
 }
 
-export function loadPiMcpSourceRegistry(): PiMcpSourceRegistry {
+function readRegistryDocument(): { sources: PiMcpSource[]; revision: string } {
   const raw = String(getPref(PREF) || "");
-  if (!raw) return { version: 1, sources: [] };
+  if (!raw) return { sources: [], revision: revisionOf("") };
   let document: unknown;
   try {
     document = JSON.parse(raw);
@@ -183,105 +223,394 @@ export function loadPiMcpSourceRegistry(): PiMcpSourceRegistry {
     !plainRecord(document) ||
     document.version !== 1 ||
     !Array.isArray(document.sources) ||
-    document.sources.length > 64
+    document.sources.length > MAX_SOURCES
   )
     throw new Error("mcp_source_registry_corrupt");
   const sources = document.sources.map((item) =>
-    validatePiMcpSource(item as PiMcpSource),
+    validateSavedSource(item as PiMcpSource),
   );
   if (new Set(sources.map((item) => item.id)).size !== sources.length)
     throw new Error("mcp_source_registry_corrupt");
-  return { version: 1, sources };
+  return { sources, revision: revisionOf(raw) };
 }
 
-export function upsertPiMcpSource(source: PiMcpSource): PiMcpSource {
-  const next = validatePiMcpSource(source);
-  const current = loadPiMcpSourceRegistry();
-  const old = current.sources.find((item) => item.id === next.id);
+export function loadPiMcpSourceRegistry(): PiMcpSourceRegistry {
+  const { sources, revision } = readRegistryDocument();
+  return { version: 1, sources, revision };
+}
+
+/**
+ * Identity of one saved source as the runtime bound it. Everything that can
+ * change what a request sends or where it goes is part of it — transport,
+ * target, working directory, the authentication field identity, the opaque
+ * bindings and the current revision of each bound secret. A label or an
+ * enablement change deliberately keeps the identity, so test evidence for the
+ * same target and authentication survives.
+ */
+export function piMcpSourceBindingIdentity(source: PiMcpSource): string {
+  return JSON.stringify([
+    source.transport,
+    source.url,
+    source.executable,
+    source.argv,
+    source.cwd,
+    source.authentication,
+    source.credentialSlots,
+    Object.values(source.credentialSlots).map((ref) => [
+      ref,
+      getPiCredentialRevision(ref, "mcp-source"),
+    ]),
+    source.localNetworkApproval,
+    source.cleartextApproval,
+  ]);
+}
+
+function fieldName(input: PiMcpSourceInput, field: unknown): string {
+  const name = typeof field === "string" ? field.trim() : "";
+  if (!name) throw new Error("mcp_source_invalid_field");
+  if (input.transport === "http") {
+    if (!HEADER_FIELD.test(name)) throw new Error("mcp_source_invalid_field");
+  } else if (!ENVIRONMENT_FIELD.test(name) || RESERVED_ENVIRONMENT.test(name))
+    throw new Error("mcp_source_reserved_environment");
+  return name;
+}
+
+/**
+ * Normalize one guided form input against the currently saved source. An empty
+ * secret keeps the existing same-field binding. A row with neither a secret
+ * nor a saved binding carries nothing and is dropped, which is what an
+ * exported rebinding slot means on a receiving profile. The authentication
+ * field is the one exception: it must resolve to a binding, so a changed field
+ * can never borrow another field's value.
+ */
+function normalizeInput(
+  input: PiMcpSourceInput,
+  saved: PiMcpSource | undefined,
+): { source: PiMcpSource; writes: PiMcpSourceChangePlan["secretWrites"] } {
+  identifier(input?.id);
   if (
-    old &&
-    JSON.stringify({
-      transport: old.transport,
-      url: old.url,
-      executable: old.executable,
-      argv: old.argv,
-    }) !==
-      JSON.stringify({
-        transport: next.transport,
-        url: next.url,
-        executable: next.executable,
-        argv: next.argv,
-      })
-  ) {
-    next.selectedTools = {};
-  }
-  const sources = current.sources.filter((item) => item.id !== next.id);
-  sources.push(next);
-  if (sources.length > 64) throw new Error("mcp_source_limit_exceeded");
-  setPref(
-    PREF,
-    JSON.stringify({ version: 1, sources } satisfies PiMcpSourceRegistry),
-  );
-  return next;
-}
-
-export function deletePiMcpSource(id: string): void {
-  identifier(id);
-  const current = loadPiMcpSourceRegistry();
-  setPref(
-    PREF,
-    JSON.stringify({
-      version: 1,
-      sources: current.sources.filter((item) => item.id !== id),
-    }),
-  );
-}
-
-export function resetPiMcpSourceRegistry(): void {
-  setPref(PREF, "");
-}
-
-export function reviewPiMcpTool(
-  sourceId: string,
-  name: string,
-  digest: string,
-  options: { promoted: boolean; effects?: PiGatewayEffect[] },
-): PiMcpSource {
-  const source = loadPiMcpSourceRegistry().sources.find(
-    (item) => item.id === sourceId,
-  );
-  if (
-    !source ||
-    !name ||
-    name.length > 128 ||
-    !/^sha256:[a-f0-9]{64}$/i.test(digest)
+    typeof input.label !== "string" ||
+    !input.label.trim() ||
+    input.label.length > 128 ||
+    typeof input.enabled !== "boolean" ||
+    (input.transport !== "http" && input.transport !== "stdio")
   )
-    throw new Error("mcp_source_invalid_review");
-  return upsertPiMcpSource({
-    ...source,
-    selectedTools: {
-      ...source.selectedTools,
-      [name]: {
-        digest,
-        promoted: options.promoted,
-        ...(options.effects ? { effects: options.effects } : {}),
-      },
-    },
+    throw new Error("mcp_source_invalid_config");
+  if (
+    !plainRecord(input.authentication) ||
+    !["none", "bearer", "apiKey"].includes(String(input.authentication.kind))
+  )
+    throw new Error("mcp_source_invalid_authentication");
+  if (!Array.isArray(input.bindings) || input.bindings.length > MAX_BINDINGS)
+    throw new Error("mcp_source_invalid_config");
+
+  const authentication: PiMcpSourceAuthentication =
+    input.authentication.kind === "none"
+      ? { kind: "none" }
+      : {
+          kind: input.authentication.kind,
+          field: fieldName(input, input.authentication.field),
+        };
+  if (input.transport === "stdio" && authentication.kind !== "none")
+    throw new Error("mcp_source_invalid_authentication");
+
+  const slots: Record<string, string> = {};
+  const writes: PiMcpSourceChangePlan["secretWrites"] = [];
+  const identities = new Set<string>();
+  for (const binding of input.bindings) {
+    const field = fieldName(input, binding?.field);
+    const identity = field.toLowerCase();
+    if (identities.has(identity)) throw new Error("mcp_source_duplicate_field");
+    identities.add(identity);
+    const secret = typeof binding.secret === "string" ? binding.secret : "";
+    if (secret) {
+      const ref = credentialRef(input.id, field);
+      slots[field] = ref;
+      writes.push({ ref, label: `${input.id}: ${field}`, secret });
+      continue;
+    }
+    const kept = Object.entries(saved?.credentialSlots || {}).find(
+      ([name]) => name.toLowerCase() === identity,
+    );
+    if (kept) slots[field] = kept[1];
+  }
+  if (
+    authentication.kind !== "none" &&
+    !identities.has(authentication.field.toLowerCase())
+  )
+    throw new Error("mcp_source_field_secret_required");
+
+  const source: PiMcpSource = validateSavedSource({
+    id: input.id,
+    label: input.label.trim(),
+    transport: input.transport,
+    enabled: input.enabled,
+    ...(input.transport === "http"
+      ? { url: String(input.url || "") }
+      : {
+          executable: String(input.executable || ""),
+          argv: Array.isArray(input.argv) ? [...input.argv] : [],
+        }),
+    ...(typeof input.cwd === "string" && input.cwd.trim()
+      ? { cwd: input.cwd.trim() }
+      : {}),
+    authentication,
+    credentialSlots: slots,
   });
+  if (source.transport !== "http") return { source, writes };
+  // Approval is bound to this exact target origin, so a later edit to another
+  // target carries no approval with it.
+  const endpoint = classifyPiMcpHttpUrl(source.url!);
+  if (
+    endpoint.location !== "public" &&
+    (input.approveLocalNetwork || input.approveCleartext)
+  )
+    return {
+      source: validateSavedSource({
+        ...source,
+        ...(input.approveLocalNetwork
+          ? { localNetworkApproval: endpoint.origin }
+          : {}),
+        ...(input.approveCleartext
+          ? { cleartextApproval: endpoint.origin }
+          : {}),
+      }),
+      writes,
+    };
+  return { source, writes };
 }
 
-export function unreviewPiMcpTool(sourceId: string, name: string): PiMcpSource {
-  const source = loadPiMcpSourceRegistry().sources.find(
-    (item) => item.id === sourceId,
-  );
-  if (!source || !name || !Object.hasOwn(source.selectedTools, name))
-    throw new Error("mcp_source_invalid_review");
-  const selectedTools = { ...source.selectedTools };
-  delete selectedTools[name];
-  return upsertPiMcpSource({ ...source, selectedTools });
+/**
+ * Validate one proposed change into the exact writes it needs. Nothing is
+ * persisted here, so a rejected change leaves both the saved registry and its
+ * credential bindings authoritative.
+ */
+export function preparePiMcpChange(
+  change: PiMcpSourceChangeSet,
+): PiMcpSourceChangePlan {
+  if (!plainRecord(change) || !Array.isArray(change.sources))
+    throw new Error("mcp_source_invalid_change");
+  const current = loadPiMcpSourceRegistry();
+  if (
+    change.expectedRevision !== undefined &&
+    change.expectedRevision !== current.revision
+  )
+    throw new Error("mcp_source_revision_conflict");
+
+  const next = new Map(current.sources.map((item) => [item.id, item]));
+  const removals = new Set((change.removals || []).map(identifier));
+  const conflictsKept: string[] = [];
+  const secretWrites = new Map<
+    string,
+    PiMcpSourceChangePlan["secretWrites"][number]
+  >();
+  const approvalsRequired: PiMcpSourceChangePlan["approvalsRequired"] = [];
+  const seen = new Set<string>();
+
+  for (const input of change.sources) {
+    const id = identifier(input?.id);
+    if (seen.has(id)) throw new Error("mcp_source_duplicate_field");
+    seen.add(id);
+    const saved = current.sources.find((item) => item.id === id);
+    if (
+      saved &&
+      (change.mode || "authoritative") === "merge" &&
+      (change.conflicts?.[id] || "keep") === "keep"
+    ) {
+      conflictsKept.push(id);
+      continue;
+    }
+    const { source, writes } = normalizeInput(input, saved);
+    for (const write of writes) {
+      if (secretWrites.has(write.ref))
+        throw new Error("mcp_source_duplicate_field");
+      secretWrites.set(write.ref, write);
+    }
+    if (source.transport === "http") {
+      const endpoint = classifyPiMcpHttpUrl(source.url!);
+      if (endpoint.location !== "public") {
+        if (!input.approveLocalNetwork)
+          approvalsRequired.push({
+            sourceId: id,
+            origin: endpoint.origin,
+            cleartext: false,
+          });
+        if (
+          endpoint.location === "private" &&
+          endpoint.url.startsWith("http:") &&
+          !input.approveCleartext
+        )
+          approvalsRequired.push({
+            sourceId: id,
+            origin: endpoint.origin,
+            cleartext: true,
+          });
+      }
+    }
+    next.set(id, source);
+    removals.delete(id);
+  }
+
+  const ordered = current.sources
+    .map((item) => item.id)
+    .filter((id) => next.has(id) && !removals.has(id));
+  for (const id of next.keys())
+    if (!removals.has(id) && !ordered.includes(id)) ordered.push(id);
+  const surviving = ordered.map((id) => next.get(id)!);
+  if (surviving.length > MAX_SOURCES)
+    throw new Error("mcp_source_limit_exceeded");
+
+  const referenced = new Set<string>();
+  for (const source of surviving)
+    for (const ref of Object.values(source.credentialSlots))
+      referenced.add(ref);
+  const orphaned = new Set<string>();
+  for (const source of current.sources) {
+    for (const ref of Object.values(source.credentialSlots))
+      if (!referenced.has(ref) && !secretWrites.has(ref)) orphaned.add(ref);
+  }
+
+  return {
+    revision: current.revision,
+    next: surviving,
+    secretWrites: [...secretWrites.values()],
+    secretRemovals: [...orphaned],
+    conflictsKept,
+    removals: [...removals],
+    approvalsRequired,
+  };
 }
 
-export function previewPiMcpJson(raw: string): PiMcpImportPreview {
+/**
+ * Commit one prepared change inside the credential owner's write boundary. The
+ * registry document and every binding commit together; a failed registry write
+ * restores the previous credential document, so no partial state is published
+ * and the caller's draft stays editable.
+ */
+export function commitPiMcpChange(
+  plan: PiMcpSourceChangePlan,
+): Promise<PiMcpSource[]> {
+  if (plan.approvalsRequired.length)
+    throw new Error("mcp_source_approval_required");
+  // One registry change commits at a time. A second save that was prepared
+  // against the same revision therefore fails its revision check instead of
+  // interleaving with the first commit.
+  const commit = () =>
+    commitPiCredentialChanges({
+      credentials: plan.secretWrites.map((write) => ({
+        id: write.ref,
+        label: write.label,
+        namespace: "mcp-source" as const,
+        material: { kind: "mcp-secret" as const, secret: write.secret },
+      })),
+      releases: plan.secretRemovals.map((id) => ({
+        id,
+        namespace: "mcp-source" as const,
+      })),
+      apply: () => {
+        if (loadPiMcpSourceRegistry().revision !== plan.revision)
+          throw new Error("mcp_source_revision_conflict");
+        setPref(PREF, JSON.stringify({ version: 1, sources: plan.next }));
+      },
+    }).then(() => plan.next);
+  const pending = commitQueue.then(commit, commit);
+  commitQueue = pending.catch(() => undefined);
+  return pending;
+}
+
+export async function applyPiMcpSourceChange(
+  change: PiMcpSourceChangeSet,
+): Promise<PiMcpSource[]> {
+  return commitPiMcpChange(preparePiMcpChange(change));
+}
+
+function importedSource(
+  name: string,
+  candidate: Record<string, unknown>,
+): PiMcpSourceInput {
+  const transport =
+    candidate.type === "http" || candidate.url ? "http" : "stdio";
+  const slots = transport === "http" ? candidate.headers : candidate.env;
+  if (slots !== undefined && !plainRecord(slots))
+    throw new Error("mcp_import_invalid");
+  const bindings: PiMcpSourceInput["bindings"] = [];
+  let authentication: PiMcpSourceAuthentication = { kind: "none" };
+  const declared = candidate.authentication;
+  if (declared !== undefined) {
+    if (
+      !plainRecord(declared) ||
+      (declared.kind !== "none" &&
+        declared.kind !== "bearer" &&
+        declared.kind !== "apiKey")
+    )
+      throw new Error("mcp_import_invalid");
+    authentication =
+      declared.kind === "none"
+        ? { kind: "none" }
+        : { kind: declared.kind, field: String(declared.field || "") };
+  }
+  for (const [field, value] of Object.entries(
+    (slots || {}) as Record<string, unknown>,
+  )) {
+    if (typeof value !== "string") throw new Error("mcp_import_invalid");
+    const literal = value;
+    if (literal && /\$|!command/.test(literal))
+      throw new Error("mcp_import_unsafe_secret");
+    if (
+      authentication.kind === "none" &&
+      transport === "http" &&
+      field.toLowerCase() === "authorization"
+    ) {
+      const bearer = /^Bearer\s+(.+)$/i.exec(literal);
+      authentication = bearer
+        ? { kind: "bearer", field }
+        : { kind: "apiKey", field };
+      bindings.push({ field, secret: bearer ? bearer[1] : literal });
+      continue;
+    }
+    if (
+      authentication.kind === "bearer" &&
+      field.toLowerCase() === authentication.field.toLowerCase() &&
+      literal
+    ) {
+      // The transport forms the single prefix, so a document keeps the bare
+      // token even when the value was written out already prefixed.
+      bindings.push({
+        field,
+        secret: literal.replace(/^Bearer\s+/i, ""),
+      });
+      continue;
+    }
+    bindings.push({ field, ...(literal ? { secret: literal } : {}) });
+  }
+  return {
+    id: name,
+    label: name,
+    transport,
+    enabled: true,
+    ...(transport === "http"
+      ? { url: String(candidate.url || "") }
+      : {
+          executable: String(candidate.command || ""),
+          argv: Array.isArray(candidate.args) ? [...candidate.args] : [],
+          ...(typeof candidate.cwd === "string" && candidate.cwd
+            ? { cwd: candidate.cwd }
+            : {}),
+        }),
+    authentication,
+    bindings,
+  };
+}
+
+/**
+ * Read a whole `mcpServers` document into the one change set. `replace`
+ * additionally reports the saved sources the document omits, so a
+ * full-document save can show its impact before anything is removed.
+ */
+export function previewPiMcpJson(
+  raw: string,
+  options: { mode?: "merge" | "replace" } = {},
+): PiMcpImportPreview {
   if (raw.length > 1024 * 1024) throw new Error("mcp_import_too_large");
   let document: unknown;
   try {
@@ -291,161 +620,67 @@ export function previewPiMcpJson(raw: string): PiMcpImportPreview {
   }
   if (!plainRecord(document) || !plainRecord(document.mcpServers))
     throw new Error("mcp_import_invalid");
-  const sources: PiMcpSource[] = [];
-  const secrets: PiMcpImportPreview["secrets"] = [];
+  const sources: PiMcpSourceInput[] = [];
   for (const [name, candidate] of Object.entries(document.mcpServers)) {
     identifier(name);
     if (!plainRecord(candidate)) throw new Error("mcp_import_invalid");
-    const transport =
-      candidate.type === "http" || candidate.url ? "http" : "stdio";
-    const slots = transport === "http" ? candidate.headers : candidate.env;
-    if (slots !== undefined && !plainRecord(slots))
-      throw new Error("mcp_import_invalid");
-    const credentialSlots: Record<string, string> = {};
-    for (const [slot, value] of Object.entries(
-      (slots || {}) as Record<string, unknown>,
-    )) {
-      if (typeof value !== "string" || !value || /\$|!command/.test(value))
-        throw new Error("mcp_import_unsafe_secret");
-      credentialSlots[slot] =
-        `mcp-${name}-${slot.replace(/[^A-Za-z0-9-]/g, "-")}`;
-      if (credentialSlots[slot].length > 128)
-        throw new Error("mcp_import_invalid");
-      secrets.push({ sourceId: name, slot, value });
-    }
-    const source: PiMcpSource = {
-      id: name,
-      label: name,
-      transport,
-      enabled: true,
-      credentialSlots,
-      selectedTools: {},
-      ...(transport === "http"
-        ? (() => {
-            const endpoint = classifyPiMcpHttpUrl(candidate.url as string);
-            return {
-              url: endpoint.url,
-              ...(endpoint.location !== "public"
-                ? { localNetworkApproval: endpoint.origin }
-                : {}),
-              ...(endpoint.location === "private" &&
-              endpoint.url.startsWith("http:")
-                ? { cleartextApproval: endpoint.origin }
-                : {}),
-            };
-          })()
-        : {
-            executable: candidate.command as string,
-            argv: (candidate.args as string[]) || [],
-          }),
-    };
-    sources.push(validatePiMcpSource(source));
+    sources.push(importedSource(name, candidate));
   }
-  if (
-    new Set(
-      secrets.map(
-        ({ sourceId, slot }) =>
-          sources.find((source) => source.id === sourceId)?.credentialSlots[
-            slot
-          ],
-      ),
-    ).size !== secrets.length
-  )
-    throw new Error("mcp_import_invalid");
-  return { sources, secrets };
-}
-
-export async function acceptPiMcpImport(
-  preview: PiMcpImportPreview,
-  approvals: Array<{
-    sourceId: string;
-    origin: string;
-    cleartext: boolean;
-  }> = [],
-): Promise<PiMcpSource[]> {
-  const sources = preview.sources.map(validatePiMcpSource);
-  for (const source of sources) {
-    if (!source.localNetworkApproval) continue;
-    if (
-      !approvals.some(
-        (item) =>
-          item.sourceId === source.id &&
-          item.origin === source.localNetworkApproval &&
-          item.cleartext === !!source.cleartextApproval,
-      )
-    )
-      throw new Error("mcp_import_approval_required");
-  }
-  const created: string[] = [];
-  const previous = String(getPref(PREF) || "");
-  const current = loadPiMcpSourceRegistry();
-  if (current.sources.length + sources.length > 64)
-    throw new Error("mcp_source_limit_exceeded");
-  if (
-    sources.some((item) =>
-      current.sources.some((existing) => existing.id === item.id),
-    ) ||
-    new Set(sources.map((item) => item.id)).size !== sources.length
-  )
-    throw new Error("mcp_import_source_conflict");
-  const refs = preview.secrets.map(
-    (secret) =>
-      sources.find((source) => source.id === secret.sourceId)?.credentialSlots[
-        secret.slot
-      ],
-  );
-  if (refs.some((ref) => !ref) || new Set(refs).size !== refs.length)
-    throw new Error("mcp_import_invalid");
-  if (
-    refs.some((ref) =>
-      listPiCredentials("mcp-source").some((entry) => entry.id === ref),
-    )
-  )
-    throw new Error("mcp_import_credential_conflict");
-  let registryWritten = false;
-  try {
-    for (const secret of preview.secrets) {
-      const ref = sources.find((source) => source.id === secret.sourceId)
-        ?.credentialSlots[secret.slot];
-      await putPiCredential({
-        id: ref!,
-        label: `${secret.sourceId}: ${secret.slot}`,
-        namespace: "mcp-source",
-        material: { kind: "mcp-secret", secret: secret.value },
-      });
-      created.push(ref!);
-    }
-    setPref(
-      PREF,
-      JSON.stringify({ version: 1, sources: [...current.sources, ...sources] }),
-    );
-    registryWritten = true;
-    return sources;
-  } catch (error) {
-    if (registryWritten) setPref(PREF, previous);
-    for (const ref of created) await deletePiCredential(ref, "mcp-source");
-    throw error;
-  }
+  const existing = loadPiMcpSourceRegistry().sources;
+  const included = new Set(sources.map((source) => source.id));
+  const removals =
+    options.mode === "replace"
+      ? existing
+          .filter((source) => !included.has(source.id))
+          .map((source) => source.id)
+      : [];
+  return {
+    change: {
+      mode: options.mode === "replace" ? "replace" : "merge",
+      sources,
+      ...(removals.length ? { removals } : {}),
+    },
+    secrets: sources.flatMap((source) =>
+      source.bindings
+        .filter((binding) => binding.secret)
+        .map((binding) => ({
+          sourceId: source.id,
+          field: binding.field,
+          value: String(binding.secret),
+        })),
+    ),
+    impact: {
+      removals,
+      conflicts: sources
+        .filter((source) => existing.some((item) => item.id === source.id))
+        .map((source) => source.id)
+        .sort(),
+    },
+  };
 }
 
 export function exportPiMcpJson(): string {
   const mcpServers: Record<string, unknown> = {};
   for (const source of loadPiMcpSourceRegistry().sources) {
+    const bindings = Object.fromEntries(
+      Object.keys(source.credentialSlots).map((field) => [field, ""]),
+    );
     mcpServers[source.id] =
       source.transport === "http"
         ? {
             type: "http",
             url: source.url,
-            headers: Object.fromEntries(
-              Object.keys(source.credentialSlots).map((slot) => [slot, ""]),
-            ),
+            // The authentication field identity travels with the document, so a
+            // receiving profile re-enters only the secret and never has to
+            // re-guess whether the field expects a prefixed bearer value.
+            authentication: source.authentication,
+            headers: bindings,
           }
         : {
             command: source.executable,
             args: source.argv,
-            env: Object.fromEntries(
-              Object.keys(source.credentialSlots).map((slot) => [slot, ""]),
-            ),
+            ...(source.cwd ? { cwd: source.cwd } : {}),
+            env: bindings,
           };
   }
   return JSON.stringify({ mcpServers }, null, 2);

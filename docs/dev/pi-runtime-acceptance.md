@@ -141,6 +141,12 @@ npm run prepare:pi-model-catalog-seed -- \
 
 本地开发证据包括既有 core/UI runner 中的官方 HTTP、固定 Runtime 下的目录 A→B、冻结选择和未保存配置保留。详情与实际宿主身份见 `openspec/changes/decouple-builtin-pi-model-catalog/verification.md`。这些运行加载工作树测试包；正式安装 XPI 的证据仍须由现有 E2E 与 compatibility runner 采集，绑定 clean commit、候选 XPI SHA-256、宿主身份和实际官方 HTTP 结果，并核对返回 revision 与该候选的 seed/缓存 revision。C20 仍未完成：完整 clean-candidate 宿主矩阵与人工 receipt 仍归 C20，SIWC 属于 Change C，本节开发结果不能勾选正式宿主或账号验收任务。
 
+## 配置界面入口
+
+Pi 的模型连接、模型卡片、ChatGPT 注册、MCP 来源、搜索来源与目录维护在独立的 Zotero Agent 设置窗口中配置，入口是首选项中紧邻 Backend Manager 左侧的 `pref-zotero-agent-settings` 按钮；Backend Manager 只保留固定后端状态与打开该窗口的动作，Assistant Workspace 的 Pi 配置动作也直接打开同一窗口。人工 receipt 中涉及配置界面的观察在该窗口执行，窗口关闭时未保存草稿按保存、放弃或继续处理，重新打开保留未保存内容。
+
+本节只记录观察入口的位置变化。候选身份、门禁、`manual:*` 观察项、收集命令与容量口径均不因此改变；受控界面证据不认证真实账号，C20 与 ChatGPT 真实账号任务仍未完成。
+
 ## 人工 inventory
 
 固定 Zotero 10 测试环境；每条 receipt 绑定候选和 confirmer，`manual.zoteroMajor` 记录实际宿主主版本（必须为 10），`manual.observed` 保存已观察的稳定行为，`manual.sourceEvidence` 只引用脱敏的相对工件。

@@ -7,11 +7,7 @@ import {
 } from "./piCredentialStore";
 import { resolvePiChatGPTAccess } from "./piChatGPTAuth";
 import { PiModelStreamFailure } from "./piRuntime";
-import {
-  classifyPiEndpoint,
-  migratePiProviderBindings,
-  loadPiProviderConfigurationState,
-} from "./piProviderConfiguration";
+import { classifyPiEndpoint } from "./piProviderConfiguration";
 import type {
   PiCatalog,
   PiCatalogModel,
@@ -29,7 +25,6 @@ import {
   replaceRuntimeTextFileAtomically,
 } from "./runtimePersistence";
 import { piModelCatalogSeed } from "../config/piModelCatalogSeed";
-import { configuredPiMigrationModels } from "../config/piModelCatalogMigration";
 import { PI_RUNTIME_VERSION } from "../config/piRuntimeBuild";
 import {
   normalizePiOfficialCatalog,
@@ -422,11 +417,6 @@ function getOwner(root?: string): Owner {
   owners.set(key, owner);
   owner.loaded = (async () => {
     let removedLegacyAccountFacts = false;
-    const state = loadPiProviderConfigurationState();
-    // The migration input supplies only previously saved configurations, never
-    // public recommendations or a second maintained directory base.
-    if (state.configurations.some((config) => !config.binding))
-      migratePiProviderBindings({ models: configuredPiMigrationModels(state) });
     try {
       const raw = await boundedLocalRead(key, CACHE_LIMIT);
       const parsed = JSON.parse(raw || "null");
@@ -1028,7 +1018,6 @@ export async function refreshPiPublicModelCatalog(
         };
         return serial(owner, async () => {
           if (!guard()) throw new CatalogFailure("canceled");
-          migratePiProviderBindings(effective(owner));
           // A candidate must also be composable with the adopted declarations.
           mergePiModelOverlay(
             snapshot.models,

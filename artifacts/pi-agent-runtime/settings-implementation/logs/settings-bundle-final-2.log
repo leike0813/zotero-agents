@@ -1,0 +1,6 @@
+
+> zotero-agents@0.10.0 measure:pi-runtime-bundle
+> tsx scripts/measure-pi-runtime-bundle.ts
+
+pi-bundle-measurement discarded: dirty-worktree
+{"rawBytes":5830660,"gzipBytes":903678,"xpiDeltaBytes":910425,"sameInputs":true,"browserGuardPassed":true,"excludedFully":true,"exceededLimits":[],"discarded":["dirty-worktree"]}

@@ -1,0 +1,21 @@
+
+> zotero-agents@0.10.0 test:node:ui
+> tsx scripts/run-node-test-shards.ts --domain ui
+
+
+[node-test-shard:start] ui (UI tests)
+[node-test-shard:files] 16
+[node-test-shard:data-dir] /tmp/zotero-agents-node-test-shards-671734/ui/Zotero_data
+[node-test-shard:command] npx tsx node_modules/mocha/bin/mocha tests/ui/01-startup-workflow-menu-init.test.ts tests/ui/156-ui-readonly-harness.test.ts tests/ui/157-literature-deep-reading-detr-visual.test.ts tests/ui/157-synthesis-sidecar-dashboard.test.ts tests/ui/264-literature-migration-browser.test.ts tests/ui/264-literature-migration-region.test.ts tests/ui/35-workflow-settings-execution.test.ts tests/ui/40-gui-preferences-menu-scan.test.ts tests/ui/44-workflow-editor-host.test.ts tests/ui/45-markdown-attachment-open-probe.test.ts tests/ui/46-log-viewer-behavior.test.ts tests/ui/46-shared-markdown-renderer-contract.test.ts tests/ui/47-markdown-reader-html-contract.test.ts tests/ui/48-library-artifacts-column.test.ts tests/ui/49-dashboard-products-scroll-stability.test.ts tests/ui/50-workflow-settings-dialog-model.test.ts --require tests/setup/zotero-mock.ts --exit
+[node-test-shard:end] ui exit=0 durationMs=47969
+
+[node-test-shard:start] shared (Shared page primitives)
+[node-test-shard:files] 1
+[node-test-shard:data-dir] /tmp/zotero-agents-node-test-shards-671734/shared/Zotero_data
+[node-test-shard:command] npx tsx node_modules/mocha/bin/mocha tests/shared/customSelect.test.ts --require tests/setup/zotero-mock.ts --exit
+[node-test-shard:end] shared exit=0 durationMs=8075
+
+[node-test-shards:summary]
+- ui: exit=0 files=16 durationMs=47969
+- shared: exit=0 files=1 durationMs=8075
+[node-test-shards:summary] all shards passed

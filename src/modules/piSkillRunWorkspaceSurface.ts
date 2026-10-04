@@ -18,7 +18,7 @@ import {
 } from "./assistant/workspace/assistantWorkspaceSurfaceSkeleton";
 import { createAssistantMessageCounts } from "./assistant/publication/assistantMessageCounts";
 import { getAssistantExecutionDisplayMode } from "./assistant/publication/assistantExecutionDisplayPolicy";
-import { loadPiProviderConfigurationState } from "./piProviderConfiguration";
+import { listPiModelConfigurationChoices } from "./piProviderConfiguration";
 import { summarizePiUsageForDisplay } from "../shared/piUsageContract";
 
 function usageLabel(
@@ -326,12 +326,10 @@ export function createPiSkillRunsWorkspaceSurfaceAdapter(
             runtimeOptions: {
               mode: optionGroup([], undefined),
               model: optionGroup(
-                loadPiProviderConfigurationState()
-                  .configurations.filter((item) => item.enabled)
-                  .map((item) => ({
-                    id: item.id,
-                    name: item.label || item.modelId,
-                  })),
+                listPiModelConfigurationChoices().map((item) => ({
+                  id: item.id,
+                  name: item.label,
+                })),
                 model.model?.configurationId,
               ),
               reasoningEffort: optionGroup(

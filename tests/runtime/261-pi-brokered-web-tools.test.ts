@@ -1,12 +1,16 @@
 import { assert } from "chai";
 import { getPref, setPref } from "../../src/utils/prefs";
 import { createPiBrokeredWebTools } from "../../src/modules/piBrokeredWebTools";
-import { upsertPiProviderConfiguration } from "../../src/modules/piProviderConfiguration";
+import {
+  upsertPiModelConfiguration,
+  upsertPiProviderConnection,
+} from "../../src/modules/piProviderConfiguration";
 import {
   getPiCredentialIdentityRevision,
   putPiCredential,
 } from "../../src/modules/piCredentialStore";
 import type { PiModelSelectionSnapshot } from "../../src/shared/piProviderContract";
+import { piWebSourceTestEvidenceApplies } from "../../src/shared/piWebSourceContract";
 import { JSDOM } from "jsdom";
 import { freezePiToolGatewayTurn } from "../../src/modules/piToolGateway";
 import {
@@ -41,6 +45,29 @@ function chatGPTSelection(
       supportsTools: false,
     },
   };
+}
+
+function saveModelCard(input: {
+  id: string;
+  provider: string;
+  modelId: string;
+  authVariant: "api-key" | "chatgpt";
+  credentialRef: string;
+}) {
+  upsertPiProviderConnection({
+    id: input.id + "-connection",
+    label: input.id,
+    provider: input.provider,
+    authVariant: input.authVariant,
+    credentialRef: input.credentialRef,
+    enabled: true,
+  });
+  upsertPiModelConfiguration({
+    id: input.id,
+    connectionId: input.id + "-connection",
+    modelId: input.modelId,
+    enabled: true,
+  });
 }
 
 async function putChatGPTCredential(id: string, subject = id) {
@@ -182,14 +209,12 @@ describe("Pi Brokered Web Tools", function () {
     const priorModel = getPref("piProviderConfigurationJson");
     try {
       setPref("piProviderConfigurationJson", "");
-      upsertPiProviderConfiguration({
+      saveModelCard({
         id: "same",
-        label: "Same",
         provider: "openai",
         modelId: "gpt-4.1",
         authVariant: "api-key",
         credentialRef: "key",
-        enabled: true,
       });
       const service = createPiBrokeredWebTools();
       const sources = service
@@ -339,15 +364,13 @@ describe("Pi Brokered Web Tools", function () {
     try {
       setPref("piProviderConfigurationJson", "");
       for (const provider of ["openai", "anthropic"])
-        upsertPiProviderConfiguration({
+        saveModelCard({
           id: provider,
-          label: provider,
           provider,
           modelId:
             provider === "openai" ? "gpt-4.1" : "claude-sonnet-4-20250514",
           authVariant: "api-key",
           credentialRef: "key",
-          enabled: true,
         });
       let performed = true;
       const service = createPiBrokeredWebTools({
@@ -624,16 +647,9 @@ describe("Pi Brokered Web Tools", function () {
         service.listSources().find((s) => s.kind === kind)!.id,
         "test",
       );
+      assert.equal(probe.status, "available");
       assert.isString(probe.toolDigest);
-      service.saveSources(
-        service
-          .listSources()
-          .map((s) =>
-            s.kind === kind
-              ? { ...s, reviewedToolDigest: probe.toolDigest }
-              : s,
-          ),
-      );
+      assert.equal(probe.binding?.kind, kind);
       const result = await service.search(
         await service.freezeForTurn(),
         { query: "q" },
@@ -644,7 +660,10 @@ describe("Pi Brokered Web Tools", function () {
     }
     assert.deepEqual(called, [
       "web_search_exa",
+      "web_search_exa",
       "tavily-search",
+      "tavily-search",
+      "brave_web_search",
       "brave_web_search",
     ]);
   });
@@ -747,10 +766,9 @@ describe("Pi Brokered Web Tools", function () {
     assert.equal(attempts.at(-1).code, "canceled");
   });
 
-  it("does not dispatch a replaced credential or a changed reviewed MCP descriptor", async function () {
+  it("does not dispatch a replaced credential or an unsupported curated MCP descriptor", async function () {
     let current = "old",
-      calls = 0,
-      changed = false;
+      calls = 0;
     const service = createPiBrokeredWebTools({
       credentialRevision: () => current,
       credential: async () => {
@@ -766,7 +784,7 @@ describe("Pi Brokered Web Tools", function () {
           tools: [
             {
               name: "web_search_exa",
-              description: changed ? "changed" : "reviewed",
+              description: "drifted",
               inputSchema: {
                 type: "object",
                 properties: {
@@ -774,7 +792,7 @@ describe("Pi Brokered Web Tools", function () {
                   objective: { type: "string" },
                   numResults: { type: "number" },
                 },
-                required: ["query", "objective"],
+                required: ["results"],
               },
             },
           ],
@@ -815,26 +833,379 @@ describe("Pi Brokered Web Tools", function () {
         .map((s) => ({ ...s, enabled: s.kind === "exa-mcp" })),
     );
     const probe = await service.testSource("exa", "probe");
+    assert.equal(probe.status, "failed");
+    assert.equal(probe.code, "web_contract_invalid");
+    assert.equal(calls, 0);
+  });
+
+  it("tests one saved disabled source without enabling it or dispatching a fallback", async function () {
+    const dispatched: string[] = [];
+    const service = createPiBrokeredWebTools({
+      credential: async () => ({ kind: "web-secret", secret: "k" }),
+      credentialRevision: () => "r",
+      request: async (input) => {
+        dispatched.push(input.kind);
+        if (input.kind !== "perplexity")
+          throw new Error("only the tested source may dispatch");
+        return {
+          requestedUrl: input.url,
+          finalUrl: input.url,
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: new TextEncoder().encode(
+            JSON.stringify({
+              results: [
+                { title: "Page", url: "https://example.org", snippet: "S" },
+              ],
+            }),
+          ),
+        };
+      },
+    });
+    service.saveSources(
+      service.listSources().map((s) => ({
+        ...s,
+        enabled: s.kind === "brave-http",
+        credentialId:
+          s.kind === "perplexity" || s.kind === "brave-http"
+            ? "key"
+            : undefined,
+      })),
+    );
+    const result = await service.testSource("perplexity", "req-1");
+    assert.equal(result.status, "available");
+    assert.deepEqual(dispatched, ["perplexity"]);
+    assert.equal(result.binding?.kind, "perplexity");
+    assert.isTrue(result.binding?.billable);
+    assert.deepEqual(
+      service
+        .listSources()
+        .filter((s) => s.enabled)
+        .map((s) => s.kind),
+      ["brave-http"],
+    );
+  });
+
+  it("does not report a connection-only or partial curated MCP source as completed", async function () {
+    let answer = JSON.stringify({ results: [] });
+    const service = createPiBrokeredWebTools({
+      credentialRevision: () => "r",
+      openMcp: async () => ({
+        listTools: async () => ({
+          tools: [
+            {
+              name: "web_search_exa",
+              description: "search",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  query: { type: "string" },
+                  objective: { type: "string" },
+                  numResults: { type: "number" },
+                },
+                required: ["query", "objective"],
+              },
+            },
+          ],
+        }),
+        callTool: async () => ({ content: [{ type: "text", text: answer }] }),
+        close: async () => undefined,
+      }),
+    });
+    const empty = await service.testSource("exa", "empty");
+    assert.equal(empty.status, "failed");
+    assert.equal(empty.code, "no_results");
+    answer = "No search results found.";
+    const partial = await service.testSource("exa", "partial");
+    assert.equal(partial.status, "failed");
+    assert.equal(partial.code, "no_results");
+  });
+
+  it("retains test evidence for enablement and order edits and invalidates it for binding edits", async function () {
+    const service = createPiBrokeredWebTools({
+      credential: async () => ({ kind: "web-secret", secret: "k" }),
+      credentialRevision: () => "r1",
+      request: async () => {
+        throw new Error("no dispatch expected");
+      },
+    });
+    service.saveSources(
+      service.listSources().map((s) =>
+        s.kind === "searxng"
+          ? {
+              ...s,
+              enabled: false,
+              endpoint: "http://127.0.0.1:8080/search",
+              localNetworkApprovedOrigin: "http://127.0.0.1:8080",
+            }
+          : s,
+      ),
+    );
+    const evidence = {
+      sourceId: "searxng",
+      requestId: "req-1",
+      status: "available" as const,
+      binding: service.describeSavedSource("searxng")!,
+    };
+    assert.isOk(evidence.binding);
     service.saveSources(
       service
         .listSources()
         .map((s) =>
-          s.id === "exa" ? { ...s, reviewedToolDigest: probe.toolDigest } : s,
+          s.kind === "searxng" ? { ...s, enabled: true, label: "Renamed" } : s,
+        )
+        .reverse(),
+    );
+    assert.isTrue(
+      piWebSourceTestEvidenceApplies(
+        evidence,
+        service.describeSavedSource("searxng"),
+      ),
+    );
+    service.saveSources(
+      service.listSources().map((s) =>
+        s.kind === "searxng"
+          ? {
+              ...s,
+              endpoint: "http://127.0.0.1:9090/search",
+              localNetworkApprovedOrigin: "http://127.0.0.1:9090",
+            }
+          : s,
+      ),
+    );
+    assert.isFalse(
+      piWebSourceTestEvidenceApplies(
+        evidence,
+        service.describeSavedSource("searxng"),
+      ),
+    );
+    service.saveSources(
+      service
+        .listSources()
+        .map((s) =>
+          s.kind === "searxng" ? { ...s, credentialId: "other" } : s,
         ),
     );
-    changed = true;
+    const replaced = createPiBrokeredWebTools({
+      credentialRevision: () => "r2",
+    });
+    assert.isFalse(
+      piWebSourceTestEvidenceApplies(
+        evidence,
+        replaced.describeSavedSource("searxng"),
+      ),
+    );
+  });
+
+  it("refuses to certify a result whose saved binding changed during the test", async function () {
+    const service = createPiBrokeredWebTools({
+      credential: async () => ({ kind: "web-secret", secret: "k" }),
+      credentialRevision: () => "r",
+      request: async (input) => {
+        service.saveSources(
+          service
+            .listSources()
+            .map((s) =>
+              s.kind === "perplexity"
+                ? { ...s, searchModelId: "other-model" }
+                : s,
+            ),
+        );
+        return {
+          requestedUrl: input.url,
+          finalUrl: input.url,
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: new TextEncoder().encode(
+            JSON.stringify({
+              results: [
+                { title: "T", url: "https://example.org", snippet: "S" },
+              ],
+            }),
+          ),
+        };
+      },
+    });
+    service.saveSources(
+      service.listSources().map((s) => ({
+        ...s,
+        enabled: false,
+        ...(s.kind === "perplexity" ? { credentialId: "key" } : {}),
+      })),
+    );
+    const result = await service.testSource("perplexity", "req-1");
+    assert.equal(result.status, "failed");
+    assert.equal(result.code, "source_binding_changed");
+    assert.isFalse(
+      piWebSourceTestEvidenceApplies(
+        result,
+        service.describeSavedSource("perplexity"),
+      ),
+    );
+  });
+
+  it("describes a saved source's identity, permissions and missing parts", async function () {
+    const priorModel = getPref("piProviderConfigurationJson");
     try {
-      await service.search(
-        await service.freezeForTurn(),
-        { query: "q" },
-        new AbortController().signal,
-        async () => {},
+      setPref("piProviderConfigurationJson", "");
+      saveModelCard({
+        id: "native",
+        provider: "openai",
+        modelId: "gpt-4.1",
+        authVariant: "api-key",
+        credentialRef: "native-key",
+      });
+      const service = createPiBrokeredWebTools({
+        credentialRevision: (id) => (id === "native-key" ? "r1" : "r0"),
+      });
+      service.saveSources(
+        service.listSources().map((s) => {
+          if (s.kind === "openai-native")
+            return {
+              ...s,
+              modelConfigurationId: "native",
+              searchModelId: "unrecognized-search-model",
+            };
+          if (s.kind === "brave-mcp")
+            return { ...s, executable: "/usr/bin/node" };
+          if (s.kind === "tavily-mcp")
+            return { ...s, credentialId: "tavily-key" };
+          return s;
+        }),
       );
-      assert.fail();
-    } catch (error) {
-      assert.equal((error as any).code, "source_descriptor_changed");
+      // An unconfigured source is described as incomplete, never as ready.
+      assert.deepEqual(service.describeSavedSource("brave-mcp")?.missing, [
+        "credential",
+        "code_execution",
+        "arguments",
+      ]);
+      assert.deepEqual(service.describeSavedSource("tavily")?.missing, []);
+      // A self-hosted source needs an endpoint but never a credential.
+      assert.deepEqual(service.describeSavedSource("searxng")?.missing, [
+        "endpoint",
+      ]);
+      assert.deepEqual(service.describeSavedSource("openai-native")?.missing, [
+        "search_model",
+      ]);
+      assert.isNull(service.describeSavedSource("unknown"));
+      const described = service.describeSavedSource("openai-native")!;
+      assert.equal(described.connection?.connectionId, "native-connection");
+      assert.equal(described.credentialRevision, "r1");
+      assert.equal(
+        described.identity,
+        service.describeSavedSource("openai-native")?.identity,
+      );
+      assert.isTrue(described.billable);
+    } finally {
+      setPref("piProviderConfigurationJson", priorModel as string);
     }
-    assert.equal(calls, 0);
+  });
+
+  it("keeps the saved sources when a source form save is rejected", function () {
+    const service = createPiBrokeredWebTools();
+    service.saveSources(
+      service
+        .listSources()
+        .map((s) =>
+          s.kind === "perplexity" ? { ...s, label: "Perplexity" } : s,
+        ),
+    );
+    const before = service.listSources();
+    assert.throws(
+      () =>
+        service.saveSources([
+          ...before.filter((s) => s.id !== "perplexity"),
+          { ...before[0], kind: "searxng" },
+        ]),
+      /web_source_invalid/,
+    );
+    assert.deepEqual(service.listSources(), before);
+  });
+
+  it("tests a native source through its exact referenced model configuration", async function () {
+    const priorModel = getPref("piProviderConfigurationJson");
+    try {
+      setPref("piProviderConfigurationJson", "");
+      for (const id of ["searched", "other"])
+        saveModelCard({
+          id,
+          provider: "openai",
+          modelId: id === "searched" ? "gpt-4.1" : "gpt-5",
+          authVariant: "api-key",
+          credentialRef: id === "searched" ? "searched-key" : "other-key",
+        });
+      const secrets = new Map([
+        ["searched-key", "searched-secret"],
+        ["other-key", "other-secret"],
+      ]);
+      let body: any;
+      const service = createPiBrokeredWebTools({
+        credential: async (id) => ({
+          kind: "api-key",
+          secret: secrets.get(id) || "",
+        }),
+        credentialRevision: () => "r",
+        request: async (input) => {
+          body = JSON.parse(input.body!);
+          return {
+            requestedUrl: input.url,
+            finalUrl: input.url,
+            status: 200,
+            headers: { "content-type": "application/json" },
+            body: new TextEncoder().encode(
+              JSON.stringify({
+                status: "completed",
+                output: [
+                  {
+                    type: "web_search_call",
+                    status: "completed",
+                    action: { type: "search", queries: ["actual"] },
+                  },
+                  {
+                    type: "message",
+                    content: [
+                      { type: "output_text", text: "Answer", annotations: [] },
+                    ],
+                  },
+                ],
+                usage: { input_tokens: 1, output_tokens: 2, total_tokens: 3 },
+              }),
+            ),
+          };
+        },
+      });
+      service.saveSources(
+        service.listSources().map((s) =>
+          s.kind === "openai-native"
+            ? {
+                ...s,
+                enabled: false,
+                modelConfigurationId: "searched",
+                searchModelId: "gpt-4.1-mini",
+              }
+            : s,
+        ),
+      );
+      const result = await service.testSource("openai-native", "req-1");
+      assert.equal(result.status, "available");
+      assert.equal(body.model, "gpt-4.1-mini");
+      assert.equal(result.binding?.modelConfigurationId, "searched");
+      assert.equal(result.binding?.modelId, "gpt-4.1-mini");
+      service.saveSources(
+        service
+          .listSources()
+          .map((s) =>
+            s.kind === "openai-native"
+              ? { ...s, modelConfigurationId: "missing" }
+              : s,
+          ),
+      );
+      const unresolved = await service.testSource("openai-native", "req-2");
+      assert.equal(unresolved.status, "unavailable");
+      assert.equal(unresolved.code, "source_unavailable");
+    } finally {
+      setPref("piProviderConfigurationJson", priorModel as string);
+    }
   });
 
   it("bounds multibyte extraction and uses only the selected SearXNG authorization", async function () {
@@ -935,14 +1306,12 @@ describe("Pi Brokered Web Tools", function () {
     const priorModel = getPref("piProviderConfigurationJson");
     try {
       setPref("piProviderConfigurationJson", "");
-      upsertPiProviderConfiguration({
+      saveModelCard({
         id: "chatgpt",
-        label: "ChatGPT",
         provider: "openai",
         modelId: "gpt-5",
         authVariant: "chatgpt",
         credentialRef: "selected",
-        enabled: true,
       });
       const credentialRevision = await putChatGPTCredential(
         "selected",
@@ -953,8 +1322,8 @@ describe("Pi Brokered Web Tools", function () {
       const operations: any[] = [];
       const auth = chatGPTAuthSeam();
       const service = createPiBrokeredWebTools({
-        resolveChatGPTSelection: async (configuration, modelId) =>
-          chatGPTSelection(configuration.id, "selected", modelId),
+        resolveChatGPTSelection: async (target, modelId) =>
+          chatGPTSelection(target.configurationId, "selected", modelId),
         chatGPTAuth: {
           resolvePiChatGPTAccess: async (...args: any[]) => {
             accessArgs = args;
@@ -1083,21 +1452,23 @@ describe("Pi Brokered Web Tools", function () {
     const priorModel = getPref("piProviderConfigurationJson");
     try {
       setPref("piProviderConfigurationJson", "");
-      upsertPiProviderConfiguration({
+      saveModelCard({
         id: "chatgpt-paused",
-        label: "ChatGPT",
         provider: "openai",
         modelId: "gpt-5",
         authVariant: "chatgpt",
         credentialRef: "selected-paused",
-        enabled: true,
       });
       const credentialRevision = await putChatGPTCredential("selected-paused");
       let requests = 0;
       let gateCalls = 0;
       const service = createPiBrokeredWebTools({
-        resolveChatGPTSelection: async (configuration, modelId) => ({
-          ...chatGPTSelection(configuration.id, "selected-paused", modelId),
+        resolveChatGPTSelection: async (target, modelId) => ({
+          ...chatGPTSelection(
+            target.configurationId,
+            "selected-paused",
+            modelId,
+          ),
         }),
         chatGPTAuth: (() => {
           const auth = chatGPTAuthSeam({ paused: true });
@@ -1155,6 +1526,13 @@ describe("Pi Brokered Web Tools", function () {
         attempts.filter((attempt) => attempt.phase === "started").length,
         1,
       );
+      // An explicit test reports the pause instead of lifting it, and it never
+      // hops to another source.
+      const tested = await service.testSource("openai-native", "req-paused");
+      assert.equal(tested.status, "failed");
+      assert.equal(tested.code, "source_quota_paused");
+      assert.equal(gateCalls, 2);
+      assert.equal(requests, 0);
     } finally {
       setPref("piProviderConfigurationJson", priorModel as string);
     }
@@ -1164,14 +1542,12 @@ describe("Pi Brokered Web Tools", function () {
     const priorModel = getPref("piProviderConfigurationJson");
     try {
       setPref("piProviderConfigurationJson", "");
-      upsertPiProviderConfiguration({
+      saveModelCard({
         id: "chatgpt-unknown-context",
-        label: "ChatGPT",
         provider: "openai",
         modelId: "unrecognized-model-name",
         authVariant: "chatgpt",
         credentialRef: "selected-unknown-context",
-        enabled: true,
       });
       const credentialRevision = await putChatGPTCredential(
         "selected-unknown-context",
@@ -1179,9 +1555,9 @@ describe("Pi Brokered Web Tools", function () {
       let authCalls = 0;
       let requests = 0;
       const service = createPiBrokeredWebTools({
-        resolveChatGPTSelection: async (configuration, modelId) =>
+        resolveChatGPTSelection: async (target, modelId) =>
           chatGPTSelection(
-            configuration.id,
+            target.configurationId,
             "selected-unknown-context",
             modelId,
             0,
@@ -1241,14 +1617,12 @@ describe("Pi Brokered Web Tools", function () {
     const priorModel = getPref("piProviderConfigurationJson");
     try {
       setPref("piProviderConfigurationJson", "");
-      upsertPiProviderConfiguration({
+      saveModelCard({
         id: "chatgpt-evidence",
-        label: "ChatGPT",
         provider: "openai",
         modelId: "gpt-5",
         authVariant: "chatgpt",
         credentialRef: "selected-evidence",
-        enabled: true,
       });
       const credentialRevision = await putChatGPTCredential(
         "selected-evidence",
@@ -1339,8 +1713,12 @@ describe("Pi Brokered Web Tools", function () {
       for (const scenario of cases) {
         let dispatches = 0;
         const service = createPiBrokeredWebTools({
-          resolveChatGPTSelection: async (configuration, modelId) =>
-            chatGPTSelection(configuration.id, "selected-evidence", modelId),
+          resolveChatGPTSelection: async (target, modelId) =>
+            chatGPTSelection(
+              target.configurationId,
+              "selected-evidence",
+              modelId,
+            ),
           chatGPTAuth: chatGPTAuthSeam(),
           credentialRevision: () => credentialRevision,
           credential: async () => ({

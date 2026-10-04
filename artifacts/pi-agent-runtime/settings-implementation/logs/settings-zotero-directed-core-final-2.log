@@ -1,0 +1,84 @@
+
+> zotero-agents@0.10.0 test:zotero:core
+> tsx scripts/run-zotero-test-with-mock.ts test:zotero:cli lite core --no-watch
+
+[test-target] test:zotero:cli
+[test-mode] lite
+[test-domain] core
+[test-workflow-dir] /home/joshua/Workspace/Code/JavaScript/.orca/worktrees/zotero-agents/dev-agent-harness/workflows_builtin
+[test-data-dir] /tmp/zotero-agents-test-data-1074595/Zotero_data
+[mock-skillrunner] 127.0.0.1:(random)
+mock skillrunner started
+baseUrl=http://127.0.0.1:41875
+bundlePath=/home/joshua/Workspace/Code/JavaScript/.orca/worktrees/zotero-agents/dev-agent-harness/tests/fixtures/literature-analysis/run_bundle_canonical.zip
+press Ctrl+C to stop
+[test-skillrunner-endpoint] http://127.0.0.1:41875
+
+> zotero-agents@0.10.0 test:zotero:cli
+> zotero-plugin test --no-watch
+
+ ℹ Building version 0.10.0 to .scaffold/build at 2026-10-04 17:58:00 in test mode.
+   → Preparing static assets
+   → Bundling scripts
+ ✔ Build finished in 4.441 s.
+ ℹ Installed /home/joshua/Workspace/Code/JavaScript/.orca/worktrees/zotero-agents/dev-agent-harness/.scaffold/build/addon as a temporary add-on
+ ℹ Installed /home/joshua/Workspace/Code/JavaScript/.orca/worktrees/zotero-agents/dev-agent-harness/.scaffold/test/resource as a temporary add-on
+
+   → Pi provider configuration
+     ✔ shares one target and authentication across two models of one connection 4ms
+     ✔ applies explicit precedence and refuses any implicit fallback 3ms
+     ✔ retains default references across an edit and reports the reason 2ms
+     ✔ rejects a default that cannot run and leaves the saved ones alone 2ms
+     ✔ clears only the removed card's own purposes 1ms
+     ✔ removes a connection's cards and keeps a key another connection names 2ms
+     ✔ releases an api key at its last reference but never a ChatGPT registration 55ms
+     ✔ keeps a key a real MCP source's credential slot still names 25ms
+     ✔ keeps a key another connection in the same namespace still names 6ms
+     ✔ keeps a key when a source document cannot be read 3ms
+     ✔ saves a connection and its secret as one operation without an orphan 3ms
+     ✔ refuses a connection before writing a secret, so no orphan key survives 0ms
+     ✔ reports an incompatible or damaged document instead of resetting it 0ms
+     ✔ keeps a saved card description across a directory drop and blocks retirement 1ms
+     ✔ keeps a connection on its accepted target when a directory moves the endpoint 1ms
+     ✔ withholds another target's directory facts from a custom endpoint 2ms
+     ✔ selects ChatGPT discoveries only for their registration 2ms
+     ✔ rejects remote HTTP, a dialect-less custom endpoint and an unsupported reasoning level 1ms
+     ✔ keeps evidence applicable across a rename and invalidates it on a real change 1ms
+     ✔ projects the pickable cards with the names this owner owns 2ms
+     ✔ projects execution capability instead of guessing from a provider name 0ms
+   → Pi configuration in real Zotero
+     ✔ adopts directory B with a fixed runtime while preserving directory A's active selection 138ms
+     ℹ reads the official catalog through the actual Zotero HTTP implementation pending
+     ✔ uses browser-safe catalog and encrypted profile credentials 176ms
+   → Pi MCP source transport in real Zotero
+     ✔ loads the outbound source owner with browser streams 0ms
+     ✔ admits an enabled saved source with no persisted tool selection 20ms
+     ✔ streams JSON-RPC through the live stdio adapter 1090ms
+     ℹ observes Windows stdio bridge exit before leaving the host pending
+   → Pi ChatGPT native callback host in real Zotero
+     ✔ accepts authorization through the default listener with a signed fixture token 726ms
+   → Pi brokered web network in real Zotero
+     ✔ tests a saved disabled source through the settings owner in the actual plugin sandbox 59ms
+     ✔ refuses to test a saved source whose local network was never approved 2ms
+     ✔ fetches anonymously from an approved loopback origin 57ms
+     ✔ follows a redirect only after validating the next hop 6ms
+     ✔ resolves the loopback hostname and observes the connected peer 4ms
+     ✔ aborts an already connected channel 11ms
+     ✔ expires the native idle timer on a connected stalled request 1001ms
+     ✔ denies metadata, unapproved local and public cleartext targets before connecting 2ms
+     ✔ fails closed on an offline port and honors abort 3ms
+     ✔ classifies a target for admission before any grant is enforced 3ms
+     ✔ reports a public location for a public literal without a grant 0ms
+   → Pi Runtime Audit in Zotero
+     ✔ routes structural owner facts once and excludes semantic attributes 99ms
+     ✔ rejects prose in permitted fields and admits structural diagnostic tiers only 89ms
+     ✔ global export excludes owner logs and strips arbitrary global prose 6ms
+     ✔ compacts to both targets and preserves the newest warning with explicit gaps 116ms
+     ✔ recovers write failures and bounded overflow without changing canonical history 97ms
+     ✔ bounds bytes independently and reports an oversized structural record 125ms
+     ✔ trims export copies and keeps structured failures without semantic transcript content 180ms
+     ✔ fails atomically and rejects missing owners without creating their directories 3ms
+     ✔ retains archived evidence and never recreates a permanently deleted owner 309ms
+     ✔ keeps an unresolved Broker effect as a hold instead of replaying it 275ms
+
+ ✔ Test run completed - 48 passed

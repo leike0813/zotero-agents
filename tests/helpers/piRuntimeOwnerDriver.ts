@@ -31,8 +31,8 @@ import {
 import {
   resolvePiModelSelection,
   setPiProviderDefaults,
-  upsertPiProviderConfiguration,
 } from "../../src/modules/piProviderConfiguration";
+import { savePiModelFixture } from "./piModelConfigurationFixture";
 import {
   ensureRuntimeDirectoryStrict,
   writeRuntimeTextFile,
@@ -100,7 +100,7 @@ export async function configurePiLocalProviderProfile(args: {
       secret: args.secret || "system-e2e-local-key",
     },
   });
-  upsertPiProviderConfiguration({
+  savePiModelFixture({
     id: CONFIGURATION_ID,
     label: "System E2E Local Provider",
     provider: LOCAL_PROVIDER,

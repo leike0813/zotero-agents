@@ -15,10 +15,16 @@ import { streamSimple as streamOpenAICompletions } from "@earendil-works/pi-ai/a
 import { streamSimple as streamAnthropicMessages } from "@earendil-works/pi-ai/api/anthropic-messages";
 import { streamSimple as streamGoogle } from "@earendil-works/pi-ai/api/google-generative-ai";
 import type {
+  PiAuthVariant,
+  PiExecutionApi,
   PiModelCompat,
   PiModelCost,
   PiModelMetadata,
   PiModelSelectionSnapshot,
+} from "../shared/piProviderContract";
+import {
+  PI_API_AUTH_VARIANTS,
+  PI_PROVIDER_EXECUTION_APIS,
 } from "../shared/piProviderContract";
 import {
   getPiCredentialIdentityRevision,
@@ -98,6 +104,99 @@ const streams: Record<string, ProviderStreams["streamSimple"]> = {
   "anthropic-messages": streamAnthropicMessages,
   "google-generative-ai": streamGoogle,
 };
+
+export type PiProviderConnectionSupport =
+  | {
+      supported: true;
+      api: PiExecutionApi;
+      /** The authentication variants that can run against this API today. */
+      authVariants: readonly PiAuthVariant[];
+      /** True only for the official OpenAI Responses subscription target. */
+      subscription: boolean;
+    }
+  | { supported: false; reason: string };
+
+const CHATGPT_BASE_URL = "https://api.openai.com/v1";
+
+/**
+ * Project whether this project can execute and authenticate a connection target.
+ *
+ * A lightweight answer for configuration UI and discovery: it reads no
+ * directory, no credential and no document, and it decides from the two facts
+ * this owner holds — the provider's own execution API and the API's supported
+ * authentication. The existence of an SDK stream is never on its own enough: a
+ * provider with no entry here is refused, which is what keeps a hosted
+ * AWS or Azure endpoint, whose calls need provider specific authentication
+ * headers this build cannot add, a reported reason rather than a route to the
+ * plain public API.
+ *
+ * A host projects one row at a time by passing that row's api and baseUrl, so a
+ * provider that publishes rows this build cannot execute is visible as a reason
+ * on the row instead of a silently absent provider.
+ */
+export function getPiProviderConnectionSupport(input: {
+  provider: string;
+  /** Accepted unvalidated: a directory row declares any string here. */
+  api?: string;
+  baseUrl?: string;
+  authVariant?: PiAuthVariant;
+}): PiProviderConnectionSupport {
+  const provider = input.provider.trim();
+  const declared =
+    (input.api || "").trim() || PI_PROVIDER_EXECUTION_APIS[provider];
+  const api = Object.prototype.hasOwnProperty.call(
+    PI_API_AUTH_VARIANTS,
+    declared,
+  )
+    ? (declared as PiExecutionApi)
+    : undefined;
+  if (!api)
+    return {
+      supported: false,
+      reason: declared
+        ? `No execution adapter for API "${declared}"`
+        : `No execution adapter for provider "${provider}"`,
+    };
+  if (!streams[api])
+    return {
+      supported: false,
+      reason: `No execution adapter for API "${api}"`,
+    };
+  const authVariants = PI_API_AUTH_VARIANTS[api] || [];
+  if (!authVariants.length)
+    return {
+      supported: false,
+      reason: `No supported authentication for "${api}"`,
+    };
+  const baseUrl = (input.baseUrl || "").trim();
+  // A subscription target is the official OpenAI Responses endpoint. An
+  // api-key connection may legitimately name no baseUrl at all and use the
+  // public default, so an absent baseUrl is only a subscription when the
+  // authentication says it is.
+  const subscription = input.authVariant === "chatgpt";
+  if (subscription && provider !== "openai")
+    return {
+      supported: false,
+      reason:
+        "Subscription authentication requires the official OpenAI provider",
+    };
+  if (
+    input.authVariant !== undefined &&
+    !authVariants.includes(input.authVariant)
+  )
+    return {
+      supported: false,
+      reason: `Authentication "${input.authVariant}" cannot run against "${api}"`,
+    };
+  // A subscription connection is always pinned to the official target; an
+  // absent baseUrl is accepted as that default rather than as a custom host.
+  if (subscription && baseUrl !== "" && baseUrl !== CHATGPT_BASE_URL)
+    return {
+      supported: false,
+      reason: "Subscription authentication requires the official OpenAI target",
+    };
+  return { supported: true, api, authVariants, subscription };
+}
 
 /**
  * The compat fields this project understands for each executed API. Remote
@@ -790,7 +889,15 @@ export function createPiProviderSource(
   };
 }
 
-/** Legacy text-delta seam retained for simple callers and connection tests. */
+/**
+ * Text-delta seam retained for simple callers and per-model connection tests.
+ *
+ * A consumer that has to prove a completed inference — a model test, a
+ * registration recovery probe — must see the actual provider terminal. A stream
+ * that simply ends without one produced no validated completion, so it fails
+ * with "provider_terminal_missing" instead of looking successful. There is no
+ * automatic retry here: one request is one attempt.
+ */
 export function createPiProviderModelSource(
   selection: PiModelSelectionSnapshot,
   admission: Admission = {},
@@ -803,15 +910,24 @@ export function createPiProviderModelSource(
       contextOf(input, model),
       input.signal,
     );
+    let completed = false;
     try {
       for await (const event of handle.events) {
         if (input.signal.aborted) throw new PiModelStreamFailure("aborted");
+        if (event.type === "done") {
+          completed = true;
+          break;
+        }
         if (event.type === "text_delta") yield event.delta;
         else if (event.type === "error")
           throw new PiModelStreamFailure(
             handle.failure() || "provider_stream_error",
           );
       }
+      if (!completed)
+        throw new PiModelStreamFailure(
+          handle.failure() || "provider_terminal_missing",
+        );
     } catch (error) {
       if (error instanceof PiModelStreamFailure) throw error;
       throw new PiModelStreamFailure(

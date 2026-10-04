@@ -12,14 +12,13 @@ import {
 } from "../../../../src/modules/piModelCatalog";
 import { assertPiChatGPTInferenceAllowed } from "../../../../src/modules/piChatGPTAuth";
 import {
-  deletePiProviderConfiguration,
   loadPiProviderConfigurationState,
   PI_REASONING_LEVELS,
   resolvePiModelSelection,
   setPiProviderDefaults,
-  upsertPiProviderConfiguration,
   type PiReasoningLevel,
 } from "../../../../src/modules/piProviderConfiguration";
+import { savePiModelFixture } from "../../../helpers/piModelConfigurationFixture";
 import {
   ensureRuntimeDirectoryStrict,
   getRuntimePersistencePaths,
@@ -280,7 +279,7 @@ describe("Pi live MiniMax smoke", function () {
         label: "MiniMax CN smoke",
         material: { kind: "api-key", secret: apiKey },
       });
-      upsertPiProviderConfiguration({
+      savePiModelFixture({
         id: MINIMAX_CN_CONFIGURATION_ID,
         label: "MiniMax CN",
         provider: MINIMAX_CN_PROVIDER,
@@ -348,16 +347,7 @@ describe("Pi live MiniMax smoke", function () {
       }
       try {
         try {
-          deletePiProviderConfiguration(MINIMAX_CN_CONFIGURATION_ID);
-          if (previousConfiguration)
-            upsertPiProviderConfiguration(previousConfiguration);
-          if (catalog)
-            setPiProviderDefaults(
-              previousDefaults,
-              listPiCredentials(),
-              catalog,
-            );
-          else setPref("piProviderConfigurationJson", previousDocument);
+          setPref("piProviderConfigurationJson", previousDocument);
         } catch {
           // Previous defaults can reference a configuration whose catalog
           // entry only exists after runtime discovery (for example ChatGPT);

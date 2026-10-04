@@ -1484,22 +1484,40 @@ export async function initializePiChatGPTAuth() {
     let parsed: Record<string, unknown>;
     try {
       parsed = object(JSON.parse(raw));
-      if (parsed.version !== 1 || !Array.isArray(parsed.configurations))
+      if (
+        parsed.version !== 2 ||
+        !Array.isArray(parsed.connections) ||
+        !Array.isArray(parsed.configurations)
+      )
         throw new Error();
       const defaults = object(parsed.defaults);
-      const removed = new Set<string>();
-      const configurations = parsed.configurations.filter((value) => {
-        const configuration = object(value);
+      // The retired authentication lived on a connection, so the connection is
+      // what goes: its cards and the purposes naming them follow, and every
+      // other connection, card and purpose is left exactly as saved.
+      const removedConnections = new Set<string>();
+      const connections = parsed.connections.filter((value) => {
+        const connection = object(value);
+        const binding = connection.binding
+          ? object(connection.binding)
+          : undefined;
         if (
-          configuration.provider !== "openai-codex" &&
-          configuration.authVariant !== "openai-codex" &&
-          configuration.api !== "openai-codex-responses"
+          connection.provider !== "openai-codex" &&
+          connection.authVariant !== "openai-codex" &&
+          connection.api !== "openai-codex-responses" &&
+          binding?.api !== "openai-codex-responses"
         )
           return true;
-        removed.add(String(configuration.id));
+        removedConnections.add(String(connection.id));
         return false;
       });
-      if (removed.size) {
+      const removed = new Set<string>();
+      const configurations = parsed.configurations.filter((value) => {
+        const card = object(value);
+        if (!removedConnections.has(String(card.connectionId))) return true;
+        removed.add(String(card.id));
+        return false;
+      });
+      if (removedConnections.size) {
         for (const [key, selection] of Object.entries(defaults)) {
           if (
             selection &&
@@ -1512,7 +1530,7 @@ export async function initializePiChatGPTAuth() {
         }
         setPref(
           "piProviderConfigurationJson",
-          JSON.stringify({ ...parsed, configurations, defaults }),
+          JSON.stringify({ ...parsed, connections, configurations, defaults }),
         );
       }
     } catch {

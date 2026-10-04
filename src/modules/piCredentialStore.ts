@@ -192,70 +192,201 @@ export function putPiCredential(args: {
   signal?: AbortSignal;
 }): Promise<PiCredentialMetadata> {
   return enqueue(async () => {
-    const id = idText(args.id);
-    const label = String(args.label || "").trim();
-    if (!label || label.length > 128)
-      throw new Error("Pi credential label is required");
-    validateMaterial(args.material);
-    const namespace = args.namespace || "model-provider";
-    if (materialNamespace(args.material) !== namespace)
-      throw new Error("Pi credential namespace mismatch");
     const doc = load();
-    const existing = doc.records[id];
-    if (existing && (existing.namespace || "model-provider") !== namespace)
-      throw new Error("Pi credential namespace mismatch");
-    if (
-      args.expectedRevision !== undefined &&
-      (existing?.iv || null) !== args.expectedRevision
-    )
-      throw new Error("Pi credential changed");
-    if (args.preserveIdentity) {
-      const previous = await readPiCredential(id, namespace);
-      if (
-        !args.expectedRevision ||
-        !previous.ok ||
-        previous.material.kind !== "chatgpt" ||
-        args.material.kind !== "chatgpt" ||
-        previous.material.issuer !== args.material.issuer ||
-        previous.material.subject !== args.material.subject ||
-        previous.material.clientId !== args.material.clientId
-      )
-        throw new Error("Pi credential identity changed");
-    }
-    const api = cryptoApi();
-    const iv = new Uint8Array(12);
-    api.getRandomValues(iv);
-    const secret = await key(true);
-    const ciphertext = await api.subtle.encrypt(
-      {
-        name: "AES-GCM",
-        iv,
-        additionalData: new TextEncoder().encode(`pi-credential:${id}`),
-      },
-      secret,
-      new TextEncoder().encode(JSON.stringify(args.material)),
-    );
-    const metadata: PiCredentialMetadata = {
-      id,
-      label,
-      kind: args.material.kind,
-      namespace,
-      masked: "••••",
-      updatedAt: new Date().toISOString(),
-    };
-    doc.records[id] = {
-      ...metadata,
-      iv: encode(iv),
-      identityRevision:
-        args.preserveIdentity && existing
-          ? existing.identityRevision || existing.iv
-          : encode(iv),
-      ciphertext: encode(new Uint8Array(ciphertext)),
-    };
+    const written = await writeRecord(doc, args);
     if (args.signal?.aborted) throw new Error("Pi credential write canceled");
     setPref("piCredentialEncryptedJson", JSON.stringify(doc));
-    if (!args.preserveIdentity) notifyIdentityChange(id, namespace);
-    return metadata;
+    if (!args.preserveIdentity)
+      notifyIdentityChange(args.id, args.namespace || "model-provider");
+    return written;
+  });
+}
+
+async function writeRecord(
+  doc: CredentialDocument,
+  args: {
+    id: string;
+    label: string;
+    material: PiCredentialMaterial;
+    namespace?: PiCredentialNamespace;
+    expectedRevision?: string | null;
+    preserveIdentity?: boolean;
+  },
+): Promise<PiCredentialMetadata> {
+  const id = idText(args.id);
+  const label = String(args.label || "").trim();
+  if (!label || label.length > 128)
+    throw new Error("Pi credential label is required");
+  validateMaterial(args.material);
+  const namespace = args.namespace || "model-provider";
+  if (materialNamespace(args.material) !== namespace)
+    throw new Error("Pi credential namespace mismatch");
+  const existing = doc.records[id];
+  if (existing && (existing.namespace || "model-provider") !== namespace)
+    throw new Error("Pi credential namespace mismatch");
+  if (
+    args.expectedRevision !== undefined &&
+    (existing?.iv || null) !== args.expectedRevision
+  )
+    throw new Error("Pi credential changed");
+  if (args.preserveIdentity) {
+    const previous = await readPiCredential(id, namespace);
+    if (
+      !args.expectedRevision ||
+      !previous.ok ||
+      previous.material.kind !== "chatgpt" ||
+      args.material.kind !== "chatgpt" ||
+      previous.material.issuer !== args.material.issuer ||
+      previous.material.subject !== args.material.subject ||
+      previous.material.clientId !== args.material.clientId
+    )
+      throw new Error("Pi credential identity changed");
+  }
+  const api = cryptoApi();
+  const iv = new Uint8Array(12);
+  api.getRandomValues(iv);
+  const secret = await key(true);
+  const ciphertext = await api.subtle.encrypt(
+    {
+      name: "AES-GCM",
+      iv,
+      additionalData: new TextEncoder().encode(`pi-credential:${id}`),
+    },
+    secret,
+    new TextEncoder().encode(JSON.stringify(args.material)),
+  );
+  const metadata: PiCredentialMetadata = {
+    id,
+    label,
+    kind: args.material.kind,
+    namespace,
+    masked: "••••",
+    updatedAt: new Date().toISOString(),
+  };
+  doc.records[id] = {
+    ...metadata,
+    iv: encode(iv),
+    identityRevision:
+      args.preserveIdentity && existing
+        ? existing.identityRevision || existing.iv
+        : encode(iv),
+    ciphertext: encode(new Uint8Array(ciphertext)),
+  };
+  return metadata;
+}
+
+/**
+ * The one write boundary for a credential that is saved together with an
+ * owner document. Both writes happen inside this owner's existing
+ * serialization, so a concurrent save cannot interleave and lose an update.
+ *
+ * The identity notification is published once, after the document write
+ * succeeded. Observers therefore never invalidate a catalog or a connection
+ * for a change that was rolled back. A document write that fails restores the
+ * previous credential state — or removes a credential this commit created — so
+ * a failed save never leaves an orphan key behind.
+ */
+export function commitPiCredentialChange(args: {
+  credential?: {
+    id: string;
+    label: string;
+    material: PiCredentialMaterial;
+    namespace?: PiCredentialNamespace;
+    expectedRevision?: string | null;
+    preserveIdentity?: boolean;
+  };
+  /** Removes the named credential inside the same committed write. */
+  release?: {
+    id: string;
+    namespace?: PiCredentialNamespace;
+    expected?: { kind?: string; identityRevision?: string };
+  };
+  signal?: AbortSignal;
+  /** The owner's document write. It runs after the credential write. */
+  apply: () => void;
+}): Promise<PiCredentialMetadata | undefined> {
+  return commitPiCredentialChanges({
+    ...(args.credential
+      ? { credentials: [args.credential] }
+      : args.release
+        ? { releases: [args.release] }
+        : {}),
+    apply: args.apply,
+    signal: args.signal,
+  }).then((written) => written[0]);
+}
+
+/**
+ * The batch form of the coordinated write boundary. One queued commit carries
+ * every credential record a coordinated owner change needs plus that owner's
+ * document write, so concurrent saves cannot interleave and a failed document
+ * write leaves no partially applied key set behind.
+ */
+export function commitPiCredentialChanges(args: {
+  credentials?: Array<{
+    id: string;
+    label: string;
+    material: PiCredentialMaterial;
+    namespace?: PiCredentialNamespace;
+    expectedRevision?: string | null;
+    preserveIdentity?: boolean;
+  }>;
+  /** Removes the named credentials inside the same committed write. */
+  releases?: Array<{
+    id: string;
+    namespace?: PiCredentialNamespace;
+    expected?: { kind?: string; identityRevision?: string };
+  }>;
+  signal?: AbortSignal;
+  /** The owner's document write. It runs after the credential write. */
+  apply: () => void;
+}): Promise<PiCredentialMetadata[]> {
+  return enqueue(async () => {
+    const doc = load();
+    const prior = JSON.parse(JSON.stringify(doc)) as CredentialDocument;
+    const written: PiCredentialMetadata[] = [];
+    const touched = new Set<string>();
+    const changed = new Map<string, PiCredentialNamespace>();
+    for (const release of args.releases || []) {
+      const id = idText(release.id);
+      touched.add(id);
+      const current = doc.records[id];
+      const expected = release.expected;
+      const namespace = release.namespace || "model-provider";
+      if (!current) continue;
+      if (
+        expected &&
+        ((expected.kind !== undefined && current.kind !== expected.kind) ||
+          (expected.identityRevision !== undefined &&
+            (current.identityRevision || current.iv) !==
+              expected.identityRevision))
+      )
+        continue;
+      if ((current.namespace || "model-provider") !== namespace)
+        throw new Error("Pi credential namespace mismatch");
+      delete doc.records[id];
+      changed.set(id, namespace);
+    }
+    for (const credential of args.credentials || []) {
+      const id = idText(credential.id);
+      if (touched.has(id)) throw new Error("Pi credential committed twice");
+      touched.add(id);
+      written.push(await writeRecord(doc, credential));
+      changed.set(id, credential.namespace || "model-provider");
+    }
+    if (args.credentials?.length || args.releases?.length)
+      setPref("piCredentialEncryptedJson", JSON.stringify(doc));
+    try {
+      if (args.signal?.aborted) throw new Error("Pi credential write canceled");
+      args.apply();
+    } catch (error) {
+      // Restore the credential document this commit changed; the owner's
+      // document write already failed and left its own prior state in place.
+      setPref("piCredentialEncryptedJson", JSON.stringify(prior));
+      throw error;
+    }
+    for (const [id, namespace] of changed) notifyIdentityChange(id, namespace);
+    return written;
   });
 }
 

@@ -1,6 +1,6 @@
 # Backend Manager
 
-The Backend Manager is the unified dialog for managing all backend configurations. Through it, you can add, edit, delete, and verify backend connections.
+The Backend Manager is the unified dialog for managing backend profiles. Through it, you can add, edit, delete, and verify ACP, SkillRunner, and Generic HTTP connections. The built-in Zotero Agent is shown here as a read-only summary that launches its own settings window.
 
 ## How to Open
 
@@ -159,13 +159,14 @@ Generic HTTP backends are used to send requests to any HTTP service, primarily f
 
 ## Built-in Agent
 
-The Built-in Agent section manages Pi model configurations independently of ACP, SkillRunner, and Generic HTTP profiles. API-key credentials keep their existing entry and connection-test flow.
+The Built-in Agent tab shows a fixed summary: the backend name and its local target. It offers no editing controls, because connections, models, credentials, ChatGPT registrations, MCP tool sources, search sources, and maintenance all belong to the independent Zotero Agent settings window.
 
-For ChatGPT, choose the ChatGPT authentication option and select a saved registration, or continue with ChatGPT to add one. The browser sign-in page shows the account and permissions requested before you authorize access. The Backend Manager displays only request progress; it never displays verification codes, authorization URLs, tokens, or response bodies. A repeated click keeps the current sign-in request. Cancel sign-in before switching registrations, and closing the dialog cancels the active attempt.
+Click **Open Zotero Agent Settings** to launch it, or focus it if it is already open. Both windows can stay open at the same time, and opening the settings window never saves or discards your Backend Profile drafts. Reopening it keeps the drafts you were editing.
 
-Registrations retain their own labels even when they use the same email address. A registration without plan permission remains listed and offers a separate permission review. The first successful sign-in shows a one-time welcome confirmation. You can sign out or remove a registration from its row, refresh its model list explicitly, and open [Manage Usage](https://chatgpt.com/settings/usage) on ChatGPT.
+The settings window is also reachable without going through the Backend Manager:
 
-If ChatGPT pauses usage, the existing **Test Connection** action is the explicit recovery probe. One probe is allowed at a time, and a completed model response is required before the pause clears.
+- **Preferences**: **Settings → Zotero Skills → Backends → Open Zotero Agent Settings**, to the left of **Open Backend Manager**
+- **Sidebar**: when a Pi conversation or Skill Run reports that no usable configuration exists, **Configure** opens the settings window directly
 
 ## Backend Capability Detection
 

@@ -1,0 +1,44 @@
+[
+  {
+    "target": "zotero-7-linux-x64",
+    "version": "7.0.32",
+    "status": "passed",
+    "plugin": {
+      "version": "0.10.0",
+      "artifactPath": "/home/joshua/Workspace/Code/JavaScript/.orca/worktrees/zotero-agents/dev-agent-harness/.scaffold/settings-final/zotero-agents.xpi",
+      "artifactSha256": "f2f18ec52385a31d7b5444f44adb499d7442c4462885e5f35e1684999a105139",
+      "manifestMin": "7.0",
+      "manifestMax": "10.0.*"
+    },
+    "passed": 55,
+    "receipt": "artifacts/pi-agent-runtime/settings-implementation/final-zotero-7/receipt.json"
+  },
+  {
+    "target": "zotero-9-linux-x64",
+    "version": "9.0.6",
+    "status": "passed",
+    "plugin": {
+      "version": "0.10.0",
+      "artifactPath": "/home/joshua/Workspace/Code/JavaScript/.orca/worktrees/zotero-agents/dev-agent-harness/.scaffold/settings-final/zotero-agents.xpi",
+      "artifactSha256": "f2f18ec52385a31d7b5444f44adb499d7442c4462885e5f35e1684999a105139",
+      "manifestMin": "7.0",
+      "manifestMax": "10.0.*"
+    },
+    "passed": 55,
+    "receipt": "artifacts/pi-agent-runtime/settings-implementation/final-zotero-9/receipt.json"
+  },
+  {
+    "target": "zotero-10-linux-x64",
+    "version": "10.0.1",
+    "status": "passed",
+    "plugin": {
+      "version": "0.10.0",
+      "artifactPath": "/home/joshua/Workspace/Code/JavaScript/.orca/worktrees/zotero-agents/dev-agent-harness/.scaffold/settings-final/zotero-agents.xpi",
+      "artifactSha256": "f2f18ec52385a31d7b5444f44adb499d7442c4462885e5f35e1684999a105139",
+      "manifestMin": "7.0",
+      "manifestMax": "10.0.*"
+    },
+    "passed": 55,
+    "receipt": "artifacts/pi-agent-runtime/settings-implementation/final-zotero-10/receipt.json"
+  }
+]

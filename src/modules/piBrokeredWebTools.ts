@@ -1,21 +1,24 @@
 import { getPref, setPref } from "../utils/prefs";
 import {
   defaultPiWebSources,
+  piWebSourceTestBinding,
   PI_WEB_SOURCE_CATALOG,
   BRAVE_MCP_PACKAGE_VERSION,
-  EXA_SEARCH_TOOL_DIGEST,
   type PiWebSource,
+  type PiWebSourceTestBinding,
+  type PiWebSourceTestConnection,
+  type PiWebSourceTestDescriptor,
   type PiWebSourceTestResult,
 } from "../shared/piWebSourceContract";
 import type {
+  PiAuthVariant,
+  PiModelConfiguration,
+  PiProviderConnection,
+  PiProviderConfigurationState,
   PiModelSelectionSnapshot,
-  PiProviderConfiguration,
 } from "../shared/piProviderContract";
 import { normalizeContext } from "@earendil-works/pi-ai";
-import {
-  loadPiProviderConfigurationState,
-  resolvePiModelSelection,
-} from "./piProviderConfiguration";
+import { loadPiProviderConfigurationState } from "./piProviderConfiguration";
 import {
   getPiCredentialIdentityRevision,
   listPiCredentials,
@@ -177,7 +180,7 @@ type Options = {
     pausePiChatGPTInference?: typeof pausePiChatGPTInference;
   };
   resolveChatGPTSelection?: (
-    configuration: PiProviderConfiguration,
+    target: PiWebNativeTarget,
     modelId: string,
   ) => Promise<PiModelSelectionSnapshot>;
   openMcp?: (
@@ -507,6 +510,23 @@ function readableHtml(document: Document, base: string) {
 }
 
 const KINDS = Object.values(PI_WEB_SOURCE_CATALOG).map((s) => s.kind);
+const OPENAI_SEARCH_MODEL = /^(?:gpt-(?:4(?:[.]1|o)|[5-9])|o[34])(?:[.-]|$)/;
+const ANTHROPIC_SEARCH_MODEL =
+  /^claude-(?:(?:sonnet|opus|haiku)-4|3[.-]7-sonnet|3[.-]5-haiku)(?:[.-]|$)/;
+/**
+ * Server-side search whitelist. A ChatGPT registration runs the models its
+ * catalog admits, so only explicit API-key connections are checked here.
+ */
+function searchModelAllowed(
+  kind: PiWebSource["kind"],
+  modelId: string,
+  chatGPT = false,
+): boolean {
+  if (chatGPT) return true;
+  if (kind === "openai-native") return OPENAI_SEARCH_MODEL.test(modelId);
+  if (kind === "anthropic-native") return ANTHROPIC_SEARCH_MODEL.test(modelId);
+  return true;
+}
 const FIELDS = new Set([
   "id",
   "kind",
@@ -520,11 +540,27 @@ const FIELDS = new Set([
   "args",
   "localNetworkApprovedOrigin",
   "codeExecutionApproved",
-  "reviewedToolDigest",
 ]);
+/**
+ * The exact model card a native source runs, together with the connection that
+ * owns its target and authentication. A source references one card and never
+ * borrows the active selection.
+ */
+export type PiWebNativeTarget = {
+  configurationId: string;
+  connectionId: string;
+  provider: string;
+  modelId: string;
+  authVariant: PiAuthVariant;
+  credentialRef?: string;
+  baseUrl?: string;
+  api?: string;
+  enabled: boolean;
+  connection?: PiWebSourceTestConnection;
+};
 export type PiWebFrozenSource = {
   source: Readonly<PiWebSource>;
-  configuration?: Readonly<PiProviderConfiguration>;
+  native?: Readonly<PiWebNativeTarget>;
   chatGPTSelection?: PiModelSelectionSnapshot | null;
   credentialRevision: string | null;
 };
@@ -580,12 +616,6 @@ function normalizeSources(value: unknown): PiWebSource[] {
       typeof raw.codeExecutionApproved !== "boolean"
     )
       throw new Error("web_source_invalid");
-    if (
-      raw.reviewedToolDigest !== undefined &&
-      (typeof raw.reviewedToolDigest !== "string" ||
-        !/^sha256:[a-f0-9]{64}$/.test(raw.reviewedToolDigest))
-    )
-      throw new Error("web_source_invalid");
     if (raw.endpoint !== undefined) {
       if (raw.kind !== "searxng" || typeof raw.endpoint !== "string")
         throw new Error("web_source_invalid");
@@ -617,13 +647,17 @@ export function createPiBrokeredWebTools(options: Options = {}) {
     options.credentialRevision || getPiCredentialIdentityRevision;
   const resolveChatGPTSelection =
     options.resolveChatGPTSelection ||
-    (async (configuration: PiProviderConfiguration, modelId: string) => {
-      const { loadPiModelCatalog } = await import("./piModelCatalog");
+    (async (target: PiWebNativeTarget, modelId: string) => {
+      const [{ loadPiModelCatalog }, { resolvePiModelSelection }] =
+        await Promise.all([
+          import("./piModelCatalog"),
+          import("./piProviderConfiguration"),
+        ]);
       return resolvePiModelSelection({
         kind: "conversation",
         catalog: await loadPiModelCatalog(),
         credentials: listPiCredentials(),
-        explicit: { configurationId: configuration.id, modelId },
+        explicit: { configurationId: target.configurationId, modelId },
       });
     });
   const credential =
@@ -683,12 +717,6 @@ export function createPiBrokeredWebTools(options: Options = {}) {
   async function freezeForTurn(
     model?: PiModelSelectionSnapshot,
   ): Promise<PiWebTurn> {
-    let configurations: PiProviderConfiguration[] = [];
-    try {
-      configurations = loadPiProviderConfigurationState().configurations;
-    } catch {
-      /* Other sources remain available when model settings cannot load. */
-    }
     let enabled: PiWebSource[] = [];
     try {
       enabled = listSources().filter((source) => source.enabled);
@@ -696,41 +724,7 @@ export function createPiBrokeredWebTools(options: Options = {}) {
       /* Damaged optional sources contribute no search capability. */
     }
     const sources = await Promise.all(
-      enabled.map(async (source) => {
-        const configuration = ["openai-native", "anthropic-native"].includes(
-          source.kind,
-        )
-          ? configurations.find((c) => c.id === source.modelConfigurationId)
-          : undefined;
-        if (source.args) Object.freeze(source.args);
-        let chatGPTSelection: PiModelSelectionSnapshot | null | undefined;
-        if (
-          source.kind === "openai-native" &&
-          configuration?.authVariant === "chatgpt"
-        ) {
-          try {
-            chatGPTSelection = await resolveChatGPTSelection(
-              configuration,
-              source.searchModelId || configuration.modelId,
-            );
-          } catch {
-            chatGPTSelection = null;
-          }
-        }
-        return Object.freeze({
-          source: Object.freeze(source),
-          ...(configuration
-            ? { configuration: Object.freeze({ ...configuration }) }
-            : {}),
-          ...(configuration?.authVariant === "chatgpt"
-            ? { chatGPTSelection: chatGPTSelection ?? null }
-            : {}),
-          credentialRevision: revision(
-            configuration?.credentialRef || source.credentialId || "",
-            configuration ? "model-provider" : "web-source",
-          ),
-        });
-      }),
+      enabled.map((source) => freezeSource(source)),
     );
     const match = sources.findIndex(
       (s) =>
@@ -743,6 +737,189 @@ export function createPiBrokeredWebTools(options: Options = {}) {
     );
     if (!digest) throw new Error("web_identity_unavailable");
     return Object.freeze({ digest, sources: Object.freeze(sources) });
+  }
+  function providerState(): PiProviderConfigurationState | undefined {
+    try {
+      return loadPiProviderConfigurationState();
+    } catch {
+      /* Other sources remain available when model settings cannot load. */
+      return undefined;
+    }
+  }
+  /**
+   * The model card a native source names, resolved together with the
+   * connection that owns its target and authentication. The card's own model
+   * and the source's explicit search model decide the effective model; the
+   * active selection is never consulted.
+   */
+  function nativeTarget(
+    state: PiProviderConfigurationState | undefined,
+    source: PiWebSource,
+  ): PiWebNativeTarget | undefined {
+    if (
+      !state ||
+      !["openai-native", "anthropic-native"].includes(source.kind) ||
+      !source.modelConfigurationId
+    )
+      return undefined;
+    const configuration: PiModelConfiguration | undefined =
+      state.configurations.find(
+        (entry) => entry.id === source.modelConfigurationId,
+      );
+    const connection: PiProviderConnection | undefined = state.connections.find(
+      (entry) => entry.id === configuration?.connectionId,
+    );
+    if (!configuration || !connection) return undefined;
+    return {
+      configurationId: configuration.id,
+      connectionId: connection.id,
+      provider: connection.provider,
+      modelId: source.searchModelId || configuration.modelId,
+      authVariant: connection.authVariant,
+      ...(connection.credentialRef
+        ? { credentialRef: connection.credentialRef }
+        : {}),
+      ...(connection.baseUrl ? { baseUrl: connection.baseUrl } : {}),
+      ...(connection.api ? { api: connection.api } : {}),
+      enabled: configuration.enabled && connection.enabled,
+      connection: {
+        connectionId: connection.id,
+        provider: connection.provider,
+        authVariant: connection.authVariant,
+        ...(connection.credentialRef
+          ? { credentialRef: connection.credentialRef }
+          : {}),
+        ...(connection.baseUrl ? { baseUrl: connection.baseUrl } : {}),
+        ...(connection.api ? { api: connection.api } : {}),
+        ...(connection.binding
+          ? { bindingRevision: connection.binding.revision }
+          : {}),
+      },
+    };
+  }
+  /**
+   * One saved source frozen with its target, authentication and credential
+   * identity. Turn freezing and explicit source testing share this single
+   * resolution path, so a test can never be admitted by weaker rules than a
+   * turn.
+   */
+  async function freezeSource(source: PiWebSource): Promise<PiWebFrozenSource> {
+    const frozen = resolveFrozenSource(source);
+    const native = frozen.native;
+    let chatGPTSelection: PiModelSelectionSnapshot | null | undefined;
+    if (source.kind === "openai-native" && native?.authVariant === "chatgpt") {
+      try {
+        chatGPTSelection = await resolveChatGPTSelection(
+          native,
+          native.modelId,
+        );
+      } catch {
+        chatGPTSelection = null;
+      }
+    }
+    return Object.freeze({
+      ...frozen,
+      ...(native?.authVariant === "chatgpt"
+        ? { chatGPTSelection: chatGPTSelection ?? null }
+        : {}),
+    });
+  }
+  /** The saved source with its target, authentication and credential
+   * identity, resolved without contacting any service. */
+  function resolveFrozenSource(source: PiWebSource): PiWebFrozenSource {
+    const native = nativeTarget(providerState(), source);
+    if (source.args) Object.freeze(source.args);
+    return Object.freeze({
+      source: Object.freeze(source),
+      ...(native ? { native: Object.freeze(native) } : {}),
+      credentialRevision: revision(
+        native?.credentialRef || source.credentialId || "",
+        native ? "model-provider" : "web-source",
+      ),
+    });
+  }
+  function testBindingOf(frozen: PiWebFrozenSource): PiWebSourceTestBinding {
+    return piWebSourceTestBinding({
+      source: frozen.source,
+      credentialRevision: frozen.credentialRevision,
+      ...(frozen.native ? { modelId: frozen.native.modelId } : {}),
+      ...(frozen.native?.connection
+        ? { connection: frozen.native.connection }
+        : {}),
+    });
+  }
+  /**
+   * What a saved source still needs before an explicit test can run it. The
+   * settings page reads this instead of deciding readiness from the fields it
+   * happens to display, so an incomplete source is never shown as ready.
+   */
+  function missingOf(
+    source: PiWebSource,
+    native: PiWebNativeTarget | undefined,
+  ): string[] {
+    const missing: string[] = [];
+    if (native) {
+      if (!native.connection) missing.push("connection");
+      if (!native.credentialRef) missing.push("credential");
+      if (native.authVariant === "none") missing.push("authentication");
+      if (!native.enabled) missing.push("disabled_connection");
+      if (
+        !(source.kind === "openai-native"
+          ? native.provider === "openai"
+          : native.provider === "anthropic")
+      )
+        missing.push("provider");
+      if (
+        !searchModelAllowed(
+          source.kind,
+          native.modelId,
+          native.authVariant === "chatgpt",
+        )
+      )
+        missing.push("search_model");
+      return missing;
+    }
+    if (
+      ["tavily-mcp", "brave-mcp", "brave-http", "perplexity"].includes(
+        source.kind,
+      ) &&
+      !source.credentialId
+    )
+      missing.push("credential");
+    if (source.kind === "searxng" && !source.endpoint) missing.push("endpoint");
+    if (source.kind === "brave-mcp") {
+      if (!source.codeExecutionApproved) missing.push("code_execution");
+      if (!source.executable) missing.push("executable");
+      if (!source.args?.length) missing.push("arguments");
+    }
+    return missing;
+  }
+  function describeSavedSourceSync(
+    id: string,
+  ): PiWebSourceTestDescriptor | null {
+    try {
+      const source = listSources().find((s) => s.id === id);
+      if (!source) return null;
+      const frozen = resolveFrozenSource(source);
+      const native = frozen.native;
+      const binding = testBindingOf(frozen);
+      return {
+        ...binding,
+        label: source.label,
+        ...(native?.credentialRef
+          ? { credentialId: native.credentialRef }
+          : source.credentialId
+            ? { credentialId: source.credentialId }
+            : {}),
+        ...(source.localNetworkApprovedOrigin
+          ? { localNetworkApprovedOrigin: source.localNetworkApprovedOrigin }
+          : {}),
+        codeExecutionApproved: source.codeExecutionApproved === true,
+        missing: missingOf(source, native),
+      };
+    } catch {
+      return null;
+    }
   }
   async function fetchPage(
     input: { url: string },
@@ -809,7 +986,6 @@ export function createPiBrokeredWebTools(options: Options = {}) {
     query: string,
     max: number,
     signal: AbortSignal,
-    probe = false,
   ): Promise<{
     result: PiWebSearchResult;
     usage?: Record<string, number>;
@@ -887,30 +1063,20 @@ export function createPiBrokeredWebTools(options: Options = {}) {
             }),
         enabled: true,
         credentialSlots: secret ? { [slot]: source.credentialId! } : {},
-        selectedTools: {},
+        authentication:
+          slot === "Authorization"
+            ? { kind: "bearer", field: "Authorization" }
+            : { kind: "none" },
       };
       let client: PiMcpConnection;
       if (signal.aborted) fail("canceled", true);
       try {
         client = await (options.openMcp
-          ? options.openMcp(
-              mcp,
-              secret
-                ? {
-                    [slot]:
-                      slot === "Authorization" ? `Bearer ${secret}` : secret,
-                  }
-                : {},
-            )
+          ? options.openMcp(mcp, secret ? { [slot]: secret } : {})
           : (await loadPiMcpToolSourceModule()).openPiMcpSource(
               mcp,
               () => {},
-              secret
-                ? {
-                    [slot]:
-                      slot === "Authorization" ? `Bearer ${secret}` : secret,
-                  }
-                : {},
+              secret ? { [slot]: secret } : {},
               signal,
             ));
       } catch (error) {
@@ -972,25 +1138,6 @@ export function createPiBrokeredWebTools(options: Options = {}) {
           ),
         );
         if (!toolDigest) fail("web_contract_invalid", true);
-        if (
-          !probe &&
-          toolDigest !==
-            (source.reviewedToolDigest ||
-              (source.kind === "exa-mcp" ? EXA_SEARCH_TOOL_DIGEST : undefined))
-        )
-          fail("source_descriptor_changed", true);
-        if (probe)
-          return {
-            toolDigest,
-            result: {
-              contentTrust: "external_untrusted",
-              query,
-              source: { id: source.id, kind: source.kind },
-              truncated: false,
-              resultKind: "raw_results",
-              results: [],
-            },
-          };
         let raw: unknown;
         try {
           raw = await client.callTool(
@@ -1004,14 +1151,14 @@ export function createPiBrokeredWebTools(options: Options = {}) {
             fail("policy_denied", true);
           fail("outcome_unknown", true, true);
         }
-        return { result: mcpRaw(raw, query, source, max) };
+        return { result: mcpRaw(raw, query, source, max), toolDigest };
       } finally {
         signal.removeEventListener("abort", close);
         await client.close().catch(() => {});
       }
     }
     if (["openai-native", "anthropic-native"].includes(source.kind)) {
-      const config = frozen.configuration;
+      const config = frozen.native;
       const openai = source.kind === "openai-native";
       const chatGPT = openai && config?.authVariant === "chatgpt";
       const expected = openai ? ["openai"] : ["anthropic"];
@@ -1057,21 +1204,14 @@ export function createPiBrokeredWebTools(options: Options = {}) {
         frozen.credentialRevision
       )
         fail("source_unavailable");
-      const model = (source as PiWebSource).searchModelId || config.modelId;
-      if (
-        !chatGPT &&
-        (openai
-          ? !/^(?:gpt-(?:4(?:[.]1|o)|[5-9])|o[34])(?:[.-]|$)/.test(model)
-          : !/^claude-(?:(?:sonnet|opus|haiku)-4|3[.-]7-sonnet|3[.-]5-haiku)(?:[.-]|$)/.test(
-              model,
-            ))
-      )
+      const model = config.modelId;
+      if (!searchModelAllowed(source.kind, model, chatGPT))
         fail("source_unavailable");
       if (chatGPT) {
         const selection = frozen.chatGPTSelection;
         if (
           !selection ||
-          selection.configurationId !== config.id ||
+          selection.configurationId !== config.configurationId ||
           selection.provider !== "openai" ||
           selection.api !== "openai-responses" ||
           selection.baseUrl !== "https://api.openai.com/v1" ||
@@ -1395,12 +1535,7 @@ export function createPiBrokeredWebTools(options: Options = {}) {
           at: new Date().toISOString(),
           status: result ? "completed" : "failed",
           ...(error ? { code: error.code } : {}),
-          ...(source.configuration
-            ? {
-                modelId:
-                  source.source.searchModelId || source.configuration.modelId,
-              }
-            : {}),
+          ...(source.native ? { modelId: source.native.modelId } : {}),
           ...(result?.usage ? { usage: result.usage } : {}),
         });
       } catch {
@@ -1458,46 +1593,59 @@ export function createPiBrokeredWebTools(options: Options = {}) {
         };
       signal = new Controller().signal;
     }
-    const turn = await freezeForTurn();
-    const saved = listSources().find((s) => s.id === id);
-    if (!saved)
+    const saved = () => {
+      try {
+        return listSources().find((s) => s.id === id) || null;
+      } catch {
+        return null;
+      }
+    };
+    const source = saved();
+    if (!source)
       return {
         sourceId: id,
         requestId,
         status: "unavailable" as const,
         code: "source_unavailable",
       };
-    const selected = turn.sources.find((s) => s.source.id === id);
-    if (!selected)
-      return {
-        sourceId: id,
-        requestId,
-        status: "unavailable" as const,
-        code: "source_disabled",
-      };
+    // Testing resolves the saved source itself. It never selects the enabled
+    // chain, never enables the source and never falls back to another one.
+    const frozen = await freezeSource(source);
+    const binding = testBindingOf(frozen);
+    const failed = (code: string): PiWebSourceTestResult => ({
+      sourceId: id,
+      requestId,
+      status:
+        code === "source_unavailable"
+          ? ("unavailable" as const)
+          : ("failed" as const),
+      code,
+      binding,
+    });
     try {
       const result = await withinBudget(signal, (boundedSignal) =>
         untilCanceled(boundedSignal, () =>
-          sourceSearch(selected, "connection test", 1, boundedSignal, true),
+          sourceSearch(frozen, "connection test", 1, boundedSignal),
         ),
       );
+      // A result that arrives after its own binding changed cannot certify the
+      // source as it is now.
+      const current = saved();
+      if (
+        !current ||
+        testBindingOf(await freezeSource(current)).identity !== binding.identity
+      )
+        return failed("source_binding_changed");
       return {
         sourceId: id,
         requestId,
         status: "available" as const,
+        binding,
         ...(result.toolDigest ? { toolDigest: result.toolDigest } : {}),
       };
     } catch (error) {
       const code = error instanceof WebFailure ? error.code : "source_failed";
-      return {
-        sourceId: id,
-        requestId,
-        status:
-          code === "source_unavailable"
-            ? ("unavailable" as const)
-            : ("failed" as const),
-        code,
-      };
+      return failed(code);
     }
   }
   function definitions(
@@ -1658,6 +1806,7 @@ export function createPiBrokeredWebTools(options: Options = {}) {
     fetch: fetchPage,
     search,
     testSource,
+    describeSavedSource: describeSavedSourceSync,
     definitions,
   };
 }

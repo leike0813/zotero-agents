@@ -47,10 +47,7 @@ import {
   deletePiCredential,
 } from "../../src/modules/piCredentialStore";
 import { createPiMcpToolSources } from "../../src/modules/piMcpToolSources";
-import {
-  upsertPiMcpSource,
-  reviewPiMcpTool,
-} from "../../src/modules/piMcpSourceRegistry";
+import { applyPiMcpSourceChange } from "../../src/modules/piMcpSourceRegistry";
 
 const ZOTERO_MCP_TOOL_GET_CURRENT_VIEW = "context.get_current_view";
 const ZOTERO_MCP_TOOL_GET_SELECTED_ITEMS = "context.get_selected_items";
@@ -2656,7 +2653,7 @@ describe("embedded Zotero MCP server protocol", function () {
     }
   });
 
-  it("discovers and calls a reviewed outbound Pi MCP source over HTTP", async function () {
+  it("discovers and calls an automatically admitted outbound Pi MCP source over HTTP", async function () {
     if (isRealZoteroRuntime()) this.skip();
     this.timeout(15000);
     const priorRegistry = String(getPref("piMcpSourceRegistryJson") || "");
@@ -2711,26 +2708,31 @@ describe("embedded Zotero MCP server protocol", function () {
         namespace: "mcp-source",
         material: { kind: "mcp-secret", secret: `Bearer ${token}` },
       });
-      upsertPiMcpSource({
-        id: "host-fixture",
-        label: "Host fixture",
-        transport: "http",
-        url,
-        enabled: true,
-        credentialSlots: { Authorization: "mcp-http-fixture" },
-        selectedTools: {},
-        localNetworkApproval: new URL(url).origin,
+      await applyPiMcpSourceChange({
+        sources: [
+          {
+            id: "host-fixture",
+            label: "Host fixture",
+            transport: "http",
+            url,
+            enabled: true,
+            authentication: { kind: "apiKey", field: "Authorization" },
+            bindings: [{ field: "Authorization", secret: `Bearer ${token}` }],
+            approveLocalNetwork: true,
+          },
+        ],
       });
       const found = await runtime.testSource("host-fixture");
       const tool = found.find(
         (entry) => entry.name === ZOTERO_MCP_TOOL_GET_CURRENT_VIEW,
       );
       assert.isOk(tool);
-      reviewPiMcpTool("host-fixture", tool!.name, tool!.digest, {
-        promoted: false,
-      });
       const catalog = await runtime.getCatalogForTurn();
-      assert.lengthOf(catalog.tools, 1);
+      assert.isOk(
+        catalog.tools.find(
+          (entry) => entry.name === ZOTERO_MCP_TOOL_GET_CURRENT_VIEW,
+        ),
+      );
       const result = await runtime.callTool(
         catalog,
         "host-fixture",

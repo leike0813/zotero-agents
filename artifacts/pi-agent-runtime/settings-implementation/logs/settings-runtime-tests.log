@@ -1,0 +1,42 @@
+
+> zotero-agents@0.10.0 test:node:runtime
+> tsx scripts/run-node-test-shards.ts --domain runtime
+
+
+[node-test-shard:start] runtime-platform-persistence (Runtime platform and persistence)
+[node-test-shard:files] 15
+[node-test-shard:data-dir] /tmp/zotero-agents-node-test-shards-525313/runtime-platform-persistence/Zotero_data
+[node-test-shard:command] npx tsx node_modules/mocha/bin/mocha tests/runtime/108-runtime-persistence-governance.test.ts tests/runtime/164-runtime-platform-services.test.ts tests/runtime/184-runtime-file-transfer-governance.test.ts tests/runtime/186-runtime-file-range-reader.test.ts tests/runtime/189-runtime-tree-manifest.test.ts tests/runtime/239-runtime-host-adaptation-governance.test.ts tests/runtime/241-pi-owner-persistence.test.ts tests/runtime/263-runtime-audit-append-queue.test.ts tests/runtime/271-pi-runtime-audit.test.ts tests/runtime/272-pi-failure-contract.test.ts tests/runtime/274-pi-owner-recovery.test.ts tests/runtime/275-pi-runtime-lifecycle.test.ts tests/runtime/45-runtime-log-manager.test.ts tests/runtime/52-runtime-bridge.test.ts tests/runtime/97-runtime-diagnostics-release-elision.test.ts --require tests/setup/zotero-mock.ts --exit
+[node-test-shard:end] runtime-platform-persistence exit=0 durationMs=43614
+
+[node-test-shard:start] runtime-provider-registry (Runtime provider registry)
+[node-test-shard:files] 7
+[node-test-shard:data-dir] /tmp/zotero-agents-node-test-shards-525313/runtime-provider-registry/Zotero_data
+[node-test-shard:command] npx tsx node_modules/mocha/bin/mocha tests/runtime/181-provider-profile-selection.test.ts tests/runtime/242-pi-provider-configuration.test.ts tests/runtime/243-pi-model-catalog.test.ts tests/runtime/244-pi-credential-store.test.ts tests/runtime/292-zotero-agent-settings-host.test.ts tests/runtime/33-provider-backend-registry.test.ts tests/runtime/57-backend-manager-risk-regression.test.ts --require tests/setup/zotero-mock.ts --exit
+[node-test-shard:end] runtime-provider-registry exit=0 durationMs=13204
+
+[node-test-shard:start] runtime-provider-execution (Runtime provider execution)
+[node-test-shard:files] 18
+[node-test-shard:data-dir] /tmp/zotero-agents-node-test-shards-525313/runtime-provider-execution/Zotero_data
+[node-test-shard:command] npx tsx node_modules/mocha/bin/mocha tests/runtime/240-pi-runtime.test.ts tests/runtime/245-pi-tool-gateway.test.ts tests/runtime/246-pi-api-key-provider-execution.test.ts tests/runtime/247-pi-turn-preparation.test.ts tests/runtime/248-pi-trusted-native-execution.test.ts tests/runtime/249-pi-mcp-tool-sources.test.ts tests/runtime/250-pi-zotero-tool-catalog.test.ts tests/runtime/251-pi-chatgpt-auth.test.ts tests/runtime/256-pi-conversation-integration.test.ts tests/runtime/257-pi-conversation-titles.test.ts tests/runtime/261-pi-brokered-web-tools.test.ts tests/runtime/262-pi-brokered-web-network.test.ts tests/runtime/270-pi-skill-run-integration.test.ts tests/runtime/276-pi-physical-execution.test.ts tests/runtime/278-pi-owner-lifecycle-integration.test.ts tests/runtime/34-generic-http-provider-e2e.test.ts tests/runtime/37-pass-through-provider.test.ts tests/runtime/38-generic-http-steps-provider.test.ts --require tests/setup/zotero-mock.ts --exit
+[node-test-shard:end] runtime-provider-execution exit=0 durationMs=42200
+
+[node-test-shard:start] runtime-provider-products (Runtime provider products)
+[node-test-shard:files] 3
+[node-test-shard:data-dir] /tmp/zotero-agents-node-test-shards-525313/runtime-provider-products/Zotero_data
+[node-test-shard:command] npx tsx node_modules/mocha/bin/mocha tests/runtime/172-export-research-bundle-skill-runtime.test.ts tests/runtime/173-collection-collector-skill-runtime.test.ts tests/runtime/192-literature-search-ingest-skill-runtime.test.ts --require tests/setup/zotero-mock.ts --exit
+[node-test-shard:end] runtime-provider-products exit=0 durationMs=180377
+
+[node-test-shard:start] runtime-task-queue (Runtime task and queue)
+[node-test-shard:files] 4
+[node-test-shard:data-dir] /tmp/zotero-agents-node-test-shards-525313/runtime-task-queue/Zotero_data
+[node-test-shard:command] npx tsx node_modules/mocha/bin/mocha tests/runtime/164-resolve-task-name-fallback.test.ts tests/runtime/32-job-queue-transport-integration.test.ts tests/runtime/42-task-runtime.test.ts tests/runtime/63-job-queue-progress.test.ts --require tests/setup/zotero-mock.ts --exit
+[node-test-shard:end] runtime-task-queue exit=0 durationMs=8966
+
+[node-test-shards:summary]
+- runtime-platform-persistence: exit=0 files=15 durationMs=43614
+- runtime-provider-registry: exit=0 files=7 durationMs=13204
+- runtime-provider-execution: exit=0 files=18 durationMs=42200
+- runtime-provider-products: exit=0 files=3 durationMs=180377
+- runtime-task-queue: exit=0 files=4 durationMs=8966
+[node-test-shards:summary] all shards passed

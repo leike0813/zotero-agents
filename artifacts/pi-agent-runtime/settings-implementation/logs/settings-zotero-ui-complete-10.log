@@ -1,0 +1,36 @@
+
+> zotero-agents@0.10.0 test:zotero:ui
+> tsx scripts/run-zotero-test-with-mock.ts test:zotero:cli lite ui --no-watch
+
+[test-target] test:zotero:cli
+[test-mode] lite
+[test-domain] ui
+[test-workflow-dir] /home/joshua/Workspace/Code/JavaScript/.orca/worktrees/zotero-agents/dev-agent-harness/workflows_builtin
+[test-data-dir] /tmp/zotero-agents-test-data-1347135/Zotero_data
+[mock-skillrunner] 127.0.0.1:(random)
+mock skillrunner started
+baseUrl=http://127.0.0.1:46035
+bundlePath=/home/joshua/Workspace/Code/JavaScript/.orca/worktrees/zotero-agents/dev-agent-harness/tests/fixtures/literature-analysis/run_bundle_canonical.zip
+press Ctrl+C to stop
+[test-skillrunner-endpoint] http://127.0.0.1:46035
+
+> zotero-agents@0.10.0 test:zotero:cli
+> zotero-plugin test --no-watch
+
+ ℹ Building version 0.10.0 to .scaffold/build at 2026-10-04 18:23:25 in test mode.
+   → Preparing static assets
+   → Bundling scripts
+ ✔ Build finished in 4.961 s.
+ ℹ Installed /home/joshua/Workspace/Code/JavaScript/.orca/worktrees/zotero-agents/dev-agent-harness/.scaffold/build/addon as a temporary add-on
+ ℹ Installed /home/joshua/Workspace/Code/JavaScript/.orca/worktrees/zotero-agents/dev-agent-harness/.scaffold/test/resource as a temporary add-on
+
+   → ACP Replay publication in the Zotero runtime
+     ✔ keeps publications valid when nested Workspace frames close and reopen 4039ms
+   → Built-in Agent Backend Manager summary in real Zotero
+     ✔ shows the fixed summary and launches the independent settings window 307ms
+     ✔ routes the preferences entry straight to settings without Backend Manager 0ms
+     ✔ preserves real window drafts, page scrolling and input identity across themes and reopening 17622ms
+   → Zotero UI startup
+     ✔ mounts the workflow menu in the real main window 0ms
+
+ ✔ Test run completed - 5 passed

@@ -390,6 +390,13 @@ configureAssistantWorkspaceActionRouterShellHost({
     ),
   localizeString: (key, fallback) => localize(key as any, fallback),
   openBackendManager: openBackendManagerDialog,
+  // Lazy edge: the independent settings window owner composes the Pi settings
+  // graph, which must stay out of the sidebar entry graph until it is opened.
+  openZoteroAgentSettings: async (args) => {
+    const { openZoteroAgentSettings } =
+      await import("../../workflow/settings/zoteroAgentSettings");
+    await openZoteroAgentSettings({ window: args.window });
+  },
   logAssistantWorkspaceDebug,
   closeActiveSidebarHost,
   normalizeTab,

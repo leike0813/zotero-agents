@@ -309,9 +309,15 @@ This is a single-context repository using a root `CONTEXT.md` and root `docs/adr
 - 附件 import/replace 只接受当前 owner 的普通 Workspace 文件，经 C08 私有 staging 和 canonical Broker 写入 managed storage。prepared 对象留在进程内，每个退出路径须清理或保留 cleanup pending。
 - operation identity、生成的 Source Reference IDs 和完整 domain receipt 各在 canonical transcript 中保存一次；这些事实由 `piTurnPreparation.ts` 的非 context 分类排除。模型接收有界语义结果与 receipt identity，Gateway receipt 只引用 domain evidence；未知效果不得自动重放。
 
+# Pi Settings Configuration 硬约束
+
+- 内置 Agent 的连接、模型卡片、注册、来源和维护由独立 Zotero Agent 设置窗口编排；Backend Manager 仅持有固定后端摘要与打开入口。页面只依赖共享 wire contract，领域持久化仍归既有 owner。
+- `piProviderConfiguration.ts` 的连接与模型卡片分别拥有稳定 ID，卡片显式引用连接，默认用途引用实际卡片 ID；新增与编辑模型的目标必须由 payload 明确区分，不能由对象 ID 是否命中某张卡片推断。
+- 设置窗口的 Pi 动态导入必须置于 `__PI_RUNTIME_ENABLED__` 的可裁剪正向条件内；控制构建的插件入口图必须排除 Pi owner 和 SDK，惰性导入本身不构成构建排除证据。
+
 # Pi MCP Tool Sources 硬约束
 
-- 出站 MCP 源由 `piMcpSourceRegistry.ts` 保存 profile 配置和描述符审阅；加密密钥只放在 `piCredentialStore.ts` 的 `mcp-source` 命名空间。保存源不得连接，未审阅或描述符变化的工具不得进入 Pi turn。
+- 出站 MCP 源由 `piMcpSourceRegistry.ts` 保存 profile 配置；加密密钥只放在 `piCredentialStore.ts` 的 `mcp-source` 命名空间。保存源保持离线；每个 turn 由 `piMcpToolSources.ts` 发现已启用且已配置来源的工具，校验描述符、schema 与名称后冻结有界目录，源或描述符变化必须重新校验。
 - HTTP 源使用官方 MCP v2 浏览器客户端，stdio 仅经 `PiMcpStdioTransport` 与 C09 长驻进程适配器；不得把 Node MCP stdio 客户端或旧版 SDK 导入插件包。Local Network 和明文私网端点先完成源级审批，跨 origin 重定向拒绝。
 - 每个 Pi turn 的 MCP 工具必须经 C07 Gateway 冻结、分类、授权、调度和记录。已发送的工具调用不得自动重放；失联或超时只能报告未知效果。结果先归一化并有界化，再进入 transcript 或 receipt。
 
@@ -320,7 +326,7 @@ This is a single-context repository using a root `CONTEXT.md` and root `docs/adr
 - `piOutboundNetworkPolicy.ts` 是 Web/MCP 出站地址分类的事实源；每次 DNS 的全部 A/AAAA、元数据、Local Network origin 和每次重定向都必须校验，实际 peer 证据缺失时失败关闭。匿名 fetch 不携带凭据、Cookie 或 Referer。
 - `piBrokeredWebTools.ts` 只提供固定的 `web_search` / `web_fetch`；来源顺序、模型配置与凭据 revision 按 turn 冻结。每个来源只发送一次搜索；取消、策略/合同失败或未知效果停止 fallback，逐来源 started/terminal 事实由 canonical transcript 持久化。
 - 原生 grounded search 使用官方 OpenAI 的 API-key / ChatGPT 配置与 Anthropic API-key 配置；ChatGPT 复用共享 SIWC stream 解析与有界官方 OpenAI 网络操作，Anthropic 固定官方 Messages API 和基础服务器搜索。每个来源只派发一次；没有实际 completed 搜索及引用证据不得报告成功，不得从答案猜测引用。
-- curated MCP 调用前校验所选工具的 schema 和审阅摘要；Brave 启动前读取实际安装包 name/version。保存来源保持离线；主动测试和描述符批准是用户动作。Web 结果始终是 `external_untrusted` 数据，正文和投影有界，密钥、头与原生异常不得进入回执。
+- curated MCP 调用前校验策展工具的描述符和 schema；Brave 启动前读取实际安装包 name/version。保存来源保持离线；用户显式测试仅执行指定的已保存来源，与启用状态和 turn 回退链独立，启用或顺序变化保留适用证据，目标、认证或模型身份变化使证据失效。Web 结果始终是 `external_untrusted` 数据，正文和投影有界，密钥、头与原生异常不得进入回执。
 
 # Pi Trusted Native Execution 硬约束
 
@@ -346,8 +352,8 @@ This is a single-context repository using a root `CONTEXT.md` and root `docs/adr
 - 存储与队列上限是模块常量，仅测试重置可覆盖：单 owner 64 MiB / 50,000 条 / 单条 64 KiB，待写队列 1 MiB 或 1,000 条，导出未压缩 96 MiB。达到上限原子压缩到两个目标的 75%，并记录 gap。溢出、超大条目和写失败只累加有界 gap 计数，`record` 不得向执行抛错。
 - 审计在既有 Native owner 配额锁下写入，并可通过模块私有回调仅回收审计数据；不得删除 canonical 或业务数据。缺少配额证据时以 gap 失败审计接纳。
 - `exportDiagnostics(scope, targetPath)` 只写用户选定路径，并复用既有原子 ZIP writer。owner 范围含该 owner 审计加按关联身份与时间窗筛选的全局日志；global 范围只含无 owner 的事实与日志，且不扫描任何 owner 目录。导出经队列 barrier 与日志快照后基于临时副本组装，不持有 owner 执行；超预算时优先保留 manifest、结构化失败与完整性信息，先裁全局日志再裁 owner 审计，且不得裁剪来源。
-- 审计模块以返回值报告失败而不抛错。用户触发的导出必须把失败重新抛回所属界面的既有本地错误通道：Pi Conversation 走 composer 错误，Pi Skill Run 只走 surface notice，不得进入 coordinator 或运行终态，Backend Manager 走状态行。三者都不得改变运行的终态结果。
-- 导出入口只有两处：所选 Pi owner 的 Details drawer（scoped）与 Backend Manager 内置 Agent 区（global）。保存路径由宿主 picker 决定，取消选路径不执行导出也不发布结果；导出绑定动作到达时捕获的 owner，picker 打开期间切换选择不得改写目标。入口是普通详情按钮，不新增 managed region，transcript、loading 与 streaming 更新仍须保持其它 region 的 DOM identity。
+- 审计模块以返回值报告失败而不抛错。用户触发的导出必须把失败交回所属界面的既有本地错误通道：Pi Conversation 走 composer 错误，Pi Skill Run 只走 surface notice，不得进入 coordinator 或运行终态；Zotero Agent 设置走诊断维护分区。三者都不得改变运行的终态结果。
+- 导出入口只有两处：所选 Pi owner 的 Details drawer（scoped）与独立 Zotero Agent 设置的诊断维护分区（global）。保存路径由宿主 picker 决定，取消选路径不执行导出也不发布结果；导出绑定动作到达时捕获的 owner，picker 打开期间切换选择不得改写目标。入口是普通详情按钮，不新增 managed region，transcript、loading 与 streaming 更新仍须保持其它 region 的 DOM identity。
 - 诊断保持被动：不得新增 health 面板、定时巡检、主动探针、存活端点或后台导出。Diagnostic Mode 与 `PI_RUNTIME_AUDIT_DEBUG_ENABLED` 只放宽记录时刻的 tier 准入，不调度任何动作。
 
 # Workflow Host Runtime Adaptation硬约束

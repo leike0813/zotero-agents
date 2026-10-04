@@ -613,6 +613,19 @@ export default defineConfig({
         outfile: distFile("addon/content/dashboard/backend-manager.js"),
       },
       {
+        // Independently hosted settings window. The page is served inside its
+        // own iframe by the settings host owner and never imports prototype
+        // code.
+        entryPoints: ["src/dashboard/zoteroAgentSettingsApp.ts"],
+        define: piRuntimeBuildDefines(),
+        bundle: true,
+        minifySyntax: true,
+        jsx: "automatic",
+        jsxImportSource: "preact",
+        target: "firefox115",
+        outfile: distFile("addon/content/dashboard/zotero-agent-settings.js"),
+      },
+      {
         entryPoints: ["src/workspaceApp.ts"],
         define: piRuntimeBuildDefines(),
         bundle: true,

@@ -13,5 +13,6 @@
     "src/shared/**/*.tsx",
     "src/synthesisWorkbenchI18n.ts",
     "packages/synthesis-contracts/src/**/*.ts"
-  ]
+  ],
+  "exclude": ["src/dashboard/prototypes/**"]
 }

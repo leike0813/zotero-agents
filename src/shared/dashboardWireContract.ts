@@ -401,110 +401,22 @@ export type BackendManagerActionName =
   | "open-preset-link"
   | "add-acp-preset"
   | "add-generic-http-preset"
-  | "pi-upsert-configuration"
-  | "pi-delete-configuration"
-  | "pi-set-defaults"
-  | "pi-refresh-overlay"
-  | "pi-catalog-query"
-  | "pi-catalog-refresh-public"
-  | "pi-catalog-set-auto-update"
-  | "pi-catalog-restore-previous"
-  | "pi-catalog-remove-overlay"
-  | "pi-put-credential"
-  | "pi-delete-credential"
-  | "pi-test-connection"
-  | "pi-chatgpt-connect"
-  | "pi-chatgpt-cancel"
-  | "pi-chatgpt-sign-out"
-  | "pi-chatgpt-accept-welcome"
-  | "pi-chatgpt-refresh-models"
-  | "pi-mcp-upsert-source"
-  | "pi-mcp-delete-source"
-  | "pi-mcp-test-source"
-  | "pi-mcp-review-tool"
-  | "pi-mcp-unreview-tool"
-  | "pi-mcp-put-secret"
-  | "pi-mcp-delete-secret"
-  | "pi-mcp-import"
-  | "pi-mcp-preview-import"
-  | "pi-mcp-export"
-  | "pi-mcp-reset-registry"
-  | "pi-web-save-sources"
-  | "pi-web-test-source"
-  | "pi-web-put-secret"
-  | "pi-web-delete-secret"
-  // C18: global built-in Agent diagnostic export (ownerless facts and logs
-  // only; the target path comes from the host save picker).
-  | "pi-export-diagnostics";
+  // Launch the independent Zotero Agent settings window. This is the only
+  // built-in Agent action here: detailed configuration belongs to that
+  // window's own owner, not to Backend Manager.
+  | "open-zotero-agent-settings";
 
+/**
+ * Fixed registry facts for the built-in Agent backend. This summary never
+ * carries catalog, credential, authentication, MCP, search or maintenance
+ * state, and it never subscribes to those owners.
+ */
 export type BackendManagerBuiltinAgentSnapshot = {
-  configurations: import("./piProviderContract").PiProviderConfiguration[];
-  configurationStatus: Record<
-    string,
-    | "configured"
-    | "disabled"
-    | "incomplete"
-    | "needs-auth"
-    | "invalid"
-    | "unavailable"
-  >;
-  credentials: import("./piProviderContract").PiCredentialMetadata[];
-  chatgptRegistrations?: Array<{
-    id: string;
-    label: string;
-    email?: string;
-    clientId: string;
-    signedIn: boolean;
-    planEnabled: boolean;
-    paused: boolean;
-    reauthorizationRequired: boolean;
-    welcomeAccepted: boolean;
-  }>;
-  mcpSources: import("./piMcpSourceContract").PiMcpSource[];
-  mcpError?: string;
-  webSources: import("./piWebSourceContract").PiWebSource[];
-  webError?: string;
-  webCredentials: import("./piProviderContract").PiCredentialMetadata[];
-  webTestResults: Record<
-    string,
-    import("./piWebSourceContract").PiWebSourceTestResult
-  >;
-  mcpCredentials: import("./piProviderContract").PiCredentialMetadata[];
-  mcpDiscovered: Record<
-    string,
-    Array<{ name: string; description?: string; digest: string }>
-  >;
-  mcpImportPreview?: {
-    sources: Array<{
-      id: string;
-      transport: "http" | "stdio";
-      endpoint: string;
-      origin: string;
-      localNetwork: boolean;
-      cleartext: boolean;
-    }>;
-    secretSlots: Array<{ sourceId: string; slot: string }>;
-  };
-  defaults: import("./piProviderContract").PiProviderDefaults;
-  overlayPath: string;
-  catalog: {
-    status: "loading" | "ready" | "error";
-    revision: string;
-    modelCount: number;
-    providers: string[];
-    error?: string;
-    /**
-     * Bounded, safe public/overlay/account source state. Never carries the
-     * directory itself, credentials or private paths.
-     */
-    state?: import("./piProviderContract").PiCatalogSourceState;
-  };
-  models: Array<
-    Pick<
-      import("./piProviderContract").PiCatalogModel,
-      "provider" | "id" | "name"
-    >
-  >;
+  id: string;
+  type: string;
+  displayName: string;
+  /** Synthetic local target of the built-in backend; never configurable. */
+  baseUrl: string;
 };
 
 export type BackendManagerActionPayloadMap = {
@@ -542,103 +454,7 @@ export type BackendManagerActionPayloadMap = {
     presetId: string;
     rows: BackendManagerDialogDraftRow[];
   }>;
-  "pi-upsert-configuration": DashboardActionPayloadShape<{
-    configuration: import("./piProviderContract").PiProviderConfiguration;
-  }>;
-  "pi-delete-configuration": DashboardActionPayloadShape<{ id: string }>;
-  "pi-set-defaults": DashboardActionPayloadShape<{
-    defaults: import("./piProviderContract").PiProviderDefaults;
-  }>;
-  "pi-refresh-overlay": DashboardActionPayloadShape<{ path: string }>;
-  "pi-catalog-query": DashboardActionPayloadShape<{
-    provider: string;
-    query: string;
-    credentialId?: string;
-    requestId: string;
-  }>;
-  "pi-catalog-refresh-public": DashboardActionPayloadShape<{
-    requestId: string;
-  }>;
-  "pi-catalog-set-auto-update": DashboardActionPayloadShape<{
-    enabled: boolean;
-    requestId: string;
-  }>;
-  "pi-catalog-restore-previous": DashboardActionPayloadShape<{
-    requestId: string;
-  }>;
-  "pi-catalog-remove-overlay": DashboardActionPayloadShape<{
-    requestId: string;
-  }>;
-  "pi-chatgpt-refresh-models": DashboardActionPayloadShape<{
-    configurationId: string;
-    registrationId: string;
-  }>;
-  "pi-put-credential": DashboardActionPayloadShape<{
-    id: string;
-    label: string;
-    secret: string;
-  }>;
-  "pi-delete-credential": DashboardActionPayloadShape<{ id: string }>;
-  "pi-test-connection": DashboardActionPayloadShape<{
-    configurationId: string;
-    requestId: string;
-  }>;
-  "pi-chatgpt-connect": DashboardActionPayloadShape<{
-    configurationId: string;
-    registrationId: string;
-    requestId: string;
-    reconsent?: boolean;
-  }>;
-  "pi-chatgpt-cancel": DashboardActionPayloadShape<{ requestId: string }>;
-  "pi-chatgpt-sign-out": DashboardActionPayloadShape<{
-    registrationId: string;
-    remove?: boolean;
-  }>;
-  "pi-chatgpt-accept-welcome": DashboardActionPayloadShape<{
-    registrationId: string;
-  }>;
-  "pi-mcp-upsert-source": DashboardActionPayloadShape<{
-    source: import("./piMcpSourceContract").PiMcpSource;
-  }>;
-  "pi-mcp-delete-source": DashboardActionPayloadShape<{ id: string }>;
-  "pi-mcp-test-source": DashboardActionPayloadShape<{ id: string }>;
-  "pi-mcp-review-tool": DashboardActionPayloadShape<{
-    sourceId: string;
-    name: string;
-    digest: string;
-    promoted: boolean;
-  }>;
-  "pi-mcp-unreview-tool": DashboardActionPayloadShape<{
-    sourceId: string;
-    name: string;
-  }>;
-  "pi-mcp-put-secret": DashboardActionPayloadShape<{
-    id: string;
-    label: string;
-    secret: string;
-  }>;
-  "pi-mcp-delete-secret": DashboardActionPayloadShape<{ id: string }>;
-  "pi-mcp-import": DashboardActionPayloadShape<{
-    json: string;
-    approvals: Array<{ sourceId: string; origin: string; cleartext: boolean }>;
-  }>;
-  "pi-mcp-preview-import": DashboardActionPayloadShape<{ json: string }>;
-  "pi-mcp-export": DashboardEmptyActionPayload;
-  "pi-mcp-reset-registry": DashboardEmptyActionPayload;
-  "pi-web-save-sources": DashboardActionPayloadShape<{
-    sources: import("./piWebSourceContract").PiWebSource[];
-  }>;
-  "pi-web-test-source": DashboardActionPayloadShape<{
-    id: string;
-    requestId: string;
-  }>;
-  "pi-web-put-secret": DashboardActionPayloadShape<{
-    id: string;
-    label: string;
-    secret: string;
-  }>;
-  "pi-web-delete-secret": DashboardActionPayloadShape<{ id: string }>;
-  "pi-export-diagnostics": DashboardEmptyActionPayload;
+  "open-zotero-agent-settings": DashboardEmptyActionPayload;
 };
 
 export type BackendManagerActionPayload<

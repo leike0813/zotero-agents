@@ -1,0 +1,14 @@
+
+> zotero-agents@0.10.0 test:node:assistant
+> tsx scripts/run-node-test-shards.ts --domain assistant
+
+
+[node-test-shard:start] assistant (Assistant Workspace)
+[node-test-shard:files] 8
+[node-test-shard:data-dir] /tmp/zotero-agents-node-test-shards-663462/assistant/Zotero_data
+[node-test-shard:command] npx tsx node_modules/mocha/bin/mocha tests/assistant/108-assistant-execution-display-policy.test.ts tests/assistant/138-workspace-toolbar-running-popover.test.ts tests/assistant/190-assistant-workspace-wire-drift.test.ts tests/assistant/192-assistant-workspace-chrome-components.test.ts tests/assistant/200-assistant-region-collapse.test.ts tests/assistant/258-pi-workspace-publication.test.ts tests/assistant/260-assistant-workspace-source-registry.test.ts tests/assistant/261-user-interaction-contract.test.ts --require tests/setup/zotero-mock.ts --exit
+[node-test-shard:end] assistant exit=0 durationMs=14206
+
+[node-test-shards:summary]
+- assistant: exit=0 files=8 durationMs=14206
+[node-test-shards:summary] all shards passed

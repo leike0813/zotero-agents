@@ -42,7 +42,7 @@ import {
 } from "../../src/shared/assistantWorkspaceSourceRegistry";
 import type { PiModelSelectionSnapshot } from "../../src/shared/piProviderContract";
 import { getPref, setPref } from "../../src/utils/prefs";
-import { upsertPiProviderConfiguration } from "../../src/modules/piProviderConfiguration";
+import { savePiModelFixture } from "../helpers/piModelConfigurationFixture";
 import { appendPiOwnerFact } from "../../src/modules/piOwnerPersistence";
 
 const SOURCE_IDS: AssistantWorkspaceSourceId[] = [
@@ -927,7 +927,7 @@ describe("Pi Skill Run workspace publication", function () {
     };
     const priorConfig = getPref("piProviderConfigurationJson");
     setPref("piProviderConfigurationJson", "");
-    upsertPiProviderConfiguration({
+    savePiModelFixture({
       id: "surface-fixture",
       label: "Fixture",
       provider: "openai",

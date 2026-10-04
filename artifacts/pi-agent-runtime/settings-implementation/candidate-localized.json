@@ -1,0 +1,21 @@
+{
+  "sourceCommit": "d663e1768b2633c7ae03652e23edfaca01ca7cf0",
+  "dirty": true,
+  "xpiPath": ".scaffold/settings-localized/zotero-agents.xpi",
+  "xpiSha256": "4bee4e457a1e870bfe3082bdde0d2336b440a134ed515fa595adde7710bb7cce",
+  "runtimeBuild": {
+    "schema": "zotero-agents.pi-runtime-build.v1",
+    "enabled": true,
+    "capacity": 12,
+    "measurementOnly": false,
+    "debug": false,
+    "buildTime": "2026-10-04T11:20:03.944Z",
+    "source": {
+      "commit": "d663e1768b2633c7ae03652e23edfaca01ca7cf0",
+      "clean": false
+    }
+  },
+  "packagedLocaleFilesChecked": 22,
+  "comparison": "Fluent message AST after removing scaffold addon ID prefix",
+  "packagedLocaleMismatches": []
+}

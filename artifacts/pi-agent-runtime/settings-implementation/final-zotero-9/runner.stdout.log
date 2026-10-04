@@ -1,0 +1,109 @@
+
+> zotero-agents@0.10.0 test:zotero:compatibility:with-mock
+> tsx scripts/run-zotero-test-with-mock.ts test:zotero:compatibility:worker
+
+[test-target] test:zotero:compatibility:worker
+[test-mode] lite
+[test-domain] core
+[test-workflow-dir] /home/joshua/Workspace/Code/JavaScript/.orca/worktrees/zotero-agents/dev-agent-harness/workflows_builtin
+[test-data-dir] /tmp/zotero-agents-compat/zotero-9-linux-x64-ad60be1f/core-5232cddb/.scaffold/test/data
+[mock-skillrunner] 127.0.0.1:(random)
+mock skillrunner started
+baseUrl=http://127.0.0.1:46361
+bundlePath=/home/joshua/Workspace/Code/JavaScript/.orca/worktrees/zotero-agents/dev-agent-harness/tests/fixtures/literature-analysis/run_bundle_canonical.zip
+press Ctrl+C to stop
+[test-skillrunner-endpoint] http://127.0.0.1:46361
+
+> zotero-agents@0.10.0 test:zotero:compatibility:worker
+> tsx scripts/run-zotero-compatibility-worker.ts --no-watch
+
+ ℹ Installed /home/joshua/Workspace/Code/JavaScript/.orca/worktrees/zotero-agents/dev-agent-harness/.scaffold/settings-final/addon as a temporary add-on
+ ℹ Installed /tmp/zotero-agents-compat/zotero-9-linux-x64-ad60be1f/core-5232cddb/.scaffold/test/resource as a temporary add-on
+  {
+  "kind": "zotero-compatibility-host-facts",
+  "version": "9.0.6",
+  "appBuildId": "20260707150941"
+}
+
+   → canonical navigation in Zotero runtime
+     ✔ rejects a cold Reader when native construction switches windows 3166ms
+  {
+  "kind": "zotero-navigation-native-capabilities",
+  "version": "9.0.6",
+  "capabilities": {
+    "viewItems": true,
+    "selectByID": true,
+    "readerOpen": true
+  }
+}
+     ✔ covers native navigation seams with feature-detected cleanup 11587ms
+     ✔ notifies the first-effect boundary only after revalidating and never negates a settled navigation 3079ms
+  {
+  "kind": "zotero-compatibility-host-facts",
+  "version": "9.0.6",
+  "appBuildId": "20260707150941"
+}
+   → compatibility host facts
+     ✔ reports the observed Zotero runtime identity 2ms
+   → Pi provider configuration
+     ✔ shares one target and authentication across two models of one connection 5ms
+     ✔ applies explicit precedence and refuses any implicit fallback 6ms
+     ✔ retains default references across an edit and reports the reason 4ms
+     ✔ rejects a default that cannot run and leaves the saved ones alone 4ms
+     ✔ clears only the removed card's own purposes 10ms
+     ✔ removes a connection's cards and keeps a key another connection names 4ms
+     ✔ releases an api key at its last reference but never a ChatGPT registration 79ms
+     ✔ keeps a key a real MCP source's credential slot still names 84ms
+     ✔ keeps a key another connection in the same namespace still names 80ms
+     ✔ keeps a key when a source document cannot be read 72ms
+     ✔ saves a connection and its secret as one operation without an orphan 63ms
+     ✔ refuses a connection before writing a secret, so no orphan key survives 1ms
+     ✔ reports an incompatible or damaged document instead of resetting it 1ms
+     ✔ keeps a saved card description across a directory drop and blocks retirement 2ms
+     ✔ keeps a connection on its accepted target when a directory moves the endpoint 3ms
+     ✔ withholds another target's directory facts from a custom endpoint 5ms
+     ✔ selects ChatGPT discoveries only for their registration 5ms
+     ✔ rejects remote HTTP, a dialect-less custom endpoint and an unsupported reasoning level 6ms
+     ✔ keeps evidence applicable across a rename and invalidates it on a real change 5ms
+     ✔ projects the pickable cards with the names this owner owns 4ms
+     ✔ projects execution capability instead of guessing from a provider name 2ms
+   → Pi configuration in real Zotero
+     ✔ adopts directory B with a fixed runtime while preserving directory A's active selection 142ms
+     ℹ reads the official catalog through the actual Zotero HTTP implementation pending
+     ✔ uses browser-safe catalog and encrypted profile credentials 297ms
+   → Pi MCP source transport in real Zotero
+     ✔ loads the outbound source owner with browser streams 0ms
+     ✔ admits an enabled saved source with no persisted tool selection 44ms
+     ✔ streams JSON-RPC through the live stdio adapter 1146ms
+     ℹ observes Windows stdio bridge exit before leaving the host pending
+   → Pi ChatGPT native callback host in real Zotero
+     ✔ accepts authorization through the default listener with a signed fixture token 700ms
+   → Pi brokered web network in real Zotero
+     ✔ tests a saved disabled source through the settings owner in the actual plugin sandbox 64ms
+     ✔ refuses to test a saved source whose local network was never approved 2ms
+     ✔ fetches anonymously from an approved loopback origin 54ms
+     ✔ follows a redirect only after validating the next hop 4ms
+     ✔ resolves the loopback hostname and observes the connected peer 3ms
+     ✔ aborts an already connected channel 12ms
+     ✔ expires the native idle timer on a connected stalled request 1097ms
+     ✔ denies metadata, unapproved local and public cleartext targets before connecting 0ms
+     ✔ fails closed on an offline port and honors abort 11ms
+     ✔ classifies a target for admission before any grant is enforced 2ms
+     ✔ reports a public location for a public literal without a grant 0ms
+   → Pi Runtime Audit in Zotero
+     ✔ routes structural owner facts once and excludes semantic attributes 231ms
+     ✔ rejects prose in permitted fields and admits structural diagnostic tiers only 201ms
+     ✔ global export excludes owner logs and strips arbitrary global prose 7ms
+     ✔ compacts to both targets and preserves the newest warning with explicit gaps 320ms
+     ✔ recovers write failures and bounded overflow without changing canonical history 208ms
+     ✔ bounds bytes independently and reports an oversized structural record 238ms
+     ✔ trims export copies and keeps structured failures without semantic transcript content 350ms
+     ✔ fails atomically and rejects missing owners without creating their directories 7ms
+     ✔ retains archived evidence and never recreates a permanently deleted owner 618ms
+     ✔ keeps an unresolved Broker effect as a hold instead of replaying it 427ms
+   → Built-in Agent Backend Manager summary in real Zotero
+     ✔ shows the fixed summary and launches the independent settings window 433ms
+     ✔ routes the preferences entry straight to settings without Backend Manager 0ms
+     ✔ preserves real window drafts, page scrolling and input identity across themes and reopening 17816ms
+
+ ✔ Test run completed - 55 passed

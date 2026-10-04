@@ -1,0 +1,14 @@
+
+> zotero-agents@0.10.0 test:node
+> tsx scripts/run-node-test-shards.ts --shard runtime-provider-registry --shard runtime-provider-execution
+
+
+[node-test-shard:start] runtime-provider-execution (Runtime provider execution)
+[node-test-shard:files] 18
+[node-test-shard:data-dir] /tmp/zotero-agents-node-test-shards-1065573/runtime-provider-execution/Zotero_data
+[node-test-shard:command] npx tsx node_modules/mocha/bin/mocha tests/runtime/240-pi-runtime.test.ts tests/runtime/245-pi-tool-gateway.test.ts tests/runtime/246-pi-api-key-provider-execution.test.ts tests/runtime/247-pi-turn-preparation.test.ts tests/runtime/248-pi-trusted-native-execution.test.ts tests/runtime/249-pi-mcp-tool-sources.test.ts tests/runtime/250-pi-zotero-tool-catalog.test.ts tests/runtime/251-pi-chatgpt-auth.test.ts tests/runtime/256-pi-conversation-integration.test.ts tests/runtime/257-pi-conversation-titles.test.ts tests/runtime/261-pi-brokered-web-tools.test.ts tests/runtime/262-pi-brokered-web-network.test.ts tests/runtime/270-pi-skill-run-integration.test.ts tests/runtime/276-pi-physical-execution.test.ts tests/runtime/278-pi-owner-lifecycle-integration.test.ts tests/runtime/34-generic-http-provider-e2e.test.ts tests/runtime/37-pass-through-provider.test.ts tests/runtime/38-generic-http-steps-provider.test.ts --require tests/setup/zotero-mock.ts --exit
+[node-test-shard:end] runtime-provider-execution exit=0 durationMs=42189
+
+[node-test-shards:summary]
+- runtime-provider-execution: exit=0 files=18 durationMs=42189
+[node-test-shards:summary] all shards passed

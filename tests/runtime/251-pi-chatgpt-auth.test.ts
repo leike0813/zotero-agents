@@ -610,19 +610,23 @@ describe("Pi ChatGPT authentication", function () {
     };
     setPref("piCredentialEncryptedJson", JSON.stringify(encrypted));
     const configuration = {
-      version: 1,
-      configurations: [
+      version: 2,
+      connections: [
         {
           id: "old",
           provider: "openai-codex",
           authVariant: "openai-codex",
           credentialRef: "retired",
+          binding: {
+            revision: 1,
+            api: "openai-codex-responses",
+            baseUrl: "https://chatgpt.com/backend-api/codex",
+          },
         },
         {
           id: "api-config",
           label: "API",
           provider: "openai",
-          modelId: "fixture-model",
           authVariant: "api-key",
           credentialRef: "api",
           enabled: true,
@@ -633,6 +637,46 @@ describe("Pi ChatGPT authentication", function () {
             revision: 1,
             api: "openai-responses",
             baseUrl: "https://api.openai.com/v1",
+          },
+        },
+        // A current connection no purpose happens to name. The retired cleanup
+        // is about the retired authentication, never about reachability.
+        {
+          id: "spare",
+          label: "Spare",
+          provider: "anthropic",
+          authVariant: "api-key",
+          credentialRef: "spare-key",
+          enabled: false,
+        },
+      ],
+      configurations: [
+        {
+          id: "old",
+          connectionId: "old",
+          modelId: "gpt-codex",
+          enabled: true,
+        },
+        {
+          id: "api-config",
+          connectionId: "api-config",
+          modelId: "fixture-model",
+          enabled: true,
+          binding: {
+            revision: 1,
+            model: {
+              provider: "openai",
+              id: "fixture-model",
+              name: "Fixture",
+              api: "openai-responses",
+              baseUrl: "https://api.openai.com/v1",
+              contextWindow: 1000,
+              maxTokens: 100,
+              input: ["text"],
+              supportsTools: true,
+              reasoning: ["off"],
+              source: "retained",
+            },
           },
         },
       ],
@@ -648,6 +692,10 @@ describe("Pi ChatGPT authentication", function () {
     assert.isFalse((await readPiCredential("retired")).ok);
     assert.isTrue((await readPiCredential("api")).ok);
     const cleaned = JSON.parse(String(getPref("piProviderConfigurationJson")));
+    assert.deepEqual(cleaned.connections, [
+      configuration.connections[1],
+      configuration.connections[2],
+    ]);
     assert.deepEqual(cleaned.configurations, [configuration.configurations[1]]);
     assert.deepEqual(cleaned.defaults, {
       conversation: configuration.defaults.conversation,

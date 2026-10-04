@@ -46,19 +46,25 @@ const AUX_CONFIGURATION = {
   id: "aux",
   label: "Aux",
   provider: "aux-provider",
-  modelId: "aux-title-model",
   authVariant: "none",
   enabled: true,
   baseUrl: "https://example.test",
   api: "openai-completions",
+};
+const AUX_MODEL_CONFIGURATION = {
+  id: "aux",
+  connectionId: "aux",
+  modelId: "aux-title-model",
+  enabled: true,
 };
 
 function setAuxiliaryDefault(enabled: boolean) {
   setPref(
     "piProviderConfigurationJson",
     JSON.stringify({
-      version: 1,
-      configurations: [AUX_CONFIGURATION],
+      version: 2,
+      connections: [AUX_CONFIGURATION],
+      configurations: [AUX_MODEL_CONFIGURATION],
       defaults: enabled ? { auxiliary: { configurationId: "aux" } } : {},
       overlayPath: "",
     }),

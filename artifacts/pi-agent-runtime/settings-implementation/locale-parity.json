@@ -1,0 +1,72 @@
+{
+  "sourceCommit": "d663e1768b2633c7ae03652e23edfaca01ca7cf0",
+  "settingsKeys": 428,
+  "locales": [
+    {
+      "locale": "de",
+      "settingsMissing": [],
+      "baselineMissing": 81,
+      "currentMissing": 45
+    },
+    {
+      "locale": "en-US",
+      "settingsMissing": [],
+      "baselineMissing": 0,
+      "currentMissing": 0
+    },
+    {
+      "locale": "es-ES",
+      "settingsMissing": [],
+      "baselineMissing": 81,
+      "currentMissing": 45
+    },
+    {
+      "locale": "fr-FR",
+      "settingsMissing": [],
+      "baselineMissing": 81,
+      "currentMissing": 45
+    },
+    {
+      "locale": "it-IT",
+      "settingsMissing": [],
+      "baselineMissing": 81,
+      "currentMissing": 45
+    },
+    {
+      "locale": "ja-JP",
+      "settingsMissing": [],
+      "baselineMissing": 81,
+      "currentMissing": 45
+    },
+    {
+      "locale": "ko-KR",
+      "settingsMissing": [],
+      "baselineMissing": 81,
+      "currentMissing": 45
+    },
+    {
+      "locale": "pt-BR",
+      "settingsMissing": [],
+      "baselineMissing": 81,
+      "currentMissing": 45
+    },
+    {
+      "locale": "ru-RU",
+      "settingsMissing": [],
+      "baselineMissing": 81,
+      "currentMissing": 45
+    },
+    {
+      "locale": "zh-CN",
+      "settingsMissing": [],
+      "baselineMissing": 48,
+      "currentMissing": 41
+    },
+    {
+      "locale": "zh-TW",
+      "settingsMissing": [],
+      "baselineMissing": 81,
+      "currentMissing": 45
+    }
+  ]
+}

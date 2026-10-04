@@ -6,13 +6,18 @@ import { CallToolResultSchema } from "@modelcontextprotocol/core";
 import { sha256PrefixedHex } from "../utils/sha256";
 import { getRuntimeEnvironmentSnapshot } from "../platform/env";
 import { getRuntimePersistencePaths } from "./runtimePersistence";
-import { getPiCredentialRevision, readPiCredential } from "./piCredentialStore";
+import { readPiCredential } from "./piCredentialStore";
 import {
   classifyPiMcpHttpUrl,
   loadPiMcpSourceRegistry,
+  piMcpSourceBindingIdentity,
   type PiMcpSource,
 } from "./piMcpSourceRegistry";
-import { createPiBrokeredMcpFetch } from "./piBrokeredWebHttp";
+import {
+  createPiBrokeredMcpFetch,
+  type PiBrokeredWebHttpDependencies,
+  type PiNativeHttpTransport,
+} from "./piBrokeredWebHttp";
 import { PiMcpStdioTransport } from "./piMcpStdioTransport";
 import type {
   PiGatewayEffect,
@@ -49,7 +54,6 @@ export type PiMcpCatalogTool = Tool & {
   sourceIdentity: string;
   digest: string;
   effects: PiGatewayEffect[];
-  promoted: boolean;
 };
 export type PiMcpTurnCatalog = {
   digest: string;
@@ -60,21 +64,6 @@ const MAX_RESULT_BYTES = 1024 * 1024;
 const CACHE_MS = 30_000;
 const textBytes = (value: unknown) =>
   new TextEncoder().encode(JSON.stringify(value)).length;
-const sourceIdentity = (source: PiMcpSource) =>
-  JSON.stringify([
-    source.transport,
-    source.url,
-    source.executable,
-    source.argv,
-    source.cwd,
-    source.credentialSlots,
-    Object.values(source.credentialSlots).map((ref) => [
-      ref,
-      getPiCredentialRevision(ref, "mcp-source"),
-    ]),
-    source.localNetworkApproval,
-    source.cleartextApproval,
-  ]);
 function freeze<T>(value: T): T {
   if (value && typeof value === "object") {
     for (const child of Object.values(value)) freeze(child);
@@ -162,11 +151,35 @@ async function credentials(
   return values;
 }
 
+/**
+ * The exact request headers one admitted source sends. A bearer token becomes
+ * one `Bearer <token>` value here, so the stored secret and the transport
+ * resolution each contribute the prefix at most once.
+ */
+export async function resolvePiMcpRequestHeaders(
+  source: PiMcpSource,
+  override?: Record<string, string>,
+): Promise<Record<string, string>> {
+  const values = await credentials(source, override);
+  const headers: Record<string, string> = { ...values };
+  const authentication = source.authentication;
+  if (authentication.kind === "bearer") {
+    const field =
+      Object.keys(headers).find(
+        (name) => name.toLowerCase() === authentication.field.toLowerCase(),
+      ) || authentication.field;
+    const token = String(headers[field] || "").replace(/^Bearer\s+/i, "");
+    if (token) headers[field] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
 async function openSource(
   source: PiMcpSource,
   invalidate: () => void,
   credentialsOverride?: Record<string, string>,
   signal?: AbortSignal,
+  transport?: PiNativeHttpTransport,
 ): Promise<Connection> {
   if (signal?.aborted) throw new Error("mcp_canceled");
   const client = new Client(
@@ -191,18 +204,24 @@ async function openSource(
         source.localNetworkApproval !== endpoint.origin
       )
         throw new Error("mcp_local_network_denied");
-      const headers = await credentials(source, credentialsOverride);
+      const headers = await resolvePiMcpRequestHeaders(
+        source,
+        credentialsOverride,
+      );
       if (signal?.aborted) throw new Error("mcp_canceled");
       await client.connect(
         new StreamableHTTPClientTransport(new URL(endpoint.url), {
           requestInit: { headers },
-          fetch: createPiBrokeredMcpFetch({
-            origin: endpoint.origin,
-            ...(source.localNetworkApproval
-              ? { localNetworkApprovedOrigin: source.localNetworkApproval }
-              : {}),
-            credentialed: Object.keys(headers).length > 0,
-          }),
+          fetch: createPiBrokeredMcpFetch(
+            {
+              origin: endpoint.origin,
+              ...(source.localNetworkApproval
+                ? { localNetworkApprovedOrigin: source.localNetworkApproval }
+                : {}),
+              credentialed: Object.keys(headers).length > 0,
+            },
+            { transport },
+          ),
         }),
       );
     } else {
@@ -255,11 +274,42 @@ export function openPiMcpSource(
   invalidate: () => void = () => undefined,
   credentialsOverride?: Record<string, string>,
   signal?: AbortSignal,
+  dependencies?: PiBrokeredWebHttpDependencies,
 ): Promise<PiMcpConnection> {
-  return openSource(source, invalidate, credentialsOverride, signal);
+  return openSource(
+    source,
+    invalidate,
+    credentialsOverride,
+    signal,
+    dependencies?.transport,
+  );
 }
 
 const LOCAL_DENIAL_CODE = /^(?:pi_network_|mcp_)/;
+const MAX_TOOLS_PER_SOURCE = 256;
+
+/**
+ * Descriptor admission. A returned name or schema that cannot be supported is
+ * not catalogued, so it can never be dispatched; unrelated valid tools of the
+ * same source keep their ordinary admission.
+ */
+function admissibleDescriptor(tool: unknown): tool is Tool {
+  if (!tool || typeof tool !== "object") return false;
+  const candidate = tool as Tool;
+  const schema = candidate.inputSchema as { type?: unknown } | undefined;
+  return (
+    typeof candidate.name === "string" &&
+    !!candidate.name &&
+    candidate.name.length <= 128 &&
+    (candidate.description === undefined ||
+      (typeof candidate.description === "string" &&
+        candidate.description.length <= 4096)) &&
+    !!schema &&
+    typeof schema === "object" &&
+    !Array.isArray(schema) &&
+    schema.type === "object"
+  );
+}
 
 /** Typed local denial code buried anywhere in an MCP transport failure. */
 function localDenialCode(error: unknown): string | undefined {
@@ -280,7 +330,13 @@ export function createPiMcpToolSources(
     openClient?: (
       source: PiMcpSource,
       invalidate: () => void,
+      signal?: AbortSignal,
     ) => Promise<Connection>;
+    /**
+     * Native HTTP seam for the outbound source transport. Production resolves
+     * the platform transport; only the socket implementation is replaceable.
+     */
+    http?: PiBrokeredWebHttpDependencies;
   } = {},
 ) {
   const connections = new Map<
@@ -293,22 +349,35 @@ export function createPiMcpToolSources(
       dirty: boolean;
     }
   >();
-  async function getConnection(source: PiMcpSource) {
-    const identity = sourceIdentity(source);
+  async function getConnection(source: PiMcpSource, signal?: AbortSignal) {
+    const identity = piMcpSourceBindingIdentity(source);
     let active = connections.get(source.id);
     if (active?.identity !== identity) {
       if (active) await active.client.close();
-      const client = await (options.openClient || openSource)(source, () => {
+      const invalidate = () => {
         const entry = connections.get(source.id);
         if (entry) entry.dirty = true;
-      });
+      };
+      const client = options.openClient
+        ? await options.openClient(source, invalidate, signal)
+        : await openSource(
+            source,
+            invalidate,
+            undefined,
+            signal,
+            options.http?.transport,
+          );
       active = { identity, client, loadedAt: 0, dirty: true };
       connections.set(source.id, active);
     }
     return active;
   }
-  async function discover(source: PiMcpSource): Promise<Tool[]> {
-    const entry = await getConnection(source);
+  async function discover(
+    source: PiMcpSource,
+    signal?: AbortSignal,
+  ): Promise<Tool[]> {
+    if (signal?.aborted) throw new Error("mcp_canceled");
+    const entry = await getConnection(source, signal);
     if (entry.dirty || Date.now() - entry.loadedAt > CACHE_MS || !entry.tools) {
       const listed = await entry.client.listTools(undefined, {
         timeout: 20_000,
@@ -319,15 +388,9 @@ export function createPiMcpToolSources(
         textBytes(listed.tools) > 1024 * 1024
       )
         throw new Error("mcp_catalog_invalid");
-      entry.tools = listed.tools.filter(
-        (item) =>
-          typeof item?.name === "string" &&
-          !!item.name &&
-          item.name.length <= 128 &&
-          (!item.description || item.description.length <= 4096) &&
-          !!item.inputSchema &&
-          typeof item.inputSchema === "object",
-      );
+      entry.tools = listed.tools
+        .filter(admissibleDescriptor)
+        .slice(0, MAX_TOOLS_PER_SOURCE);
       entry.loadedAt = Date.now();
       entry.dirty = false;
     }
@@ -335,13 +398,15 @@ export function createPiMcpToolSources(
   }
   async function testSource(
     id: string,
+    signal?: AbortSignal,
   ): Promise<Array<Tool & { digest: string }>> {
     const source = loadPiMcpSourceRegistry().sources.find(
       (item) => item.id === id,
     );
     if (!source) throw new Error("mcp_source_missing");
+    if (signal?.aborted) throw new Error("mcp_canceled");
     return Promise.all(
-      (await discover(source)).map(async (tool) => ({
+      (await discover(source, signal)).map(async (tool) => ({
         ...tool,
         digest: await digest([
           tool.name,
@@ -355,7 +420,7 @@ export function createPiMcpToolSources(
     let sources: PiMcpSource[] = [];
     try {
       sources = loadPiMcpSourceRegistry().sources.filter(
-        (item) => item.enabled && Object.keys(item.selectedTools).length > 0,
+        (item) => item.enabled,
       );
     } catch {
       /* Corrupt registry contributes no callable tools. */
@@ -369,8 +434,6 @@ export function createPiMcpToolSources(
         continue;
       }
       for (const tool of discovered) {
-        const review = source.selectedTools[tool.name];
-        if (!review || review.digest !== tool.digest) continue;
         const location =
           source.transport === "http"
             ? classifyPiMcpHttpUrl(source.url!).location
@@ -379,20 +442,16 @@ export function createPiMcpToolSources(
           ...tool,
           sourceId: source.id,
           alias: (await digest([source.id, tool.name])).slice(7, 31),
-          sourceIdentity: sourceIdentity(source),
+          sourceIdentity: piMcpSourceBindingIdentity(source),
           effects: [
             ...new Set([
-              ...(review.effects ||
-                (source.transport === "http"
-                  ? ["external-egress", "external-mutation"]
-                  : ["code-execution", "host-control"])),
               ...(source.transport === "http"
                 ? ["external-egress"]
                 : ["code-execution", "host-control"]),
+              ...(source.transport === "http" ? ["external-mutation"] : []),
               ...(location !== "public" ? ["local-network"] : []),
             ]),
           ] as PiGatewayEffect[],
-          promoted: review.promoted,
         });
       }
     }
@@ -402,14 +461,13 @@ export function createPiMcpToolSources(
     return freeze({
       digest: await digest(
         tools.map(
-          ({
+          ({ sourceId, sourceIdentity, name, digest: descriptor, effects }) => [
             sourceId,
             sourceIdentity,
             name,
-            digest: descriptor,
+            descriptor,
             effects,
-            promoted,
-          }) => [sourceId, sourceIdentity, name, descriptor, effects, promoted],
+          ],
         ),
       ),
       tools: JSON.parse(JSON.stringify(tools)) as PiMcpCatalogTool[],
@@ -426,7 +484,7 @@ export function createPiMcpToolSources(
     const selected = catalog.tools.find(
       (item) => item.sourceId === sourceId && item.name === name,
     );
-    if (!selected) return failed("mcp_tool_not_selected");
+    if (!selected) return failed("mcp_tool_not_admitted");
     let source: PiMcpSource | undefined;
     try {
       source = loadPiMcpSourceRegistry().sources.find(
@@ -435,7 +493,10 @@ export function createPiMcpToolSources(
     } catch {
       return failed("mcp_source_unavailable");
     }
-    if (!source?.enabled || sourceIdentity(source) !== selected.sourceIdentity)
+    if (
+      !source?.enabled ||
+      piMcpSourceBindingIdentity(source) !== selected.sourceIdentity
+    )
       return failed("mcp_source_unavailable");
     try {
       const connection = await getConnection(source);
@@ -486,36 +547,16 @@ export function piMcpGatewayDefinitions(
   );
   const classify = (tool: PiMcpCatalogTool) => ({
     effects: tool.effects,
+    // Conservative classification and same-source serialization are bound to
+    // the source, not to any user tool selection.
     authorizationKeys: [`mcp:${tool.sourceId}`],
     resourceKeys: [`mcp:${tool.sourceId}`],
     cost: 1,
   });
-  const direct = catalog.tools
-    .filter((tool) => tool.promoted)
-    .map(
-      (tool): PiGatewayToolDefinition => ({
-        capabilityId: `mcp.${tool.alias}`,
-        name: `mcp_${tool.alias}`,
-        description: `[${tool.sourceId}] ${tool.description || tool.name}`,
-        schema: tool.inputSchema,
-        minimumEffects: tool.effects,
-        maxResultBytes: MAX_RESULT_BYTES,
-        classify: () => classify(tool),
-        execute: (args, context) =>
-          runtime.callTool(
-            catalog,
-            tool.sourceId,
-            tool.name,
-            args as Record<string, unknown>,
-            context.signal,
-            context.trackPhysical,
-          ),
-      }),
-    );
   const proxy: PiGatewayToolDefinition = {
     capabilityId: "mcp.proxy",
     name: "mcp",
-    description: "Search, describe, or call selected MCP tools",
+    description: "Search, describe, or call admitted MCP tools",
     schema: {
       type: "object",
       properties: {
@@ -534,7 +575,7 @@ export function piMcpGatewayDefinitions(
       const call = args as Record<string, unknown>;
       const tool = byKey.get(`${call.sourceId}\n${call.name}`);
       if (call.action === "call" && !tool)
-        throw new Error("mcp_tool_not_selected");
+        throw new Error("mcp_tool_not_admitted");
       return call.action === "call"
         ? {
             ...classify(tool!),
@@ -580,7 +621,7 @@ export function piMcpGatewayDefinitions(
                 inputSchema: tool.inputSchema as JsonValue,
               },
             }
-          : failed("mcp_tool_not_selected");
+          : failed("mcp_tool_not_admitted");
       }
       if (call.action === "call")
         return runtime.callTool(
@@ -594,7 +635,7 @@ export function piMcpGatewayDefinitions(
       return failed("invalid_request");
     },
   };
-  return [proxy, ...direct];
+  return [proxy];
 }
 
 export function freezePiMcpGatewayTurn(

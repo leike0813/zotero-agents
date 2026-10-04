@@ -1,5 +1,4 @@
 import { assert } from "chai";
-import { config } from "../../../../package.json";
 import { getPref, setPref } from "../../../../src/utils/prefs";
 import {
   PiOutboundNetworkError,
@@ -7,6 +6,8 @@ import {
   inspectPiBrokeredWebUrl,
   requestPiBrokeredWebHttp,
 } from "../../../../src/modules/piBrokeredWebHttp";
+import { createPiBrokeredWebTools } from "../../../../src/modules/piBrokeredWebTools";
+import { createZoteroAgentSettingsOwner } from "../../../../src/modules/workflow/settings/zoteroAgentSettingsPiAccess";
 
 type Mozilla = { classes: any; interfaces: any; utils: any; services: any };
 
@@ -201,65 +202,102 @@ async function codeOf(operation: () => Promise<unknown>): Promise<string> {
 describe("Pi brokered web network in real Zotero", function () {
   this.timeout(60_000);
 
-  it("tests a source through the actual plugin sandbox and Backend Manager", async function () {
+  it("tests a saved disabled source through the settings owner in the actual plugin sandbox", async function () {
     const fixture = startFixture();
     const previous = String(getPref("piWebSourcesJson") || "");
+    const saved = {
+      id: "fixture-web",
+      kind: "searxng",
+      label: "Fixture Web",
+      enabled: false,
+      endpoint: fixture.origin + "/search",
+      localNetworkApprovedOrigin: fixture.origin,
+    };
     setPref(
       "piWebSourcesJson",
       JSON.stringify([
+        saved,
         {
-          id: "fixture-web",
-          kind: "searxng",
-          label: "Fixture Web",
-          enabled: true,
-          endpoint: `${fixture.origin}/search`,
-          localNetworkApprovedOrigin: fixture.origin,
+          id: "perplexity",
+          kind: "perplexity",
+          label: "Perplexity",
+          enabled: false,
         },
       ]),
     );
-    const plugin = (Zotero as any)[config.addonInstance];
-    const opened = plugin.hooks.onPrefsEvent("openBackendManager", {
-      window: Zotero.getMainWindow(),
-    });
+    const owner = await createZoteroAgentSettingsOwner();
+    const signal = new AbortController().signal;
     try {
-      let frame: HTMLIFrameElement | null = null;
-      for (let i = 0; i < 100; i++) {
-        frame = plugin.data.dialog?.window?.document.querySelector(
-          "[data-zs-role='backend-manager-dialog-frame']",
-        );
-        if (
-          frame?.contentDocument?.querySelectorAll(".backend-provider-tab")
-            .length === 4
-        )
-          break;
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
-      assert.isOk(frame?.contentDocument);
-      (
-        frame!.contentDocument!.querySelectorAll(
-          ".backend-provider-tab",
-        )[3] as HTMLElement
-      ).click();
-      const row = frame!.contentDocument!.querySelector(
-        '[data-web-source="fixture-web"]',
+      const projected = (await owner.snapshot()).webSources.find(
+        (entry) => entry.id === "fixture-web",
       );
-      assert.isOk(row);
-      (row!.querySelector('[data-web-action="test"]') as HTMLElement).click();
-      let status: string | null | undefined;
-      for (let i = 0; i < 100; i++) {
-        status = frame!
-          .contentDocument!.querySelector(
-            '[data-web-source="fixture-web"] [data-web-status]',
-          )
-          ?.getAttribute("data-web-status");
-        if (status && status !== "testing") break;
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
-      assert.equal(status, "available");
+      assert.isTrue(projected?.configured);
+      assert.deepEqual(projected?.missing, []);
+      assert.isFalse(projected?.enabled);
+      assert.isTrue(projected?.localNetworkApproved);
+
+      const tested = await owner.dispatch(
+        {
+          action: "pi-web-test-source",
+          requestId: "zotero-287",
+          objectId: "fixture-web",
+          payload: {},
+        },
+        signal,
+      );
+      assert.isTrue(tested.ok);
+      assert.equal((tested.result as any).status, "available");
+      assert.lengthOf(fixture.requests, 1);
+      const after = (await owner.snapshot()).webSources.find(
+        (entry) => entry.id === "fixture-web",
+      );
+      // Testing one saved source neither enables it nor disturbs its order.
+      assert.isFalse(after?.enabled);
+      assert.equal(after?.bindingIdentity, projected?.bindingIdentity);
+
+      const billed = await owner.dispatch(
+        {
+          action: "pi-web-test-source",
+          requestId: "zotero-287-billed",
+          objectId: "perplexity",
+          payload: {},
+        },
+        signal,
+      );
+      assert.isFalse(billed.ok);
+      assert.equal(billed.code, "usage_confirmation_required");
       assert.lengthOf(fixture.requests, 1);
     } finally {
-      plugin.data.dialog?.window?.close();
-      await opened;
+      owner.dispose();
+      setPref("piWebSourcesJson", previous);
+      fixture.stop();
+    }
+  });
+
+  it("refuses to test a saved source whose local network was never approved", async function () {
+    const fixture = startFixture();
+    const previous = String(getPref("piWebSourcesJson") || "");
+    const source = {
+      id: "fixture-web",
+      kind: "searxng",
+      label: "Fixture Web",
+      enabled: false,
+      endpoint: fixture.origin + "/search",
+    };
+    setPref("piWebSourcesJson", JSON.stringify([source]));
+    try {
+      const service = createPiBrokeredWebTools();
+      assert.deepEqual(service.describeSavedSource("fixture-web")?.missing, []);
+      const denied = await service.testSource("fixture-web", "zotero-287-b");
+      assert.equal(denied.status, "failed");
+      assert.equal(denied.code, "pi_network_local_approval_required");
+      // Testing a saved source never creates the approval it would need.
+      assert.lengthOf(fixture.requests, 0);
+      assert.isUndefined(
+        (JSON.parse(String(getPref("piWebSourcesJson"))) as any[])[0]
+          .localNetworkApprovedOrigin,
+      );
+    } finally {
       setPref("piWebSourcesJson", previous);
       fixture.stop();
     }

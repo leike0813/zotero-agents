@@ -1,0 +1,10 @@
+
+[node-test-shard:start] runtime-provider-registry (Runtime provider registry)
+[node-test-shard:files] 7
+[node-test-shard:data-dir] /tmp/zotero-agents-node-test-shards-1449372/runtime-provider-registry/Zotero_data
+[node-test-shard:command] npx tsx node_modules/mocha/bin/mocha tests/runtime/181-provider-profile-selection.test.ts tests/runtime/242-pi-provider-configuration.test.ts tests/runtime/243-pi-model-catalog.test.ts tests/runtime/244-pi-credential-store.test.ts tests/runtime/292-zotero-agent-settings-host.test.ts tests/runtime/33-provider-backend-registry.test.ts tests/runtime/57-backend-manager-risk-regression.test.ts --require tests/setup/zotero-mock.ts --exit
+[node-test-shard:end] runtime-provider-registry exit=0 durationMs=15680
+
+[node-test-shards:summary]
+- runtime-provider-registry: exit=0 files=7 durationMs=15680
+[node-test-shards:summary] all shards passed

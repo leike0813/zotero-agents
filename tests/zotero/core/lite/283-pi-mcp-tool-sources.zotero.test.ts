@@ -4,6 +4,8 @@ import {
   getPiMcpToolSources,
   shutdownPiMcpToolSources,
 } from "../../../../src/modules/piMcpRuntimeOwner";
+import { applyPiMcpSourceChange } from "../../../../src/modules/piMcpSourceRegistry";
+import { getPref, setPref } from "../../../../src/utils/prefs";
 import {
   getCachedRuntimeCommand,
   preflightRuntimeCommandsOnStartup,
@@ -20,6 +22,40 @@ describe("Pi MCP source transport in real Zotero", function () {
     const sources = await getPiMcpToolSources();
     assert.isFunction(sources.testSource);
     await shutdownPiMcpToolSources();
+  });
+
+  it("admits an enabled saved source with no persisted tool selection", async function () {
+    this.timeout(60_000);
+    const prior = String(getPref("piMcpSourceRegistryJson") || "");
+    try {
+      await applyPiMcpSourceChange({
+        sources: [
+          {
+            id: "zotero-fixture",
+            label: "Fixture",
+            transport: "http",
+            // A closed loopback port fails fast, so admission is exercised
+            // without waiting on any live server.
+            url: "https://127.0.0.1:1/mcp",
+            enabled: true,
+            authentication: { kind: "none" },
+            bindings: [],
+            approveLocalNetwork: true,
+          },
+        ],
+      });
+      const saved = String(getPref("piMcpSourceRegistryJson") || "");
+      assert.notInclude(saved, "selectedTools");
+      assert.notInclude(saved, "promoted");
+      assert.notInclude(saved, "digest");
+      const sources = await getPiMcpToolSources();
+      const catalog = await sources.getCatalogForTurn();
+      assert.isArray(catalog.tools);
+      assert.isFunction(sources.callTool);
+    } finally {
+      await shutdownPiMcpToolSources();
+      setPref("piMcpSourceRegistryJson", prior);
+    }
   });
 
   it("streams JSON-RPC through the live stdio adapter", async function () {

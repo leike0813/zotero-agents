@@ -1,0 +1,5 @@
+
+> zotero-agents@0.10.0 check:help-docs
+> tsx scripts/build-help-docs.ts --check
+
+[help-docs] checked docs=504 assets=53 size=6199805

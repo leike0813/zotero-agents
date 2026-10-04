@@ -1295,6 +1295,14 @@ async function onShutdown(): Promise<void> {
     stopHostBridgeSupervisor,
   );
   await runShutdownStepWithTimeout(
+    "zotero-agent-settings-window-close",
+    async () => {
+      const { closeZoteroAgentSettings } =
+        await import("./modules/workflow/settings/zoteroAgentSettings");
+      closeZoteroAgentSettings();
+    },
+  );
+  await runShutdownStepWithTimeout(
     "skillrunner-async-lifecycle-shutdown",
     shutdownSkillRunnerAsyncLifecycle,
   );
@@ -1475,6 +1483,22 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
         window: data.window,
       });
       break;
+    case "openZoteroAgentSettings": {
+      // Lazy edge: the independent settings window owner (and the Pi graph it
+      // composes) must stay out of the plugin entry graph until it is opened.
+      // Compile-time Pi entry: the measurement-only control build has no
+      // settings owner to open, so neither this edge nor the Pi graph behind
+      // it can reach the plugin entry graph.
+      if (
+        typeof __PI_RUNTIME_ENABLED__ === "undefined" ||
+        __PI_RUNTIME_ENABLED__
+      ) {
+        const { openZoteroAgentSettings } =
+          await import("./modules/workflow/settings/zoteroAgentSettings");
+        await openZoteroAgentSettings({ window: data.window });
+      }
+      break;
+    }
     case "openWorkflowSettings":
       await openTaskDashboard({
         initialTabKey: "workflow-options",

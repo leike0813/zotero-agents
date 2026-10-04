@@ -26,16 +26,13 @@ import {
   type BackendManagerRowPatch,
   type BackendManagerSnapshot,
   type BackendManagerView,
-  type PiChatGPTAuthProgress,
 } from "./components/BackendManagerRegion";
 import type {
-  BackendManagerBuiltinAgentSnapshot,
   BackendManagerActionEnvelopeFor,
   BackendManagerActionHandler,
   BackendManagerActionName,
   BackendManagerActionPayload,
 } from "../shared/dashboardWireContract";
-import type { PiWebSourceTestResult } from "../shared/piWebSourceContract";
 import {
   createBackendManagerRenderer,
   type BackendManagerRenderOptions,
@@ -43,27 +40,6 @@ import {
 
 const PROVIDER_ORDER = ["acp", "skillrunner", "generic-http"];
 const PI_SECTION = "builtin-agent";
-
-const PI_CATALOG_SOURCE_MESSAGES = {
-  refreshPublic: (labels?: BackendManagerLabels) =>
-    labels?.piCatalogUpdated || "Catalog updated",
-  autoUpdate: (labels?: BackendManagerLabels) =>
-    labels?.piCatalogUpdated || "Catalog updated",
-  restore: (labels?: BackendManagerLabels) =>
-    labels?.piCatalogRestored || "Previous catalog restored",
-  removeOverlay: (labels?: BackendManagerLabels) =>
-    labels?.piOverlayRemoved || "Overlay removed",
-} as const;
-
-const PI_CATALOG_SOURCE_ACTIONS = new Map<
-  string,
-  "refreshPublic" | "autoUpdate" | "restore" | "removeOverlay"
->([
-  ["pi-catalog-refresh-public", "refreshPublic"],
-  ["pi-catalog-set-auto-update", "autoUpdate"],
-  ["pi-catalog-restore-previous", "restore"],
-  ["pi-catalog-remove-overlay", "removeOverlay"],
-]);
 
 export type BackendManagerActionSender = BackendManagerActionHandler;
 
@@ -90,7 +66,6 @@ export type BackendManagerControllerState = {
   pendingModelCacheRows: Set<number>;
   skillRunnerReachableById: Record<string, boolean>;
   statusMessage: { text: string; tone: string } | null;
-  chatgptAuth: PiChatGPTAuthProgress | null;
   scrollByProvider: Record<string, number>;
   acpPresetDialog: BackendManagerAcpPresetDialogState | null;
   genericHttpPresetDialog: BackendManagerGenericHttpPresetDialogState | null;
@@ -157,8 +132,8 @@ function providerList(snapshot: BackendManagerSnapshot | null) {
   if (snapshot?.builtinAgent)
     providers.push({
       type: PI_SECTION,
-      label: snapshot.labels.piTitle || "Built-in Agent",
-      title: snapshot.labels.piTitle || "Built-in Agent",
+      label: snapshot.labels.piTitle,
+      title: snapshot.labels.piTitle,
     });
   return providers.slice().sort((a, b) => {
     const ai = PROVIDER_ORDER.indexOf(a.type);
@@ -235,26 +210,11 @@ export function createBackendManagerController(
     pendingModelCacheRows: new Set<number>(),
     skillRunnerReachableById: Object.create(null) as Record<string, boolean>,
     statusMessage: null,
-    chatgptAuth: null,
     scrollByProvider: Object.create(null) as Record<string, number>,
     acpPresetDialog: null,
     genericHttpPresetDialog: null,
   };
   let statusTimer: ReturnType<typeof setTimeout> | null = null;
-  let piTestSequence = 0;
-  const mcpDiscovered: BackendManagerBuiltinAgentSnapshot["mcpDiscovered"] = {};
-  const mcpTestRequestIds: Record<string, string> = {};
-  const webTestResults: BackendManagerBuiltinAgentSnapshot["webTestResults"] =
-    {};
-  const webTestRequestIds: Record<string, string> = {};
-  let lastPiTestRequestId = "";
-  let lastPiCatalogRequestId = "";
-  // One outstanding request id per directory control, so a superseded result
-  // cannot repaint a newer one.
-  const piCatalogRequest: Record<
-    "refreshPublic" | "autoUpdate" | "restore" | "removeOverlay",
-    string
-  > = { refreshPublic: "", autoUpdate: "", restore: "", removeOverlay: "" };
   let disposed = false;
 
   function isSkillRunnerReachable(row: BackendManagerDraftRow): boolean {
@@ -352,8 +312,6 @@ export function createBackendManagerController(
             labels,
             builtinAgent:
               provider.type === PI_SECTION ? snapshot.builtinAgent : undefined,
-            chatgptAuth:
-              provider.type === PI_SECTION ? state.chatgptAuth : null,
             rows: state.rows
               .map((row, index) => ({ row, index }))
               .filter((entry) => entry.row.type === provider.type)
@@ -439,17 +397,7 @@ export function createBackendManagerController(
 
   function applySnapshot(payload: BackendManagerSnapshot | null): void {
     if (disposed) return;
-    const priorCatalog = state.snapshot?.builtinAgent;
     state.snapshot = payload || ({} as BackendManagerSnapshot);
-    if (state.snapshot.builtinAgent) {
-      state.snapshot.builtinAgent.mcpDiscovered = { ...mcpDiscovered };
-      state.snapshot.builtinAgent.webTestResults = { ...webTestResults };
-      if (
-        priorCatalog?.catalog.revision ===
-        state.snapshot.builtinAgent.catalog.revision
-      )
-        state.snapshot.builtinAgent.models = priorCatalog.models;
-    }
     state.rows = Array.isArray(state.snapshot.rows)
       ? state.snapshot.rows.map(cleanRow)
       : [];
@@ -464,166 +412,6 @@ export function createBackendManagerController(
   function handleActionResult(payload: Record<string, unknown>): void {
     if (disposed) return;
     const action = String(payload.action || "");
-    if (action === "pi-chatgpt-connect") {
-      if (String(payload.requestId || "") !== state.chatgptAuth?.requestId)
-        return;
-      const status = String(payload.status || "");
-      if (
-        status === "waiting_browser" ||
-        status === "exchanging" ||
-        status === "validating"
-      ) {
-        state.chatgptAuth = { requestId: state.chatgptAuth.requestId, status };
-        renderCurrent();
-      } else if (status === "complete" || status === "failed") {
-        state.chatgptAuth = null;
-        showStatusMessage(
-          status === "complete"
-            ? state.snapshot?.labels.piChatGPTConnected || "ChatGPT connected"
-            : state.snapshot?.labels.piChatGPTFailed ||
-                "ChatGPT sign-in failed",
-          status === "complete" ? "success" : "error",
-        );
-      }
-      return;
-    }
-    if (action === "pi-chatgpt-cancel") return;
-    if (action === "pi-test-connection") {
-      if (String(payload.requestId || "") !== lastPiTestRequestId) return;
-      showStatusMessage(
-        payload.ok === true
-          ? state.snapshot?.labels.piConnectionAvailable ||
-              "Connection available"
-          : state.snapshot?.labels.piConnectionUnavailable ||
-              "Connection unavailable",
-        payload.ok === true ? "success" : "error",
-      );
-      return;
-    }
-    if (action.startsWith("pi-")) {
-      if (action === "pi-mcp-test-source") {
-        const id = String(payload.id || "");
-        if (String(payload.requestId || "") !== mcpTestRequestIds[id]) return;
-      }
-      if (action === "pi-web-test-source") {
-        const id = String(payload.sourceId || payload.id || "");
-        if (String(payload.requestId || "") !== webTestRequestIds[id]) return;
-        if (payload.ok === true) {
-          const status = String(payload.status || "failed");
-          webTestResults[id] = {
-            sourceId: id,
-            requestId: String(payload.requestId || ""),
-            status: (["available", "unavailable", "failed"].includes(status)
-              ? status
-              : "failed") as PiWebSourceTestResult["status"],
-            ...(typeof payload.toolDigest === "string" &&
-            /^sha256:[a-f0-9]{64}$/.test(payload.toolDigest)
-              ? { toolDigest: payload.toolDigest }
-              : {}),
-            ...(typeof payload.code === "string" &&
-            /^[a-z0-9_]{1,40}$/.test(payload.code)
-              ? { code: payload.code }
-              : {}),
-          };
-          if (state.snapshot?.builtinAgent) {
-            state.snapshot.builtinAgent = {
-              ...state.snapshot.builtinAgent,
-              webTestResults: { ...webTestResults },
-            };
-            renderCurrent();
-          }
-          showStatusMessage(
-            status === "available"
-              ? state.snapshot?.labels.webAvailable || "Available"
-              : status === "unavailable"
-                ? state.snapshot?.labels.webUnavailable || "Unavailable"
-                : state.snapshot?.labels.webFailed || "Test failed",
-            status === "available" ? "success" : "error",
-          );
-        } else {
-          showStatusMessage(String(payload.error || "Test failed"), "error");
-        }
-        return;
-      }
-      if (PI_CATALOG_SOURCE_ACTIONS.has(action)) {
-        const key = PI_CATALOG_SOURCE_ACTIONS.get(action)!;
-        if (String(payload.requestId || "") !== piCatalogRequest[key]) return;
-        const labels = state.snapshot?.labels;
-        showStatusMessage(
-          payload.ok === true
-            ? (PI_CATALOG_SOURCE_MESSAGES[key](labels) as string)
-            : (labels?.piCatalogUnavailable as string) ||
-                "Catalog update unavailable",
-          payload.ok === true ? "success" : "error",
-        );
-        return;
-      }
-      if (
-        action === "pi-mcp-test-source" &&
-        payload.ok === true &&
-        state.snapshot?.builtinAgent &&
-        Array.isArray(payload.tools)
-      ) {
-        mcpDiscovered[String(payload.id || "")] =
-          payload.tools as BackendManagerBuiltinAgentSnapshot["mcpDiscovered"][string];
-        state.snapshot.builtinAgent.mcpDiscovered = { ...mcpDiscovered };
-        renderCurrent();
-      }
-      if (
-        action === "pi-mcp-preview-import" &&
-        payload.ok === true &&
-        state.snapshot?.builtinAgent &&
-        Array.isArray(payload.sources) &&
-        Array.isArray(payload.secretSlots)
-      ) {
-        state.snapshot.builtinAgent.mcpImportPreview = {
-          sources: payload.sources as {
-            id: string;
-            transport: "http" | "stdio";
-            endpoint: string;
-            origin: string;
-            localNetwork: boolean;
-            cleartext: boolean;
-          }[],
-          secretSlots: payload.secretSlots as {
-            sourceId: string;
-            slot: string;
-          }[],
-        };
-        renderCurrent();
-      }
-      if (
-        action === "pi-mcp-export" &&
-        payload.ok === true &&
-        typeof payload.json === "string"
-      ) {
-        const file = new Blob([payload.json], { type: "application/json" });
-        const url = URL.createObjectURL(file);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = ".mcp.json";
-        link.click();
-        setTimeout(() => URL.revokeObjectURL(url), 0);
-      }
-      if (payload.ok === false)
-        showStatusMessage(String(payload.error || "Pi action failed"), "error");
-      else if (action !== "pi-catalog-query")
-        showStatusMessage(String(payload.message || "Saved"), "success");
-      if (
-        action === "pi-catalog-query" &&
-        String(payload.requestId || "") === lastPiCatalogRequestId &&
-        Array.isArray(payload.models) &&
-        state.snapshot?.builtinAgent
-      ) {
-        state.snapshot.builtinAgent = {
-          ...state.snapshot.builtinAgent,
-          models:
-            payload.models as BackendManagerBuiltinAgentSnapshot["models"],
-        };
-        renderCurrent();
-      }
-      return;
-    }
     if (action === "add-acp-preset" && payload.row) {
       state.rows.push(cleanRow(payload.row));
       state.acpPresetDialog = null;
@@ -853,180 +641,8 @@ export function createBackendManagerController(
     openPresetLink(url) {
       deps.sendAction("open-preset-link", { url });
     },
-    upsertPiConfiguration(configuration) {
-      deps.sendAction("pi-upsert-configuration", { configuration });
-    },
-    deletePiConfiguration(id) {
-      deps.sendAction("pi-delete-configuration", { id });
-    },
-    setPiDefaults(defaults) {
-      deps.sendAction("pi-set-defaults", { defaults });
-    },
-    refreshPiOverlay(path) {
-      deps.sendAction("pi-refresh-overlay", { path });
-    },
-    refreshPiPublicCatalog() {
-      piCatalogRequest.refreshPublic = String(++piTestSequence);
-      deps.sendAction("pi-catalog-refresh-public", {
-        requestId: piCatalogRequest.refreshPublic,
-      });
-    },
-    setPiCatalogAutoUpdate(enabled: boolean) {
-      piCatalogRequest.autoUpdate = String(++piTestSequence);
-      deps.sendAction("pi-catalog-set-auto-update", {
-        enabled,
-        requestId: piCatalogRequest.autoUpdate,
-      });
-    },
-    restorePiPreviousCatalog() {
-      piCatalogRequest.restore = String(++piTestSequence);
-      deps.sendAction("pi-catalog-restore-previous", {
-        requestId: piCatalogRequest.restore,
-      });
-    },
-    removePiCatalogOverlay() {
-      piCatalogRequest.removeOverlay = String(++piTestSequence);
-      deps.sendAction("pi-catalog-remove-overlay", {
-        requestId: piCatalogRequest.removeOverlay,
-      });
-    },
-    queryPiCatalog(provider, query, credentialId) {
-      lastPiCatalogRequestId = String(++piTestSequence);
-      if (state.snapshot?.builtinAgent?.models.length) {
-        state.snapshot.builtinAgent = {
-          ...state.snapshot.builtinAgent,
-          models: [],
-        };
-        renderCurrent();
-      }
-      deps.sendAction("pi-catalog-query", {
-        provider,
-        query,
-        credentialId,
-        requestId: lastPiCatalogRequestId,
-      });
-    },
-    refreshPiChatGPTModels(configurationId, registrationId) {
-      deps.sendAction("pi-chatgpt-refresh-models", {
-        configurationId,
-        registrationId,
-      });
-    },
-    putPiCredential(input) {
-      deps.sendAction("pi-put-credential", input);
-    },
-    deletePiCredential(id) {
-      deps.sendAction("pi-delete-credential", { id });
-    },
-    testPiConnection(configurationId) {
-      lastPiTestRequestId = String(++piTestSequence);
-      deps.sendAction("pi-test-connection", {
-        configurationId,
-        requestId: lastPiTestRequestId,
-      });
-    },
-    exportPiDiagnostics() {
-      // The host owns the save picker; a cancelled picker exports nothing.
-      deps.sendAction("pi-export-diagnostics", {});
-    },
-    connectPiChatGPT(configurationId, registrationId, reconsent) {
-      if (state.chatgptAuth) return;
-      state.chatgptAuth = {
-        requestId: String(++piTestSequence),
-        status: "waiting_browser",
-      };
-      renderCurrent();
-      deps.sendAction("pi-chatgpt-connect", {
-        configurationId,
-        registrationId: registrationId || "",
-        requestId: state.chatgptAuth.requestId,
-        ...(reconsent ? { reconsent: true } : {}),
-      });
-    },
-    cancelPiChatGPT(requestId) {
-      if (state.chatgptAuth?.requestId !== requestId) return;
-      deps.sendAction("pi-chatgpt-cancel", {
-        requestId: state.chatgptAuth.requestId,
-      });
-      state.chatgptAuth = null;
-      renderCurrent();
-    },
-    signOutPiChatGPT(registrationId, remove) {
-      if (state.chatgptAuth) return;
-      deps.sendAction("pi-chatgpt-sign-out", {
-        registrationId,
-        ...(remove ? { remove: true } : {}),
-      });
-    },
-    acceptPiChatGPTWelcome(registrationId) {
-      if (state.chatgptAuth) return;
-      deps.sendAction("pi-chatgpt-accept-welcome", { registrationId });
-    },
-    upsertMcpSource(source) {
-      delete mcpDiscovered[source.id];
-      delete mcpTestRequestIds[source.id];
-      deps.sendAction("pi-mcp-upsert-source", { source });
-    },
-    deleteMcpSource(id) {
-      delete mcpDiscovered[id];
-      delete mcpTestRequestIds[id];
-      deps.sendAction("pi-mcp-delete-source", { id });
-    },
-    testMcpSource(id) {
-      mcpTestRequestIds[id] = String(++piTestSequence);
-      deps.sendAction("pi-mcp-test-source", {
-        id,
-        requestId: mcpTestRequestIds[id],
-      });
-    },
-    reviewMcpTool(sourceId, name, digest, promoted) {
-      deps.sendAction("pi-mcp-review-tool", {
-        sourceId,
-        name,
-        digest,
-        promoted,
-      });
-    },
-    unreviewMcpTool(sourceId, name) {
-      deps.sendAction("pi-mcp-unreview-tool", { sourceId, name });
-    },
-    putMcpSecret(id, label, secret) {
-      deps.sendAction("pi-mcp-put-secret", { id, label, secret });
-    },
-    deleteMcpSecret(id) {
-      deps.sendAction("pi-mcp-delete-secret", { id });
-    },
-    importMcpJson(json, approvals) {
-      deps.sendAction("pi-mcp-import", { json, approvals });
-    },
-    previewMcpJson(json) {
-      if (state.snapshot?.builtinAgent) {
-        state.snapshot.builtinAgent.mcpImportPreview = undefined;
-        renderCurrent();
-      }
-      deps.sendAction("pi-mcp-preview-import", { json });
-    },
-    exportMcpJson() {
-      deps.sendAction("pi-mcp-export", {});
-    },
-    resetMcpRegistry() {
-      deps.sendAction("pi-mcp-reset-registry", {});
-    },
-    saveWebSources(sources) {
-      deps.sendAction("pi-web-save-sources", { sources });
-    },
-    testWebSource(id) {
-      webTestRequestIds[id] = String(++piTestSequence);
-      deps.sendAction("pi-web-test-source", {
-        id,
-        requestId: webTestRequestIds[id],
-      });
-    },
-    putWebSecret(id, label, secret) {
-      deps.sendAction("pi-web-put-secret", { id, label, secret });
-    },
-    deleteWebSecret(id) {
-      deps.sendAction("pi-web-delete-secret", { id });
+    openZoteroAgentSettings() {
+      deps.sendAction("open-zotero-agent-settings", {});
     },
   };
 
@@ -1041,12 +657,6 @@ export function createBackendManagerController(
       if (statusTimer) {
         clearTimeout(statusTimer);
         statusTimer = null;
-      }
-      if (state.chatgptAuth) {
-        deps.sendAction("pi-chatgpt-cancel", {
-          requestId: state.chatgptAuth.requestId,
-        });
-        state.chatgptAuth = null;
       }
       state.statusMessage = null;
       deps.renderView(null);
