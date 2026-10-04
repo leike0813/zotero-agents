@@ -130,6 +130,99 @@ function cloneSchema<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+const CANONICAL_PROTOCOL_SCHEMA_PATHS = [
+  "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/search.schema.json",
+  "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/reverse-host.schema.json",
+] as const;
+
+let canonicalProtocolSchemaIndex: Map<string, any> | undefined;
+
+function canonicalProtocolSchemas() {
+  if (!canonicalProtocolSchemaIndex) {
+    canonicalProtocolSchemaIndex = new Map(
+      CANONICAL_PROTOCOL_SCHEMA_PATHS.map((relativePath) => {
+        const schema = JSON.parse(
+          readFileSync(resolve(process.cwd(), relativePath), "utf8"),
+        );
+        return [schema.$id as string, schema] as const;
+      }),
+    );
+  }
+  return canonicalProtocolSchemaIndex;
+}
+
+function schemaPointerNode(document: unknown, pointer: string) {
+  let node = document;
+  for (const part of pointer.replace(/^\//, "").split("/")) {
+    if (!part) continue;
+    if (!node || typeof node !== "object" || Array.isArray(node))
+      return undefined;
+    node = (node as Record<string, unknown>)[
+      part.replaceAll("~1", "/").replaceAll("~0", "~")
+    ];
+  }
+  return node;
+}
+
+function inlineCanonicalRefs(
+  node: unknown,
+  document: unknown,
+  activeRefs: ReadonlySet<string>,
+): unknown {
+  if (Array.isArray(node)) {
+    return node.map((entry) =>
+      inlineCanonicalRefs(entry, document, activeRefs),
+    );
+  }
+  if (!node || typeof node !== "object") return node;
+  const schema = node as Record<string, unknown>;
+  if (typeof schema.$ref === "string") {
+    const ref = schema.$ref;
+    const [documentId, fragment = ""] = ref.split("#", 2);
+    const targetDocument = documentId
+      ? canonicalProtocolSchemas().get(documentId)
+      : document;
+    const target =
+      targetDocument && fragment
+        ? schemaPointerNode(targetDocument, fragment)
+        : targetDocument;
+    if (
+      !target ||
+      typeof target !== "object" ||
+      Array.isArray(target) ||
+      activeRefs.has(ref)
+    ) {
+      return { ...schema };
+    }
+    const { $ref, ...siblings } = schema;
+    return {
+      ...(inlineCanonicalRefs(
+        target,
+        targetDocument,
+        new Set([...activeRefs, ref]),
+      ) as Record<string, unknown>),
+      ...(inlineCanonicalRefs(siblings, document, activeRefs) as Record<
+        string,
+        unknown
+      >),
+    };
+  }
+  return Object.fromEntries(
+    Object.entries(schema).map(([key, value]) => [
+      key,
+      inlineCanonicalRefs(value, document, activeRefs),
+    ]),
+  );
+}
+
+/**
+ * Inlines canonical protocol `$ref`s so schema consumers can inspect the
+ * effective contract without owning a JSON Schema resolver.
+ */
+export function resolveHostBridgeCanonicalSchema<T>(schema: T): T {
+  return cloneSchema(inlineCanonicalRefs(schema, schema, new Set()) as T);
+}
+
 function pruneSchemaDefinitions(schema: Record<string, any>) {
   const definitions = schema.$defs;
   if (!definitions || typeof definitions !== "object") return schema;

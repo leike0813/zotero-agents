@@ -66,7 +66,7 @@ describe("MCP Host Bridge capability mirror", function () {
     assert.notInclude(names, "get_item_detail");
   });
 
-  it("mirrors filter on enumeration schemas while preserving search query", async function () {
+  it("mirrors the C2 lexical search schema while keeping list filters separate", async function () {
     const response: any = await handleZoteroMcpRequestForTests({
       jsonrpc: "2.0",
       id: "library-filter-tools",
@@ -86,8 +86,18 @@ describe("MCP Host Bridge capability mirror", function () {
     assert.notProperty(list.inputSchema.properties, "query");
     assert.property(readiness.inputSchema.properties, "filter");
     assert.notProperty(readiness.inputSchema.properties, "query");
-    assert.property(search.inputSchema.properties, "query");
-    assert.notProperty(search.inputSchema.properties, "filter");
+    assert.strictEqual(search.inputSchema.unevaluatedProperties, false);
+    assert.strictEqual(
+      search.inputSchema.$defs.SearchRequestCore.properties.limit.maximum,
+      100,
+    );
+    assert.strictEqual(
+      search.inputSchema.$defs.SearchRequestCore.properties.maxResults.maximum,
+      500,
+    );
+    assert.property(search.inputSchema.allOf[1].properties, "libraryIds");
+    assert.property(search.inputSchema.allOf[1].properties, "itemRefs");
+    assert.property(search.inputSchema.allOf[1].properties, "sourceKinds");
   });
 
   it("delivers the complete topic planning context through a registered file", async function () {

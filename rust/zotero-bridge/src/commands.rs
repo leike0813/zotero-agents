@@ -2805,11 +2805,57 @@ mod tests {
     use super::*;
     use crate::args::{
         BridgeInputArgs, BridgeQueryArgs, DirectPaperResearchBundleArgs,
-        DirectTopicResearchBundleArgs, ItemSearchArgs, LiteratureIngestArgs,
+        DirectTopicResearchBundleArgs, ItemArgs, ItemCommand, ItemSearchArgs, LiteratureIngestArgs,
         MutationCollectionItemsArgs, MutationItemAttachFileArgs, MutationItemUpdateArgs,
         MutationNoteCreateArgs, MutationTagsArgs,
     };
-    use std::io::Write;
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        thread,
+    };
+
+    fn search_response_server(
+        status: &str,
+        response: Value,
+    ) -> (BridgeConfig, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let response = response.to_string();
+        let status = status.to_string();
+        let handle = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request_bytes = [0_u8; 4096];
+            let read = stream.read(&mut request_bytes).unwrap();
+            let request = String::from_utf8_lossy(&request_bytes[..read]);
+            assert!(request.starts_with("POST /bridge/v2/call HTTP/1.1"));
+            assert!(request.contains(r#""capability":"library.search_items""#));
+            assert!(request.contains(r#""cursor":"opaque:cursor""#));
+            let response = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}",
+                response.len()
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+        });
+        (
+            BridgeConfig {
+                endpoint: format!("http://127.0.0.1:{port}/bridge/v2"),
+                token: Some("test-token".to_string()),
+                scope: None,
+                connection_mode: Some("remote".to_string()),
+                operation_id: None,
+            },
+            handle,
+        )
+    }
+
+    fn search_args() -> ItemArgs {
+        ItemArgs {
+            command: ItemCommand::Search(ItemSearchArgs {
+                query: r#"{"query":"graph","libraryIds":[1],"limit":10,"maxResults":40,"cursor":"opaque:cursor","sourceKinds":["metadata"]}"#.to_string(),
+            }),
+        }
+    }
 
     fn write_test_zip(path: &Path, entries: &[(String, Vec<u8>)]) {
         let file = fs::File::create(path).unwrap();
@@ -2998,14 +3044,16 @@ mod tests {
     fn passes_item_search_query_object_without_field_translation() {
         contract::set_current_command("library item search");
         let input = item_search_input(ItemSearchArgs {
-            query: "{\"query\":\"graph\",\"limit\":5,\"libraryId\":1}".to_string(),
+            query: "{\"query\":\"graph\",\"limit\":5,\"maxResults\":20,\"libraryIds\":[1],\"cursor\":\"opaque:cursor\"}".to_string(),
         });
         assert_eq!(
             input.unwrap(),
             json!({
                 "query": "graph",
                 "limit": 5,
-                "libraryId": 1
+                "maxResults": 20,
+                "libraryIds": [1],
+                "cursor": "opaque:cursor"
             })
         );
     }
@@ -3023,8 +3071,8 @@ mod tests {
             error
                 .details
                 .as_ref()
-                .and_then(|details| details["violations"][0]["property"].as_str()),
-            Some("text")
+                .and_then(|details| details["phase"].as_str()),
+            Some("command_input")
         );
     }
 
@@ -3036,6 +3084,69 @@ mod tests {
         .unwrap_err();
 
         assert_eq!(error.code, "input_json_invalid");
+    }
+
+    #[test]
+    fn item_search_returns_complete_search_envelope_unchanged() {
+        let data = json!({
+            "results": [],
+            "status": "completed",
+            "method": "lexical",
+            "coverage": {
+                "kind": "library",
+                "sources": {
+                    "metadata": { "status": "complete", "sourcesScanned": 1 },
+                    "fulltext": { "status": "not_requested", "sourcesScanned": 0 },
+                    "analysis": { "status": "not_requested", "sourcesScanned": 0 }
+                }
+            },
+            "issues": [],
+            "nextCursor": null,
+            "hasMore": false,
+            "total": 0
+        });
+        let expected = json!({
+            "capability": "library.search_items",
+            "approval": "none",
+            "data": data
+        });
+        let (config, handle) =
+            search_response_server("200 OK", json!({ "status": "ok", "result": expected }));
+        contract::set_current_command("library item search");
+
+        let result = item(&config, search_args()).unwrap();
+
+        assert_eq!(result, expected);
+        assert!(result["data"].get("items").is_none());
+        assert!(result["data"].get("truncated").is_none());
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn item_search_preserves_structured_cursor_failure_without_retry() {
+        let response = json!({
+            "status": "error",
+            "error": {
+                "code": "basis_mismatch",
+                "category": "protocol",
+                "message": "Search cursor basis changed",
+                "retryable": false,
+                "stateChange": "unchanged",
+                "handleConsumption": "unconsumed"
+            }
+        });
+        let (config, handle) = search_response_server("409 Conflict", response);
+        contract::set_current_command("library item search");
+
+        let error = item(&config, search_args()).unwrap_err();
+
+        assert_eq!(error.code, "basis_mismatch");
+        assert_eq!(error.retryable, Some(false));
+        assert_eq!(
+            error.details.as_ref().unwrap()["bridge"]["error"]["code"],
+            "basis_mismatch"
+        );
+        handle.join().unwrap();
     }
 
     #[test]

@@ -13,7 +13,10 @@ import {
   validateHostBridgeAgentLanguage,
 } from "../../scripts/host-bridge/check-host-bridge-agent-language";
 import { HOST_BRIDGE_HANDLE_KINDS } from "../../src/shared/hostBridgeAgentContract";
-import { loadHostBridgeCommandContracts } from "../../scripts/host-bridge/host-bridge-command-contracts";
+import {
+  loadHostBridgeCommandContracts,
+  resolveHostBridgeCanonicalSchema,
+} from "../../scripts/host-bridge/host-bridge-command-contracts";
 import { findHostBridgeConsumerGuidanceViolations } from "../../scripts/host-bridge/check-host-bridge-consumer-guidance";
 
 function schemaHasPath(schema: Record<string, any>, pathValue: string) {
@@ -387,7 +390,10 @@ describe("Host Bridge agent surface contract", function () {
       const boundary = contract.outputBoundary;
       const commandInventory = inventory.get(command)!;
       assert.isOk(commandInventory, command);
-      const resultProperties = contract.resultSchema.properties as
+      const resultSchema = resolveHostBridgeCanonicalSchema(
+        contract.resultSchema,
+      );
+      const resultProperties = resultSchema.properties as
         | Record<string, unknown>
         | undefined;
       if (
@@ -419,7 +425,7 @@ describe("Host Bridge agent surface contract", function () {
         );
         for (const field of boundary.continuation || []) {
           assert.isTrue(
-            schemaHasPath(contract.resultSchema, field),
+            schemaHasPath(resultSchema, field),
             `${command}: missing continuation ${field}`,
           );
         }
@@ -429,12 +435,12 @@ describe("Host Bridge agent surface contract", function () {
           boundary.maxLimit || 0,
         );
         assert.isTrue(
-          schemaHasPath(contract.resultSchema, boundary.truncatedField || ""),
+          schemaHasPath(resultSchema, boundary.truncatedField || ""),
           `${command}: missing truncated field`,
         );
       } else if (boundary.strategy === "file") {
         assert.isTrue(
-          schemaHasPath(contract.resultSchema, boundary.fileField || ""),
+          schemaHasPath(resultSchema, boundary.fileField || ""),
           `${command}: missing file handle`,
         );
       } else if (boundary.strategy === "raw") {

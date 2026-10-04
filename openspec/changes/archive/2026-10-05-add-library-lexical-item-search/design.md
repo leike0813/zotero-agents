@@ -69,6 +69,10 @@ The implementation applies only after `separate-library-list-filters` (C1) and `
 
 No new production source file is required: C3 composes the C2 kernel and ports through the existing Broker/native-composition boundaries. Do not edit C2's `SynthesisClient` contract or the other three change directories.
 
+The implemented private port uses the read-only `library.lexical.execute` sidecar capability. Its registry entry and request/result definitions live in the existing protocol registry and search schema; the general runtime capability inventory and its parity fixtures include that capability, while the public production-client catalog remains unchanged. `EvidenceSearchApplication` shares its bounded source scan and lexical kernel between passage retrieval and this item projection. The Broker freezes the returned source facts, projects canonical item summaries, and owns continuation. The reverse-Host HTTP adapter preserves Broker conflicts and resource limits; native composition distinguishes internal protocol failures from an unavailable owner.
+
+Continuation binds the query, resolved scope, source kinds and `maxResults`; `limit` controls each page and may change without opening a new round. Source coverage and `total` retain C2 semantics: a result budget issue makes the result limited and the total unknown. Built-in workflows were checked for consumers of the former search wrapper; none uses it, so their business hooks need no migration.
+
 ## Risks / Trade-offs
 
 - [Bounded per-request source reads can limit coverage on large libraries] → Report `limited`, exact coverage, and structured issues; never present a partial candidate set as completed or persist a lexical index as a shortcut.

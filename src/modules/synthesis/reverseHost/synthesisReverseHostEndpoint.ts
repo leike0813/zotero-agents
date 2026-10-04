@@ -8,6 +8,7 @@ import {
   type SynthesisJsonValue,
 } from "../../../../packages/synthesis-contracts/src";
 import { rebuildSynthesisSidecarTraceContext } from "../../../../packages/synthesis-contracts/src/sidecarObservability";
+import { ZoteroHostCapabilityError } from "../../zoteroHostCapabilityBroker";
 import {
   beginHostHttpRequestRead,
   type HostHttpRequestReadOperation,
@@ -75,6 +76,27 @@ export async function handleSynthesisReverseHostHttpRequest(
       ),
     });
   } catch (error) {
+    if (error instanceof ZoteroHostCapabilityError) {
+      const status =
+        error.code === "invalid_request" || error.code === "invalid_ref"
+          ? 400
+          : error.code === "conflict"
+            ? 409
+            : error.code === "resource_limited"
+              ? 413
+              : error.code === "unavailable"
+                ? 503
+                : 500;
+      return response(status, {
+        ok: false,
+        error: {
+          code: error.code,
+          details: {
+            reason: error.code === "conflict" ? "basis_mismatch" : error.code,
+          },
+        },
+      });
+    }
     if (error instanceof SynthesisClientError) {
       const status =
         error.code === "invalid_request"
@@ -171,9 +193,11 @@ function encodeHttpResponse(args: {
             ? "Conflict"
             : args.status === 404
               ? "Not Found"
-              : args.status === 503
-                ? "Service Unavailable"
-                : "Internal Server Error";
+              : args.status === 413
+                ? "Payload Too Large"
+                : args.status === 503
+                  ? "Service Unavailable"
+                  : "Internal Server Error";
   return prepareJsonHttpResponse({
     status: args.status,
     reason,

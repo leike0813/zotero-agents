@@ -1478,26 +1478,75 @@ pub fn assert_endpoint_target(method: &str, path: &str) -> Result<(), CliError> 
 mod tests {
     use super::{
         assert_capability_target, assert_endpoint_target, compose_command_payload,
-        resolved_command_payload_schema, resolved_command_result_schema, set_current_command,
-        validate_command_input, validate_command_result, violations,
+        resolve_canonical_protocol_refs, resolved_command_payload_schema,
+        resolved_command_result_schema, set_current_command, validate_command_input,
+        validate_command_result, violations,
     };
     use crate::error::ErrorCategory;
     use serde_json::{json, Map, Value};
 
     #[test]
     fn item_search_contract_rejects_text_and_accepts_query() {
-        validate_command_input("library item search", "query", &json!({ "query": "graph" }))
-            .unwrap();
+        validate_command_input(
+            "library item search",
+            "query",
+            &json!({
+                "query": "graph",
+                "libraryIds": [1],
+                "itemRefs": [{ "libraryId": 1, "key": "ABC12345" }],
+                "collectionRef": { "libraryId": 1, "key": "COLL1234" },
+                "tag": "reviewed",
+                "itemType": "journalArticle",
+                "limit": 25,
+                "maxResults": 100,
+                "sourceKinds": ["metadata"],
+                "cursor": "opaque-cursor"
+            }),
+        )
+        .unwrap();
         let error =
             validate_command_input("library item search", "query", &json!({ "text": "graph" }))
                 .unwrap_err();
         assert_eq!(error.code, "command_input_invalid");
         let payload = resolved_command_payload_schema("library item search").unwrap();
         assert_eq!(
-            payload.pointer("/properties/query/type"),
-            Some(&json!("string"))
+            payload.pointer("/$ref"),
+            Some(&json!(
+                "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/EvidenceSearchRequest"
+            ))
         );
-        assert!(payload.pointer("/properties/text").is_none());
+    }
+
+    #[test]
+    fn item_search_contract_enforces_effective_page_bounds_and_utf16_query_limit() {
+        for request in [
+            json!({ "query": "graph", "limit": 101 }),
+            json!({ "query": "graph", "maxResults": 501 }),
+            json!({ "query": "graph", "limit": 51, "maxResults": 50 }),
+            json!({ "query": "😀".repeat(2049) }),
+        ] {
+            let error = validate_command_input("library item search", "query", &request)
+                .expect_err("request exceeds canonical search bounds");
+            assert_eq!(error.code, "command_input_invalid");
+        }
+    }
+
+    #[test]
+    fn item_search_result_uses_shared_search_envelope_without_list_wrapper() {
+        let schema = resolve_canonical_protocol_refs(
+            &resolved_command_result_schema("library item search").unwrap(),
+        )
+        .unwrap();
+        let serialized = serde_json::to_string(&schema).unwrap();
+        assert!(serialized.contains("SearchResultBase"));
+        assert!(serialized.contains("\"results\""));
+        assert!(serialized.contains("\"coverage\""));
+        assert!(serialized.contains("\"nextCursor\""));
+        assert!(serialized.contains("\"hasMore\""));
+        assert!(serialized.contains("\"total\""));
+        assert!(serialized.contains("\"method\""));
+        assert!(serialized.contains("\"issues\""));
+        assert!(!serialized.contains("\"truncated\""));
     }
 
     #[test]

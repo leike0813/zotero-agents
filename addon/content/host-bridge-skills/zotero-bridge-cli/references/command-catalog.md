@@ -398,6 +398,14 @@ Selection check:
 
 Use `zotero-bridge surface describe 'synthesis evidence search'` to inspect the live input/output schema and bounds before constructing a request. `--query` takes the JSON request container, whose `query` property is the plain-text query; raw text is not accepted in that argument. The canonical target is `synthesis.search_evidence`; the command is read-only and requires no Zotero UI approval. Follow the returned descriptor for the current result envelope and continuation fields.
 
+## Library item discovery
+
+Use `zotero-bridge surface describe 'library item search'` to inspect the current request, result, and cursor contract. This command serves relevance-ranked discovery across eligible Zotero item evidence; it does not replace deterministic list/filter reads for a requested inventory. Keep the required non-empty search text in the `query` property of the `--query` JSON container. The request accepts optional `libraryIds`, `itemRefs`, `collectionRef`, `tag`, `itemType`, and `sourceKinds`; supplied scope and filters intersect, so each additional constraint narrows the candidate set. An explicitly empty scope does not mean “all libraries.”
+
+The request defaults to `limit: 25` and `maxResults: 100`; `limit` may not exceed `maxResults`, `limit` is capped at 100, and `maxResults` at 500. Search text is bounded to 4096 UTF-16 code units. A page returns the canonical `results`, `status`, `method`, `coverage`, `issues`, `nextCursor`, `hasMore`, and `total` fields. Read coverage and issues before treating the result as complete: `limited` or unavailable source coverage bounds what a positive or negative answer can establish. Each result contains one item and its matching source evidence; use those matches as discovery evidence and read the live item or delivered source bytes before making claims that require more detail.
+
+Continue by placing the returned opaque `nextCursor` unchanged in the same `--query` JSON container while keeping the original query, scope, source kinds, and bounds. Do not synthesize, decode, or repair a cursor. If the service returns a stale or basis-mismatch cursor error, preserve that structured error and do not retry it or silently rerun the search; begin a new search only when a fresh query is intended. Use `library items list` with its own filter contract when the requested outcome is a deterministic inventory, and complete its independent cursor sequence before claiming an exhaustive boundary.
+
 ## Completion check
 
 Before leaving the catalog, you must know:

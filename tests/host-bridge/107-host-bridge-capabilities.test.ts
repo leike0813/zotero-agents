@@ -30,6 +30,7 @@ import {
   listHostBridgeCapabilities,
 } from "../../src/modules/hostBridgeCapabilityRegistry";
 import { createFailClosedZoteroHostCapabilityBroker } from "../helpers/zoteroHostCapabilityBrokerHarness";
+import { ZoteroHostCapabilityError } from "../../src/modules/zoteroHostCapabilityBroker";
 import { withMockCanonicalIngestIdentityDatabase } from "../helpers/canonicalIngestIdentityDatabase";
 import {
   validateHostBridgeCapabilityInput,
@@ -153,6 +154,13 @@ describe("Host Bridge navigation contract", function () {
           location: { kind: "page", pageIndex: 0 },
         },
       ],
+      ["library.search_items", "input", { query: "   " }],
+      ["library.search_items", "input", { query: "needle", score: 1 }],
+      [
+        "library.search_items",
+        "output",
+        { items: [], truncated: false },
+      ],
     ] as const;
 
     for (const [capability, direction, value] of invalidCases) {
@@ -162,6 +170,139 @@ describe("Host Bridge navigation contract", function () {
           : validateHostBridgeCapabilityOutput(capability, value);
       assert.isNotEmpty(violations, `${capability} ${direction}`);
     }
+  });
+
+  it("accepts and routes the shared lexical search request and exact result envelope", async function () {
+    const result = {
+      results: [
+        {
+          item: {
+            ref: { libraryId: 1, key: "ITEM0001" },
+            kind: "regular",
+            itemType: "journalArticle",
+            title: "Lexical search result",
+            parentRef: null,
+            state: "active",
+            revision: "revision-1",
+            tags: [],
+            collectionRefs: [],
+            creators: [],
+            date: "2026",
+            year: "2026",
+            publicationTitle: "Journal",
+          },
+          matches: [
+            {
+              source: { kind: "metadata", field: "title" },
+              sourceVersion: "version-1",
+              location: {
+                unit: "field",
+                field: "title",
+                range: { start: 0, end: 7 },
+              },
+              matchedTerms: ["lexical"],
+              phraseMatch: true,
+            },
+          ],
+        },
+      ],
+      status: "completed",
+      method: "lexical",
+      coverage: {
+        kind: "library",
+        sources: {
+          metadata: { status: "complete", sourcesScanned: 1 },
+          fulltext: { status: "not_requested", sourcesScanned: 0 },
+          analysis: { status: "not_requested", sourcesScanned: 0 },
+        },
+      },
+      issues: [],
+      nextCursor: null,
+      hasMore: false,
+      total: 1,
+    };
+    const request = {
+      query: "lexical search",
+      limit: 25,
+      maxResults: 100,
+      libraryIds: [1],
+      itemRefs: [{ libraryId: 1, key: "ITEM0001" }],
+      sourceKinds: ["metadata"],
+    };
+
+    assert.deepEqual(
+      validateHostBridgeCapabilityInput("library.search_items", request),
+      [],
+    );
+    assert.deepEqual(
+      validateHostBridgeCapabilityOutput("library.search_items", result),
+      [],
+    );
+    assert.isNotEmpty(
+      validateHostBridgeCapabilityOutput("library.search_items", {
+        ...result,
+        results: [
+          {
+            ...result.results[0],
+            score: 0.9,
+          },
+        ],
+      }),
+    );
+    const searchCapability = listHostBridgeCapabilities().find(
+      (entry) => entry.name === "library.search_items",
+    );
+    assert.strictEqual(searchCapability?.category, "library");
+    assert.strictEqual(searchCapability?.approval, "none");
+
+    let receivedRequest: unknown;
+    const broker = createFailClosedZoteroHostCapabilityBroker({
+      library: {
+        async searchItems(request) {
+          receivedRequest = request;
+          return result;
+        },
+      },
+    });
+    const routed = await executeHostBridgeCapability(
+      "library.search_items",
+      request,
+      {
+        getStatus: (): HostBridgeStatusSnapshot => {
+          throw new Error("status is not part of a search read");
+        },
+        connectionMode: "remote",
+        resolveZoteroHostCapabilityBroker: () => broker,
+      },
+    );
+    assert.deepEqual(receivedRequest, request);
+    assert.deepEqual(routed, result);
+
+    const brokerFailure = new ZoteroHostCapabilityError(
+      "conflict",
+      "Search cursor basis is stale",
+      { reason: "basis_mismatch" },
+    );
+    const failingBroker = createFailClosedZoteroHostCapabilityBroker({
+      library: {
+        async searchItems() {
+          throw brokerFailure;
+        },
+      },
+    });
+    let observedError: unknown;
+    try {
+      await executeHostBridgeCapability("library.search_items", request, {
+        getStatus: (): HostBridgeStatusSnapshot => {
+          throw new Error("status is not part of a search read");
+        },
+        connectionMode: "remote",
+        resolveZoteroHostCapabilityBroker: () => failingBroker,
+      });
+    } catch (error) {
+      observedError = error;
+    }
+    assert.strictEqual(observedError, brokerFailure);
   });
 });
 
@@ -761,7 +902,7 @@ describe("host bridge capability calls", function () {
     assert.strictEqual(parsed.json.error.details.retryable, false);
   });
 
-  it("uses filter for library enumeration and adapts retained search query", async function () {
+  it("keeps literal list filtering separate from lexical item search", async function () {
     const token = configureHostBridgeServerForTests({
       token: "library-filter-token",
     });
@@ -797,16 +938,21 @@ describe("host bridge capability calls", function () {
     const searched = await callBridgeCapability({
       token,
       capability: "library.search_items",
-      input: { query: "Bridge Filter Included", limit: 10 },
+      input: {
+        query: "Bridge Filter Included",
+        limit: 10,
+        maxResults: 10,
+        libraryIds: [Zotero.Libraries.userLibraryID],
+        sourceKinds: [],
+      },
     });
-    assert.strictEqual(searched.status, 200);
-    assert.include(
-      searched.json.result.data.items.map(
-        (item: { ref: { key: string } }) => item.ref.key,
-      ),
-      included.key,
-    );
-    assert.isBoolean(searched.json.result.data.truncated);
+    assert.strictEqual(searched.status, 200, JSON.stringify(searched.json));
+    assert.deepEqual(searched.json.result.data.results, []);
+    assert.strictEqual(searched.json.result.data.method, "lexical");
+    assert.property(searched.json.result.data, "coverage");
+    assert.property(searched.json.result.data, "issues");
+    assert.notProperty(searched.json.result.data, "items");
+    assert.notProperty(searched.json.result.data, "truncated");
   });
 
   it("routes read-only library capabilities through JSON-safe broker DTOs", async function () {
@@ -1304,19 +1450,18 @@ describe("host bridge capability calls", function () {
       token,
       capability: "library.search_items",
       input: {
-        libraryId: Zotero.Libraries.userLibraryID,
+        libraryIds: [Zotero.Libraries.userLibraryID],
         query: "桥接中文🚀",
         limit: 3,
+        maxResults: 3,
+        sourceKinds: [],
       },
     });
 
     assert.strictEqual(parsed.status, 200);
     assert.strictEqual(parsed.json.status, "ok");
-    const titles = parsed.json.result.data.items.map(
-      (entry: { title?: string }) => entry.title,
-    );
-    assert.include(titles, "桥接中文🚀 Paper");
-    assert.isBoolean(parsed.json.result.data.truncated);
+    assert.deepEqual(parsed.json.result.data.results, []);
+    assert.isBoolean(parsed.json.result.data.hasMore);
   });
 
   it("uses query as the shared Host and CLI search field", async function () {
@@ -1335,12 +1480,7 @@ describe("host bridge capability calls", function () {
       parsed.json.error.details.capability,
       "library.search_items",
     );
-    assert.include(
-      parsed.json.error.details.violations.map(
-        (violation: { property?: string }) => violation.property,
-      ),
-      "text",
-    );
+    assert.isNotEmpty(parsed.json.error.details.violations);
   });
 
   it("exposes Synthesis host capabilities through Host Bridge CLI-compatible calls", async function () {

@@ -349,7 +349,7 @@ pub struct ItemArgs {
 pub enum ItemCommand {
     #[command(
         about = "Search Zotero library items",
-        long_about = "Call Zotero capability library.search_items. --query must be a JSON object with query and optional limit and libraryId."
+        long_about = "Call Zotero capability library.search_items. --query is the JSON request container and is forwarded without field translation. It requires a non-empty query of at most 4096 UTF-16 code units; optional limit defaults to 25 and is capped at 100, maxResults defaults to 100 and is capped at 500, and limit must not exceed maxResults. Optional libraryIds, itemRefs, collectionRef, tag, itemType, and sourceKinds constrain the search by intersection. Continue with the returned opaque cursor in the same JSON container. The CLI returns the complete search envelope; stale cursor errors are preserved and never trigger an automatic rerun."
     )]
     Search(ItemSearchArgs),
 
@@ -377,8 +377,8 @@ pub struct ItemSearchArgs {
     #[arg(
         long,
         value_name = "JSON_OR_FILE",
-        help = "Bounded search query JSON object with query, limit, and libraryId",
-        long_help = "Bounded search query JSON object. Use inline JSON such as '{\"query\":\"graph\",\"limit\":10}', a file path containing JSON, @file syntax, or '-' to read JSON from stdin."
+        help = "Canonical bounded library search request as JSON",
+        long_help = "Canonical bounded library search request JSON. Use inline JSON such as '{\"query\":\"graph\",\"limit\":10,\"maxResults\":100}', a file path containing JSON, @file syntax, or '-' to read JSON from stdin. Keep the returned cursor unchanged in this same request container to continue."
     )]
     pub query: String,
 }
@@ -3009,20 +3009,24 @@ mod tests {
 
     #[test]
     fn parses_library_item_search_with_json_query() {
-        let cli = Cli::parse_from([
+        let cli = Cli::try_parse_from([
             "zotero-bridge",
             "library",
             "item",
             "search",
             "--query",
-            "{\"text\":\"graph\",\"limit\":5}",
-        ]);
+            "{\"query\":\"graph\",\"libraryIds\":[1],\"limit\":10,\"maxResults\":50,\"cursor\":\"opaque:cursor\",\"sourceKinds\":[\"metadata\"]}",
+        ])
+        .unwrap();
 
         match cli.command {
             Command::Library(args) => match args.command {
                 LibraryCommand::Item(args) => match args.command {
                     ItemCommand::Search(input) => {
-                        assert_eq!(input.query, "{\"text\":\"graph\",\"limit\":5}")
+                        assert_eq!(
+                            input.query,
+                            "{\"query\":\"graph\",\"libraryIds\":[1],\"limit\":10,\"maxResults\":50,\"cursor\":\"opaque:cursor\",\"sourceKinds\":[\"metadata\"]}"
+                        )
                     }
                     _ => panic!("expected item search"),
                 },

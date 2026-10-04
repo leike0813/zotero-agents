@@ -4,6 +4,14 @@ import type {
   SourceReferenceArtifact,
 } from "../../packages/synthesis-contracts/src/sourceReferenceArtifact";
 import type { LiteratureScoreArtifact } from "../../packages/synthesis-contracts/src/literatureArtifacts";
+import type {
+  SynthesisEvidenceLocation,
+  SynthesisEvidenceSource,
+  SynthesisLibrarySearchScope,
+  SynthesisSearchRequest,
+  SynthesisSearchResult,
+  SynthesisSearchSourceKind,
+} from "../../packages/synthesis-contracts/src/search";
 
 export type { CancellationSignal } from "../utils/wait";
 
@@ -252,6 +260,25 @@ export type RegularItemSummaryDto = ItemSummaryBaseDto & {
   year: string | null;
   publicationTitle: string;
 };
+
+export type LibraryItemSearchRequestDto = SynthesisSearchRequest &
+  SynthesisLibrarySearchScope & {
+    sourceKinds?: SynthesisSearchSourceKind[];
+  };
+
+export type LibraryItemSearchHit = {
+  item: RegularItemSummaryDto;
+  matches: Array<{
+    source: SynthesisEvidenceSource;
+    sourceVersion: string;
+    location: SynthesisEvidenceLocation;
+    matchedTerms: string[];
+    phraseMatch: boolean;
+  }>;
+};
+
+export type LibraryItemSearchResultDto =
+  SynthesisSearchResult<LibraryItemSearchHit>;
 
 export type NoteItemSummaryDto = ItemSummaryBaseDto & {
   kind: "note";
@@ -1804,6 +1831,7 @@ export type WorkflowHostLiveReadAdapters = {
   library: Pick<
     ZoteroHostCapabilityBroker["library"],
     | "listItems"
+    | "searchItems"
     | "traverseItems"
     | "listCollections"
     | "listSavedSearches"
@@ -2333,6 +2361,10 @@ export type WorkflowHostApiV12 = Readonly<{
       input: LibraryListItemsRequestDto,
       control?: WorkflowCallControl,
     ): Promise<LibraryListItemsPageDto>;
+    searchItems(
+      input: LibraryItemSearchRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<LibraryItemSearchResultDto>;
     traverseItems(
       input: LibraryTraversalRequestDto,
       control: WorkflowCallControl,

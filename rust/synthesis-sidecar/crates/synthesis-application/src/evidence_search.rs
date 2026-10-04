@@ -213,6 +213,32 @@ struct Rounds {
     rounds: BTreeMap<String, SearchRound>,
 }
 
+/// Bounded source facts shared by the public passage search and the private
+/// item projection. Both consume identical catalog, source, budget and match
+/// semantics and only differ in how candidates are ranked and projected.
+struct Scan {
+    kinds: Vec<SourceKind>,
+    scope: Value,
+    descriptors: Vec<SourceDescriptor>,
+    catalog_issues: Vec<Value>,
+    catalog_limited: bool,
+    catalog_basis: String,
+    counts: BTreeMap<SourceKind, usize>,
+    issues: Vec<Value>,
+    candidates: Vec<Candidate>,
+    empty_scope: bool,
+}
+
+impl Scan {
+    fn coverage(&self, counts: &BTreeMap<SourceKind, usize>, issues: &[Value]) -> Value {
+        json!({"kind":"library","sources":{
+            "metadata":work_coverage(SourceKind::Metadata,&self.kinds,counts,issues,self.catalog_limited),
+            "fulltext":work_coverage(SourceKind::Fulltext,&self.kinds,counts,issues,self.catalog_limited),
+            "analysis":work_coverage(SourceKind::Analysis,&self.kinds,counts,issues,self.catalog_limited),
+        }})
+    }
+}
+
 pub struct EvidenceSearchApplication {
     sources: Arc<dyn EvidenceSourcePort>,
     rounds: Mutex<Rounds>,
@@ -223,6 +249,9 @@ const MAX_SCAN_BYTES: usize = 4 * 1024 * 1024;
 const MAX_PASSAGES: usize = 4096;
 const MAX_PASSAGE_UTF16: usize = 2048;
 const MAX_ROUND_BYTES: usize = 512 * 1024;
+/// The private execution response is bounded well below the generic RPC
+/// response ceiling because it carries descriptors and every match location.
+const MAX_EXECUTION_BYTES: usize = 768 * 1024;
 const CURSOR_LIFETIME: Duration = Duration::from_secs(60);
 
 impl EvidenceSearchApplication {
@@ -282,7 +311,7 @@ impl EvidenceSearchApplication {
             }
             checkpoint()?;
             let (descriptors, scope, issues, limited) =
-                self.catalog(&request, Some(&round.resolved_scope), checkpoint)?;
+                self.catalog(&request, Some(&round.resolved_scope), checkpoint, 32)?;
             if issues != round.catalog_issues
                 || limited != round.catalog_limited
                 || hash(&json!({"scope":scope,"descriptors":descriptors})) != round.catalog_basis
@@ -299,99 +328,19 @@ impl EvidenceSearchApplication {
                 SourceKind::Analysis,
             ]
         });
-        let (descriptors, scope, mut issues, catalog_limited) =
-            self.catalog(&request, None, checkpoint)?;
-        if issues.is_empty()
-            && (kinds.is_empty() || request.item_refs.as_ref().is_some_and(Vec::is_empty))
-        {
+        let scan = self.scan(&request, &query, &kinds, None, checkpoint, 32)?;
+        if scan.empty_scope {
             return Ok(json!({"results":[],"status":"completed","method":"lexical",
-                "coverage":{"kind":"library","sources":{
-                    "metadata":work_coverage(SourceKind::Metadata,&kinds,&BTreeMap::new(),&[],false),
-                    "fulltext":work_coverage(SourceKind::Fulltext,&kinds,&BTreeMap::new(),&[],false),
-                    "analysis":work_coverage(SourceKind::Analysis,&kinds,&BTreeMap::new(),&[],false)
-                }},"issues":[],"nextCursor":null,"hasMore":false,"total":0}));
+                "coverage":scan.coverage(&BTreeMap::new(), &[]),"issues":[],
+                "nextCursor":null,"hasMore":false,"total":0}));
         }
-        let catalog_basis = hash(&json!({"scope":scope,"descriptors":descriptors}));
-        let catalog_issues = issues.clone();
-        let mut counts = BTreeMap::<SourceKind, usize>::new();
-        let mut candidates = Vec::new();
-        let mut bytes = 0;
-        let mut passages = 0;
-        for descriptor in &descriptors {
-            if let Err(code) = checkpoint() {
-                if code != "operation_timeout" {
-                    return Err(code);
-                }
-                add_issue(&mut issues, "scan_budget_exhausted", None);
-                break;
-            }
-            let kind = descriptor.source.kind();
-            if !kinds.contains(&kind) {
-                add_issue(&mut issues, "invalid_source", Some(kind));
-                continue;
-            }
-            *counts.entry(kind).or_default() += 1;
-            let read = match self
-                .sources
-                .read_source(json!({"scope":scope,"descriptor":descriptor}))
-            {
-                Ok(value) => value,
-                Err(code) if code == "operation_timeout" => {
-                    add_issue(&mut issues, "scan_budget_exhausted", None);
-                    break;
-                }
-                Err(_) => {
-                    add_issue(&mut issues, "source_read_failed", Some(kind));
-                    continue;
-                }
-            };
-            let Some(content) = available_content(&read, descriptor, None) else {
-                add_issue(&mut issues, read_issue(&read), Some(kind));
-                continue;
-            };
-            bytes += content.len();
-            if bytes > MAX_SCAN_BYTES {
-                add_issue(&mut issues, "scan_budget_exhausted", None);
-                break;
-            }
-            for (location, passage, context) in segment(&content, &descriptor.source) {
-                passages += 1;
-                if passages > MAX_PASSAGES {
-                    add_issue(&mut issues, "passage_budget_exhausted", None);
-                    break;
-                }
-                if let Some(matched) = query.match_text(&passage) {
-                    let identity = format!(
-                        "{:020}:{}:{}:{:010}",
-                        descriptor.item_ref.library_id,
-                        descriptor.item_ref.key,
-                        hash(&json!(descriptor.source)),
-                        location["range"]["start"].as_u64().unwrap_or_default()
-                    );
-                    candidates.push(Candidate {
-                        descriptor: descriptor.clone(),
-                        location,
-                        content: passage,
-                        context,
-                        matched,
-                        identity,
-                    });
-                }
-            }
-            if passages > MAX_PASSAGES {
-                break;
-            }
-        }
-        candidates.sort_by(|a, b| {
-            crate::lexical_search::compare_matches(
-                &a.matched,
-                field_priority(&a.descriptor.source),
-                &a.identity,
-                &b.matched,
-                field_priority(&b.descriptor.source),
-                &b.identity,
-            )
-        });
+        let scope = scan.scope;
+        let catalog_issues = scan.catalog_issues;
+        let catalog_limited = scan.catalog_limited;
+        let catalog_basis = scan.catalog_basis;
+        let counts = scan.counts;
+        let mut issues = scan.issues;
+        let mut candidates = scan.candidates;
         let max_results = request.max_results.unwrap_or(100);
         if candidates.len() > max_results {
             candidates.truncate(max_results);
@@ -475,11 +424,288 @@ impl EvidenceSearchApplication {
         self.page(&round, &id, 0, limit, false, checkpoint)
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn scan(
+        &self,
+        request: &EvidenceSearchRequest,
+        query: &LexicalQuery,
+        kinds: &[SourceKind],
+        captured: Option<&Value>,
+        checkpoint: &dyn Fn() -> Result<(), String>,
+        page_budget: usize,
+    ) -> Result<Scan, String> {
+        let (descriptors, scope, mut issues, catalog_limited) =
+            self.catalog(request, captured, checkpoint, page_budget)?;
+        let empty_scope = issues.is_empty()
+            && (kinds.is_empty() || request.item_refs.as_ref().is_some_and(Vec::is_empty));
+        let catalog_basis = hash(&json!({"scope":scope,"descriptors":descriptors}));
+        let catalog_issues = issues.clone();
+        let mut counts = BTreeMap::<SourceKind, usize>::new();
+        let mut candidates = Vec::new();
+        let mut bytes = 0;
+        let mut passages = 0;
+        for descriptor in &descriptors {
+            if let Err(code) = checkpoint() {
+                if code != "operation_timeout" {
+                    return Err(code);
+                }
+                add_issue(&mut issues, "scan_budget_exhausted", None);
+                break;
+            }
+            let kind = descriptor.source.kind();
+            if !kinds.contains(&kind) {
+                add_issue(&mut issues, "invalid_source", Some(kind));
+                continue;
+            }
+            *counts.entry(kind).or_default() += 1;
+            let read = match self
+                .sources
+                .read_source(json!({"scope":scope,"descriptor":descriptor}))
+            {
+                Ok(value) => value,
+                Err(code) if code == "operation_timeout" => {
+                    add_issue(&mut issues, "scan_budget_exhausted", None);
+                    break;
+                }
+                Err(_) => {
+                    add_issue(&mut issues, "source_read_failed", Some(kind));
+                    continue;
+                }
+            };
+            let Some(content) = available_content(&read, descriptor, None) else {
+                add_issue(&mut issues, read_issue(&read), Some(kind));
+                continue;
+            };
+            bytes += content.len();
+            if bytes > MAX_SCAN_BYTES {
+                add_issue(&mut issues, "scan_budget_exhausted", None);
+                break;
+            }
+            for (location, passage, context) in segment(&content, &descriptor.source) {
+                passages += 1;
+                if passages > MAX_PASSAGES {
+                    add_issue(&mut issues, "passage_budget_exhausted", None);
+                    break;
+                }
+                if let Some(matched) = query.match_text(&passage) {
+                    let identity = format!(
+                        "{:020}:{}:{}:{:010}",
+                        descriptor.item_ref.library_id,
+                        descriptor.item_ref.key,
+                        hash(&json!(descriptor.source)),
+                        location["range"]["start"].as_u64().unwrap_or_default()
+                    );
+                    candidates.push(Candidate {
+                        descriptor: descriptor.clone(),
+                        location,
+                        content: passage,
+                        context,
+                        matched,
+                        identity,
+                    });
+                }
+            }
+            if passages > MAX_PASSAGES {
+                break;
+            }
+        }
+        candidates.sort_by(|a, b| {
+            crate::lexical_search::compare_matches(
+                &a.matched,
+                field_priority(&a.descriptor.source),
+                &a.identity,
+                &b.matched,
+                field_priority(&b.descriptor.source),
+                &b.identity,
+            )
+        });
+        Ok(Scan {
+            kinds: kinds.to_vec(),
+            scope,
+            descriptors,
+            catalog_issues,
+            catalog_limited,
+            catalog_basis,
+            counts,
+            issues,
+            candidates,
+            empty_scope,
+        })
+    }
+
+    /// Executes the private, unpaged item projection used by the Zotero Host Broker.
+    pub fn search_library_items(
+        &self,
+        request: Value,
+        checkpoint: &dyn Fn() -> Result<(), String>,
+    ) -> Result<Value, String> {
+        let mut request = EvidenceSearchRequest::from_value(request)?;
+        if request.library_ids.as_ref().is_none_or(Vec::is_empty) || request.cursor.is_some() {
+            return Err("invalid_request".into());
+        }
+        let query = LexicalQuery::new(&request.query).map_err(|_| "invalid_request".to_owned())?;
+        if let Some(ids) = &mut request.library_ids {
+            ids.sort_unstable();
+            ids.dedup();
+        }
+        if let Some(refs) = &mut request.item_refs {
+            refs.sort();
+            refs.dedup();
+        }
+        if let Some(kinds) = &mut request.source_kinds {
+            kinds.sort();
+            kinds.dedup();
+        }
+        let kinds = request.source_kinds.clone().unwrap_or_else(|| {
+            vec![
+                SourceKind::Metadata,
+                SourceKind::Fulltext,
+                SourceKind::Analysis,
+            ]
+        });
+        checkpoint()?;
+        let mut scan = self.scan(&request, &query, &kinds, None, checkpoint, 8)?;
+        let scope = std::mem::take(&mut scan.scope);
+        let descriptors = std::mem::take(&mut scan.descriptors);
+        let catalog_issues = std::mem::take(&mut scan.catalog_issues);
+        let catalog_limited = scan.catalog_limited;
+        let counts = std::mem::take(&mut scan.counts);
+        let mut issues = std::mem::take(&mut scan.issues);
+        let mut items = BTreeMap::<ItemRef, (LexicalMatch, usize, String, Vec<Value>)>::new();
+        let mut verified_bytes = 0usize;
+        for candidate in std::mem::take(&mut scan.candidates) {
+            if let Err(code) = checkpoint() {
+                if code != "operation_timeout" {
+                    return Err(code);
+                }
+                add_issue(&mut issues, "scan_budget_exhausted", None);
+                break;
+            }
+            match self.verify(&scope, &candidate) {
+                Ok(_) => {
+                    verified_bytes += candidate.content.len();
+                    if verified_bytes > MAX_ROUND_BYTES {
+                        add_issue(&mut issues, "result_budget_exhausted", None);
+                        break;
+                    }
+                    let reference = candidate.descriptor.item_ref.clone();
+                    let priority = field_priority(&candidate.descriptor.source);
+                    let terms = query.matched_terms(&candidate.content);
+                    let hit = json!({
+                        "source":candidate.descriptor.source,
+                        "sourceVersion":candidate.descriptor.source_version,
+                        "location":candidate.location,
+                        "matchedTerms":terms,
+                        "phraseMatch":candidate.matched.phrase
+                    });
+                    let entry = items.entry(reference).or_insert_with(|| {
+                        (
+                            candidate.matched.clone(),
+                            priority,
+                            candidate.identity.clone(),
+                            Vec::new(),
+                        )
+                    });
+                    if crate::lexical_search::compare_matches(
+                        &candidate.matched,
+                        priority,
+                        &candidate.identity,
+                        &entry.0,
+                        entry.1,
+                        &entry.2,
+                    ) == std::cmp::Ordering::Less
+                    {
+                        entry.0 = candidate.matched;
+                        entry.1 = priority;
+                        entry.2 = candidate.identity;
+                    }
+                    entry.3.push(hit);
+                }
+                Err(code) => add_issue(&mut issues, code, Some(candidate.descriptor.source.kind())),
+            }
+        }
+        let mut ranked = items.into_iter().collect::<Vec<_>>();
+        ranked.sort_by(|left, right| {
+            crate::lexical_search::compare_matches(
+                &left.1.0, left.1.1, &left.1.2, &right.1.0, right.1.1, &right.1.2,
+            )
+        });
+        let total_before_limit = ranked.len();
+        let max_results = request.max_results.unwrap_or(100);
+        if ranked.len() > max_results {
+            ranked.truncate(max_results);
+            add_issue(&mut issues, "result_budget_exhausted", None);
+        }
+        let results = ranked
+            .into_iter()
+            .map(|(item_ref, (_, _, _, matches))| json!({"itemRef":item_ref,"matches":matches}))
+            .collect::<Vec<_>>();
+        let unavailable = total_before_limit == 0
+            && issues
+                .iter()
+                .all(|issue| issue["code"] == "source_unavailable");
+        // Bounded projection: drop the weakest trailing matches, then whole
+        // items, until the private response fits its own byte budget. A
+        // truncated response reports `limited` and no exact total.
+        let status = if issues.is_empty() {
+            "completed"
+        } else if unavailable {
+            "unavailable"
+        } else {
+            "limited"
+        };
+        let total = issues.is_empty().then_some(total_before_limit);
+        let coverage = scan.coverage(&counts, &issues);
+        let mut execution = json!({"result":{"results":results,"status":status,"method":"lexical",
+            "coverage":coverage,"issues":issues,"nextCursor":null,"hasMore":false,"total":total},
+            "scope":scope,"descriptors":descriptors,
+            "catalogIssues":catalog_issues,"catalogLimited":catalog_limited});
+        let encoded_size = |value: &Value| {
+            serde_json::to_vec(value)
+                .map(|bytes| bytes.len())
+                .map_err(|_| "worker_result_invalid".to_owned())
+        };
+        let mut execution_bytes = encoded_size(&execution)?;
+        if execution_bytes > MAX_EXECUTION_BYTES {
+            add_issue(&mut issues, "result_budget_exhausted", None);
+            execution["result"]["status"] = json!("limited");
+            execution["result"]["total"] = Value::Null;
+            execution["result"]["issues"] = json!(issues);
+            execution["result"]["coverage"] = scan.coverage(&counts, &issues);
+            execution_bytes = encoded_size(&execution)?;
+            let results = execution["result"]["results"]
+                .as_array_mut()
+                .ok_or("worker_result_invalid")?;
+            while execution_bytes > MAX_EXECUTION_BYTES {
+                let item_count = results.len();
+                let item = results.last_mut().ok_or("response_too_large")?;
+                let matches = item["matches"]
+                    .as_array_mut()
+                    .ok_or("worker_result_invalid")?;
+                let match_count = matches.len();
+                let removed = matches.pop().ok_or("worker_result_invalid")?;
+                // JSON array removal deletes the encoded value and its comma.
+                // Count each removed value once instead of serializing the whole
+                // response after every match. Empty items leave in the same step.
+                execution_bytes -= encoded_size(&removed)? + usize::from(match_count > 1);
+                if matches.is_empty() {
+                    let removed_item = results.pop().ok_or("worker_result_invalid")?;
+                    execution_bytes -= encoded_size(&removed_item)? + usize::from(item_count > 1);
+                }
+            }
+        }
+        if !validate_library_lexical_result(&execution) {
+            return Err("worker_result_invalid".into());
+        }
+        Ok(execution)
+    }
+
     fn catalog(
         &self,
         request: &EvidenceSearchRequest,
         captured: Option<&Value>,
         checkpoint: &dyn Fn() -> Result<(), String>,
+        page_budget: usize,
     ) -> Result<(Vec<SourceDescriptor>, Value, Vec<Value>, bool), String> {
         let value = serde_json::to_value(request).map_err(|_| "invalid_request".to_owned())?;
         let mut scope_input = value.as_object().unwrap().clone();
@@ -511,7 +737,7 @@ impl EvidenceSearchApplication {
                 break;
             }
             pages += 1;
-            if pages > 32 {
+            if pages > page_budget {
                 limited = true;
                 add_issue(&mut issues, "scan_budget_exhausted", None);
                 break;
@@ -1059,6 +1285,139 @@ pub fn validate_evidence_result(value: &Value) -> bool {
                 })
         })
 }
+
+pub fn validate_library_lexical_result(value: &Value) -> bool {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct Execution {
+        result: Value,
+        scope: Value,
+        descriptors: Vec<SourceDescriptor>,
+        catalog_issues: Vec<IssueWire>,
+        catalog_limited: bool,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct SearchResult {
+        results: Vec<ItemResult>,
+        status: ResultStatus,
+        method: SearchMethod,
+        coverage: CoverageWire,
+        issues: Vec<IssueWire>,
+        next_cursor: Option<String>,
+        has_more: bool,
+        total: Option<usize>,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct ItemResult {
+        item_ref: ItemRef,
+        matches: Vec<ItemMatch>,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct ItemMatch {
+        source: EvidenceSource,
+        source_version: String,
+        location: LocationWire,
+        matched_terms: Vec<String>,
+        phrase_match: bool,
+    }
+    let Ok(execution) = serde_json::from_value::<Execution>(value.clone()) else {
+        return false;
+    };
+    let Some(scope) = execution.scope.as_object() else {
+        return false;
+    };
+    if execution.descriptors.len() > MAX_SOURCES
+        || execution.catalog_issues.len() > 8
+        || (execution.catalog_limited && execution.catalog_issues.is_empty())
+        || !scope.contains_key("libraryIds")
+        || scope.keys().any(|key| {
+            !["libraryIds", "itemRefs", "collectionRef", "tag", "itemType"].contains(&key.as_str())
+        })
+    {
+        return false;
+    }
+    let Some(libraries) = execution.scope["libraryIds"].as_array() else {
+        return false;
+    };
+    if libraries.is_empty()
+        || libraries.len() > 100
+        || libraries.iter().any(|id| {
+            id.as_u64()
+                .is_none_or(|n| n == 0 || n > 9_007_199_254_740_991)
+        })
+    {
+        return false;
+    }
+    let Ok(result) = serde_json::from_value::<SearchResult>(execution.result) else {
+        return false;
+    };
+    let _ = (&result.status, &result.method);
+    let CoverageWire::Library { sources } = &result.coverage else {
+        return false;
+    };
+    let envelope_ok = result.results.len() <= 500
+        && result.issues.len() <= 8
+        && !result.total.is_some_and(|n| n > 1_000_000)
+        && !result.has_more
+        && result.next_cursor.is_none()
+        && matches!(result.method, SearchMethod::Lexical)
+        && ![&sources.metadata, &sources.fulltext, &sources.analysis]
+            .iter()
+            .any(|entry| entry.sources_scanned > 1_000_000);
+    let descriptors_ok = !execution.descriptors.iter().any(|descriptor| {
+        !descriptor.item_ref.valid()
+            || !descriptor.source.valid(&descriptor.item_ref)
+            || descriptor.source_version.is_empty()
+            || descriptor.source_version.encode_utf16().count() > 256
+            || descriptor.content_length > 262144
+            || !libraries.contains(&json!(descriptor.item_ref.library_id))
+    });
+    let items_ok = result.results.iter().all(|item| {
+        if !item.item_ref.valid() || item.matches.is_empty() || item.matches.len() > MAX_PASSAGES {
+            return false;
+        }
+        item.matches.iter().all(|matched| {
+            let location_valid = match &matched.source {
+                EvidenceSource::Metadata { field } => {
+                    matches!(matched.location.unit, LocationUnit::Field)
+                        && matched.location.field.as_ref() == Some(field)
+                }
+                EvidenceSource::Fulltext { .. } => {
+                    matches!(
+                        matched.location.unit,
+                        LocationUnit::Paragraph | LocationUnit::ListItem | LocationUnit::TableRow
+                    ) && matched.location.field.is_none()
+                }
+                EvidenceSource::Analysis { .. } => {
+                    matches!(matched.location.unit, LocationUnit::AnalysisField)
+                        && matched.location.field.as_ref().is_some_and(|field| {
+                            !field.trim().is_empty() && field.encode_utf16().count() <= 128
+                        })
+                }
+            };
+            matched.source.valid(&item.item_ref)
+                && location_valid
+                && matched.location.range.end > matched.location.range.start
+                && matched.location.range.end <= 262144
+                && !matched.source_version.is_empty()
+                && matched.source_version.encode_utf16().count() <= 256
+                && !matched.matched_terms.is_empty()
+                && matched.matched_terms.len() <= 4096
+                && !(matched.phrase_match && matched.matched_terms.is_empty())
+                && matched
+                    .matched_terms
+                    .iter()
+                    .all(|term| !term.is_empty() && term.encode_utf16().count() <= 4096)
+        })
+    });
+    if !(envelope_ok && descriptors_ok && items_ok) {
+        return false;
+    }
+    true
+}
 fn utf16_slice(text: &str, start: usize, end: usize) -> Option<String> {
     if end < start {
         return None;
@@ -1250,6 +1609,16 @@ mod tests {
                 .next()
                 .unwrap();
             let admitted = match definition {
+                "LibraryLexicalExecutionRequest" => {
+                    EvidenceSearchRequest::from_value(case["value"].clone()).is_ok_and(|request| {
+                        request
+                            .library_ids
+                            .as_ref()
+                            .is_some_and(|ids| !ids.is_empty())
+                            && request.cursor.is_none()
+                    })
+                }
+                "LibraryLexicalExecutionResult" => validate_library_lexical_result(&case["value"]),
                 "SearchEvidenceRequest" => {
                     case["value"].as_object().is_some_and(|o| o.len() == 1)
                         && case["value"]["args"].as_array().is_some_and(|a| {
@@ -1266,6 +1635,191 @@ mod tests {
                     .unwrap_or_else(|| case["valid"].as_bool().unwrap()),
                 "{}",
                 case["id"]
+            );
+        }
+    }
+
+    #[test]
+    fn private_library_search_aggregates_items_before_max_results_and_omits_content() {
+        struct Owner;
+        impl EvidenceSourcePort for Owner {
+            fn list_sources(&self, request: Value) -> Result<Value, String> {
+                let scope = request["scope"].clone();
+                Ok(json!({"scope":scope,"descriptors":[
+                    {"itemRef":{"libraryId":1,"key":"ITEM0001"},"source":{"kind":"metadata","field":"title"},"sourceVersion":"m1","format":"text","contentLength":12},
+                    {"itemRef":{"libraryId":1,"key":"ITEM0001"},"source":{"kind":"fulltext","attachmentRef":{"libraryId":1,"key":"FILE0001"}},"sourceVersion":"f1","format":"markdown","contentLength":21},
+                    {"itemRef":{"libraryId":1,"key":"ITEM0002"},"source":{"kind":"metadata","field":"title"},"sourceVersion":"m2","format":"text","contentLength":13}
+                ],"nextCursor":null,"hasMore":false,"issues":[]}))
+            }
+            fn read_source(&self, request: Value) -> Result<Value, String> {
+                let descriptor = &request["descriptor"];
+                let content = match descriptor["itemRef"]["key"].as_str().unwrap() {
+                    "ITEM0001" if descriptor["source"]["kind"] == "metadata" => "wind turbine",
+                    "ITEM0001" => "wind turbine evidence",
+                    _ => "wind evidence",
+                };
+                let location = request.get("location").cloned().unwrap_or_else(|| json!({
+                    "unit":if descriptor["source"]["kind"] == "metadata" {"field"} else {"paragraph"},
+                    "field":if descriptor["source"]["kind"] == "metadata" {Some("title")} else {None::<&str>},
+                    "range":{"start":0,"end":content.encode_utf16().count()}
+                }));
+                Ok(
+                    json!({"outcome":"available","itemRef":descriptor["itemRef"],
+                    "content":content,"format":descriptor["format"],"source":descriptor["source"],
+                    "sourceVersion":descriptor["sourceVersion"],"location":location}),
+                )
+            }
+        }
+        let app = EvidenceSearchApplication::new(Arc::new(Owner));
+        let value = app
+            .search_library_items(
+                json!({
+                    "query":"wind turbine", "libraryIds":[1], "limit":1, "maxResults":1
+                }),
+                &|| Ok(()),
+            )
+            .unwrap();
+        assert_eq!(value["scope"]["libraryIds"], json!([1]));
+        assert_eq!(value["descriptors"].as_array().unwrap().len(), 3);
+        assert_eq!(value["catalogIssues"], json!([]));
+        assert_eq!(value["catalogLimited"], false);
+        assert_eq!(value["result"]["results"].as_array().unwrap().len(), 1);
+        assert_eq!(value["result"]["results"][0]["itemRef"]["key"], "ITEM0001");
+        assert_eq!(
+            value["result"]["results"][0]["matches"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(value["result"]["hasMore"], false);
+        assert!(value["result"]["results"][0].get("content").is_none());
+        assert!(value["result"]["results"][0].get("score").is_none());
+        assert!(
+            value["result"]["results"][0]["matches"][0]
+                .get("path")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn private_library_search_requires_resolved_scope_and_rejects_cursor() {
+        struct EmptyOwner;
+        impl EvidenceSourcePort for EmptyOwner {
+            fn list_sources(&self, _: Value) -> Result<Value, String> {
+                Ok(
+                    json!({"scope":{"libraryIds":[1]},"descriptors":[],"nextCursor":null,"hasMore":false,"issues":[]}),
+                )
+            }
+            fn read_source(&self, _: Value) -> Result<Value, String> {
+                unreachable!()
+            }
+        }
+        let app = EvidenceSearchApplication::new(Arc::new(EmptyOwner));
+        assert_eq!(
+            app.search_library_items(json!({"query":"wind"}), &|| Ok(()))
+                .unwrap_err(),
+            "invalid_request"
+        );
+        assert_eq!(
+            app.search_library_items(
+                json!({"query":"wind","libraryIds":[1],"cursor":"opaque"}),
+                &|| Ok(())
+            )
+            .unwrap_err(),
+            "invalid_request"
+        );
+    }
+
+    #[test]
+    fn private_library_search_byte_budget_never_publishes_an_item_without_matches() {
+        // Every paragraph repeats the whole query, so each match carries the full
+        // unit list and one added paragraph moves the response by a single large
+        // match. The trailing item keeps exactly one match, so the response only
+        // crosses the byte ceiling by emptying that item, which is the one state a
+        // published item must never reach.
+        const QUERY_UNITS: usize = 200;
+        fn query() -> String {
+            (0..QUERY_UNITS)
+                .filter_map(|index| char::from_u32(0x4e00 + index as u32))
+                .collect()
+        }
+        fn content(paragraphs: usize) -> String {
+            vec![query(); paragraphs].join("\n\n")
+        }
+        struct Owner {
+            leading: usize,
+        }
+        impl EvidenceSourcePort for Owner {
+            fn list_sources(&self, request: Value) -> Result<Value, String> {
+                let scope = request["scope"].clone();
+                let descriptor = |key: &str, file: &str, version: &str, paragraphs: usize| {
+                    json!({"itemRef":{"libraryId":1,"key":key},
+                        "source":{"kind":"fulltext","attachmentRef":{"libraryId":1,"key":file}},
+                        "sourceVersion":version,"format":"markdown",
+                        "contentLength":content(paragraphs).encode_utf16().count()})
+                };
+                Ok(json!({"scope":scope,"descriptors":[
+                    descriptor("ITEM0001","FILE0001","f1",self.leading),
+                    descriptor("ITEM0002","FILE0002","f2",1)
+                ],"nextCursor":null,"hasMore":false,"issues":[]}))
+            }
+            fn read_source(&self, request: Value) -> Result<Value, String> {
+                let descriptor = request["descriptor"].clone();
+                let content = content(if descriptor["itemRef"]["key"] == "ITEM0001" {
+                    self.leading
+                } else {
+                    1
+                });
+                let location = match request.get("location") {
+                    Some(location) if location.is_object() => location.clone(),
+                    _ => json!({"unit":"paragraph","field":null,
+                        "range":{"start":0,"end":content.encode_utf16().count()}}),
+                };
+                let utf16 = content.encode_utf16().collect::<Vec<_>>();
+                let start = location["range"]["start"].as_u64().unwrap_or_default() as usize;
+                let end = location["range"]["end"].as_u64().unwrap_or_default() as usize;
+                let slice =
+                    String::from_utf16(&utf16[start.min(utf16.len())..end.min(utf16.len())])
+                        .unwrap_or_default();
+                Ok(
+                    json!({"outcome":"available","itemRef":descriptor["itemRef"],
+                    "content":slice,"format":descriptor["format"],"source":descriptor["source"],
+                    "sourceVersion":descriptor["sourceVersion"],"location":location}),
+                )
+            }
+        }
+        let request = json!({"query":query(),"libraryIds":[1],"sourceKinds":["fulltext"]});
+        let execute = |leading: usize| {
+            let app = EvidenceSearchApplication::new(Arc::new(Owner { leading }));
+            app.search_library_items(request.clone(), &|| Ok(()))
+        };
+        // 900 repeated paragraphs put the response far above the private byte
+        // ceiling, so trimming has to drop hundreds of trailing matches. A
+        // rejected response is a regression, not a case to skip.
+        let value = execute(900).expect("bounded response must stay valid");
+        assert!(serde_json::to_vec(&value).unwrap().len() <= MAX_EXECUTION_BYTES);
+        let result = &value["result"];
+        assert_eq!(result["status"], "limited");
+        assert_eq!(result["total"], json!(null));
+        assert_eq!(result["nextCursor"], json!(null));
+        assert_eq!(result["hasMore"], json!(false));
+        assert!(
+            result["issues"].as_array().is_some_and(|issues| issues
+                .iter()
+                .any(|issue| issue["code"] == "result_budget_exhausted")),
+            "a trimmed response must report the exhausted result budget"
+        );
+        assert_eq!(
+            result["coverage"]["sources"]["fulltext"]["status"], "limited",
+            "coverage must follow the published issue set"
+        );
+        for item in result["results"].as_array().expect("results array") {
+            assert!(
+                item["matches"]
+                    .as_array()
+                    .is_some_and(|matches| !matches.is_empty()),
+                "a trimmed response must not publish an item without matches"
             );
         }
     }

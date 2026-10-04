@@ -47,6 +47,10 @@ Safe defaults:
 - return a conversational answer unless the user requests a separate artifact;
 - use the strongest available evidence, but disclose when it is weaker than requested.
 
+For relevance-ranked library discovery, use `zotero-bridge library item search --query '<JSON>'` with a required non-empty `query` property. The command returns a canonical search envelope with item matches, source coverage, issues, status, and an opaque continuation cursor. Set only the library and evidence filters needed for the question; supplied `libraryIds`, `itemRefs`, collection, tag, item type, and source-kind constraints intersect. Read the returned coverage and issues before describing the search boundary. Use the deterministic list/filter command when the user asks for an inventory rather than ranked candidates; search and list have separate request, paging, and completion semantics.
+
+Search requests default to 25 results per page and 100 maximum results. `limit` cannot exceed `maxResults`, its hard cap is 100, `maxResults` has a hard cap of 500, and query text is limited to 4096 UTF-16 code units. Continue only with the returned cursor unchanged and with the same query, scope, source kinds, and bounds. A stale or basis-mismatched cursor is a structured failure: retain it as diagnostic evidence, do not retry or rerun it, and report the affected result boundary. A new search is a separate read decision, not cursor recovery.
+
 There is no safe default for an absent current selection, ambiguous item identity, or a negative conclusion from incomplete paging. Ask or return `canceled` instead of silently broadening the search.
 
 ## Workflow
@@ -202,4 +206,4 @@ Preserve accepted pages, last cursor or offset, source identity, file owner, and
 
 ## References
 
-Consult [the comprehensive query playbook](references/playbook.md) when the request needs a detailed search/list/snapshot decision, note payload or annotation handling, attachment-byte delivery, readiness interpretation, Synthesis model selection, privacy minimization, or interrupted paging/file recovery.
+Consult [the comprehensive query playbook](references/playbook.md) when the request needs a detailed search/list/snapshot decision, note payload or annotation handling, attachment-byte delivery, readiness interpretation, Synthesis model selection, privacy minimization, or interrupted paging/file recovery. It gives the search-versus-list decision, explains how to assess partial source coverage, and works through continuation and stale-cursor cases without changing the execution contract above.

@@ -6,6 +6,7 @@ import {
 import type {
   AttachmentDetailDto,
   JsonObject,
+  LibraryItemSearchRequestDto,
   LibraryListItemsRequestDto,
   MutationExecuteRequest,
   MutationExecutionResult,
@@ -2594,21 +2595,22 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
   capability("context.get_selected_items", (input, context) =>
     bridgeSelectedItems(input, context),
   ),
-  capability("library.search_items", async (input, context) => {
-    const search = asObject(input);
-    const page = await bridgeLibraryItems(context, {
-      filter: search.query as string,
-      ...(search.libraryId === undefined
-        ? {}
-        : { libraryId: search.libraryId as number | string }),
-      ...(search.limit === undefined
-        ? {}
-        : { limit: search.limit as number | string }),
-    });
-    return {
-      items: page.items,
-      truncated: page.hasMore,
-    };
+  capability("library.search_items", (input, context) => {
+    const library = resolveCapabilityBroker(context).library;
+    if (
+      !("searchItems" in library) ||
+      typeof library.searchItems !== "function"
+    ) {
+      throw new ZoteroHostCapabilityError(
+        "unavailable",
+        "Broker library search capability is unavailable",
+        { reason: "capability" },
+      );
+    }
+    return library.searchItems(
+      asObject(input) as LibraryItemSearchRequestDto,
+      context.control,
+    );
   }),
   capability("library.list_items", (input, context) =>
     bridgeLibraryItems(context, libraryListArgsFromInput(input)),

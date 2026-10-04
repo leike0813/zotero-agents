@@ -47,10 +47,17 @@ every continuation through completion. Pass `WorkflowCallControl` with the
 call, and stop work when its signal is canceled.
 
 This enumeration filter is distinct from the `library.search_items` `query`
-input. That capability adapts its search query to the literal predicate and
-returns its bounded list-shaped result. Snapshot capture remains fixed-set and
-unfiltered; Synthesis reverse-host metadata page reads also accept no filter or
-search query.
+input used by Host Bridge. Workflow hooks use the explicit
+`hostApi.library.searchItems({ query, ...scope, sourceKinds? }, control?)`
+projection, which returns `SynthesisSearchResult<LibraryItemSearchHit>` with
+source-aware matches, coverage, structured issues, and opaque continuation.
+Search follows lexical relevance and the shared C2 result contract; it does not
+change list ordering or snapshot membership. If the Broker search owner is
+unavailable, the result has `status: "unavailable"`, a `source_unavailable`
+issue and `total: null`; hooks must inspect status before consuming results.
+An empty completed search has `status: "completed"` and `total: 0`.
+Synthesis reverse-host metadata
+page reads accept no filter or search query.
 
 ## Runtime Context Fields
 
@@ -58,7 +65,7 @@ Hook receives `runtime` with these fields:
 
 | Field                | Type                                                   | Description                                                                                                                           |
 | -------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `hostApi`            | `WorkflowHostApiV12`                                   | Exact 24-top-level/22-module/93-callable host projection                                                                               |
+| `hostApi`            | `WorkflowHostApiV12`                                   | Exact 24-top-level/22-module/94-callable host projection                                                                               |
 | `hostApiVersion`     | `12`                                                   | Exact API version                                                                                                                     |
 | `invocationMode`     | `"interactive" \| "non-interactive"`                   | Current invocation mode                                                                                                               |
 | `debugMode`          | `boolean \| undefined`                                 | Debug mode flag                                                                                                                       |
@@ -90,5 +97,5 @@ where an upstream or `WorkflowCallControl` signal is accepted.
 
 - If `WorkflowRuntimeContext` or `WorkflowHostApiV12` changes in
   `src/workflows/types.ts`, update this document in the same change.
-- If the code-native manifest changes, keep the 25/23/96 metrics and group list
+- If the code-native manifest changes, keep the 24/22/94 metrics and group list
   synchronized here and in `docs/components/workflows.md`.

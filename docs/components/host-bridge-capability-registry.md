@@ -128,11 +128,19 @@ Library enumeration capabilities `library.list_items` and
 field-independent matching under Zotero SQLite `NOCASE` semantics. Empty or
 whitespace-only values omit the predicate; wildcard characters remain literal.
 Their pages preserve stable identity ordering and opaque continuation.
-`library.search_items` retains its independent `query` request and bounded
-`{ items, truncated }` result; its handler explicitly maps that query to the
-list filter. The CLI `--query` JSON container remains unchanged. Snapshot
-capture stays fixed-set and unfiltered, and the Synthesis reverse-host metadata
-page port does not take `filter` or search `query`.
+`library.search_items` keeps the existing capability name and accepts the C2
+bounded lexical search request, including portable Library scope, source kinds,
+page bounds, and opaque continuation. Its handler calls
+`ZoteroHostCapabilityBroker.library.searchItems` directly and returns the
+shared search envelope (`results`, `status`, `method`, `coverage`, `issues`,
+`nextCursor`, `hasMore`, and `total`). Each result contains a regular item
+summary and source matches with version, location, matched terms, and phrase
+match; the response exposes neither score nor local path. Broker cursor and
+source-basis errors remain structured and do not restart the query. The MCP
+tool mirrors the same request and result. The CLI `--query` JSON container
+remains unchanged. Snapshot capture stays fixed-set and unfiltered, and the
+Synthesis reverse-host metadata page port does not take `filter` or search
+`query`.
 
 ---
 

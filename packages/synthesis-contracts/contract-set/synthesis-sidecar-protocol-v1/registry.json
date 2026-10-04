@@ -8,7 +8,7 @@
     "workerOperationRoster": "../../../../rust/synthesis-sidecar/crates/synthesis-protocol/src/lib.rs"
   },
   "expected": {
-    "crossProcessCapabilities": 123,
+    "crossProcessCapabilities": 124,
     "deterministicWorkerOperations": 15
   },
   "documents": [
@@ -975,6 +975,14 @@
       "domain": "system",
       "requestSchemaRef": "schemas/system.schema.json#/$defs/TopicsCanonicalInspectRequest",
       "resultSchemaRef": "schemas/system.schema.json#/$defs/TopicsCanonicalInspectResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "library.lexical.execute",
+      "direction": "host-to-sidecar",
+      "domain": "search",
+      "requestSchemaRef": "schemas/search.schema.json#/$defs/LibraryLexicalExecutionRequest",
+      "resultSchemaRef": "schemas/search.schema.json#/$defs/LibraryLexicalExecutionResult",
       "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
     },
     {

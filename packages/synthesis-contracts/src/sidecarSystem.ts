@@ -44,6 +44,7 @@ export const SYNTHESIS_SIDECAR_SYSTEM_CAPABILITIES = [
 export const SYNTHESIS_SIDECAR_GENERAL_CAPABILITIES = [
   "workbench.chrome.read",
   "topics.canonical.inspect",
+  "library.lexical.execute",
 ] as const;
 export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES = [
   "client.searchEvidence",

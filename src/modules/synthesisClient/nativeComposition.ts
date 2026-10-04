@@ -3,6 +3,7 @@ import {
   SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_VERSION,
   SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES,
   SYNTHESIS_WORKBENCH_SURFACES,
+  SYNTHESIS_SEARCH_SCHEMA_ID,
   SynthesisClientError,
   canonicalizeSynthesisContractJsonArtifact,
   hashSynthesisContractCanonicalJson,
@@ -12,6 +13,11 @@ import {
   safeSynthesisSidecarObservationReason,
   rebuildSynthesisEvidenceSearchRequest,
   rebuildSynthesisEvidenceSearchResult,
+  rebuildSynthesisProtocolDto,
+  type SynthesisSearchResult,
+  type SynthesisSearchIssue,
+  type SynthesisHostEvidenceScope,
+  type SynthesisHostEvidenceDescriptor,
   toSynthesisJsonObject,
   toSynthesisJsonValue,
   type SynthesisClient,
@@ -52,6 +58,10 @@ import {
   createSynthesisClientFromPort,
   type SynthesisClientPort,
 } from "./clientPortAdapter";
+import type {
+  LibraryItemSearchHit,
+  WorkflowCallControl,
+} from "../../workflows/types";
 
 type NativeControlConnection = {
   discovery: {
@@ -72,6 +82,27 @@ export type NativeSynthesisEvidenceRetrievalPort = {
   searchEvidence(
     request: SynthesisEvidenceSearchRequest,
   ): Promise<SynthesisEvidenceSearchResult>;
+};
+
+export type NativeSynthesisLibraryLexicalResult = {
+  result: SynthesisSearchResult<{
+    itemRef: { libraryId: number; key: string };
+    matches: LibraryItemSearchHit["matches"];
+  }>;
+  scope: SynthesisHostEvidenceScope;
+  descriptors: SynthesisHostEvidenceDescriptor[];
+  catalogIssues: SynthesisSearchIssue[];
+  catalogLimited: boolean;
+};
+
+export type NativeSynthesisLibraryLexicalPort = {
+  execute(
+    request: Omit<SynthesisEvidenceSearchRequest, "libraryIds" | "cursor"> & {
+      libraryIds: number[];
+      cursor?: never;
+    },
+    control?: WorkflowCallControl,
+  ): Promise<NativeSynthesisLibraryLexicalResult>;
 };
 
 function evidenceRetrievalPortFromNativePort(
@@ -705,6 +736,76 @@ export function createNativeSynthesisEvidenceRetrievalPort(options?: {
       rpcClient,
     }),
   );
+}
+
+export function createNativeSynthesisLibraryLexicalPort(options?: {
+  getReadyConnection?: () => NativeControlConnection | null;
+  rpcClient?: NativeRpcClient;
+}): NativeSynthesisLibraryLexicalPort {
+  const getReadyConnection =
+    options?.getReadyConnection ?? getReadySynthesisProductionControlConnection;
+  let rpcClient = options?.rpcClient;
+  return {
+    async execute(request, control) {
+      const normalized = rebuildSynthesisProtocolDto<typeof request>({
+        schemaId: SYNTHESIS_SEARCH_SCHEMA_ID,
+        definition: "LibraryLexicalExecutionRequest",
+        value: rebuildSynthesisEvidenceSearchRequest(request),
+        direction: "request",
+      });
+      const connection = getReadyConnection();
+      if (!connection) throw unavailable("service_not_ready");
+      rpcClient ??= createSynthesisSidecarRpcClient({
+        transportErrors: SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
+      });
+      try {
+        return await rpcClient.call({
+          connection: rpcConnection(connection),
+          capability: "library.lexical.execute",
+          payload: normalized,
+          signal: control?.signal as AbortSignal | undefined,
+          deadlineMs: 10_000,
+          rebuildResult(value) {
+            return rebuildSynthesisProtocolDto<NativeSynthesisLibraryLexicalResult>(
+              {
+                schemaId: SYNTHESIS_SEARCH_SCHEMA_ID,
+                definition: "LibraryLexicalExecutionResult",
+                value,
+                direction: "result",
+              },
+            );
+          },
+        });
+      } catch (error) {
+        if (
+          error instanceof SynthesisSidecarRpcError &&
+          (error.code === "worker_timeout" ||
+            error.code === "request_timeout" ||
+            error.code === "operation_timeout")
+        ) {
+          throw new SynthesisClientError(
+            "timeout",
+            "The native Library lexical execution timed out",
+            { sidecarCode: error.code },
+          );
+        }
+        if (
+          error instanceof SynthesisSidecarRpcError &&
+          (error.code === "worker_result_invalid" ||
+            error.code === "response_invalid" ||
+            error.code === "response_body_too_large" ||
+            error.code === "internal_error")
+        ) {
+          throw new SynthesisClientError(
+            "internal",
+            "The native Library lexical execution failed",
+            { sidecarCode: error.code },
+          );
+        }
+        throw normalizeRpcError(error);
+      }
+    },
+  };
 }
 
 export function createReadyNativeSynthesisClientComposition(options?: {

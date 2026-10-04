@@ -709,7 +709,7 @@ describe("embedded Zotero MCP server protocol", function () {
     assert.strictEqual(unknown.error.code, -32602);
     assert.match(unknown.error.message, /unknown|additional/i);
     assert.strictEqual(wrongType.error.code, -32602);
-    assert.match(wrongType.error.message, /query/i);
+    assert.isNotEmpty(wrongType.error.data.details.violations);
   });
 
   it("returns 202 with no body for Streamable HTTP notifications", async function () {
@@ -1190,8 +1190,56 @@ describe("embedded Zotero MCP server protocol", function () {
     assert.strictEqual(response.error.code, -32602);
   });
 
-  it("adapts retained MCP search query to the Broker filter", async function () {
-    let observedFilter: unknown;
+  it("mirrors the canonical Broker lexical item result through MCP", async function () {
+    let observedRequest: unknown;
+    const result = {
+      results: [
+        {
+          item: {
+            ref: { libraryId: 1, key: "ITEM0001" },
+            kind: "regular",
+            itemType: "journalArticle",
+            title: "Search evidence paper",
+            parentRef: null,
+            state: "active",
+            revision: "revision-1",
+            tags: [],
+            collectionRefs: [],
+            creators: [],
+            date: "2026",
+            year: "2026",
+            publicationTitle: "Journal",
+          },
+          matches: [
+            {
+              source: { kind: "metadata", field: "title" },
+              sourceVersion: "version-1",
+              location: {
+                unit: "field",
+                field: "title",
+                range: { start: 0, end: 6 },
+              },
+              matchedTerms: ["search"],
+              phraseMatch: true,
+            },
+          ],
+        },
+      ],
+      status: "completed",
+      method: "lexical",
+      coverage: {
+        kind: "library",
+        sources: {
+          metadata: { status: "complete", sourcesScanned: 1 },
+          fulltext: { status: "not_requested", sourcesScanned: 0 },
+          analysis: { status: "not_requested", sourcesScanned: 0 },
+        },
+      },
+      issues: [],
+      nextCursor: null,
+      hasMore: false,
+      total: 1,
+    };
     const response: any = await handleZoteroMcpRequestForTests(
       {
         jsonrpc: "2.0",
@@ -1199,33 +1247,78 @@ describe("embedded Zotero MCP server protocol", function () {
         method: "tools/call",
         params: {
           name: ZOTERO_MCP_TOOL_SEARCH_ITEMS,
-          arguments: { query: "Match me", libraryId: 1, limit: 5 },
+          arguments: {
+            query: "Search evidence",
+            libraryIds: [1],
+            limit: 5,
+            maxResults: 20,
+            sourceKinds: ["metadata"],
+          },
         },
       },
       {
         resolveZoteroHostCapabilityBroker: () =>
           createFailClosedZoteroHostCapabilityBroker({
             library: {
-              listItems: async (args: any) => {
-                observedFilter = args.filter;
-                return {
-                  items: [],
-                  nextCursor: null,
-                  totalScanned: 0,
-                  returned: 0,
-                  hasMore: false,
-                  filters: { filter: args.filter },
-                };
+              searchItems: async (request: unknown) => {
+                observedRequest = request;
+                return result;
               },
             },
           }),
       },
     );
 
-    assert.strictEqual(observedFilter, "Match me");
-    assert.deepEqual((response as any).result.structuredContent.data, {
-      items: [],
-      truncated: false,
+    assert.deepEqual(observedRequest, {
+      query: "Search evidence",
+      libraryIds: [1],
+      limit: 5,
+      maxResults: 20,
+      sourceKinds: ["metadata"],
+    });
+    assert.deepEqual((response as any).result.structuredContent.data, result);
+    assert.deepEqual((response as any).result.structuredContent.result, result);
+    const text = toolText(response);
+    assert.include(text, "results=1");
+    assert.include(text, "title=\"Search evidence paper\"");
+    assert.notMatch(text, /score|path/i);
+    assert.doesNotThrow(() => JSON.stringify(response));
+  });
+
+  it("preserves the canonical structured error for a stale search cursor", async function () {
+    let calls = 0;
+    const response: any = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "stale-search-cursor",
+        method: "tools/call",
+        params: {
+          name: ZOTERO_MCP_TOOL_SEARCH_ITEMS,
+          arguments: { query: "Search evidence", cursor: "stale-cursor" },
+        },
+      },
+      {
+        resolveZoteroHostCapabilityBroker: () =>
+          createFailClosedZoteroHostCapabilityBroker({
+            library: {
+              async searchItems() {
+                calls += 1;
+                throw new ZoteroHostCapabilityError(
+                  "conflict",
+                  "Search cursor basis is stale",
+                  { reason: "basis_mismatch" },
+                );
+              },
+            },
+          }),
+      },
+    );
+
+    assert.strictEqual(calls, 1);
+    assert.isTrue(response.result?.isError, JSON.stringify(response));
+    assert.strictEqual(response.result.structuredContent.error_code, "conflict");
+    assert.deepEqual(response.result.structuredContent.details, {
+      reason: "basis_mismatch",
     });
   });
 
@@ -1387,7 +1480,7 @@ describe("embedded Zotero MCP server protocol", function () {
     assert.include(detailText, ZOTERO_MCP_TOOL_GET_NOTE_DETAIL);
   });
 
-  it("returns a JSON-RPC error when a tool backend throws", async function () {
+  it("preserves the typed search failure when the Broker rejects a query", async function () {
     let observedError = "";
     const response = await handleZoteroMcpRequestForTests(
       {
@@ -1405,8 +1498,13 @@ describe("embedded Zotero MCP server protocol", function () {
         resolveZoteroHostCapabilityBroker: () =>
           createFailClosedZoteroHostCapabilityBroker({
             library: {
-              listItems: async () => {
-                throw new TypeError("backend exploded");
+              async searchItems() {
+                throw new ZoteroHostCapabilityError(
+                  "unavailable",
+                  "Search source is unavailable",
+                  { reason: "capability" },
+                  true,
+                );
               },
             },
           }),
@@ -1416,9 +1514,12 @@ describe("embedded Zotero MCP server protocol", function () {
       },
     );
 
-    assert.strictEqual((response as any).error.code, -32602);
-    assert.strictEqual((response as any).error.data.errorName, "TypeError");
-    assert.strictEqual(observedError, "backend exploded");
+    assert.isTrue((response as any).result?.isError, JSON.stringify(response));
+    assert.strictEqual(
+      (response as any).result.structuredContent.error_code,
+      "unavailable",
+    );
+    assert.strictEqual(observedError, "Search source is unavailable");
   });
 
   it("returns remote-compatible attachment access metadata without file content", async function () {

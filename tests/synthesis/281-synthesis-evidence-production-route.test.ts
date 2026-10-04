@@ -14,10 +14,56 @@ import { createZoteroSynthesisHostReadPort } from "../../src/modules/synthesis/l
 import { managedArtifactContent } from "../../src/modules/zoteroHost/zoteroManagedNotes";
 import { mkTempDir, writeUtf8 } from "../zotero/workflow-test-utils";
 import { joinPath } from "../../src/utils/path";
-import { startSynthesisProductionRouteHarness } from "../helpers/synthesisProductionRouteHarness";
+import {
+  startSynthesisProductionRouteHarness,
+  SYNTHESIS_PRODUCTION_ROUTE_CLIENT_TOKEN,
+} from "../helpers/synthesisProductionRouteHarness";
 import { executeHostBridgeCapability } from "../../src/modules/hostBridgeCapabilityRegistry";
 import { handleZoteroMcpJsonRpc } from "../../src/modules/hostBridge/mcp/zoteroMcpProtocol";
 import { withHostBridgeCliHarness } from "../helpers/hostBridgeCliHarness";
+import {
+  createZoteroHostCapabilityBroker,
+  resolveZoteroHostCapabilityBroker,
+} from "../../src/modules/zoteroHostCapabilityBroker";
+import { createNativeSynthesisLibraryLexicalPort } from "../../src/modules/synthesisClient/nativeComposition";
+import type { LibraryItemSearchResultDto } from "../../src/workflows/types";
+
+const LIBRARY_SEARCH_ENVELOPE_FIELDS = [
+  "coverage",
+  "hasMore",
+  "issues",
+  "method",
+  "nextCursor",
+  "results",
+  "status",
+  "total",
+];
+
+function assertLibrarySearchEnvelope(result: LibraryItemSearchResultDto) {
+  assert.deepEqual(Object.keys(result).sort(), LIBRARY_SEARCH_ENVELOPE_FIELDS);
+  assert.equal(result.method, "lexical");
+  assert.include(["completed", "limited", "unavailable"], result.status);
+  assert.equal(result.coverage.kind, "library");
+  assert.isArray(result.issues);
+  for (const issue of result.issues) {
+    assert.isString(issue.code);
+    assert.isAtLeast(issue.affectedCount, 1);
+  }
+  const serialized = JSON.stringify(result);
+  assert.notMatch(serialized, /"(score|path|content)":/);
+  assert.notInclude(serialized, "/home/");
+}
+
+async function captureLibrarySearchFailure(action: () => Promise<unknown>) {
+  try {
+    await action();
+  } catch (error) {
+    return error as { code?: string; name?: string };
+  }
+  throw new assert.AssertionError({
+    message: "expected the Library item search request to fail",
+  });
+}
 
 describe("Synthesis evidence production route", function () {
   this.timeout(120_000);
@@ -336,6 +382,217 @@ describe("Synthesis evidence production route", function () {
       assert.deepEqual(noMatch.issues, []);
       assert.equal(noMatch.status, "completed");
       assert.notInclude(JSON.stringify(noMatch), "/home/");
+    } finally {
+      await runtime.stop();
+    }
+  });
+
+  it("searches Library items through the real Rust lexical capability, the Broker owner and the Host Bridge CLI", async function () {
+    const marker = `zzlexicalroute${Date.now().toString(36)}`;
+    const items = [];
+    for (const suffix of ["alpha", "beta"]) {
+      items.push(
+        await nativeFixtureMutations.item.create({
+          itemType: "journalArticle",
+          libraryID: 1,
+          fields: {
+            title: `Lexical route ${marker} ${suffix}`,
+            abstractNote: `Bounded abstract passage carrying ${marker}.`,
+          },
+        }),
+      );
+    }
+    const host = createZoteroSynthesisHostReadPort({ libraryId: 1 });
+    let now = 1_000_000;
+    let lexicalExecutions = 0;
+    const runtime = await startSynthesisProductionRouteHarness({
+      id: "library-item-search-route",
+      hostFixture: {
+        async handle({ capability, payload }) {
+          if (capability === "library.evidence.sources")
+            return host.evidence.listSources(payload as never);
+          if (capability === "library.evidence.read")
+            return host.evidence.readSource(payload as never);
+          if (capability === "webdav.describe") return { configured: false };
+          return { items: [], missingPaperRefs: [] };
+        },
+      },
+    });
+    // The private lexical port is the only seam between the Broker owner and
+    // the real Rust retrieval application running in the sidecar process.
+    const health = (await (
+      await fetch(`http://127.0.0.1:${runtime.port}/synthesis/v1/health`)
+    ).json()) as { serviceInstanceId: string };
+    const lexicalPort = createNativeSynthesisLibraryLexicalPort({
+      getReadyConnection: () => ({
+        discovery: {
+          host: "127.0.0.1",
+          port: runtime.port,
+          profileId: "1".repeat(64),
+          serviceInstanceId: health.serviceInstanceId,
+        },
+        clientToken: SYNTHESIS_PRODUCTION_ROUTE_CLIENT_TOKEN,
+      }),
+    });
+    const broker = createZoteroHostCapabilityBroker(undefined, {
+      now: () => now,
+      lexicalPort: {
+        async execute(request, control) {
+          lexicalExecutions += 1;
+          return lexicalPort.execute(request, control);
+        },
+      },
+    });
+    try {
+      const request = {
+        query: marker,
+        libraryIds: [1],
+        itemRefs: items.map((item) => ({ libraryId: 1, key: item.key })),
+        sourceKinds: ["metadata" as const],
+      };
+      const result = await broker.library.searchItems(request);
+      assertLibrarySearchEnvelope(result);
+      assert.equal(result.status, "completed");
+      assert.equal(lexicalExecutions, 1);
+      assert.sameMembers(
+        result.results.map((entry) => entry.item.ref.key),
+        items.map((item) => item.key),
+      );
+      for (const entry of result.results) {
+        assert.equal(entry.item.kind, "regular");
+        assert.equal(entry.item.ref.libraryId, 1);
+        assert.isNotEmpty(entry.matches);
+        assert.isTrue(
+          entry.matches.some(
+            (match) =>
+              match.source.kind === "metadata" &&
+              match.matchedTerms.some((term) => term.includes(marker)),
+          ),
+        );
+        for (const match of entry.matches) {
+          assert.isNotEmpty(match.sourceVersion);
+          assert.isBoolean(match.phraseMatch);
+          assert.isAtLeast(
+            match.location.range.end,
+            match.location.range.start,
+          );
+        }
+      }
+
+      const bridgeContext = {
+        connectionMode: "local" as const,
+        getStatus: () => ({}) as never,
+        resolveZoteroHostCapabilityBroker: () => broker,
+      };
+      const bridge = await executeHostBridgeCapability(
+        "library.search_items",
+        request,
+        bridgeContext,
+      );
+      assert.deepEqual(bridge, result);
+      const mcp = (await handleZoteroMcpJsonRpc(
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "library.search_items", arguments: request },
+        },
+        bridgeContext,
+      )) as any;
+      assert.notProperty(mcp, "error");
+      assert.deepEqual(mcp.result.structuredContent.data, result);
+
+      // Every capability call must resolve the same Broker owner, otherwise a
+      // returned cursor could never continue its bounded round.
+      assert.strictEqual(
+        resolveZoteroHostCapabilityBroker(),
+        resolveZoteroHostCapabilityBroker(),
+      );
+      const firstPage = (await executeHostBridgeCapability(
+        "library.search_items",
+        { ...request, limit: 1 },
+        bridgeContext,
+      )) as LibraryItemSearchResultDto;
+      assertLibrarySearchEnvelope(firstPage);
+      assert.lengthOf(firstPage.results, 1);
+      assert.isTrue(firstPage.hasMore);
+      assert.isNotEmpty(firstPage.nextCursor);
+      const executionsBeforeContinuation = lexicalExecutions;
+      const secondPage = (await executeHostBridgeCapability(
+        "library.search_items",
+        { ...request, limit: 1, cursor: firstPage.nextCursor as string },
+        bridgeContext,
+      )) as LibraryItemSearchResultDto;
+      assertLibrarySearchEnvelope(secondPage);
+      assert.lengthOf(secondPage.results, 1);
+      assert.notEqual(
+        secondPage.results[0].item.ref.key,
+        firstPage.results[0].item.ref.key,
+      );
+      assert.sameMembers(
+        [firstPage, secondPage].flatMap((page) =>
+          page.results.map((entry) => entry.item.ref.key),
+        ),
+        items.map((item) => item.key),
+      );
+      // One bounded round backs the whole continuation, and an expired basis
+      // fails instead of starting a replacement search.
+      assert.equal(lexicalExecutions, executionsBeforeContinuation);
+      now += 60_001;
+      const expired = await captureLibrarySearchFailure(() =>
+        executeHostBridgeCapability(
+          "library.search_items",
+          { ...request, limit: 1, cursor: firstPage.nextCursor as string },
+          bridgeContext,
+        ),
+      );
+      assert.equal(expired.name, "ZoteroHostCapabilityError");
+      assert.equal(expired.code, "conflict");
+      assert.equal(lexicalExecutions, executionsBeforeContinuation);
+
+      const staleCursor = await captureLibrarySearchFailure(() =>
+        executeHostBridgeCapability(
+          "library.search_items",
+          { ...request, cursor: "library-search:not-a-continuation" },
+          bridgeContext,
+        ),
+      );
+      assert.equal(staleCursor.code, "conflict");
+      assert.equal(lexicalExecutions, executionsBeforeContinuation);
+
+      await withHostBridgeCliHarness(
+        {
+          "library item search": async ({ input }) =>
+            (await executeHostBridgeCapability(
+              "library.search_items",
+              input,
+              bridgeContext,
+            )) as Record<string, unknown>,
+        },
+        async (cli) => {
+          const output = await cli.runCli([
+            "--endpoint",
+            cli.endpoint,
+            "library",
+            "item",
+            "search",
+            "--query",
+            JSON.stringify(request),
+          ]);
+          assert.equal(output.exitCode, 0, output.stderr);
+          assert.deepInclude(output.output, { ok: true });
+          assert.deepEqual(
+            (output.output.data as { data: unknown }).data,
+            result,
+          );
+          assert.deepInclude(cli.requests[0], {
+            command: "library item search",
+            capability: "library.search_items",
+            input: request,
+          });
+          assert.notInclude(output.stdout, "/home/");
+        },
+      );
     } finally {
       await runtime.stop();
     }

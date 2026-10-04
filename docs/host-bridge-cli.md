@@ -42,14 +42,14 @@ This section is generated from the executable Host Bridge capability and CLI com
 | `context.get_selected_items` | context | `none` | `object` |  | response:paged, mcp-mirror |
 | `navigation.focus_zotero` | context | `none` | `object` | `navigation focus-zotero` | response:limit-bounded, mcp-mirror |
 | `navigation.open_item` | context | `none` | `object required` | `navigation open-item` | response:limit-bounded, mcp-mirror |
-| `navigation.open_reader_location` | context | `none` | `object` | `navigation open-reader-location` | response:limit-bounded, mcp-mirror |
+| `navigation.open_reader_location` | context | `none` | `object required` | `navigation open-reader-location` | response:limit-bounded, mcp-mirror |
 | `navigation.reveal_items` | context | `none` | `object required` | `navigation reveal-items` | response:selector-bounded, mcp-mirror |
 | `navigation.select_collection` | context | `none` | `object required` | `navigation select-collection` | response:limit-bounded, mcp-mirror |
 | `navigation.select_library_view` | context | `none` | `object required` | `navigation select-library-view` | response:limit-bounded, mcp-mirror |
 | `navigation.select_saved_search` | context | `none` | `object required` | `navigation select-saved-search` | response:limit-bounded, mcp-mirror |
 | `library.export_annotations` | library | `none` | `object` | `library annotation export` | response:selector-bounded, mcp-mirror |
 | `library.get_item_attachments` | library | `none` | `object` | `library item attachments` | response:paged, mcp-mirror |
-| `library.get_item_detail` | library | `none` | `object` | `library item get` | response:selector-bounded, mcp-mirror |
+| `library.get_item_detail` | library | `none` | `object required` | `library item get` | response:selector-bounded, mcp-mirror |
 | `library.get_item_notes` | library | `none` | `object` | `library item notes` | response:paged, mcp-mirror |
 | `library.get_note_detail` | library | `none` | `object` | `library note get` | response:paged, mcp-mirror |
 | `library.get_note_payload` | library | `none` | `object required` | `library note payload` | response:selector-bounded, mcp-mirror |
@@ -58,10 +58,10 @@ This section is generated from the executable Host Bridge capability and CLI com
 | `library.list_note_payloads` | library | `none` | `object` | `library note payloads` | response:paged, mcp-mirror |
 | `library.list_saved_searches` | library | `none` | `object` | `library saved-searches list` | response:paged, mcp-mirror |
 | `library.readiness_audit` | library | `none` | `object` | `library readiness audit`, `library readiness missing-analysis`, `library readiness missing-markdown`, `library readiness missing-pdf` | response:paged, mcp-mirror |
-| `library.search_items` | library | `none` | `object required` | `library item search` | response:limit-bounded, mcp-mirror |
+| `library.search_items` | library | `none` | `object required` | `library item search` | response:paged, mcp-mirror |
 | `library.sync_snapshot` | library | `none` | `object required` | `library snapshot` | response:paged, mcp-mirror |
-| `synthesis.search_evidence` | library | `none` | `object` | `synthesis evidence search` | response:limit-bounded, mcp-mirror |
-| `topics.export_research_bundle` | topics | `none` | `object` | `synthesis topic export-research-bundle` | response:file-output, mcp-mirror |
+| `synthesis.search_evidence` | library | `none` | `object required` | `synthesis evidence search` | response:limit-bounded, mcp-mirror |
+| `topics.export_research_bundle` | topics | `none` | `object required` | `synthesis topic export-research-bundle` | response:file-output, mcp-mirror |
 | `topics.find_by_paper_ref` | topics | `none` | `object` | `synthesis topic find-by-paper-ref` | response:selector-bounded, mcp-mirror |
 | `topics.get_context` | topics | `none` | `object` | `synthesis topic get-context` | response:file-output, mcp-mirror |
 | `topics.get_planning_context` | topics | `none` | `object` | `synthesis topic get-planning-context` | response:file-output, mcp-mirror |
@@ -264,7 +264,7 @@ This section is generated from the executable Host Bridge capability and CLI com
 - Use `zotero-bridge library items list --query '{"limit":50,"collectionKey":"COLL"}'` for bounded library inventory pages.
 - Use `zotero-bridge library snapshot --query '{"limit":200}'` for the first local metadata index page.
 - Use `zotero-bridge library readiness missing-pdf|missing-markdown|missing-analysis --query '{"limit":100}'` before scheduling PDF retrieval, Markdown conversion, or literature-analysis work.
-- `library item search` accepts `query`, `limit`, `libraryId` in `--query`.
+- `library item search` accepts `query`, `limit`, `maxResults`, `cursor`, `libraryIds`, `itemRefs`, `collectionRef`, `tag`, `itemType`, `sourceKinds` in `--query`.
 - `library items list` accepts `libraryId`, `collection`, `collectionId`, `collectionKey`, `collectionLibraryId`, `tag`, `itemType`, `filter`, `limit`, `cursor` in `--query`.
 - `library snapshot` accepts `libraryId`, `batchSize`, `snapshotId`, `cursor` in `--query`.
 - `library readiness audit` accepts `libraryId`, `collection`, `collectionId`, `collectionKey`, `collectionLibraryId`, `tag`, `itemType`, `filter`, `limit`, `cursor`, `checks`, `missingOnly`, `missing_only` in `--query`; Markdown and analysis readiness reuse the Zotero Artifacts column rules.

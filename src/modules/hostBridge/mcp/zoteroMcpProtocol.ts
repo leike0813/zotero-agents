@@ -1007,6 +1007,31 @@ function summarizeHostBridgeCapabilityResult(
     });
     parts.push("next=library.get_item_detail");
   }
+  if (
+    capabilityName === "library.search_items" &&
+    Array.isArray(payload.results)
+  ) {
+    parts.push(`results=${payload.results.length}`);
+    payload.results.slice(0, 5).forEach((entry) => {
+      if (isPlainObject(entry) && isPlainObject(entry.item)) {
+        parts.push(
+          formatItemLine(entry.item as Partial<ZoteroHostItemSummaryDto>),
+        );
+        if (Array.isArray(entry.matches)) {
+          const sources = entry.matches
+            .filter(isPlainObject)
+            .map((match) => {
+              const source = isPlainObject(match.source) ? match.source : {};
+              return [source.kind, source.field].filter(Boolean).join(":");
+            })
+            .filter(Boolean);
+          if (sources.length) parts.push(`matches=${sources.join(",")}`);
+        }
+      }
+    });
+    if (payload.hasMore === true)
+      parts.push("next=library.search_items with nextCursor");
+  }
   for (const key of [
     "status",
     "state",

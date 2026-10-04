@@ -276,6 +276,7 @@
 - Broker 普通列表读取必须从源头分页，默认 25、最大 100，仅物化当前页；单个目标读取失败必须使整页失败。payload 扫描保留全部候选，`total: null` 和空非末页不能作为完成依据。
 - Library list、traversal 与 readiness 的字面文本条件统一为可选 `filter`，省略、空字符串或纯空白均不施加文本条件；完成证据绑定规范化条件。`library.search_items` 的搜索输入为 `query`，CLI `--query` 是 JSON 容器参数；snapshot 保持无文本过滤的固定集合契约。
 - Evidence search 的匹配、排序、分段和结果游标由 Rust `EvidenceSearchApplication` 持有；Library 与 Topic 检索复用 `lexical_search.rs`，不得增加 TypeScript matcher。Broker 私有 evidence source control 持有来源资格、范围、版本和读取，reverse-Host 与 `libraryAdapter.ts` 只运输其事实；公共入口仅为 `SynthesisClient.searchEvidence` 及显式 Workflow、Bridge、MCP、CLI 投影。
+- Library item search 的公共语义与续页由 Broker `library.searchItems` 持有；私有 `library.lexical.execute` 只复用 Rust lexical 执行，不进入公共 `SynthesisClient`。续页冻结查询、已解析范围、来源版本、顺序与结果上限；页大小可调整，basis 变化或过期必须失败，不得重新执行检索。来源复验按一次请求去重并有界；reverse-Host 必须保留 Broker 的冲突与资源上限错误。
 - Evidence passage 与独立 context 必须在同次请求内重新验证 source version、范围和 UTF-16 location；Markdown 版本与内容来自同一次 runtimePersistence 字节读取，analysis 使用 canonical JSON 原文的 JSON Pointer 与 UTF-16 区间。预算耗尽报告 limited 与 null total；续页绑定已捕获范围和源清单，变化后必须失败。
 - 所有 Broker 实例共享进程级 FIFO Host 短片段 admission；native 循环至多 100 items 或 50 ms 后释放，取消或超时不能在底层 Host 工作 settle 前释放槽。网络、文件、callback 与 detached DTO 运算在槽外；MCP 只持有九个并发请求的 admission。
 

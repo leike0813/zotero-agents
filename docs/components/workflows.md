@@ -664,7 +664,7 @@ Hook 接收的 `runtime` 对象包含：
 
 `runtime.hostApi` 是精确的 Workflow Host API v12 投影。其身份由
 `src/workflows/workflowHostContract.ts` 的只读 manifest 唯一持有：24 个顶层
-key、22 个模块、93 个 callable。Hook 只通过以下命名模块访问宿主能力：
+key、22 个模块、94 个 callable。Hook 只通过以下命名模块访问宿主能力：
 
 - `addon`、`environment`、`context`
 - `library`、`metadata`、`mutations`、`notes`、`images`、`attachments`
@@ -686,6 +686,18 @@ key、22 个模块、93 个 callable。Hook 只通过以下命名模块访问宿
 `hasMore` / `nextCursor` 消费所有页。payload 页的 `total` 为 `null`，空页仍可能
 有后续候选，不得按数组长度停止。单页目标读取失败使整页失败。Hook 的运行级
 取消信号由 Host projection 传入 Broker，并在后续页进入 Host 前检查。
+
+`library.searchItems(input, control?)` 是 Broker 词法检索的显式 Workflow
+投影。请求复用 C2 的 `SynthesisSearchRequest` 与
+`SynthesisLibrarySearchScope`，并允许 `sourceKinds`；结果为
+`SynthesisSearchResult<LibraryItemSearchHit>`。每个 hit 只包含常规条目摘要和
+`matches`，其中逐项提供 evidence source、opaque source version、location、
+matched terms 与 phrase-match fact。共享结果保留 status、method、coverage、
+issues、cursor、hasMore 和 total；不公开 score 或本地路径。`control` 原样进入
+Broker。原生检索未就绪时，结果信封返回 `status: "unavailable"`、
+`source_unavailable` issue 和 `total: null`；Hook 必须读取 status，与
+`completed` 的零命中结果区分。`host.synthesis` 仍只暴露自身 manifest
+声明的成员。
 
 ### Managed Note 与文献工件
 

@@ -327,6 +327,8 @@ export function createWorkflowHostApi(
     library: {
       listItems: (input, control) =>
         liveReads.library.listItems(input, withDefaultControl(control)),
+      searchItems: (input, control) =>
+        liveReads.library.searchItems(input, withDefaultControl(control)),
       traverseItems: (input, control, onBatch) =>
         liveReads.library.traverseItems(
           input,

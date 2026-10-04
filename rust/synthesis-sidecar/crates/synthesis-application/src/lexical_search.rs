@@ -128,6 +128,25 @@ impl LexicalQuery {
             ranges: merged,
         })
     }
+
+    /// Return normalized query units that actually occur in this source.
+    pub fn matched_terms(&self, source: &str) -> Vec<String> {
+        if source.len() > MAX_SOURCE_BYTES {
+            return Vec::new();
+        }
+        let normalized = normalize_with_offsets(source);
+        self.units
+            .iter()
+            .filter(|unit| {
+                let needle = unit.chars().collect::<Vec<_>>();
+                !needle.is_empty()
+                    && normalized
+                        .windows(needle.len())
+                        .any(|window| window.iter().map(|ch| ch.value).eq(needle.iter().copied()))
+            })
+            .cloned()
+            .collect()
+    }
 }
 
 /// Compare search results in their required best-first order (`Less` means
@@ -276,6 +295,15 @@ fn normalized_phrase(text: &[MappedChar]) -> Vec<MappedChar> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn matched_terms_are_normalized_query_units_that_occur_in_source() {
+        let query = LexicalQuery::new("Café wind turbine").unwrap();
+        assert_eq!(
+            query.matched_terms("CAFE\u{301} turbine"),
+            vec!["cafe\u{301}", "turbine"]
+        );
+    }
 
     #[test]
     fn query_validation_and_source_bounds_are_explicit() {

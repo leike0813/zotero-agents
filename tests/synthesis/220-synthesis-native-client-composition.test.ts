@@ -27,7 +27,10 @@ import {
   readSynthesisProductionSurfaceCorpora,
   type SynthesisProductionBaselineFixture,
 } from "../../scripts/synthesis/synthesisProductionSurfaceCorpora";
-import { createNativeSynthesisClientComposition } from "../../src/modules/synthesisClient/nativeComposition";
+import {
+  createNativeSynthesisClientComposition,
+  createNativeSynthesisLibraryLexicalPort,
+} from "../../src/modules/synthesisClient/nativeComposition";
 import { toSynthesisWorkbenchReadState } from "../../src/modules/synthesisClient/workbenchUiAdapter";
 import { createDefaultSynthesisUiState } from "../../src/modules/synthesis/uiModel";
 import {
@@ -48,6 +51,132 @@ import {
 } from "../../src/modules/synthesis/production/synthesisProductionRpcPolicy";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
+
+describe("private Library lexical composition", function () {
+  for (const request of [
+    { query: "evidence" },
+    { query: "evidence", libraryIds: [1], cursor: "foreign-cursor" },
+  ]) {
+    it("rejects an unresolved or paged private request before owner lookup", async function () {
+      let ownerLookups = 0;
+      const port = createNativeSynthesisLibraryLexicalPort({
+        getReadyConnection: () => {
+          ownerLookups += 1;
+          return null;
+        },
+      });
+      let failure: unknown;
+      try {
+        await port.execute(request as never);
+      } catch (error) {
+        failure = error;
+      }
+      assert.instanceOf(failure, SynthesisClientError);
+      assert.equal((failure as SynthesisClientError).code, "invalid_request");
+      assert.equal(ownerLookups, 0);
+    });
+  }
+
+  for (const [sidecarCode, expectedCode] of [
+    ["worker_result_invalid", "internal"],
+    ["internal_error", "internal"],
+    ["response_body_too_large", "internal"],
+    ["worker_timeout", "timeout"],
+    ["request_timeout", "timeout"],
+    ["operation_timeout", "timeout"],
+    ["service_unavailable", "unavailable"],
+    ["basis_mismatch", "conflict"],
+  ] as const) {
+    it(`preserves ${sidecarCode} as ${expectedCode}`, async function () {
+      const port = createNativeSynthesisLibraryLexicalPort({
+        getReadyConnection: () => ({
+          discovery: {
+            host: "127.0.0.1",
+            port: 32001,
+            profileId: "profile",
+            serviceInstanceId: "service",
+          },
+          clientToken: "token",
+        }),
+        rpcClient: {
+          async call() {
+            throw new SynthesisSidecarRpcError(sidecarCode);
+          },
+        },
+      });
+      let failure: unknown;
+      try {
+        await port.execute({ query: "evidence", libraryIds: [1] });
+      } catch (error) {
+        failure = error;
+      }
+      assert.instanceOf(failure, SynthesisClientError);
+      assert.equal((failure as SynthesisClientError).code, expectedCode);
+    });
+  }
+
+  it("injects native lexical execution without expanding the public client", async function () {
+    const connection = {
+      discovery: {
+        host: "127.0.0.1" as const,
+        port: 32001,
+        profileId: "profile",
+        serviceInstanceId: "service",
+      },
+      clientToken: "token",
+    };
+    const result = {
+      result: {
+        results: [],
+        status: "completed",
+        method: "lexical",
+        coverage: {
+          kind: "library",
+          sources: {
+            metadata: { status: "complete", sourcesScanned: 0 },
+            fulltext: { status: "not_requested", sourcesScanned: 0 },
+            analysis: { status: "not_requested", sourcesScanned: 0 },
+          },
+        },
+        issues: [],
+        nextCursor: null,
+        hasMore: false,
+        total: 0,
+      },
+      scope: { libraryIds: [1] },
+      descriptors: [],
+      catalogIssues: [],
+      catalogLimited: false,
+    };
+    const port = createNativeSynthesisLibraryLexicalPort({
+      getReadyConnection: () => connection,
+      rpcClient: {
+        async call(args) {
+          assert.strictEqual(args.capability, "library.lexical.execute");
+          assert.deepEqual(args.payload, {
+            query: "evidence",
+            libraryIds: [1],
+            sourceKinds: ["metadata"],
+          });
+          return args.rebuildResult(result);
+        },
+      },
+    });
+    const composition = createNativeSynthesisClientComposition({
+      getReadyConnection: () => connection,
+    });
+    assert.notProperty(composition.client, "searchItems");
+    assert.deepEqual(
+      await port.execute({
+        query: "evidence",
+        libraryIds: [1],
+        sourceKinds: ["metadata"],
+      }),
+      result,
+    );
+    await composition.dispose();
+  });
+});
 
 const EMPTY_REVIEW_SUMMARY = {
   openCount: 0,

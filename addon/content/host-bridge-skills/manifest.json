@@ -3,7 +3,7 @@
   "cli": {
     "version": "0.5.5",
     "buildFingerprint": "2ef15640bcf10945895ab4a1daa65e89337d6f99978316278c8aa4b1ecb4b4c1",
-    "commandCatalogChecksum": "bf2021f5e5952729c584aea46e0b1b1b2ed7c2bf1eee3f3514f0edaa473e0abf"
+    "commandCatalogChecksum": "67c22ed6c34c579044908e3ee5445e7460210a8634ea80158fc1d7b056d358dc"
   },
   "surfaces": [
     {
@@ -57,8 +57,8 @@
   "files": [
     {
       "path": "zotero-bridge-cli/assets/agent-surface.json",
-      "bytes": 2126296,
-      "sha256": "13ee0125eb9ee3f42f2f98bae8a66914901ff28afabd3bb1b0b990805cf1fe6b"
+      "bytes": 2137818,
+      "sha256": "bd5e8e6db0f4ee82aa8148e11df262906e209a2d2132b8efe5061e9b9d2d01c5"
     },
     {
       "path": "zotero-bridge-cli/assets/output.schema.json",
@@ -77,8 +77,8 @@
     },
     {
       "path": "zotero-bridge-cli/references/command-catalog.md",
-      "bytes": 36956,
-      "sha256": "94d5972497c67da58827017f236f75b2b79f20b3212dae6930e0e0561387df79"
+      "bytes": 38930,
+      "sha256": "f0e286ee7c97efa942eac4c40d543ae2d12572fbf359bf879652348f5f016f80"
     },
     {
       "path": "zotero-bridge-cli/references/commands/bridge/backend/list.md",
@@ -222,8 +222,8 @@
     },
     {
       "path": "zotero-bridge-cli/references/commands/library/item/search.md",
-      "bytes": 12790,
-      "sha256": "5673fb5d82bc10eac1e93e8fc65caa50782ceb0b3d79d2be1a1c5bdbb9ab587e"
+      "bytes": 32732,
+      "sha256": "07e8cba178e3b5dae1123425145223e28a8d5499a15af51e0251cdcc338d16c3"
     },
     {
       "path": "zotero-bridge-cli/references/commands/library/items/export-research-bundle.md",
@@ -817,13 +817,13 @@
     },
     {
       "path": "zotero-library-query/references/playbook.md",
-      "bytes": 19552,
-      "sha256": "eb576561e13c00fe9ee811fe0f9e7ab55cc742d250730acba44b0aeae1a569dd"
+      "bytes": 22561,
+      "sha256": "e24b8b6a32c4134235b83bdf316dafa67587ff5388f61503db7502c346672854"
     },
     {
       "path": "zotero-library-query/SKILL.md",
-      "bytes": 14054,
-      "sha256": "befffed74b1664ea4a4ce8b8ccf0b4e2d425a042411c9572c405bf27add50623"
+      "bytes": 15500,
+      "sha256": "dece9533766697b52786acd89c74ee95eb59b13e01d880b7fb2899784f93510f"
     },
     {
       "path": "zotero-literature-acquisition/assets/output.schema.json",
@@ -886,5 +886,5 @@
       "sha256": "2889284e90a84a126941245bbcde86f78078e3fe6b93c2abd65259cd21874a8b"
     }
   ],
-  "aggregateSha256": "96861df70fbe5bac4e3406a79479f9a0ba6e2f3221b01d4e8f3c17a9370ae3ab"
+  "aggregateSha256": "0fb45ae92b374b9a5fd3117601bd3a3cf65a88be1fa57be769a599528089e3bb"
 }

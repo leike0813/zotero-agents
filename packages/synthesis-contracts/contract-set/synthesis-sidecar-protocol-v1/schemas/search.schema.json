@@ -39,14 +39,7 @@
           "type": "object",
           "properties": {
             "libraryIds": {
-              "type": "array",
-              "minItems": 1,
-              "maxItems": 100,
-              "items": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 9007199254740991
-              }
+              "$ref": "#/$defs/ResolvedLibraryIds"
             },
             "itemRefs": {
               "type": "array",
@@ -65,6 +58,32 @@
         }
       ],
       "unevaluatedProperties": false
+    },
+    "LibraryLexicalExecutionRequest": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/EvidenceSearchRequest" },
+        {
+          "type": "object",
+          "required": ["libraryIds"],
+          "properties": {
+            "libraryIds": { "$ref": "#/$defs/ResolvedLibraryIds" },
+            "cursor": false
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "ResolvedLibraryIds": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "uniqueItems": true,
+      "items": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 9007199254740991
+      }
     },
     "EvidenceRequest": { "$ref": "#/$defs/EvidenceSearchRequest" },
     "TopicRequest": { "$ref": "#/$defs/TopicSearchRequest" },
@@ -282,6 +301,56 @@
         }
       ],
       "unevaluatedProperties": false
+    },
+    "LibraryLexicalItemMatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "sourceVersion", "location", "matchedTerms", "phraseMatch"],
+      "properties": {
+        "source": { "$ref": "reverse-host.schema.json#/$defs/EvidenceSource" },
+        "sourceVersion": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "location": { "$ref": "reverse-host.schema.json#/$defs/EvidenceLocation" },
+        "matchedTerms": { "type": "array", "maxItems": 4096, "items": { "type": "string", "minLength": 1, "maxLength": 4096 } },
+        "phraseMatch": { "type": "boolean" }
+      }
+    },
+    "LibraryLexicalItemResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["itemRef", "matches"],
+      "properties": {
+        "itemRef": { "$ref": "#/$defs/PortableItemRef" },
+        "matches": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/LibraryLexicalItemMatch" } }
+      }
+    },
+    "LibraryLexicalSearchResult": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/SearchResultBase" },
+        {
+          "type": "object",
+          "properties": {
+            "results": { "type": "array", "maxItems": 500, "items": { "$ref": "#/$defs/LibraryLexicalItemResult" } },
+            "coverage": { "$ref": "#/$defs/LibrarySearchCoverage" },
+            "method": { "const": "lexical" },
+            "nextCursor": { "const": null },
+            "hasMore": { "const": false }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "LibraryLexicalExecutionResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result", "scope", "descriptors", "catalogIssues", "catalogLimited"],
+      "properties": {
+        "result": { "$ref": "#/$defs/LibraryLexicalSearchResult" },
+        "scope": { "$ref": "reverse-host.schema.json#/$defs/ResolvedEvidenceScope" },
+        "descriptors": { "type": "array", "maxItems": 256, "items": { "$ref": "reverse-host.schema.json#/$defs/EvidenceDescriptor" } },
+        "catalogIssues": { "type": "array", "maxItems": 8, "items": { "$ref": "#/$defs/SearchIssue" } },
+        "catalogLimited": { "type": "boolean" }
+      }
     },
     "EvidenceResult": { "$ref": "#/$defs/EvidenceSearchResult" },
     "TopicSearchResult": {

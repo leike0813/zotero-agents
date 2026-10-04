@@ -40,6 +40,7 @@ export function createFailClosedZoteroHostCapabilityBroker(
     },
     library: {
       listItems: unexpected("library.listItems"),
+      searchItems: unexpected("library.searchItems"),
       traverseItems: unexpected("library.traverseItems"),
       listCollections: unexpected("library.listCollections"),
       listSavedSearches: unexpected("library.listSavedSearches"),

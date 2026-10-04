@@ -23,7 +23,7 @@ The global options may appear before or after the leaf command. Use `--schema` t
 
 | Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| --query | query | option | yes | — | JSON_OR_FILE | no | — | — | Bounded search query JSON object. Use inline JSON such as '{"query":"graph","limit":10}', a file path containing JSON, @file syntax, or '-' to read JSON from stdin. |
+| --query | query | option | yes | — | JSON_OR_FILE | no | — | — | Canonical bounded library search request JSON. Use inline JSON such as '{"query":"graph","limit":10,"maxResults":100}', a file path containing JSON, @file syntax, or '-' to read JSON from stdin. Keep the returned cursor unchanged in this same request container to continue. |
 
 ## Invocation schema
 
@@ -32,7 +32,7 @@ The global options may appear before or after the leaf command. Use `--schema` t
   "additionalProperties": false,
   "properties": {
     "query": {
-      "description": "Bounded search query JSON object with query, limit, and libraryId",
+      "description": "Canonical bounded library search request as JSON",
       "type": "string"
     }
   },
@@ -51,31 +51,7 @@ Required: `true`.
 
 ```json
 {
-  "additionalProperties": false,
-  "properties": {
-    "libraryId": {
-      "type": [
-        "number",
-        "string"
-      ]
-    },
-    "limit": {
-      "minimum": 1,
-      "type": [
-        "number",
-        "string"
-      ]
-    },
-    "query": {
-      "maxLength": 500,
-      "minLength": 1,
-      "type": "string"
-    }
-  },
-  "required": [
-    "query"
-  ],
-  "type": "object"
+  "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/EvidenceSearchRequest"
 }
 ```
 
@@ -83,31 +59,7 @@ Required: `true`.
 
 ```json
 {
-  "additionalProperties": false,
-  "properties": {
-    "libraryId": {
-      "type": [
-        "number",
-        "string"
-      ]
-    },
-    "limit": {
-      "minimum": 1,
-      "type": [
-        "number",
-        "string"
-      ]
-    },
-    "query": {
-      "maxLength": 500,
-      "minLength": 1,
-      "type": "string"
-    }
-  },
-  "required": [
-    "query"
-  ],
-  "type": "object"
+  "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/EvidenceSearchRequest"
 }
 ```
 
@@ -121,6 +73,135 @@ This command has no separate field-mapping program. Its binding mode is executab
 
 ```json
 {
+  "$defs": {
+    "regularItemSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "collectionRefs": {
+          "items": {
+            "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef"
+          },
+          "type": "array"
+        },
+        "creators": {
+          "items": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "creatorType": {
+                    "type": "string"
+                  },
+                  "firstName": {
+                    "type": "string"
+                  },
+                  "lastName": {
+                    "type": "string"
+                  },
+                  "representation": {
+                    "const": "two_field"
+                  }
+                },
+                "required": [
+                  "representation",
+                  "creatorType",
+                  "firstName",
+                  "lastName"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "creatorType": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "representation": {
+                    "const": "single_field"
+                  }
+                },
+                "required": [
+                  "representation",
+                  "creatorType",
+                  "name"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "type": "array"
+        },
+        "date": {
+          "type": "string"
+        },
+        "itemType": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "regular"
+        },
+        "parentRef": {
+          "oneOf": [
+            {
+              "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "publicationTitle": {
+          "type": "string"
+        },
+        "ref": {
+          "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "active",
+            "trashed"
+          ]
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "type": "string"
+        },
+        "year": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "ref",
+        "kind",
+        "itemType",
+        "title",
+        "parentRef",
+        "state",
+        "revision",
+        "tags",
+        "collectionRefs",
+        "creators",
+        "date",
+        "year",
+        "publicationTitle"
+      ],
+      "type": "object"
+    }
+  },
   "additionalProperties": false,
   "properties": {
     "approval": {
@@ -131,26 +212,237 @@ This command has no separate field-mapping program. Its binding mode is executab
       "const": "library.search_items"
     },
     "data": {
-      "additionalProperties": false,
-      "description": "Bounded search results returned by library.search_items.",
-      "properties": {
-        "items": {
-          "items": {
-            "additionalProperties": true,
-            "type": "object",
-            "x-openPropertiesReason": "Zotero item DTO fields are owned by the library broker and remain JSON-safe."
+      "$defs": {
+        "regularItemSummary": {
+          "additionalProperties": false,
+          "properties": {
+            "collectionRefs": {
+              "items": {
+                "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef"
+              },
+              "type": "array"
+            },
+            "creators": {
+              "items": {
+                "oneOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "creatorType": {
+                        "type": "string"
+                      },
+                      "firstName": {
+                        "type": "string"
+                      },
+                      "lastName": {
+                        "type": "string"
+                      },
+                      "representation": {
+                        "const": "two_field"
+                      }
+                    },
+                    "required": [
+                      "representation",
+                      "creatorType",
+                      "firstName",
+                      "lastName"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "creatorType": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "representation": {
+                        "const": "single_field"
+                      }
+                    },
+                    "required": [
+                      "representation",
+                      "creatorType",
+                      "name"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            "date": {
+              "type": "string"
+            },
+            "itemType": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "regular"
+            },
+            "parentRef": {
+              "oneOf": [
+                {
+                  "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "publicationTitle": {
+              "type": "string"
+            },
+            "ref": {
+              "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef"
+            },
+            "revision": {
+              "type": "string"
+            },
+            "state": {
+              "enum": [
+                "active",
+                "trashed"
+              ]
+            },
+            "tags": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": {
+              "type": "string"
+            },
+            "year": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
           },
-          "type": "array"
-        },
-        "truncated": {
-          "type": "boolean"
+          "required": [
+            "ref",
+            "kind",
+            "itemType",
+            "title",
+            "parentRef",
+            "state",
+            "revision",
+            "tags",
+            "collectionRefs",
+            "creators",
+            "date",
+            "year",
+            "publicationTitle"
+          ],
+          "type": "object"
         }
       },
-      "required": [
-        "items",
-        "truncated"
+      "allOf": [
+        {
+          "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/SearchResultBase"
+        },
+        {
+          "properties": {
+            "coverage": {
+              "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/LibrarySearchCoverage"
+            },
+            "hasMore": {
+              "type": "boolean"
+            },
+            "method": {
+              "const": "lexical"
+            },
+            "nextCursor": {
+              "oneOf": [
+                {
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "results": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "item": {
+                    "$ref": "#/$defs/regularItemSummary"
+                  },
+                  "matches": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "location": {
+                          "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/EvidenceLocation"
+                        },
+                        "matchedTerms": {
+                          "items": {
+                            "maxLength": 4096,
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "phraseMatch": {
+                          "type": "boolean"
+                        },
+                        "source": {
+                          "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/EvidenceSource"
+                        },
+                        "sourceVersion": {
+                          "maxLength": 256,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "source",
+                        "sourceVersion",
+                        "location",
+                        "matchedTerms",
+                        "phraseMatch"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "item",
+                  "matches"
+                ],
+                "type": "object"
+              },
+              "maxItems": 100,
+              "type": "array"
+            },
+            "total": {
+              "oneOf": [
+                {
+                  "maximum": 1000000,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "results",
+            "coverage"
+          ],
+          "type": "object"
+        }
       ],
-      "type": "object"
+      "unevaluatedProperties": false
     }
   },
   "required": [
@@ -166,15 +458,15 @@ This command has no separate field-mapping program. Its binding mode is executab
 
 ### query: shape-only
 
-Minimal JSON shape for --query.
+Canonical bounded lexical-search request carried intact by --query.
 
 ```console
-zotero-bridge library item search --query '{"query":"example"}'
+zotero-bridge library item search --query '{"libraryIds":[1],"limit":25,"maxResults":100,"query":"example phrase","sourceKinds":["metadata","fulltext","analysis"]}'
 ```
 
 Prerequisites:
 
-- Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution.
+- Use a non-empty query no longer than 4096 UTF-16 code units; replace example identifiers with libraries and portable item refs valid for the current Zotero profile.
 
 ## Complete command descriptor
 
@@ -193,10 +485,10 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "conflictsWith": [],
       "defaultValues": [],
       "global": false,
-      "help": "Bounded search query JSON object with query, limit, and libraryId",
+      "help": "Canonical bounded library search request as JSON",
       "id": "query",
       "kind": "option",
-      "longHelp": "Bounded search query JSON object. Use inline JSON such as '{\"query\":\"graph\",\"limit\":10}', a file path containing JSON, @file syntax, or '-' to read JSON from stdin.",
+      "longHelp": "Canonical bounded library search request JSON. Use inline JSON such as '{\"query\":\"graph\",\"limit\":10,\"maxResults\":100}', a file path containing JSON, @file syntax, or '-' to read JSON from stdin. Keep the returned cursor unchanged in this same request container to continue.",
       "possibleValues": [],
       "repeatable": false,
       "required": true,
@@ -242,44 +534,30 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "query": {
       "examples": [
         {
-          "description": "Minimal JSON shape for --query.",
+          "description": "Canonical bounded lexical-search request carried intact by --query.",
           "kind": "shape-only",
           "prerequisites": [
-            "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
+            "Use a non-empty query no longer than 4096 UTF-16 code units; replace example identifiers with libraries and portable item refs valid for the current Zotero profile."
           ],
           "value": {
-            "query": "example"
+            "libraryIds": [
+              1
+            ],
+            "limit": 25,
+            "maxResults": 100,
+            "query": "example phrase",
+            "sourceKinds": [
+              "metadata",
+              "fulltext",
+              "analysis"
+            ]
           }
         }
       ],
       "required": true,
       "requiredWhen": [],
       "schema": {
-        "additionalProperties": false,
-        "properties": {
-          "libraryId": {
-            "type": [
-              "number",
-              "string"
-            ]
-          },
-          "limit": {
-            "minimum": 1,
-            "type": [
-              "number",
-              "string"
-            ]
-          },
-          "query": {
-            "maxLength": 500,
-            "minLength": 1,
-            "type": "string"
-          }
-        },
-        "required": [
-          "query"
-        ],
-        "type": "object"
+        "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/EvidenceSearchRequest"
       },
       "schemaSource": "target-capability",
       "token": "--query"
@@ -289,7 +567,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "additionalProperties": false,
     "properties": {
       "query": {
-        "description": "Bounded search query JSON object with query, limit, and libraryId",
+        "description": "Canonical bounded library search request as JSON",
         "type": "string"
       }
     },
@@ -307,50 +585,160 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "JSON_OR_FILE"
   ],
   "outputBoundary": {
+    "continuation": [
+      "data.nextCursor",
+      "data.hasMore",
+      "data.total"
+    ],
+    "cursorInput": "cursor",
     "defaultLimit": 25,
     "maxLimit": 100,
-    "section": "data.items",
-    "strategy": "limit",
-    "truncatedField": "data.truncated"
+    "section": "data.results",
+    "strategy": "cursor"
   },
-  "pagination": "none",
+  "pagination": "cursor",
   "payloadSchema": {
-    "additionalProperties": false,
-    "properties": {
-      "libraryId": {
-        "type": [
-          "number",
-          "string"
-        ]
-      },
-      "limit": {
-        "minimum": 1,
-        "type": [
-          "number",
-          "string"
-        ]
-      },
-      "query": {
-        "maxLength": 500,
-        "minLength": 1,
-        "type": "string"
-      }
-    },
-    "required": [
-      "query"
-    ],
-    "type": "object"
+    "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/EvidenceSearchRequest"
   },
   "recovery": [
     {
-      "action": "Inspect the error and retry only when retryable is true.",
+      "action": "Preserve the structured search error. Do not retry or rerun with the rejected cursor; start a fresh search only when a new search is intended and inspect every returned coverage issue before claiming completeness. Run `zotero-bridge surface describe 'library item search'` to confirm the live request and cursor contract.",
       "nextCommand": "surface describe",
       "requiresHandles": [],
       "stateCheck": "none",
-      "when": "The read fails or returns incomplete evidence."
+      "when": "The read fails or returns a stale or basis-mismatched search cursor."
     }
   ],
   "resultSchema": {
+    "$defs": {
+      "regularItemSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "collectionRefs": {
+            "items": {
+              "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef"
+            },
+            "type": "array"
+          },
+          "creators": {
+            "items": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "creatorType": {
+                      "type": "string"
+                    },
+                    "firstName": {
+                      "type": "string"
+                    },
+                    "lastName": {
+                      "type": "string"
+                    },
+                    "representation": {
+                      "const": "two_field"
+                    }
+                  },
+                  "required": [
+                    "representation",
+                    "creatorType",
+                    "firstName",
+                    "lastName"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "creatorType": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "representation": {
+                      "const": "single_field"
+                    }
+                  },
+                  "required": [
+                    "representation",
+                    "creatorType",
+                    "name"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "type": "array"
+          },
+          "date": {
+            "type": "string"
+          },
+          "itemType": {
+            "type": "string"
+          },
+          "kind": {
+            "const": "regular"
+          },
+          "parentRef": {
+            "oneOf": [
+              {
+                "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "publicationTitle": {
+            "type": "string"
+          },
+          "ref": {
+            "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "active",
+              "trashed"
+            ]
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          },
+          "year": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "ref",
+          "kind",
+          "itemType",
+          "title",
+          "parentRef",
+          "state",
+          "revision",
+          "tags",
+          "collectionRefs",
+          "creators",
+          "date",
+          "year",
+          "publicationTitle"
+        ],
+        "type": "object"
+      }
+    },
     "additionalProperties": false,
     "properties": {
       "approval": {
@@ -361,26 +749,237 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "const": "library.search_items"
       },
       "data": {
-        "additionalProperties": false,
-        "description": "Bounded search results returned by library.search_items.",
-        "properties": {
-          "items": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object",
-              "x-openPropertiesReason": "Zotero item DTO fields are owned by the library broker and remain JSON-safe."
+        "$defs": {
+          "regularItemSummary": {
+            "additionalProperties": false,
+            "properties": {
+              "collectionRefs": {
+                "items": {
+                  "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef"
+                },
+                "type": "array"
+              },
+              "creators": {
+                "items": {
+                  "oneOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "creatorType": {
+                          "type": "string"
+                        },
+                        "firstName": {
+                          "type": "string"
+                        },
+                        "lastName": {
+                          "type": "string"
+                        },
+                        "representation": {
+                          "const": "two_field"
+                        }
+                      },
+                      "required": [
+                        "representation",
+                        "creatorType",
+                        "firstName",
+                        "lastName"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "creatorType": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "representation": {
+                          "const": "single_field"
+                        }
+                      },
+                      "required": [
+                        "representation",
+                        "creatorType",
+                        "name"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              "date": {
+                "type": "string"
+              },
+              "itemType": {
+                "type": "string"
+              },
+              "kind": {
+                "const": "regular"
+              },
+              "parentRef": {
+                "oneOf": [
+                  {
+                    "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "publicationTitle": {
+                "type": "string"
+              },
+              "ref": {
+                "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef"
+              },
+              "revision": {
+                "type": "string"
+              },
+              "state": {
+                "enum": [
+                  "active",
+                  "trashed"
+                ]
+              },
+              "tags": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "title": {
+                "type": "string"
+              },
+              "year": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
             },
-            "type": "array"
-          },
-          "truncated": {
-            "type": "boolean"
+            "required": [
+              "ref",
+              "kind",
+              "itemType",
+              "title",
+              "parentRef",
+              "state",
+              "revision",
+              "tags",
+              "collectionRefs",
+              "creators",
+              "date",
+              "year",
+              "publicationTitle"
+            ],
+            "type": "object"
           }
         },
-        "required": [
-          "items",
-          "truncated"
+        "allOf": [
+          {
+            "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/SearchResultBase"
+          },
+          {
+            "properties": {
+              "coverage": {
+                "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/LibrarySearchCoverage"
+              },
+              "hasMore": {
+                "type": "boolean"
+              },
+              "method": {
+                "const": "lexical"
+              },
+              "nextCursor": {
+                "oneOf": [
+                  {
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "results": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "item": {
+                      "$ref": "#/$defs/regularItemSummary"
+                    },
+                    "matches": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "location": {
+                            "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/EvidenceLocation"
+                          },
+                          "matchedTerms": {
+                            "items": {
+                              "maxLength": 4096,
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          "phraseMatch": {
+                            "type": "boolean"
+                          },
+                          "source": {
+                            "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/EvidenceSource"
+                          },
+                          "sourceVersion": {
+                            "maxLength": 256,
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "source",
+                          "sourceVersion",
+                          "location",
+                          "matchedTerms",
+                          "phraseMatch"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "item",
+                    "matches"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 100,
+                "type": "array"
+              },
+              "total": {
+                "oneOf": [
+                  {
+                    "maximum": 1000000,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "results",
+              "coverage"
+            ],
+            "type": "object"
+          }
         ],
-        "type": "object"
+        "unevaluatedProperties": false
       }
     },
     "required": [
@@ -415,8 +1014,8 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 ## Operational contract
 
 - Canonical argv path: `library` `item` `search`.
-- Output boundary: `limit`; governed details: {"defaultLimit":25,"maxLimit":100,"section":"data.items","strategy":"limit","truncatedField":"data.truncated"}.
-- Pagination: `none`.
+- Output boundary: `cursor`; governed details: {"continuation":["data.nextCursor","data.hasMore","data.total"],"cursorInput":"cursor","defaultLimit":25,"maxLimit":100,"section":"data.results","strategy":"cursor"}.
+- Pagination: `cursor`.
 - Category: `read`; danger: `none`.
 - Structured binding mode: `passthrough`.
 - Intent visibility: `visible`.
@@ -456,11 +1055,11 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 ```json
 [
   {
-    "action": "Inspect the error and retry only when retryable is true.",
+    "action": "Preserve the structured search error. Do not retry or rerun with the rejected cursor; start a fresh search only when a new search is intended and inspect every returned coverage issue before claiming completeness. Run `zotero-bridge surface describe 'library item search'` to confirm the live request and cursor contract.",
     "nextCommand": "surface describe",
     "requiresHandles": [],
     "stateCheck": "none",
-    "when": "The read fails or returns incomplete evidence."
+    "when": "The read fails or returns a stale or basis-mismatched search cursor."
   }
 ]
 ```

@@ -62,6 +62,7 @@ export const WORKFLOW_HOST_API_MANIFEST = defineWorkflowHostCandidateManifest({
   },
   library: {
     listItems: "function",
+    searchItems: "function",
     traverseItems: "function",
     withItemSnapshot: "function",
     listCollections: "function",

@@ -61,7 +61,7 @@ describe("Synthesis E2E gold library", function () {
   this.timeout(900_000);
 
   before(function () {
-    if (readDiagnosticsEnv("ZOTERO_SYSTEM_E2E_RESUME_CASE") === "HB-03") {
+    if (readDiagnosticsEnv("ZOTERO_SYSTEM_E2E_RESUME_CASE")) {
       this.skip();
     }
   });

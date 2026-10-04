@@ -37,6 +37,7 @@ const V12_CALLABLE_PATHS = [
   "context.getCurrentView",
   "context.getSelectedItems",
   "library.listItems",
+  "library.searchItems",
   "library.traverseItems",
   "library.withItemSnapshot",
   "library.listCollections",
@@ -153,7 +154,7 @@ describe("Workflow Host contract governance", function () {
       22,
     );
     const callablePaths = collectCallablePaths(WORKFLOW_HOST_API_MANIFEST);
-    assert.lengthOf(callablePaths, 93);
+    assert.lengthOf(callablePaths, 94);
     assert.sameMembers(callablePaths, V12_CALLABLE_PATHS);
   });
 
@@ -193,6 +194,8 @@ describe("Workflow Host contract governance", function () {
     assert.deepEqual(result.variantShapeMismatchPaths, []);
     assert.strictEqual(interactive.interactionMode, "interactive");
     assert.strictEqual(nonInteractive.interactionMode, "non_interactive");
+    assert.isFunction(interactive.library.searchItems);
+    assert.isFunction(nonInteractive.library.searchItems);
     try {
       await nonInteractive.file.pickFile();
       assert.fail("expected non-interactive picker denial");

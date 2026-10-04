@@ -91,10 +91,38 @@ fn schema_mode_accepts_leading_and_trailing_global_flag_without_required_values(
 fn item_search_schema_owns_query_and_rejects_text() {
     let (_, output, _) = run(&["library", "item", "search", "--schema"]);
     let schema = &output["data"]["inputs"]["query"]["schema"];
-    assert!(schema["properties"]["query"].is_object());
-    assert!(schema["properties"]["filter"].is_null());
-    assert!(schema["properties"]["text"].is_null());
-    assert_eq!(schema["additionalProperties"], false);
+    assert_eq!(
+        schema["$ref"],
+        "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/EvidenceSearchRequest"
+    );
+}
+
+#[test]
+fn item_search_schema_describes_full_result_cursor_boundary() {
+    let (code, output, _) = run(&["surface", "describe", "library item search"]);
+    assert_eq!(code, 0);
+    let descriptor = &output["data"];
+    assert_eq!(descriptor["pagination"], "cursor");
+    assert_eq!(descriptor["outputBoundary"]["strategy"], "cursor");
+    assert_eq!(descriptor["outputBoundary"]["section"], "data.results");
+    assert_eq!(descriptor["outputBoundary"]["cursorInput"], "cursor");
+    assert_eq!(
+        descriptor["outputBoundary"]["continuation"][0],
+        "data.nextCursor"
+    );
+    assert_eq!(
+        descriptor["outputBoundary"]["continuation"][1],
+        "data.hasMore"
+    );
+    assert!(descriptor["outputBoundary"]["continuation"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|field| field == "data.total"));
+    assert!(descriptor["recovery"][0]["action"]
+        .as_str()
+        .unwrap()
+        .contains("Do not retry or rerun"));
 }
 
 #[test]
@@ -113,7 +141,6 @@ fn enumeration_schemas_use_filter_while_search_keeps_query() {
 
     let (_, output, _) = run(&["library", "item", "search", "--schema"]);
     let schema = &output["data"]["inputs"]["query"]["schema"];
-    assert!(schema["properties"]["query"].is_object());
     assert!(schema["properties"]["filter"].is_null());
 
     for args in [
@@ -160,6 +187,13 @@ fn enumeration_schemas_use_filter_while_search_keeps_query() {
             "audit",
             "--query",
             r#"{"query":"paper","checks":["pdf"]}"#,
+        ],
+        vec![
+            "library",
+            "item",
+            "search",
+            "--query",
+            r#"{"filter":"paper"}"#,
         ],
     ] {
         let (code, output, stdout) = run_executable(&args);
@@ -212,10 +246,9 @@ fn item_search_rejects_legacy_text_with_structured_contract_error() {
     assert_eq!(output["error"]["details"]["phase"], "command_input");
     assert_eq!(output["error"]["details"]["command"], "library item search");
     assert_eq!(output["error"]["details"]["argumentId"], "query");
-    assert_eq!(
-        output["error"]["details"]["violations"][0]["property"],
-        "text"
-    );
+    assert!(output["error"]["details"]["violations"]
+        .as_array()
+        .is_some_and(|violations| !violations.is_empty()));
 }
 
 #[test]

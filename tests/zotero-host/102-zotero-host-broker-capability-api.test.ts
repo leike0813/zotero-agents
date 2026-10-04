@@ -55,6 +55,7 @@ import {
   configureZoteroHostSnapshotRuntimeForTests,
   consumeTagAuditTraversalCompletionEvidence,
   createZoteroHostCapabilityBroker,
+  getZoteroHostEvidenceSourceControl,
   getZoteroHostCanonicalMutationControl,
   getZoteroManagedNoteLocalControl,
   verifyLibraryTraversalCompletionEvidence,
@@ -485,6 +486,579 @@ describe("zotero host broker capability api", function () {
     resetZoteroMcpServerForTests();
     setDefaultSynthesisClientCompositionFactoryForTests(null);
     await resetDefaultSynthesisClientForTests();
+  });
+
+  it("validates lexical item search and completes explicitly empty scopes", async function () {
+    const broker = createZoteroHostCapabilityBroker();
+    for (const request of [
+      {},
+      { query: "   " },
+      { query: "evidence", limit: 101 },
+      { query: "evidence", maxResults: 501 },
+      { query: "evidence", limit: 26, maxResults: 25 },
+      { query: "evidence", libraryIds: [] },
+      { query: "evidence", itemRefs: [{ key: "INCOMPLETE" }] },
+    ]) {
+      await expectBrokerError(
+        broker.library.searchItems(request as never),
+        "invalid_request",
+      );
+    }
+    for (const scope of [{ itemRefs: [] }, { sourceKinds: [] }]) {
+      const result = await broker.library.searchItems({
+        query: "evidence",
+        libraryIds: [Zotero.Libraries.userLibraryID],
+        ...scope,
+      });
+      assert.deepInclude(result, {
+        results: [],
+        status: "completed",
+        method: "lexical",
+        issues: [],
+        total: 0,
+        nextCursor: null,
+        hasMore: false,
+      });
+      assert.strictEqual(result.coverage.kind, "library");
+    }
+  });
+
+  it("keeps Library item search ordering and captured scope across pages, rejecting stale and expired bases", async function () {
+    const first = await createParentItem("Lexical first");
+    const second = await createParentItem("Lexical second");
+    const refs = [first, second].map((item) => ({
+      libraryId: item.libraryID,
+      key: item.key,
+    }));
+    let now = 1000;
+    let executionCount = 0;
+    let selectedLibraries = [first.libraryID];
+    const view = {
+      ZoteroPane: {
+        getSelectedLibraryIDs: () => selectedLibraries,
+        getSelectedItems: () => [],
+      },
+    } as unknown as _ZoteroTypes.MainWindow;
+    const broker = createZoteroHostCapabilityBroker(() => view, {
+      now: () => now,
+      lexicalPort: {
+        async execute(request) {
+          executionCount++;
+          const catalog = await getZoteroHostEvidenceSourceControl(
+            broker,
+          ).listSources({
+            scope: {
+              libraryIds: request.libraryIds!,
+              itemRefs: request.itemRefs,
+            },
+            sourceKinds: ["metadata"],
+          });
+          return {
+            scope: catalog.scope,
+            descriptors: catalog.descriptors,
+            catalogIssues: catalog.issues,
+            catalogLimited: false,
+            result: {
+              results: [...refs].reverse().map((itemRef) => {
+                const descriptor = catalog.descriptors.find(
+                  (source) =>
+                    source.itemRef.key === itemRef.key &&
+                    source.source.kind === "metadata" &&
+                    source.source.field === "title",
+                )!;
+                return {
+                  itemRef,
+                  matches: [
+                    {
+                      source: descriptor.source,
+                      sourceVersion: descriptor.sourceVersion,
+                      location: {
+                        unit: "field" as const,
+                        field: "title",
+                        range: { start: 0, end: 7 },
+                      },
+                      matchedTerms: ["lexical"],
+                      phraseMatch: true,
+                    },
+                  ],
+                };
+              }),
+              status: "completed",
+              method: "lexical",
+              coverage: {
+                kind: "library",
+                sources: {
+                  metadata: {
+                    status: "complete",
+                    sourcesScanned: catalog.descriptors.length,
+                  },
+                  fulltext: { status: "not_requested", sourcesScanned: 0 },
+                  analysis: { status: "not_requested", sourcesScanned: 0 },
+                },
+              },
+              issues: [],
+              nextCursor: null,
+              hasMore: false,
+              total: 2,
+            },
+          };
+        },
+      },
+    });
+    const request = {
+      query: "lexical",
+      sourceKinds: ["metadata" as const],
+      limit: 1,
+    };
+    const page = await broker.library.searchItems(request);
+    assert.strictEqual(page.results[0].item.ref.key, second.key);
+    assert.strictEqual(page.total, 2);
+    assert.isTrue(page.hasMore);
+    assert.notProperty(page.results[0], "score");
+    assert.deepEqual(page.results[0].matches[0].matchedTerms, ["lexical"]);
+    page.results[0].item.title = "Caller modified returned DTO";
+    page.results[0].matches[0].matchedTerms.push("caller mutation");
+    selectedLibraries = [first.libraryID, first.libraryID + 1];
+    const rest = await broker.library.searchItems({
+      ...request,
+      cursor: page.nextCursor!,
+    });
+    assert.strictEqual(rest.results[0].item.ref.key, first.key);
+    assert.isFalse(rest.hasMore);
+    assert.strictEqual(executionCount, 1);
+    const replay = await broker.library.searchItems({
+      ...request,
+      cursor: page.nextCursor!,
+    });
+    assert.strictEqual(replay.results[0].item.title, "Lexical first");
+    const largerPage = await broker.library.searchItems({
+      ...request,
+      limit: 5,
+      cursor: page.nextCursor!,
+    });
+    assert.strictEqual(largerPage.results[0].item.ref.key, first.key);
+    assert.isFalse(largerPage.hasMore);
+    selectedLibraries = [first.libraryID];
+    await expectBrokerError(
+      broker.library.searchItems({
+        ...request,
+        query: "changed",
+        cursor: page.nextCursor!,
+      }),
+      "conflict",
+    );
+    const created = await createParentItem("New source after captured search");
+    await expectBrokerError(
+      broker.library.searchItems({ ...request, cursor: page.nextCursor! }),
+      "conflict",
+    );
+    await created.eraseTx();
+    first.setField(
+      "abstractNote",
+      "Changed source that is absent from matches",
+    );
+    await first.saveTx();
+    await expectBrokerError(
+      broker.library.searchItems({ ...request, cursor: page.nextCursor! }),
+      "conflict",
+    );
+    const fresh = await broker.library.searchItems(request);
+    now += 60_001;
+    await expectBrokerError(
+      broker.library.searchItems({ ...request, cursor: fresh.nextCursor! }),
+      "conflict",
+    );
+    assert.strictEqual(executionCount, 2);
+  });
+
+  it("captures one current Library and intersects refs, collection, tag and type without widening", async function () {
+    const selected = await createParentItem("Scoped evidence");
+    const excluded = await createParentItem("Excluded evidence");
+    const collection = await createCollection("Lexical scope");
+    selected.addToCollection(collection.id);
+    selected.addTag("selected");
+    await selected.saveTx();
+    let currentIds = [selected.libraryID];
+    const capturedWindow = {
+      ZoteroPane: {
+        getSelectedLibraryIDs: () => currentIds,
+        getSelectedItems: () => [],
+      },
+    } as unknown as _ZoteroTypes.MainWindow;
+    let executions = 0;
+    const broker = createZoteroHostCapabilityBroker(() => capturedWindow, {
+      lexicalPort: {
+        async execute(request) {
+          executions++;
+          assert.deepEqual(request.libraryIds, [selected.libraryID]);
+          assert.lengthOf(request.itemRefs!, 2);
+          const catalog = await getZoteroHostEvidenceSourceControl(
+            broker,
+          ).listSources({
+            scope: {
+              libraryIds: request.libraryIds!,
+              itemRefs: request.itemRefs,
+              collectionRef: request.collectionRef,
+              tag: request.tag,
+              itemType: request.itemType,
+            },
+            sourceKinds: request.sourceKinds,
+          });
+          assert.isNotEmpty(catalog.descriptors);
+          assert.isTrue(
+            catalog.descriptors.every(
+              (descriptor) => descriptor.itemRef.key === selected.key,
+            ),
+          );
+          return {
+            scope: catalog.scope,
+            descriptors: catalog.descriptors,
+            catalogIssues: catalog.issues,
+            catalogLimited: false,
+            result: {
+              results: [],
+              status: "limited",
+              method: "lexical",
+              coverage: {
+                kind: "library",
+                sources: {
+                  metadata: {
+                    status: "complete",
+                    sourcesScanned: catalog.descriptors.length,
+                  },
+                  fulltext: { status: "limited", sourcesScanned: 0 },
+                  analysis: { status: "not_requested", sourcesScanned: 0 },
+                },
+              },
+              issues: [
+                {
+                  code: "source_read_failed",
+                  sourceKind: "fulltext",
+                  affectedCount: 1,
+                },
+              ],
+              nextCursor: null,
+              hasMore: false,
+              total: null,
+            },
+          };
+        },
+      },
+    });
+    const ref = { libraryId: selected.libraryID, key: selected.key };
+    const request = {
+      query: "evidence",
+      itemRefs: [
+        ref,
+        ref,
+        { libraryId: excluded.libraryID, key: excluded.key },
+      ],
+      collectionRef: { libraryId: collection.libraryID, key: collection.key },
+      tag: "selected",
+      itemType: "journalArticle",
+      sourceKinds: ["metadata" as const, "fulltext" as const],
+    };
+    const result = await broker.library.searchItems(request);
+    assert.strictEqual(result.status, "limited");
+    assert.strictEqual(result.total, null);
+    assert.deepEqual(result.issues, [
+      { code: "source_read_failed", sourceKind: "fulltext", affectedCount: 1 },
+    ]);
+    currentIds = [selected.libraryID, selected.libraryID + 1];
+    await expectBrokerError(
+      broker.library.searchItems(request),
+      "invalid_request",
+    );
+    currentIds = [selected.libraryID];
+    const empty = await broker.library.searchItems({
+      ...request,
+      tag: "no-intersection",
+    });
+    assert.deepInclude(empty, { results: [], total: 0, status: "completed" });
+    assert.strictEqual(executions, 1);
+    const unavailable =
+      await createZoteroHostCapabilityBroker().library.searchItems({
+        query: "evidence",
+        libraryIds: [selected.libraryID],
+      });
+    assert.strictEqual(unavailable.status, "unavailable");
+    assert.strictEqual(unavailable.total, null);
+    const foreign = await broker.library.searchItems({
+      ...request,
+      libraryIds: [selected.libraryID],
+      itemRefs: [{ libraryId: selected.libraryID + 1, key: selected.key }],
+    });
+    assert.deepInclude(foreign, { results: [], total: 0, status: "completed" });
+    const foreignCollection = await broker.library.searchItems({
+      ...request,
+      libraryIds: [selected.libraryID],
+      collectionRef: { libraryId: selected.libraryID + 1, key: collection.key },
+    });
+    assert.deepInclude(foreignCollection, {
+      results: [],
+      total: 0,
+      status: "completed",
+    });
+  });
+
+  it("keys cursor revalidation off the original limited basis and never reads past the frozen prefix", async function () {
+    const makeTitledItem = async (title: string) => {
+      const item = new Zotero.Item("journalArticle");
+      (item as any).version = 1;
+      (item as any).dateAdded = "2026-04-27T00:00:00.000Z";
+      (item as any).dateModified = "2026-04-27T00:00:00.000Z";
+      item.setField("title", title);
+      await item.saveTx();
+      return item;
+    };
+    const items = [
+      await makeTitledItem("prefix alpha"),
+      await makeTitledItem("prefix beta"),
+      await makeTitledItem("prefix gamma"),
+    ];
+    const byKey = new Map(items.map((item) => [item.key, item]));
+    const itemRefs = items.map((item) => ({
+      libraryId: item.libraryID,
+      key: item.key,
+    }));
+    const view = {
+      ZoteroPane: {
+        getSelectedLibraryIDs: () => [items[0].libraryID],
+        getSelectedItems: () => [],
+      },
+    } as unknown as _ZoteroTypes.MainWindow;
+    const broker = createZoteroHostCapabilityBroker(() => view, {
+      lexicalPort: {
+        async execute(request) {
+          const catalog = await getZoteroHostEvidenceSourceControl(
+            broker,
+          ).listSources({
+            scope: {
+              libraryIds: request.libraryIds!,
+              itemRefs: request.itemRefs,
+            },
+            sourceKinds: ["metadata"],
+          });
+          // Truncated native basis: only the first two sources were captured.
+          const frozen = catalog.descriptors.slice(0, 2);
+          const hit = (descriptor: (typeof frozen)[number]) => ({
+            itemRef: descriptor.itemRef,
+            matches: [
+              {
+                source: descriptor.source,
+                sourceVersion: descriptor.sourceVersion,
+                location: {
+                  unit: "field" as const,
+                  field: "title",
+                  range: { start: 0, end: 6 },
+                },
+                matchedTerms: ["prefix"],
+                phraseMatch: true,
+              },
+            ],
+          });
+          return {
+            scope: catalog.scope,
+            descriptors: frozen,
+            catalogIssues: [
+              {
+                code: "scan_budget_exhausted",
+                sourceKind: null,
+                affectedCount: 1,
+              },
+            ],
+            catalogLimited: true,
+            result: {
+              results: frozen.map(hit),
+              status: "limited",
+              method: "lexical",
+              coverage: {
+                kind: "library",
+                sources: {
+                  metadata: {
+                    status: "limited",
+                    sourcesScanned: frozen.length,
+                  },
+                  fulltext: { status: "not_requested", sourcesScanned: 0 },
+                  analysis: { status: "not_requested", sourcesScanned: 0 },
+                },
+              },
+              issues: [
+                {
+                  code: "scan_budget_exhausted",
+                  sourceKind: null,
+                  affectedCount: 1,
+                },
+              ],
+              nextCursor: null,
+              hasMore: false,
+              total: null,
+            },
+          };
+        },
+      },
+    });
+    const request = {
+      query: "prefix",
+      libraryIds: [items[0].libraryID],
+      itemRefs,
+      sourceKinds: ["metadata" as const],
+      limit: 1,
+    };
+    const page = await broker.library.searchItems(request);
+    assert.strictEqual(page.status, "limited");
+    assert.isNull(page.total);
+    assert.isTrue(page.hasMore);
+    // listEvidenceSources orders itemRefs by key, so the two-descriptor prefix covers
+    // the two lowest keys; the highest-key item is the untouched tail.
+    const sortedRefs = [...itemRefs].sort((a, b) => a.key.localeCompare(b.key));
+    const untouchedRef = sortedRefs[2]!;
+    const tailItem = byKey.get(untouchedRef.key)!;
+    let tailReads = 0;
+    const originalGetField = tailItem.getField.bind(tailItem);
+    tailItem.getField = ((field: string, ...rest: unknown[]) => {
+      tailReads += 1;
+      return (originalGetField as (...args: unknown[]) => unknown)(
+        field,
+        ...rest,
+      );
+    }) as typeof tailItem.getField;
+    const rest = await broker.library.searchItems({
+      ...request,
+      cursor: page.nextCursor!,
+    });
+    assert.strictEqual(rest.results.length, 1);
+    assert.isFalse(rest.hasMore);
+    assert.strictEqual(
+      tailReads,
+      0,
+      "continuation must not read sources past the frozen prefix",
+    );
+  });
+
+  it("rejects a stale second match range against the cached fulltext source without re-reading it", async function () {
+    const parent = await createParentItem("Cached fulltext single read");
+    const dir = await mkTempDir("zotero-search-fulltext");
+    const mdPath = joinPath(dir, "evidence.md");
+    await writeUtf8(mdPath, "alpha bravo charlie delta");
+    const attachment = new Zotero.Item("attachment");
+    (attachment as any).parentItemID = parent.id;
+    attachment.setField("title", "evidence.md");
+    attachment.setField("contentType", "text/markdown");
+    attachment.setFilePath(mdPath);
+    (attachment as any).attachmentLinkMode = 0;
+    (attachment as any).getAttachmentLinkMode = () => 0;
+    await attachment.saveTx();
+    const view = {
+      ZoteroPane: {
+        getSelectedLibraryIDs: () => [parent.libraryID],
+        getSelectedItems: () => [],
+      },
+    } as unknown as _ZoteroTypes.MainWindow;
+    let includeStaleMatch = false;
+    const broker = createZoteroHostCapabilityBroker(() => view, {
+      lexicalPort: {
+        async execute(request) {
+          const catalog = await getZoteroHostEvidenceSourceControl(
+            broker,
+          ).listSources({
+            scope: {
+              libraryIds: request.libraryIds!,
+              itemRefs: request.itemRefs,
+            },
+            sourceKinds: ["fulltext"],
+          });
+          const descriptor = catalog.descriptors.find(
+            (source) => source.source.kind === "fulltext",
+          )!;
+          const match = (range: { start: number; end: number }) => ({
+            source: descriptor.source,
+            sourceVersion: descriptor.sourceVersion,
+            location: {
+              unit: "paragraph" as const,
+              field: null,
+              range,
+            },
+            matchedTerms: ["alpha"],
+            phraseMatch: true,
+          });
+          return {
+            scope: catalog.scope,
+            descriptors: [descriptor],
+            catalogIssues: catalog.issues,
+            catalogLimited: false,
+            result: {
+              results: [
+                {
+                  itemRef: {
+                    libraryId: parent.libraryID,
+                    key: parent.key,
+                  },
+                  matches: [
+                    match({ start: 0, end: 5 }),
+                    ...(includeStaleMatch
+                      ? [match({ start: 0, end: 100000 })]
+                      : []),
+                  ],
+                },
+              ],
+              status: "completed",
+              method: "lexical",
+              coverage: {
+                kind: "library",
+                sources: {
+                  metadata: { status: "not_requested", sourcesScanned: 0 },
+                  fulltext: {
+                    status: "complete",
+                    sourcesScanned: catalog.descriptors.length,
+                  },
+                  analysis: { status: "not_requested", sourcesScanned: 0 },
+                },
+              },
+              issues: [],
+              nextCursor: null,
+              hasMore: false,
+              total: 1,
+            },
+          };
+        },
+      },
+    });
+    let reads = 0;
+    const runtime = globalThis as {
+      IOUtils?: { read?: (path: string) => Promise<Uint8Array> };
+    };
+    const previousIOUtils = runtime.IOUtils;
+    const nodeFs = await import("fs/promises");
+    runtime.IOUtils = {
+      read: async (path: string) => {
+        reads += 1;
+        return new Uint8Array(await nodeFs.readFile(path));
+      },
+    };
+    try {
+      const request = {
+        query: "alpha",
+        libraryIds: [parent.libraryID],
+        itemRefs: [{ libraryId: parent.libraryID, key: parent.key }],
+        sourceKinds: ["fulltext" as const],
+      };
+      const single = await broker.library.searchItems(request);
+      assert.strictEqual(single.results[0].matches.length, 1);
+      const singleCallReads = reads;
+      assert.isAbove(singleCallReads, 0);
+      reads = 0;
+      includeStaleMatch = true;
+      await expectBrokerError(broker.library.searchItems(request), "conflict");
+      assert.strictEqual(
+        reads,
+        singleCallReads,
+        "stale second match must not trigger a fresh source read",
+      );
+    } finally {
+      if (previousIOUtils === undefined) delete runtime.IOUtils;
+      else runtime.IOUtils = previousIOUtils;
+    }
   });
 
   it("keeps translator network waits outside Host admission and suppresses canceled results", async function () {
