@@ -106,6 +106,14 @@
   ],
   "capabilities": [
     {
+      "capability": "client.searchTopics",
+      "direction": "host-to-sidecar",
+      "domain": "topic-workbench",
+      "requestSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/SearchTopicsRequest",
+      "resultSchemaRef": "schemas/client-topic-workbench.schema.json#/$defs/SearchTopicsResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
       "capability": "client.listTopics",
       "direction": "host-to-sidecar",
       "domain": "topic-workbench",

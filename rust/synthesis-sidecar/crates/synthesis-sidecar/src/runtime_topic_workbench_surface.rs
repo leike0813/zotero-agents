@@ -4,6 +4,7 @@ use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use synthesis_application::concept_kb::decode_stored_concept_proposal;
 use synthesis_application::topic_graph::TopicPlanReconcileRequest;
+use synthesis_application::topic_search::TopicSearchRequest;
 use synthesis_application::{
     TopicApplyRequest, TopicContextRequest, TopicContextView, TopicDeleteRequest,
     TopicDetailRequest, TopicDetailResult, TopicDiscoveryHintRequest, TopicFindRequest,
@@ -44,6 +45,24 @@ fn no_args(args: &[Value]) -> Result<(), String> {
     } else {
         Err("invalid_request".into())
     }
+}
+
+fn search_topics(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
+    let [request] = args else {
+        return Err("invalid_request".into());
+    };
+    // The application owns admission, so the wire value is rebuilt through the
+    // same validator the application and the shared corpus use.
+    let request = TopicSearchRequest::from_value(request.clone())?;
+    // Leave time for the bounded partial-result projection before the outer
+    // production operation deadline expires.
+    let budget = crate::runtime_deadline::bounded_timeout(std::time::Duration::from_secs(9))?
+        .saturating_sub(std::time::Duration::from_secs(1));
+    crate::runtime_deadline::with_request_deadline(budget, || {
+        wire(apps.topics.search(request, &|| {
+            crate::runtime_deadline::bounded_timeout(std::time::Duration::from_secs(1)).map(|_| ())
+        })?)
+    })
 }
 
 #[derive(Debug, Deserialize)]
@@ -1637,6 +1656,7 @@ pub(crate) const TOPIC_WORKBENCH_CLIENT_ROUTES: &[ProductionClientRouteEntry] = 
     ProductionClientRouteEntry::new("client.getTopicContext", |apps, args| {
         wire(apps.topics.context(decode_topic_context(args)?)?)
     }),
+    ProductionClientRouteEntry::new("client.searchTopics", search_topics),
     ProductionClientRouteEntry::new("client.resolveResolver", |apps, args| {
         let request = match decode_resolver(args) {
             Ok(request) => request,
@@ -1717,6 +1737,55 @@ mod tests {
             })])
             .is_err()
         );
+    }
+
+    #[test]
+    fn the_topic_search_route_admits_a_closed_request_and_reports_no_source_yet() {
+        let root = synthesis_test_support::TestRoot::new("topic-search-route");
+        let repository = synthesis_repository::Repository::open(
+            root.path(),
+            synthesis_repository::RepositoryIdentity {
+                profile_id: "profile".into(),
+                data_root_id: "data".into(),
+            },
+        )
+        .unwrap();
+        let canonical = synthesis_canonical_store::CanonicalStore::open(
+            root.path(),
+            synthesis_canonical_store::CanonicalIdentity {
+                profile_id: "profile".into(),
+                data_root_id: "data".into(),
+            },
+        )
+        .unwrap();
+        let apps = crate::runtime_production_ports::build_production_applications(
+            std::sync::Arc::new(synthesis_application::RepositoryPort::new(
+                std::sync::Arc::new(std::sync::Mutex::new(repository)),
+            )),
+            std::sync::Arc::new(std::sync::Mutex::new(canonical)),
+            std::sync::Arc::new(crate::runtime_worker_pool::NativeComputePool::new()),
+            None,
+            "instance".into(),
+            root.path().join("webdav.json"),
+        )
+        .unwrap();
+
+        assert_eq!(
+            search_topics(&apps, &[json!({"query":"wind"}), json!({})]).unwrap_err(),
+            "invalid_request"
+        );
+        assert_eq!(
+            search_topics(
+                &apps,
+                &[json!({"query":"wind","sections":["private_notes"]})]
+            )
+            .unwrap_err(),
+            "invalid_request"
+        );
+        let result = search_topics(&apps, &[json!({"query":"wind","limit":5})]).unwrap();
+        assert_eq!(result["method"], "lexical");
+        assert_eq!(result["coverage"]["kind"], "topic");
+        assert!(result["nextCursor"].is_null());
     }
 
     #[test]

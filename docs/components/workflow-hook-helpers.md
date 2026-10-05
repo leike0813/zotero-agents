@@ -65,7 +65,7 @@ Hook receives `runtime` with these fields:
 
 | Field                | Type                                                   | Description                                                                                                                           |
 | -------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `hostApi`            | `WorkflowHostApiV12`                                   | Exact 24-top-level/22-module/94-callable host projection                                                                               |
+| `hostApi`            | `WorkflowHostApiV12`                                   | Exact 24-top-level/22-module/96-callable host projection                                                                               |
 | `hostApiVersion`     | `12`                                                   | Exact API version                                                                                                                     |
 | `invocationMode`     | `"interactive" \| "non-interactive"`                   | Current invocation mode                                                                                                               |
 | `debugMode`          | `boolean \| undefined`                                 | Debug mode flag                                                                                                                       |

@@ -5929,6 +5929,27 @@
         "responseSizing": "limit-bounded"
       }
     },
+    "topics.search": {
+      "category": "topics",
+      "summary": "Search canonical Synthesis topic content with bounded lexical retrieval.",
+      "inputSchema": {
+        "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/TopicSearchRequest"
+      },
+      "outputSchema": {
+        "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/TopicSearchResult"
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "paged"
+      }
+    },
     "topics.list": {
       "category": "topics",
       "summary": "List paged Zotero Synthesis Layer topics for duplicate checks and topic selection.",

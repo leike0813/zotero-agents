@@ -20,6 +20,7 @@ pub mod tag_vocabulary;
 pub mod topic;
 pub mod topic_digest;
 pub mod topic_graph;
+pub mod topic_search;
 pub mod webdav_sync;
 pub mod workbench;
 

@@ -569,7 +569,11 @@ export async function withHostBridgeCliHarness<T>(
     root,
     "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas",
   );
-  for (const schemaName of ["search.schema.json", "reverse-host.schema.json"]) {
+  for (const schemaName of [
+    "search.schema.json",
+    "reverse-host.schema.json",
+    "topic-domain.schema.json",
+  ]) {
     ajv.addSchema(
       JSON.parse(
         readFileSync(path.join(synthesisProtocolSchemas, schemaName), "utf8"),

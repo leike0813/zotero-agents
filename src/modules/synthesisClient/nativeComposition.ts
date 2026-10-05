@@ -105,6 +105,32 @@ export type NativeSynthesisLibraryLexicalPort = {
   ): Promise<NativeSynthesisLibraryLexicalResult>;
 };
 
+export type NativeSynthesisLibraryLexicalRequest = Parameters<
+  NativeSynthesisLibraryLexicalPort["execute"]
+>[0];
+
+export function rebuildSynthesisLibraryLexicalExecutionRequest(
+  value: unknown,
+): NativeSynthesisLibraryLexicalRequest {
+  return rebuildSynthesisProtocolDto({
+    schemaId: SYNTHESIS_SEARCH_SCHEMA_ID,
+    definition: "LibraryLexicalExecutionRequest",
+    value: rebuildSynthesisEvidenceSearchRequest(value),
+    direction: "request",
+  });
+}
+
+export function rebuildSynthesisLibraryLexicalExecutionResult(
+  value: unknown,
+): NativeSynthesisLibraryLexicalResult {
+  return rebuildSynthesisProtocolDto({
+    schemaId: SYNTHESIS_SEARCH_SCHEMA_ID,
+    definition: "LibraryLexicalExecutionResult",
+    value,
+    direction: "result",
+  });
+}
+
 function evidenceRetrievalPortFromNativePort(
   nativePort: SynthesisClientPort,
 ): NativeSynthesisEvidenceRetrievalPort {
@@ -747,12 +773,8 @@ export function createNativeSynthesisLibraryLexicalPort(options?: {
   let rpcClient = options?.rpcClient;
   return {
     async execute(request, control) {
-      const normalized = rebuildSynthesisProtocolDto<typeof request>({
-        schemaId: SYNTHESIS_SEARCH_SCHEMA_ID,
-        definition: "LibraryLexicalExecutionRequest",
-        value: rebuildSynthesisEvidenceSearchRequest(request),
-        direction: "request",
-      });
+      const normalized =
+        rebuildSynthesisLibraryLexicalExecutionRequest(request);
       const connection = getReadyConnection();
       if (!connection) throw unavailable("service_not_ready");
       rpcClient ??= createSynthesisSidecarRpcClient({
@@ -766,14 +788,7 @@ export function createNativeSynthesisLibraryLexicalPort(options?: {
           signal: control?.signal as AbortSignal | undefined,
           deadlineMs: 10_000,
           rebuildResult(value) {
-            return rebuildSynthesisProtocolDto<NativeSynthesisLibraryLexicalResult>(
-              {
-                schemaId: SYNTHESIS_SEARCH_SCHEMA_ID,
-                definition: "LibraryLexicalExecutionResult",
-                value,
-                direction: "result",
-              },
-            );
+            return rebuildSynthesisLibraryLexicalExecutionResult(value);
           },
         });
       } catch (error) {

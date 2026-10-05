@@ -10,17 +10,18 @@ This directory is the canonical design anchor for the Synthesis Layer. Historica
 4. [Reference Sidecar and Citation Graph](./registry-and-citation-graph.md) defines artifact sidecar, raw/canonical references, binding review, related items sync, and graph view semantics.
 5. [Reference Resolution](./reference-resolution.md) defines the executable citation matcher and external dedupe policy.
 6. [Topics and Discovery](./topics-and-discovery.md) defines topic artifacts, source check, coverage, best-effort discovery, and user review/override behavior.
-7. [Concepts](./concepts.md) defines Concept KB proposal ingestion, overlay context, review actions, and failure semantics.
-8. [Runtime and Rebuild](./runtime-and-rebuild.md) defines explicit cache refresh/review operations, reset/import/export, and failure recovery.
-9. [Sidecar Runtime Packaging](./sidecar-runtime-packaging.md) defines native Rust manifest v3 packaging, managed installation, size, signature, expiry, and rollback boundaries.
-10. [Sidecar Runtime Supervision](./sidecar-runtime-supervision.md) defines profile lifecycle, low-interference monitoring, bounded layout compute, fault isolation, and shutdown.
-11. [Citation Graph Build Large Transfer](./citation-graph-large-transfer.md) records the authenticated paged-transfer contract used by the Rust production graph-build path.
-12. [Durable Bundle Sync](./webdav-durable-sync.md) defines WebDAV as the sole durable-state exchange transport and SQLite as the local materialized store.
-13. [Performance and Scale](./performance-and-scale.md) defines scale tiers, p95 targets, explicit operation budgets, and degraded-cache behavior.
-14. [State Machines](./state-machines.md) defines canonical object lifecycle transitions and forbidden transitions.
-15. [Sequences](./sequences.md) defines canonical cross-domain runtime flows.
-16. [Persistence and Files](./persistence-and-files.md) defines sidecar runtime state and the file write boundary.
-17. [Workbench UI](./workbench-ui.md) defines user-facing cache state, graph, review, explicit refresh, and dangerous action behavior.
+7. [Topic Application](./topic-application.md) defines the Topic read/write/search owner: lexical search bounds, cursor basis, and typed failures.
+8. [Concepts](./concepts.md) defines Concept KB proposal ingestion, overlay context, review actions, and failure semantics.
+9. [Runtime and Rebuild](./runtime-and-rebuild.md) defines explicit cache refresh/review operations, reset/import/export, and failure recovery.
+10. [Sidecar Runtime Packaging](./sidecar-runtime-packaging.md) defines native Rust manifest v3 packaging, managed installation, size, signature, expiry, and rollback boundaries.
+11. [Sidecar Runtime Supervision](./sidecar-runtime-supervision.md) defines profile lifecycle, low-interference monitoring, bounded layout compute, fault isolation, and shutdown.
+12. [Citation Graph Build Large Transfer](./citation-graph-large-transfer.md) records the authenticated paged-transfer contract used by the Rust production graph-build path.
+13. [Durable Bundle Sync](./webdav-durable-sync.md) defines WebDAV as the sole durable-state exchange transport and SQLite as the local materialized store.
+14. [Performance and Scale](./performance-and-scale.md) defines scale tiers, p95 targets, explicit operation budgets, and degraded-cache behavior.
+15. [State Machines](./state-machines.md) defines canonical object lifecycle transitions and forbidden transitions.
+16. [Sequences](./sequences.md) defines canonical cross-domain runtime flows.
+17. [Persistence and Files](./persistence-and-files.md) defines sidecar runtime state and the file write boundary.
+18. [Workbench UI](./workbench-ui.md) defines user-facing cache state, graph, review, explicit refresh, and dangerous action behavior.
 
 Related active contracts outside this directory:
 

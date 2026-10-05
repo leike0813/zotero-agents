@@ -163,6 +163,11 @@ pub(crate) fn error_response(code: &str) -> Value {
         "reference_refresh_payload_too_large" => "request_body_too_large",
         "response_too_large" => "response_body_too_large",
         "invalid_search_result" | "invalid_source" => "worker_result_invalid",
+        // A search round that no longer describes the current canonical basis
+        // is a stale read, not a malformed request; the reason keeps the two
+        // continuation failures apart for the caller.
+        "search_cursor_stale" => "basis_mismatch",
+        "search_cursor_expired" => "invalid_request",
         "conflict" => "basis_mismatch",
         "request_too_large" => "request_body_too_large",
         "production_projection_invalid" => "response_invalid",

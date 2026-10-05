@@ -116,6 +116,8 @@ const V12_CALLABLE_PATHS = [
   "synthesis.workflowApply.applyTopicPlan",
   "synthesis.workflowApply.applyTopicSynthesisResult",
   "synthesis.topics.getReport",
+  "synthesis.topics.getContext",
+  "synthesis.topics.search",
   "synthesis.artifacts.readPaperArtifacts",
   "synthesis.tags.loadVocabulary",
   "synthesis.tags.saveVocabulary",
@@ -154,7 +156,7 @@ describe("Workflow Host contract governance", function () {
       22,
     );
     const callablePaths = collectCallablePaths(WORKFLOW_HOST_API_MANIFEST);
-    assert.lengthOf(callablePaths, 94);
+    assert.lengthOf(callablePaths, 96);
     assert.sameMembers(callablePaths, V12_CALLABLE_PATHS);
   });
 

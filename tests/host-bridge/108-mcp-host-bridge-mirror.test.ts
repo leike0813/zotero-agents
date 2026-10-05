@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import Ajv2020 from "ajv/dist/2020";
 import {
   configureZoteroMcpServerForTests,
   ensureZoteroMcpServer,
@@ -9,6 +10,7 @@ import {
 import { setPref } from "../../src/utils/prefs";
 import { createFailClosedZoteroHostCapabilityBroker } from "../helpers/zoteroHostCapabilityBrokerHarness";
 import { createSynthesisClientFromPort } from "../../src/modules/synthesisClient/clientPortAdapter";
+import { SynthesisClientError } from "../../packages/synthesis-contracts/src/index";
 import { executeHostBridgeCanonicalMutation } from "../../src/modules/hostBridge/server/hostBridgeMutationAdapter";
 import type {
   BrokerTrustedMutationResources,
@@ -53,6 +55,7 @@ describe("MCP Host Bridge capability mirror", function () {
     assert.include(names, "library.get_item_detail");
     assert.include(names, "diagnostic.get_status");
     assert.include(names, "topics.list");
+    assert.include(names, "topics.search");
     assert.include(names, "topics.find_by_paper_ref");
     assert.include(names, "topics.get_planning_context");
     assert.include(names, "topics.get_report");
@@ -98,6 +101,173 @@ describe("MCP Host Bridge capability mirror", function () {
     assert.property(search.inputSchema.allOf[1].properties, "libraryIds");
     assert.property(search.inputSchema.allOf[1].properties, "itemRefs");
     assert.property(search.inputSchema.allOf[1].properties, "sourceKinds");
+  });
+
+  it("mirrors the topic search request schema and dispatches through the Bridge capability", async function () {
+    const listed: any = await handleZoteroMcpRequestForTests({
+      jsonrpc: "2.0",
+      id: "topic-search-tool",
+      method: "tools/list",
+      params: {},
+    });
+    const tool = listed.result.tools.find(
+      (entry: any) => entry.name === "topics.search",
+    );
+    assert.strictEqual(tool.inputSchema.unevaluatedProperties, false);
+    assert.strictEqual(
+      tool.inputSchema.$defs.SearchRequestCore.properties.limit.maximum,
+      100,
+    );
+    assert.property(tool.inputSchema.allOf[1].properties, "sections");
+
+    let receivedRequest: unknown;
+    const client = createSynthesisClientFromPort({
+      async searchTopics(request) {
+        receivedRequest = request;
+        return {
+          results: [
+            {
+              topicId: "topic-1",
+              matchedSections: ["summary"],
+              matchReasons: ["query_terms"],
+            },
+          ],
+          status: "completed",
+          method: "lexical",
+          coverage: {
+            kind: "topic",
+            sections: [{ section: "summary", status: "complete" }],
+          },
+          issues: [],
+          nextCursor: null,
+          hasMore: false,
+          total: 1,
+        };
+      },
+    });
+
+    const response: any = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "topic-search",
+        method: "tools/call",
+        params: {
+          name: "topics.search",
+          arguments: { query: "graph", sections: ["summary"], limit: 5 },
+        },
+      },
+      { resolveSynthesisClient: () => client },
+    );
+
+    assert.deepEqual(receivedRequest, {
+      query: "graph",
+      sections: ["summary"],
+      limit: 5,
+    });
+    assert.strictEqual(
+      response.result.structuredContent.capability,
+      "topics.search",
+    );
+    assert.deepEqual(response.result.structuredContent.data.results, [
+      {
+        topicId: "topic-1",
+        matchedSections: ["summary"],
+        matchReasons: ["query_terms"],
+      },
+    ]);
+    assert.include(response.result.content[0].text, "topic-1");
+  });
+
+  it("publishes independently executable search tool schemas", async function () {
+    const listed: any = await handleZoteroMcpRequestForTests({
+      jsonrpc: "2.0",
+      id: "search-schemas",
+      method: "tools/list",
+      params: {},
+    });
+    for (const name of [
+      "topics.search",
+      "synthesis.search_evidence",
+      "library.search_items",
+    ]) {
+      const tool = listed.result.tools.find(
+        (entry: any) => entry.name === name,
+      );
+      const validate = new Ajv2020({ strict: false }).compile(tool.inputSchema);
+      assert.isTrue(
+        validate(
+          name === "topics.search"
+            ? { query: "graph", sections: ["comparison_matrix"] }
+            : { query: "graph", sourceKinds: ["metadata"] },
+        ),
+        name,
+      );
+      assert.isFalse(
+        validate(
+          name === "topics.search"
+            ? { query: "graph", sections: ["private_notes"] }
+            : { query: "graph", sourceKinds: ["private"] },
+        ),
+        name,
+      );
+      assert.isFalse(validate({ query: "graph", arbitrary: true }), name);
+    }
+  });
+
+  it("rejects a topic search request that violates the shared request contract", async function () {
+    const response: any = await handleZoteroMcpRequestForTests({
+      jsonrpc: "2.0",
+      id: "topic-search-invalid",
+      method: "tools/call",
+      params: {
+        name: "topics.search",
+        arguments: { query: "graph", sections: ["not_a_topic_section"] },
+      },
+    });
+
+    assert.strictEqual(response.error.code, -32602);
+    assert.strictEqual(response.error.data.toolName, "topics.search");
+    assert.strictEqual(response.error.data.details.phase, "capability_input");
+    assert.isNotEmpty(response.error.data.details.violations);
+  });
+
+  it("reports a topic search cursor failure once without retrying the search", async function () {
+    let calls = 0;
+    const client = createSynthesisClientFromPort({
+      async searchTopics() {
+        calls += 1;
+        throw new SynthesisClientError(
+          "conflict",
+          "Topic search cursor basis changed",
+          { sidecarReason: "search_cursor_stale" },
+        );
+      },
+    });
+
+    const response: any = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "topic-search-cursor",
+        method: "tools/call",
+        params: {
+          name: "topics.search",
+          arguments: { query: "graph", cursor: "opaque:cursor" },
+        },
+      },
+      { resolveSynthesisClient: () => client },
+    );
+
+    assert.strictEqual(calls, 1);
+    assert.isTrue(response.result.isError);
+    assert.strictEqual(
+      response.result.structuredContent.error_code,
+      "conflict",
+    );
+    assert.strictEqual(
+      response.result.structuredContent.details.sidecarReason,
+      "search_cursor_stale",
+    );
+    assert.strictEqual(response.result.structuredContent.retryable, false);
   });
 
   it("delivers the complete topic planning context through a registered file", async function () {

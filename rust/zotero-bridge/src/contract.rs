@@ -18,11 +18,15 @@ const SEARCH_PROTOCOL_SCHEMA_JSON: &str =
     include_str!("../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/search.schema.json");
 const REVERSE_HOST_PROTOCOL_SCHEMA_JSON: &str =
     include_str!("../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/reverse-host.schema.json");
+const TOPIC_DOMAIN_PROTOCOL_SCHEMA_JSON: &str = include_str!(
+    "../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/topic-domain.schema.json"
+);
 
 static CAPABILITY_CONTRACT: OnceLock<Result<Value, String>> = OnceLock::new();
 static COMMAND_CONTRACT: OnceLock<Result<Value, String>> = OnceLock::new();
 static SEARCH_PROTOCOL_SCHEMA: OnceLock<Result<Value, String>> = OnceLock::new();
 static REVERSE_HOST_PROTOCOL_SCHEMA: OnceLock<Result<Value, String>> = OnceLock::new();
+static TOPIC_DOMAIN_PROTOCOL_SCHEMA: OnceLock<Result<Value, String>> = OnceLock::new();
 
 thread_local! {
     static CURRENT_COMMAND: RefCell<Option<String>> = const { RefCell::new(None) };
@@ -1308,6 +1312,8 @@ fn resolve_canonical_protocol_refs(schema: &Value) -> Result<Value, CliError> {
         "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json";
     const REVERSE_HOST_SCHEMA_ID: &str =
         "https://zotero-agents.local/synthesis/sidecar-protocol/v1/reverse-host.schema.json";
+    const TOPIC_DOMAIN_SCHEMA_ID: &str =
+        "https://zotero-agents.local/synthesis/sidecar-protocol/v1/topic-domain.schema.json";
 
     let search_schema = SEARCH_PROTOCOL_SCHEMA
         .get_or_init(|| {
@@ -1321,55 +1327,81 @@ fn resolve_canonical_protocol_refs(schema: &Value) -> Result<Value, CliError> {
         })
         .as_ref()
         .map_err(|error| CliError::internal("canonical_schema_invalid", error.clone()))?;
+    let topic_domain_schema = TOPIC_DOMAIN_PROTOCOL_SCHEMA
+        .get_or_init(|| {
+            serde_json::from_str(TOPIC_DOMAIN_PROTOCOL_SCHEMA_JSON).map_err(|e| e.to_string())
+        })
+        .as_ref()
+        .map_err(|error| CliError::internal("canonical_schema_invalid", error.clone()))?;
+    let canonical_protocols = [
+        (SEARCH_SCHEMA_ID, "search.schema.json", search_schema),
+        (
+            REVERSE_HOST_SCHEMA_ID,
+            "reverse-host.schema.json",
+            reverse_host_schema,
+        ),
+        (
+            TOPIC_DOMAIN_SCHEMA_ID,
+            "topic-domain.schema.json",
+            topic_domain_schema,
+        ),
+    ];
 
-    fn rewrite_refs(value: &mut Value) {
+    fn is_canonical_protocol_ref(reference: &str, protocols: [(&str, &str, &Value); 3]) -> bool {
+        protocols.iter().any(|(document_id, relative_name, _)| {
+            reference.starts_with(document_id) || reference.starts_with(relative_name)
+        })
+    }
+
+    fn rewrite_refs(value: &mut Value, protocols: [(&str, &str, &Value); 3]) {
         match value {
-            Value::Array(values) => values.iter_mut().for_each(rewrite_refs),
+            Value::Array(values) => values
+                .iter_mut()
+                .for_each(|value| rewrite_refs(value, protocols)),
             Value::Object(object) => {
                 if let Some(Value::String(reference)) = object.get_mut("$ref") {
                     if let Some((schema_id, fragment)) = reference.split_once('#') {
-                        if schema_id == SEARCH_SCHEMA_ID
-                            || schema_id == REVERSE_HOST_SCHEMA_ID
-                            || schema_id == "reverse-host.schema.json"
-                        {
+                        if is_canonical_protocol_ref(schema_id, protocols) {
                             *reference = format!("#{fragment}");
                         }
                     }
                 }
-                object.values_mut().for_each(rewrite_refs);
+                object
+                    .values_mut()
+                    .for_each(|value| rewrite_refs(value, protocols));
             }
             _ => {}
         }
     }
 
     let mut resolved = schema.clone();
-    fn references_search_schema(value: &Value) -> bool {
+    fn references_canonical_protocol(value: &Value, protocols: [(&str, &str, &Value); 3]) -> bool {
         match value {
-            Value::Array(values) => values.iter().any(references_search_schema),
+            Value::Array(values) => values
+                .iter()
+                .any(|value| references_canonical_protocol(value, protocols)),
             Value::Object(object) => {
                 object
                     .get("$ref")
                     .and_then(Value::as_str)
-                    .is_some_and(|reference| {
-                        reference.starts_with(SEARCH_SCHEMA_ID)
-                            || reference.starts_with(REVERSE_HOST_SCHEMA_ID)
-                            || reference.starts_with("reverse-host.schema.json#")
-                    })
-                    || object.values().any(references_search_schema)
+                    .is_some_and(|reference| is_canonical_protocol_ref(reference, protocols))
+                    || object
+                        .values()
+                        .any(|value| references_canonical_protocol(value, protocols))
             }
             _ => false,
         }
     }
-    if !references_search_schema(&resolved) {
+    if !references_canonical_protocol(&resolved, canonical_protocols) {
         return Ok(resolved);
     }
-    rewrite_refs(&mut resolved);
+    rewrite_refs(&mut resolved, canonical_protocols);
     let mut definitions = resolved
         .get("$defs")
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
-    for source in [search_schema, reverse_host_schema] {
+    for (_, _, source) in canonical_protocols {
         if let Some(entries) = source.get("$defs").and_then(Value::as_object) {
             definitions.extend(
                 entries
@@ -1381,7 +1413,7 @@ fn resolve_canonical_protocol_refs(schema: &Value) -> Result<Value, CliError> {
     if let Some(object) = resolved.as_object_mut() {
         object.insert("$defs".into(), Value::Object(definitions));
     }
-    rewrite_refs(&mut resolved);
+    rewrite_refs(&mut resolved, canonical_protocols);
     prune_schema_definitions(&mut resolved);
     Ok(resolved)
 }

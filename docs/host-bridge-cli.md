@@ -68,6 +68,7 @@ This section is generated from the executable Host Bridge capability and CLI com
 | `topics.get_report` | topics | `none` | `object` | `synthesis topic get-report` | response:selector-bounded, mcp-mirror |
 | `topics.get_review_input` | topics | `none` | `object` | `synthesis topic get-review-input` | response:limit-bounded, mcp-mirror |
 | `topics.list` | topics | `none` | `object` | `synthesis topic list` | response:paged, mcp-mirror |
+| `topics.search` | topics | `none` | `object required` | `synthesis topic search` | response:paged, mcp-mirror |
 | `schemas.get` | schemas | `none` | `object` | `synthesis schema get` | response:bounded-diagnostic, mcp-mirror |
 | `concepts.query` | concepts | `none` | `object` | `synthesis concept query` | response:limit-bounded, mcp-mirror |
 | `citation_graph.get_layout` | citation_graph | `none` | `object` | `synthesis graph get-layout` | cache-view, response:limit-bounded, mcp-mirror |
@@ -180,6 +181,7 @@ This section is generated from the executable Host Bridge capability and CLI com
 | `synthesis topic get-report` | `topics.get_report` | capability | - |
 | `synthesis topic get-review-input` | `topics.get_review_input` | capability | - |
 | `synthesis topic list` | `topics.list` | capability | - |
+| `synthesis topic search` | `topics.search` | capability | - |
 | `workflow agent-abandon` | `POST /bridge/v2/workflows/agent-runs/{agentRunId}/abandon` | endpoint | - |
 | `workflow agent-apply` | `POST /bridge/v2/workflows/agent-runs/{agentRunId}/apply` | endpoint | - |
 | `workflow agent-apply-status` | `GET /bridge/v2/workflows/agent-runs/{agentRunId}/apply` | endpoint | - |

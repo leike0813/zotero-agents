@@ -156,11 +156,7 @@ describe("Host Bridge navigation contract", function () {
       ],
       ["library.search_items", "input", { query: "   " }],
       ["library.search_items", "input", { query: "needle", score: 1 }],
-      [
-        "library.search_items",
-        "output",
-        { items: [], truncated: false },
-      ],
+      ["library.search_items", "output", { items: [], truncated: false }],
     ] as const;
 
     for (const [capability, direction, value] of invalidCases) {
@@ -303,6 +299,84 @@ describe("Host Bridge navigation contract", function () {
       observedError = error;
     }
     assert.strictEqual(observedError, brokerFailure);
+  });
+
+  it("accepts and routes the canonical topic search request and exact result envelope", async function () {
+    const result = {
+      results: [
+        {
+          topicId: "topic-1",
+          matchedSections: ["summary"],
+          matchReasons: ["exact_phrase"],
+        },
+      ],
+      status: "completed",
+      method: "lexical",
+      coverage: {
+        kind: "topic",
+        sections: [{ section: "summary", status: "complete" }],
+      },
+      issues: [],
+      nextCursor: null,
+      hasMore: false,
+      total: 1,
+    };
+    const request = {
+      query: "lexical topic search",
+      sections: ["summary"],
+      limit: 25,
+      maxResults: 100,
+    };
+
+    assert.deepEqual(
+      validateHostBridgeCapabilityInput("topics.search", request),
+      [],
+    );
+    assert.deepEqual(
+      validateHostBridgeCapabilityOutput("topics.search", result),
+      [],
+    );
+    for (const invalid of [
+      { query: "   " },
+      { query: "needle", sections: ["not_a_topic_section"] },
+      { query: "needle", text: "legacy-field" },
+    ]) {
+      assert.isNotEmpty(
+        validateHostBridgeCapabilityInput("topics.search", invalid),
+        JSON.stringify(invalid),
+      );
+    }
+    assert.isNotEmpty(
+      validateHostBridgeCapabilityOutput("topics.search", {
+        ...result,
+        results: [{ ...result.results[0], score: 0.9 }],
+      }),
+    );
+
+    const searchCapability = listHostBridgeCapabilities().find(
+      (entry) => entry.name === "topics.search",
+    );
+    assert.strictEqual(searchCapability?.category, "topics");
+    assert.strictEqual(searchCapability?.requestEffect, "read");
+    assert.strictEqual(searchCapability?.approval, "none");
+    assert.strictEqual(searchCapability?.exposure.mcpMirror, true);
+
+    let receivedRequest: unknown;
+    const routed = await executeHostBridgeCapability("topics.search", request, {
+      getStatus: (): HostBridgeStatusSnapshot => {
+        throw new Error("status is not part of a search read");
+      },
+      connectionMode: "remote",
+      resolveSynthesisClient: () =>
+        createSynthesisClientFromPort({
+          async searchTopics(portRequest) {
+            receivedRequest = portRequest;
+            return result;
+          },
+        }),
+    });
+    assert.deepEqual(receivedRequest, request);
+    assert.deepEqual(routed, result);
   });
 });
 

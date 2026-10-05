@@ -129,6 +129,8 @@ import {
 import {
   rebuildSynthesisEvidenceSearchRequest,
   rebuildSynthesisEvidenceSearchResult,
+  rebuildSynthesisTopicSearchRequest,
+  rebuildSynthesisTopicSearchResult,
   type SynthesisEvidenceSearchRequest,
   type SynthesisEvidenceSearchResult,
 } from "../../../packages/synthesis-contracts/src/search";
@@ -151,6 +153,7 @@ export interface SynthesisClientPort {
   ) => Promise<SynthesisEvidenceSearchResult>;
   listTopics?: ClientMethod<"topics", "list">;
   findTopicsByPaperRef?: ClientMethod<"topics", "findByPaperRef">;
+  searchTopics?: ClientMethod<"topics", "search">;
   getTopicContext?: ClientMethod<"topics", "getContext">;
   resolveResolver?: ClientMethod<"topics", "resolveResolver">;
   queryCitationGraphCluster?: ClientMethod<"graph", "queryCluster">;
@@ -1918,6 +1921,15 @@ export function createSynthesisClientFromPort(
           rebuildSynthesisTopicFindRequest(request),
           undefined,
           rebuildSynthesisTopicFindResult,
+        );
+      },
+      async search(request) {
+        return runClientJsonPort(
+          port.searchTopics,
+          "topics.search",
+          rebuildSynthesisTopicSearchRequest(request),
+          undefined,
+          rebuildSynthesisTopicSearchResult,
         );
       },
       async getContext(request, delivery) {

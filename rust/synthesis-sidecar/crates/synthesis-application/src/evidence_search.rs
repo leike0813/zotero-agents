@@ -1834,30 +1834,20 @@ mod tests {
             "issues":[],"nextCursor":null,"hasMore":false,"total":0})
         };
         match definition {
-            "SearchRequest" | "TopicRequest" => {
+            "SearchRequest" => {
                 let Some(object) = value.as_object() else {
                     return false;
                 };
-                if object.keys().any(|key| {
-                    !["query", "limit", "maxResults", "cursor"].contains(&key.as_str())
-                        && !(definition == "TopicRequest" && key == "sections")
-                }) {
-                    return false;
-                }
-                if let Some(sections) = object.get("sections")
-                    && !sections.as_array().is_some_and(|values| {
-                        values.len() <= 100
-                            && values.iter().all(|s| {
-                                s.as_str()
-                                    .is_some_and(|s| !s.is_empty() && s.chars().count() <= 128)
-                            })
-                    })
+                if object
+                    .keys()
+                    .any(|key| !["query", "limit", "maxResults", "cursor"].contains(&key.as_str()))
                 {
                     return false;
                 }
-                let mut common = object.clone();
-                common.remove("sections");
-                EvidenceSearchRequest::from_value(Value::Object(common)).is_ok()
+                EvidenceSearchRequest::from_value(value.clone()).is_ok()
+            }
+            "TopicRequest" => {
+                crate::topic_search::TopicSearchRequest::from_value(value.clone()).is_ok()
             }
             "EvidenceRequest" => EvidenceSearchRequest::from_value(value.clone()).is_ok(),
             "EvidenceResult" => validate_evidence_result(value),
@@ -1890,39 +1880,7 @@ mod tests {
                         &context.location,
                     )
             }
-            "TopicResult" => {
-                #[derive(Deserialize)]
-                #[serde(rename_all = "camelCase", deny_unknown_fields)]
-                struct TopicHit {
-                    topic_id: String,
-                    section: String,
-                    content: String,
-                    range: RangeWire,
-                }
-                let Some(hits) = value["results"].as_array() else {
-                    return false;
-                };
-                if hits.len() > 100
-                    || !hits.iter().all(|hit| {
-                        let Ok(hit) = serde_json::from_value::<TopicHit>(hit.clone()) else {
-                            return false;
-                        };
-                        !hit.topic_id.is_empty()
-                            && hit.topic_id.chars().count() <= 256
-                            && !hit.section.is_empty()
-                            && hit.section.chars().count() <= 128
-                            && hit.content.chars().count() <= 8192
-                            && hit.range.end > hit.range.start
-                            && hit.range.end <= 262144
-                            && hit.range.end - hit.range.start == hit.content.encode_utf16().count()
-                    })
-                {
-                    return false;
-                }
-                let mut envelope = value.clone();
-                envelope["results"] = json!([]);
-                validate_evidence_result(&envelope)
-            }
+            "TopicResult" => crate::topic_search::validate_topic_search_result(value),
             _ => panic!("unmapped search DTO: {definition}"),
         }
     }

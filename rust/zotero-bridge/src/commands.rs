@@ -478,6 +478,11 @@ fn direct_topic_research_bundle_arguments(
 
 pub fn topics(config: &BridgeConfig, args: TopicsArgs) -> Result<Value, CliError> {
     match args.command {
+        TopicsCommand::Search(input) => call_structured(
+            config,
+            "query",
+            read_contract_json_arg("query", Some(input.query.as_str()))?,
+        ),
         TopicsCommand::ExportResearchBundle(input) => client::call_current(
             config,
             direct_topic_research_bundle_arguments(input, config.connection_mode.as_deref())?,
@@ -1348,8 +1353,8 @@ fn topics_input(command: TopicsCommand) -> BridgeQueryArgs {
         | TopicsCommand::GetPlanningContext(args)
         | TopicsCommand::GetReport(args)
         | TopicsCommand::GetReviewInput(args) => args,
-        TopicsCommand::ExportResearchBundle(_) => {
-            unreachable!("direct Topic bundle commands use argument binding")
+        TopicsCommand::Search(_) | TopicsCommand::ExportResearchBundle(_) => {
+            unreachable!("direct Topic search and bundle commands use argument binding")
         }
     }
 }
@@ -2807,7 +2812,7 @@ mod tests {
         BridgeInputArgs, BridgeQueryArgs, DirectPaperResearchBundleArgs,
         DirectTopicResearchBundleArgs, ItemArgs, ItemCommand, ItemSearchArgs, LiteratureIngestArgs,
         MutationCollectionItemsArgs, MutationItemAttachFileArgs, MutationItemUpdateArgs,
-        MutationNoteCreateArgs, MutationTagsArgs,
+        MutationNoteCreateArgs, MutationTagsArgs, TopicSearchArgs,
     };
     use std::{
         io::{Read, Write},
@@ -2818,6 +2823,8 @@ mod tests {
     fn search_response_server(
         status: &str,
         response: Value,
+        capability: &'static str,
+        request_fragment: &'static str,
     ) -> (BridgeConfig, thread::JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -2829,8 +2836,8 @@ mod tests {
             let read = stream.read(&mut request_bytes).unwrap();
             let request = String::from_utf8_lossy(&request_bytes[..read]);
             assert!(request.starts_with("POST /bridge/v2/call HTTP/1.1"));
-            assert!(request.contains(r#""capability":"library.search_items""#));
-            assert!(request.contains(r#""cursor":"opaque:cursor""#));
+            assert!(request.contains(&format!(r#""capability":"{capability}""#)));
+            assert!(request.contains(request_fragment));
             let response = format!(
                 "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}",
                 response.len()
@@ -3110,8 +3117,12 @@ mod tests {
             "approval": "none",
             "data": data
         });
-        let (config, handle) =
-            search_response_server("200 OK", json!({ "status": "ok", "result": expected }));
+        let (config, handle) = search_response_server(
+            "200 OK",
+            json!({ "status": "ok", "result": expected }),
+            "library.search_items",
+            r#""cursor":"opaque:cursor""#,
+        );
         contract::set_current_command("library item search");
 
         let result = item(&config, search_args()).unwrap();
@@ -3135,7 +3146,12 @@ mod tests {
                 "handleConsumption": "unconsumed"
             }
         });
-        let (config, handle) = search_response_server("409 Conflict", response);
+        let (config, handle) = search_response_server(
+            "409 Conflict",
+            response,
+            "library.search_items",
+            r#""cursor":"opaque:cursor""#,
+        );
         contract::set_current_command("library item search");
 
         let error = item(&config, search_args()).unwrap_err();
@@ -3145,6 +3161,123 @@ mod tests {
         assert_eq!(
             error.details.as_ref().unwrap()["bridge"]["error"]["code"],
             "basis_mismatch"
+        );
+        handle.join().unwrap();
+    }
+
+    fn topic_search_args() -> TopicsArgs {
+        TopicsArgs {
+            command: TopicsCommand::Search(TopicSearchArgs {
+                query: r#"{"query":"graph","sections":["summary","claims"],"limit":10,"maxResults":40,"cursor":"opaque:cursor"}"#.to_string(),
+            }),
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_topic_search_json_container_before_dispatch() {
+        contract::set_current_command("synthesis topic search");
+
+        let malformed = read_contract_json_arg("query", Some("{"))
+            .expect_err("malformed JSON must be rejected before dispatch");
+        assert_eq!(malformed.code, "input_json_invalid");
+
+        let invalid_request = read_contract_json_arg("query", Some(r#"{"query":"  "}"#))
+            .expect_err("blank search text must be rejected before dispatch");
+        assert_eq!(invalid_request.code, "command_input_invalid");
+    }
+
+    #[test]
+    fn rejects_topic_search_utf16_and_effective_page_bounds_before_dispatch() {
+        contract::set_current_command("synthesis topic search");
+        let cases = [
+            (
+                r#"{"query":"needle","limit":25,"maxResults":24}"#.to_string(),
+                "effective page limit",
+            ),
+            (
+                format!(r#"{{"query":"{}"}}"#, "😀".repeat(2049)),
+                "UTF-16 query length",
+            ),
+        ];
+
+        for (request, label) in cases {
+            let error = read_contract_json_arg("query", Some(&request))
+                .expect_err(&format!("{label} must fail before remote dispatch"));
+            assert_eq!(error.code, "command_input_invalid", "{label}");
+        }
+    }
+
+    #[test]
+    fn topic_search_forwards_the_json_container_unchanged_and_returns_the_shared_envelope() {
+        let data = json!({
+            "results": [
+                {
+                    "topicId": "topic-1",
+                    "matchedSections": ["summary"],
+                    "matchReasons": ["exact_phrase"]
+                }
+            ],
+            "status": "completed",
+            "method": "lexical",
+            "coverage": {
+                "kind": "topic",
+                "sections": [{ "section": "summary", "status": "complete" }]
+            },
+            "issues": [],
+            "nextCursor": null,
+            "hasMore": false,
+            "total": 1
+        });
+        let expected = json!({
+            "capability": "topics.search",
+            "approval": "none",
+            "data": data
+        });
+        let (config, handle) = search_response_server(
+            "200 OK",
+            json!({ "status": "ok", "result": expected }),
+            "topics.search",
+            r#""cursor":"opaque:cursor""#,
+        );
+        contract::set_current_command("synthesis topic search");
+
+        let result = topics(&config, topic_search_args()).unwrap();
+
+        assert_eq!(result, expected);
+        assert!(result["data"].get("topics").is_none());
+        assert!(result["data"].get("next_cursor").is_none());
+        assert_eq!(result["data"]["results"][0]["topicId"], "topic-1");
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn topic_search_preserves_structured_cursor_failure_without_retry() {
+        let response = json!({
+            "status": "error",
+            "error": {
+                "code": "cursor_expired",
+                "category": "protocol",
+                "message": "Topic search cursor expired",
+                "retryable": false,
+                "stateChange": "unchanged",
+                "handleConsumption": "unconsumed"
+            }
+        });
+        let (config, handle) = search_response_server(
+            "409 Conflict",
+            response,
+            "topics.search",
+            r#""cursor":"opaque:cursor""#,
+        );
+        contract::set_current_command("synthesis topic search");
+
+        let error = topics(&config, topic_search_args()).unwrap_err();
+
+        assert_eq!(error.code, "cursor_expired");
+        assert_eq!(error.retryable, Some(false));
+        assert_eq!(
+            error.details.as_ref().unwrap()["bridge"]["error"]["code"],
+            "cursor_expired"
         );
         handle.join().unwrap();
     }

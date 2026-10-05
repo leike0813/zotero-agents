@@ -669,7 +669,12 @@ export function createWorkflowHostApi(
         applyTopicSynthesisResult:
           synthesis.workflowApply.applyTopicSynthesisResult,
       },
-      topics: { getReport: synthesis.topics.getReport },
+      topics: {
+        getReport: synthesis.topics.getReport,
+        getContext: (input, delivery) =>
+          synthesis.topics.getContext(input, delivery),
+        search: synthesis.topics.search,
+      },
       artifacts: { readPaperArtifacts: synthesis.artifacts.readPaperArtifacts },
       tags: {
         loadVocabulary: synthesis.tags.loadVocabulary,

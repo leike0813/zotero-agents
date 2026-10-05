@@ -112,6 +112,14 @@ describe("Host Bridge agent surface contract", function () {
         ),
       ),
     );
+    exampleAjv.addSchema(
+      JSON.parse(
+        fs.readFileSync(
+          path.join(synthesisProtocolRoot, "topic-domain.schema.json"),
+          "utf8",
+        ),
+      ),
+    );
     const capabilities = JSON.parse(
       fs.readFileSync(
         path.join(root, "contracts/host-bridge/capabilities.v2.json"),

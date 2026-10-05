@@ -18,6 +18,10 @@ import {
   rebuildSynthesisProtocolDto,
   SYNTHESIS_TOPIC_WORKBENCH_SCHEMA_ID,
 } from "./protocolSchema";
+import type {
+  SynthesisTopicSearchRequest,
+  SynthesisTopicSearchResult,
+} from "./search";
 
 export type SynthesisWorkflowTopicOption = {
   value: string;
@@ -311,6 +315,9 @@ export interface SynthesisTopicsClient {
   findByPaperRef(
     request: SynthesisTopicFindRequest,
   ): Promise<SynthesisTopicFindResult>;
+  search(
+    request: SynthesisTopicSearchRequest,
+  ): Promise<SynthesisTopicSearchResult>;
   getContext(
     request: SynthesisTopicContextRequest,
     delivery?: SynthesisDeliveryContext,

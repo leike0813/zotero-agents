@@ -1082,11 +1082,12 @@ fn record_semantic_mutation_result(
 }
 
 pub(crate) fn production_client_error_status(code: &str) -> u16 {
-    if code == "invalid_request" {
+    if code == "invalid_request" || code == "search_cursor_expired" {
         400
     } else if code == "mutation_not_admitted"
         || code == "production_activation_replayed"
         || code == "basis_mismatch"
+        || code == "search_cursor_stale"
         || code == "schema_mismatch"
         || code == "repository_schema_incompatible"
         || code.ends_with("_conflict")

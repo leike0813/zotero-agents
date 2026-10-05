@@ -24,6 +24,10 @@ import {
 } from "../../src/modules/synthesisClient/clientPortAdapter";
 import { createDefaultSynthesisUiState } from "../../src/modules/synthesis/uiModel";
 import {
+  rebuildSynthesisLibraryLexicalExecutionRequest,
+  rebuildSynthesisLibraryLexicalExecutionResult,
+} from "../../src/modules/synthesisClient/nativeComposition";
+import {
   toSynthesisUiSnapshotInput,
   toSynthesisWorkbenchPaperDigestReadRequest,
   toSynthesisWorkbenchReadState,
@@ -4171,6 +4175,12 @@ describe("Synthesis client foundation", function () {
             break;
           case "TopicResult":
             rebuildSynthesisTopicSearchResult(corpusCase.value);
+            break;
+          case "LibraryLexicalExecutionRequest":
+            rebuildSynthesisLibraryLexicalExecutionRequest(corpusCase.value);
+            break;
+          case "LibraryLexicalExecutionResult":
+            rebuildSynthesisLibraryLexicalExecutionResult(corpusCase.value);
             break;
           default:
             throw new Error(`unmapped search corpus definition: ${definition}`);

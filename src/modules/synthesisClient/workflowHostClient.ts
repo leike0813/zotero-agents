@@ -20,8 +20,11 @@ import {
 } from "../../../packages/synthesis-contracts/src/index";
 import {
   rebuildSynthesisEvidenceSearchRequest,
+  rebuildSynthesisTopicSearchRequest,
   type SynthesisEvidenceSearchRequest,
   type SynthesisEvidenceSearchResult,
+  type SynthesisTopicSearchRequest,
+  type SynthesisTopicSearchResult,
 } from "../../../packages/synthesis-contracts/src/search";
 import type { WorkflowSynthesisApi } from "../../workflows/types";
 import {
@@ -615,6 +618,18 @@ export function createWorkflowSynthesisHostApi(
       async getReport(input) {
         return guardWorkflowSynthesis(async () =>
           (await resolveClient()).topics.getTopicReport(input),
+        );
+      },
+      async getContext(input, delivery) {
+        return guardWorkflowSynthesis(async () =>
+          (await resolveClient()).topics.getContext(input, delivery),
+        );
+      },
+      async search(input) {
+        return guardWorkflowSynthesis(async () =>
+          (await resolveClient()).topics.search(
+            rebuildSynthesisTopicSearchRequest(input),
+          ),
         );
       },
     },

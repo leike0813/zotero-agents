@@ -2,11 +2,55 @@
   "schema": "synthesis-sidecar-protocol-corpus.v1",
   "cases": [
     {
+      "id": "topic-result-one-match-per-identity",
+      "schemaRef": "schemas/search.schema.json#/$defs/TopicResult",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "results": [
+          {
+            "topicId": "topic:energy",
+            "matchedSections": ["topic", "comparison_matrix"],
+            "matchReasons": ["query_terms", "exact_phrase"]
+          }
+        ],
+        "status": "completed",
+        "method": "lexical",
+        "coverage": {
+          "kind": "topic",
+          "sections": [{ "section": "comparison_matrix", "status": "complete" }]
+        },
+        "issues": [],
+        "nextCursor": null,
+        "hasMore": false,
+        "total": 1
+      }
+    },
+    {
+      "id": "topic-request-unknown-section",
+      "schemaRef": "schemas/search.schema.json#/$defs/TopicRequest",
+      "valid": false,
+      "admitted": false,
+      "value": { "query": "energy", "sections": ["private_notes"] }
+    },
+    {
+      "id": "topic-request-canonical-matrix-scope",
+      "schemaRef": "schemas/search.schema.json#/$defs/TopicRequest",
+      "valid": true,
+      "admitted": true,
+      "value": { "query": "energy", "sections": ["comparison_matrix"] }
+    },
+    {
       "id": "library-lexical-execution-request-resolved-scope",
       "schemaRef": "schemas/search.schema.json#/$defs/LibraryLexicalExecutionRequest",
       "valid": true,
       "admitted": true,
-      "value": { "query": "wind turbine", "libraryIds": [1], "limit": 25, "maxResults": 100 }
+      "value": {
+        "query": "wind turbine",
+        "libraryIds": [1],
+        "limit": 25,
+        "maxResults": 100
+      }
     },
     {
       "id": "library-lexical-execution-request-requires-library-scope",
@@ -20,7 +64,11 @@
       "schemaRef": "schemas/search.schema.json#/$defs/LibraryLexicalExecutionRequest",
       "valid": false,
       "admitted": false,
-      "value": { "query": "wind turbine", "libraryIds": [1], "cursor": "opaque" }
+      "value": {
+        "query": "wind turbine",
+        "libraryIds": [1],
+        "cursor": "opaque"
+      }
     },
     {
       "id": "library-lexical-execution-result-closed-hit",
@@ -29,32 +77,51 @@
       "admitted": true,
       "value": {
         "result": {
-          "results": [{
-            "itemRef": { "libraryId": 1, "key": "ITEM1" },
-            "matches": [{
-              "source": { "kind": "metadata", "field": "title" },
-              "sourceVersion": "opaque-v1",
-              "location": { "unit": "field", "field": "title", "range": { "start": 0, "end": 5 } },
-              "matchedTerms": ["wind"],
-              "phraseMatch": true
-            }]
-          }],
+          "results": [
+            {
+              "itemRef": { "libraryId": 1, "key": "ITEM1" },
+              "matches": [
+                {
+                  "source": { "kind": "metadata", "field": "title" },
+                  "sourceVersion": "opaque-v1",
+                  "location": {
+                    "unit": "field",
+                    "field": "title",
+                    "range": { "start": 0, "end": 5 }
+                  },
+                  "matchedTerms": ["wind"],
+                  "phraseMatch": true
+                }
+              ]
+            }
+          ],
           "status": "completed",
           "method": "lexical",
-          "coverage": { "kind": "library", "sources": {
-            "metadata": { "status": "complete", "sourcesScanned": 1 },
-            "fulltext": { "status": "not_requested", "sourcesScanned": 0 },
-            "analysis": { "status": "not_requested", "sourcesScanned": 0 }
-          }},
-          "issues": [], "nextCursor": null, "hasMore": false, "total": 1
+          "coverage": {
+            "kind": "library",
+            "sources": {
+              "metadata": { "status": "complete", "sourcesScanned": 1 },
+              "fulltext": { "status": "not_requested", "sourcesScanned": 0 },
+              "analysis": { "status": "not_requested", "sourcesScanned": 0 }
+            }
+          },
+          "issues": [],
+          "nextCursor": null,
+          "hasMore": false,
+          "total": 1
         },
         "scope": { "libraryIds": [1] },
-        "descriptors": [{
-          "itemRef": { "libraryId": 1, "key": "ITEM1" },
-          "source": { "kind": "metadata", "field": "title" },
-          "sourceVersion": "opaque-v1", "format": "text", "contentLength": 5
-        }],
-        "catalogIssues": [], "catalogLimited": false
+        "descriptors": [
+          {
+            "itemRef": { "libraryId": 1, "key": "ITEM1" },
+            "source": { "kind": "metadata", "field": "title" },
+            "sourceVersion": "opaque-v1",
+            "format": "text",
+            "contentLength": 5
+          }
+        ],
+        "catalogIssues": [],
+        "catalogLimited": false
       }
     },
     {
@@ -64,20 +131,45 @@
       "admitted": false,
       "value": {
         "result": {
-          "results": [{ "itemRef": { "libraryId": 1, "key": "ITEM1" }, "matches": [{
-            "source": { "kind": "metadata", "field": "title" }, "sourceVersion": "v1",
-            "location": { "unit": "field", "field": "title", "range": { "start": 0, "end": 5 } },
-            "matchedTerms": ["wind"], "phraseMatch": true, "score": 1, "content": "wind "
-          }]}],
-          "status": "completed", "method": "lexical",
-          "coverage": { "kind": "library", "sources": {
-            "metadata": { "status": "complete", "sourcesScanned": 1 },
-            "fulltext": { "status": "not_requested", "sourcesScanned": 0 },
-            "analysis": { "status": "not_requested", "sourcesScanned": 0 }
-          }}, "issues": [], "nextCursor": null, "hasMore": false, "total": 1
+          "results": [
+            {
+              "itemRef": { "libraryId": 1, "key": "ITEM1" },
+              "matches": [
+                {
+                  "source": { "kind": "metadata", "field": "title" },
+                  "sourceVersion": "v1",
+                  "location": {
+                    "unit": "field",
+                    "field": "title",
+                    "range": { "start": 0, "end": 5 }
+                  },
+                  "matchedTerms": ["wind"],
+                  "phraseMatch": true,
+                  "score": 1,
+                  "content": "wind "
+                }
+              ]
+            }
+          ],
+          "status": "completed",
+          "method": "lexical",
+          "coverage": {
+            "kind": "library",
+            "sources": {
+              "metadata": { "status": "complete", "sourcesScanned": 1 },
+              "fulltext": { "status": "not_requested", "sourcesScanned": 0 },
+              "analysis": { "status": "not_requested", "sourcesScanned": 0 }
+            }
+          },
+          "issues": [],
+          "nextCursor": null,
+          "hasMore": false,
+          "total": 1
         },
         "scope": { "libraryIds": [1] },
-        "descriptors": [], "catalogIssues": [], "catalogLimited": false
+        "descriptors": [],
+        "catalogIssues": [],
+        "catalogLimited": false
       }
     },
     {
@@ -238,8 +330,8 @@
     {
       "id": "topic-result-empty-library-coverage",
       "schemaRef": "schemas/search.schema.json#/$defs/TopicResult",
-      "valid": true,
-      "admitted": true,
+      "valid": false,
+      "admitted": false,
       "value": {
         "results": [],
         "status": "completed",

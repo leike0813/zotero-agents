@@ -1849,6 +1849,7 @@ export type WorkflowHostLiveReadAdapters = {
 import type { WorkflowResultContext } from "../modules/workflowExecution/resultContext";
 import type { ProductStorageApi } from "../modules/workflow/catalog/workflowProductStore";
 import type {
+  SynthesisDeliveryContext,
   SynthesisJsonObject,
   SynthesisJsonValue,
   SynthesisEvidenceSearchRequest,
@@ -1870,10 +1871,14 @@ import type {
   SynthesisTagVocabularySaveRequest,
   SynthesisTopicApplyRequest,
   SynthesisTopicApplyResult,
+  SynthesisTopicContextRequest,
+  SynthesisTopicContextResult,
   SynthesisTopicPlanApplyRequest,
   SynthesisTopicPlanApplyResult,
   SynthesisTopicReportRequest,
   SynthesisTopicReportResult,
+  SynthesisTopicSearchRequest,
+  SynthesisTopicSearchResult,
   SynthesisWorkflowItemSnapshot,
   TagAuditRunRequestDto,
   TagAuditRunResultDto,
@@ -2808,6 +2813,15 @@ export interface WorkflowSynthesisApi {
       input: SynthesisTopicReportRequest,
       control?: WorkflowCallControl,
     ): Promise<SynthesisTopicReportResult>;
+    getContext(
+      input: SynthesisTopicContextRequest,
+      delivery?: SynthesisDeliveryContext,
+      control?: WorkflowCallControl,
+    ): Promise<SynthesisTopicContextResult>;
+    search(
+      input: SynthesisTopicSearchRequest,
+      control?: WorkflowCallControl,
+    ): Promise<SynthesisTopicSearchResult>;
   }>;
   readonly artifacts: Readonly<{
     readPaperArtifacts(

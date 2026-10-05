@@ -1,4 +1,5 @@
 import { canonicalizeSynthesisEngineJson } from "./canonicalJson.ts";
+import { SYNTHESIS_TOPIC_ARTIFACT_SECTIONS } from "../../synthesis-contracts/src/topicDomain.ts";
 
 export const SYNTHESIS_TOPIC_STRUCTURED_ARTIFACT_CONTRACT_VERSION =
   "synthesis-topic-structured-artifact.v1" as const;
@@ -369,7 +370,7 @@ function sameCanonicalJson(left: unknown, right: unknown) {
   );
 }
 
-const COMPLETE_SECTIONS = [
+const REQUIRED_SECTIONS = [
   "topic",
   "summary",
   "taxonomy",
@@ -396,10 +397,8 @@ const LEGACY_EVIDENCE_FIELDS = new Set([
 ]);
 
 const PATCHABLE_SECTIONS: Set<string> = new Set(
-  COMPLETE_SECTIONS.filter((section) => section !== "topic"),
+  SYNTHESIS_TOPIC_ARTIFACT_SECTIONS.filter((section) => section !== "topic"),
 );
-
-type SectionName = (typeof COMPLETE_SECTIONS)[number];
 
 const REMOVED_COMPLETE_SECTIONS = new Set([
   "improvement_dimension_summary",
@@ -553,7 +552,7 @@ export function validateTopicAnalysisManifest(
       : [];
     const sections = isObject(patch.sections) ? patch.sections : {};
     for (const section of changedSections) {
-      if (!PATCHABLE_SECTIONS.has(section as SectionName)) {
+      if (!PATCHABLE_SECTIONS.has(section)) {
         errors.push(`${section} is not patchable; use update_full`);
       }
       if (!(section in read)) {
@@ -596,9 +595,15 @@ export function validateTopicAnalysisManifest(
       errors.push(`sections.${section} is not part of the current contract`);
     }
   }
-  for (const section of COMPLETE_SECTIONS) {
+  for (const section of SYNTHESIS_TOPIC_ARTIFACT_SECTIONS) {
     if (!(section in sections)) {
-      errors.push(`sections.${section} is required`);
+      if (
+        REQUIRED_SECTIONS.includes(
+          section as (typeof REQUIRED_SECTIONS)[number],
+        )
+      ) {
+        errors.push(`sections.${section} is required`);
+      }
       continue;
     }
     errors.push(...sectionEntryErrors(section, sections[section]));
@@ -720,7 +725,7 @@ export function validateTopicSynthesisArtifact(
       errors.push(`artifact.${section} is not part of the current contract`);
     }
   }
-  for (const section of COMPLETE_SECTIONS) {
+  for (const section of REQUIRED_SECTIONS) {
     if (!(section in input)) {
       errors.push(`artifact.${section} is required`);
     }

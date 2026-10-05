@@ -9131,6 +9131,88 @@
       "pagination": "cursor",
       "payloadSchemaSource": "target-capability"
     },
+    "synthesis topic search": {
+      "resultSchemaSource": "target-capability-envelope",
+      "inputs": {
+        "query": {
+          "token": "--query",
+          "required": true,
+          "requiredWhen": [],
+          "examples": [
+            {
+              "kind": "shape-only",
+              "value": {
+                "query": "example phrase",
+                "sections": ["summary", "claims"],
+                "limit": 25,
+                "maxResults": 100
+              },
+              "prerequisites": [
+                "Use a non-empty query no longer than 4096 UTF-16 code units; replace example section names with canonical topic sections valid for the current Synthesis data root."
+              ],
+              "description": "Canonical bounded topic search request carried intact by --query."
+            }
+          ],
+          "schemaSource": "target-capability"
+        }
+      },
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "data.results",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "data.nextCursor",
+          "data.hasMore",
+          "data.total"
+        ]
+      },
+      "target": {
+        "kind": "capability",
+        "capability": "topics.search",
+        "method": "POST",
+        "path": "/bridge/v2/call"
+      },
+      "binding": "passthrough",
+      "approval": "none",
+      "effect": "read",
+      "category": "read",
+      "danger": "none",
+      "effects": [
+        {
+          "kind": "none",
+          "stateChanged": false,
+          "description": "Searches bounded current canonical topic content without changing Zotero-managed data."
+        }
+      ],
+      "approvalContract": {
+        "kind": "none",
+        "timing": "none",
+        "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+      },
+      "handleTransitions": [],
+      "recovery": [
+        {
+          "when": "The read fails or returns a stale, expired, or basis-mismatched search cursor.",
+          "stateCheck": "none",
+          "requiresHandles": [],
+          "action": "Preserve the structured search error. Do not retry or rerun with the rejected cursor; start a fresh search only when a new search is intended and inspect every returned coverage issue before claiming completeness. Run `zotero-bridge surface describe 'synthesis topic search'` to confirm the live request and cursor contract.",
+          "nextCommand": "surface describe"
+        }
+      ],
+      "operationalAliases": [
+        "synthesis topic search",
+        "synthesis",
+        "topic",
+        "search",
+        "query",
+        "JSON_OR_FILE"
+      ],
+      "hiddenFromIntentSearch": false,
+      "pagination": "cursor",
+      "payloadSchemaSource": "target-capability"
+    },
     "workflow agent-abandon": {
       "payloadSchema": {
         "type": "object",

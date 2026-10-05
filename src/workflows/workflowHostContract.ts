@@ -162,7 +162,11 @@ export const WORKFLOW_HOST_API_MANIFEST = defineWorkflowHostCandidateManifest({
       applyTopicPlan: "function",
       applyTopicSynthesisResult: "function",
     },
-    topics: { getReport: "function" },
+    topics: {
+      getReport: "function",
+      getContext: "function",
+      search: "function",
+    },
     artifacts: { readPaperArtifacts: "function" },
     tags: {
       loadVocabulary: "function",

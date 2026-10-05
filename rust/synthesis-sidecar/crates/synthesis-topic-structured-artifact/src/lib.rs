@@ -3,7 +3,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::atomic::{AtomicBool, Ordering};
 use synthesis_protocol::{
     TOPIC_ARTIFACT_ASSEMBLE_OPERATION, TOPIC_ARTIFACT_VALIDATE_OPERATION,
-    TOPIC_MANIFEST_VALIDATE_OPERATION, TOPIC_SECTION_PATCH_OPERATION,
+    TOPIC_MANIFEST_VALIDATE_OPERATION, TOPIC_SECTION_PATCH_OPERATION, topic_artifact_sections,
 };
 
 pub const CONTRACT_VERSION: &str = "synthesis-topic-structured-artifact.v1";
@@ -11,7 +11,7 @@ pub const MANIFEST_VALIDATION_VERSION: &str = "topic-analysis-manifest-validatio
 pub const ARTIFACT_ASSEMBLY_VERSION: &str = "topic-structured-artifact-assembly.v1";
 pub const ARTIFACT_VALIDATION_VERSION: &str = "topic-structured-artifact-validation.v1";
 pub const SECTION_PATCH_VERSION: &str = "topic-section-patch.v1";
-const COMPLETE_SECTIONS: &[&str] = &[
+const REQUIRED_SECTIONS: &[&str] = &[
     "topic",
     "summary",
     "taxonomy",
@@ -191,7 +191,7 @@ fn manifest_errors(value: &Value) -> Vec<String> {
             .and_then(|patch| patch.get("sections"))
             .and_then(Value::as_object);
         for section in changed.iter().filter_map(Value::as_str) {
-            if section == "topic" || !COMPLETE_SECTIONS.contains(&section) {
+            if section == "topic" || !topic_artifact_sections().iter().any(|name| name == section) {
                 errors.push(format!("{section} is not patchable; use update_full"));
             }
             if read.is_none_or(|read| !read.contains_key(section)) {
@@ -240,9 +240,11 @@ fn manifest_errors(value: &Value) -> Vec<String> {
             ));
         }
     }
-    for section in COMPLETE_SECTIONS {
-        let Some(value) = sections.and_then(|sections| sections.get(*section)) else {
-            errors.push(format!("sections.{section} is required"));
+    for section in topic_artifact_sections() {
+        let Some(value) = sections.and_then(|sections| sections.get(section)) else {
+            if REQUIRED_SECTIONS.contains(&section.as_str()) {
+                errors.push(format!("sections.{section} is required"));
+            }
             continue;
         };
         errors.extend(entry_errors(section, Some(value), false));
@@ -855,7 +857,7 @@ fn artifact_errors(value: &Value, expected_language: &str) -> Vec<String> {
             ));
         }
     }
-    for section in COMPLETE_SECTIONS {
+    for section in REQUIRED_SECTIONS {
         if !artifact.contains_key(*section) {
             errors.push(format!("artifact.{section} is required"));
         }
@@ -1087,6 +1089,74 @@ pub fn compute(operation: &str, request: Value, flag: &AtomicBool) -> Result<Val
 mod tests {
     use super::*;
 
+    #[test]
+    fn optional_matrix_is_patchable_and_not_required() {
+        let sidecars: Map<String, Value> = SIDECARS
+            .iter()
+            .map(|name| {
+                (
+                    (*name).to_owned(),
+                    json!({
+                        "path": format!("result/{name}.json"),
+                        "content_type": "json", "schema_id": format!("synthesis.{name}")
+                    }),
+                )
+            })
+            .collect();
+        let manifest = json!({
+            "schema_id":"synthesis.topic_section_patch_manifest",
+            "schema_version":"1.0.0", "operation":"update_patch", "language":"en",
+            "topic_id":"topic:matrix", "sidecars":sidecars,
+            "base":{
+                "read_section_hashes":{"comparison_matrix":"sha256:old"},
+                "replace_section_hashes":{"comparison_matrix":"sha256:old"}
+            },
+            "patch":{
+                "mode":"section_replace", "changed_sections":["comparison_matrix"],
+                "unchanged_section_policy":"inherit_current",
+                "sections":{"comparison_matrix":{"path":"result/matrix.json","content_type":"json"}}
+            }
+        });
+        let flag = AtomicBool::new(false);
+        let validated = compute(
+            TOPIC_MANIFEST_VALIDATE_OPERATION,
+            json!({
+                "contractVersion":CONTRACT_VERSION,"algorithmVersion":MANIFEST_VALIDATION_VERSION,
+                "manifest":manifest
+            }),
+            &flag,
+        )
+        .unwrap();
+        assert_eq!(validated["ok"], true, "{validated}");
+        let patched = compute(
+            TOPIC_SECTION_PATCH_OPERATION,
+            json!({
+                "contractVersion":CONTRACT_VERSION,"algorithmVersion":SECTION_PATCH_VERSION,
+                "currentManifest":{"section_hashes":{"comparison_matrix":"sha256:old"}},
+                "currentSections":{"comparison_matrix":{"columns":["Old"]}},
+                "patchManifest":manifest,
+                "changedSections":{"comparison_matrix":{"columns":["New"]}}
+            }),
+            &flag,
+        )
+        .unwrap();
+        assert_eq!(patched["status"], "applied");
+        assert_eq!(
+            patched["sections"]["comparison_matrix"]["columns"],
+            json!(["New"])
+        );
+        let absent = compute(TOPIC_MANIFEST_VALIDATE_OPERATION, json!({
+            "contractVersion":CONTRACT_VERSION,"algorithmVersion":MANIFEST_VALIDATION_VERSION,
+            "manifest":{"schema_id":"synthesis.topic_analysis_manifest", "operation":"create", "language":"en", "sections":{}}
+        }), &flag).unwrap();
+        assert!(
+            !absent["errors"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|error| error.as_str().unwrap().contains("comparison_matrix"))
+        );
+    }
     #[test]
     fn assembles_and_applies_patch_without_mutating_input() {
         let result = compute(

@@ -3,6 +3,7 @@ use serde_json::{Map, Value, json, value::RawValue};
 use sha2::{Digest, Sha256};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
+use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const WORKER_PROTOCOL: &str = "synthesis-rust-worker.v1";
@@ -19,7 +20,43 @@ pub const TOPIC_MANIFEST_VALIDATE_OPERATION: &str = "topic_manifest_validate.v1"
 pub const TOPIC_ARTIFACT_ASSEMBLE_OPERATION: &str = "topic_artifact_assemble.v1";
 pub const TOPIC_ARTIFACT_VALIDATE_OPERATION: &str = "topic_artifact_validate.v1";
 pub const TOPIC_SECTION_PATCH_OPERATION: &str = "topic_section_patch.v1";
+
+/// Canonical top-level content sections, excluding artifact envelope metadata.
+pub fn topic_artifact_sections() -> &'static [String] {
+    static SECTIONS: OnceLock<Vec<String>> = OnceLock::new();
+    SECTIONS.get_or_init(|| {
+        let schema: Value = serde_json::from_str(include_str!(
+            "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/topic-domain.schema.json"
+        ))
+        .expect("embedded Topic domain schema");
+        schema["$defs"]["TopicArtifact"]["properties"]
+            .as_object()
+            .expect("canonical Topic artifact properties")
+            .keys()
+            .filter(|name| !matches!(name.as_str(), "schema_id" | "schema_version" | "language"))
+            .cloned()
+            .collect()
+    })
+}
 pub const CITATION_GRAPH_BUILD_OPERATION: &str = "citation_graph_build.v1";
+/// Canonical artifact sections admitted by the semantic context read schema.
+pub fn topic_semantic_sections() -> &'static [String] {
+    static SECTIONS: OnceLock<Vec<String>> = OnceLock::new();
+    SECTIONS.get_or_init(|| {
+        let schema: Value = serde_json::from_str(include_str!(
+            "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/topic-domain.schema.json"
+        ))
+        .expect("embedded Topic domain schema");
+        let fields = schema["$defs"]["TopicSemanticContext"]["properties"]
+            .as_object()
+            .expect("canonical semantic context fields");
+        topic_artifact_sections()
+            .iter()
+            .filter(|section| fields.contains_key(*section))
+            .cloned()
+            .collect()
+    })
+}
 pub const CITATION_GRAPH_BUILD_TRANSFER_OPERATION: &str = "citation_graph_build_transfer.v1";
 
 pub const PAGE_MAX_BYTES: usize = 4 * 1024 * 1024;
@@ -1495,6 +1532,24 @@ pub fn canonical_topic_path_id(topic_id: &str) -> Result<String, &'static str> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn topic_section_wire_projection_matches_canonical_properties() {
+        let schema: Value = serde_json::from_str(include_str!(
+            "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/topic-domain.schema.json"
+        ))
+        .unwrap();
+        let projected = schema["$defs"]["TopicSectionName"]["enum"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|name| name.as_str().unwrap().to_owned())
+            .collect::<HashSet<_>>();
+        assert_eq!(
+            projected,
+            topic_artifact_sections().iter().cloned().collect()
+        );
+    }
 
     #[test]
     fn formats_persisted_clock_values_as_utc_iso_8601() {

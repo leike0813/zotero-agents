@@ -46,6 +46,63 @@ unreadable.
 
 Topic create/update reads Zotero Library and derived artifacts directly through the workflow/Host Bridge path. Citation graph metrics may be included as optional context, but graph availability and cache freshness must not be required for topic generation.
 
+## Canonical Topic Search
+
+`SynthesisClient.topics.search` searches current canonical Topic content through
+the existing Rust Topic application. Workflow Host explicitly exposes
+`host.synthesis.topics.search` and the existing `host.synthesis.topics.getContext`;
+Host Bridge and its registry-derived MCP tool use `topics.search`. The Rust CLI
+leaf is `synthesis topic search --query <JSON>`.
+
+The request has `query`, optional canonical `sections`, `limit`, `maxResults`,
+and an opaque `cursor`. Query must contain non-whitespace text and fit 4096
+UTF-16 units. A page defaults to 25 results, with a maximum of 100;
+the frozen round defaults to 100 results, with a maximum of 500, and page size
+cannot exceed the round bound. Section names come from the canonical
+`TopicArtifact` schema. `comparison_matrix` is recognized when present and
+remains optional for complete artifacts and section patches.
+
+Each result contains `topicId`, `matchedSections`, and `matchReasons`.
+`query_terms` identifies lexical coverage; `exact_phrase` identifies a normalized
+phrase match. Multiple matching fields or sections produce one result per
+Topic. The C2 Rust kernel orders by distinct query-term coverage, phrase match,
+field importance, then canonical Topic identity. Definition (`topic`) and
+`summary` lead field importance; other sections follow the schema inventory.
+Identity, hash, path, status,
+and code fields do not contribute searchable text.
+
+The common envelope contains exactly `results`, `status`, `method`, `coverage`,
+`issues`, `nextCursor`, `hasMore`, and `total`. Method is `lexical`, and coverage
+is `{ kind: "topic", sections: [{ section, status }] }`. Issues use the shared
+closed codes with `sourceKind: null`; unreadable or invalid candidates, scan
+budgets, and result caps report partial work without exposing paths or scores.
+Only a complete uncapped scan reports `completed` and an exact numeric total;
+an incomplete or capped scan reports `limited` and null total. An unavailable
+canonical source reports `unavailable`. A complete scan with no matches returns
+zero total.
+
+The application reads at most 64 current Topic candidates, 4096 root directory
+entries, and 32 MiB of actual canonical bytes per round. It limits extracted
+text to 4 MiB and 20,000 fields; a field above the shared kernel's 256 KiB
+source bound makes the scan limited. Reading and validation share the round's
+byte budget. These bounds apply to search and leave existing context, import,
+and canonical promotion reads under their own contracts. The runtime reserves
+time inside its existing request deadline to project a partial result.
+
+A continuation reads frozen results, revalidating canonical root membership
+and the manifest/artifact/content basis of every scanned candidate, including
+non-matches. It never repeats lexical matching. An incomplete basis cannot
+produce a cursor. Changed membership or content fails with a typed stale-cursor
+reason; expiry, eviction, and process restart fail with an expired-cursor reason.
+The application retains at most eight frozen rounds for 60 seconds. Page size
+may change within the request bounds; query, canonical sections, and
+`maxResults` must keep their round identity. `hasMore` refers only to remaining
+pages inside the frozen result bound. Start
+a fresh query explicitly after either failure. Read a matching Topic's canonical
+structure through the existing `topics.getContext({ topicId, view: "semantic" })`
+owner; list, resolver, association, context, and freshness behavior retain their
+own contracts.
+
 ## Workflow Manifest and Sidecars
 
 Topic synthesis apply uses the final analysis manifest as the canonical sidecar index. The final result bundle should point to `analysis_manifest_path`; host apply reads `manifest.sidecars` from there.

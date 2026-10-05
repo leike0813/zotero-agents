@@ -1,4 +1,6 @@
 import { assert } from "chai";
+import topicDomainSchema from "../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/topic-domain.schema.json";
+import { SYNTHESIS_TOPIC_ARTIFACT_SECTIONS } from "../../packages/synthesis-contracts/src/topicDomain";
 import {
   SYNTHESIS_TOPIC_ARTIFACT_ASSEMBLY_VERSION,
   SYNTHESIS_TOPIC_ARTIFACT_VALIDATION_VERSION,
@@ -89,6 +91,88 @@ function patchRequest() {
 }
 
 describe("Synthesis Topic Structured Artifact engine", function () {
+  it("keeps the wire section allowlist equal to canonical artifact content sections", function () {
+    assert.sameMembers(
+      topicDomainSchema.$defs.TopicSectionName.enum,
+      SYNTHESIS_TOPIC_ARTIFACT_SECTIONS,
+    );
+  });
+  it("patches an optional comparison matrix without making it mandatory", async function () {
+    const engine = createInProcessSynthesisTopicStructuredArtifactEngine();
+    const request = {
+      ...patchRequest(),
+      currentManifest: {
+        section_hashes: { comparison_matrix: "sha256:old-matrix" },
+      },
+      currentSections: { comparison_matrix: { summary: "Old comparison" } },
+      patchManifest: {
+        schema_id: "synthesis.topic_section_patch_manifest",
+        schema_version: "1.0.0",
+        operation: "update_patch",
+        topic_id: "topic:test",
+        language: "zh-CN",
+        sidecars: Object.fromEntries(
+          [
+            "topic_interest_metadata",
+            "concept_cards_proposal",
+            "topic_graph_relation_proposals",
+            "prospective_topic_relation_proposals",
+          ].map((name) => [
+            name,
+            {
+              path: `result/${name}.json`,
+              content_type: "json",
+              schema_id: `synthesis.${name}`,
+            },
+          ]),
+        ),
+        base: {
+          read_section_hashes: { comparison_matrix: "sha256:old-matrix" },
+          replace_section_hashes: { comparison_matrix: "sha256:old-matrix" },
+        },
+        patch: {
+          mode: "section_replace",
+          changed_sections: ["comparison_matrix"],
+          unchanged_section_policy: "inherit_current",
+          sections: {
+            comparison_matrix: {
+              path: "result/sections/comparison_matrix.json",
+              content_type: "json",
+            },
+          },
+        },
+      },
+      changedSections: { comparison_matrix: { summary: "New comparison" } },
+    };
+    const validated = await engine.validateManifest(
+      rebuildSynthesisTopicManifestValidationRequest({
+        contractVersion: SYNTHESIS_TOPIC_STRUCTURED_ARTIFACT_CONTRACT_VERSION,
+        algorithmVersion: SYNTHESIS_TOPIC_MANIFEST_VALIDATION_VERSION,
+        manifest: request.patchManifest,
+      }),
+    );
+    assert.isTrue(validated.ok, validated.errors.join("; "));
+    const result = await engine.applySectionPatch(
+      rebuildSynthesisTopicSectionPatchRequest(request),
+    );
+    assert.equal(result.status, "applied");
+    if (result.status === "applied") {
+      assert.deepEqual(
+        result.sections.comparison_matrix,
+        request.changedSections.comparison_matrix,
+      );
+    }
+    const absent = await engine.validateManifest(
+      rebuildSynthesisTopicManifestValidationRequest({
+        contractVersion: SYNTHESIS_TOPIC_STRUCTURED_ARTIFACT_CONTRACT_VERSION,
+        algorithmVersion: SYNTHESIS_TOPIC_MANIFEST_VALIDATION_VERSION,
+        manifest: manifest(),
+      }),
+    );
+    assert.isFalse(
+      absent.errors.some((error) => error.includes("comparison_matrix")),
+    );
+  });
   it("rebuilds strict versioned envelopes while preserving open domain JSON", function () {
     assert.equal(
       SYNTHESIS_TOPIC_STRUCTURED_ARTIFACT_CONTRACT_VERSION,

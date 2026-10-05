@@ -10,6 +10,19 @@
   },
   "operations": [
     {
+      "id": "client.searchTopics",
+      "access": "read",
+      "cases": [
+        "empty",
+        "matrix",
+        "page",
+        "stale_nonmatch",
+        "invalid_args",
+        "oversized",
+        "expired"
+      ]
+    },
+    {
       "id": "client.listTopics",
       "access": "read",
       "cases": ["empty", "page", "invalid_args", "oversized", "expired"]

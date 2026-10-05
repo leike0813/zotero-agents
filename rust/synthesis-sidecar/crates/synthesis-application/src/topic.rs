@@ -29,7 +29,7 @@ use synthesis_canonical_store::{
     CanonicalTopicDraft, CanonicalTopicState, CanonicalTopicView, LegacyCanonicalTopic,
     canonical_json_hash, canonical_topic_path_id, prepare_topic,
 };
-use synthesis_protocol::canonical_json;
+use synthesis_protocol::{canonical_json, topic_semantic_sections};
 use synthesis_repository::{
     DeletedTopicArtifactRecord, OperationRecord, ReferenceArtifactRecord,
     TopicApplicationProjectionRecord, TopicApplicationStateRecord,
@@ -292,10 +292,11 @@ fn normalize_legacy_topic_resolver(resolver: &Value) -> Result<Value, String> {
 
 pub struct TopicApplication {
     repository: Arc<dyn TopicRepositoryPort>,
-    canonical: Arc<dyn TopicCanonicalPort>,
+    pub(crate) canonical: Arc<dyn TopicCanonicalPort>,
     engine: Arc<dyn StructuredArtifactPort>,
     now: Clock,
     operation_id: TextFactory,
+    pub(crate) search_rounds: Mutex<crate::topic_search::TopicSearchRounds>,
     topic_graph: Option<Arc<TopicGraphApplication>>,
     concept_kb: Option<Arc<ConceptKbApplication>>,
     accepting: AtomicBool,
@@ -350,6 +351,7 @@ impl TopicApplication {
             engine,
             now,
             operation_id,
+            search_rounds: Mutex::new(crate::topic_search::TopicSearchRounds::default()),
             topic_graph: None,
             concept_kb: None,
             accepting: AtomicBool::new(true),
@@ -755,11 +757,23 @@ impl TopicApplication {
                     "language":topic.language,
                     "markdown":snapshot.markdown,
                 });
-                let semantic = json!({
+                let mut semantic = json!({
+                    "topic_id":topic.topic_id,
+                    "language":topic.language,
                     "topic_definition":topic.topic_definition,
                     "topic_resolver":topic.topic_resolver,
                     "resolved_paper_set":topic.resolved_paper_set,
                 });
+                for section in topic_semantic_sections() {
+                    if let Some(value) = snapshot.sections.get(section) {
+                        semantic[section] =
+                            if section == "improvement_dimensions" && value.is_array() {
+                                json!({"summary":{},"dimensions":value})
+                            } else {
+                                value.clone()
+                            };
+                    }
+                }
                 let audit = json!({
                     "manifest":snapshot.manifest,
                     "metadata":snapshot.metadata,
@@ -3885,6 +3899,18 @@ mod tests {
                 })
                 .expect("topic context");
             assert_eq!(context.0["view"], expected);
+            if view == TopicContextView::Semantic || view == TopicContextView::Full {
+                assert_eq!(context.0["semantic"]["topic_id"], "topic-alpha");
+                assert_eq!(context.0["semantic"]["language"], "en");
+                assert!(context.0["semantic"].get("topic_definition").is_some());
+                assert!(context.0["semantic"].get("topic_resolver").is_some());
+                assert!(context.0["semantic"].get("resolved_paper_set").is_some());
+                assert_eq!(context.0["semantic"]["claims"][0]["text"], "One");
+                assert_eq!(
+                    context.0["semantic"]["source_papers"][0]["paper_ref"],
+                    "1:AAAA"
+                );
+            }
         }
 
         let report = application

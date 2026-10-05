@@ -126,6 +126,50 @@ fn item_search_schema_describes_full_result_cursor_boundary() {
 }
 
 #[test]
+fn topic_search_schema_owns_the_canonical_topic_search_request() {
+    let (_, output, _) = run(&["synthesis", "topic", "search", "--schema"]);
+    let schema = &output["data"]["inputs"]["query"]["schema"];
+    assert_eq!(
+        schema["$ref"],
+        "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/TopicSearchRequest"
+    );
+    let (code, rejection, _) = run_executable(&[
+        "synthesis",
+        "topic",
+        "search",
+        "--query",
+        r#"{"query":"needle","text":"needle"}"#,
+    ]);
+    assert_ne!(code, 0);
+    assert_eq!(rejection["error"]["code"], "command_input_invalid");
+}
+
+#[test]
+fn topic_search_schema_describes_full_result_cursor_boundary() {
+    let (code, output, _) = run(&["surface", "describe", "synthesis topic search"]);
+    assert_eq!(code, 0);
+    let descriptor = &output["data"];
+    assert_eq!(descriptor["targets"][0]["target"], "topics.search");
+    assert_eq!(descriptor["danger"], "none");
+    assert_eq!(descriptor["effects"][0]["stateChanged"], false);
+    assert_eq!(descriptor["approvalContract"]["kind"], "none");
+    assert_eq!(descriptor["pagination"], "cursor");
+    assert_eq!(descriptor["outputBoundary"]["strategy"], "cursor");
+    assert_eq!(descriptor["outputBoundary"]["section"], "data.results");
+    assert_eq!(descriptor["outputBoundary"]["cursorInput"], "cursor");
+    let continuation = descriptor["outputBoundary"]["continuation"]
+        .as_array()
+        .unwrap();
+    for field in ["data.nextCursor", "data.hasMore", "data.total"] {
+        assert!(continuation.iter().any(|value| value == field), "{field}");
+    }
+    assert!(descriptor["recovery"][0]["action"]
+        .as_str()
+        .unwrap()
+        .contains("Do not retry or rerun"));
+}
+
+#[test]
 fn enumeration_schemas_use_filter_while_search_keeps_query() {
     for command in [
         vec!["library", "items", "list", "--schema"],

@@ -113,12 +113,13 @@ export type SynthesisEvidencePassage = SynthesisEvidenceContext & {
 
 export type SynthesisEvidenceSearchResult =
   SynthesisSearchResult<SynthesisEvidencePassage>;
-export type SynthesisTopicSearchResult = SynthesisSearchResult<{
+export type SynthesisTopicSearchMatch = {
   topicId: string;
-  section: string;
-  content: string;
-  range: SynthesisTextRange;
-}>;
+  matchedSections: string[];
+  matchReasons: Array<"query_terms" | "exact_phrase">;
+};
+export type SynthesisTopicSearchResult =
+  SynthesisSearchResult<SynthesisTopicSearchMatch>;
 
 export function rebuildSynthesisSearchRequest(
   value: unknown,
@@ -271,8 +272,14 @@ export function rebuildSynthesisTopicSearchResult(
     value,
     direction: "result",
   });
-  for (const passage of result.results) {
-    assertTextRange(passage.range, passage.content.length);
+  if (
+    new Set(result.results.map((match) => match.topicId)).size !==
+    result.results.length
+  ) {
+    throw new SynthesisClientError(
+      "internal",
+      "Topic search identities must be unique",
+    );
   }
   assertContinuation(result);
   return result;

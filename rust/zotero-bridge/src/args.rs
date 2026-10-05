@@ -815,6 +815,12 @@ pub enum TopicsCommand {
     FindByPaperRef(BridgeQueryArgs),
 
     #[command(
+        about = "Search canonical topic content",
+        long_about = "Call Zotero capability topics.search. --query is the JSON request container and is forwarded without field translation. It requires a non-empty query of at most 4096 UTF-16 code units; optional limit defaults to 25 and is capped at 100, maxResults defaults to 100 and is capped at 500, and limit must not exceed maxResults. Optional sections restricts the search to canonical topic section names. Continue with the returned opaque cursor in the same JSON container. The CLI returns the complete search envelope; stale and expired cursor errors are preserved and never trigger an automatic rerun."
+    )]
+    Search(TopicSearchArgs),
+
+    #[command(
         about = "Read one topic synthesis context",
         long_about = "Call Zotero capability topics.get_context. Use --query for the topic lookup payload. Explicit view values are digest, semantic, audit, and full. Omitting view keeps the flat response. For large semantic or full contexts, pass outputPath/output_path and optional overwrite in --query. Local profiles write the view JSON directly. Remote profiles with connectionMode:\"remote\" return delivery.mode=\"bridge-download\"; run the returned zotero-bridge file download command and then unzip the bundle."
     )]
@@ -843,6 +849,19 @@ pub enum TopicsCommand {
         long_about = "Call Zotero capability topics.export_research_bundle. Repeat --topic-id for up to 20 Topics. Local profiles require --output-dir and write the bundle directory atomically; remote profiles omit --output-dir and return a downloadable ZIP handle."
     )]
     ExportResearchBundle(DirectTopicResearchBundleArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct TopicSearchArgs {
+    #[arg(
+        long,
+        alias = "input",
+        value_name = "JSON_OR_FILE",
+        required = true,
+        help = "Canonical bounded topic search request as JSON",
+        long_help = "Canonical bounded topic search request JSON. Use inline JSON such as '{\"query\":\"graph\",\"limit\":10,\"maxResults\":100}', a file path containing JSON, @file syntax, or '-' to read JSON from stdin. Keep the returned cursor unchanged in this same request container to continue."
+    )]
+    pub query: String,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -2552,6 +2571,40 @@ mod tests {
             },
             _ => panic!("expected synthesis command"),
         }
+    }
+
+    #[test]
+    fn parses_topic_search_with_json_query_container() {
+        let cli = Cli::try_parse_from([
+            "zotero-bridge",
+            "synthesis",
+            "topic",
+            "search",
+            "--query",
+            r#"{"query":"graph","sections":["summary","claims"],"limit":10,"maxResults":50,"cursor":"opaque:cursor"}"#,
+        ])
+        .unwrap();
+
+        match cli.command {
+            Command::Synthesis(args) => match args.command {
+                SynthesisCommand::Topic(args) => match args.command {
+                    TopicsCommand::Search(input) => {
+                        assert_eq!(
+                            input.query,
+                            r#"{"query":"graph","sections":["summary","claims"],"limit":10,"maxResults":50,"cursor":"opaque:cursor"}"#
+                        )
+                    }
+                    _ => panic!("expected topic search"),
+                },
+                _ => panic!("expected synthesis topic"),
+            },
+            _ => panic!("expected synthesis command"),
+        }
+    }
+
+    #[test]
+    fn requires_json_query_container_for_topic_search() {
+        assert!(Cli::try_parse_from(["zotero-bridge", "synthesis", "topic", "search",]).is_err());
     }
 
     #[test]

@@ -641,6 +641,63 @@ Behavior notes:
 - Returns only topic identity and labels, not full context or markdown.
 - Read-only — does not trigger sidecar refresh.
 
+### `topics.search`
+
+Purpose: find Topics by the text in their canonical structured content, then
+read the chosen Topic through `topics.get_context`.
+
+Input:
+
+```json
+{
+  "query": "retrieval augmented generation",
+  "sections": ["summary", "claims"],
+  "limit": 25,
+  "maxResults": 100
+}
+```
+
+Structured content:
+
+```json
+{
+  "result": {
+    "results": [
+      {
+        "topicId": "abc123",
+        "matchedSections": ["summary"],
+        "matchReasons": ["exact_phrase"]
+      }
+    ],
+    "status": "completed",
+    "method": "lexical",
+    "coverage": { "kind": "topic", "sections": [{ "section": "summary", "status": "complete" }] },
+    "issues": [],
+    "nextCursor": null,
+    "hasMore": false,
+    "total": 1
+  }
+}
+```
+
+Behavior notes:
+
+- The tool schema is the registry-derived `TopicSearchRequest`, so the same
+  closed request contract the Host Bridge capability validates is what the
+  client sees. An empty query, an unknown section name, or an out-of-bounds
+  count is rejected before the search runs.
+- One result per Topic, carrying only identity, matched canonical sections, and
+  match reasons. No relevance score and no local path are exposed.
+- Read `coverage` and `issues` before treating a result as complete; a
+  `limited` status indicates an incomplete scan or a capped result set.
+- Continue with the returned opaque `nextCursor` in the same request. A stale
+  or expired cursor returns a tool error with `retryable: false`: stale uses
+  `error_code: "conflict"`, expiry uses `error_code: "invalid_request"`, and
+  `details.sidecarReason` preserves `search_cursor_stale` or
+  `search_cursor_expired`. The HTTP Bridge adapter projects these as
+  `synthesis_search_cursor_rejected` with `details.reasonCode`. No entry retries
+  continuation automatically; start a new search explicitly when intended.
+
 ### `topics.get_context`
 
 Purpose: retrieve the full context for one Synthesis topic, including workset

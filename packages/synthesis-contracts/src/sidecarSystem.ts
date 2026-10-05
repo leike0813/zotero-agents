@@ -47,6 +47,7 @@ export const SYNTHESIS_SIDECAR_GENERAL_CAPABILITIES = [
   "library.lexical.execute",
 ] as const;
 export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES = [
+  "client.searchTopics",
   "client.searchEvidence",
   "client.listTopics",
   "client.findTopicsByPaperRef",
@@ -154,8 +155,9 @@ export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES = [
   "client.resolveWebDavSyncConflict",
 ] as const;
 export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT =
-  "ec1db19e9f1b4c2d45aa344aed72c54acdc8c53416824e41994accf08a4c825c" as const;
+  "bb914f23eaf1cceef9e17bf310b1104a47f89a5f9b94f456f884dc2c2aea329f" as const;
 export const SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES = [
+  "client.searchTopics",
   "client.searchEvidence",
   "client.listTopics",
   "client.findTopicsByPaperRef",

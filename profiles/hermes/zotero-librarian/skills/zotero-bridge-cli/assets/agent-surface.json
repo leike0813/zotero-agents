@@ -1,6 +1,6 @@
 {
   "cliSchema": "zotero-bridge.cli.v5",
-  "commandCatalogChecksum": "67c22ed6c34c579044908e3ee5445e7460210a8634ea80158fc1d7b056d358dc",
+  "commandCatalogChecksum": "43dc0249764a14d48fc828be0673c96b94abca4de51e923ca4cf92efd1c6bb4f",
   "commands": [
     {
       "approvalContract": {
@@ -62899,6 +62899,169 @@
         {
           "kind": "capability",
           "target": "topics.list"
+        }
+      ]
+    },
+    {
+      "approvalContract": {
+        "kind": "none",
+        "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+        "timing": "none"
+      },
+      "arguments": [
+        {
+          "aliases": [
+            "input"
+          ],
+          "conflictsWith": [],
+          "defaultValues": [],
+          "global": false,
+          "help": "Canonical bounded topic search request as JSON",
+          "id": "query",
+          "kind": "option",
+          "longHelp": "Canonical bounded topic search request JSON. Use inline JSON such as '{\"query\":\"graph\",\"limit\":10,\"maxResults\":100}', a file path containing JSON, @file syntax, or '-' to read JSON from stdin. Keep the returned cursor unchanged in this same request container to continue.",
+          "possibleValues": [],
+          "repeatable": false,
+          "required": true,
+          "takesValue": true,
+          "token": "--query",
+          "valueNames": [
+            "JSON_OR_FILE"
+          ]
+        }
+      ],
+      "argv": [
+        "synthesis",
+        "topic",
+        "search"
+      ],
+      "argvBindings": [
+        {
+          "kind": "option",
+          "property": "query",
+          "required": true,
+          "takesValue": true,
+          "token": "--query",
+          "valueNames": [
+            "JSON_OR_FILE"
+          ]
+        }
+      ],
+      "binding": "passthrough",
+      "category": "read",
+      "command": "synthesis topic search",
+      "composition": null,
+      "danger": "none",
+      "effects": [
+        {
+          "description": "Searches bounded current canonical topic content without changing Zotero-managed data.",
+          "kind": "none",
+          "stateChanged": false
+        }
+      ],
+      "handleTransitions": [],
+      "hiddenFromIntentSearch": false,
+      "inputSchemas": {
+        "query": {
+          "examples": [
+            {
+              "description": "Canonical bounded topic search request carried intact by --query.",
+              "kind": "shape-only",
+              "prerequisites": [
+                "Use a non-empty query no longer than 4096 UTF-16 code units; replace example section names with canonical topic sections valid for the current Synthesis data root."
+              ],
+              "value": {
+                "limit": 25,
+                "maxResults": 100,
+                "query": "example phrase",
+                "sections": [
+                  "summary",
+                  "claims"
+                ]
+              }
+            }
+          ],
+          "required": true,
+          "requiredWhen": [],
+          "schema": {
+            "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/TopicSearchRequest"
+          },
+          "schemaSource": "target-capability",
+          "token": "--query"
+        }
+      },
+      "invocationSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "description": "Canonical bounded topic search request as JSON",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "operationalAliases": [
+        "synthesis topic search",
+        "synthesis",
+        "topic",
+        "search",
+        "query",
+        "JSON_OR_FILE"
+      ],
+      "outputBoundary": {
+        "continuation": [
+          "data.nextCursor",
+          "data.hasMore",
+          "data.total"
+        ],
+        "cursorInput": "cursor",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "section": "data.results",
+        "strategy": "cursor"
+      },
+      "pagination": "cursor",
+      "payloadSchema": {
+        "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/TopicSearchRequest"
+      },
+      "recovery": [
+        {
+          "action": "Preserve the structured search error. Do not retry or rerun with the rejected cursor; start a fresh search only when a new search is intended and inspect every returned coverage issue before claiming completeness. Run `zotero-bridge surface describe 'synthesis topic search'` to confirm the live request and cursor contract.",
+          "nextCommand": "surface describe",
+          "requiresHandles": [],
+          "stateCheck": "none",
+          "when": "The read fails or returns a stale, expired, or basis-mismatched search cursor."
+        }
+      ],
+      "resultSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "approval": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "capability": {
+            "const": "topics.search"
+          },
+          "data": {
+            "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/TopicSearchResult"
+          }
+        },
+        "required": [
+          "capability",
+          "approval",
+          "data"
+        ],
+        "type": "object"
+      },
+      "summary": "Search canonical topic content",
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "topics.search"
         }
       ]
     },

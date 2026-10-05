@@ -116,7 +116,7 @@ dispatcher.
 | `reference_index` | 2 | `reference_index.get`, `reference_sidecar.refresh` |
 | `resolvers` | 1 | `resolvers.resolve` |
 | `schemas` | 1 | `schemas.get` |
-| `topics` | 7 | `topics.export_research_bundle`, `topics.find_by_paper_ref`, `topics.get_context`, `topics.get_planning_context`, `topics.get_report`, `topics.get_review_input`, `topics.list` |
+| `topics` | 8 | `topics.export_research_bundle`, `topics.find_by_paper_ref`, `topics.get_context`, `topics.get_planning_context`, `topics.get_report`, `topics.get_review_input`, `topics.list`, `topics.search` |
 | `workflow_products` | 4 | `workflow_products.export`, `workflow_products.get`, `workflow_products.list`, `workflow_products.read_asset` |
 <!-- host-bridge-surface:capability-categories:end -->
 
@@ -141,6 +141,24 @@ tool mirrors the same request and result. The CLI `--query` JSON container
 remains unchanged. Snapshot capture stays fixed-set and unfiltered, and the
 Synthesis reverse-host metadata page port does not take `filter` or search
 `query`.
+
+`topics.search` is a read capability in the `topics` category. It accepts the
+shared bounded Topic search request — a required `query`, optional canonical
+`sections`, the common `limit`, `maxResults`, and `cursor` bounds — and its
+handler calls `SynthesisClient.topics.search`, so the Synthesis Topic
+application stays the search owner. Bridge holds no local ranking and never
+searches `topics.list` results. The result is the shared search envelope with
+`method: lexical` and `coverage: { kind: "topic", sections: [...] }`; each
+result is one Topic with its identity, matched canonical sections, and concise
+match reasons. No relevance score, local path, or inferred freshness is
+exposed. An invalid request is rejected by the capability contract before the
+Topic application runs. A rejected search round surfaces as the typed
+`synthesis_search_cursor_rejected` error with the owning `reasonCode` and
+`retryable: false`; that mapping is scoped to the bounded read search
+capabilities, so Synthesis maintenance conflicts keep their own existing code
+and message. The MCP tool mirrors the same request and result, and the CLI
+exposes it as `synthesis topic search` through the unchanged `--query` JSON
+container.
 
 ---
 
