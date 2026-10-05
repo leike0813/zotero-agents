@@ -48,9 +48,9 @@ Fai clic sul pulsante **Rimuovi** all'interno di una riga di configurazione per 
 
 ### Salva e Annulla
 
-| Pulsante | Posizione | Funzione |
-|----------|-----------|----------|
-| **Salva** | In basso a destra nella finestra | Salva tutte le modifiche e chiude la finestra |
+| Pulsante    | Posizione                                          | Funzione                                                   |
+| ----------- | -------------------------------------------------- | ---------------------------------------------------------- |
+| **Salva**   | In basso a destra nella finestra                   | Salva tutte le modifiche e chiude la finestra              |
 | **Annulla** | In basso a destra nella finestra (accanto a Salva) | Scarta tutte le modifiche non salvate e chiude la finestra |
 
 Se ci sono modifiche non salvate prima di chiudere la finestra, apparirà una richiesta di conferma.
@@ -65,36 +65,37 @@ I backend ACP sono sottoprocessi agent in esecuzione locale. La configurazione s
 
 ### Descrizione dei campi
 
-| Campo | Obbligatorio | Descrizione |
-|-------|-------------|-------------|
-| **Nome visualizzato** | Sì | Nome visualizzato per il backend, usato per identificarlo nella Dashboard e nella barra laterale |
-| **Comando** | Sì | Comando per avviare il backend ACP (es. `npx -y opencode-ai@latest acp`) |
-| **Argomenti** | No | Argomenti aggiuntivi per il comando, aggiunti uno alla volta tramite l'editor degli argomenti |
-| **Variabili d'ambiente** | No | Variabili d'ambiente aggiuntive, aggiunte una alla volta tramite l'editor delle variabili d'ambiente (coppie chiave-valore) |
+| Campo                    | Obbligatorio | Descrizione                                                                                                                 |
+| ------------------------ | ------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| **Nome visualizzato**    | Sì           | Nome visualizzato per il backend, usato per identificarlo nella Dashboard e nella barra laterale                            |
+| **Comando**              | Sì           | Comando per avviare il backend ACP (es. `npx -y opencode-ai@latest acp`)                                                    |
+| **Argomenti**            | No           | Argomenti aggiuntivi per il comando, aggiunti uno alla volta tramite l'editor degli argomenti                               |
+| **Variabili d'ambiente** | No           | Variabili d'ambiente aggiuntive, aggiunte una alla volta tramite l'editor delle variabili d'ambiente (coppie chiave-valore) |
 
 ### Preset ACP
 
 Nella parte superiore della scheda ACP c'è un pulsante **Aggiungi da preset**. Facendo clic si apre la finestra di configurazione del preset: a sinistra selezioni l'agent, a destra vengono mostrate le opzioni di avvio e un'anteprima di configurazione in sola lettura. Facendo clic su **Conferma**, il plugin aggiunge una riga di configurazione ACP normale in base all'anteprima; facendo clic su **Annulla** la configurazione corrente non viene modificata.
 
-- **Usa npx**: una volta attivato, il comando passa al formato `npx <package>` e viene mostrato un avviso sulla necessità di installare Node.js e npm, con un link al sito di Node.js. Codex e Claude Code lo hanno attivato per impostazione predefinita, poiché dipendono dall'adapter ACP; gli altri agent no.
+- **Usa npx**: una volta attivato, il comando passa al formato `npx <package>` e viene mostrato un avviso sulla necessità di installare Node.js e npm, con un link al sito di Node.js. Codex, Claude Code, Factory Droid, Pi ACP e Amp ACP lo hanno attivato per impostazione predefinita, poiché il loro comando predefinito proviene da un pacchetto npm; gli altri agent no.
 - **Ambiente isolato**: disponibile solo per gli agent che supportano l'isolamento. Una volta attivato, le variabili d'ambiente corrispondenti vengono iniettate nell'anteprima e viene mostrato un avviso che le opzioni dell'agent e l'autenticazione devono essere gestite manualmente in quella directory isolata.
 
 ![Finestra di dialogo preset ACP](/img/docs/backends/backend-manager_ACP-preset.png)
 
 L'area di anteprima è in sola lettura e include ID profilo, nome visualizzato, comando, parametri, variabili d'ambiente e famiglia agent. La riga di configurazione aggiunta può comunque essere modificata come un normale backend ACP.
 
-Comandi predefiniti dei preset integrati:
+Esempi di comandi predefiniti dei preset; vedi [Preset ACP](./acp.md) per il catalogo completo dei 28 preset, i requisiti di installazione e l'ambito di isolamento.
 
+<!-- prettier-ignore -->
 | Preset | Comando predefinito | Descrizione |
-|------|------|------|
+| --- | --- | --- |
 | **OpenCode** | `opencode acp` | Backend ACP OpenCode; supporta l'isolamento della directory di configurazione tramite `OPENCODE_CONFIG_DIR` |
 | **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | Adapter ACP per OpenAI Codex |
 | **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | Adapter ACP per Claude Code |
-| **Gemini CLI** | `gemini --experimental-acp` | Modalità ACP di Gemini CLI |
+| **Gemini CLI** | `gemini --acp` | Modalità ACP di Gemini CLI |
 | **Hermes** | `hermes acp` | Backend ACP Hermes Agent |
-| **Qwen Code** | `qwen --acp --experimental-skills` | Modalità ACP di Qwen Code |
+| **Qwen Code** | `qwen --acp` | Modalità ACP di Qwen Code |
 | **GitHub Copilot** | `copilot --acp --stdio` | Modalità ACP di GitHub Copilot CLI |
-| **Qoder CLI** | `qodercli --acp` | Modalità ACP di Qoder CLI; supporta l'isolamento della directory di configurazione tramite `QODER_CONFIG_DIR` |
+| **Qoder CLI** | `qoder --acp` | Modalità ACP di Qoder CLI; supporta l'isolamento della directory di configurazione tramite `QODER_CONFIG_DIR` |
 | **Cursor Agent ACP** | `cursor-agent-acp` | Adapter ACP Cursor Agent; supporta l'isolamento della directory di sessione tramite `--session-dir` |
 | **DeepAgents** | `deepagents-acp` | Adapter ACP DeepAgents |
 | **Auggie** | `auggie --acp` | Modalità ACP Auggie |
@@ -107,8 +108,8 @@ Sono stati testati solo OpenCode, Codex, Claude Code, Gemini CLI, Qwen Code e He
 
 ### Pulsanti azione
 
-| Pulsante | Funzione |
-|----------|----------|
+| Pulsante                     | Funzione                                                                                                 |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------- |
 | **Aggiorna opzioni runtime** | Rileva nuovamente l'elenco dei modelli, l'elenco delle modalità e altre funzionalità runtime del backend |
 
 ### Editor degli argomenti
@@ -131,20 +132,20 @@ I backend SkillRunner comunicano con i servizi Skill-Runner tramite API HTTP, su
 
 ### Descrizione dei campi
 
-| Campo | Obbligatorio | Descrizione |
-|-------|-------------|-------------|
-| **Nome visualizzato** | Sì | Nome visualizzato per il backend |
-| **URL di base** | Sì | Indirizzo del servizio Skill-Runner (es. `http://127.0.0.1:29813`) |
-| **Autenticazione** | No | Seleziona `none` (nessuna autenticazione) o `bearer` (autenticazione con Bearer Token) |
-| **Token di autenticazione** | No | Bearer Token (da compilare solo quando l'autenticazione è impostata su bearer) |
-| **Timeout** | No | Timeout della richiesta (millisecondi) |
+| Campo                       | Obbligatorio | Descrizione                                                                            |
+| --------------------------- | ------------ | -------------------------------------------------------------------------------------- |
+| **Nome visualizzato**       | Sì           | Nome visualizzato per il backend                                                       |
+| **URL di base**             | Sì           | Indirizzo del servizio Skill-Runner (es. `http://127.0.0.1:29813`)                     |
+| **Autenticazione**          | No           | Seleziona `none` (nessuna autenticazione) o `bearer` (autenticazione con Bearer Token) |
+| **Token di autenticazione** | No           | Bearer Token (da compilare solo quando l'autenticazione è impostata su bearer)         |
+| **Timeout**                 | No           | Timeout della richiesta (millisecondi)                                                 |
 
 ### Pulsanti azione
 
-| Pulsante | Funzione |
-|----------|----------|
+| Pulsante                         | Funzione                                                     |
+| -------------------------------- | ------------------------------------------------------------ |
 | **Apri interfaccia di gestione** | Apri l'interfaccia di gestione Web integrata di Skill-Runner |
-| **Aggiorna cache modelli** | Aggiorna la cache dell'elenco dei modelli per questo backend |
+| **Aggiorna cache modelli**       | Aggiorna la cache dell'elenco dei modelli per questo backend |
 
 ---
 
@@ -156,13 +157,13 @@ I backend Generic HTTP sono utilizzati per inviare richieste a qualsiasi servizi
 
 ### Descrizione dei campi
 
-| Campo | Obbligatorio | Descrizione |
-|-------|-------------|-------------|
-| **Nome visualizzato** | Sì | Nome visualizzato per il backend |
-| **URL di base** | Sì | Indirizzo di base del servizio HTTP |
-| **Autenticazione** | No | Seleziona `none` o `bearer` |
-| **Token di autenticazione** | No | Bearer Token (da compilare solo quando l'autenticazione è impostata su bearer) |
-| **Timeout** | No | Timeout della richiesta (millisecondi) |
+| Campo                       | Obbligatorio | Descrizione                                                                    |
+| --------------------------- | ------------ | ------------------------------------------------------------------------------ |
+| **Nome visualizzato**       | Sì           | Nome visualizzato per il backend                                               |
+| **URL di base**             | Sì           | Indirizzo di base del servizio HTTP                                            |
+| **Autenticazione**          | No           | Seleziona `none` o `bearer`                                                    |
+| **Token di autenticazione** | No           | Bearer Token (da compilare solo quando l'autenticazione è impostata su bearer) |
+| **Timeout**                 | No           | Timeout della richiesta (millisecondi)                                         |
 
 ## Rilevamento delle funzionalità del backend
 

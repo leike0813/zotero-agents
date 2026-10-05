@@ -10,6 +10,11 @@ import {
 import { createBackendManagerController } from "../../src/dashboard/backendManagerApp";
 import { createBackendManagerRenderer } from "../../src/dashboard/backendManagerRenderer";
 import type { BackendManagerSnapshot } from "../../src/dashboard/components/BackendManagerRegion";
+import {
+  createAcpBackendFromPresetOptions,
+  getAcpBackendIsolatedEnvironmentRoot,
+  listAcpBackendPresets,
+} from "../../src/modules/acp/chat/acpBackendPresets";
 
 function makeLabels(): Record<string, string> {
   return {
@@ -582,6 +587,87 @@ describe("dashboard backend-manager page (src/dashboard)", function () {
     );
     assert.equal(page.actions[page.actions.length - 1].action, "draft-changed");
   });
+
+  for (const { id, useNpx } of [
+    { id: "minimax-code", useNpx: true },
+    { id: "openhands", useNpx: false },
+  ]) {
+    it(`previews and confirms ${id} launch options without rewriting saved profiles`, function () {
+      const page = createPage();
+      const presets = listAcpBackendPresets();
+      const rows = makeSnapshot().rows;
+      rows[0] = {
+        ...rows[0],
+        internalId: "acp-gemini-cli",
+        command: "/custom/bin/gemini",
+        args: ["--experimental-acp"],
+        env: [{ key: "GEMINI_CLI_HOME", value: "/custom/gemini-home" }],
+      };
+      initPage(page, {
+        rows,
+        acpPresets: presets.map((preset) => ({
+          ...preset,
+          label: preset.displayName,
+        })),
+        acpPresetIsolationRoot: getAcpBackendIsolatedEnvironmentRoot(),
+      });
+      page.actions.length = 0;
+      clickButton(
+        page.root.querySelector(".backend-provider-actions .backend-button"),
+      );
+      const selector = page.root.querySelectorAll(
+        ".backend-preset-selector-item",
+      );
+      assert.equal(selector.length, 28);
+      clickButton(selector[presets.findIndex((preset) => preset.id === id)]);
+
+      if (useNpx) {
+        const npm = page.root.querySelector<HTMLInputElement>(
+          ".backend-preset-options input[type='checkbox']",
+        )!;
+        npm.checked = true;
+        fireChange(npm);
+      }
+      const isolation = page.root.querySelectorAll<HTMLInputElement>(
+        ".backend-preset-options input[type='checkbox']",
+      )[1];
+      isolation.checked = true;
+      fireChange(isolation);
+
+      const expected = createAcpBackendFromPresetOptions(id, {
+        useNpx,
+        isolated: true,
+      });
+      const panel = page.root.querySelector(".backend-preset-panel")!;
+      assert.equal(previewValue(panel, "Profile ID"), expected.id);
+      assert.equal(previewValue(panel, "Command"), expected.command);
+      assert.deepEqual(previewValue(panel, "Args").split(" "), expected.args);
+      const environment = Object.fromEntries(
+        previewValue(panel, "Env")
+          .split("\n")
+          .map((entry) => {
+            const separator = entry.indexOf("=");
+            return [entry.slice(0, separator), entry.slice(separator + 1)];
+          }),
+      );
+      assert.deepEqual(environment, expected.env);
+
+      clickButton(
+        panel.querySelector(
+          ".backend-preset-panel-footer .backend-button.primary",
+        ),
+      );
+      assert.equal(page.actions[0].action, "add-acp-preset");
+      assert.equal(page.actions[0].payload.presetId, id);
+      assert.equal(page.actions[0].payload.useNpx, useNpx);
+      assert.equal(page.actions[0].payload.isolated, true);
+      const preserved = (page.actions[0].payload.rows as typeof rows)[0];
+      assert.equal(preserved.internalId, rows[0].internalId);
+      assert.equal(preserved.command, rows[0].command);
+      assert.deepEqual(preserved.args, rows[0].args);
+      assert.deepEqual(preserved.env, rows[0].env);
+    });
+  }
 
   it("posts open-preset-link and add-generic-http-preset from the Generic HTTP dialog", function () {
     const page = createPage();

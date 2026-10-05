@@ -10,6 +10,7 @@ import {
   resolveAcpNpxLaunchSpec,
 } from "../../src/modules/acp/transport/acpNpxLaunchCache";
 import { createCancellationController } from "../../src/utils/wait";
+import { createAcpBackendFromPresetOptions } from "../../src/modules/acp/chat/acpBackendPresets";
 
 describe("ACP npx launch cache", function () {
   afterEach(function () {
@@ -47,6 +48,26 @@ describe("ACP npx launch cache", function () {
     );
     assert.isNull(
       resolveAcpNpxLaunchSpec({ command: "opencode", args: ["acp"] }),
+    );
+  });
+
+  it("identifies the explicit MiniMax package from a preset-generated launch", function () {
+    const backend = createAcpBackendFromPresetOptions("minimax-code", {
+      useNpx: true,
+    });
+    assert.deepEqual(backend.args, [
+      "-y",
+      "--package",
+      "@minimax-ai/code@latest",
+      "mcode",
+      "acp",
+    ]);
+    assert.deepEqual(
+      resolveAcpNpxLaunchSpec({
+        command: backend.command!,
+        args: backend.args!,
+      }),
+      { executable: "npx", packageSpec: "@minimax-ai/code@latest" },
     );
   });
 

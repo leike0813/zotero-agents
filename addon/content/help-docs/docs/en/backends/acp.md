@@ -35,6 +35,7 @@ If you're new to agent tools and unsure which one to choose or how to install, c
 ### Connection Verification
 
 After saving, the plugin automatically detects the backend's capabilities:
+
 - Checks if the command exists
 - Connects and initializes
 - Retrieves available models and modes
@@ -46,27 +47,43 @@ If detection fails, verify that the agent CLI is installed correctly and the com
 
 The plugin provides several built-in presets. After clicking **Add from Preset**, select an agent on the left; the right side shows launch options and a read-only configuration preview.
 
-When **Use npx** is enabled, the preset switches to the `npx <package>` launch form and the profile display name gains the `(npm)` suffix. When **Isolated environment** is enabled, the profile display name gains the `(Isolated)` suffix and the plugin injects the documented isolation environment variables or session-directory arguments for that backend.
+When **Use npx** is enabled, the preset switches to the `npx <package>` launch form and the profile display name gains the `(npm)` suffix. Codex, Claude Code, Factory Droid, Pi ACP, and Amp ACP default to npx; the other presets default to their installed command. When **Isolated environment** is enabled, the profile display name gains the `(Isolated)` suffix and the plugin injects the documented isolation environment variables or session-directory arguments for that backend.
+
+Disabling **Use npx** launches the preset's named executable, which must already be installed (for example `gemini`, `copilot`, `opencode`, or `kimi`). Presets without an npx option always use the installed CLI: Hermes, native Cursor (`agent`), Mistral Vibe, OpenHands, Goose, Junie, Kiro CLI, and Oh My Pi. Pi ACP and Amp ACP are adapters, so the underlying Pi and Amp agent CLIs must be installed and authenticated as well. Oh My Pi is Bun-based. Enabling npx requires Node.js and npm.
 
 <figure class="zs-doc-figure"><img src="chrome://zotero-skills/content/help-docs/assets/img/docs/backends/backend-manager_ACP-preset.webp" alt="ACP Preset Dialog" title="ACP Preset Dialog" loading="lazy" /><figcaption>ACP Preset Dialog</figcaption></figure>
 
+<!-- prettier-ignore -->
 | Preset | Default command | Description |
-|--------|-----------------|-------------|
+| --- | --- | --- |
 | **OpenCode** | `opencode acp` | OpenCode ACP backend; injects `OPENCODE_CONFIG_CONTENT` to deny permission questions and supports configuration-directory isolation through `OPENCODE_CONFIG_DIR` |
 | **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | Codex ACP adapter for OpenAI Codex |
 | **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | ACP adapter for Claude Code |
-| **Gemini CLI** | `gemini --experimental-acp` | Gemini CLI ACP mode |
+| **Gemini CLI** | `gemini --acp` | Gemini CLI ACP mode |
 | **Hermes** | `hermes acp` | Hermes Agent ACP backend |
-| **Qwen Code** | `qwen --acp --experimental-skills` | Qwen Code ACP mode |
-| **GitHub Copilot** | `copilot --acp --stdio` | GitHub Copilot CLI ACP mode |
-| **Qoder CLI** | `qodercli --acp` | Qoder CLI ACP mode; supports documented configuration-directory isolation through `QODER_CONFIG_DIR` |
+| **Qwen Code** | `qwen --acp` | Qwen Code ACP mode; supports configuration-directory isolation through `QWEN_HOME` |
+| **GitHub Copilot** | `copilot --acp --stdio` | GitHub Copilot CLI ACP mode; supports configuration-directory isolation through `COPILOT_HOME` |
+| **Qoder CLI** | `qoder --acp` | Qoder CLI ACP mode; supports documented configuration-directory isolation through `QODER_CONFIG_DIR` |
 | **Cursor Agent ACP** | `cursor-agent-acp` | Cursor Agent ACP adapter; supports documented session-directory isolation through `--session-dir` |
 | **DeepAgents** | `deepagents-acp` | DeepAgents ACP adapter |
 | **Auggie** | `auggie --acp` | Auggie ACP mode |
 | **Kilo** | `kilo acp` | Kilo Code ACP mode; injects `KILO_CONFIG_CONTENT` to deny permission questions, and core XDG path isolation has been observed for config, data/session/auth/log, and cache state |
-| **Cline** | `cline --acp` | Cline ACP mode |
-| **CodeBuddy** | `codebuddy --acp` | CodeBuddy ACP mode |
-| **Grok** | `grok agent stdio` | Grok agent stdio mode |
+| **Cline** | `cline --acp` | Cline ACP mode; supports configuration-directory isolation through `CLINE_DIR` |
+| **CodeBuddy** | `codebuddy --acp` | CodeBuddy ACP mode; supports configuration-directory isolation through `CODEBUDDY_CONFIG_DIR` |
+| **Grok** | `grok agent stdio` | Grok agent stdio mode; supports home/configuration isolation through `GROK_HOME` |
+| **Cursor** | `agent acp` | Native Cursor ACP entry, separate from the Cursor Agent ACP adapter; supports configuration-directory isolation through `CURSOR_CONFIG_DIR` |
+| **Kimi Code** | `kimi acp` | Kimi Code ACP mode; supports configuration-directory isolation through `KIMI_CODE_HOME` |
+| **MiniMax Code** | `mcode acp` | MiniMax Code ACP mode; enabling npx explicitly selects the `mcode` executable from `@minimax-ai/code`, and isolation uses `MINIMAX_DATA_DIR` |
+| **Mistral Vibe** | `vibe-acp` | Mistral Vibe ACP mode; supports home/configuration isolation through `VIBE_HOME` |
+| **OpenHands** | `openhands acp` | OpenHands ACP mode; isolation separates persistence and conversation storage through `OPENHANDS_PERSISTENCE_DIR` and `OPENHANDS_CONVERSATIONS_DIR` |
+| **DeepSeek Harness** | `dsh --profile acp` | DeepSeek Harness ACP mode; supports home/configuration isolation through `DSH_HOME` |
+| **Factory Droid** | `npx -y droid@latest exec --output-format acp-daemon` | Factory Droid ACP daemon mode; disables Droid auto-update through `DROID_DISABLE_AUTO_UPDATE` and `FACTORY_DROID_AUTO_UPDATE_ENABLED` |
+| **Goose** | `goose acp` | Goose ACP mode; supports path-root isolation through `GOOSE_PATH_ROOT` |
+| **Junie** | `junie --acp=true` | Junie ACP mode; supports home/configuration isolation through `JUNIE_HOME` |
+| **Kiro CLI** | `kiro-cli acp` | Kiro CLI ACP mode |
+| **Pi ACP** | `npx -y pi-acp@latest` | Pi ACP adapter; requires the Pi coding agent CLI, and supports configuration-directory isolation through `PI_CODING_AGENT_DIR` |
+| **Amp ACP** | `npx -y amp-acp@latest` | Amp ACP adapter; requires the Amp CLI, and isolation relocates adapter thread/session state only through `AMP_ACP_STATE_DIR` |
+| **Oh My Pi** | `omp acp` | Oh My Pi ACP mode; requires Bun and is offered only as an installed command |
 
 Only OpenCode, Codex, Claude Code, Gemini CLI, Qwen Code, and Hermes Agent have been tested. Availability of other ACP backends depends on their backend implementations, and this plugin makes no guarantee. If you encounter problems, adjust command arguments and environment variables yourself, using the ACP protocol and each backend's official documentation as authoritative references.
 
@@ -76,23 +93,23 @@ You can still manually modify any field after selecting a preset.
 
 Several engines offer **free model access** — ideal for getting started without any payment:
 
-| Engine | Free Option | How It Works |
-|--------|------------|--------------|
-| **Kilo Code** | Auto Free mode | Kilo Code's built-in Auto Free mode automatically routes each request to a suitable free model. Enable it in Kilo Code settings — no API key required |
-| **OpenCode Zen** | Built-in free models | The [OpenCode Zen](https://opencode.ai/zen) edition includes built-in free model access without requiring an API subscription |
+| Engine                    | Free Option            | How It Works                                                                                                                                                         |
+| ------------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Kilo Code**             | Auto Free mode         | Kilo Code's built-in Auto Free mode automatically routes each request to a suitable free model. Enable it in Kilo Code settings — no API key required                |
+| **OpenCode Zen**          | Built-in free models   | The [OpenCode Zen](https://opencode.ai/zen) edition includes built-in free model access without requiring an API subscription                                        |
 | **OpenCode + OpenRouter** | OpenRouter free models | Configure OpenCode to use [OpenRouter](https://openrouter.ai/) and select free-tier models (e.g., Gemini 2.5 Flash, DeepSeek V3). Requires a free OpenRouter account |
 
 ### Free Tier Limitations
 
 Free models are sufficient for casual use, but be aware of the following constraints:
 
-| Limitation | What to Expect |
-|------------|---------------|
-| **Rate Limiting** | Requests may be throttled — typically 5–20 requests per minute depending on provider load. Batch processing slows down significantly |
-| **Concurrency** | Usually limited to a single concurrent request. Running multiple workflows simultaneously may queue or fail |
-| **Model Availability** | Free model pools can be exhausted during peak hours. You may see "model unavailable" or "capacity exceeded" errors |
-| **Model Rotation** | Providers may silently swap free models (upgrade or downgrade) without notice. Output quality may vary between runs |
-| **No SLA / Reliability** | Free tiers offer no uptime guarantee. Services may be temporarily unavailable or discontinued |
+| Limitation               | What to Expect                                                                                                                       |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| **Rate Limiting**        | Requests may be throttled — typically 5–20 requests per minute depending on provider load. Batch processing slows down significantly |
+| **Concurrency**          | Usually limited to a single concurrent request. Running multiple workflows simultaneously may queue or fail                          |
+| **Model Availability**   | Free model pools can be exhausted during peak hours. You may see "model unavailable" or "capacity exceeded" errors                   |
+| **Model Rotation**       | Providers may silently swap free models (upgrade or downgrade) without notice. Output quality may vary between runs                  |
+| **No SLA / Reliability** | Free tiers offer no uptime guarantee. Services may be temporarily unavailable or discontinued                                        |
 
 > If you need reliable batch processing or production use, consider a paid plan such as [OpenCode Go](https://opencode.ai/go?ref=SZDFT9GZKW) ($10/month) or a Coding Plan (Bailian, Zhipu, etc.). The per-paper cost is negligible compared to the time saved.
 
@@ -100,22 +117,41 @@ Free models are sufficient for casual use, but be aware of the following constra
 
 Some agents support configuration isolation and session persistence through environment variables or command arguments. Presets with **Isolated environment** enabled inject the documented values automatically; for manual profiles, add the relevant values yourself:
 
+Isolation only relocates the declared filesystem roots. Amp ACP isolation covers adapter thread/session state only, while Amp configuration and credentials remain independently configured. Native Cursor isolation covers the Cursor configuration directory, separate from the `cursor-agent-acp` adapter's session directory. Copilot's own cache and Goose's keyring remain outside the injected paths.
+
 The OpenCode and Kilo presets also always inject an inline permission configuration: `OPENCODE_CONFIG_CONTENT` and `KILO_CONFIG_CONTENT`, respectively, both set to `{"permission":{"question":"deny"}}`. You can edit or remove these values after adding the preset.
 
+<!-- prettier-ignore -->
 | Setting | Agent | Purpose |
-|---------|-------|---------|
+| --- | --- | --- |
 | `OPENCODE_CONFIG_DIR` | OpenCode | Specify an independent configuration directory |
 | `CODEX_HOME` | Codex | Specify an independent home/configuration directory |
 | `CLAUDE_CONFIG_DIR` | Claude Code | Specify an independent configuration directory |
 | `GEMINI_CLI_HOME` | Gemini CLI | Specify an independent configuration directory |
 | `HERMES_HOME` | Hermes Agent | Specify an independent home/configuration directory |
 | `QODER_CONFIG_DIR` | Qoder CLI | Specify an independent configuration directory |
+| `QWEN_HOME` | Qwen Code | Specify an independent home/configuration directory |
+| `COPILOT_HOME` | GitHub Copilot | Specify an independent configuration directory; Copilot's own cache remains outside this path |
+| `CLINE_DIR` | Cline | Specify an independent configuration directory |
+| `CODEBUDDY_CONFIG_DIR` | CodeBuddy | Specify an independent configuration directory |
+| `GROK_HOME` | Grok | Specify an independent home/configuration directory |
+| `CURSOR_CONFIG_DIR` | Cursor (native ACP) | Specify an independent configuration directory |
+| `KIMI_CODE_HOME` | Kimi Code | Specify an independent home/configuration directory |
+| `MINIMAX_DATA_DIR` | MiniMax Code | Specify an independent data directory |
+| `VIBE_HOME` | Mistral Vibe | Specify an independent home/configuration directory |
+| `OPENHANDS_PERSISTENCE_DIR`, `OPENHANDS_CONVERSATIONS_DIR` | OpenHands | Specify an independent persistence root and its conversation storage (`<root>/conversations`) |
+| `DSH_HOME` | DeepSeek Harness | Specify an independent home/configuration directory |
+| `GOOSE_PATH_ROOT` | Goose | Specify an independent path root; the Goose keyring remains outside this path |
+| `JUNIE_HOME` | Junie | Specify an independent home/configuration directory |
+| `PI_CODING_AGENT_DIR` | Pi ACP | Specify an independent Pi coding agent configuration directory |
+| `AMP_ACP_STATE_DIR` | Amp ACP | Relocate adapter thread/session state only; Amp configuration and credentials remain independently configured |
 | `--session-dir <path>` | Cursor Agent ACP | Specify an independent session persistence directory |
 | `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME` | Kilo | Specify independent XDG roots for configuration, data/session/auth/log, and cache state. This covers the observed core state paths, but does not prove every Kilo subcommand or plugin avoids global directories. |
 
 ## Request Types
 
 The ACP backend supports two request types:
+
 - `acp.prompt.v1` — Conversational interaction (ACP Chat)
 - `acp.skill.run.v1` — Skill execution (ACP Skills)
 
@@ -130,6 +166,7 @@ The same ACP backend can be used for both conversations and skill runs simultane
 ## Next Steps
 
 After configuration is complete, you can:
+
 - Chat with the backend in [Sidebar ACP Chat](#doc/sidebar%2Facp-chat)
 - View ACP skill runs in the [Dashboard](#doc/dashboard)
 - Use the ACP backend to execute tasks in the [Workflow List](#doc/workflows%2Findex)

@@ -48,9 +48,9 @@ Click the **Remove** button within a configuration row to delete that backend. D
 
 ### Save & Cancel
 
-| Button | Location | Function |
-|--------|----------|----------|
-| **Save** | Bottom-right of the dialog | Save all changes and close the dialog |
+| Button     | Location                                  | Function                                         |
+| ---------- | ----------------------------------------- | ------------------------------------------------ |
+| **Save**   | Bottom-right of the dialog                | Save all changes and close the dialog            |
 | **Cancel** | Bottom-right of the dialog (next to Save) | Discard all unsaved changes and close the dialog |
 
 If there are unsaved changes before closing the dialog, a confirmation prompt will appear.
@@ -65,29 +65,30 @@ ACP backends are locally running agent subprocesses. The configuration specifies
 
 ### Field Descriptions
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| **Display Name** | Yes | Display name for the backend, used to identify it in the Dashboard and sidebar |
-| **Command** | Yes | Command to start the ACP backend (e.g., `npx -y opencode-ai@latest acp`) |
-| **Arguments** | No | Additional arguments for the command, added one by one through the arguments editor |
-| **Environment Variables** | No | Additional environment variables, added one by one through the environment variable editor (key-value pairs) |
+| Field                     | Required | Description                                                                                                  |
+| ------------------------- | -------- | ------------------------------------------------------------------------------------------------------------ |
+| **Display Name**          | Yes      | Display name for the backend, used to identify it in the Dashboard and sidebar                               |
+| **Command**               | Yes      | Command to start the ACP backend (e.g., `npx -y opencode-ai@latest acp`)                                     |
+| **Arguments**             | No       | Additional arguments for the command, added one by one through the arguments editor                          |
+| **Environment Variables** | No       | Additional environment variables, added one by one through the environment variable editor (key-value pairs) |
 
 ### ACP Presets
 
 There is an **Add from Preset** dropdown at the top of the ACP tab. After selecting a preset, the plugin automatically fills in the command and common parameters.
 
-Built-in presets:
+Examples of preset default commands; see [ACP presets](./acp.md) for the complete 28-preset catalog, installation requirements and isolation scope.
 
+<!-- prettier-ignore -->
 | Preset | Command |
-|--------|---------|
+| --- | --- |
 | **OpenCode** | `opencode acp` |
 | **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` |
 | **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` |
-| **Gemini CLI** | `gemini --experimental-acp` |
+| **Gemini CLI** | `gemini --acp` |
 | **Hermes** | `hermes acp` |
-| **Qwen Code** | `qwen --acp --experimental-skills` |
+| **Qwen Code** | `qwen --acp` |
 | **GitHub Copilot** | `copilot --acp --stdio` |
-| **Qoder CLI** | `qodercli --acp` |
+| **Qoder CLI** | `qoder --acp` |
 | **Cursor Agent ACP** | `cursor-agent-acp` |
 | **DeepAgents** | `deepagents-acp` |
 | **Auggie** | `auggie --acp` |
@@ -100,8 +101,8 @@ You can still manually modify any field after selecting a preset.
 
 ### Action Buttons
 
-| Button | Function |
-|--------|----------|
+| Button                      | Function                                                                      |
+| --------------------------- | ----------------------------------------------------------------------------- |
 | **Refresh Runtime Options** | Re-detect the backend's model list, mode list, and other runtime capabilities |
 
 ### Arguments Editor
@@ -124,20 +125,20 @@ SkillRunner backends communicate with Skill-Runner services via HTTP API, suppor
 
 ### Field Descriptions
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| **Display Name** | Yes | Display name for the backend |
-| **Base URL** | Yes | Address of the Skill-Runner service (e.g., `http://127.0.0.1:29813`) |
-| **Authentication** | No | Select `none` (no authentication) or `bearer` (Bearer Token authentication) |
-| **Auth Token** | No | Bearer Token (only fill in when authentication is set to bearer) |
-| **Timeout** | No | Request timeout (milliseconds) |
+| Field              | Required | Description                                                                 |
+| ------------------ | -------- | --------------------------------------------------------------------------- |
+| **Display Name**   | Yes      | Display name for the backend                                                |
+| **Base URL**       | Yes      | Address of the Skill-Runner service (e.g., `http://127.0.0.1:29813`)        |
+| **Authentication** | No       | Select `none` (no authentication) or `bearer` (Bearer Token authentication) |
+| **Auth Token**     | No       | Bearer Token (only fill in when authentication is set to bearer)            |
+| **Timeout**        | No       | Request timeout (milliseconds)                                              |
 
 ### Action Buttons
 
-| Button | Function |
-|--------|----------|
-| **Open Management UI** | Open the Skill-Runner built-in Web management interface |
-| **Refresh Model Cache** | Refresh the model list cache for this backend |
+| Button                  | Function                                                |
+| ----------------------- | ------------------------------------------------------- |
+| **Open Management UI**  | Open the Skill-Runner built-in Web management interface |
+| **Refresh Model Cache** | Refresh the model list cache for this backend           |
 
 ---
 
@@ -149,13 +150,13 @@ Generic HTTP backends are used to send requests to any HTTP service, primarily f
 
 ### Field Descriptions
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| **Display Name** | Yes | Display name for the backend |
-| **Base URL** | Yes | Base address of the HTTP service |
-| **Authentication** | No | Select `none` or `bearer` |
-| **Auth Token** | No | Bearer Token (only fill in when authentication is set to bearer) |
-| **Timeout** | No | Request timeout (milliseconds) |
+| Field              | Required | Description                                                      |
+| ------------------ | -------- | ---------------------------------------------------------------- |
+| **Display Name**   | Yes      | Display name for the backend                                     |
+| **Base URL**       | Yes      | Base address of the HTTP service                                 |
+| **Authentication** | No       | Select `none` or `bearer`                                        |
+| **Auth Token**     | No       | Bearer Token (only fill in when authentication is set to bearer) |
+| **Timeout**        | No       | Request timeout (milliseconds)                                   |
 
 ## Backend Capability Detection
 

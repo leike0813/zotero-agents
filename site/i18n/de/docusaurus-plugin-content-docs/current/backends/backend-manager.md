@@ -48,9 +48,9 @@ Klicken Sie auf die Schaltfläche **Entfernen** in einer Konfigurationszeile, um
 
 ### Speichern & Abbrechen
 
-| Schaltfläche | Position | Funktion |
-|--------|----------|----------|
-| **Speichern** | Unten rechts im Dialogfenster | Alle Änderungen speichern und das Dialogfenster schließen |
+| Schaltfläche  | Position                                        | Funktion                                                                      |
+| ------------- | ----------------------------------------------- | ----------------------------------------------------------------------------- |
+| **Speichern** | Unten rechts im Dialogfenster                   | Alle Änderungen speichern und das Dialogfenster schließen                     |
 | **Abbrechen** | Unten rechts im Dialogfenster (neben Speichern) | Alle nicht gespeicherten Änderungen verwerfen und das Dialogfenster schließen |
 
 Wenn vor dem Schließen des Dialogfensters ungespeicherte Änderungen vorhanden sind, erscheint eine Bestätigungsaufforderung.
@@ -65,36 +65,37 @@ ACP-Backends sind lokal ausgeführte Agent-Unterprozesse. Die Konfiguration gibt
 
 ### Feldbeschreibungen
 
-| Feld | Erforderlich | Beschreibung |
-|-------|----------|-------------|
-| **Anzeigename** | Ja | Anzeigename für das Backend, zur Identifizierung im Dashboard und in der Seitenleiste |
-| **Befehl** | Ja | Befehl zum Starten des ACP-Backends (z. B. `npx -y opencode-ai@latest acp`) |
-| **Argumente** | Nein | Zusätzliche Argumente für den Befehl, die über den Argument-Editor einzeln hinzugefügt werden |
-| **Umgebungsvariablen** | Nein | Zusätzliche Umgebungsvariablen, die über den Umgebungsvariablen-Editor einzeln hinzugefügt werden (Schlüssel-Wert-Paare) |
+| Feld                   | Erforderlich | Beschreibung                                                                                                             |
+| ---------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| **Anzeigename**        | Ja           | Anzeigename für das Backend, zur Identifizierung im Dashboard und in der Seitenleiste                                    |
+| **Befehl**             | Ja           | Befehl zum Starten des ACP-Backends (z. B. `npx -y opencode-ai@latest acp`)                                              |
+| **Argumente**          | Nein         | Zusätzliche Argumente für den Befehl, die über den Argument-Editor einzeln hinzugefügt werden                            |
+| **Umgebungsvariablen** | Nein         | Zusätzliche Umgebungsvariablen, die über den Umgebungsvariablen-Editor einzeln hinzugefügt werden (Schlüssel-Wert-Paare) |
 
 ### ACP-Voreinstellungen
 
 Oben auf der ACP-Registerkarte befindet sich eine Schaltfläche **Aus Preset hinzufügen**. Nach dem Klick öffnet sich ein Preset-Konfigurationsfenster: links wählst du den Agent, rechts werden Startoptionen und eine schreibgeschützte Konfigurationsvorschau angezeigt. Nach Klick auf **Bestätigen** fügt das Plugin eine normale ACP-Konfigurationszeile basierend auf der Vorschau hinzu; **Abbrechen** verwirft die Änderung.
 
-- **Mit npx starten**: Nach dem Aktivieren wird der Befehl in die Form `npx <package>` umgeschaltet und ein Hinweis auf die benötigte Installation von Node.js und npm sowie ein Link zur Node.js-Website angezeigt. Codex und Claude Code haben diese Option standardmäßig aktiviert, da sie auf den ACP-Adapter angewiesen sind; andere Agents standardmäßig nicht.
+- **Mit npx starten**: Nach dem Aktivieren wird der Befehl in die Form `npx <package>` umgeschaltet und ein Hinweis auf die benötigte Installation von Node.js und npm sowie ein Link zur Node.js-Website angezeigt. Codex, Claude Code, Factory Droid, Pi ACP und Amp ACP haben diese Option standardmäßig aktiviert, da ihr Standardbefehl aus einem npm-Paket stammt; andere Agents standardmäßig nicht.
 - **Isolierte Umgebung**: nur für Agents verfügbar, die Isolierung unterstützen. Nach dem Aktivieren werden die entsprechenden Umgebungsvariablen in die Vorschau eingefügt und ein Hinweis angezeigt, dass Agent-Optionen und Authentifizierung in diesem isolierten Verzeichnis selbst verwaltet werden müssen.
 
 ![ACP-Preset-Dialog](/img/docs/backends/backend-manager_ACP-preset.png)
 
 Der Vorschaubereich ist schreibgeschützt und enthält Profil-ID, Anzeigename, Befehl, Parameter, Umgebungsvariablen und Agent Family. Die hinzugefügte Konfigurationszeile kann weiterhin als normales ACP-Backend bearbeitet werden.
 
-Standardbefehle der integrierten Presets:
+Beispiele für die Standardbefehle der Presets; vollständiger Katalog der 28 Presets, Installationsanforderungen und Isolationsumfang siehe [ACP-Voreinstellungen](./acp.md).
 
+<!-- prettier-ignore -->
 | Voreinstellung | Standardbefehl | Beschreibung |
-|------|------|------|
+| --- | --- | --- |
 | **OpenCode** | `opencode acp` | OpenCode-ACP-Backend; unterstützt isoliertes Konfigurationsverzeichnis über `OPENCODE_CONFIG_DIR` |
 | **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | ACP-Adapter für OpenAI Codex |
 | **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | ACP-Adapter für Claude Code |
-| **Gemini CLI** | `gemini --experimental-acp` | Gemini-CLI-ACP-Modus |
+| **Gemini CLI** | `gemini --acp` | Gemini-CLI-ACP-Modus |
 | **Hermes** | `hermes acp` | Hermes-Agent-ACP-Backend |
-| **Qwen Code** | `qwen --acp --experimental-skills` | Qwen-Code-ACP-Modus |
+| **Qwen Code** | `qwen --acp` | Qwen-Code-ACP-Modus |
 | **GitHub Copilot** | `copilot --acp --stdio` | GitHub-Copilot-CLI-ACP-Modus |
-| **Qoder CLI** | `qodercli --acp` | Qoder-CLI-ACP-Modus; unterstützt isoliertes Konfigurationsverzeichnis über `QODER_CONFIG_DIR` |
+| **Qoder CLI** | `qoder --acp` | Qoder-CLI-ACP-Modus; unterstützt isoliertes Konfigurationsverzeichnis über `QODER_CONFIG_DIR` |
 | **Cursor Agent ACP** | `cursor-agent-acp` | Cursor-Agent-ACP-Adapter; unterstützt isoliertes Session-Verzeichnis über `--session-dir` |
 | **DeepAgents** | `deepagents-acp` | DeepAgents-ACP-Adapter |
 | **Auggie** | `auggie --acp` | Auggie-ACP-Modus |
@@ -107,8 +108,8 @@ Nur OpenCode, Codex, Claude Code, Gemini CLI, Qwen Code und Hermes Agent wurden 
 
 ### Aktionsschaltflächen
 
-| Schaltfläche | Funktion |
-|--------|----------|
+| Schaltfläche                       | Funktion                                                                                     |
+| ---------------------------------- | -------------------------------------------------------------------------------------------- |
 | **Laufzeitoptionen aktualisieren** | Erneutes Erkennen der Modellliste, Modusliste und sonstigen Laufzeitfähigkeiten des Backends |
 
 ### Argument-Editor
@@ -131,20 +132,20 @@ SkillRunner-Backends kommunizieren über die HTTP-API mit Skill-Runner-Diensten 
 
 ### Feldbeschreibungen
 
-| Feld | Erforderlich | Beschreibung |
-|-------|----------|-------------|
-| **Anzeigename** | Ja | Anzeigename für das Backend |
-| **Basis-URL** | Ja | Adresse des Skill-Runner-Dienstes (z. B. `http://127.0.0.1:29813`) |
-| **Authentifizierung** | Nein | Wählen Sie `none` (keine Authentifizierung) oder `bearer` (Bearer-Token-Authentifizierung) |
-| **Auth-Token** | Nein | Bearer-Token (nur ausfüllen, wenn Authentifizierung auf Bearer gesetzt ist) |
-| **Zeitlimit** | Nein | Anfragetimeout (Millisekunden) |
+| Feld                  | Erforderlich | Beschreibung                                                                               |
+| --------------------- | ------------ | ------------------------------------------------------------------------------------------ |
+| **Anzeigename**       | Ja           | Anzeigename für das Backend                                                                |
+| **Basis-URL**         | Ja           | Adresse des Skill-Runner-Dienstes (z. B. `http://127.0.0.1:29813`)                         |
+| **Authentifizierung** | Nein         | Wählen Sie `none` (keine Authentifizierung) oder `bearer` (Bearer-Token-Authentifizierung) |
+| **Auth-Token**        | Nein         | Bearer-Token (nur ausfüllen, wenn Authentifizierung auf Bearer gesetzt ist)                |
+| **Zeitlimit**         | Nein         | Anfragetimeout (Millisekunden)                                                             |
 
 ### Aktionsschaltflächen
 
-| Schaltfläche | Funktion |
-|--------|----------|
+| Schaltfläche                     | Funktion                                                           |
+| -------------------------------- | ------------------------------------------------------------------ |
 | **Verwaltungsoberfläche öffnen** | Die integrierte Web-Verwaltungsoberfläche des Skill-Runners öffnen |
-| **Modell-Cache aktualisieren** | Den Modelllisten-Cache für dieses Backend aktualisieren |
+| **Modell-Cache aktualisieren**   | Den Modelllisten-Cache für dieses Backend aktualisieren            |
 
 ---
 
@@ -156,13 +157,13 @@ Generische HTTP-Backends werden verwendet, um Anfragen an beliebige HTTP-Dienste
 
 ### Feldbeschreibungen
 
-| Feld | Erforderlich | Beschreibung |
-|-------|----------|-------------|
-| **Anzeigename** | Ja | Anzeigename für das Backend |
-| **Basis-URL** | Ja | Basisadresse des HTTP-Dienstes |
-| **Authentifizierung** | Nein | Wählen Sie `none` oder `bearer` |
-| **Auth-Token** | Nein | Bearer-Token (nur ausfüllen, wenn Authentifizierung auf Bearer gesetzt ist) |
-| **Zeitlimit** | Nein | Anfragetimeout (Millisekunden) |
+| Feld                  | Erforderlich | Beschreibung                                                                |
+| --------------------- | ------------ | --------------------------------------------------------------------------- |
+| **Anzeigename**       | Ja           | Anzeigename für das Backend                                                 |
+| **Basis-URL**         | Ja           | Basisadresse des HTTP-Dienstes                                              |
+| **Authentifizierung** | Nein         | Wählen Sie `none` oder `bearer`                                             |
+| **Auth-Token**        | Nein         | Bearer-Token (nur ausfüllen, wenn Authentifizierung auf Bearer gesetzt ist) |
+| **Zeitlimit**         | Nein         | Anfragetimeout (Millisekunden)                                              |
 
 ## Backend-Fähigkeitserkennung
 
