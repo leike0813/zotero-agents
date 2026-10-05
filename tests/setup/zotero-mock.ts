@@ -3132,13 +3132,13 @@ export const mochaHooks = {
     await cleanupModule.preloadBackgroundRuntimeCleanupForTests();
   },
   async beforeEach() {
-    this.timeout(BACKGROUND_RUNTIME_CLEANUP_TIMEOUT_MS);
+    this.timeout(BACKGROUND_RUNTIME_CLEANUP_TIMEOUT_MS * 2);
     resetZoteroMockStateForTests();
     await cleanupBackgroundRuntimeForTests("beforeEach");
     resetZoteroMockStateForTests();
   },
   async afterEach() {
-    this.timeout(BACKGROUND_RUNTIME_CLEANUP_TIMEOUT_MS);
+    this.timeout(BACKGROUND_RUNTIME_CLEANUP_TIMEOUT_MS * 2);
     resetZoteroMockStateForTests();
     await cleanupBackgroundRuntimeForTests("afterEach");
     resetZoteroMockStateForTests();

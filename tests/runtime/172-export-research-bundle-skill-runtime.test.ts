@@ -93,6 +93,15 @@ const topicInventoryMode = ${JSON.stringify(options.topicInventory || "ok")};
 const topicContextMode = ${JSON.stringify(options.topicContext || "ok")};
 const topicContextByTopic = ${JSON.stringify(options.topicContextByTopic || {})};
 const libraryMode = ${JSON.stringify(options.libraryMode || "normal")};
+function itemSummary(key, title, creator, year) {
+  return {
+    ref: { libraryId: 1, key }, kind: "regular", itemType: "journalArticle",
+    title, parentRef: null, state: "active", revision: "fixture-1",
+    tags: [], collectionRefs: [],
+    creators: [{ representation: "single_field", creatorType: "author", name: creator }],
+    date: year, year, publicationTitle: "",
+  };
+}
 fs.appendFileSync(path.resolve("bridge-calls.jsonl"), JSON.stringify({ command, input }) + "\n");
 let data = {};
 if (command === "synthesis topic list") {
@@ -103,7 +112,7 @@ if (command === "synthesis topic list") {
     : { topics: [{ topic_id: "topic-b", title: "Unrelated", definition: "Other research" }], nextCursor: "", hasMore: false, returned: 1, total: 2, limit: Number(input.limit || 25) };
 }
 else if (command === "library items list") {
-  const query = String(input.query || "");
+  const filter = String(input.filter || "");
   const cursor = String(input.cursor || "");
   let items = [];
   let nextCursor = "";
@@ -112,18 +121,18 @@ else if (command === "library items list") {
     items = [{ title: "Missing canonical identity" }];
   }
   else if (libraryMode === "fallback") {
-    if (query === "citation graph") items = [{ key: "AAAA1111", libraryId: 1, title: "Graph-grounded synthesis", creators: ["A"], year: "2024" }];
-    if (query === "selection methods") items = [{ key: "BBBB2222", libraryId: 1, title: "Evidence selection", creators: ["B"], year: "2023" }];
+    if (filter === "citation graph") items = [itemSummary("AAAA1111", "Graph-grounded synthesis", "A", "2024")];
+    if (filter === "selection methods") items = [itemSummary("BBBB2222", "Evidence selection", "B", "2023")];
   }
   else if (libraryMode === "normal" || libraryMode === "truncated") {
-    if (query.includes("graph")) {
+    if (filter.includes("graph")) {
       if (!cursor) {
-        items = [{ key: "AAAA1111", libraryId: 1, title: "Graph-grounded synthesis", creators: ["A"], year: "2024" }];
+        items = [itemSummary("AAAA1111", "Graph-grounded synthesis", "A", "2024")];
         nextCursor = "graph-page-2";
         hasMore = true;
       }
       else if (cursor === "graph-page-2") {
-        items = [{ key: "BBBB2222", libraryId: 1, title: "Evidence selection", creators: ["B"], year: "2023" }];
+        items = [itemSummary("BBBB2222", "Evidence selection", "B", "2023")];
         if (libraryMode === "truncated") {
           nextCursor = "graph-page-3";
           hasMore = true;
@@ -131,10 +140,10 @@ else if (command === "library items list") {
       }
     }
     else {
-      items = [{ key: "BBBB2222", libraryId: 1, title: "Evidence selection", creators: ["B"], year: "2023" }];
+      items = [itemSummary("BBBB2222", "Evidence selection", "B", "2023")];
     }
   }
-  data = { items, nextCursor, hasMore, returned: items.length, total: items.length + (hasMore ? 1 : 0), limit: Number(input.limit || 50) };
+  data = { items, nextCursor: nextCursor || null, hasMore, returned: items.length, total: items.length + (hasMore ? 1 : 0), totalScanned: items.length, limit: Number(input.limit || 50), criteria: { libraryId: 1, collectionRef: null, tag: null, itemType: null, filter: filter || null, order: "stable_identity" } };
 }
 else if (command === "synthesis topic get-context") {
   const contextMode = topicContextByTopic[input.topicId] || topicContextMode;
@@ -187,13 +196,13 @@ else if (command === "synthesis artifact export-filtered") {
 else if (command === "library item get") {
   const key = input.key;
   const libraryId = Number(input.libraryId);
-  data = { key, libraryId, title: "Detail " + key, fields: { abstractNote: "Graph evidence abstract" } };
+  data = { ...itemSummary(key, "Detail " + key, "A", "2024"), ref: { key, libraryId }, fields: { abstractNote: "Graph evidence abstract" }, relatedRefs: [], childCounts: { notes: 0, attachments: 0, annotations: 0 }, createdAt: "2024-01-01T00:00:00Z", modifiedAt: "2024-01-01T00:00:00Z" };
 }
 else if (command === "synthesis graph get-metrics") {
   const metrics = (input.paperRefs || []).map((paper_ref, index) => ({ paper_ref, foundation_score: 0.9 - index * 0.1, frontier_score: 0.7, pagerank_norm: 0.6, in_degree_norm: 0.5 }));
   data = { ok: true, status: "ready", graph_hash: "sha256:graph", metrics_hash: "sha256:metrics", metrics, nextCursor: "", hasMore: false, returned: metrics.length, total: metrics.length, limit: Number(input.limit || 25), diagnostics: { stale: false, warnings: [] } };
 }
-else if (command === "library readiness audit") data = { items: [{ key: input.query, libraryId: Number(input.libraryId), readiness: input.query === "BBBB2222" ? { markdown: "missing", pdf: "present", analysis: "present" } : { markdown: "present", pdf: "present", analysis: "present" }, evidence: {} }], nextCursor: "", hasMore: false, returned: 1, total: 1, limit: Number(input.limit || 25) };
+else if (command === "library readiness audit") data = { items: [{ key: input.filter, libraryId: Number(input.libraryId), readiness: input.filter === "BBBB2222" ? { markdown: "missing", pdf: "present", analysis: "present" } : { markdown: "present", pdf: "present", analysis: "present" }, evidence: {} }], nextCursor: "", hasMore: false, returned: 1, total: 1, limit: Number(input.limit || 25) };
 else { console.error("unsupported fake command: " + command); process.exit(2); }
 console.log(JSON.stringify(data));
 `;
@@ -415,6 +424,15 @@ describe("export research bundle skill runtime", function () {
       "topic_coverage",
       "material_readiness",
     ]);
+    assert.deepEqual(
+      Object.fromEntries(
+        selection.papers.map((row: any) => [
+          row.paper_ref,
+          row.selection_components.material_readiness,
+        ]),
+      ),
+      { "1:AAAA1111": 1, "1:BBBB2222": 0.8 },
+    );
     const bridgeCalls = (
       await fs.readFile(path.join(runRoot, "bridge-calls.jsonl"), "utf8")
     )
@@ -439,17 +457,18 @@ describe("export research bundle skill runtime", function () {
       "synthesis graph query-cluster",
     );
     for (const call of searchCalls) {
-      assert.isString(call.input.query);
+      assert.isString(call.input.filter);
+      assert.notProperty(call.input, "query");
       assert.notProperty(call.input, "text");
     }
     assert.deepEqual(
       searchCalls
-        .filter((call) => call.input.query === "graph evidence")
+        .filter((call) => call.input.filter === "graph evidence")
         .map((call) => call.input.cursor || ""),
       ["", "graph-page-2"],
     );
     assert.notInclude(
-      searchCalls.map((call) => call.input.query),
+      searchCalls.map((call) => call.input.filter),
       "citation graph",
     );
     const itemGetCalls = bridgeCalls.filter(
@@ -736,7 +755,7 @@ describe("export research bundle skill runtime", function () {
       .map((line) => JSON.parse(line))
       .filter((call) => call.command === "library items list");
     assert.deepEqual(
-      calls.map((call) => call.input.query),
+      calls.map((call) => call.input.filter),
       [
         "graph evidence",
         "citation graph",

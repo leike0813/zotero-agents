@@ -30,7 +30,7 @@ The catalog SHALL bind to an explicitly supplied complete Zotero capability brok
 - **WHEN** the complete read dependencies and a lazy Synthesis client resolver are supplied
 - **THEN** the frozen read catalog contains eighteen unique read tools
 
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: Native search tools project canonical bounded lexical reads
 

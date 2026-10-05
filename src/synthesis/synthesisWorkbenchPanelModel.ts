@@ -685,6 +685,7 @@ export function projectSynthesisWorkbenchPanel(
   if (!snapshot) return null;
   const t = createSynthesisWorkbenchText(context.i18n);
   const hosted = context.hostShape === "hosted";
+  const cachedSnapshot = context.surfaceRuntime?.snapshot;
   return {
     hostShape: context.hostShape,
     selectedTab: snapshot.selectedTab,
@@ -692,13 +693,13 @@ export function projectSynthesisWorkbenchPanel(
     business:
       context.retainedBusiness ||
       (context.visibleSurface !== "graph" &&
+      !cachedSnapshot &&
       (context.surfaceRuntime?.status === "loading" ||
-        (context.surfaceRuntime?.status === "failed" &&
-          !context.surfaceRuntime.snapshot))
+        context.surfaceRuntime?.status === "failed")
         ? undefined
         : projectBusinessSurface(
-            context.surfaceRuntime?.status === "failed"
-              ? context.surfaceRuntime.snapshot || snapshot
+            cachedSnapshot
+              ? { ...cachedSnapshot, actions: snapshot.actions }
               : snapshot,
             context,
             t,

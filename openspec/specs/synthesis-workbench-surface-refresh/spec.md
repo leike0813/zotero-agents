@@ -1,10 +1,12 @@
 # synthesis-workbench-surface-refresh Specification
 
 ## Purpose
-Defines independent Workbench shell, chrome and surface refreshes, bounded warmup and request coalescing, stale-response rejection, and preservation of visible data and interaction state.
-## Requirements
-### Requirement: Workbench loads Shell, Chrome, and Surfaces independently
 
+Defines independent Workbench shell, chrome and surface refreshes, bounded warmup and request coalescing, stale-response rejection, and preservation of visible data and interaction state.
+
+## Requirements
+
+### Requirement: Workbench loads Shell, Chrome, and Surfaces independently
 
 Synthesis Workbench SHALL separate shell structure, chrome status, and named surface read models.
 
@@ -23,37 +25,66 @@ Synthesis Workbench SHALL separate shell structure, chrome status, and named sur
 - **THEN** the Workbench SHALL mark Home, Topic Graph, and Review surfaces dirty
 - **AND** it SHALL immediately reload the active surface when that surface is
   one of the invalidated surfaces.
+
 ### Requirement: Surface refresh is scoped to one area
 
 Workbench surface updates SHALL refresh only the requested surface container.
 
 #### Scenario: Index surface updates
+
 - **WHEN** the host sends an `index` surface update
 - **THEN** the frontend SHALL update content within the existing Index surface container while preserving that container's identity
 - **AND** it SHALL NOT rebuild Graph, Tags, Concepts, Review, or the shell.
 
 #### Scenario: Chrome updates
+
 - **WHEN** operation progress changes
 - **THEN** the host SHALL send chrome state only
 - **AND** content surfaces SHALL NOT be refreshed.
+
+### Requirement: Accepted surface data SHALL remain isolated
+
+The host SHALL retain at most one accepted input per surface, bound to its
+library and native query. The page SHALL use the selected surface's accepted
+snapshot for business content and current chrome for operation state.
+
+#### Scenario: Review round trip returns to a clean surface
+
+- **WHEN** Index, Concepts or Topics has loaded successfully
+- **AND** Review loads a narrower projection under overlapping DTO keys
+- **AND** the user returns to the original surface with the same library and query
+- **THEN** its original content SHALL remain visible before the host responds
+- **AND** the host SHALL reuse that surface's input without another service read
+- **AND** current pending and completed operations SHALL remain current
+
+#### Scenario: Cached surface is dirty or its query changes
+
+- **WHEN** a cached surface is invalidated or its native query changes
+- **THEN** the host SHALL reload only that surface
+- **AND** cache data from another library or query SHALL NOT count as loaded
+
 ### Requirement: Workbench warmup is phased and non-blocking
 
 Synthesis Workbench warmup SHALL run in bounded phases that yield to Zotero's event loop.
 
 #### Scenario: Startup warmup runs
+
 - **WHEN** Synthesis warmup starts after plugin startup
 - **THEN** it SHALL load chrome and surface caches in phases
 - **AND** it SHALL yield between phases using plugin-safe timer-based yielding.
 
 #### Scenario: Visible surface is not warm
+
 - **WHEN** a user opens a surface before warmup has loaded it
 - **THEN** the UI SHALL show a preparing state
 - **AND** the host SHALL prioritize loading that surface without running a full snapshot.
+
 ### Requirement: Full snapshot is debug-only
 
 Full Workbench snapshot construction SHALL NOT be an active UI hot path.
 
 #### Scenario: Active Workbench host code handles UI actions
+
 - **WHEN** `ready`, `selectTab`, `setFilters`, progress polling, or local review actions are handled
 - **THEN** the code SHALL NOT call the debug full snapshot API
 - **AND** it SHALL NOT request `refreshFromService: true` as a shorthand for full UI refresh.

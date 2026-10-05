@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import Ajv2020 from "ajv/dist/2020";
 import { describe, it } from "mocha";
 import {
   rebuildSynthesisEvidenceSearchRequest,
@@ -216,10 +217,17 @@ describe("Synthesis evidence search projection", function () {
     );
     assert.ok(searchTool);
     assert.equal((searchTool!.inputSchema as { type?: string }).type, "object");
-    assert.ok(
-      (searchTool!.inputSchema as { $defs?: Record<string, unknown> }).$defs
-        ?.EvidenceSearchRequest,
+    const validate = new Ajv2020({ strict: false }).compile(
+      searchTool!.inputSchema as object,
     );
+    assert.equal(validate(request), true);
+    for (const invalid of [
+      {},
+      { ...request, limit: 0 },
+      { ...request, limit: 101 },
+    ]) {
+      assert.equal(validate(invalid), false);
+    }
     assert.deepEqual(mcpResult.result.structuredContent.data, result);
     assert.deepEqual(calls, [request, request]);
   });

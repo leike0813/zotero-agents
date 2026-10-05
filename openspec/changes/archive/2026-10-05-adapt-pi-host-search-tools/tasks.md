@@ -15,9 +15,7 @@
 - [x] 3.1 在 `zoteroNativeToolCatalog.ts` 新增 `library.search_items` → `zotero_library_search_items` → `broker.library.searchItems`，声明 `bounded-read`；文献搜索与既有映射用例按 red-green 通过。
 - [x] 3.2 目录新增可选的惰性 Synthesis Client resolver，并注册 `synthesis.search_evidence` → `zotero_synthesis_search_evidence` → `client.searchEvidence` 与 `topics.search` → `zotero_topics_search` → `client.topics.search`；验证无 resolver 时两工具缺失、冻结不启动 sidecar，有 resolver 时冻结 18 个只读工具。
 - [x] 3.3 在 `piConversation.ts` 与 `piSkillRun.ts` 装配处注入现有 `getDefaultSynthesisClient` 作为 resolver；验证两条路径冻结目录均包含新增三工具并记录 capability ID 与工具名。
-- [ ] 3.4 扩展 250 目录测试的只读计数（15→16，注入 resolver 后 18）与三个映射断言；运行 `npm run test:node:runtime` 通过。
-
-  目录测试 38 项通过，Runtime 中四个分片通过，包括全部 Pi 执行与装配测试；`runtime-provider-products` 的 `export-research-bundle` 旧测试有 10 项失败，因此全域通过条件保持未完成。详见 [verification.md](./verification.md)。
+- [x] 3.4 扩展 250 目录测试的只读计数（15→16，注入 resolver 后 18）与三个映射断言；运行 `npm run test:node:runtime` 通过。
 
 ## 4. 错误映射与结果边界
 

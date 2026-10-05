@@ -835,11 +835,34 @@ impl ReferenceApplication {
         } else {
             self.collect_host_items_bounded(100)?
         };
-        let mut rows = self.project_reference_index_rows(items, None)?;
-        if scope == "referenced" {
+        let items = if scope == "referenced" {
+            let mut rows = self.project_reference_index_rows(items, None)?;
             rows.retain(|row| row.reference_count > 0);
             rows.truncate(100);
-        }
+            rows.into_iter().map(|row| row.item).collect()
+        } else {
+            items
+        };
+        let paper_refs = items
+            .iter()
+            .map(|item| item.paper_ref.clone())
+            .collect::<Vec<_>>();
+        let host_artifacts = if paper_refs.is_empty() {
+            Vec::new()
+        } else {
+            let readiness = self.host.artifact_readiness(
+                &paper_refs,
+                &[
+                    "digest",
+                    "references",
+                    "citation_analysis",
+                    "literature_score",
+                ],
+            )?;
+            validate_artifact_readiness(&readiness.artifacts, &paper_refs)?;
+            readiness.artifacts
+        };
+        let rows = self.project_reference_index_rows(items, Some(&host_artifacts))?;
         let rows = rows
             .iter()
             .map(|row| {
@@ -3660,6 +3683,29 @@ fn host_artifact_is_available(artifact: &ReferenceHostArtifact) -> bool {
             || literature_rating_score(artifact).is_some())
 }
 
+fn validate_artifact_readiness(
+    artifacts: &[ReferenceHostArtifact],
+    paper_refs: &[String],
+) -> Result<(), String> {
+    let paper_refs = paper_refs
+        .iter()
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
+    let mut seen = HashSet::new();
+    for artifact in artifacts {
+        if !paper_refs.contains(artifact.paper_ref.as_str())
+            || !matches!(
+                artifact.artifact_type.as_str(),
+                "digest" | "references" | "citation_analysis" | "literature_score"
+            )
+            || !seen.insert((artifact.paper_ref.as_str(), artifact.artifact_type.as_str()))
+        {
+            return Err("reverse_host_result_invalid".into());
+        }
+    }
+    Ok(())
+}
+
 fn complete_artifact_manifest(
     items: &[ReferenceHostItem],
     artifacts: &[ReferenceHostArtifact],
@@ -4252,6 +4298,9 @@ mod tests {
         read_completion: Arc<(Mutex<ReadCompletionState>, Condvar)>,
         include_second: Arc<AtomicBool>,
         large_estimates: Arc<AtomicBool>,
+        empty_items: Arc<AtomicBool>,
+        references_for_second: Arc<AtomicBool>,
+        readiness_requests: Arc<Mutex<Vec<Vec<String>>>>,
     }
 
     #[derive(Default)]
@@ -4280,6 +4329,9 @@ mod tests {
                 )),
                 include_second: Arc::new(AtomicBool::new(true)),
                 large_estimates: Arc::new(AtomicBool::new(false)),
+                empty_items: Arc::new(AtomicBool::new(false)),
+                references_for_second: Arc::new(AtomicBool::new(true)),
+                readiness_requests: Arc::new(Mutex::new(Vec::new())),
             }
         }
 
@@ -4316,6 +4368,17 @@ mod tests {
             self.item_calls.fetch_add(1, Ordering::Relaxed);
             if self.fail_items.load(Ordering::Relaxed) {
                 return Err("reverse_host_unavailable".into());
+            }
+            if self.empty_items.load(Ordering::Relaxed) {
+                return Ok(ReferenceHostItemsPage {
+                    items: Vec::new(),
+                    cursor: cursor.into(),
+                    next_cursor: String::new(),
+                    snapshot_revision: "revision:1".into(),
+                    has_more: false,
+                    returned: 0,
+                    limit,
+                });
             }
             match cursor {
                 "" => {
@@ -4383,68 +4446,74 @@ mod tests {
             if !cursor.is_empty() {
                 return Err("reverse_host_result_invalid".into());
             }
+            let mut artifacts = vec![
+                ReferenceHostArtifact {
+                    paper_ref: "1:AAAA1111".into(),
+                    artifact_type: "references".into(),
+                    payload_type: "application/json".into(),
+                    status: "available".into(),
+                    locator: "reference:a".into(),
+                    payload_hash: "sha256:reference-a".into(),
+                    estimated_size: Some(if self.large_estimates.load(Ordering::Relaxed) {
+                        REFERENCE_REFRESH_ESTIMATED_BATCH_BYTES / 2 + 1
+                    } else {
+                        100
+                    }),
+                    diagnostics: Vec::new(),
+                    literature_quality: None,
+                },
+                ReferenceHostArtifact {
+                    paper_ref: "1:BBBB2222".into(),
+                    artifact_type: "references".into(),
+                    payload_type: "application/json".into(),
+                    status: "available".into(),
+                    locator: "reference:b".into(),
+                    payload_hash: "sha256:reference-b".into(),
+                    estimated_size: Some(if self.large_estimates.load(Ordering::Relaxed) {
+                        REFERENCE_REFRESH_ESTIMATED_BATCH_BYTES / 2 + 1
+                    } else {
+                        100
+                    }),
+                    diagnostics: Vec::new(),
+                    literature_quality: None,
+                },
+                ReferenceHostArtifact {
+                    paper_ref: "1:AAAA1111".into(),
+                    artifact_type: "digest".into(),
+                    payload_type: "text/markdown".into(),
+                    status: "missing".into(),
+                    locator: String::new(),
+                    payload_hash: String::new(),
+                    estimated_size: None,
+                    diagnostics: Vec::new(),
+                    literature_quality: None,
+                },
+                ReferenceHostArtifact {
+                    paper_ref: "1:AAAA1111".into(),
+                    artifact_type: "literature_score".into(),
+                    payload_type: "application/json".into(),
+                    status: "available".into(),
+                    locator: "literature-score:a".into(),
+                    payload_hash: "sha256:literature-score-a".into(),
+                    estimated_size: Some(100),
+                    diagnostics: Vec::new(),
+                    literature_quality: Some(json!({
+                        "status":"available",
+                        "schema":"literature_score.v1",
+                        "overall_score":68.0,
+                        "confidence":0.8,
+                        "confidence_adjusted_score":64.4,
+                        "quality_prior":0.644,
+                    })),
+                },
+            ];
+            if !self.references_for_second.load(Ordering::Relaxed) {
+                artifacts.retain(|artifact| {
+                    !(artifact.paper_ref == "1:BBBB2222" && artifact.artifact_type == "references")
+                });
+            }
             Ok(ReferenceHostArtifactsPage {
-                artifacts: vec![
-                    ReferenceHostArtifact {
-                        paper_ref: "1:AAAA1111".into(),
-                        artifact_type: "references".into(),
-                        payload_type: "application/json".into(),
-                        status: "available".into(),
-                        locator: "reference:a".into(),
-                        payload_hash: "sha256:reference-a".into(),
-                        estimated_size: Some(if self.large_estimates.load(Ordering::Relaxed) {
-                            REFERENCE_REFRESH_ESTIMATED_BATCH_BYTES / 2 + 1
-                        } else {
-                            100
-                        }),
-                        diagnostics: Vec::new(),
-                        literature_quality: None,
-                    },
-                    ReferenceHostArtifact {
-                        paper_ref: "1:BBBB2222".into(),
-                        artifact_type: "references".into(),
-                        payload_type: "application/json".into(),
-                        status: "available".into(),
-                        locator: "reference:b".into(),
-                        payload_hash: "sha256:reference-b".into(),
-                        estimated_size: Some(if self.large_estimates.load(Ordering::Relaxed) {
-                            REFERENCE_REFRESH_ESTIMATED_BATCH_BYTES / 2 + 1
-                        } else {
-                            100
-                        }),
-                        diagnostics: Vec::new(),
-                        literature_quality: None,
-                    },
-                    ReferenceHostArtifact {
-                        paper_ref: "1:AAAA1111".into(),
-                        artifact_type: "digest".into(),
-                        payload_type: "text/markdown".into(),
-                        status: "missing".into(),
-                        locator: String::new(),
-                        payload_hash: String::new(),
-                        estimated_size: None,
-                        diagnostics: Vec::new(),
-                        literature_quality: None,
-                    },
-                    ReferenceHostArtifact {
-                        paper_ref: "1:AAAA1111".into(),
-                        artifact_type: "literature_score".into(),
-                        payload_type: "application/json".into(),
-                        status: "available".into(),
-                        locator: "literature-score:a".into(),
-                        payload_hash: "sha256:literature-score-a".into(),
-                        estimated_size: Some(100),
-                        diagnostics: Vec::new(),
-                        literature_quality: Some(json!({
-                            "status":"available",
-                            "schema":"literature_score.v1",
-                            "overall_score":68.0,
-                            "confidence":0.8,
-                            "confidence_adjusted_score":64.4,
-                            "quality_prior":0.644,
-                        })),
-                    },
-                ],
+                artifacts,
                 cursor: String::new(),
                 next_cursor: String::new(),
                 has_more: false,
@@ -4456,13 +4525,49 @@ mod tests {
 
         fn artifact_readiness(
             &self,
-            _paper_refs: &[String],
+            paper_refs: &[String],
             _artifact_types: &[&str],
         ) -> Result<ReferenceHostArtifactReadiness, String> {
             self.artifact_readiness_calls
                 .fetch_add(1, Ordering::Relaxed);
-            let artifacts = self.scan_artifacts_page("", 2, &[], &[])?.artifacts;
-            self.artifact_scan_calls.fetch_sub(1, Ordering::Relaxed);
+            self.readiness_requests
+                .lock()
+                .expect("readiness request log")
+                .push(paper_refs.to_vec());
+            let mut artifacts = paper_refs
+                .iter()
+                .map(|paper_ref| ReferenceHostArtifact {
+                    paper_ref: paper_ref.clone(),
+                    artifact_type: "references".into(),
+                    payload_type: "application/json".into(),
+                    status: "available".into(),
+                    locator: format!("reference:{paper_ref}"),
+                    payload_hash: format!("sha256:reference:{paper_ref}"),
+                    estimated_size: Some(100),
+                    diagnostics: Vec::new(),
+                    literature_quality: None,
+                })
+                .collect::<Vec<_>>();
+            if paper_refs.iter().any(|paper_ref| paper_ref == "1:AAAA1111") {
+                artifacts.push(ReferenceHostArtifact {
+                    paper_ref: "1:AAAA1111".into(),
+                    artifact_type: "literature_score".into(),
+                    payload_type: "application/json".into(),
+                    status: "available".into(),
+                    locator: "literature-score:a".into(),
+                    payload_hash: "sha256:literature-score-a".into(),
+                    estimated_size: Some(100),
+                    diagnostics: Vec::new(),
+                    literature_quality: Some(json!({
+                        "status":"available",
+                        "schema":"literature_score.v1",
+                        "overall_score":68.0,
+                        "confidence":0.8,
+                        "confidence_adjusted_score":64.4,
+                        "quality_prior":0.644,
+                    })),
+                });
+            }
             Ok(ReferenceHostArtifactReadiness { artifacts })
         }
 
@@ -4723,11 +4828,19 @@ mod tests {
         assert_eq!(
             host.artifact_scan_calls.load(Ordering::Relaxed),
             scans_before_index,
-            "Workbench Index must use the persisted projection",
+            "Workbench Index must not request artifact payload scans",
         );
         assert_eq!(
             host.artifact_readiness_calls.load(Ordering::Relaxed),
-            readiness_before_index,
+            readiness_before_index + 1,
+        );
+        assert_eq!(
+            host.readiness_requests
+                .lock()
+                .expect("readiness request log")
+                .as_slice(),
+            &[vec!["1:AAAA1111".to_owned(), "1:BBBB2222".to_owned()]],
+            "Workbench Index must read readiness for the displayed page",
         );
         let registry = projection["registry"].as_object().expect("registry");
         assert_eq!(
@@ -4747,6 +4860,7 @@ mod tests {
                 "metadata_hash".into(),
                 "missing_artifacts".into(),
                 "paper_ref".into(),
+                "ratingScore".into(),
                 "reference_count".into(),
                 "references".into(),
                 "title".into(),
@@ -4760,8 +4874,151 @@ mod tests {
         assert_eq!(first["item_key"], "AAAA1111");
         assert_eq!(first["metadata_hash"], format!("sha256:{}", "a".repeat(64)));
         assert_eq!(first["updated_at"], "1");
-        assert!(first.get("ratingScore").is_none());
+        assert_eq!(first["ratingScore"], 68.0);
         assert_eq!(first["references"].as_array().expect("references").len(), 1);
+    }
+
+    fn rating_artifact(quality: Option<Value>) -> ReferenceHostArtifact {
+        ReferenceHostArtifact {
+            paper_ref: "1:AAAA1111".into(),
+            artifact_type: "literature_score".into(),
+            payload_type: "application/json".into(),
+            status: "available".into(),
+            locator: "literature-score:a".into(),
+            payload_hash: "sha256:literature-score-a".into(),
+            estimated_size: Some(100),
+            diagnostics: Vec::new(),
+            literature_quality: quality,
+        }
+    }
+
+    #[test]
+    fn literature_rating_score_accepts_boundaries_and_rejects_invalid_quality() {
+        let quality = |overall: f64, confidence: f64, adjusted: f64, prior: f64| {
+            Some(json!({
+                "status":"available",
+                "schema":"literature_score.v1",
+                "overall_score":overall,
+                "confidence":confidence,
+                "confidence_adjusted_score":adjusted,
+                "quality_prior":prior,
+            }))
+        };
+        assert_eq!(
+            literature_rating_score(&rating_artifact(quality(68.0, 0.8, 64.4, 0.644))),
+            Some(68.0),
+        );
+        assert_eq!(
+            literature_rating_score(&rating_artifact(quality(0.0, 0.5, 0.0, 0.25))),
+            Some(0.0),
+        );
+        assert_eq!(
+            literature_rating_score(&rating_artifact(quality(100.0, 1.0, 100.0, 1.0))),
+            Some(100.0),
+        );
+        assert_eq!(
+            literature_rating_score(&rating_artifact(quality(68.0, 0.8, 64.4, 0.9))),
+            None,
+            "a mismatched quality prior is not a valid score",
+        );
+        assert_eq!(
+            literature_rating_score(&rating_artifact(quality(120.0, 0.8, 64.4, 0.8))),
+            None,
+            "an out-of-range overall score is not a valid score",
+        );
+        assert_eq!(literature_rating_score(&rating_artifact(None)), None);
+        let mut unavailable = rating_artifact(quality(68.0, 0.8, 64.4, 0.644));
+        unavailable.status = "missing".into();
+        assert_eq!(literature_rating_score(&unavailable), None);
+    }
+
+    #[test]
+    fn workbench_index_reads_readiness_only_for_displayed_reference_rows() {
+        let root = test_root("workbench-index-referenced-readiness");
+        let host = Arc::new(FakeHost::new());
+        host.references_for_second.store(false, Ordering::Relaxed);
+        let app = application(&root, Arc::clone(&host), Arc::new(AtomicBool::new(false)));
+        app.refresh_now().expect("reference refresh");
+        host.readiness_requests
+            .lock()
+            .expect("readiness request log")
+            .clear();
+
+        let projection = app
+            .workbench_index(&json!({"registry":{"scope":"referenced"}}), 1)
+            .expect("workbench index");
+        let rows = projection["registry"]["rows"].as_array().expect("rows");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["paper_ref"], "1:AAAA1111");
+        assert_eq!(rows[0]["ratingScore"], 68.0);
+        assert_eq!(
+            host.readiness_requests
+                .lock()
+                .expect("readiness request log")
+                .as_slice(),
+            &[vec!["1:AAAA1111".to_owned()]],
+            "referenced scope must filter before reading readiness",
+        );
+    }
+
+    #[test]
+    fn workbench_index_skips_readiness_for_an_empty_library() {
+        let root = test_root("workbench-index-empty-readiness");
+        let host = Arc::new(FakeHost::new());
+        host.empty_items.store(true, Ordering::Relaxed);
+        let app = application(&root, Arc::clone(&host), Arc::new(AtomicBool::new(false)));
+
+        let projection = app
+            .workbench_index(&json!({"registry":{"scope":"library"}}), 1)
+            .expect("workbench index");
+        assert!(
+            projection["registry"]["rows"]
+                .as_array()
+                .expect("rows")
+                .is_empty()
+        );
+        assert!(
+            host.readiness_requests
+                .lock()
+                .expect("readiness request log")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn validate_artifact_readiness_rejects_out_of_scope_or_duplicate_results() {
+        let artifact = |paper_ref: &str, artifact_type: &str| {
+            serde_json::from_value::<ReferenceHostArtifact>(json!({
+                "paperRef": paper_ref,
+                "artifactType": artifact_type,
+                "payloadType": "application/json",
+                "status": "available",
+            }))
+            .expect("artifact fixture")
+        };
+        let paper_refs = vec!["1:AAAA1111".to_owned()];
+        assert!(
+            validate_artifact_readiness(&[artifact("1:AAAA1111", "digest")], &paper_refs).is_ok()
+        );
+        assert!(
+            validate_artifact_readiness(&[artifact("1:BBBB2222", "digest")], &paper_refs).is_err(),
+            "an out-of-scope paper ref is not a valid readiness result",
+        );
+        assert!(
+            validate_artifact_readiness(&[artifact("1:AAAA1111", "unknown")], &paper_refs).is_err(),
+            "an unsupported artifact type is not a valid readiness result",
+        );
+        assert!(
+            validate_artifact_readiness(
+                &[
+                    artifact("1:AAAA1111", "digest"),
+                    artifact("1:AAAA1111", "digest")
+                ],
+                &paper_refs,
+            )
+            .is_err(),
+            "a duplicate readiness result is not valid",
+        );
     }
 
     #[test]
